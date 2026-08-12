@@ -26,11 +26,15 @@ stage-0 values or structured failures, not merely success counts.
 
 **Partial:** hosted front-end parity is implemented, but production compilation
 still uses Haskell-owned parsing and semantic phases. Typed core and lowered IR
-currently cover a bounded opt-in profile and do not replace the reference
-interpreter path.
+currently cover a bounded opt-in profile. That profile supports closed named
+functions as values, unary closure parameters and results, explicit empty
+environments, and unary higher-order closure calls. It does not yet support
+scalar bindings, anonymous or nested closures, lexical capture, currying or
+partial application, oversaturation, or recursion, and it does not replace the
+canonical-core and reference-interpreter compile/run path.
 
-Promotion requires a complete Jazz-authored semantic compiler, closure and
-recursion lowering, full module integration, a native backend and runtime, and
-end-to-end deterministic conformance. Until those gates pass, “hosted” means
-tested compiler components, not the shipping canonical compiler. The horizons
-are tracked on the [roadmap](../project/roadmap.md).
+Promotion requires the remaining typed-core and closure boundaries, a complete
+Jazz-authored semantic compiler, full module integration, a native backend and
+runtime, and end-to-end deterministic conformance. Until those gates pass,
+“hosted” means tested compiler components, not the shipping canonical compiler.
+The horizons are tracked on the [roadmap](../project/roadmap.md).

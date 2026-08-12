@@ -136,6 +136,11 @@ data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName (Maybe 
 data TypedEvidenceParameter = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint
   deriving (Eq, Ord, Show)
 
+data TypedCallableShape
+  = TypedDirectCallableShape
+  | TypedClosureCallableShape
+  deriving (Eq, Ord, Show)
+
 data TypedScheme
   = TypedScheme
       TypedBinderId
@@ -144,6 +149,7 @@ data TypedScheme
       [TypedPrimitiveConstraint]
       TypedType
       TypedRepresentationRecipe
+      (Maybe TypedCallableShape)
   deriving (Eq, Ord, Show)
 
 data TypedTypeArgument = TypedTypeArgument TypedTypeParameterId TypedType
@@ -207,7 +213,7 @@ data TypedCaseArm = TypedCaseArm TypedPattern (Maybe TypedExpr) TypedExpr
 
 data TypedExpr
   = TypedLiteralExpr TypedNodeInfo TypedLiteral
-  | TypedVariableExpr TypedNodeInfo TypedCoreName
+  | TypedVariableExpr TypedNodeInfo TypedCoreName (Maybe TypedBinderId)
   | TypedLambdaExpr TypedNodeInfo TypedBinderId TypedCoreName TypedExpr
   | TypedOperatorValueExpr TypedNodeInfo TypedOperatorRef
   | TypedListExpr TypedNodeInfo [TypedExpr]
@@ -226,7 +232,7 @@ typedExpressionInfo :: TypedExpr -> TypedNodeInfo
 typedExpressionInfo expression =
   case expression of
     TypedLiteralExpr info _ -> info
-    TypedVariableExpr info _ -> info
+    TypedVariableExpr info _ _ -> info
     TypedLambdaExpr info _ _ _ -> info
     TypedOperatorValueExpr info _ -> info
     TypedListExpr info _ -> info
@@ -387,6 +393,8 @@ data TypedCoreValidationKind
   | TypedModuleResultMismatch
   | TypedDataRecipeMismatch
   | TypedCallableRecipeMismatch
+  | TypedCallableShapeMismatch
+  | TypedBinderReferenceMismatch
   | TypedModuleInterfaceMismatch
   deriving (Bounded, Enum, Eq, Ord, Show)
 

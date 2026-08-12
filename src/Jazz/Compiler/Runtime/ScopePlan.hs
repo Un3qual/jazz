@@ -53,6 +53,7 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.RecursiveBindings
   ( collectBindingNames,
+    exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings
   )
@@ -87,17 +88,16 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
   where
     indexedStatements = zip [0 ..] statements
     statementsByIndex = IntMap.fromDistinctAscList indexedStatements
+    recursionOuterBindingNames =
+      Set.union
+        outerBindingNames
+        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
     recursiveGroupsMap =
-      inferRecursiveGroupsOrdered
-        ( Set.union
-            outerBindingNames
-            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
-        )
-        indexedStatements
+      inferRecursiveGroupsOrdered recursionOuterBindingNames indexedStatements
     recursiveGroups = IntMap.fromDistinctAscList (Map.toAscList recursiveGroupsMap)
     selfRecursiveFunctions =
       IntSet.fromList
-        (Set.toList (inferSelfRecursiveBindings exprContainsFunctionBranch indexedStatements))
+        (Set.toList (inferSelfRecursiveBindings recursionOuterBindingNames exprContainsFunctionBranch indexedStatements))
     bindingNames =
       IntMap.fromDistinctAscList
         (Map.toAscList (collectBindingNames indexedStatements))
@@ -248,69 +248,6 @@ runtimeNameRequiresHost name =
     Just BuiltinArguments -> True
     Just BuiltinExit -> True
     _ -> False
-
-exprContainsFunctionBranch :: Expr -> Bool
-exprContainsFunctionBranch expr =
-  case expr of
-    ELambda {} -> True
-    ETypeApplication functionExpr _ _ ->
-      exprContainsFunctionBranch functionExpr
-    EIf _ thenExpr elseExpr ->
-      exprContainsFunctionBranch thenExpr
-        || exprContainsFunctionBranch elseExpr
-    EPatternCase _ caseArms ->
-      any
-        (\(CaseArm _ _ bodyExpr) -> exprContainsFunctionBranch bodyExpr)
-        caseArms
-    EBlock statements ->
-      scopeContainsFunctionBranch statements
-    _ -> False
-
-scopeContainsFunctionBranch :: [Statement] -> Bool
-scopeContainsFunctionBranch statements =
-  case reverse statements of
-    SExpr _ expr : _ ->
-      exprContainsFunctionBranchViaScopeBindings
-        (collectScopeBindingExprs statements)
-        Set.empty
-        expr
-    _ -> False
-  where
-    exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings scopeExpr =
-      case scopeExpr of
-        EVar bindingName ->
-          case Map.lookup bindingName scopeBindings of
-            Just bindingExpr
-              | Set.notMember bindingName visitedBindings ->
-                  exprContainsFunctionBranchViaScopeBindings
-                    scopeBindings
-                    (Set.insert bindingName visitedBindings)
-                    bindingExpr
-            _ -> False
-        ELambda {} -> True
-        ETypeApplication functionExpr _ _ ->
-          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings functionExpr
-        EIf _ thenExpr elseExpr ->
-          exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings thenExpr
-            || exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings elseExpr
-        EPatternCase _ caseArms ->
-          any
-            ( \(CaseArm _ _ bodyExpr) ->
-                exprContainsFunctionBranchViaScopeBindings scopeBindings visitedBindings bodyExpr
-            )
-            caseArms
-        EBlock nestedStatements ->
-          scopeContainsFunctionBranch nestedStatements
-        _ -> False
-
-    collectScopeBindingExprs =
-      foldl' collect Map.empty
-      where
-        collect scopeBindings statement =
-          case statement of
-            SLet bindingName _ valueExpr ->
-              Map.insert bindingName valueExpr scopeBindings
-            _ -> scopeBindings
 
 exprDefinitelyNotFunctionValue :: Expr -> Bool
 exprDefinitelyNotFunctionValue expr =

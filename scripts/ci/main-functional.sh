@@ -5,6 +5,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$ROOT"
 
+if [[ -n "${NIX_CONFIG:-}" ]]; then
+  NIX_CONFIG+=$'\n'
+fi
+NIX_CONFIG+='extra-experimental-features = nix-command flakes'
+export NIX_CONFIG
+
 actionlint
 cabal build all
 cabal test all --test-show-details=direct

@@ -9,6 +9,7 @@ module Jazz.Compiler.RecursiveBindings
     collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
+    exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
     lookupLambdaCapturedNames
@@ -129,7 +130,11 @@ lookupLambdaCapturedNames parameterName bodyExpr =
       | otherwise = go rest
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
-freeVarsExprWithBound = freeVarsExprUsing freeVarsScopeWithBound
+freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
+
+freeVarsExprWithVisibleBindings :: Set Name -> Set Name -> Expr -> Set Name
+freeVarsExprWithVisibleBindings visibleBindingNames =
+  freeVarsExprUsing (freeVarsScopeWithVisibleBindings visibleBindingNames)
 
 -- | Names that may need to come from the environment when a closure is
 -- created. Unlike recursive-binding analysis, an ordinary binding is not in
@@ -230,19 +235,23 @@ closureCaptureCandidatesScopeWithBound initialBound statements =
           )
 
 freeVarsScopeWithBound :: Set Name -> [Statement] -> Set Name
-freeVarsScopeWithBound initialBound statements =
+freeVarsScopeWithBound = freeVarsScopeWithVisibleBindings Set.empty
+
+freeVarsScopeWithVisibleBindings :: Set Name -> Set Name -> [Statement] -> Set Name
+freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
   snd (foldl' step (initialBound, Set.empty) indexedStatements)
   where
     indexedStatements = zip [0 ..] statements
     recursiveGroupsByStatement =
-      inferRecursiveGroupsOrdered initialBound indexedStatements
+      inferRecursiveGroupsOrdered
+        (Set.union visibleBindingNames initialBound)
+        indexedStatements
     bindingNamesByStatement = collectBindingNames indexedStatements
 
-    recursivePeerNames statementIndex =
+    recursiveGroupMemberNames statementIndex =
       Set.fromList
         [ peerName
           | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
-            peerIndex /= statementIndex,
             Just peerName <- [Map.lookup peerIndex bindingNamesByStatement]
         ]
 
@@ -256,14 +265,18 @@ freeVarsScopeWithBound initialBound statements =
         SData {} -> (boundNames, freeNames)
         SExpr _ expr ->
           ( boundNames,
-            Set.union freeNames (freeVarsExprWithBound boundNames expr)
+            Set.union
+              freeNames
+              (freeVarsExprWithVisibleBindings visibleBindingNames boundNames expr)
           )
         SLet bindingName _ valueExpr ->
           let boundWithSelf = Set.insert bindingName boundNames
-              rhsBoundNames = Set.union boundWithSelf (recursivePeerNames statementIndex)
+              rhsBoundNames = Set.union boundNames (recursiveGroupMemberNames statementIndex)
            in
             ( boundWithSelf,
-              Set.union freeNames (freeVarsExprWithBound rhsBoundNames valueExpr)
+              Set.union
+                freeNames
+                (freeVarsExprWithVisibleBindings visibleBindingNames rhsBoundNames valueExpr)
             )
 
 inferRecursiveGroupsOrdered :: Set Name -> [(Int, Statement)] -> Map Int [Int]
@@ -301,7 +314,11 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
       let localDependencyNames =
             Set.filter
               (`Map.member` declarationStatementsByName)
-              (freeVarsExprWithBound Set.empty valueExpr)
+              ( freeVarsExprWithVisibleBindings
+                  (visibleBindingNamesBefore statementIndex)
+                  Set.empty
+                  valueExpr
+              )
           resolvedDependencies =
             Set.fromList
               [ dependencyStatementIndex
@@ -312,6 +329,16 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
        in
         Map.insert statementIndex resolvedDependencies dependencies
 
+    visibleBindingNamesBefore statementIndex =
+      Set.union
+        outerBindingNames
+        ( Set.fromList
+            [ bindingName
+              | (candidateIndex, bindingName, _) <- declarationInfo,
+                candidateIndex < statementIndex
+            ]
+        )
+
     resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName =
       case Map.lookup dependencyName declarationStatementsByName of
         Nothing -> Nothing
@@ -319,15 +346,16 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
           -- Rebindings snapshot the nearest earlier declaration. If there is no
           -- prior local binding, fall back to an outer binding before creating
           -- a forward edge to the first later local declaration. Same-name
-          -- references only become self-edges for alias-shaped wrappers; eager
-          -- self-use stays on the existing non-recursive path instead of
-          -- forcing itself into an SCC.
+          -- references become self-edges for alias-shaped wrappers and
+          -- callable-producing initializers, matching the cells owned during
+          -- evaluation. Eager scalar self-use stays on the existing
+          -- non-recursive path instead of forcing itself into an SCC.
           case closestPriorDeclaration declarationStatements of
             Just prior -> Just prior
             Nothing
               | Set.member dependencyName outerBindingNames -> Nothing
               | dependencyName == bindingNameText ->
-                  if selfAliasLikeReference bindingNameText valueExpr
+                  if selfReferenceOwnsRecursiveCell bindingNameText valueExpr
                     then Just statementIndex
                     else Nothing
               | otherwise -> closestFutureDeclaration declarationStatements
@@ -363,215 +391,382 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
             statementIndex
             (Map.findWithDefault Set.empty statementIndex dependenciesByStatement)
 
-inferSelfRecursiveBindings :: (Expr -> Bool) -> [(Int, Statement)] -> Set Int
-inferSelfRecursiveBindings predicate =
+inferSelfRecursiveBindings :: Set Name -> (Expr -> Bool) -> [(Int, Statement)] -> Set Int
+inferSelfRecursiveBindings outerBindingNames predicate =
   foldl' step Set.empty
   where
     step recursiveStatements (statementIndex, statement) =
       case statement of
         SLet bindingName _ valueExpr
           | predicate valueExpr,
+            selfReferenceOwnsRecursiveCellWith predicate bindingName valueExpr,
             Set.member
               bindingName
-              (freeVarsExprWithBound Set.empty valueExpr) ->
+              (freeVarsExprWithBound outerBindingNames valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
 
-selfAliasLikeReference :: Name -> Expr -> Bool
-selfAliasLikeReference bindingName =
-  isAliasOnly . aliasSummary Set.empty Map.empty Set.empty
+newtype ScopeBindingIdentity = ScopeBindingIdentity [Int]
+  deriving (Eq, Ord)
+
+data ScopeBindingExpr =
+  ScopeBindingExpr
+    ScopeBindingIdentity
+    Name
+    Expr
+    [ScopeBindingExpr]
+    (Set Name)
+    [Int]
+
+data ScopeStatementContext =
+  ScopeStatementContext Statement [ScopeBindingExpr] [Int]
+
+scopeStatementContexts ::
+  [Int] -> Set Name -> [ScopeBindingExpr] -> [Statement] -> [ScopeStatementContext]
+scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statements = contexts
   where
-    isAliasOnly (hasAliasPath, hasNonAliasPath) =
-      hasAliasPath && not hasNonAliasPath
+    indexedStatements = zip [0 ..] statements
+    contexts = buildContexts initialVisibleBindings indexedStatements
+    outerBindingNames =
+      Set.union
+        bindingBoundNames
+        ( Set.fromList
+            [ bindingName
+              | ScopeBindingExpr _ bindingName _ _ _ _ <- initialVisibleBindings
+            ]
+        )
+    recursiveGroupsByStatement =
+      inferRecursiveGroupsOrdered outerBindingNames indexedStatements
+    -- This is an intentional lazy knot: bindingByStatement depends on each
+    -- definition environment, which in turn reads visibleBindingsByStatement.
+    -- Keep ScopeBindingExpr fields and this Data.Map usage lazy.
+    bindingByStatement =
+      Map.fromList
+        [ ( statementIndex,
+            ScopeBindingExpr
+              (ScopeBindingIdentity (statementPath statementIndex))
+              bindingName
+              valueExpr
+              (definitionBindings statementIndex)
+              bindingBoundNames
+              (statementPath statementIndex)
+          )
+          | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+        ]
+    visibleBindingsByStatement =
+      Map.fromList
+        [ (statementIndex, visibleBindings)
+          | (statementIndex, ScopeStatementContext _ visibleBindings _) <- zip [0 ..] contexts
+        ]
 
-    noSummary = (False, False)
+    statementPath statementIndex = scopePath <> [statementIndex]
 
-    combineSummaries (leftAliasPath, leftNonAliasPath) (rightAliasPath, rightNonAliasPath) =
+    definitionBindings statementIndex =
+      Map.findWithDefault initialVisibleBindings statementIndex visibleBindingsByStatement
+        <> bindingsAt
+          [ peerIndex
+            | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+              peerIndex > statementIndex
+          ]
+
+    bindingsAt statementIndices =
+      [ binding
+        | statementIndex <- statementIndices,
+          Just binding <- [Map.lookup statementIndex bindingByStatement]
+      ]
+
+    buildContexts _ [] = []
+    buildContexts visibleBindings ((statementIndex, statement) : rest) =
+      let nextVisibleBindings =
+            case Map.lookup statementIndex bindingByStatement of
+              Just binding -> binding : visibleBindings
+              Nothing -> visibleBindings
+       in ScopeStatementContext statement visibleBindings (statementPath statementIndex)
+            : buildContexts nextVisibleBindings rest
+
+lookupScopeBinding :: Name -> [ScopeBindingExpr] -> Maybe ScopeBindingExpr
+lookupScopeBinding requestedName =
+  go
+  where
+    go [] = Nothing
+    go (binding@(ScopeBindingExpr _ bindingName _ _ _ _) : rest)
+      | bindingName == requestedName = Just binding
+      | otherwise = go rest
+
+-- Keep callable-shape recognition beside canonical recursive ownership so
+-- nested and top-level scopes agree on lambda self recursion.
+exprContainsFunctionBranch :: Expr -> Bool
+exprContainsFunctionBranch =
+  go [] Set.empty [] Set.empty
+  where
+    go expressionPath boundNames scopeBindings visitedBindings expr =
+      case expr of
+        EVar bindingName
+          | Set.member bindingName boundNames -> False
+          | otherwise ->
+              case lookupScopeBinding bindingName scopeBindings of
+                Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
+                  | Set.notMember identity visitedBindings ->
+                      go
+                        bindingPath
+                        bindingBoundNames
+                        priorBindings
+                        (Set.insert identity visitedBindings)
+                        bindingExpr
+                _ -> False
+        ELambda {} -> True
+        ETypeApplication functionExpr _ _ ->
+          go (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
+        EIf _ thenExpr elseExpr ->
+          go (expressionPath <> [1]) boundNames scopeBindings visitedBindings thenExpr
+            || go (expressionPath <> [2]) boundNames scopeBindings visitedBindings elseExpr
+        EPatternCase _ caseArms ->
+          any
+            ( \(armIndex, CaseArm pattern _ bodyExpr) ->
+                go
+                  (expressionPath <> [1, armIndex])
+                  (extendBoundWithPattern pattern boundNames)
+                  scopeBindings
+                  visitedBindings
+                  bodyExpr
+            )
+            (zip [0 ..] caseArms)
+        EBlock statements ->
+          case reverse (scopeStatementContexts expressionPath boundNames scopeBindings statements) of
+            ScopeStatementContext (SExpr _ terminalExpr) terminalBindings terminalPath : _ ->
+              go terminalPath boundNames terminalBindings visitedBindings terminalExpr
+            _ -> False
+        _ -> False
+
+selfReferenceOwnsRecursiveCell :: Name -> Expr -> Bool
+selfReferenceOwnsRecursiveCell =
+  selfReferenceOwnsRecursiveCellWith exprContainsFunctionBranch
+
+selfReferenceOwnsRecursiveCellWith :: (Expr -> Bool) -> Name -> Expr -> Bool
+selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateExpr =
+  (hasAliasPath && not hasEagerPath)
+    || (containsFunctionBranch candidateExpr && not hasCallableDisqualifyingEagerPath)
+  where
+    (hasAliasPath, hasEagerPath, hasCallableDisqualifyingEagerPath) =
+      aliasSummary [] Set.empty [] Set.empty candidateExpr
+
+    noSummary = (False, False, False)
+
+    combineSummaries
+      (leftAliasPath, leftNonAliasPath, leftCallableDisqualifyingPath)
+      (rightAliasPath, rightNonAliasPath, rightCallableDisqualifyingPath) =
       ( leftAliasPath || rightAliasPath,
-        leftNonAliasPath || rightNonAliasPath
+        leftNonAliasPath || rightNonAliasPath,
+        leftCallableDisqualifyingPath || rightCallableDisqualifyingPath
       )
 
-    aliasSummary boundNames scopeBindings visitedBindings expr =
+    -- A guard selects which callable case-arm body owns the binding. Keep it
+    -- eager for alias-only classification, but do not confuse that selection
+    -- with an unrelated eager statement before a callable result.
+    allowCallablePatternGuard (guardAliasPath, guardEagerPath, _) =
+      (guardAliasPath, guardEagerPath, False)
+
+    aliasSummary expressionPath boundNames scopeBindings visitedBindings expr =
       case expr of
         EVar name ->
           if Set.member name boundNames
               then noSummary
               else
-                case Map.lookup name scopeBindings of
-                  Just bindingExpr
-                    | Set.notMember name visitedBindings ->
+                case lookupScopeBinding name scopeBindings of
+                  Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
+                    | Set.notMember identity visitedBindings ->
                         aliasSummary
-                          boundNames
-                          scopeBindings
-                          (Set.insert name visitedBindings)
+                          bindingPath
+                          bindingBoundNames
+                          priorBindings
+                          (Set.insert identity visitedBindings)
                           bindingExpr
-                  _ ->
+                  Just _ -> noSummary
+                  Nothing ->
                     if name == bindingName
-                      then (True, False)
+                      then (True, False, False)
                       else noSummary
         EOperatorValue operatorSymbol
           | not (isBuiltinOperatorSymbol operatorSymbol),
             operatorBindingName operatorSymbol == bindingName ->
-              (True, False)
+              (True, False, False)
         EOperatorValue {} -> noSummary
         ETypeApplication functionExpr _ _ ->
-          aliasSummary boundNames scopeBindings visitedBindings functionExpr
+          aliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
           foldl'
             combineSummaries
-            (nonAliasSummary boundNames scopeBindings visitedBindings conditionExpr)
-            [ aliasSummary boundNames scopeBindings visitedBindings thenExpr,
-              aliasSummary boundNames scopeBindings visitedBindings elseExpr
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings conditionExpr)
+            [ aliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings thenExpr,
+              aliasSummary (expressionPath <> [2]) boundNames scopeBindings visitedBindings elseExpr
             ]
         EPatternCase scrutineeExpr caseArms ->
           foldl'
             combineSummaries
-            (nonAliasSummary boundNames scopeBindings visitedBindings scrutineeExpr)
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings scrutineeExpr)
             [ combineSummaries
                 ( maybe
                     noSummary
-                    (nonAliasSummary armBoundNames scopeBindings visitedBindings)
+                    ( allowCallablePatternGuard
+                        . nonAliasSummary
+                          (expressionPath <> [1, armIndex, 0])
+                          armBoundNames
+                          scopeBindings
+                          visitedBindings
+                    )
                     guardExpr
                 )
                 ( aliasSummary
+                    (expressionPath <> [1, armIndex, 1])
                     armBoundNames
                     scopeBindings
                     visitedBindings
                     bodyExpr
                 )
-              | CaseArm pattern guardExpr bodyExpr <- caseArms,
+              | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
                 let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBlock blockStatements ->
-          let localScopeBindings = collectScopeBindingExprs blockStatements
-              blockScopeBindings = localScopeBindings `Map.union` scopeBindings
+          let contexts = scopeStatementContexts expressionPath boundNames scopeBindings blockStatements
               (eagerStatements, terminalSummary) =
-                case reverse blockStatements of
-                  SExpr _ terminalExpr : reversedLeadingStatements ->
+                case reverse contexts of
+                  ScopeStatementContext (SExpr _ terminalExpr) terminalBindings terminalPath : reversedLeadingStatements ->
                     ( reverse reversedLeadingStatements,
-                      aliasSummary boundNames blockScopeBindings visitedBindings terminalExpr
+                      aliasSummary terminalPath boundNames terminalBindings visitedBindings terminalExpr
                     )
                   _ ->
-                    (blockStatements, noSummary)
+                    (contexts, noSummary)
               eagerBindingSummary =
                 foldl'
                   combineSummaries
                   noSummary
                   [ summary
-                    | statement <- eagerStatements,
+                    | ScopeStatementContext statement statementBindings statementPath <- eagerStatements,
                       summary <-
                         case statement of
                           SLet _ _ valueExpr ->
-                            [nonAliasSummary boundNames blockScopeBindings Set.empty valueExpr]
+                            [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
                           SExpr _ statementExpr ->
-                            [nonAliasSummary boundNames blockScopeBindings Set.empty statementExpr]
+                            [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
                           _ -> []
                   ]
            in
             combineSummaries terminalSummary eagerBindingSummary
-        _ -> nonAliasSummary boundNames scopeBindings visitedBindings expr
+        _ -> nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr
 
-    nonAliasSummary boundNames scopeBindings visitedBindings expr =
+    nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr =
       case expr of
         ELit {} -> noSummary
         EVar name ->
-          if Set.member name boundNames
-              then noSummary
-              else
-                case Map.lookup name scopeBindings of
-                  Just bindingExpr
-                    | Set.notMember name visitedBindings ->
-                        nonAliasSummary
-                          boundNames
-                          scopeBindings
-                          (Set.insert name visitedBindings)
-                          bindingExpr
-                  _ ->
-                    if name == bindingName
-                      then (False, True)
-                      else noSummary
+          nonAliasReferenceSummary boundNames scopeBindings visitedBindings name
         ELambda {} -> noSummary
-        EOperatorValue {} -> noSummary
+        EOperatorValue operatorSymbol ->
+          nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
         EList elements ->
           foldl'
             combineSummaries
             noSummary
-            (map (nonAliasSummary boundNames scopeBindings visitedBindings) elements)
+            [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
+              | (elementIndex, element) <- zip [0 ..] elements
+            ]
         ETuple elements ->
           foldl'
             combineSummaries
             noSummary
-            (map (nonAliasSummary boundNames scopeBindings visitedBindings) elements)
+            [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
+              | (elementIndex, element) <- zip [0 ..] elements
+            ]
         EApply functionExpr argumentExpr ->
           foldl'
             combineSummaries
             noSummary
-            [ nonAliasSummary boundNames scopeBindings visitedBindings functionExpr,
-              nonAliasSummary boundNames scopeBindings visitedBindings argumentExpr
+            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr,
+              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings argumentExpr
             ]
         ETypeApplication functionExpr _ _ ->
-          nonAliasSummary boundNames scopeBindings visitedBindings functionExpr
+          nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings functionExpr
         EIf conditionExpr thenExpr elseExpr ->
           foldl'
             combineSummaries
             noSummary
-            [ nonAliasSummary boundNames scopeBindings visitedBindings conditionExpr,
-              nonAliasSummary boundNames scopeBindings visitedBindings thenExpr,
-              nonAliasSummary boundNames scopeBindings visitedBindings elseExpr
+            [ nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings conditionExpr,
+              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings thenExpr,
+              nonAliasSummary (expressionPath <> [2]) boundNames scopeBindings visitedBindings elseExpr
             ]
         EPatternCase scrutineeExpr caseArms ->
           foldl'
             combineSummaries
-            (nonAliasSummary boundNames scopeBindings visitedBindings scrutineeExpr)
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings scrutineeExpr)
             [ combineSummaries
                 ( maybe
                     noSummary
-                    (nonAliasSummary armBoundNames scopeBindings visitedBindings)
+                    (nonAliasSummary (expressionPath <> [1, armIndex, 0]) armBoundNames scopeBindings visitedBindings)
                     guardExpr
                 )
                 ( nonAliasSummary
+                    (expressionPath <> [1, armIndex, 1])
                     armBoundNames
                     scopeBindings
                     visitedBindings
                     bodyExpr
                 )
-              | CaseArm pattern guardExpr bodyExpr <- caseArms,
+              | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
                 let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
-        EBinary _ leftExpr rightExpr ->
+        EBinary operatorSymbol leftExpr rightExpr ->
           foldl'
             combineSummaries
             noSummary
-            [ nonAliasSummary boundNames scopeBindings visitedBindings leftExpr,
-              nonAliasSummary boundNames scopeBindings visitedBindings rightExpr
+            [ nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol,
+              nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr,
+              nonAliasSummary (expressionPath <> [1]) boundNames scopeBindings visitedBindings rightExpr
             ]
-        ESectionLeft leftExpr _ ->
-          nonAliasSummary boundNames scopeBindings visitedBindings leftExpr
-        ESectionRight _ rightExpr ->
-          nonAliasSummary boundNames scopeBindings visitedBindings rightExpr
+        ESectionLeft leftExpr operatorSymbol ->
+          combineSummaries
+            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings leftExpr)
+        ESectionRight operatorSymbol rightExpr ->
+          combineSummaries
+            (nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol)
+            (nonAliasSummary (expressionPath <> [0]) boundNames scopeBindings visitedBindings rightExpr)
         EBlock blockStatements ->
-          let localScopeBindings = collectScopeBindingExprs blockStatements
-              blockScopeBindings = localScopeBindings `Map.union` scopeBindings
-           in
-            foldl'
-              combineSummaries
-              noSummary
-              [ summary
-                | statement <- blockStatements,
-                  summary <-
-                    case statement of
-                      SLet _ _ valueExpr ->
-                        [nonAliasSummary boundNames blockScopeBindings Set.empty valueExpr]
-                      SExpr _ statementExpr ->
-                        [nonAliasSummary boundNames blockScopeBindings Set.empty statementExpr]
-                      _ -> []
-              ]
+          foldl'
+            combineSummaries
+            noSummary
+            [ summary
+              | ScopeStatementContext statement statementBindings statementPath <-
+                  scopeStatementContexts expressionPath boundNames scopeBindings blockStatements,
+                summary <-
+                  case statement of
+                    SLet _ _ valueExpr ->
+                      [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
+                    SExpr _ statementExpr ->
+                      [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
+                    _ -> []
+            ]
 
-    collectScopeBindingExprs =
-      foldl' collect Map.empty
-      where
-        collect scopeBindings statement =
-          case statement of
-            SLet localBindingName _ valueExpr ->
-              Map.insert localBindingName valueExpr scopeBindings
-            _ -> scopeBindings
+    nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol = noSummary
+      | otherwise =
+          nonAliasReferenceSummary
+            boundNames
+            scopeBindings
+            visitedBindings
+            (operatorBindingName operatorSymbol)
+
+    nonAliasReferenceSummary boundNames scopeBindings visitedBindings name
+      | Set.member name boundNames = noSummary
+      | otherwise =
+          case lookupScopeBinding name scopeBindings of
+            Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
+              | Set.notMember identity visitedBindings ->
+                  nonAliasSummary
+                    bindingPath
+                    bindingBoundNames
+                    priorBindings
+                    (Set.insert identity visitedBindings)
+                    bindingExpr
+            Just _ -> noSummary
+            Nothing
+              | name == bindingName -> (False, True, True)
+              | otherwise -> noSummary

@@ -5,6 +5,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     fixtureNames,
     acceptedFixtureNames,
     rejectedFixtureNames,
+    priorScalarDirectCallFixtureNames,
     fixtures,
     expectedUnitProgram,
     scalarExpectedLoweredPrograms,
@@ -15,8 +16,15 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     directCallExpectedPrograms,
+    closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
+    closedCallableExpectedLoweredPrograms,
+    independentClosureExpectedLoweredPrograms,
+    rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
+    validIndependentLowererPrograms,
+    invalidLowererBoundaryPrograms,
+    independentLowererPrograms,
     lowererStructuralBoundaryPrograms,
     producerEdgeFixtures,
     ordinaryForwardVisibilityFixture,
@@ -28,7 +36,6 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
   )
 where
 
-import Data.List (sort)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -66,6 +73,46 @@ acceptedFixtureNames = map fixtureName acceptedFixtures
 rejectedFixtureNames :: [Text]
 rejectedFixtureNames = map fixtureName rejectedFixtures
 
+priorScalarDirectCallFixtureNames :: [Text]
+priorScalarDirectCallFixtureNames =
+  [ "unit-entry",
+    "bool-entry",
+    "char-entry",
+    "default-int-entry",
+    "default-float-entry",
+    "explicit-numeric-widths",
+    "arithmetic-operators",
+    "ordering-operators",
+    "equality-operators",
+    "scalar-parameter-return",
+    "single-argument-direct-call",
+    "curried-multi-argument-direct-call",
+    "forward-direct-call-dag",
+    "nested-direct-calls",
+    "dollar-direct-call",
+    "exported-direct-function",
+    "source-diagnostic",
+    "invalid-portable-source-path",
+    "resolved-import",
+    "ambient-prelude-input",
+    "text-value",
+    "list-value",
+    "non-unit-tuple",
+    "data-value",
+    "conditional",
+    "pattern-case",
+    "local-block-binding",
+    "named-function-value",
+    "partial-direct-call",
+    "oversaturated-direct-call",
+    "capturing-function",
+    "self-recursive-function",
+    "mutually-recursive-functions",
+    "polymorphic-or-evidence-function",
+    "imported-direct-call",
+    "user-defined-operator-call"
+  ]
+
 fixtures :: [Fixture]
 fixtures = acceptedFixtures <> rejectedFixtures
 
@@ -83,10 +130,18 @@ acceptedFixtures =
     sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
     sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
     sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
+    sourceFixture "three-argument-direct-call" threeArgumentDirectCallSource,
     sourceFixture "forward-direct-call-dag" forwardDirectCallDagSource,
     sourceFixture "nested-direct-calls" nestedDirectCallsSource,
     sourceFixture "dollar-direct-call" dollarDirectCallSource,
-    sourceFixture "exported-direct-function" exportedDirectFunctionSource
+    sourceFixture "exported-direct-function" exportedDirectFunctionSource,
+    sourceFixtureNoExports "named-function-value" namedFunctionValueSource,
+    sourceFixtureNoExports "higher-order-call" higherOrderCallSource,
+    sourceFixtureNoExports "closure-result" closureResultSource,
+    sourceFixtureNoExports "callable-parameter-shadows-named-function" callableParameterShadowsNamedFunctionSource,
+    sourceFixtureNoExports "callable-parameter-shadows-enclosing-function" callableParameterShadowsEnclosingFunctionSource,
+    sourceFixtureNoExports "mixed-direct-and-value-use" mixedDirectAndValueUseSource,
+    sourceFixtureNoExports "callable-parameter-value-shadows-enclosing-function" callableParameterValueShadowsEnclosingFunctionSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -106,12 +161,13 @@ rejectedFixtures =
     sourceFixtureNoExports "conditional" conditionalSource,
     sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
-    sourceFixtureNoExports "bare-function-value" bareFunctionValueSource,
     sourceFixtureNoExports "partial-direct-call" partialDirectCallSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
     sourceFixtureNoExports "capturing-function" capturingFunctionSource,
     sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
     sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
+    sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
+    sourceFixtureNoExports "closure-value-self-recursion" closureValueSelfRecursionSource,
     sourceFixtureNoExports "polymorphic-or-evidence-function" polymorphicFunctionSource,
     (sourceFixture "imported-direct-call" importedDirectCallSource)
       { fixtureInputs =
@@ -374,6 +430,12 @@ directCallExpectedPrograms =
         [combineFunction]
         (directCall "combine" [intInfo, intInfo] intInfo [intExpr 20, intExpr 22])
     ),
+    ( "three-argument-direct-call",
+      expectedFunctionProgram
+        ["sumThree"]
+        [sumThreeFunction]
+        (directCall "sumThree" [intInfo, intInfo, intInfo] intInfo [intExpr 10, intExpr 20, intExpr 12])
+    ),
     ( "forward-direct-call-dag",
       expectedFunctionProgram
         ["first", "second"]
@@ -403,6 +465,64 @@ directCallExpectedPrograms =
         ["increment"]
         [incrementFunction]
         (directCall "increment" [intInfo] intInfo [intExpr 41])
+    )
+  ]
+
+closedCallableExpectedPrograms :: [(Text, TypedProgram)]
+closedCallableExpectedPrograms =
+  [ ( "named-function-value",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [boolIdentityFunction]
+        (variableExpr "identity" boolCallableInfo)
+    ),
+    ( "higher-order-call",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [applyFunction, boolIdentityFunction]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+    ),
+    ( "closure-result",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [boolIdentityFunction, chooseFunction]
+        (directCall "choose" [boolInfo] boolCallableInfo [boolExpr False])
+    ),
+    ( "callable-parameter-shadows-named-function",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [boolCombineFunction, applyCombineParameterFunction, boolIdentityFunction]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+    ),
+    ( "callable-parameter-shadows-enclosing-function",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [selfShadowingApplyFunction, boolIdentityFunction]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+    ),
+    ( "mixed-direct-and-value-use",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [applyFunction, boolIdentityFunction]
+        ( binaryExpr
+            boolInfo
+            "=="
+            (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
+            (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+        )
+    ),
+    ( "callable-parameter-value-shadows-enclosing-function",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [applyFunction, shadowingForwardFunction, boolIdentityFunction]
+        (directCall "forward" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
     )
   ]
 
@@ -475,6 +595,32 @@ directCallExpectedLoweredPrograms =
         ]
         int64Representation
         [expectedDirectCallInstruction 1 int64Representation "combine" [loweredInt64 20, loweredInt64 22]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "three-argument-direct-call",
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "sumThree"
+            [ LoweredParameter (LoweredParameterId "arg1") int64Representation,
+              LoweredParameter (LoweredParameterId "arg2") int64Representation,
+              LoweredParameter (LoweredParameterId "arg3") int64Representation
+            ]
+            int64Representation
+            [ expectedPrimitiveInstruction
+                1
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredParameter 2 int64Representation],
+              expectedPrimitiveInstruction
+                2
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredTemporary 1 int64Representation, loweredParameter 3 int64Representation]
+            ]
+            (loweredTemporary 2 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "sumThree" [loweredInt64 10, loweredInt64 20, loweredInt64 12]]
         (loweredTemporary 1 int64Representation)
     ),
     ( "forward-direct-call-dag",
@@ -570,6 +716,397 @@ directCallExpectedLoweredPrograms =
     )
   ]
 
+closedCallableExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+closedCallableExpectedLoweredPrograms =
+  [ ( "named-function-value",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [expectedBoolIdentityClosure identityLayoutIdAt1]
+        boolClosureRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+        ]
+        (loweredTemporary 2 boolClosureRepresentation)
+    ),
+    ( "higher-order-call",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt3]
+        [ expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt3
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt3,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt3,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "closure-result",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [ expectedBoolIdentityClosure identityLayoutIdAt1,
+          expectedLocalFunction
+            "choose"
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            boolClosureRepresentation
+            [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+              expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+            ]
+            (loweredTemporary 2 boolClosureRepresentation)
+        ]
+        boolClosureRepresentation
+        [expectedDirectCallInstruction 1 boolClosureRepresentation "choose" [loweredImmediate (LoweredBoolImmediate False)]]
+        (loweredTemporary 1 boolClosureRepresentation)
+    ),
+    ( "callable-parameter-shadows-named-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt5]
+        [ expectedBoolCombineFunction,
+          expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt5
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt5,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt5,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "callable-parameter-shadows-enclosing-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt3]
+        [ expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt3
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt3,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt3,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "mixed-direct-and-value-use",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt3]
+        [ expectedBoolApplyFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt3
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt3,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt3,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "apply" [loweredTemporary 2 boolClosureRepresentation],
+          expectedEmptyEnvironmentInstruction 4 identityLayoutIdAt3,
+          expectedClosureInstruction 5 "identity" identityLayoutIdAt3,
+          expectedClosureCallInstruction 6 LoweredBoolRepresentation (loweredTemporary 5 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate True)],
+          expectedPrimitiveInstruction
+            7
+            LoweredBoolRepresentation
+            (LoweredComparisonPrimitive LoweredEqual)
+            [loweredTemporary 3 LoweredBoolRepresentation, loweredTemporary 6 LoweredBoolRepresentation]
+        ]
+        (loweredTemporary 7 LoweredBoolRepresentation)
+    ),
+    ( "callable-parameter-value-shadows-enclosing-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt5]
+        [ expectedBoolApplyFunction,
+          expectedBoolForwardFunction,
+          expectedBoolIdentityClosure identityLayoutIdAt5
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt5,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt5,
+          expectedDirectCallInstruction 3 LoweredBoolRepresentation "forward" [loweredTemporary 2 boolClosureRepresentation]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    )
+  ]
+
+independentClosureExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+independentClosureExpectedLoweredPrograms =
+  [ ( "closure-valued-parameter",
+      expectedClosureCallableLoweredProgram
+        []
+        [expectedBoolApplyFunction]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "closure-valued-result",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [ expectedBoolIdentityClosure identityLayoutIdAt1,
+          expectedLocalFunction
+            "choose"
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            boolClosureRepresentation
+            [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+              expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+            ]
+            (loweredTemporary 2 boolClosureRepresentation)
+        ]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "closure-shaped-named-function",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [expectedBoolIdentityClosure identityLayoutIdAt1]
+        boolClosureRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt1
+        ]
+        (loweredTemporary 2 boolClosureRepresentation)
+    ),
+    ( "closure-shaped-named-application",
+      expectedClosureCallableLoweredProgram
+        [identityLayoutAt1]
+        [expectedBoolIdentityClosure identityLayoutIdAt1]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 identityLayoutIdAt1,
+          expectedClosureInstruction 2 "identity" identityLayoutIdAt1,
+          expectedPrimitiveInstruction
+            3
+            LoweredBoolRepresentation
+            (LoweredComparisonPrimitive LoweredEqual)
+            [loweredImmediate (LoweredBoolImmediate True), loweredImmediate (LoweredBoolImmediate False)],
+          expectedClosureCallInstruction
+            4
+            LoweredBoolRepresentation
+            (loweredTemporary 2 boolClosureRepresentation)
+            [loweredTemporary 3 LoweredBoolRepresentation]
+        ]
+        (loweredTemporary 4 LoweredBoolRepresentation)
+    ),
+    ( "callable-parameter-shadows-top-level-lowerer",
+      expectedClosureCallableLoweredProgram
+        []
+        [expectedBoolCombineFunction, expectedBoolApplyFunction]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "callable-parameter-value-shadows-enclosing-function-lowerer",
+      expectedClosureCallableLoweredProgram
+        []
+        [expectedBoolApplyFunction, expectedBoolForwardFunction]
+        LoweredBoolRepresentation
+        []
+        (loweredImmediate (LoweredBoolImmediate True))
+    )
+  ]
+
+identityLayoutAt1, identityLayoutAt3, identityLayoutAt5 :: LoweredLayout
+identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
+identityLayoutAt3 = LoweredLayout identityLayoutIdAt3 (LoweredClosureEnvironmentLayout [])
+identityLayoutAt5 = LoweredLayout identityLayoutIdAt5 (LoweredClosureEnvironmentLayout [])
+
+rfcClosureEnvironmentIdentityProgram :: (TypedProgram, LoweredProgram)
+rfcClosureEnvironmentIdentityProgram = (typedProgram, loweredProgram)
+  where
+    rfcModulePath = ["Main"]
+    functionName = TypedResolvedName TypedCurrentModule TypedValueNamespace "identity"
+    functionBinder = TypedBinderId (rfcModulePath, [0], functionName)
+    parameterName = TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+    parameterBinder = TypedBinderId (rfcModulePath, [0, 0], parameterName)
+    functionSchemeValue =
+      TypedScheme
+        functionBinder
+        []
+        []
+        []
+        (typedExpressionType boolCallableInfo)
+        (typedExpressionRecipe boolCallableInfo)
+        (Just TypedClosureCallableShape)
+    typedProgram =
+      TypedProgram
+        Nothing
+        [ TypedModule
+            rfcModulePath
+            (TypedSourcePath "src/Main.jz")
+            []
+            []
+            (TypedModuleInterface [] [] [] [])
+            [ TypedLetStatement
+                functionBinder
+                functionName
+                (TypedSpan 1 1)
+                functionSchemeValue
+                ( TypedLambdaExpr
+                    boolCallableInfo
+                    parameterBinder
+                    parameterName
+                    (TypedVariableExpr boolInfo parameterName (Just parameterBinder))
+                ),
+              TypedExpressionStatement
+                (TypedSpan 2 1)
+                (TypedVariableExpr boolCallableInfo functionName (Just functionBinder))
+            ]
+            boolCallableInfo
+        ]
+        rfcModulePath
+    layoutId = LoweredLayoutId "$jz1$closure-env$m1$4:Main$p1$0$n8:identity"
+    closureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    functionId = LoweredFunctionId "Main::identity"
+    entryFunctionId = LoweredFunctionId "Main::$entry"
+    loweredProgram =
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [LoweredLayout layoutId (LoweredClosureEnvironmentLayout [])]
+        []
+        [ LoweredFunction
+            functionId
+            (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            LoweredBoolRepresentation
+            [ LoweredBlock
+                (LoweredBlockId "entry")
+                []
+                []
+                (Just (LoweredReturn (LoweredFunctionParameterOperand (LoweredParameterId "arg1") LoweredBoolRepresentation)))
+            ]
+            (LoweredBlockId "entry"),
+          LoweredFunction
+            entryFunctionId
+            Nothing
+            []
+            closureRepresentation
+            [ LoweredBlock
+                (LoweredBlockId "entry")
+                []
+                [ LoweredInstruction
+                    (LoweredTemporaryId "t1")
+                    (LoweredManagedReferenceRepresentation layoutId)
+                    (LoweredConstructProduct layoutId []),
+                  LoweredInstruction
+                    (LoweredTemporaryId "t2")
+                    closureRepresentation
+                    ( LoweredConstructClosure
+                        functionId
+                        (LoweredTemporaryOperand (LoweredTemporaryId "t1") (LoweredManagedReferenceRepresentation layoutId))
+                    )
+                ]
+                (Just (LoweredReturn (LoweredTemporaryOperand (LoweredTemporaryId "t2") closureRepresentation)))
+            ]
+            (LoweredBlockId "entry")
+        ]
+        entryFunctionId
+
+identityLayoutIdAt1, identityLayoutIdAt3, identityLayoutIdAt5 :: LoweredLayoutId
+identityLayoutIdAt1 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
+identityLayoutIdAt3 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n8:identity"
+identityLayoutIdAt5 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$5$n8:identity"
+
+boolClosureRepresentation :: LoweredRepresentation
+boolClosureRepresentation =
+  LoweredClosureRepresentation
+    (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+
+expectedClosureCallableLoweredProgram ::
+  [LoweredLayout] ->
+  [LoweredFunction] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredOperand ->
+  LoweredProgram
+expectedClosureCallableLoweredProgram layouts functions resultRepresentation instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    layouts
+    []
+    ( functions
+        <> [ LoweredFunction
+               loweredEntryFunctionId
+               Nothing
+               []
+               resultRepresentation
+               [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
+               (LoweredBlockId "entry")
+           ]
+    )
+    loweredEntryFunctionId
+
+expectedBoolIdentityClosure :: LoweredLayoutId -> LoweredFunction
+expectedBoolIdentityClosure layoutId =
+  LoweredFunction
+    (LoweredFunctionId "App::Main::identity")
+    (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+    [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+    LoweredBoolRepresentation
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        []
+        (Just (LoweredReturn (loweredParameter 1 LoweredBoolRepresentation)))
+    ]
+    (LoweredBlockId "entry")
+
+expectedBoolApplyFunction :: LoweredFunction
+expectedBoolApplyFunction =
+  expectedLocalFunction
+    "apply"
+    [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
+    LoweredBoolRepresentation
+    [ expectedClosureCallInstruction
+        1
+        LoweredBoolRepresentation
+        (loweredParameter 1 boolClosureRepresentation)
+        [loweredImmediate (LoweredBoolImmediate True)]
+    ]
+    (loweredTemporary 1 LoweredBoolRepresentation)
+
+expectedBoolForwardFunction :: LoweredFunction
+expectedBoolForwardFunction =
+  expectedLocalFunction
+    "forward"
+    [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
+    LoweredBoolRepresentation
+    [ expectedDirectCallInstruction
+        1
+        LoweredBoolRepresentation
+        "apply"
+        [loweredParameter 1 boolClosureRepresentation]
+    ]
+    (loweredTemporary 1 LoweredBoolRepresentation)
+
+expectedBoolCombineFunction :: LoweredFunction
+expectedBoolCombineFunction =
+  expectedLocalFunction
+    "combine"
+    [ LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation,
+      LoweredParameter (LoweredParameterId "arg2") LoweredBoolRepresentation
+    ]
+    LoweredBoolRepresentation
+    []
+    (loweredParameter 1 LoweredBoolRepresentation)
+
+expectedEmptyEnvironmentInstruction :: Int -> LoweredLayoutId -> LoweredInstruction
+expectedEmptyEnvironmentInstruction index layoutId =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    (LoweredManagedReferenceRepresentation layoutId)
+    (LoweredConstructProduct layoutId [])
+
+expectedClosureInstruction :: Int -> Text -> LoweredLayoutId -> LoweredInstruction
+expectedClosureInstruction index functionName layoutId =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    boolClosureRepresentation
+    ( LoweredConstructClosure
+        (LoweredFunctionId ("App::Main::" <> functionName))
+        (loweredTemporary (index - 1) (LoweredManagedReferenceRepresentation layoutId))
+    )
+
+expectedClosureCallInstruction :: Int -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> LoweredInstruction
+expectedClosureCallInstruction index representation functionOperand operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredClosureCall functionOperand operands)
+
 expectedCallableLoweredProgram ::
   [LoweredFunction] ->
   LoweredRepresentation ->
@@ -633,15 +1170,50 @@ lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
   [ ("invalid-function-shape", scalarBindingProgram),
     ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
+    ("combined-statement-failure-order", combinedStatementFailureOrderLowererProgram),
+    ("recursion-descendant-failure-order", recursionDescendantFailureOrderLowererProgram),
+    ("closure-valued-parameter", closureValuedParameterLowererProgram),
+    ("closure-valued-result", closureValuedResultLowererProgram),
+    ("closure-shaped-named-function", closureShapeLowererProgram),
+    ("closure-shaped-named-application", closureShapeApplicationLowererProgram),
+    ("callable-parameter-shadows-top-level-lowerer", callableParameterShadowsTopLevelLowererProgram),
+    ("callable-parameter-value-shadows-enclosing-function-lowerer", callableParameterValueShadowsEnclosingFunctionLowererProgram),
+    ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
+    ("recursive-duplicate-parameter-function", recursiveDuplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
     ("self-recursive-function", selfRecursiveLowererProgram),
+    ("closure-shaped-self-recursive-function", closureShapedSelfRecursiveLowererProgram),
     ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
-    ("bare-function-value", bareFunctionLowererProgram),
-    ("partial-direct-call", partialCallLowererProgram),
+    ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
+    ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
+    ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
+
+validIndependentLowererPrograms :: [(Text, TypedProgram)]
+validIndependentLowererPrograms =
+  lowererBoundaryPrograms <> lowererStructuralBoundaryPrograms
+
+invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
+invalidLowererBoundaryPrograms =
+  [ ("closure-shape-flattened-recipe", closureShapeFlattenedRecipeLowererProgram),
+    ("direct-shape-staged-recipe", directShapeStagedRecipeLowererProgram),
+    ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
+    ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram),
+    ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
+    ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
+    ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
+    ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
+    ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
+    ("bare-function-value", bareFunctionLowererProgram),
+    ("partial-direct-call", partialCallLowererProgram)
+  ]
+
+independentLowererPrograms :: [(Text, TypedProgram)]
+independentLowererPrograms =
+  validIndependentLowererPrograms <> invalidLowererBoundaryPrograms
 
 lowererStructuralBoundaryPrograms :: [(Text, TypedProgram)]
 lowererStructuralBoundaryPrograms =
@@ -661,6 +1233,237 @@ conditionalLowererProgram =
     intInfo
     (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2))
 
+closureShapeLowererProgram :: TypedProgram
+closureShapeLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolIdentityFunction]
+    (variableExpr "identity" boolCallableInfo)
+
+closureShapeApplicationLowererProgram :: TypedProgram
+closureShapeApplicationLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolIdentityFunction]
+    ( directCall
+        "identity"
+        [boolInfo]
+        boolInfo
+        [binaryExpr boolInfo "==" (boolExpr True) (boolExpr False)]
+    )
+
+callableParameterShadowsTopLevelLowererProgram :: TypedProgram
+callableParameterShadowsTopLevelLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolCombineFunction, applyCombineParameterFunction]
+    (boolExpr True)
+
+callableParameterValueShadowsEnclosingFunctionLowererProgram :: TypedProgram
+callableParameterValueShadowsEnclosingFunctionLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, shadowingForwardFunction]
+    (boolExpr True)
+
+closureValuedParameterLowererProgram :: TypedProgram
+closureValuedParameterLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction]
+    (boolExpr True)
+
+closureValuedResultLowererProgram :: TypedProgram
+closureValuedResultLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolIdentityFunction, chooseFunction]
+    (boolExpr True)
+
+directFlattenedRepresentationLowererProgram :: TypedProgram
+directFlattenedRepresentationLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolCombineFunction]
+    (variableExpr "combine" (functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo))
+
+nonConcreteClosureRepresentationLowererProgram :: TypedProgram
+nonConcreteClosureRepresentationLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (polymorphicScheme signatureBinder),
+          TypedLetStatement
+            bindingBinder
+            functionName
+            (TypedSpan 2 1)
+            (polymorphicScheme bindingBinder)
+            ( TypedLambdaExpr
+                polymorphicInfo
+                parameterBinder
+                parameterName
+                (TypedVariableExpr parameterInfo parameterName (Just parameterBinder))
+            ),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    typeParameter = TypedTypeParameterId 0
+    parameterName = resolvedName "item"
+    functionName = resolvedName "identity"
+    signatureBinder = TypedBinderId (modulePath, [0], functionName)
+    bindingBinder = TypedBinderId (modulePath, [1], functionName)
+    parameterBinder = TypedBinderId (modulePath, [1, 0], parameterName)
+    parameterInfo =
+      TypedNodeInfo
+        (TypedTypeParameterType typeParameter)
+        (TypedRepresentationParameterRecipe typeParameter)
+        []
+        []
+    polymorphicInfo =
+      TypedNodeInfo
+        (TypedFunctionType (typedExpressionType parameterInfo) (typedExpressionType parameterInfo))
+        ( TypedClosureRecipe
+            [typedExpressionRecipe parameterInfo]
+            (typedExpressionRecipe parameterInfo)
+        )
+        []
+        []
+    polymorphicScheme owner =
+      TypedScheme
+        owner
+        [typeParameter]
+        []
+        []
+        (typedExpressionType polymorphicInfo)
+        (typedExpressionRecipe polymorphicInfo)
+        (Just TypedClosureCallableShape)
+
+callableShapeBodyDisagreementLowererProgram :: TypedProgram
+callableShapeBodyDisagreementLowererProgram =
+  rewriteChooserShape
+    ( expectedFunctionProgram
+        []
+        [ boolCombineFunction,
+          ExpectedFunction
+            "choose"
+            [("ignored", boolInfo)]
+            binaryCallableInfo
+            TypedClosureCallableShape
+            (variableExpr "combine" binaryCallableInfo)
+        ]
+        (boolExpr True)
+    )
+  where
+    binaryCallableInfo = functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo
+    stagedChooserInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType (typedExpressionType binaryCallableInfo))
+        ( TypedClosureRecipe
+            [TypedBoolRecipe]
+            (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+        )
+        []
+        []
+    rewriteChooserShape programValue =
+      case programValue of
+        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+          TypedProgram
+            prelude
+            [ TypedModule
+                path
+                source
+                imports
+                exports
+                interface
+                (map rewriteStatement statements)
+                moduleInfo
+            ]
+            entryPath
+        _ -> error "callable shape/body disagreement lowerer fixture changed shape"
+    chooserName = resolvedName "choose"
+    rewriteStatement statement =
+      case statement of
+        TypedSignatureStatement owner name spanValue schemeValue
+          | name == chooserName ->
+              TypedSignatureStatement owner name spanValue (rewriteScheme schemeValue)
+        TypedLetStatement owner name spanValue schemeValue (TypedLambdaExpr _ parameterOwner parameterName body)
+          | name == chooserName ->
+              TypedLetStatement
+                owner
+                name
+                spanValue
+                (rewriteScheme schemeValue)
+                (TypedLambdaExpr stagedChooserInfo parameterOwner parameterName body)
+        _ -> statement
+    rewriteScheme (TypedScheme owner parameters evidence primitive typeValue _ shape) =
+      TypedScheme owner parameters evidence primitive typeValue (typedExpressionRecipe stagedChooserInfo) shape
+
+closureShapeFlattenedRecipeLowererProgram :: TypedProgram
+closureShapeFlattenedRecipeLowererProgram =
+  expectedFunctionProgram
+    []
+    [boolCombineFunction {expectedFunctionShape = TypedClosureCallableShape}]
+    (boolExpr True)
+
+directShapeStagedRecipeLowererProgram :: TypedProgram
+directShapeStagedRecipeLowererProgram =
+  rewriteRootRecipe
+    (expectedFunctionProgram [] [boolCombineFunction] (boolExpr True))
+  where
+    stagedInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+        []
+        []
+    rewriteRootRecipe programValue =
+      case programValue of
+        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+          TypedProgram
+            prelude
+            [TypedModule path source imports exports interface (map rewriteStatement statements) moduleInfo]
+            entryPath
+        _ -> error "direct staged-recipe lowerer fixture changed shape"
+    rewriteStatement statement =
+      case statement of
+        TypedSignatureStatement owner name spanValue schemeValue ->
+          TypedSignatureStatement owner name spanValue (rewriteScheme schemeValue)
+        TypedLetStatement owner name spanValue schemeValue (TypedLambdaExpr _ parameterOwner parameterName body) ->
+          TypedLetStatement
+            owner
+            name
+            spanValue
+            (rewriteScheme schemeValue)
+            (TypedLambdaExpr stagedInfo parameterOwner parameterName body)
+        other -> other
+    rewriteScheme (TypedScheme owner parameters evidence primitive typeValue _ shape) =
+      TypedScheme owner parameters evidence primitive typeValue (typedExpressionRecipe stagedInfo) shape
+
+variableBinderReferenceMismatchLowererProgram :: TypedProgram
+variableBinderReferenceMismatchLowererProgram =
+  case expectedFunctionProgram [] [boolIdentityFunction] (variableExpr "identity" boolCallableInfo) of
+    TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+      TypedProgram
+        prelude
+        [TypedModule path source imports exports interface (map corruptTerminal statements) moduleInfo]
+        entryPath
+    _ -> error "variable binder-reference lowerer fixture changed shape"
+  where
+    wrongBinder = TypedBinderId (modulePath, [999], resolvedName "identity")
+    corruptTerminal statement =
+      case statement of
+        TypedExpressionStatement spanValue (TypedVariableExpr info name _) ->
+          TypedExpressionStatement spanValue (TypedVariableExpr info name (Just wrongBinder))
+        other -> other
+
 duplicateParameterLowererProgram :: TypedProgram
 duplicateParameterLowererProgram =
   expectedFunctionProgram
@@ -669,9 +1472,23 @@ duplicateParameterLowererProgram =
         "chooseSecond"
         [("item", intInfo), ("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (variableExpr "item" intInfo)
     ]
     (directCall "chooseSecond" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
+
+recursiveDuplicateParameterLowererProgram :: TypedProgram
+recursiveDuplicateParameterLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo), ("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        (directCall "loop" [intInfo, intInfo] intInfo [variableExpr "item" intInfo, variableExpr "item" intInfo])
+    ]
+    (directCall "loop" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
 
 duplicateFunctionLowererProgram :: TypedProgram
 duplicateFunctionLowererProgram =
@@ -681,11 +1498,13 @@ duplicateFunctionLowererProgram =
         "identity"
         [("first", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (variableExpr "first" intInfo),
       ExpectedFunction
         "identity"
         [("second", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (variableExpr "second" intInfo)
     ]
     (directCall "identity" [intInfo] intInfo [intExpr 1])
@@ -714,7 +1533,7 @@ scalarBindingProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
 
 invalidScalarBindingRhsProgram :: TypedProgram
 invalidScalarBindingRhsProgram =
@@ -740,7 +1559,86 @@ invalidScalarBindingRhsProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+
+combinedStatementFailureOrderLowererProgram :: TypedProgram
+combinedStatementFailureOrderLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedLetStatement
+            seedBinder
+            seedName
+            (TypedSpan 1 1)
+            seedScheme
+            (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2)),
+          TypedLetStatement
+            messageBinder
+            messageName
+            (TypedSpan 2 1)
+            messageScheme
+            (TypedLiteralExpr textInfo (TypedTextLiteral "later")),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    messageName = resolvedName "message"
+    messageBinder = TypedBinderId (modulePath, [1], messageName)
+    messageScheme = TypedScheme messageBinder [] [] [] TypedTextType TypedManagedTextRecipe Nothing
+
+recursionDescendantFailureOrderLowererProgram :: TypedProgram
+recursionDescendantFailureOrderLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        ( scalarStatement
+            <> map
+              (bindExpectedStatementVariables bindings)
+              (expectedFunctionStatements 1 2 loopFunction)
+            <> [ TypedExpressionStatement
+                   (TypedSpan 4 1)
+                   (bindExpectedExpressionVariables bindings (directCall "loop" [intInfo] intInfo [intExpr 1]))
+               ]
+        )
+        intInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    loopName = resolvedName "loop"
+    loopBinder = TypedBinderId (modulePath, [2], loopName)
+    bindings = Map.fromList [(seedName, seedBinder), (loopName, loopBinder)]
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    scalarStatement =
+      [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
+    loopFunction =
+      ExpectedFunction
+        "loop"
+        [("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        ( binaryExpr
+            intInfo
+            "+"
+            (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
+            (variableExpr "seed" intInfo)
+        )
 
 capturingLowererProgram :: TypedProgram
 capturingLowererProgram =
@@ -753,10 +1651,12 @@ capturingLowererProgram =
         []
         (TypedModuleInterface [] [] [] [])
         ( scalarStatement
-            <> expectedFunctionStatements 1 2 addSeedFunction
+            <> map
+              (bindExpectedStatementVariables bindings)
+              (expectedFunctionStatements 1 2 addSeedFunction)
             <> [ TypedExpressionStatement
                    (TypedSpan 4 1)
-                   (directCall "addSeed" [intInfo] intInfo [intExpr 41])
+                   (bindExpectedExpressionVariables bindings (directCall "addSeed" [intInfo] intInfo [intExpr 41]))
                ]
         )
         intInfo
@@ -765,7 +1665,10 @@ capturingLowererProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64)
+    addSeedName = resolvedName "addSeed"
+    addSeedBinder = TypedBinderId (modulePath, [2], addSeedName)
+    bindings = Map.fromList [(seedName, seedBinder), (addSeedName, addSeedBinder)]
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
     scalarStatement =
       [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
     addSeedFunction =
@@ -773,6 +1676,7 @@ capturingLowererProgram =
         "addSeed"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo))
 
 selfRecursiveLowererProgram :: TypedProgram
@@ -783,9 +1687,23 @@ selfRecursiveLowererProgram =
         "loop"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (directCall "loop" [intInfo] intInfo [intExpr 1])
+
+closureShapedSelfRecursiveLowererProgram :: TypedProgram
+closureShapedSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo)]
+        intInfo
+        TypedClosureCallableShape
+        (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
+    ]
+    (boolExpr True)
 
 mutuallyRecursiveLowererProgram :: TypedProgram
 mutuallyRecursiveLowererProgram =
@@ -795,21 +1713,160 @@ mutuallyRecursiveLowererProgram =
         "left"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo]),
       ExpectedFunction
         "right"
         [("item", intInfo)]
         intInfo
+        TypedDirectCallableShape
         (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (directCall "left" [intInfo] intInfo [intExpr 1])
+
+closureValueSelfRecursiveLowererProgram :: TypedProgram
+closureValueSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, closurePassingLoopFunction]
+    (boolExpr True)
+
+closureValueMutualRecursiveLowererProgram :: TypedProgram
+closureValueMutualRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, closurePassingLeftFunction, closurePassingRightFunction]
+    (boolExpr True)
+
+directShapedClosureValueSelfRecursiveLowererProgram :: TypedProgram
+directShapedClosureValueSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [ applyFunction,
+      closurePassingLoopFunction {expectedFunctionShape = TypedDirectCallableShape}
+    ]
+    (boolExpr True)
+
+nestedLambdaClosureValueSelfRecursiveLowererProgram :: TypedProgram
+nestedLambdaClosureValueSelfRecursiveLowererProgram =
+  expectedFunctionProgram
+    []
+    [applyFunction, nestedLambdaClosurePassingLoopFunction]
+    (boolExpr True)
+
+shapeRejectedSelfRecursiveLowererProgram :: TypedProgram
+shapeRejectedSelfRecursiveLowererProgram =
+  shapeRejectedCycleLowererProgram [("loop", "loop")]
+
+shapeRejectedMutualRecursiveLowererProgram :: TypedProgram
+shapeRejectedMutualRecursiveLowererProgram =
+  shapeRejectedCycleLowererProgram [("left", "right"), ("right", "left")]
+
+shapeRejectedCycleLowererProgram :: [(Text, Text)] -> TypedProgram
+shapeRejectedCycleLowererProgram functions =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        (concatMap functionStatements indexedFunctions <> [TypedExpressionStatement (TypedSpan (length functions * 2 + 1) 1) (boolExpr True)])
+        boolInfo
+    ]
+    modulePath
+  where
+    indexedFunctions = zip [0 ..] functions
+    binders =
+      Map.fromList
+        [ (resolvedName name, TypedBinderId (modulePath, [bindingIndex], resolvedName name))
+        | (functionIndex, (name, _)) <- indexedFunctions,
+          let bindingIndex = functionIndex * 2 + 1
+        ]
+    functionStatements (functionIndex, (name, target)) =
+      let signatureIndex = functionIndex * 2
+          bindingIndex = signatureIndex + 1
+          function = ExpectedFunction name [("item", boolInfo)] boolInfo TypedDirectCallableShape (boolExpr True)
+          functionName = resolvedName name
+          signatureBinder = TypedBinderId (modulePath, [signatureIndex], functionName)
+          bindingBinder = TypedBinderId (modulePath, [bindingIndex], functionName)
+       in [ TypedSignatureStatement
+              signatureBinder
+              functionName
+              (TypedSpan (signatureIndex + 1) 1)
+              (functionScheme signatureIndex function),
+            bindExpectedStatementVariables binders
+              ( TypedLetStatement
+                  bindingBinder
+                  functionName
+                  (TypedSpan (bindingIndex + 1) 1)
+                  (functionScheme bindingIndex function)
+                  (shapeRejectedConditionalBody bindingIndex target)
+              )
+          ]
+    shapeRejectedConditionalBody statementIndex target =
+      TypedIfExpr
+        boolCallableInfo
+        (boolExpr True)
+        (branchLambda statementIndex 1 target)
+        (branchLambda statementIndex 2 target)
+    branchLambda statementIndex branchIndex target =
+      let parameterName = resolvedName "item"
+          parameterBinder = TypedBinderId (modulePath, [statementIndex, 0, branchIndex], parameterName)
+       in TypedLambdaExpr
+            boolCallableInfo
+            parameterBinder
+            parameterName
+            (directCall target [boolInfo] boolInfo [TypedVariableExpr boolInfo parameterName (Just parameterBinder)])
+
+shapeRejectedBinderShadowControlLowererProgram :: TypedProgram
+shapeRejectedBinderShadowControlLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (functionScheme 0 function),
+          TypedLetStatement
+            bindingBinder
+            functionName
+            (TypedSpan 2 1)
+            (functionScheme 1 function)
+            ( TypedIfExpr
+                functionNodeInfo
+                (boolExpr True)
+                (branchLambda 1)
+                (branchLambda 2)
+            ),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    functionName = resolvedName "loop"
+    function = ExpectedFunction "loop" [("loop", boolCallableInfo)] boolInfo TypedDirectCallableShape (boolExpr True)
+    signatureBinder = TypedBinderId (modulePath, [0], functionName)
+    bindingBinder = TypedBinderId (modulePath, [1], functionName)
+    functionNodeInfo = functionInfo [("loop", boolCallableInfo)] boolInfo
+    branchLambda branchIndex =
+      let parameterBinder = TypedBinderId (modulePath, [1, 0, branchIndex], functionName)
+       in TypedLambdaExpr
+            functionNodeInfo
+            parameterBinder
+            functionName
+            (TypedApplyExpr boolInfo (TypedVariableExpr boolCallableInfo functionName (Just parameterBinder)) (boolExpr True))
 
 bareFunctionLowererProgram :: TypedProgram
 bareFunctionLowererProgram =
   expectedFunctionProgram
     []
     [identityFunction]
-    (TypedVariableExpr (functionInfo [("item", intInfo)] intInfo) (resolvedName "identity"))
+    (TypedVariableExpr (functionInfo [("item", intInfo)] intInfo) (resolvedName "identity") Nothing)
 
 partialCallLowererProgram :: TypedProgram
 partialCallLowererProgram =
@@ -818,7 +1875,7 @@ partialCallLowererProgram =
     [combineFunction]
     ( TypedApplyExpr
         (functionInfo [("right", intInfo)] intInfo)
-        (TypedVariableExpr (functionInfo [("left", intInfo), ("right", intInfo)] intInfo) (resolvedName "combine"))
+        (TypedVariableExpr (functionInfo [("left", intInfo), ("right", intInfo)] intInfo) (resolvedName "combine") Nothing)
         (intExpr 1)
     )
 
@@ -841,6 +1898,7 @@ importedDirectCallLowererProgram =
         []
         (TypedFunctionType TypedIntType TypedIntType)
         (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+        (Just TypedDirectCallableShape)
     providerModule =
       TypedModule
         providerPath
@@ -857,14 +1915,14 @@ importedDirectCallLowererProgram =
                 providerInfo
                 providerParameterBinder
                 providerParameterName
-                (TypedVariableExpr intInfo providerParameterName)
+                (TypedVariableExpr intInfo providerParameterName (Just providerParameterBinder))
             )
         ]
         unitInfo
     callExpression =
       TypedApplyExpr
         intInfo
-        (TypedVariableExpr providerInfo importedName)
+        (TypedVariableExpr providerInfo importedName (Just providerOwner))
         (intExpr 1)
     entry =
       TypedModule
@@ -882,6 +1940,532 @@ rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-uni
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
+    ( "default-exported-polymorphic-callable",
+      sourceFixture
+        "default-exported-polymorphic-callable"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "identity :: a -> a.",
+              "identity = \\(item) -> item.",
+              "()."
+            ]
+        )
+    ),
+    ( "self-recursive-function-rebinding",
+      sourceFixtureNoExports
+        "self-recursive-function-rebinding"
+        ( Text.unlines
+            [ "loop :: Int -> Int.",
+              "loop = \\(item) -> loop item.",
+              "loop :: Int -> Int.",
+              "loop = \\(item) -> loop (if True then item else item).",
+              "loop 1."
+            ]
+        )
+    ),
+    ( "later-callable-rebinding-calls-nearest-prior",
+      sourceFixtureNoExports
+        "later-callable-rebinding-calls-nearest-prior"
+        ( Text.unlines
+            [ "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> identity item.",
+              "identity True."
+            ]
+        )
+    ),
+    ( "intervening-scalar-canonical-ownership",
+      sourceFixtureNoExports
+        "intervening-scalar-canonical-ownership"
+        ( Text.unlines
+            [ "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = True.",
+              "b :: Bool -> Bool.",
+              "b = \\(item) -> a.",
+              "True."
+            ]
+        )
+    ),
+    ( "multiple-intervening-scalars-canonical-ownership",
+      sourceFixtureNoExports
+        "multiple-intervening-scalars-canonical-ownership"
+        ( Text.unlines
+            [ "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = True.",
+              "a = False.",
+              "b :: Bool -> Bool.",
+              "b = \\(item) -> a.",
+              "True."
+            ]
+        )
+    ),
+    ( "interleaved-callable-scalar-canonical-ownership",
+      sourceFixtureNoExports
+        "interleaved-callable-scalar-canonical-ownership"
+        ( Text.unlines
+            [ "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = True.",
+              "a :: Bool -> Bool.",
+              "a = \\(item) -> b item.",
+              "a = False.",
+              "b :: Bool -> Bool.",
+              "b = \\(item) -> a.",
+              "True."
+            ]
+        )
+    ),
+    ( "three-same-name-nearest-prior-mutual-recursion",
+      sourceFixtureNoExports
+        "three-same-name-nearest-prior-mutual-recursion"
+        ( Text.unlines
+            [ "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> peer item.",
+              "peer :: Bool -> Bool.",
+              "peer = \\(item) -> identity item.",
+              "True."
+            ]
+        )
+    ),
+    ( "canonical-self-recursion-no-prior",
+      sourceFixtureNoExports
+        "canonical-self-recursion-no-prior"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> loop item.",
+              "True."
+            ]
+        )
+    ),
+    ( "canonical-mutual-recursion-peers",
+      sourceFixtureNoExports
+        "canonical-mutual-recursion-peers"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> left item.",
+              "True."
+            ]
+        )
+    ),
+    ( "nearest-rebinding-mutual-control",
+      sourceFixtureNoExports
+        "nearest-rebinding-mutual-control"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> left item.",
+              "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rebinding-parameter-shadow-control",
+      sourceFixtureNoExports
+        "rebinding-parameter-shadow-control"
+        ( Text.unlines
+            [ "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(function) -> function True.",
+              "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(apply) -> apply True.",
+              "True."
+            ]
+        )
+    ),
+    ( "rebinding-local-shadow-control",
+      sourceFixtureNoExports
+        "rebinding-local-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> item.",
+              "loop :: Bool -> Bool.",
+              "loop = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-self-alias-recursion",
+      sourceFixtureNoExports
+        "rejected-self-alias-recursion"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = loop.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-mutual-alias-recursion",
+      sourceFixtureNoExports
+        "rejected-mutual-alias-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = right.",
+              "right :: Bool -> Bool.",
+              "right = left.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-alias-conditional-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-alias-conditional-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = right.",
+              "right :: Bool -> Bool.",
+              "right = if True then left else left.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-operator-alias-self-recursion",
+      sourceFixtureNoExports
+        "rejected-operator-alias-self-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = (%%).",
+              "0."
+            ]
+        )
+    ),
+    ( "rejected-eager-operator-conditional-control",
+      sourceFixtureNoExports
+        "rejected-eager-operator-conditional-control"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Bool -> Bool -> Bool.",
+              "(%%) = if True %% False then (%%) else (%%).",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-alias-parameter-shadow-control",
+      sourceFixtureNoExports
+        "rejected-alias-parameter-shadow-control"
+        ( Text.unlines
+            [ "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "loop :: Bool -> Bool.",
+              "loop = (\\(loop) -> loop) identity.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-alias-local-shadow-control",
+      sourceFixtureNoExports
+        "rejected-alias-local-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = {",
+              "  loop :: Bool -> Bool.",
+              "  loop = \\(item) -> item.",
+              "  loop.",
+              "}.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-eager-self-before-callable-result-control",
+      sourceFixtureNoExports
+        "rejected-eager-self-before-callable-result-control"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = { f True. \\(x) -> x. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-nearest-prior-callable-rebinding-recursion",
+      sourceFixtureNoExports
+        "rejected-block-nearest-prior-callable-rebinding-recursion"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = { inner :: Bool -> Bool. inner = \\(x) -> f x. inner = inner. inner. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-conditional-self-recursion",
+      sourceFixtureNoExports
+        "rejected-conditional-self-recursion"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> if item then loop False else item.",
+              "loop True."
+            ]
+        )
+    ),
+    ( "rejected-block-conditional-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-block-conditional-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> { right item. }.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> if item then left False else item.",
+              "left True."
+            ]
+        )
+    ),
+    ( "rejected-block-parameter-shadow-control",
+      sourceFixtureNoExports
+        "rejected-block-parameter-shadow-control"
+        ( Text.unlines
+            [ "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(function) -> function True.",
+              "forward :: (Bool -> Bool) -> Bool.",
+              "forward = \\(forward) -> { apply forward. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-later-shadow-control",
+      sourceFixtureNoExports
+        "rejected-block-later-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> { loop item. loop = \\(nested) -> nested. loop item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-initializer-self-recursion",
+      sourceFixtureNoExports
+        "rejected-block-initializer-self-recursion"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> { loop = loop item. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-initializer-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-block-initializer-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> { right = right item. item. }.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> { left = left item. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "nested-prior-outer-alias-mutual-recursion",
+      sourceFixtureNoExports
+        "nested-prior-outer-alias-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> { left = left. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "nested-prior-outer-conditional-alias-mutual-recursion",
+      sourceFixtureNoExports
+        "nested-prior-outer-conditional-alias-mutual-recursion"
+        ( Text.unlines
+            [ "left :: Bool -> Bool.",
+              "left = \\(item) -> right item.",
+              "right :: Bool -> Bool.",
+              "right = \\(item) -> { left = if item then left else left. item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "nested-self-recursive-lambda-local-ownership",
+      sourceFixtureNoExports
+        "nested-self-recursive-lambda-local-ownership"
+        ( Text.unlines
+            [ "owner :: Bool -> Bool.",
+              "owner = \\(item) -> { loop = \\(nested) -> loop nested. item. }.",
+              "loop :: Bool -> Bool.",
+              "loop = \\(item) -> owner item.",
+              "True."
+            ]
+        )
+    ),
+    ( "accepted-then-rejected-callable-rebinding",
+      sourceFixtureNoExports
+        "accepted-then-rejected-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-recursive-callable-rebinding-order",
+      sourceFixtureNoExports
+        "rejected-recursive-callable-rebinding-order"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> g item else \\(item) -> g item.",
+              "g :: Bool -> Bool.",
+              "g = \\(item) -> f item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-then-accepted-callable-rebinding",
+      sourceFixtureNoExports
+        "rejected-then-accepted-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "repeated-rejected-callable-rebinding",
+      sourceFixtureNoExports
+        "repeated-rejected-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "f :: Bool -> Bool.",
+              "f = if False then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "scalar-then-rejected-callable-control",
+      sourceFixtureNoExports
+        "scalar-then-rejected-callable-control"
+        ( Text.unlines
+            [ "f = True.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "accepted-scalar-rejected-callable-rebinding",
+      sourceFixtureNoExports
+        "accepted-scalar-rejected-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "f = True.",
+              "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-scalar-accepted-callable-rebinding",
+      sourceFixtureNoExports
+        "rejected-scalar-accepted-callable-rebinding"
+        ( Text.unlines
+            [ "f :: Bool -> Bool.",
+              "f = if True then \\(item) -> item else \\(item) -> item.",
+              "f = True.",
+              "f :: Bool -> Bool.",
+              "f = \\(item) -> item.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-later-signed-shadow-control",
+      sourceFixtureNoExports
+        "rejected-block-later-signed-shadow-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> {",
+              "  observed = loop item.",
+              "  loop :: Bool -> Bool.",
+              "  loop = \\(nested) -> nested.",
+              "  loop item.",
+              "}.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-local-shadow-cycle-control",
+      sourceFixtureNoExports
+        "rejected-block-local-shadow-cycle-control"
+        ( Text.unlines
+            [ "loop :: Bool -> Bool.",
+              "loop = \\(item) -> forward item.",
+              "forward :: Bool -> Bool.",
+              "forward = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-block-parameter-shadow-cycle-control",
+      sourceFixtureNoExports
+        "rejected-block-parameter-shadow-cycle-control"
+        ( Text.unlines
+            [ "forward :: (Bool -> Bool) -> Bool.",
+              "forward = \\(loop) -> { loop True. }.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "loop :: Bool -> Bool.",
+              "loop = \\(item) -> forward identity.",
+              "True."
+            ]
+        )
+    ),
+    ( "rejected-operator-value-self-recursion",
+      sourceFixtureNoExports
+        "rejected-operator-value-self-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> (%%) left right.",
+              "0."
+            ]
+        )
+    ),
+    ( "rejected-infix-operator-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-infix-operator-mutual-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "operator ~~ tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> left ~~ right.",
+              "(~~) :: Int -> Int -> Int.",
+              "(~~) = \\(left, right) -> left %% right.",
+              "0."
+            ]
+        )
+    ),
+    ( "rejected-section-operator-mutual-recursion",
+      sourceFixtureNoExports
+        "rejected-section-operator-mutual-recursion"
+        ( Text.unlines
+            [ "operator %% tier 2.",
+              "operator ~~ tier 2.",
+              "(%%) :: Int -> Int -> Int.",
+              "(%%) = \\(left, right) -> (left ~~) right.",
+              "(~~) :: Int -> Int -> Int.",
+              "(~~) = \\(left, right) -> (%% right) left.",
+              "0."
+            ]
+        )
+    ),
     ( "unit-forward-function",
       sourceFixtureNoExports
         "unit-forward-function"
@@ -917,6 +2501,21 @@ producerEdgeFixtures =
               "combine :: Int -> Int -> Int.",
               "combine = \\(left, right) -> left + right.",
               "combine seed."
+            ]
+        )
+    ),
+    ( "closure-use-argument-failure-order",
+      sourceFixtureNoExports
+        "closure-use-argument-failure-order"
+        ( Text.unlines
+            [ "seed :: Int.",
+              "seed = 1.",
+              "apply :: (Int -> Int) -> Int.",
+              "apply = \\(function) -> function seed.",
+              "identity :: Int -> Int.",
+              "identity = \\(item) -> item.",
+              "apply identity.",
+              "[1]."
             ]
         )
     ),
@@ -1348,6 +2947,14 @@ curriedMultiArgumentDirectCallSource =
       "combine 20 22."
     ]
 
+threeArgumentDirectCallSource :: Text
+threeArgumentDirectCallSource =
+  Text.unlines
+    [ "sumThree :: Int -> Int -> Int -> Int.",
+      "sumThree = \\(first, second, third) -> first + second + third.",
+      "sumThree 10 20 12."
+    ]
+
 forwardDirectCallDagSource :: Text
 forwardDirectCallDagSource =
   Text.unlines
@@ -1444,12 +3051,76 @@ exportedDirectFunctionSource =
     <> singleArgumentDirectCallSource
     <> "}\n"
 
-bareFunctionValueSource :: Text
-bareFunctionValueSource =
+namedFunctionValueSource :: Text
+namedFunctionValueSource =
   Text.unlines
-    [ "identity :: Int -> Int.",
+    [ "identity :: Bool -> Bool.",
       "identity = \\(item) -> item.",
       "identity."
+    ]
+
+higherOrderCallSource :: Text
+higherOrderCallSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity."
+    ]
+
+closureResultSource :: Text
+closureResultSource =
+  Text.unlines
+    [ "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "choose :: Bool -> Bool -> Bool.",
+      "choose = \\(ignored) -> identity.",
+      "choose False."
+    ]
+
+callableParameterShadowsNamedFunctionSource :: Text
+callableParameterShadowsNamedFunctionSource =
+  Text.unlines
+    [ "combine :: Bool -> Bool -> Bool.",
+      "combine = \\(left, right) -> left.",
+      "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(combine) -> combine True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity."
+    ]
+
+callableParameterShadowsEnclosingFunctionSource :: Text
+callableParameterShadowsEnclosingFunctionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(apply) -> apply True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity."
+    ]
+
+mixedDirectAndValueUseSource :: Text
+mixedDirectAndValueUseSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "apply identity == identity True."
+    ]
+
+callableParameterValueShadowsEnclosingFunctionSource :: Text
+callableParameterValueShadowsEnclosingFunctionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "forward :: (Bool -> Bool) -> Bool.",
+      "forward = \\(forward) -> apply forward.",
+      "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "forward identity."
     ]
 
 partialDirectCallSource :: Text
@@ -1494,6 +3165,28 @@ mutuallyRecursiveFunctionsSource =
       "right :: Int -> Int.",
       "right = \\(item) -> left item.",
       "left 1."
+    ]
+
+closureValueSelfRecursionSource :: Text
+closureValueSelfRecursionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "loop :: Bool -> Bool.",
+      "loop = \\(item) -> apply loop.",
+      "loop False."
+    ]
+
+closureValueMutualRecursionSource :: Text
+closureValueMutualRecursionSource =
+  Text.unlines
+    [ "apply :: (Bool -> Bool) -> Bool.",
+      "apply = \\(function) -> function True.",
+      "left :: Bool -> Bool.",
+      "left = \\(item) -> apply right.",
+      "right :: Bool -> Bool.",
+      "right = \\(item) -> apply left.",
+      "left False."
     ]
 
 polymorphicFunctionSource :: Text
@@ -1584,8 +3277,14 @@ entryModule =
 unitInfo :: TypedNodeInfo
 unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
 
-boolInfo, charInfo, intInfo, floatInfo, textInfo :: TypedNodeInfo
+boolInfo, boolCallableInfo, charInfo, intInfo, floatInfo, textInfo :: TypedNodeInfo
 boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+boolCallableInfo =
+  TypedNodeInfo
+    (TypedFunctionType TypedBoolType TypedBoolType)
+    (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
+    []
+    []
 charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
 intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
 floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
@@ -1629,6 +3328,7 @@ data ExpectedFunction = ExpectedFunction
   { expectedFunctionName :: Text,
     expectedFunctionParameters :: [(Text, TypedNodeInfo)],
     expectedFunctionResult :: TypedNodeInfo,
+    expectedFunctionShape :: TypedCallableShape,
     expectedFunctionBody :: TypedExpr
   }
 
@@ -1638,7 +3338,120 @@ identityFunction =
     "identity"
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (variableExpr "item" intInfo)
+
+boolIdentityFunction :: ExpectedFunction
+boolIdentityFunction =
+  ExpectedFunction
+    "identity"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (variableExpr "item" boolInfo)
+
+applyFunction :: ExpectedFunction
+applyFunction =
+  ExpectedFunction
+    "apply"
+    [("function", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "function" [boolInfo] boolInfo [boolExpr True])
+
+boolCombineFunction :: ExpectedFunction
+boolCombineFunction =
+  ExpectedFunction
+    "combine"
+    [("left", boolInfo), ("right", boolInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (variableExpr "left" boolInfo)
+
+applyCombineParameterFunction :: ExpectedFunction
+applyCombineParameterFunction =
+  ExpectedFunction
+    "apply"
+    [("combine", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "combine" [boolInfo] boolInfo [boolExpr True])
+
+selfShadowingApplyFunction :: ExpectedFunction
+selfShadowingApplyFunction =
+  ExpectedFunction
+    "apply"
+    [("apply", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "apply" [boolInfo] boolInfo [boolExpr True])
+
+shadowingForwardFunction :: ExpectedFunction
+shadowingForwardFunction =
+  ExpectedFunction
+    "forward"
+    [("forward", boolCallableInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "forward" boolCallableInfo])
+
+closurePassingLoopFunction :: ExpectedFunction
+closurePassingLoopFunction =
+  ExpectedFunction
+    "loop"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "loop" boolCallableInfo])
+
+nestedLambdaClosurePassingLoopFunction :: ExpectedFunction
+nestedLambdaClosurePassingLoopFunction =
+  ExpectedFunction
+    "loop"
+    [("item", boolInfo)]
+    boolInfo
+    TypedDirectCallableShape
+    ( directCall
+        "apply"
+        [boolCallableInfo]
+        boolInfo
+        [ TypedLambdaExpr
+            boolCallableInfo
+            nestedParameterBinder
+            nestedParameterName
+            (directCall "loop" [boolInfo] boolInfo [variableExpr "nested" boolInfo])
+        ]
+    )
+  where
+    nestedParameterName = resolvedName "nested"
+    nestedParameterBinder = TypedBinderId (modulePath, [3, 0, 0, 1], nestedParameterName)
+
+closurePassingLeftFunction :: ExpectedFunction
+closurePassingLeftFunction =
+  ExpectedFunction
+    "left"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "right" boolCallableInfo])
+
+closurePassingRightFunction :: ExpectedFunction
+closurePassingRightFunction =
+  ExpectedFunction
+    "right"
+    [("item", boolInfo)]
+    boolInfo
+    TypedClosureCallableShape
+    (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "left" boolCallableInfo])
+
+chooseFunction :: ExpectedFunction
+chooseFunction =
+  ExpectedFunction
+    "choose"
+    [("ignored", boolInfo)]
+    boolCallableInfo
+    TypedDirectCallableShape
+    (variableExpr "identity" boolCallableInfo)
 
 incrementFunction :: ExpectedFunction
 incrementFunction = incrementNamed "increment"
@@ -1649,6 +3462,7 @@ incrementNamed name =
     name
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "item" intInfo) (intExpr 1))
 
 combineFunction :: ExpectedFunction
@@ -1657,7 +3471,22 @@ combineFunction =
     "combine"
     [("left", intInfo), ("right", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "left" intInfo) (variableExpr "right" intInfo))
+
+sumThreeFunction :: ExpectedFunction
+sumThreeFunction =
+  ExpectedFunction
+    "sumThree"
+    [("first", intInfo), ("second", intInfo), ("third", intInfo)]
+    intInfo
+    TypedDirectCallableShape
+    ( binaryExpr
+        intInfo
+        "+"
+        (binaryExpr intInfo "+" (variableExpr "first" intInfo) (variableExpr "second" intInfo))
+        (variableExpr "third" intInfo)
+    )
 
 firstFunction :: ExpectedFunction
 firstFunction =
@@ -1665,6 +3494,7 @@ firstFunction =
     "first"
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (directCall "second" [intInfo] intInfo [variableExpr "item" intInfo])
 
 doubleFunction :: ExpectedFunction
@@ -1673,6 +3503,7 @@ doubleFunction =
     "double"
     [("item", intInfo)]
     intInfo
+    TypedDirectCallableShape
     (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "item" intInfo))
 
 explicitNumericFunctions :: [ExpectedFunction]
@@ -1696,6 +3527,7 @@ explicitNumericFunctions =
             name
             [("ignored", boolInfo)]
             resultInfo
+            TypedDirectCallableShape
             (TypedLiteralExpr resultInfo literal)
 
 expectedFunctionProgram :: [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
@@ -1709,30 +3541,40 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         modulePath
         validSourcePath
         []
-        [TypedModuleExport TypedValueNamespace name | name <- sort exportedNames]
+        [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
         typedInterface
         statements
-        (typedExpressionInfo terminalExpression)
+        (typedExpressionInfo boundTerminalExpression)
     ]
     modulePath
   where
+    functionOwners =
+      Map.fromList
+        [ ( resolvedName (expectedFunctionName function),
+            TypedBinderId (modulePath, [functionOffset * 2 + 1], resolvedName (expectedFunctionName function))
+          )
+        | (functionOffset, function) <- zip [0 ..] functions
+        ]
     functionStatements =
       concat
-        [ expectedFunctionStatementsAtLineOffset lineOffset signatureIndex bindingIndex function
+        [ map
+            (bindExpectedStatementVariables functionOwners)
+            (expectedFunctionStatementsAtLineOffset lineOffset signatureIndex bindingIndex function)
         | (functionOffset, function) <- zip [0 ..] functions,
           let signatureIndex = functionOffset * 2,
           let bindingIndex = signatureIndex + 1
         ]
     terminalIndex = length functionStatements
+    boundTerminalExpression = bindExpectedExpressionVariables functionOwners terminalExpression
     statements =
       functionStatements
-        <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) terminalExpression]
+        <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) boundTerminalExpression]
     typedInterface =
       TypedModuleInterface
         [ TypedValueInterface
             (resolvedName name)
             (functionScheme bindingIndex function)
-        | name <- sort exportedNames,
+        | name <- exportedNames,
           (functionOffset, function) <- zip [0 ..] functions,
           expectedFunctionName function == name,
           let bindingIndex = functionOffset * 2 + 1
@@ -1780,20 +3622,38 @@ functionScheme statementIndex function =
   let functionName = resolvedName (expectedFunctionName function)
       owner = TypedBinderId (modulePath, [statementIndex], functionName)
       info = functionInfo (expectedFunctionParameters function) (expectedFunctionResult function)
-   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info)
+   in TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info) (Just (expectedFunctionShape function))
 
 functionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 functionInfo parameters resultInfo =
   TypedNodeInfo
     (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
-    (TypedClosureRecipe (map (typedExpressionRecipe . snd) parameters) (typedExpressionRecipe resultInfo))
+    ( case parameters of
+        [] -> typedExpressionRecipe resultInfo
+        _ ->
+          TypedClosureRecipe
+            (map (typedExpressionRecipe . snd) parameters)
+            (typedExpressionRecipe resultInfo)
+    )
+    []
+    []
+
+stagedFunctionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
+stagedFunctionInfo parameters resultInfo =
+  TypedNodeInfo
+    (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
+    ( foldr
+        (\(_, parameterInfo) resultRecipe -> TypedClosureRecipe [typedExpressionRecipe parameterInfo] resultRecipe)
+        (typedExpressionRecipe resultInfo)
+        parameters
+    )
     []
     []
 
 directCall :: Text -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
 directCall functionName parameterInfos resultInfo arguments =
   go
-    (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (resolvedName functionName))
+    (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (resolvedName functionName) Nothing)
     parameterInfos
     arguments
   where
@@ -1803,7 +3663,7 @@ directCall functionName parameterInfos resultInfo arguments =
           let applicationInfo =
                 case parameterRest of
                   [] -> resultInfo
-                  _ -> functionInfo (zip (repeat "") parameterRest) resultInfo
+                  _ -> stagedFunctionInfo (zip (repeat "") parameterRest) resultInfo
            in go (TypedApplyExpr applicationInfo functionExpression argument) parameterRest argumentRest
         ([], []) -> functionExpression
         _ -> error "expected direct call must be fully saturated"
@@ -1812,7 +3672,40 @@ resolvedName :: Text -> TypedCoreName
 resolvedName = TypedResolvedName TypedCurrentModule TypedValueNamespace
 
 variableExpr :: Text -> TypedNodeInfo -> TypedExpr
-variableExpr name info = TypedVariableExpr info (resolvedName name)
+variableExpr name info = TypedVariableExpr info (resolvedName name) Nothing
+
+bindExpectedStatementVariables :: Map.Map TypedCoreName TypedBinderId -> TypedStatement -> TypedStatement
+bindExpectedStatementVariables bindings statement =
+  case statement of
+    TypedLetStatement owner name spanValue schemeValue expression ->
+      TypedLetStatement owner name spanValue schemeValue (bindExpectedExpressionVariables bindings expression)
+    TypedExpressionStatement spanValue expression ->
+      TypedExpressionStatement spanValue (bindExpectedExpressionVariables bindings expression)
+    other -> other
+
+bindExpectedExpressionVariables :: Map.Map TypedCoreName TypedBinderId -> TypedExpr -> TypedExpr
+bindExpectedExpressionVariables bindings expression =
+  case expression of
+    TypedLiteralExpr {} -> expression
+    TypedVariableExpr info name _ -> TypedVariableExpr info name (Map.lookup name bindings)
+    TypedLambdaExpr info owner name body ->
+      TypedLambdaExpr info owner name (bindExpectedExpressionVariables (Map.insert name owner bindings) body)
+    TypedOperatorValueExpr {} -> expression
+    TypedListExpr info values -> TypedListExpr info (map recurse values)
+    TypedTupleExpr info values -> TypedTupleExpr info (map recurse values)
+    TypedApplyExpr info function argument -> TypedApplyExpr info (recurse function) (recurse argument)
+    TypedTypeApplicationExpr info function spanValue typeValue -> TypedTypeApplicationExpr info (recurse function) spanValue typeValue
+    TypedIfExpr info condition consequent alternative -> TypedIfExpr info (recurse condition) (recurse consequent) (recurse alternative)
+    TypedPatternCaseExpr info scrutinee arms ->
+      TypedPatternCaseExpr info (recurse scrutinee) (map bindArm arms)
+    TypedBinaryExpr info operator left right -> TypedBinaryExpr info operator (recurse left) (recurse right)
+    TypedLeftSectionExpr info left operator -> TypedLeftSectionExpr info (recurse left) operator
+    TypedRightSectionExpr info operator right -> TypedRightSectionExpr info operator (recurse right)
+    TypedBlockExpr info statements -> TypedBlockExpr info (map (bindExpectedStatementVariables bindings) statements)
+  where
+    recurse = bindExpectedExpressionVariables bindings
+    bindArm (TypedCaseArm patternValue guard result) =
+      TypedCaseArm patternValue (recurse <$> guard) (recurse result)
 
 typedExpressionType :: TypedNodeInfo -> TypedType
 typedExpressionType (TypedNodeInfo expressionType _ _ _) = expressionType

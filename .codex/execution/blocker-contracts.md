@@ -141,28 +141,43 @@ Each blocked item should answer these questions:
   owns the mirrored backend-neutral CFG, explicit calls and closures,
   representations, layout requests, structured validation, and canonical
   parity.
+- Accepted decision: [RFC 0009: Typed-core closures and recursive callable groups](../../rfcs/accepted/0009-typed-core-closure-and-recursion.md)
+  fixes callable-shape and binder-reference transport, unary closure staging,
+  empty environments, deterministic capture identity, and the six-child
+  delivery order without changing normal compile/run.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
   normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: approve a closure/recursion design that fixes its
-  typed-core and lowering ownership, profile, failure ordering, and focused
-  verification before creating an executor-ready implementation child.
-- Decision needed: closure/recursion semantics and lowering boundary. Do not
-  infer an implementation scope from the completed scalar/direct-call profile.
-- Recommended default: preserve the completed opt-in boundary and normal
-  canonical-core/interpreter compile/run path while closure/recursion is
-  designed separately.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-DESIGN-001`
-  (`docs` curation candidate only; not approved or ready for implementation).
-- Target paths: establish them in the closure/recursion design; do not reuse
-  or widen the completed child’s ownership list by implication.
-- Verification: `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
-- Not in scope: promoting closure/recursion implementation, or promoting
-  control flow, patterns, multi-module or import integration, managed values,
-  layouts, runtime services, tail calls, LLVM emission, object generation,
-  linking, native-runtime or ABI implementation, a public compiler embedding
-  API, bytecode or a VM, or revival of removed legacy implementations.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-CALL-FOUNDATION-001`
+  completed on `2026-08-10`. The opt-in path now transports callable shape and
+  binder references, closed named functions as values, recursively represented
+  unary closure parameters and results, explicit empty environments, and unary
+  higher-order closure calls while preserving every scalar/direct-call fixture.
+  Normal compile/run remains canonical-core/interpreter based.
+- Smallest unblocker: write and validate a matching ready-plan for concrete
+  scalar `let` production, ordered reuse, and entry lowering while retaining
+  unsupported managed bindings.
+- Decision needed: none for the semantic boundary. RFC 0009 fixes scalar
+  binding as the second ordered child, but an executor-ready plan with matching
+  frontmatter and exact fixtures has not been written.
+- Recommended default: keep scalar binding solely as the next curation target
+  until that plan validates. Keep normal compile/run on canonical core and the
+  reference interpreter.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001`.
+- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
+  `src/Jazz/Compiler/LoweredIR/Lower.hs`;
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`.
+- Verification: `cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
+  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Not in scope: re-promoting the completed closure-call foundation; inline or
+  nested anonymous lambdas; lexical capture; partial application;
+  oversaturation; recursive groups; control flow; patterns; multi-module or
+  import integration; non-closure managed values; runtime services; tail
+  calls; LLVM emission; object generation; linking; native-runtime or ABI
+  implementation; a public compiler embedding API; bytecode or a VM; or
+  revival of removed legacy implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
