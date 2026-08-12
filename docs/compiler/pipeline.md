@@ -38,8 +38,9 @@ direct-call profile during inference. The opt-in path also transports closed
 named functions as values, recursively represented unary closure parameters
 and results, explicit empty environments, and unary higher-order closure calls
 into validated backend-neutral control-flow IR. Concrete scalar bindings are
-also retained, evaluated once in source order, and reused by exact binder
-identity in later entry expressions.
+also retained in entry modules with explicitly empty export lists, evaluated
+once in source order, and reused by exact binder identity in later entry
+expressions. Scalar value interfaces are not produced yet.
 
 This path does not participate in ordinary compile or run, which remain on
 canonical core and the reference interpreter. Anonymous or nested closures,

@@ -474,13 +474,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 info <- either (const Nothing) Just infoResult
                 typedExpression <- maybeExpression
                 pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner TypedDirectCallableShape info) typedExpression)
+              acceptedStatement = if null failures then typedStatement else Nothing
               nextScalarBindings =
-                case infoResult of
-                  Right _
-                    | null callableNameCollisionFailures -> Map.insert name owner scalarBindings
-                  Left _ -> scalarBindings
-                  _ -> scalarBindings
-           in (failures, if null failures then typedStatement else Nothing, nextScalarBindings)
+                case acceptedStatement of
+                  Just _ -> Map.insert name owner scalarBindings
+                  Nothing -> scalarBindings
+           in (failures, acceptedStatement, nextScalarBindings)
         ProvisionalTerminalExpression statementIndex spanValue expression ->
           let (failures, maybeTypedExpression) =
                 finalizeExpression functions callableShapes statementIndex [] scalarBindings ScalarExpression expression

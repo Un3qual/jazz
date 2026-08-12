@@ -4,9 +4,9 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-07-31
+Updated: 2026-08-12
 
-Implementation snapshot: `b0ff07799029c27728799b817488d5bead85ee72`
+Implementation snapshot: `a06d89b4082769769b6cf434547b13e8d71df540`
 
 Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
 implementation snapshot above; documentation-only commits do not alter that
@@ -37,7 +37,9 @@ The opt-in typed-core and backend-neutral lowering profile includes closed
 named functions as values, recursively represented unary closure parameters
 and results, explicit empty environments, unary higher-order closure calls, and
 concrete scalar bindings evaluated once in source order and reused by exact
-binder identity in later entry expressions. Ordinary compile and run remain on
-canonical core and the reference interpreter. The opt-in profile still
-excludes anonymous or nested closures, lexical capture, currying and partial
-application, oversaturation, and recursion.
+binder identity in later entry expressions. Scalar bindings currently require
+an entry module with an explicitly empty export list because scalar value
+interfaces are not produced. Ordinary compile and run remain on canonical core
+and the reference interpreter. The opt-in profile still excludes anonymous or
+nested closures, lexical capture, currying and partial application,
+oversaturation, and recursion.

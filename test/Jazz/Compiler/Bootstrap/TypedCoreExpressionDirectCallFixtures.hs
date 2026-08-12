@@ -415,7 +415,8 @@ scalarBindingProducerFixtures =
   [ ("scalar-binding-literal", sourceFixtureNoExports "scalar-binding-literal" scalarBindingLiteralSource),
     ("scalar-binding-ordered-reuse", sourceFixtureNoExports "scalar-binding-ordered-reuse" scalarBindingOrderedReuseSource),
     ("scalar-binding-direct-call-result", sourceFixtureNoExports "scalar-binding-direct-call-result" scalarBindingDirectCallResultSource),
-    ("managed-scalar-binding", sourceFixtureNoExports "managed-scalar-binding" managedScalarBindingSource)
+    ("managed-scalar-binding", sourceFixtureNoExports "managed-scalar-binding" managedScalarBindingSource),
+    ("scalar-binding-failed-initializer-hidden", sourceFixtureNoExports "scalar-binding-failed-initializer-hidden" scalarBindingFailedInitializerSource)
   ]
 
 scalarBindingExpectedPrograms :: [(Text, TypedProgram)]
@@ -3359,7 +3360,7 @@ charEntrySource = "'j'."
 defaultIntEntrySource = "7."
 defaultFloatEntrySource = "1.05."
 
-scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource :: Text
+scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource, scalarBindingFailedInitializerSource :: Text
 scalarBindingLiteralSource =
   Text.unlines
     [ "seed = 40.",
@@ -3383,6 +3384,11 @@ managedScalarBindingSource =
   Text.unlines
     [ "message = \"managed\".",
       "message."
+    ]
+scalarBindingFailedInitializerSource =
+  Text.unlines
+    [ "failed = __kernel_toFloat64 1.",
+      "failed."
     ]
 
 arithmeticOperatorsSource, orderingOperatorsSource, equalityOperatorsSource :: Text

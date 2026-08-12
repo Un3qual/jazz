@@ -359,6 +359,7 @@ testScalarBindingProduction :: IO ()
 testScalarBindingProduction = do
   mapM_ assertProduced scalarBindingExpectedPrograms
   assertManagedBindingRejected
+  assertFailedBindingHidden
   where
     assertProduced (name, expectedProgram) = do
       let fixture = producerEdgeFixture name
@@ -384,6 +385,17 @@ testScalarBindingProduction = do
       secondRun <- produceFixture fixture
       assertEqual "managed scalar binding repeatable rejection" firstRun secondRun
       assertEqual "managed scalar binding complete rejection" expected (typedCoreProductionStatus firstRun)
+    assertFailedBindingHidden = do
+      let fixture = producerEdgeFixture "scalar-binding-failed-initializer-hidden"
+          expected =
+            TypedCoreProductionUnsupported
+              [ expressionFailure 0 [0] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toFloat64"),
+                expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "failed")
+              ]
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual "failed scalar binding repeatable rejection" firstRun secondRun
+      assertEqual "failed scalar binding remains hidden" expected (typedCoreProductionStatus firstRun)
     expressionFailure statementIndex childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)

@@ -70,8 +70,8 @@ done
 require_file "docs/project/status.md"
 require_file "docs/project/governance.md"
 require_file ".codex/execution/blocker-contracts.md"
-require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-07-31$'
-require_pattern "docs/project/status.md" "implementation snapshot" '^Implementation snapshot: `b0ff07799029c27728799b817488d5bead85ee72`$'
+require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-08-12$'
+require_pattern "docs/project/status.md" "implementation snapshot" '^Implementation snapshot: `a06d89b4082769769b6cf434547b13e8d71df540`$'
 require_pattern ".codex/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
 
 removed_paths=(
