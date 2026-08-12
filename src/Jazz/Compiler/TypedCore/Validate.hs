@@ -2558,6 +2558,8 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
           | childIndex == 0 -> directCalleeArgumentCount + 1
         TypedTypeApplicationExpr {}
           | childIndex == 0 -> directCalleeArgumentCount
+        TypedBinaryExpr _ (TypedBuiltinOperator "$") _ _
+          | childIndex == 0 -> directCalleeArgumentCount + 1
         _ -> 0
     childExplicitSpan childIndex =
       case expression of
@@ -3030,7 +3032,7 @@ validateVariableExpression context path directCalleeArgumentCount info name bind
                   [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length contracts))]
         | otherwise ->
             validateAbsentBinderReference path binderReference
-              <> validateBuiltinValueContract context path info identifier
+              <> validateBuiltinValueContract context path directCalleeArgumentCount info identifier
       _ ->
         case resolvedNameKey (moduleContextPath context) name >>= (`Map.lookup` moduleContextLexicalContracts context) of
           Just contract -> validateLexicalBinderReference path info binderReference contract
@@ -3138,20 +3140,27 @@ validateReferencedValueContract path owner info (ValueContract expectedType expe
       []
   | otherwise = [failure path TypedBinderReferenceMismatch (TypedBinderDetail owner)]
 
-validateBuiltinValueContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> Text -> [TypedCoreValidationFailure]
-validateBuiltinValueContract context path info identifier =
+validateBuiltinValueContract :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> Text -> [TypedCoreValidationFailure]
+validateBuiltinValueContract context path directCalleeArgumentCount info identifier =
   case lookupTypedBuiltinSymbol identifier of
     Nothing -> []
     Just builtinSymbol ->
       case builtinConcreteValueType builtinSymbol of
         Just expectedType ->
-          case expectedRecipe expectedType of
+          case expectedBuiltinUseRecipe directCalleeArgumentCount expectedType of
             Just expectedRecipeValue ->
               validateValueContract path info (ValueContract expectedType expectedRecipeValue)
             Nothing -> [failure path TypedBindingValueMismatch (TypedTextDetail identifier)]
         Nothing
           | builtinPolymorphicValueTypeMatches context builtinSymbol (typedNodeType info) -> []
           | otherwise -> [failure path TypedBindingValueMismatch (TypedTextDetail identifier)]
+
+expectedBuiltinUseRecipe :: Int -> TypedType -> Maybe TypedRepresentationRecipe
+expectedBuiltinUseRecipe directCalleeArgumentCount typeValue =
+  case expectedRecipe typeValue of
+    directRecipe@(Just recipe)
+      | directCallableRecipeArity recipe == Just directCalleeArgumentCount -> directRecipe
+    _ -> expectedValueRecipe typeValue
 
 lookupTypedBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupTypedBuiltinSymbol identifier =
@@ -4771,40 +4780,46 @@ validateOperatorValue context path directCalleeArgumentCount info operator =
                  contractFailures <> validateValueContract path info contract
                (contractFailures, Nothing) -> contractFailures
            )
-        <> resolvedOperatorCallableShapeFailures
-  where
-    resolvedOperatorCallableShapeFailures =
-      case operator of
-        TypedResolvedOperator name _ ->
-          maybe [] (validateDirectCallableSchemeUse path directCalleeArgumentCount) (lookupSchemeByName context name)
-        _ -> []
+        <> resolvedOperatorCallableShapeFailures context path directCalleeArgumentCount operator
+
+resolvedOperatorCallableShapeFailures :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedOperatorRef -> [TypedCoreValidationFailure]
+resolvedOperatorCallableShapeFailures context path directCalleeArgumentCount operator =
+  case operator of
+    TypedResolvedOperator name _ ->
+      maybe [] (validateDirectCallableSchemeUse path directCalleeArgumentCount) (lookupSchemeByName context name)
+    _ -> []
 
 validateBinaryOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure]
 validateBinaryOperator context path info operator left right =
   case operator of
+    TypedBuiltinOperator "$" ->
+      validateOperatorRef context path operator
+        <> validateApplication path info left right
     TypedBuiltinOperator symbol ->
       validateOperatorRef context path operator
         <> validateBuiltinOperatorApplication context path symbol (typedNodeType (typedExpressionInfo left)) (typedNodeType (typedExpressionInfo right)) (typedNodeType info)
     TypedResolvedOperator {} ->
       validateOperatorRef context path operator
-        <> case operatorValueContract context path info operator of
-          (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) operatorRecipe)) ->
-            contractFailures
-              <> typeMismatchFailure TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
-              <> typeMismatchFailure TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
-              <> typeMismatchFailure TypedApplicationResultMismatch expectedResult (typedNodeType info)
-              <> binaryRecipeFailures operatorType operatorRecipe expectedLeft expectedRight expectedResult
-          (contractFailures, Just (ValueContract actualType _)) ->
-            contractFailures
-              <> [ failure
-                     path
-                     TypedApplicationFunctionMismatch
-                     ( TypedTypeDetail
-                         (TypedFunctionType (typedNodeType (typedExpressionInfo left)) (TypedFunctionType (typedNodeType (typedExpressionInfo right)) (typedNodeType info)))
-                         actualType
-                     )
-                 ]
-          (contractFailures, Nothing) -> contractFailures
+        <> ( case operatorValueContract context path info operator of
+               (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) operatorRecipe)) ->
+                 contractFailures
+                   <> typeMismatchFailure TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
+                   <> typeMismatchFailure TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
+                   <> typeMismatchFailure TypedApplicationResultMismatch expectedResult (typedNodeType info)
+                   <> binaryRecipeFailures operatorType operatorRecipe expectedLeft expectedRight expectedResult
+               (contractFailures, Just (ValueContract actualType _)) ->
+                 contractFailures
+                   <> [ failure
+                          path
+                          TypedApplicationFunctionMismatch
+                          ( TypedTypeDetail
+                              (TypedFunctionType (typedNodeType (typedExpressionInfo left)) (TypedFunctionType (typedNodeType (typedExpressionInfo right)) (typedNodeType info)))
+                              actualType
+                          )
+                      ]
+               (contractFailures, Nothing) -> contractFailures
+           )
+        <> resolvedOperatorCallableShapeFailures context path 2 operator
   where
     typeMismatchFailure kind expected actual
       | expected == actual = []

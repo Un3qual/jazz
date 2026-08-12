@@ -3555,26 +3555,31 @@ module TypedCoreValidate (
 
   validateBinaryOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> TypedExpr -> [TypedCoreValidationFailure].
   validateBinaryOperator = \(context, path, info, operator, left, right) -> case operator {
+    | TypedBuiltinOperator "$" -> listAppend
+      (validateOperatorRef context path operator)
+      (validateApplication path info left right)
     | TypedBuiltinOperator symbol -> listAppend
       (validateOperatorRef context path operator)
       (validateBuiltinOperatorApplication context path symbol (nodeType (expressionInfo left)) (nodeType (expressionInfo right)) (nodeType info))
-    | TypedResolvedOperator name symbol -> case operatorValueContract context path info operator {
-      | (contractFailures, Nothing) -> listAppend (validateOperatorRef context path operator) contractFailures
-      | (contractFailures, Just (ValueContract operatorType operatorRecipe)) -> case operatorType {
-        | TypedFunctionType expectedLeft remainder -> case remainder {
-          | TypedFunctionType expectedRight expectedResult -> listConcat
-            [ validateOperatorRef context path operator,
-              contractFailures,
-              typeMismatchFailure path TypedApplicationArgumentMismatch expectedLeft (nodeType (expressionInfo left)),
-              typeMismatchFailure path TypedApplicationArgumentMismatch expectedRight (nodeType (expressionInfo right)),
-              typeMismatchFailure path TypedApplicationResultMismatch expectedResult (nodeType info),
-              binaryOperatorRecipeFailures path operatorType operatorRecipe expectedLeft (expressionInfo left) expectedRight (expressionInfo right) expectedResult info
-            ]
+    | TypedResolvedOperator name symbol -> listAppend
+      (case operatorValueContract context path info operator {
+        | (contractFailures, Nothing) -> listAppend (validateOperatorRef context path operator) contractFailures
+        | (contractFailures, Just (ValueContract operatorType operatorRecipe)) -> case operatorType {
+          | TypedFunctionType expectedLeft remainder -> case remainder {
+            | TypedFunctionType expectedRight expectedResult -> listConcat
+              [ validateOperatorRef context path operator,
+                contractFailures,
+                typeMismatchFailure path TypedApplicationArgumentMismatch expectedLeft (nodeType (expressionInfo left)),
+                typeMismatchFailure path TypedApplicationArgumentMismatch expectedRight (nodeType (expressionInfo right)),
+                typeMismatchFailure path TypedApplicationResultMismatch expectedResult (nodeType info),
+                binaryOperatorRecipeFailures path operatorType operatorRecipe expectedLeft (expressionInfo left) expectedRight (expressionInfo right) expectedResult info
+              ]
+            | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo left)) (TypedFunctionType (nodeType (expressionInfo right)) (nodeType info))) operatorType)]]
+          }
           | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo left)) (TypedFunctionType (nodeType (expressionInfo right)) (nodeType info))) operatorType)]]
         }
-        | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo left)) (TypedFunctionType (nodeType (expressionInfo right)) (nodeType info))) operatorType)]]
-      }
-    }
+      })
+      (resolvedOperatorCallableShapeFailures context path 2 operator)
   }.
 
   validateLeftSectionOperatorContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedOperatorRef -> [TypedCoreValidationFailure].
@@ -3857,10 +3862,19 @@ module TypedCoreValidate (
       | other -> False
     }.
 
-  validateBuiltinValueContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> Text -> [TypedCoreValidationFailure].
-  validateBuiltinValueContract = \(context, path, info, identifier) ->
+  expectedBuiltinUseRecipe :: Int -> TypedType -> Maybe(TypedRepresentationRecipe).
+  expectedBuiltinUseRecipe = \(directCalleeArgumentCount, typeValue) -> case expectedRecipe typeValue {
+    | Just directRecipe -> case directCallableRecipeArity directRecipe {
+      | Just expectedArgumentCount -> if directCalleeArgumentCount == expectedArgumentCount then Just directRecipe else expectedValueRecipe typeValue
+      | Nothing -> expectedValueRecipe typeValue
+    }
+    | Nothing -> expectedValueRecipe typeValue
+  }.
+
+  validateBuiltinValueContract :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> Text -> [TypedCoreValidationFailure].
+  validateBuiltinValueContract = \(context, path, directCalleeArgumentCount, info, identifier) ->
     if knownBuiltinName identifier then case builtinConcreteValueType identifier {
-      | Just expectedType -> case expectedRecipe expectedType {
+      | Just expectedType -> case expectedBuiltinUseRecipe directCalleeArgumentCount expectedType {
         | Just expectedRecipeValue -> validateValueContract path info (ValueContract expectedType expectedRecipeValue)
         | Nothing -> [failure path TypedBindingValueMismatch (TypedTextDetail identifier)]
       }
@@ -4044,7 +4058,7 @@ module TypedCoreValidate (
               | [] -> []
               | [contract] -> validateValueContract path info contract
               | contracts -> [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (listLength contracts))]
-            } else validateBuiltinValueContract context path info identifier)
+            } else validateBuiltinValueContract context path directCalleeArgumentCount info identifier)
           | TypedResolvedName origin TypedValueNamespace identifier -> case lookupSchemeByName modulePath name schemes {
             | Just scheme -> validateVariableSchemeContract modulePath path directCalleeArgumentCount info binderReference scheme
             | Nothing -> validateAbsentBinderReference path binderReference
@@ -5482,9 +5496,15 @@ module TypedCoreValidate (
         | TypedPatternCaseExpr info scrutinee arms -> listAppend
           (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) True 0 Nothing scrutinee)
           (validateCaseChildExpressions context statementIndex expressionPath arms 1)
-        | TypedBinaryExpr info operator left right -> listAppend
-          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) True 0 Nothing left)
-          (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [1]) True 0 Nothing right)
+        | TypedBinaryExpr info operator left right -> {
+          leftDirectCalleeArgumentCount = case operator {
+            | TypedBuiltinOperator "$" -> directCalleeArgumentCount + 1
+            | other -> 0
+          }.
+          listAppend
+            (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) True leftDirectCalleeArgumentCount Nothing left)
+            (validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [1]) True 0 Nothing right).
+        }
         | TypedLeftSectionExpr info left operator -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) True 0 Nothing left
         | TypedRightSectionExpr info operator right -> validateExpressionWithParentSpan context statementIndex (listAppend expressionPath [0]) True 0 Nothing right
         | TypedBlockExpr info statements ->
