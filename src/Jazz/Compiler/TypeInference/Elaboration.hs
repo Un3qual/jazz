@@ -12,9 +12,11 @@ module Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionMode (..),
     InferredProductionFailure (..),
     InferredExpr (..),
+    ProvisionalCallableDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
+    expressionDependencyNames,
     specializeInferredExpression,
     finalizeTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
@@ -23,23 +25,31 @@ where
 
 import Control.Applicative ((<|>))
 import Data.Either (partitionEithers)
-import Data.Graph (SCC (..), stronglyConnComp)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (Literal (..), NumericType (..), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), ImplMethod (..), Literal (..), NumericType (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog (numericTypeIsIntegral)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
-import Jazz.Compiler.ModuleExports (ModuleExport (..), exportInventoryEntries)
-import Jazz.Compiler.ModuleGraph (ResolvedModule (..))
+import Jazz.Compiler.ModuleExports
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
+    ModuleExportSelector (..),
+    ModuleTypeConstructorSelector (..),
+    inventoryHasExport,
+  )
+import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
 import Jazz.Compiler.Name
   ( GeneratedNameKind (OperatorBinding),
     Name (..),
     NameNamespace (..),
     identifierText,
+    operatorBindingName,
   )
+import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
     resolveType,
@@ -161,20 +171,87 @@ data ProvisionalTypedExpr
 
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
-  | ProvisionalFunctionBinding Int Name SourceSpan ExpressionType (Maybe TypeBinding) ProvisionalTypedExpr
+  | ProvisionalFunctionBinding ProvisionalCallableDeclaration ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
+  | ProvisionalUnsupportedCallableBinding ProvisionalCallableDeclaration TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
   | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
+  deriving (Eq, Show)
+
+data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration
+  { provisionalCallableStatementIndex :: Int,
+    provisionalCallableName :: Name,
+    provisionalCallableSpan :: SourceSpan,
+    provisionalCallableType :: ExpressionType,
+    provisionalCallableBinding :: Maybe TypeBinding,
+    provisionalCallableRecursiveGroupMembers :: Maybe [Int]
+  }
   deriving (Eq, Show)
 
 data FunctionProfile = FunctionProfile
   { functionStatementIndex :: Int,
     functionType :: ExpressionType,
-    functionArity :: Int,
-    functionExpression :: ProvisionalTypedExpr
+    functionArity :: Int
   }
 
+-- | Canonical free value references for dependency analysis. This walks the
+-- resolved core expression rather than the provisional production tree, so a
+-- rejected expression cannot erase dependency evidence. Scope separately
+-- transports canonical recursive-group membership after applying declaration
+-- position, rebinding, outer-binding, and lexical-shadow semantics.
+expressionDependencyNames :: Expr -> Set.Set Name
+expressionDependencyNames = go
+  where
+    go expression =
+      case expression of
+        ELit {} -> Set.empty
+        EVar name -> Set.singleton name
+        ELambda parameterName body -> Set.delete parameterName (go body)
+        EOperatorValue operatorSymbol -> operatorDependencies operatorSymbol
+        EList elements -> foldMap go elements
+        ETuple elements -> foldMap go elements
+        EApply function argument -> go function <> go argument
+        ETypeApplication function _ _ -> go function
+        EIf condition thenExpression elseExpression ->
+          go condition <> go thenExpression <> go elseExpression
+        EPatternCase scrutinee arms -> go scrutinee <> foldMap armDependencies arms
+        EBinary operatorSymbol left right ->
+          operatorDependencies operatorSymbol <> go left <> go right
+        ESectionLeft left operatorSymbol -> operatorDependencies operatorSymbol <> go left
+        ESectionRight operatorSymbol right -> operatorDependencies operatorSymbol <> go right
+        EBlock statements -> blockDependencies Set.empty statements
+    armDependencies (CaseArm patternValue maybeGuard result) =
+      let boundNames = patternBindingNames patternValue
+       in (maybe Set.empty go maybeGuard <> go result) Set.\\ boundNames
+    methodDependencies (ImplMethod _ _ body) = go body
+    blockDependencies _ [] = Set.empty
+    blockDependencies lexicalNames (statement : rest) =
+      case statement of
+        SLet name _ initializer ->
+          (go initializer Set.\\ lexicalNames)
+            <> blockDependencies (Set.insert name lexicalNames) rest
+        SExpr _ result ->
+          (go result Set.\\ lexicalNames) <> blockDependencies lexicalNames rest
+        SImpl _ _ _ methods ->
+          (foldMap methodDependencies methods Set.\\ lexicalNames)
+            <> blockDependencies lexicalNames rest
+        _ -> blockDependencies lexicalNames rest
+    patternBindingNames patternValue =
+      case patternValue of
+        PWildcard -> Set.empty
+        PVariable name -> Set.singleton name
+        PLiteral {} -> Set.empty
+        PConstructor _ fields -> foldMap patternBindingNames fields
+        PList elements -> foldMap patternBindingNames elements
+        PConsList headPattern tailPattern -> patternBindingNames headPattern <> patternBindingNames tailPattern
+        PTuple elements -> foldMap patternBindingNames elements
+        PAs name nested -> Set.insert name (patternBindingNames nested)
+        POr alternatives -> foldMap patternBindingNames alternatives
+    operatorDependencies operatorSymbol
+      | isBuiltinOperatorSymbol operatorSymbol = Set.empty
+      | otherwise = Set.singleton (operatorBindingName operatorSymbol)
+
 data ExpressionRole
-  = FunctionBindingExpression
+  = FunctionBindingExpression TypedCallableShape Int
   | CalleeExpression
   | ScalarExpression
 
@@ -191,15 +268,18 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
       let functions = functionTable provisionalStatements
+          declarations = callableDeclarations provisionalStatements
+          callableShapes = callableShapeTable functions provisionalStatements
           reboundFunctions = reboundFunctionStatements provisionalStatements
-          recursiveNames = recursiveFunctionNames functions
-          finalizedStatements = map (finalizeStatement functions reboundFunctions recursiveNames) provisionalStatements
-          exportResult = finalizeExports functions
+          recursiveBinders = recursiveDeclarationBinders declarations
+          finalizedStatements = map (finalizeStatement functions callableShapes reboundFunctions recursiveBinders) provisionalStatements
+          exportResult = finalizeExports functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
             | not (hasTerminalResult provisionalStatements)
             ]
-          productionFailures = concatMap fst finalizedStatements <> fst exportResult <> missingResultFailures
+          moduleFailures = missingResultFailures <> fst exportResult
+          productionFailures = moduleFailures <> concatMap fst finalizedStatements
        in case productionFailures of
             _ : _ -> TypedCoreProductionUnsupported productionFailures
             [] ->
@@ -254,18 +334,21 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatement functions reboundFunctions recursiveNames statement =
+    finalizeStatement functions callableShapes reboundFunctions recursiveBinders statement =
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
-          case callableInfo statementIndex [] expressionType of
-            Left failure -> ([failure], Nothing)
-            Right info ->
-              let typedName = resolvedValueName name
-                  owner = binderAt statementIndex [] typedName
-               in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner info)))
-        ProvisionalFunctionBinding statementIndex name spanValue expressionType maybeBinding expression ->
+          let callableShape = shapeFor callableShapes name
+              directArity = maybe (resolvedFunctionArity expressionType) functionArity (Map.lookup name functions)
+           in case callableInfo callableShape directArity statementIndex [] expressionType of
+                Left failure -> ([failure], Nothing)
+                Right info ->
+                  let typedName = resolvedValueName name
+                      owner = binderAt statementIndex [] typedName
+                   in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info)))
+        ProvisionalFunctionBinding declaration expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
+              callableShape = shapeFor callableShapes name
               generatedOperatorFailures =
                 case name of
                   GeneratedName (OperatorBinding _) ->
@@ -277,7 +360,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 ]
               recursiveFailures =
                 [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
-                | Set.member name recursiveNames
+                | Set.member owner recursiveBinders
                 ]
               schemeFailures =
                 case maybeBinding of
@@ -287,27 +370,60 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 case expression of
                   ProvisionalLambdaExpression {} -> []
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+              directArity = maybe 0 functionArity (Map.lookup name functions)
               (expressionFailures, maybeExpression) =
-                finalizeExpression functions statementIndex [0] Set.empty FunctionBindingExpression expression
-              infoResult = callableInfo statementIndex [] expressionType
+                finalizeExpression functions callableShapes statementIndex [0] Map.empty (FunctionBindingExpression callableShape directArity) expression
+              infoResult = callableInfo callableShape directArity statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
-              failures = generatedOperatorFailures <> rebindingFailures <> recursiveFailures <> schemeFailures <> shapeFailures <> infoFailures <> expressionFailures
+              owningStatementFailures =
+                shapeFailures
+                  <> generatedOperatorFailures
+                  <> recursiveFailures
+                  <> rebindingFailures
+                  <> schemeFailures
+              failures = owningStatementFailures <> infoFailures <> expressionFailures
               typedStatement = do
                 info <- either (const Nothing) Just infoResult
                 typedExpression <- maybeExpression
-                pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner info) typedExpression)
+                pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info) typedExpression)
            in (failures, if null failures then typedStatement else Nothing)
+          where
+            statementIndex = provisionalCallableStatementIndex declaration
+            name = provisionalCallableName declaration
+            spanValue = provisionalCallableSpan declaration
+            expressionType = provisionalCallableType declaration
+            maybeBinding = provisionalCallableBinding declaration
         ProvisionalTerminalExpression statementIndex spanValue expression ->
           let (failures, maybeTypedExpression) =
-                finalizeExpression functions statementIndex [] Set.empty ScalarExpression expression
+                finalizeExpression functions callableShapes statementIndex [] Map.empty ScalarExpression expression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
+        ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
+          ( recursiveFailures
+              <> rebindingFailures
+              <> ( statementFailure statementIndex kind detail
+                     : map (qualifyInferredFailure statementIndex []) childFailures
+                 ),
+            Nothing
+          )
+          where
+            statementIndex = provisionalCallableStatementIndex declaration
+            name = provisionalCallableName declaration
+            owner = binderAt statementIndex [] (resolvedValueName name)
+            recursiveFailures =
+              [ statementFailure statementIndex TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail (identifierText name))
+              | Set.member owner recursiveBinders
+              ]
+            rebindingFailures =
+              [ statementFailure statementIndex TypedCoreFunctionRebindingUnsupported (TypedCoreNameDetail (identifierText name))
+              | Map.member statementIndex reboundFunctions
+              ]
         ProvisionalUnsupportedStatement statementIndex kind detail childFailures ->
           ( statementFailure statementIndex kind detail
               : map (qualifyInferredFailure statementIndex []) childFailures,
             Nothing
           )
 
-    finalizeExpression functions statementIndex childPath parameters expressionRole expression =
+    finalizeExpression functions callableShapes statementIndex childPath parameters expressionRole expression =
       case expression of
         ProvisionalUnitExpression ->
           ([], Just (TypedTupleExpr unitInfo []))
@@ -324,43 +440,44 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                     case scalarInfo statementIndex childPath expressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just info)
-                  (leftFailures, maybeLeft) = finalizeExpression functions statementIndex (childPath <> [0]) parameters ScalarExpression left
-                  (rightFailures, maybeRight) = finalizeExpression functions statementIndex (childPath <> [1]) parameters ScalarExpression right
+                  (leftFailures, maybeLeft) = finalizeExpression functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression left
+                  (rightFailures, maybeRight) = finalizeExpression functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression right
                   failures = operatorFailures <> leftFailures <> rightFailures
                   typedExpression =
                     TypedBinaryExpr <$> maybeInfo <*> pure (TypedBuiltinOperator operatorSymbol) <*> maybeLeft <*> maybeRight
                in (failures, if null failures then typedExpression else Nothing)
           | otherwise ->
-              let (leftFailures, _) = finalizeExpression functions statementIndex (childPath <> [0]) parameters ScalarExpression left
-                  (rightFailures, _) = finalizeExpression functions statementIndex (childPath <> [1]) parameters ScalarExpression right
+              let (leftFailures, _) = finalizeExpression functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression left
+                  (rightFailures, _) = finalizeExpression functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression right
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
         ProvisionalVariableExpression name expressionType
           | TDataType {} <- resolveType state expressionType ->
               ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
                 Nothing
               )
-          | Set.member name parameters ->
-              case scalarInfo statementIndex childPath expressionType of
+          | Just parameterBinder <- Map.lookup name parameters ->
+              case valueInfo statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
-                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
+                Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) (Just parameterBinder)))
           | Just function <- Map.lookup name functions ->
-              case expressionRole of
-                CalleeExpression ->
-                  case callableInfo statementIndex childPath (functionType function) of
-                    Left failure -> ([failure], Nothing)
-                    Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name)))
-                _ ->
-                  ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
-                    Nothing
-                  )
+              let callableShape = shapeFor callableShapes name
+                  valueUseSupported = callableShape == TypedClosureCallableShape && functionArity function == 1
+               in case expressionRole of
+                    CalleeExpression -> finalizeNamedFunctionReference name callableShape function
+                    _
+                      | valueUseSupported -> finalizeNamedFunctionReference name callableShape function
+                      | otherwise ->
+                          ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
+                            Nothing
+                          )
           | otherwise ->
               ( [failureAt statementIndex childPath TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))],
                 Nothing
               )
         ProvisionalLambdaExpression parameterName expressionType body ->
           case expressionRole of
-            FunctionBindingExpression ->
-              case callableInfo statementIndex childPath expressionType of
+            FunctionBindingExpression callableShape remainingDirectArity ->
+              case callableInfo callableShape remainingDirectArity statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
                 Right info ->
                   let duplicateParameterFailures =
@@ -369,18 +486,19 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                             childPath
                             TypedCoreDuplicateParameterUnsupported
                             (TypedCoreNameDetail (identifierText parameterName))
-                        | Set.member parameterName parameters
+                        | Map.member parameterName parameters
                         ]
                       parameterPath = childPath
+                      parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
                       (bodyFailures, maybeBody) =
                         finalizeExpression
                           functions
+                          callableShapes
                           statementIndex
                           (childPath <> [0])
-                          (Set.insert parameterName parameters)
-                          FunctionBindingExpression
+                          (Map.insert parameterName parameterBinder parameters)
+                          (FunctionBindingExpression callableShape (max 0 (remainingDirectArity - 1)))
                           body
-                      parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
                       failures = duplicateParameterFailures <> bodyFailures
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
             _ ->
@@ -388,22 +506,31 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                 Nothing
               )
         ProvisionalApplyExpression _ _ _ ->
-          finalizeApplicationSpine functions statementIndex childPath parameters expression
+          finalizeApplicationSpine functions callableShapes statementIndex childPath parameters expression
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
         ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
         ProvisionalRetainedFailures failures ->
           (map (qualifyInferredFailure statementIndex childPath) failures, Nothing)
+      where
+        finalizeNamedFunctionReference name callableShape function =
+          case callableInfo callableShape (functionArity function) statementIndex childPath (functionType function) of
+            Left failure -> ([failure], Nothing)
+            Right info ->
+              let typedName = resolvedValueName name
+                  functionBinder = binderAt (functionStatementIndex function) [] typedName
+               in ([], Just (TypedVariableExpr info typedName (Just functionBinder)))
 
     qualifyInferredFailure statementIndex parentPath (InferredProductionFailure relativePath kind detail) =
       failureAt statementIndex (parentPath <> relativePath) kind detail
 
-    finalizeApplicationSpine functions statementIndex childPath parameters expression =
+    finalizeApplicationSpine functions callableShapes statementIndex childPath parameters expression =
       let (callee, arguments, resultTypes) = applicationSpine expression
           finalizedArguments =
             map
               ( \(argumentPath, argument) ->
                   finalizeExpression
                     functions
+                    callableShapes
                     statementIndex
                     (childPath <> argumentPath)
                     parameters
@@ -414,6 +541,29 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
           argumentFailures = concatMap fst finalizedArguments
        in case callee of
             ProvisionalVariableExpression name _
+              | Map.member name parameters ->
+                  let expectedArity = 1
+                      actualArity = length arguments
+                      arityFailures =
+                        [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
+                        | actualArity /= expectedArity
+                        ]
+                      (calleeFailures, maybeCallee) =
+                        finalizeExpression functions callableShapes statementIndex childPath parameters CalleeExpression callee
+                      childFailures = calleeFailures <> argumentFailures
+                   in case arityFailures of
+                        _ : _ -> (arityFailures <> childFailures, Nothing)
+                        [] ->
+                          case (resultTypes, finalizedArguments) of
+                            ([resultType], [(_, maybeArgument)]) ->
+                              let (resultInfoFailures, maybeResultInfo) =
+                                    case scalarOrCallableInfo statementIndex childPath resultType of
+                                      Left failure -> ([failure], Nothing)
+                                      Right info -> ([], Just info)
+                                  failures = childFailures <> resultInfoFailures
+                                  typedApplication = TypedApplyExpr <$> maybeResultInfo <*> maybeCallee <*> maybeArgument
+                               in (failures, if null failures then typedApplication else Nothing)
+                            _ -> ([], Nothing)
               | Just function <- Map.lookup name functions ->
                   let expectedArity = functionArity function
                       actualArity = length arguments
@@ -422,7 +572,7 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
                         | actualArity /= expectedArity
                         ]
                       (calleeFailures, maybeCallee) =
-                        finalizeExpression functions statementIndex childPath parameters CalleeExpression callee
+                        finalizeExpression functions callableShapes statementIndex childPath parameters CalleeExpression callee
                       childFailures = calleeFailures <> argumentFailures
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
@@ -480,31 +630,72 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
         GeneratedName (OperatorBinding storageName) -> TypedGeneratedName (TypedOperatorBinding storageName)
         _ -> TypedResolvedName TypedCurrentModule TypedValueNamespace (identifierText name)
 
-    scheme owner info =
-      TypedScheme owner [] [] [] (typedNodeType info) (typedNodeRecipe info)
+    scheme owner callableShape info =
+      TypedScheme owner [] [] [] (typedNodeType info) (typedNodeRecipe info) maybeCallableShape
+      where
+        maybeCallableShape =
+          case typedNodeType info of
+            TypedFunctionType {} -> Just callableShape
+            _ -> Nothing
 
-    callableInfo statementIndex childPath expressionType =
-      case typeAndRecipe statementIndex childPath expressionType of
+    callableInfo callableShape directArity statementIndex childPath expressionType =
+      case callableTypeAndRecipe callableShape directArity statementIndex childPath expressionType of
         Right (typeValue@TypedFunctionType {}, recipe@TypedClosureRecipe {}) ->
           Right (TypedNodeInfo typeValue recipe [] [])
         Right _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
         Left failure -> Left failure
 
     scalarOrCallableInfo statementIndex childPath expressionType =
-      case typeAndRecipe statementIndex childPath expressionType of
+      valueInfo statementIndex childPath expressionType
+
+    valueInfo statementIndex childPath expressionType =
+      case valueTypeAndRecipe statementIndex childPath expressionType of
         Right (typeValue, recipe) -> Right (TypedNodeInfo typeValue recipe [] [])
         Left failure -> Left failure
 
-    typeAndRecipe statementIndex childPath expressionType =
+    callableTypeAndRecipe callableShape directArity =
+      case callableShape of
+        TypedDirectCallableShape -> directTypeAndRecipe directArity
+        TypedClosureCallableShape -> stagedTypeAndRecipe
+
+    directTypeAndRecipe remainingDirectArity statementIndex childPath expressionType =
+      case (remainingDirectArity, defaultScalarLiterals (resolveType state expressionType)) of
+        (remaining, TFunctionType argument result)
+          | remaining > 0 -> do
+              (argumentType, argumentRecipe) <- valueTypeAndRecipe statementIndex childPath argument
+              (resultType, resultRecipe) <-
+                if remaining == 1
+                  then valueTypeAndRecipe statementIndex childPath result
+                  else directTypeAndRecipe (remaining - 1) statementIndex childPath result
+              let recipe =
+                    if remaining == 1
+                      then TypedClosureRecipe [argumentRecipe] resultRecipe
+                      else prependClosureRecipe argumentRecipe resultRecipe
+              Right (TypedFunctionType argumentType resultType, recipe)
+        (_, other) -> scalarTypeAndRecipe statementIndex childPath other
+
+    resolvedFunctionArity expressionType =
+      case defaultScalarLiterals (resolveType state expressionType) of
+        TFunctionType _ result -> 1 + resolvedFunctionArity result
+        _ -> 0
+
+    stagedTypeAndRecipe statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
         TFunctionType argument result -> do
-          TypedNodeInfo argumentType argumentRecipe _ _ <- scalarInfo statementIndex childPath argument
-          (resultType, resultRecipe) <- typeAndRecipe statementIndex childPath result
-          Right (TypedFunctionType argumentType resultType, prependClosureRecipe argumentRecipe resultRecipe)
-        other ->
-          case scalarInfo statementIndex childPath other of
-            Right (TypedNodeInfo typeValue recipe _ _) -> Right (typeValue, recipe)
-            Left failure -> Left failure
+          (argumentType, argumentRecipe) <- valueTypeAndRecipe statementIndex childPath argument
+          (resultType, resultRecipe) <- valueTypeAndRecipe statementIndex childPath result
+          Right (TypedFunctionType argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe)
+        other -> scalarTypeAndRecipe statementIndex childPath other
+
+    valueTypeAndRecipe statementIndex childPath expressionType =
+      case defaultScalarLiterals (resolveType state expressionType) of
+        resolvedFunctionType@TFunctionType {} -> stagedTypeAndRecipe statementIndex childPath resolvedFunctionType
+        other -> scalarTypeAndRecipe statementIndex childPath other
+
+    scalarTypeAndRecipe statementIndex childPath expressionType =
+      case scalarInfo statementIndex childPath expressionType of
+        Right (TypedNodeInfo typeValue recipe _ _) -> Right (typeValue, recipe)
+        Left failure -> Left failure
 
     prependClosureRecipe argumentRecipe resultRecipe =
       case resultRecipe of
@@ -519,75 +710,237 @@ finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule state provisiona
       where
         collect functions statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ expressionType _ expression
+            ProvisionalFunctionBinding declaration expression
               | lambdaCount expression > 0 ->
                   Map.insertWith
                     (\_ firstFunction -> firstFunction)
                     name
-                    (FunctionProfile statementIndex expressionType (lambdaCount expression) expression)
+                    (FunctionProfile statementIndex expressionType (lambdaCount expression))
                     functions
+              where
+                statementIndex = provisionalCallableStatementIndex declaration
+                name = provisionalCallableName declaration
+                expressionType = provisionalCallableType declaration
             _ -> functions
+
+    callableDeclarations statements =
+      [ declaration
+      | statement <- statements,
+        declaration <-
+          case statement of
+            ProvisionalFunctionBinding candidate _ -> [candidate]
+            ProvisionalUnsupportedCallableBinding candidate _ _ _ -> [candidate]
+            _ -> []
+      ]
+
+    callableShapeTable functions statements =
+      foldl'
+        (collectStatementCallableUses functions Set.empty)
+        (Map.map (const TypedDirectCallableShape) functions)
+        statements
+
+    collectStatementCallableUses functions lexicalNames callableShapes statement =
+      case statement of
+        ProvisionalFunctionBinding _ expression ->
+          collectExpressionCallableUses functions lexicalNames callableShapes expression
+        ProvisionalTerminalExpression _ _ expression ->
+          collectExpressionCallableUses functions lexicalNames callableShapes expression
+        _ -> callableShapes
+
+    collectExpressionCallableUses functions lexicalNames callableShapes expression =
+      case expression of
+        ProvisionalVariableExpression name _
+          | Set.notMember name lexicalNames,
+            Map.member name functions ->
+              markClosure name callableShapes
+          | otherwise -> callableShapes
+        ProvisionalLambdaExpression parameterName _ body ->
+          collectExpressionCallableUses functions (Set.insert parameterName lexicalNames) callableShapes body
+        ProvisionalApplyExpression {} ->
+          let (callee, arguments, _) = applicationSpine expression
+              afterCallee =
+                case callee of
+                  ProvisionalVariableExpression name _
+                    | Set.notMember name lexicalNames,
+                      Just function <- Map.lookup name functions,
+                      length arguments == functionArity function ->
+                        callableShapes
+                  _ -> collectExpressionCallableUses functions lexicalNames callableShapes callee
+           in foldl'
+                (\shapes (_, argument) -> collectExpressionCallableUses functions lexicalNames shapes argument)
+                afterCallee
+                arguments
+        ProvisionalBinaryExpression _ _ _ left right ->
+          collectExpressionCallableUses
+            functions
+            lexicalNames
+            (collectExpressionCallableUses functions lexicalNames callableShapes left)
+            right
+        ProvisionalScopeStatements nestedStatements ->
+          collectScopeCallableUses functions lexicalNames callableShapes nestedStatements
+        _ -> callableShapes
+
+    markClosure name = Map.insert name TypedClosureCallableShape
+
+    collectScopeCallableUses functions = go
+      where
+        go _ callableShapes [] = callableShapes
+        go lexicalNames callableShapes statements@(statement : rest) =
+          case statement of
+            ProvisionalFunctionBinding declaration expression ->
+              let expressionLexicalNames = Set.insert name (lexicalNames <> forwardFunctionNames statements)
+                  nextShapes = collectExpressionCallableUses functions expressionLexicalNames callableShapes expression
+               in go (Set.insert name lexicalNames) nextShapes rest
+              where
+                name = provisionalCallableName declaration
+            ProvisionalTerminalExpression _ _ expression ->
+              go lexicalNames (collectExpressionCallableUses functions lexicalNames callableShapes expression) rest
+            _ -> go lexicalNames callableShapes rest
+        forwardFunctionNames statements =
+          Set.fromList
+            [ name
+            | ProvisionalSignature _ name _ (TFunctionType _ _) <- statements
+            ]
+
+    shapeFor callableShapes name =
+      Map.findWithDefault TypedDirectCallableShape name callableShapes
 
     reboundFunctionStatements statements =
       snd (foldl' collect (Set.empty, Map.empty) statements)
       where
         collect (seenNames, reboundStatements) statement =
           case statement of
-            ProvisionalFunctionBinding statementIndex name _ _ _ _
-              | Set.member name seenNames ->
-                  (seenNames, Map.insert statementIndex name reboundStatements)
-              | otherwise ->
-                  (Set.insert name seenNames, reboundStatements)
+            ProvisionalFunctionBinding declaration _ -> collectDeclaration seenNames reboundStatements declaration
+            ProvisionalUnsupportedCallableBinding declaration _ _ _ -> collectDeclaration seenNames reboundStatements declaration
             _ -> (seenNames, reboundStatements)
 
-    recursiveFunctionNames functions =
+        collectDeclaration seenNames reboundStatements declaration
+          | Set.member name seenNames =
+              (seenNames, Map.insert statementIndex name reboundStatements)
+          | otherwise =
+              (Set.insert name seenNames, reboundStatements)
+          where
+            statementIndex = provisionalCallableStatementIndex declaration
+            name = provisionalCallableName declaration
+
+    recursiveDeclarationBinders declarations =
       Set.fromList
-        [ name
-        | component <-
-            stronglyConnComp
-              [ (name, name, Set.toList (localCalls functions (functionExpression function)))
-              | (name, function) <- Map.toList functions
-              ],
-          name <- case component of
-            AcyclicSCC candidate
-              | Set.member candidate (localCalls functions (functionExpression (functions Map.! candidate))) -> [candidate]
-            AcyclicSCC _ -> []
-            CyclicSCC names -> names
+        [ binderAt
+            (provisionalCallableStatementIndex declaration)
+            []
+            (resolvedValueName (provisionalCallableName declaration))
+        | declaration <- declarations,
+          Just _ <- [provisionalCallableRecursiveGroupMembers declaration]
         ]
 
-    localCalls functions expression =
-      case expression of
-        ProvisionalApplyExpression _ function argument ->
-          let (callee, _, _) = applicationSpine expression
-              own =
-                case callee of
-                  ProvisionalVariableExpression name _
-                    | Map.member name functions -> Set.singleton name
-                  _ -> Set.empty
-           in own <> localCalls functions function <> localCalls functions argument
-        ProvisionalLambdaExpression _ _ body -> localCalls functions body
-        ProvisionalBinaryExpression _ _ _ left right -> localCalls functions left <> localCalls functions right
-        _ -> Set.empty
-
-    finalizeExports functions =
+    finalizeExports functions callableShapes =
       foldl'
         collect
         ([], TypedModuleInterface [] [] [] [])
-        (Set.toAscList (exportInventoryEntries (resolvedModuleExportInventory resolvedModule)))
+        orderedModuleExports
       where
         collect (failures, TypedModuleInterface values datas classes impls) (ModuleExport namespace name)
           | namespace == ValueNamespace =
               case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == name] of
-                [(_, function)] ->
-                  case callableInfo (functionStatementIndex function) [] (functionType function) of
-                    Right info ->
-                      let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
-                          owner = binderAt (functionStatementIndex function) [] typedName
-                       in (failures, TypedModuleInterface (values <> [TypedValueInterface typedName (scheme owner info)]) datas classes impls)
-                    Left failure -> (failures <> [failure], TypedModuleInterface values datas classes impls)
+                [(sourceName, function)] ->
+                  let callableShape = shapeFor callableShapes sourceName
+                   in case callableInfo callableShape (functionArity function) (functionStatementIndex function) [] (functionType function) of
+                        Right info ->
+                          let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
+                              owner = binderAt (functionStatementIndex function) [] typedName
+                           in (failures, TypedModuleInterface (values <> [TypedValueInterface typedName (scheme owner callableShape info)]) datas classes impls)
+                        Left _ -> (failures, TypedModuleInterface values datas classes impls)
                 _ -> (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
           | otherwise =
               (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
+
+    orderedModuleExports =
+      stableUniqueExports
+        ( case coreModuleDeclaredExports coreModule of
+            Nothing -> filter publicExport sourceOrderedDeclarations
+            Just declaredExports ->
+              concatMap exportsForSelector (declaredModuleExportSelectors declaredExports)
+        )
+      where
+        coreModule = resolvedModuleCore resolvedModule
+        publicInventory = resolvedModuleExportInventory resolvedModule
+        publicExport = (`inventoryHasExport` publicInventory)
+        sourceOrderedDeclarations =
+          case coreModuleExpr coreModule of
+            EBlock statements -> concatMap statementExports statements
+            _ -> []
+
+        statementExports statement =
+          case statement of
+            SLet name _ _
+              | not (generatedOperatorName name) ->
+                  [ModuleExport ValueNamespace (identifierText name)]
+            SData _ typeName _ constructors ->
+              ModuleExport TypeNamespace (identifierText typeName)
+                : [ ModuleExport ConstructorNamespace (identifierText constructorName)
+                  | DataConstructor constructorName _ <- constructors
+                  ]
+            SClass _ className _ _ ->
+              [ModuleExport CapabilityNamespace (identifierText className)]
+            _ -> []
+
+        generatedOperatorName name =
+          case name of
+            GeneratedName (OperatorBinding _) -> True
+            _ -> False
+
+        exportsForSelector selector =
+          case selector of
+            ModuleExportSelector maybeNamespace name ->
+              let matchingDeclarations =
+                    [ export
+                    | export <- sourceOrderedDeclarations,
+                      moduleExportName export == name,
+                      maybe True (== moduleExportNamespace export) maybeNamespace,
+                      publicExport export
+                    ]
+               in case matchingDeclarations of
+                    _ : _ -> matchingDeclarations
+                    [] ->
+                      [ export
+                      | namespace <- maybe exportNamespaces (: []) maybeNamespace,
+                        let export = ModuleExport namespace name,
+                        publicExport export
+                      ]
+            ModuleTypeExportSelector typeName _ constructorSelector ->
+              filter publicExport (ModuleExport TypeNamespace typeName : selectedConstructors typeName constructorSelector)
+
+        selectedConstructors typeName constructorSelector =
+          case constructorSelector of
+            AbstractType -> []
+            AllTypeConstructors _ -> sourceConstructors typeName
+            SelectedTypeConstructors constructors ->
+              [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
+              | constructor <- NonEmpty.toList constructors
+              ]
+
+        sourceConstructors typeName =
+          case coreModuleExpr coreModule of
+            EBlock statements ->
+              concat
+                [ [ModuleExport ConstructorNamespace (identifierText constructorName) | DataConstructor constructorName _ <- constructors]
+                | SData _ sourceTypeName _ constructors <- statements,
+                  identifierText sourceTypeName == typeName
+                ]
+            _ -> []
+
+        exportNamespaces =
+          [ ValueNamespace,
+            ConstructorNamespace,
+            TypeNamespace,
+            CapabilityNamespace
+          ]
+
+        stableUniqueExports = reverse . snd . foldl' keep (Set.empty, [])
+          where
+            keep (seen, exports) export
+              | Set.member export seen = (seen, exports)
+              | otherwise = (Set.insert export seen, export : exports)
 
     scalarInfo statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of

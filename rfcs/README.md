@@ -28,6 +28,7 @@ only `docs/` and does not publish this directory.
 | [0006](accepted/0006-lowered-ir-contract.md)                   | Lowered IR contract                   |
 | [0007](accepted/0007-runtime-host-boundary.md)                 | Runtime host boundary                 |
 | [0008](accepted/0008-parser-scale-and-performance-tiers.md)    | Parser scale and performance tiers    |
+| [0009](accepted/0009-typed-core-closure-and-recursion.md)      | Typed-core closures and recursion     |
 
 ## Process
 

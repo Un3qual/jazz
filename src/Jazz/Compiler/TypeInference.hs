@@ -317,7 +317,7 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
 productionStatus :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionStatus
 productionStatus inputs sourcePath resolvedModule finalState inferenceResult inferredResult
   | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = TypedCoreProductionBlockedByDiagnostics
-  | not (null inputFailures) = TypedCoreProductionUnsupported inputFailures
+  | not (null profileFailures) = TypedCoreProductionUnsupported profileFailures
   | otherwise =
       case inferredProvisionalExpr inferredResult of
         Just provisionalExpr -> finalizeTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
@@ -325,6 +325,7 @@ productionStatus inputs sourcePath resolvedModule finalState inferenceResult inf
           TypedCoreProductionUnsupported
             [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
   where
+    profileFailures = inputFailures <> moduleFailures
     inputFailures =
       concat
         [ [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail
@@ -332,9 +333,6 @@ productionStatus inputs sourcePath resolvedModule finalState inferenceResult inf
           ],
           [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail
           | not (validTypedSourcePath sourcePath)
-          ],
-          [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreResolvedImportsUnsupported TypedCoreNoFailureDetail
-          | not (null (ModuleGraph.resolvedModuleImports resolvedModule))
           ],
           [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail
           | not (Map.null (inferenceImportedTypes inputs))
@@ -345,6 +343,13 @@ productionStatus inputs sourcePath resolvedModule finalState inferenceResult inf
           | not (Set.null (inferenceImportedClassNames inputs))
           ]
         ]
+    moduleFailures =
+      [ TypedCoreProductionFailure
+          (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule))
+          TypedCoreResolvedImportsUnsupported
+          TypedCoreNoFailureDetail
+      | not (null (ModuleGraph.resolvedModuleImports resolvedModule))
+      ]
 
 emptyInferenceInputs :: BuiltinResolutionMode -> WarningSettings -> InferenceInputs
 emptyInferenceInputs builtinMode settings =

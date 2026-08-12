@@ -2,12 +2,14 @@
 
 module Main (main) where
 
+import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
   ( canonicalLoweredProgramRuntimeValue,
     canonicalLoweredProgramsRuntimeValue,
     canonicalLoweredValidationFailuresRuntimeValue,
+    closureEmissionContractPrograms,
     decodeCanonicalLoweredValidationFailuresRuntimeValue
   )
 import Jazz.Compiler.Bootstrap.CanonicalValue
@@ -44,6 +46,7 @@ main = runTestSuite "JazzLoweredIRContract" tests
 tests :: [NamedTest]
 tests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
+    ("audits the complete fixed fixture partition", testFixtureManifestIntegrity),
     ("renders the scalar contract deterministically", testScalarContractRendering),
     ("renders the complete valid contract deterministically", testValidContractRendering),
     ("accepts every fixed valid program", testValidPrograms),
@@ -64,7 +67,7 @@ tests =
     ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
     ("rejects malformed nested validation values", testCheckedValidationAdapterMalformedNestedValue),
     ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
-    ("matches Haskell validation for all 41 Jazz fixtures twice", testJazzValidationParity),
+    ("matches Haskell validation for all 44 Jazz fixtures twice", testJazzValidationParity),
     ("matches Haskell validation for every hardening regression twice", testJazzHardeningParity)
   ]
 
@@ -291,7 +294,16 @@ testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
   assertEqual "invalid fixture count" 31 (length invalidFixtures)
-  assertEqual "complete fixture count" 41 (length validFixtures + length invalidFixtures)
+  assertEqual "complete fixture count" 44 (length validFixtures + length invalidFixtures)
+
+testFixtureManifestIntegrity :: IO ()
+testFixtureManifestIntegrity = do
+  let validNames = map validFixtureName validFixtures
+      invalidNames = map invalidFixtureName invalidFixtures
+      completeNames = validNames <> invalidNames
+  assertEqual "valid and invalid lowered-IR fixtures are disjoint" [] [name | name <- validNames, name `elem` invalidNames]
+  assertEqual "fixed lowered-IR fixture manifests are exhaustive" (expectedValidFixtureNames <> expectedInvalidFixtureNames) completeNames
+  assertEqual "fixed lowered-IR fixture names are unique" (length completeNames) (length (nub completeNames))
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -468,7 +480,7 @@ testCompleteFailureOrder =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 10 (length validFixtures)
+  assertEqual "valid fixture count" 13 (length validFixtures)
 
 testValidContractRendering :: IO ()
 testValidContractRendering = do
@@ -695,6 +707,7 @@ validFixtures =
     ValidFixture "runtime-service-call" runtimeServiceCallProgram,
     ValidFixture "text-list-layouts" textListLayoutsProgram
   ]
+    <> [ValidFixture ("typed-core-" <> name) programValue | (name, programValue) <- closureEmissionContractPrograms]
 
 expectedValidFixtureNames :: [Text]
 expectedValidFixtureNames =
@@ -707,7 +720,10 @@ expectedValidFixtureNames =
     "closure-call",
     "closure-tail-call",
     "runtime-service-call",
-    "text-list-layouts"
+    "text-list-layouts",
+    "typed-core-named-function-value",
+    "typed-core-higher-order-call",
+    "typed-core-closure-result"
   ]
 
 validConstructorInventory :: [Text]
