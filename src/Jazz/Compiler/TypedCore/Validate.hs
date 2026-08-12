@@ -4766,11 +4766,10 @@ validateOperatorValue context path directCalleeArgumentCount info operator =
         <> validateBuiltinOperatorValue context path symbol (typedNodeType info)
     TypedResolvedOperator {} ->
       validateOperatorRef context path operator
-        <> ( case operatorContractType context path info operator of
-               (contractFailures, Just expectedType)
-                 | expectedType /= typedNodeType info ->
-                     contractFailures <> [failure path TypedBindingValueMismatch (TypedTypeDetail expectedType (typedNodeType info))]
-               (contractFailures, _) -> contractFailures
+        <> ( case operatorValueContract context path info operator of
+               (contractFailures, Just contract) ->
+                 contractFailures <> validateValueContract path info contract
+               (contractFailures, Nothing) -> contractFailures
            )
         <> resolvedOperatorCallableShapeFailures
   where
@@ -4788,13 +4787,14 @@ validateBinaryOperator context path info operator left right =
         <> validateBuiltinOperatorApplication context path symbol (typedNodeType (typedExpressionInfo left)) (typedNodeType (typedExpressionInfo right)) (typedNodeType info)
     TypedResolvedOperator {} ->
       validateOperatorRef context path operator
-        <> case operatorContractType context path info operator of
-          (contractFailures, Just (TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult))) ->
+        <> case operatorValueContract context path info operator of
+          (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) operatorRecipe)) ->
             contractFailures
               <> typeMismatchFailure TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
               <> typeMismatchFailure TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
               <> typeMismatchFailure TypedApplicationResultMismatch expectedResult (typedNodeType info)
-          (contractFailures, Just actualType) ->
+              <> binaryRecipeFailures operatorType operatorRecipe expectedLeft expectedRight expectedResult
+          (contractFailures, Just (ValueContract actualType _)) ->
             contractFailures
               <> [ failure
                      path
@@ -4809,6 +4809,22 @@ validateBinaryOperator context path info operator left right =
     typeMismatchFailure kind expected actual
       | expected == actual = []
       | otherwise = [failure path kind (TypedTypeDetail expected actual)]
+    binaryRecipeFailures operatorType operatorRecipe expectedLeft expectedRight expectedResult
+      | not (callableRecipeCompatible operatorType operatorRecipe) = []
+      | otherwise =
+          case applicationResultRecipe operatorRecipe of
+            Just afterLeftRecipe ->
+              case (callableArgumentRecipe operatorRecipe, callableArgumentRecipe afterLeftRecipe, applicationResultRecipe afterLeftRecipe) of
+                (Just expectedLeftRecipe, Just expectedRightRecipe, Just expectedResultRecipe) ->
+                  valueRecipeFailures TypedApplicationArgumentMismatch expectedLeft expectedLeftRecipe (typedExpressionInfo left)
+                    <> valueRecipeFailures TypedApplicationArgumentMismatch expectedRight expectedRightRecipe (typedExpressionInfo right)
+                    <> valueRecipeFailures TypedApplicationResultMismatch expectedResult expectedResultRecipe info
+                _ -> []
+            Nothing -> []
+    valueRecipeFailures kind expectedType expectedRecipeValue actualInfo
+      | expectedType == typedNodeType actualInfo =
+          recipeContractFailures path kind expectedRecipeValue actualInfo
+      | otherwise = []
 
 validateLeftSectionOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedOperatorRef -> [TypedCoreValidationFailure]
 validateLeftSectionOperator context path info left operator =
@@ -4824,12 +4840,12 @@ validateLeftSectionOperator context path info left operator =
               actualType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo left)) actualType) actualType)]
         TypedResolvedOperator {} ->
           validateOperatorRef context path operator
-            <> case operatorContractType context path info operator of
-              (contractFailures, Just (TypedFunctionType expectedLeft remainder@(TypedFunctionType _ _))) ->
+            <> case operatorValueContract context path info operator of
+              (contractFailures, Just (ValueContract (TypedFunctionType expectedLeft remainder@(TypedFunctionType _ _)) _)) ->
                 contractFailures
                   <> mismatch TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
                   <> mismatch TypedApplicationResultMismatch remainder (typedNodeType info)
-              (contractFailures, Just actualType) ->
+              (contractFailures, Just (ValueContract actualType _)) ->
                 contractFailures
                   <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo left)) (typedNodeType info)) actualType)]
               (contractFailures, Nothing) -> contractFailures
@@ -4851,13 +4867,13 @@ validateRightSectionOperator context path info operator right =
               actualType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType actualType (typedNodeType (typedExpressionInfo right))) actualType)]
         TypedResolvedOperator {} ->
           validateOperatorRef context path operator
-            <> case operatorContractType context path info operator of
-              (contractFailures, Just (TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult))) ->
+            <> case operatorValueContract context path info operator of
+              (contractFailures, Just (ValueContract (TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) _)) ->
                 let expectedSectionType = TypedFunctionType expectedLeft expectedResult
                  in contractFailures
                       <> mismatch TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
                       <> mismatch TypedApplicationResultMismatch expectedSectionType (typedNodeType info)
-              (contractFailures, Just actualType) ->
+              (contractFailures, Just (ValueContract actualType _)) ->
                 contractFailures
                   <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType info) (typedNodeType (typedExpressionInfo right))) actualType)]
               (contractFailures, Nothing) -> contractFailures
@@ -4945,17 +4961,13 @@ numericConstraintSupportsOperator symbol numericConstraint
     integralLiteralConstraint TypedIntegralLiteralNumericConstraint {} = True
     integralLiteralConstraint _ = False
 
-operatorContractType :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> ([TypedCoreValidationFailure], Maybe TypedType)
-operatorContractType _ _ _ (TypedBuiltinOperator _) = ([], Nothing)
-operatorContractType context path info (TypedResolvedOperator name _) =
+operatorValueContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> ([TypedCoreValidationFailure], Maybe ValueContract)
+operatorValueContract _ _ _ (TypedBuiltinOperator _) = ([], Nothing)
+operatorValueContract context path info (TypedResolvedOperator name _) =
   case lookupSchemeByName context name of
     Nothing -> ([], Nothing)
-    Just (TypedScheme owner parameters evidenceParameters _ resultType _ _) ->
-      let ownerPath = binderModulePath owner
-          qualifiedType
-            | ownerPath == moduleContextPath context = resultType
-            | otherwise = qualifyExternalType ownerPath resultType
-          matchingOwnerInstantiation =
+    Just scheme@(TypedScheme owner parameters evidenceParameters _ _ _ _) ->
+      let matchingOwnerInstantiation =
             find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
           instantiationFailures
             | not (null parameters && null evidenceParameters),
@@ -4971,16 +4983,7 @@ operatorContractType context path info (TypedResolvedOperator name _) =
                 ]
             | otherwise = []
           requirementFailures = instantiationFailures <> missingEvidenceFailures
-       in if null parameters
-            then (requirementFailures, Just qualifiedType)
-            else case matchingOwnerInstantiation of
-              Nothing -> (requirementFailures, Nothing)
-              Just (TypedInstantiation _ arguments _)
-                | map typeArgumentParameter arguments == parameters ->
-                    (requirementFailures, Just (substituteTypeParameters (Map.fromList [(parameterId, typeValue) | TypedTypeArgument parameterId typeValue <- arguments]) qualifiedType))
-                | otherwise -> (requirementFailures, Nothing)
-  where
-    typeArgumentParameter (TypedTypeArgument parameterId _) = parameterId
+       in (requirementFailures, schemeValueContract context info scheme)
 
 validateImplId :: ModuleContext -> TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedImplId -> [TypedCoreValidationFailure]
 validateImplId = validateImplIdWith validateCapabilityName
