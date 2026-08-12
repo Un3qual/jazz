@@ -208,13 +208,14 @@ analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices target =
       (warnings, errors) = materializeDiagnostics collectedDiagnostics
       diagnostics =
         map (applyWarningPolicy settings) (sortWarnings warnings <> errors)
-   in
-    expr `seq`
-      pure
+      result =
         AnalysisResult
           { analyzedExpr = expr,
             analysisDiagnostics = diagnostics
           }
+   in case target of
+        AnalyzePreparedScope _ -> expr `seq` pure result
+        AnalyzeExpression _ -> pure result
   where
     builtinMode = analysisBuiltinMode inputs
     settings = analysisWarningSettings inputs

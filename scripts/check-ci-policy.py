@@ -6,6 +6,7 @@ from __future__ import annotations
 import re
 import shlex
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -129,6 +130,13 @@ class ShellInvocation:
     assignments: dict[str, str]
     unset_variables: set[str]
     environment_cleared: bool
+
+
+@dataclass(frozen=True)
+class ShellSimpleCommand:
+    start: int
+    text: str
+    masked_unquoted: str
 
 
 def active_text(contents: str) -> str:
@@ -374,11 +382,172 @@ def top_level_matches(
     ]
 
 
+def shell_command_substitution_end(contents: str, start: int) -> int | None:
+    """Return the closing parenthesis for one shell command substitution."""
+    depth = 1
+    quote: str | None = None
+    escaped = False
+    index = start + 2
+    while index < len(contents):
+        character = contents[index]
+        if escaped:
+            escaped = False
+        elif character == "\\" and quote != "'":
+            escaped = True
+        elif quote is not None:
+            if character == quote:
+                quote = None
+            elif quote == '"' and contents.startswith("$(", index):
+                nested_end = shell_command_substitution_end(contents, index)
+                if nested_end is None:
+                    return None
+                index = nested_end
+        elif character in ("'", '"'):
+            quote = character
+        elif contents.startswith("$(", index):
+            nested_end = shell_command_substitution_end(contents, index)
+            if nested_end is None:
+                return None
+            index = nested_end
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return None
+
+
+def shell_backtick_substitution_end(contents: str, start: int) -> int | None:
+    """Return the unescaped closing backtick for one legacy substitution."""
+    escaped = False
+    for index in range(start + 1, len(contents)):
+        character = contents[index]
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == "`":
+            return index
+    return None
+
+
+def masked_unquoted_shell_text(contents: str) -> str:
+    """Mask inert quoted text while exposing shell-executed command text."""
+    masked = [" "] * len(contents)
+
+    def mask_backtick_substitution(start: int) -> int:
+        substitution_end = shell_backtick_substitution_end(contents, start)
+        inner_end = len(contents) if substitution_end is None else substitution_end
+        inner = masked_unquoted_shell_text(contents[start + 1 : inner_end])
+        masked[start + 1 : inner_end] = inner
+        return len(contents) if substitution_end is None else substitution_end + 1
+
+    def mask_double_quoted(start: int) -> int:
+        index = start + 1
+        while index < len(contents):
+            character = contents[index]
+            if character == "\\":
+                index += 2
+                continue
+            if character == '"':
+                return index + 1
+            if character == "`":
+                index = mask_backtick_substitution(index)
+                continue
+            if contents.startswith("$(", index):
+                substitution_end = shell_command_substitution_end(contents, index)
+                inner_end = len(contents) if substitution_end is None else substitution_end
+                inner = masked_unquoted_shell_text(contents[index + 2 : inner_end])
+                masked[index + 2 : inner_end] = inner
+                if substitution_end is None:
+                    return len(contents)
+                index = substitution_end + 1
+                continue
+            index += 1
+        return index
+
+    index = 0
+    while index < len(contents):
+        character = contents[index]
+        if character == "'":
+            closing_quote = contents.find("'", index + 1)
+            index = len(contents) if closing_quote < 0 else closing_quote + 1
+            continue
+        if character == '"':
+            index = mask_double_quoted(index)
+            continue
+        if character == "`":
+            index = mask_backtick_substitution(index)
+            continue
+        if character == "#" and (
+            index == 0 or contents[index - 1].isspace()
+        ):
+            break
+        if character == "\\" and index + 1 < len(contents):
+            masked[index] = character
+            masked[index + 1] = contents[index + 1]
+            index += 2
+            continue
+        masked[index] = character
+        index += 1
+    return "".join(masked)
+
+
+def shell_simple_commands(contents: str) -> list[ShellSimpleCommand]:
+    """Split unquoted shell lists into the simple commands policy must inspect."""
+    commands: list[ShellSimpleCommand] = []
+
+    def append_segment(line_start: int, segment_start: int, segment: str) -> None:
+        if not segment.strip():
+            return
+        leading_space = len(segment) - len(segment.lstrip())
+        text = segment.lstrip()
+        commands.append(
+            ShellSimpleCommand(
+                start=line_start + segment_start + leading_space,
+                text=text,
+                masked_unquoted=masked_unquoted_shell_text(text),
+            )
+        )
+
+    for line in re.finditer(r"(?m)^(?P<body>[^\n]+)$", contents):
+        body = line["body"]
+        segment_start = 0
+        quote: str | None = None
+        escaped = False
+        index = 0
+
+        while index < len(body):
+            character = body[index]
+            if escaped:
+                escaped = False
+            elif character == "\\" and quote != "'":
+                escaped = True
+            elif quote is not None:
+                if character == quote:
+                    quote = None
+            elif character in ("'", '"'):
+                quote = character
+            elif character in ";|&":
+                segment = body[segment_start:index]
+                append_segment(line.start(), segment_start, segment)
+                while index + 1 < len(body) and body[index + 1] in ";|&":
+                    index += 1
+                segment_start = index + 1
+            index += 1
+
+        segment = body[segment_start:]
+        append_segment(line.start(), segment_start, segment)
+    return commands
+
+
 def shell_invocations(contents: str) -> list[ShellInvocation]:
     invocations: list[ShellInvocation] = []
-    for line in re.finditer(r"(?m)^(?P<body>[^\n]+)$", contents):
+    for command in shell_simple_commands(contents):
         try:
-            tokens = shlex.split(line["body"], comments=True, posix=True)
+            tokens = shlex.split(command.text, comments=True, posix=True)
         except ValueError:
             continue
         if not tokens:
@@ -451,7 +620,7 @@ def shell_invocations(contents: str) -> list[ShellInvocation]:
             continue
         invocations.append(
             ShellInvocation(
-                start=line.start(),
+                start=command.start,
                 program=tokens[index],
                 arguments=tuple(tokens[index + 1 :]),
                 assignments=assignments,
@@ -462,13 +631,65 @@ def shell_invocations(contents: str) -> list[ShellInvocation]:
     return invocations
 
 
+def is_cabal_build_test_invocation(invocation: ShellInvocation) -> bool:
+    return invocation.program == "cabal" and any(
+        argument in ("build", "test") for argument in invocation.arguments
+    )
+
+
 def cabal_build_test_commands(contents: str) -> list[ShellInvocation]:
     return [
         invocation
         for invocation in shell_invocations(contents)
-        if invocation.program == "cabal"
-        and any(argument in ("build", "test") for argument in invocation.arguments)
+        if is_cabal_build_test_invocation(invocation)
     ]
+
+
+def has_unsupported_target_invocation(
+    contents: str,
+    target_pattern: re.Pattern[str],
+    is_supported: Callable[[ShellInvocation], bool],
+) -> bool:
+    invocations_by_start = {
+        invocation.start: invocation for invocation in shell_invocations(contents)
+    }
+    for command in shell_simple_commands(contents):
+        target_count = len(target_pattern.findall(command.masked_unquoted))
+        invocation = invocations_by_start.get(command.start)
+        supported_count = int(invocation is not None and is_supported(invocation))
+        if target_count > supported_count:
+            return True
+    return False
+
+
+CABAL_BUILD_TEST_TEXT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])cabal\b[^\n]*?\b(?:build|test)\b"
+)
+
+
+def has_unsupported_cabal_build_test(contents: str) -> bool:
+    return has_unsupported_target_invocation(
+        contents,
+        CABAL_BUILD_TEST_TEXT_RE,
+        is_cabal_build_test_invocation,
+    )
+
+
+def has_unsupported_child_invocation(contents: str, child_path: str) -> bool:
+    target_pattern = re.compile(
+        r"(?<![A-Za-z0-9_-])bash\b[^\n]*?"
+        + re.escape(child_path)
+        + r"(?=$|[\s)])"
+    )
+    return has_unsupported_target_invocation(
+        contents,
+        target_pattern,
+        lambda invocation: (
+            invocation.program == "bash"
+            and bool(invocation.arguments)
+            and invocation.arguments[0] == child_path
+        ),
+    )
 
 
 def has_valid_cabal_job_argument(invocation: ShellInvocation) -> bool:
@@ -533,6 +754,11 @@ def require_cabal_job_policy(
         )
 
     commands = cabal_build_test_commands(executable)
+    if has_unsupported_cabal_build_test(executable):
+        violations.append(
+            f"{tier} contains an unsupported compound/dynamic "
+            "Cabal build/test invocation"
+        )
     if any(not has_valid_cabal_job_argument(command) for command in commands):
         violations.append(
             f"{tier} must bound every Cabal build and test command"
@@ -556,6 +782,11 @@ def require_cabal_jobs_for_child(
     violations: list[str],
 ) -> None:
     executable = joined_text(contents)
+    if has_unsupported_child_invocation(executable, child_path):
+        violations.append(
+            f"{tier} contains an unsupported compound/dynamic invocation "
+            f"of {child_path}"
+        )
     children = [
         invocation
         for invocation in shell_invocations(executable)

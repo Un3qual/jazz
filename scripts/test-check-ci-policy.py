@@ -1070,6 +1070,20 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 + "env -S 'FOO=bar cabal test smoke-spec'\n",
                 "fast compiler tier must bound every Cabal build and test command",
             ),
+            (
+                "scripts/ci/fast-compiler.sh",
+                VALID_FAST.replace(
+                    'cabal build all --jobs="$JAZZ_CABAL_JOBS"',
+                    'cabal build all ; printf \'%s\\n\' --jobs="$JAZZ_CABAL_JOBS"',
+                    1,
+                ),
+                "fast compiler tier must bound every Cabal build and test command",
+            ),
+            (
+                "scripts/ci/fast-compiler.sh",
+                VALID_FAST + "true ; cabal build all\n",
+                "fast compiler tier must bound every Cabal build and test command",
+            ),
         )
         for path, contents, expected in fixtures:
             with self.subTest(path=path):
@@ -1217,11 +1231,83 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 + "env -S 'JAZZ_CABAL_JOBS= bash scripts/check-examples.sh'\n",
                 "fast compiler tier must propagate JAZZ_CABAL_JOBS to scripts/check-examples.sh",
             ),
+            (
+                "scripts/ci/fast-compiler.sh",
+                VALID_FAST
+                + 'true ; JAZZ_CABAL_JOBS="" bash scripts/check-examples.sh\n',
+                "fast compiler tier must propagate JAZZ_CABAL_JOBS to scripts/check-examples.sh",
+            ),
         )
         for path, contents, expected in fixtures:
             with self.subTest(path=path):
                 self.write(path, contents)
                 self.assert_violation(expected)
+
+    def test_quoted_shell_operators_do_not_create_commands(self) -> None:
+        self.write(
+            "scripts/ci/fast-compiler.sh",
+            VALID_FAST
+            + "printf '%s\\n' "
+            + "'true ; cabal build all && bash scripts/check-examples.sh' "
+            + "'if true; then cabal build all; fi' "
+            + "'(cabal build all)' "
+            + "'if true; then bash scripts/check-examples.sh; fi' "
+            + "\"cabal build all\" \"bash scripts/check-examples.sh\"\n"
+            + "printf '%s\\n' "
+            + "'`cabal build all`' '`bash scripts/check-examples.sh`' "
+            + "\"\\`cabal build all\\`\" "
+            + "\"\\`bash scripts/check-examples.sh\\`\"\n",
+        )
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_unsupported_compound_cabal_invocations_are_rejected(self) -> None:
+        for command in (
+            "if true; then cabal build all; fi\n",
+            "(cabal build all)\n",
+            'output="$(cabal build all)"\n',
+        ):
+            with self.subTest(command=command):
+                self.write("scripts/ci/fast-compiler.sh", VALID_FAST + command)
+                self.assert_violation(
+                    "fast compiler tier contains an unsupported compound/dynamic Cabal build/test invocation"
+                )
+
+    def test_unsupported_compound_child_invocations_are_rejected(self) -> None:
+        for command in (
+            "if true; then bash scripts/check-examples.sh; fi\n",
+            "(bash scripts/check-examples.sh)\n",
+            'output="$(bash scripts/check-examples.sh)"\n',
+        ):
+            with self.subTest(command=command):
+                self.write("scripts/ci/fast-compiler.sh", VALID_FAST + command)
+                self.assert_violation(
+                    "fast compiler tier contains an unsupported compound/dynamic invocation of scripts/check-examples.sh"
+                )
+
+    def test_backtick_cabal_invocations_are_rejected(self) -> None:
+        for command in (
+            "output=`cabal build all`\n",
+            'output="`cabal build all`"\n',
+        ):
+            with self.subTest(command=command):
+                self.write("scripts/ci/fast-compiler.sh", VALID_FAST + command)
+                self.assert_violation(
+                    "fast compiler tier contains an unsupported compound/dynamic Cabal build/test invocation"
+                )
+
+    def test_backtick_child_invocations_are_rejected(self) -> None:
+        for command in (
+            "output=`bash scripts/check-examples.sh`\n",
+            'output="`bash scripts/check-examples.sh`"\n',
+        ):
+            with self.subTest(command=command):
+                self.write("scripts/ci/fast-compiler.sh", VALID_FAST + command)
+                self.assert_violation(
+                    "fast compiler tier contains an unsupported compound/dynamic invocation of scripts/check-examples.sh"
+                )
 
     def test_export_inside_an_uncalled_function_does_not_propagate_jobs(self) -> None:
         fixtures = (

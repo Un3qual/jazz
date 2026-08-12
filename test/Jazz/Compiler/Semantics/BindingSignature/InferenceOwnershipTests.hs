@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   ( inferenceOwnershipTests
@@ -50,10 +51,7 @@ import Jazz.Compiler.TypeInference.Elaboration
     ProvisionalTypedStatement (..),
     TypedCoreProductionMode (..)
   )
-import Jazz.Compiler.TypeInference.Scope
-  ( inferScopeType,
-    inferScopeTypeWithMode
-  )
+import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
     applySubstitution,
@@ -106,6 +104,18 @@ import Jazz.TestHarness
     assertEqual,
     failTest
   )
+import Language.Haskell.TH
+  ( lookupValueName
+  )
+
+$( do
+     legacyEntryPoint <- lookupValueName "TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingFacts"
+     case legacyEntryPoint of
+       Nothing -> pure []
+       Just _ ->
+         fail
+           "TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingFacts must remain unavailable; use the owned PreparedRecursiveScope entry point"
+ )
 
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
@@ -466,7 +476,7 @@ testProductionScopeElaboratesSignatureOnce =
     _ -> failTest "expected a retained provisional signature"
   where
     (inferredScope, finalState) =
-      inferScopeTypeWithMode
+      TypeInferenceScope.inferScopeTypeWithMode
         Set.empty
         syntheticProductionInfer
         ProduceTypedCoreExpressionDirectCall
@@ -503,7 +513,7 @@ testRecursivePreviewSolverStateIsTransactional =
     (inferErrorCount finalState)
   where
     (_, finalState) =
-      inferScopeType
+      TypeInferenceScope.inferScopeType
         Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
@@ -546,7 +556,7 @@ testRecursivePreviewRefreshesAfterSolverChange =
     (inferErrorCount finalState)
   where
     (_, finalState) =
-      inferScopeType
+      TypeInferenceScope.inferScopeType
         Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
@@ -597,7 +607,7 @@ testRecursivePreviewReuseAtSameFrontier =
     (inferNextTypeVar finalState)
   where
     (_, finalState) =
-      inferScopeType
+      TypeInferenceScope.inferScopeType
         Set.empty
         allocatingInfer
         ResolveKernelOnly

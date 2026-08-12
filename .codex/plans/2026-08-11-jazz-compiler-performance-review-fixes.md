@@ -133,9 +133,9 @@
 **Files:**
 - Modify: this plan and the existing performance program plan/report only as needed to record the review-fix receipts.
 
-- [ ] **Step 1: Run one final source review over the fix range**
+- [x] **Step 1: Run one final source review over the fix range**
 
-- [ ] **Step 2: Run the scope-based closeout gate exactly once**
+- [x] **Step 2: Run the scope-based closeout gate exactly once**
 
   Run focused repository policy checks plus the affected Haskell suites under Nix with `--jobs=1`. Reuse the still-valid full-gate receipt because the fixes alter verification orchestration, benchmark-only taxonomy/forcing, and an internal safety boundary already covered by focused semantic suites; do not rerun the entire release gate unless review finds compiled behavior outside that scope.
 

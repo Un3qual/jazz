@@ -65,7 +65,7 @@ recursionTests =
     , ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup)
     , ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
     , ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts)
-    , ("owned prepared statement expression is detached before returning", testPreparedScopeIsForcedBeforeReturning)
+    , ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness)
     , ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
     , ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion)
     , ("source pipeline keeps nested recursive helper inferred method obligations scoped", testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped)
@@ -149,16 +149,27 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
         SExpr (SourceSpan 3 1) (EVar "x")
       ]
 
-testPreparedScopeIsForcedBeforeReturning :: IO ()
-testPreparedScopeIsForcedBeforeReturning = do
-  outcome <-
+testAnalyzerRootLaziness :: IO ()
+testAnalyzerRootLaziness = do
+  ordinaryOutcome <-
+    try
+      ( Analyzer.analyzeProgramWithInputs
+          analysisInputs
+          Set.empty
+          (error "ordinary analyzer root was forced")
+      ) :: IO (Either ErrorCall AnalysisResult)
+  case ordinaryOutcome of
+    Left _ -> failTest "expected ordinary analyzer roots to remain lazy"
+    Right _ -> pure ()
+
+  preparedOutcome <-
     try
       ( Analyzer.analyzeProgramWithInputsAndPreparedScope
           analysisInputs
           Set.empty
           (prepareRecursiveScope Set.empty (error "prepared statements were retained lazily"))
       ) :: IO (Either ErrorCall AnalysisResult)
-  case outcome of
+  case preparedOutcome of
     Left _ -> pure ()
     Right _ -> failTest "expected the analyzer boundary to force its prepared statements"
 
