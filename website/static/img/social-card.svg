@@ -26,7 +26,7 @@
       <circle cx="393" cy="232" r="14" fill="#24182C"/>
       <circle cx="393" cy="286" r="14" fill="#24182C"/>
     </g>
-    <g transform="translate(-39 0)" fill="#F3EDDF">
+    <g data-role="wordmark" transform="translate(-39 0)" fill="#F3EDDF">
       <path d="M535 92H615V300C615 362 577 396 519 396C499 396 481 392 466 386L480 326C491 330 502 332 513 332C528 332 535 321 535 300Z"/>
       <path d="M635 390L710 92H780L857 390H783L771 337H702L690 390ZM715 278H758L737 183Z" fill-rule="evenodd"/>
       <path d="M865 92H1008V154L939 327H1011V390H857V329L929 157H865Z"/>

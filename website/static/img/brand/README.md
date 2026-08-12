@@ -7,16 +7,21 @@ carry from the favicon through the oversized homepage motif.
 
 ## Asset roles
 
-- `jazz-mark.svg` and `jazz-mark-dark.svg` are the standalone light- and
+- `website/static/img/jazz-mark.svg` and
+  `website/static/img/jazz-mark-dark.svg` are the standalone light- and
   dark-surface versions of the balanced wide-bold mark.
-- `jazz-wordmark.svg` and `jazz-wordmark-dark.svg` pair that mark with the
-  approved custom `JAZZ` lettering at matching optical height and weight. The
-  wordmark contains no converted font outlines.
-- `favicon.svg` fits the same Bellhook geometry to a deep-ink field.
+- `website/static/img/jazz-wordmark.svg` and
+  `website/static/img/jazz-wordmark-dark.svg` pair that mark with the approved
+  custom `JAZZ` lettering at matching optical height and weight. The wordmark
+  contains no converted font outlines.
+- `website/static/img/favicon.svg` fits the same Bellhook geometry to a
+  deep-ink field.
 - `editors/vscode-jazz/icon.png` is the deterministic 128×128 editor raster
-  generated from the canonical light-surface `jazz-mark.svg`.
-- `social-card.svg` is the editable 1200×630 source; `social-card.png` is its
-  deterministic rendered counterpart.
+  generated from the canonical light-surface
+  `website/static/img/jazz-mark.svg`.
+- `website/static/img/social-card.svg` is the editable 1200×630 source;
+  `website/static/img/social-card.png` is its deterministic rendered
+  counterpart.
 
 Use the light variant on paper or pale surfaces and the dark variant on deep
 ink. Keep the centerline, 120:72 edge-to-tube stroke ratio, gradient stops, and
@@ -48,9 +53,9 @@ the complete license is installed at
 
 The renderer verifies the font asset SHA-256, uses pinned `fontkit@2.0.4` to
 lay out the tagline, and replaces the paths between the
-`manrope-tagline` markers in `social-card.svg`. Sharp receives only that
-path-based SVG, so host fonts and host font configuration cannot affect the
-PNG. The expected font SHA-256 is
+`manrope-tagline` markers in `website/static/img/social-card.svg`. Sharp
+receives only that path-based SVG, so host fonts and host font configuration
+cannot affect the PNG. The expected font SHA-256 is
 `a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972`.
 
 ## Regenerating the social card
@@ -62,8 +67,9 @@ pnpm --dir website install --frozen-lockfile
 pnpm --dir website run render:brand
 ```
 
-The renderer synchronizes the licensed Manrope outlines in `social-card.svg`,
-writes `social-card.png` and the editor icon through Sharp, and fails unless
-their dimensions and formats match their contracts. `pnpm --dir website run
-test:brand` validates the outline source, transparent asset padding, favicon
-legibility, and the editor icon's exact provenance.
+The renderer synchronizes the licensed Manrope outlines in
+`website/static/img/social-card.svg`, writes
+`website/static/img/social-card.png` and the editor icon through Sharp, and
+fails unless their dimensions and formats match their contracts. `pnpm --dir
+website run test:brand` validates the outline source, transparent asset
+padding, favicon legibility, and the editor icon's exact provenance.

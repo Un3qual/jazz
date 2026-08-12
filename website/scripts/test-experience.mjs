@@ -366,8 +366,15 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   const config = read('website/docusaurus.config.ts');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
   assert.match(config, /image:\s*'img\/social-card\.png'/);
-  assert.match(config, /src:\s*'img\/jazz-wordmark\.svg'/);
-  assert.match(config, /srcDark:\s*'img\/jazz-wordmark-dark\.svg'/);
+  const navbarLogo = config.match(
+    /navbar:\s*\{[\s\S]*?logo:\s*\{(?<contract>[\s\S]*?)\n\s*\},\n\s*items:/,
+  )?.groups?.contract;
+  assert.ok(navbarLogo, 'navbar.logo contract is missing');
+  assert.match(navbarLogo, /alt:\s*'Jazz'/);
+  assert.match(navbarLogo, /src:\s*'img\/jazz-wordmark\.svg'/);
+  assert.match(navbarLogo, /srcDark:\s*'img\/jazz-wordmark-dark\.svg'/);
+  assert.match(navbarLogo, /width:\s*120/);
+  assert.match(navbarLogo, /height:\s*48/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
   assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);
