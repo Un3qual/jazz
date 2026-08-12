@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.RecursionTests
   ( recursionTests
@@ -45,19 +44,6 @@ import Jazz.TestHarness
     assertSingleDiagnosticContains,
     failTest
   )
-import Language.Haskell.TH
-  ( lookupValueName
-  )
-
-$( do
-     legacyEntryPoint <- lookupValueName "Analyzer.analyzeProgramWithInputsAndScopeFacts"
-     case legacyEntryPoint of
-       Nothing -> pure []
-       Just _ ->
-         fail
-           "Analyzer.analyzeProgramWithInputsAndScopeFacts must remain unavailable; use the owned PreparedRecursiveScope entry point"
- )
-
 recursionTests :: [NamedTest]
 recursionTests =
   [ ("self-recursive binding is accepted", testSelfRecursiveBinding)

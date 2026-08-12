@@ -64,8 +64,8 @@ builtinOperatorInfos =
 -- | Scope-local fixity lookup. Builtins are indexed once; the declared-symbol
 -- set remains separate because only user declarations may be bound or signed.
 data OperatorTable = OperatorTable
-  { operatorInfosBySymbol :: Map Text OperatorInfo,
-    declaredOperatorSymbols :: Set Text
+  { operatorInfosBySymbol :: !(Map Text OperatorInfo),
+    declaredOperatorSymbols :: !(Set Text)
   }
   deriving (Eq, Show)
 

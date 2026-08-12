@@ -742,8 +742,6 @@ test-suite binding-signature-coherence-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  build-depends:
-      template-haskell >= 2.24 && < 2.25
   other-modules:
       Jazz.Compiler.Semantics.BindingSignature.BasicsTests
       Jazz.Compiler.Semantics.BindingSignature.ConstraintsTests

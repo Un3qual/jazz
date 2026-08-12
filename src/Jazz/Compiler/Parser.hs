@@ -177,7 +177,7 @@ parseStatementsUntilBrace parseStatement context = do
 
 reversePrepend :: [a] -> [a] -> [a]
 reversePrepend values reversedValues =
-  foldl (flip (:)) reversedValues values
+  foldl' (flip (:)) reversedValues values
 
 leadingModuleDeclaration :: [SurfaceStatement] -> Maybe SourceSpan
 leadingModuleDeclaration statements =

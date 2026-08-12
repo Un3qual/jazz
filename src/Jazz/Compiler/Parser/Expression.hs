@@ -997,7 +997,7 @@ commonPatternBinderNames alternatives =
   case alternatives of
     [] -> Set.empty
     firstAlternative : rest ->
-      foldl
+      foldl'
         Set.intersection
         (patternBinderNames firstAlternative)
         (map patternBinderNames rest)

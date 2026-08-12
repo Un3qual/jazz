@@ -105,10 +105,6 @@ data FunctionIndex = FunctionIndex
     indexedFunctionDeclarationsByStatement :: Map.Map Int FunctionDeclaration
   }
 
-newtype ExpressionCheck = ExpressionCheck
-  { expressionCheckFailures :: [LoweredIRLoweringFailure]
-  }
-
 lowerTypedCoreExpressionDirectCall :: TypedProgram -> LoweredIRLoweringResult
 lowerTypedCoreExpressionDirectCall typedProgram =
   case validateTypedProgramOnce typedProgram of
@@ -657,7 +653,7 @@ validateStatementProfiles modulePath functions localValueNames =
                               []
                               expression
                        in continue
-                            (expressionCheckFailures check : reversedFailureChunks)
+                            (check : reversedFailureChunks)
                             nextCalls
                 Just function ->
                   let check =
@@ -670,7 +666,7 @@ validateStatementProfiles modulePath functions localValueNames =
                           (functionShapeParameters function)
                           (functionShapeBody function)
                    in continue
-                        (expressionCheckFailures check : reversedFailureChunks)
+                        (check : reversedFailureChunks)
                         nextCalls
         TypedExpressionStatement _ expression ->
           let check =
@@ -683,7 +679,7 @@ validateStatementProfiles modulePath functions localValueNames =
                   []
                   expression
            in continue
-                (expressionCheckFailures check : reversedFailureChunks)
+                (check : reversedFailureChunks)
                 reversedCalls
         _ -> continue reversedFailureChunks reversedCalls
       where
@@ -698,7 +694,7 @@ inspectExpression ::
   Set.Set TypedCoreName ->
   [FunctionParameterShape] ->
   TypedExpr ->
-  ExpressionCheck
+  [LoweredIRLoweringFailure]
 inspectExpression modulePath statementPath expressionPath functions localValueNames parameters expression =
   case expression of
     TypedLiteralExpr info _ ->
@@ -750,10 +746,9 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
       oneFailure LoweredIRUnsupportedExpression LoweredIRNoFailureDetail
   where
     path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
-    noExpressionFailures = ExpressionCheck []
+    noExpressionFailures = []
     oneFailure kind detail =
-      ExpressionCheck
-        [LoweredIRLoweringFailure path kind detail]
+      [LoweredIRLoweringFailure path kind detail]
     representationCheck info =
       case loweredRepresentation (typedNodeRecipe info) of
         Just _ -> noExpressionFailures
@@ -777,10 +772,8 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
         localValueNames
         parameters
 
-combineExpressionChecks :: [ExpressionCheck] -> ExpressionCheck
-combineExpressionChecks checks =
-  ExpressionCheck
-    (concatMap expressionCheckFailures checks)
+combineExpressionChecks :: [[LoweredIRLoweringFailure]] -> [LoweredIRLoweringFailure]
+combineExpressionChecks = concat
 
 inspectApplication ::
   [Text] ->
@@ -790,7 +783,7 @@ inspectApplication ::
   Set.Set TypedCoreName ->
   [FunctionParameterShape] ->
   TypedExpr ->
-  ExpressionCheck
+  [LoweredIRLoweringFailure]
 inspectApplication modulePath statementPath expressionPath functions localValueNames parameters expression =
   combineExpressionChecks
     (targetCheck : map (uncurry inspectArgument) arguments)
@@ -813,46 +806,42 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
             Just target
               | functionShapeCallableShape target == TypedClosureCallableShape,
                 actualArity == 1 ->
-                  ExpressionCheck []
+                  []
               | expectedArity == actualArity ->
-                  ExpressionCheck []
+                  []
               | otherwise ->
-                  ExpressionCheck
-                    [ LoweredIRLoweringFailure
-                        path
-                        LoweredIRCallArityUnsupported
-                        (LoweredIRArityFailureDetail expectedArity actualArity)
-                    ]
+                  [ LoweredIRLoweringFailure
+                      path
+                      LoweredIRCallArityUnsupported
+                      (LoweredIRArityFailureDetail expectedArity actualArity)
+                  ]
               where
                 expectedArity = length (functionShapeParameters target)
             Nothing
               | Just _ <- findParameterShape binderReference parameters,
                 actualArity == 1 ->
-                  ExpressionCheck []
+                  []
               | Just _ <- findParameterShape binderReference parameters ->
-                  ExpressionCheck
-                    [ LoweredIRLoweringFailure
-                        path
-                        LoweredIRCallArityUnsupported
-                        (LoweredIRArityFailureDetail 1 actualArity)
-                    ]
+                  [ LoweredIRLoweringFailure
+                      path
+                      LoweredIRCallArityUnsupported
+                      (LoweredIRArityFailureDetail 1 actualArity)
+                  ]
             Nothing
               | Set.member name localValueNames ->
-                  ExpressionCheck []
+                  []
             Nothing ->
-              ExpressionCheck
-                [ LoweredIRLoweringFailure
-                    path
-                    LoweredIRNonLocalCallUnsupported
-                    (LoweredIRNameFailureDetail name)
-                ]
+              [ LoweredIRLoweringFailure
+                  path
+                  LoweredIRNonLocalCallUnsupported
+                  (LoweredIRNameFailureDetail name)
+              ]
         _ ->
-          ExpressionCheck
-            [ LoweredIRLoweringFailure
-                path
-                LoweredIRCallableValueUnsupported
-                LoweredIRNoFailureDetail
-            ]
+          [ LoweredIRLoweringFailure
+              path
+              LoweredIRCallableValueUnsupported
+              LoweredIRNoFailureDetail
+          ]
 
     actualArity = length arguments
 

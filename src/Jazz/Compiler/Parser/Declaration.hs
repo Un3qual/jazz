@@ -1789,7 +1789,7 @@ looksLikeSupportedCapabilityDeclaration name tokensAfterKeyword =
 
 registerImportAliases :: Set Text -> [SurfaceStatement] -> Set Text
 registerImportAliases =
-  foldl registerImportAlias
+  foldl' registerImportAlias
   where
     registerImportAlias knownAliases statement =
       case statement of

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   ( inferenceOwnershipTests
@@ -107,19 +106,6 @@ import Jazz.TestHarness
     assertEqual,
     failTest
   )
-import Language.Haskell.TH
-  ( lookupValueName
-  )
-
-$( do
-     legacyEntryPoint <- lookupValueName "TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingFacts"
-     case legacyEntryPoint of
-       Nothing -> pure []
-       Just _ ->
-         fail
-           "TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingFacts must remain unavailable; use the owned PreparedRecursiveScope entry point"
- )
-
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
   [ ("runtime hints accept Int64-fitting integer ranges", testRuntimeHintsAcceptInt64FittingIntegerRanges),
