@@ -75,8 +75,9 @@ import Jazz.Compiler.Pattern
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     prepareRecursiveScope,
-    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeStatements,
+    recursiveScopeGroups,
   )
 import Jazz.Compiler.Purity
   ( Purity (..)
@@ -172,17 +173,24 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
 
 analyzeProgramWithInputsAndPreparedScope :: AnalysisInputs -> Set Int -> PreparedRecursiveScope -> IO AnalysisResult
 analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices preparedScope =
-  let analysisScope = preparedAnalysisScope preparedScope
+  let expectedOuterBindingNames =
+        Set.union
+          (Map.keysSet (analysisImportedValues inputs))
+          (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (analysisBuiltinMode inputs)))
+      analysisScope = preparedAnalysisScope expectedOuterBindingNames preparedScope
    in analysisScope `seq`
         analyzeProgramWithInputsAndTarget inputs hiddenStatementIndices (AnalyzePreparedScope analysisScope)
 
 data PreparedAnalysisScope = PreparedAnalysisScope ![Statement] !(Map Int [Int])
 
-preparedAnalysisScope :: PreparedRecursiveScope -> PreparedAnalysisScope
-preparedAnalysisScope preparedScope =
+preparedAnalysisScope :: Set Name -> PreparedRecursiveScope -> PreparedAnalysisScope
+preparedAnalysisScope expectedOuterBindingNames preparedScope =
   PreparedAnalysisScope
     (preparedRecursiveScopeStatements preparedScope)
-    (preparedRecursiveScopeGroups preparedScope)
+    (recursiveScopeGroups recursiveScopeFactsValue)
+  where
+    recursiveScopeFactsValue =
+      preparedRecursiveScopeFactsForOuterBindings expectedOuterBindingNames preparedScope
 
 data AnalysisTarget
   = AnalyzeExpression Expr
@@ -419,8 +427,9 @@ collectScopeDiagnostics ::
 collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
   collectScopeDiagnosticsWithPreparedScope
     ( preparedAnalysisScope
+        outerBindingNames
         ( prepareRecursiveScope
-            (Set.union (Map.keysSet outerScope) (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode)))
+            outerBindingNames
             statements
         )
     )
@@ -431,6 +440,11 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope f
     forwardBindings
     outerClassNames
     context
+  where
+    outerBindingNames =
+      Set.union
+        (Map.keysSet outerScope)
+        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
 
 collectScopeDiagnosticsWithPreparedScope ::
   PreparedAnalysisScope ->

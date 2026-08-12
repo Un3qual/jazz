@@ -65,6 +65,7 @@ recursionTests =
     , ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup)
     , ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
     , ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts)
+    , ("prepared analyzer scopes rederive facts for current outer bindings", testPreparedAnalyzerScopeRederivesForOuterBindings)
     , ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness)
     , ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
     , ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion)
@@ -77,6 +78,7 @@ recursionTests =
     , ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding)
     , ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies)
     , ("source pipeline previews through intervening recursive group members", testSourcePreviewsThroughInterveningRecursiveGroupMembers)
+    , ("source pipeline previews overlapping interleaved recursive groups", testSourcePreviewsOverlappingInterleavedRecursiveGroups)
     , ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference)
     , ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion)
     , ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup)
@@ -147,6 +149,25 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
       [ SLet "x" (SourceSpan 1 1) (EVar "y"),
         SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
         SExpr (SourceSpan 3 1) (EVar "x")
+      ]
+
+testPreparedAnalyzerScopeRederivesForOuterBindings :: IO ()
+testPreparedAnalyzerScopeRederivesForOuterBindings = do
+  ordinaryResult <-
+    Analyzer.analyzeProgramWithInputs
+      analysisInputs
+      Set.empty
+      (EBlock statements)
+  preparedResult <-
+    Analyzer.analyzeProgramWithInputsAndPreparedScope
+      analysisInputs
+      Set.empty
+      (prepareRecursiveScope (Set.singleton "self") statements)
+  assertEqual "prepared scope under current inputs" ordinaryResult preparedResult
+  where
+    statements =
+      [ SLet "self" (SourceSpan 1 1) (EVar "self"),
+        SExpr (SourceSpan 2 1) (EVar "self")
       ]
 
 testAnalyzerRootLaziness :: IO ()
@@ -304,6 +325,17 @@ testSourcePreviewsThroughInterveningRecursiveGroupMembers =
   right = if False then middle else left.
   late = left 1.
   late.
+  """
+
+testSourcePreviewsOverlappingInterleavedRecursiveGroups :: IO ()
+testSourcePreviewsOverlappingInterleavedRecursiveGroups =
+  assertSourceOk """
+  aLeft = if True then \\(x) -> x else aRight.
+  bLeft = if True then \\(x) -> x else bRight.
+  probe = (aLeft True, bLeft 1).
+  aRight = if False then \\(x) -> x else aLeft.
+  bRight = if False then \\(x) -> x else bLeft.
+  probe.
   """
 
 testSourceRejectsNonRecursiveForwardReference :: IO ()

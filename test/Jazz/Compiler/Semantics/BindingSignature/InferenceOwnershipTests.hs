@@ -27,6 +27,9 @@ import Jazz.Compiler.Name
   ( mkIdentifier,
     sourceName
   )
+import Jazz.Compiler.RecursiveBindings
+  ( prepareRecursiveScope
+  )
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     duplicateConstraintName,
@@ -140,6 +143,7 @@ inferenceOwnershipTests =
     ("signature payload normalization allocates ordered variables", testSignaturePayloadNormalizationAllocatesOrderedVariables),
     ("failed signature payload normalization rolls back state", testFailedSignaturePayloadNormalizationRollsBackState),
     ("production scope elaborates each signature once in source order", testProductionScopeElaboratesSignatureOnce),
+    ("prepared inference scopes rederive facts for current outer bindings", testPreparedInferenceScopeRederivesForOuterBindings),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
     ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
     ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
@@ -503,6 +507,53 @@ testProductionScopeElaboratesSignatureOnce =
                 state
               )
             _ -> (InferredExpr Nothing Nothing [], state)
+        _ -> (InferredExpr Nothing Nothing [], state)
+
+testPreparedInferenceScopeRederivesForOuterBindings :: IO ()
+testPreparedInferenceScopeRederivesForOuterBindings = do
+  assertEqual
+    "ordinary inference errors"
+    0
+    (inferErrorCount ordinaryState)
+  assertEqual
+    "prepared inference errors"
+    0
+    (inferErrorCount preparedState)
+  where
+    statements =
+      [SLet "self" (SourceSpan 1 1) (EVar "self")]
+    (_, ordinaryState, _) =
+      TypeInferenceScope.inferScopeTypeWithModeAndForwardBindings
+        Set.empty
+        syntheticProductionInfer
+        InferenceOnly
+        ResolveKernelOnly
+        Map.empty
+        initialInferState
+        statements
+    (_, preparedState, _) =
+      TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
+        (prepareRecursiveScope (Set.singleton "self") statements)
+        Set.empty
+        syntheticProductionInfer
+        InferenceOnly
+        ResolveKernelOnly
+        Map.empty
+        initialInferState
+
+    syntheticProductionInfer :: InferExprWithModeFn
+    syntheticProductionInfer _ _ env state expression =
+      case expression of
+        EVar name ->
+          case Map.lookup name env of
+            Just (PlainTypeBinding expressionType) ->
+              (InferredExpr (Just expressionType) Nothing [], state)
+            _ ->
+              ( InferredExpr Nothing Nothing [],
+                modifyInferenceOutput
+                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                  state
+              )
         _ -> (InferredExpr Nothing Nothing [], state)
 
 testRecursivePreviewSolverStateIsTransactional :: IO ()

@@ -37,6 +37,7 @@ import Jazz.Compiler.RecursiveBindings
     prepareRecursiveScope,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeGroups,
+    preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups
@@ -139,9 +140,13 @@ testPreparedRecursiveScope = do
     "prepared recursive groups"
     (Map.fromList [(0, [0, 2]), (2, [0, 2])])
     (preparedRecursiveScopeGroups preparedScope)
+  assertEqual
+    "prepared outer binding names"
+    (Set.singleton (ident "outside"))
+    (preparedRecursiveScopeOuterBindingNames preparedScope)
   where
     preparedScope :: PreparedRecursiveScope
-    preparedScope = prepareRecursiveScope Set.empty statements
+    preparedScope = prepareRecursiveScope (Set.singleton (ident "outside")) statements
     statements =
       [ SLet (ident "left") span0 (ELambda (ident "item") (EVar (ident "right"))),
         SExpr span0 (ELit (LInt 0)),

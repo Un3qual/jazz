@@ -20,7 +20,9 @@ module Jazz.Compiler.RecursiveBindings
     lookupLambdaCapturedNames,
     prepareRecursiveScope,
     preparedRecursiveScopeBindingNames,
+    preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeGroups,
+    preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups
@@ -79,26 +81,46 @@ buildRecursiveScopeFacts outerBindingNames indexedStatements =
       recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
     }
 
--- | One statement scope paired with the recursive facts derived from that
--- exact scope. The constructor stays private so supplied-facts consumers
--- cannot combine the facts with a second, independently chosen AST.
-data PreparedRecursiveScope = PreparedRecursiveScope ![Statement] !RecursiveScopeFacts
+-- | One statement scope paired with the outer visibility projection and
+-- recursive facts from which it was derived. The constructor stays private so
+-- consumers cannot cross-pair any of the three.
+data PreparedRecursiveScope = PreparedRecursiveScope ![Statement] !(Set Name) !RecursiveScopeFacts
 
 prepareRecursiveScope :: Set Name -> [Statement] -> PreparedRecursiveScope
 prepareRecursiveScope outerBindingNames statements =
   PreparedRecursiveScope
     statements
+    outerBindingNames
     (buildRecursiveScopeFacts outerBindingNames (zip [0 ..] statements))
 
 preparedRecursiveScopeStatements :: PreparedRecursiveScope -> [Statement]
-preparedRecursiveScopeStatements (PreparedRecursiveScope statements _) = statements
+preparedRecursiveScopeStatements (PreparedRecursiveScope statements _ _) = statements
+
+preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope -> Set Name
+preparedRecursiveScopeOuterBindingNames (PreparedRecursiveScope _ outerBindingNames _) =
+  outerBindingNames
+
+-- | Reuse the owned facts when the consumer has the same outer visibility.
+-- A prepared scope crossing a compiler boundary with different imports or
+-- builtin visibility is repaired from its retained statements rather than
+-- silently applying recursion facts derived for another environment.
+preparedRecursiveScopeFactsForOuterBindings ::
+  Set Name ->
+  PreparedRecursiveScope ->
+  RecursiveScopeFacts
+preparedRecursiveScopeFactsForOuterBindings
+  expectedOuterBindingNames
+  (PreparedRecursiveScope statements preparedOuterBindingNames recursiveScopeFactsValue)
+  | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
+  | otherwise =
+      buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
 
 preparedRecursiveScopeBindingNames :: PreparedRecursiveScope -> Map Int Name
-preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ recursiveScopeFactsValue) =
+preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
   recursiveScopeBindingNames recursiveScopeFactsValue
 
 preparedRecursiveScopeGroups :: PreparedRecursiveScope -> Map Int [Int]
-preparedRecursiveScopeGroups (PreparedRecursiveScope _ recursiveScopeFactsValue) =
+preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
   recursiveScopeGroups recursiveScopeFactsValue
 
 -- | Free-variable facts arranged in the same child-index shape as the lambda

@@ -59,8 +59,21 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticLabel,
     SourceSpan,
+    diagnosticCode,
+    diagnosticHelp,
+    diagnosticNotes,
+    diagnosticOrigin,
+    diagnosticPrimaryLabel,
+    diagnosticSecondaryLabels,
+    diagnosticSeverity,
+    diagnosticSubject,
+    diagnosticSummary,
+    diagnosticWarningCategory,
     isErrorDiagnostic,
+    labelMessage,
+    labelSpan,
   )
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
@@ -361,14 +374,37 @@ finishInference mode inputs hiddenStatementIndices subject inferredResult forwar
             inferredModuleInterface = finalizedModuleInterface finalizedInference
           }
 
--- Ordinary inference materializes only the output containers needed after the
--- analyzer walk. Values remain lazy and the Typed Core producer skips this
--- boundary because its finalizer still needs the complete solver state.
+-- Ordinary inference owns the finalized diagnostics before the analyzer walk,
+-- so rendering thunks cannot keep the complete solver state alive. The
+-- remaining result containers are materialized only to WHNF; the Typed Core
+-- producer skips this boundary because its finalizer still needs that state.
 forceFinalizedInferenceContainers :: FinalizedInference -> ()
 forceFinalizedInferenceContainers finalizedInference =
-  forceListSpine (finalizedTypeErrors finalizedInference) `seq`
+  forceListWith forceInferenceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
     forceMapEntriesWhnf (finalizedRuntimeTypeHints finalizedInference) `seq`
       forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
+
+-- This is phase-owned rather than imported from 'Jazz.Compiler.Force': that
+-- structural-forcing module already depends on this module through
+-- 'InferenceResult'. Keep the two definitions aligned.
+forceInferenceDiagnostic :: Diagnostic -> ()
+forceInferenceDiagnostic diagnostic =
+  diagnosticSeverity diagnostic `seq`
+    diagnosticCode diagnostic `seq`
+      diagnosticWarningCategory diagnostic `seq`
+        diagnosticOrigin diagnostic `seq`
+          diagnosticSummary diagnostic `seq`
+            forceMaybeWith forceInferenceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
+              forceListWith forceInferenceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
+                forceMaybeWhnf (diagnosticSubject diagnostic) `seq`
+                  forceListWith (\note -> note `seq` ()) (diagnosticNotes diagnostic) `seq`
+                    forceMaybeWhnf (diagnosticHelp diagnostic)
+
+forceInferenceDiagnosticLabel :: DiagnosticLabel -> ()
+forceInferenceDiagnosticLabel diagnosticLabel =
+  labelSpan diagnosticLabel `seq`
+    labelMessage diagnosticLabel `seq`
+      ()
 
 forceModuleInterfaceContainers :: ModuleInterface -> ()
 forceModuleInterfaceContainers moduleInterface =
@@ -387,11 +423,17 @@ forceMapEntriesWhnf = Map.foldrWithKey (\key value forced -> key `seq` value `se
 forceSetEntriesWhnf :: Set value -> ()
 forceSetEntriesWhnf = Set.foldr (\value forced -> value `seq` forced) ()
 
-forceListSpine :: [value] -> ()
-forceListSpine values =
+forceListWith :: (value -> ()) -> [value] -> ()
+forceListWith forceValue values =
   case values of
     [] -> ()
-    _ : remaining -> forceListSpine remaining
+    value : remaining -> forceValue value `seq` forceListWith forceValue remaining
+
+forceMaybeWith :: (value -> ()) -> Maybe value -> ()
+forceMaybeWith = maybe ()
+
+forceMaybeWhnf :: Maybe value -> ()
+forceMaybeWhnf = forceMaybeWith (\value -> value `seq` ())
 
 inferResolvedModuleTypedCoreExpressionDirectCall ::
   InferenceInputs ->

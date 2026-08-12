@@ -124,14 +124,12 @@ unifyTypesWithoutCostCentre leftType rightType state =
         (TCharType, TCharType) -> Just stateAfterDereference
         (TTextType, TTextType) -> Just stateAfterDereference
         (TDataType leftName leftArguments, TDataType rightName rightArguments)
-          | leftName == rightName,
-            length leftArguments == length rightArguments ->
+          | leftName == rightName ->
               unifyTypeListsWithoutCostCentre leftArguments rightArguments stateAfterDereference
         (TListType leftElementType, TListType rightElementType) ->
           unifyTypesWithoutCostCentre leftElementType rightElementType stateAfterDereference
-        (TTupleType leftElementTypes, TTupleType rightElementTypes)
-          | length leftElementTypes == length rightElementTypes ->
-              unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes stateAfterDereference
+        (TTupleType leftElementTypes, TTupleType rightElementTypes) ->
+          unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes stateAfterDereference
         ( TFunctionType leftInputType leftOutputType,
           TFunctionType rightInputType rightOutputType
           ) -> do
@@ -271,7 +269,7 @@ addStrictEqualityTypeVarConstraint typeVar state =
     ( \solver ->
         solver
           { solverStrictEqualityVars =
-              Set.insert typeVar (inferStrictEqualityVars state)
+              Set.insert typeVar (solverStrictEqualityVars solver)
           }
     )
     state
@@ -286,7 +284,7 @@ addNumericTypeVarConstraint typeVar numericConstraint state =
                 combineNumericConstraints
                 typeVar
                 numericConstraint
-                (inferNumericVars state)
+                (solverNumericVars solver)
           }
     )
     state

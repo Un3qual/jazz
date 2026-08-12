@@ -668,10 +668,9 @@ forceDiagnostic diagnostic =
           diagnosticSummary diagnostic `seq`
             forceMaybeWith forceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
               forceListWith forceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
-                diagnosticSubject diagnostic `seq`
+                forceMaybeWith (\subject -> subject `seq` ()) (diagnosticSubject diagnostic) `seq`
                   forceListWhnf (diagnosticNotes diagnostic) `seq`
-                    diagnosticHelp diagnostic `seq`
-                      ()
+                    forceMaybeWith (\helpText -> helpText `seq` ()) (diagnosticHelp diagnostic)
 
 forceDiagnosticLabel :: DiagnosticLabel -> ()
 forceDiagnosticLabel diagnosticLabel =

@@ -66,9 +66,10 @@ import Jazz.Compiler.RecursiveBindings
     freeVarsExprWithBound,
     inferSelfRecursiveBindings,
     prepareRecursiveScope,
-    preparedRecursiveScopeBindingNames,
-    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeStatements,
+    recursiveScopeBindingNames,
+    recursiveScopeGroups,
   )
 import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKeyInModule,
@@ -362,7 +363,7 @@ inferScopeTypeWithModeAndForwardBindings preludeStatementIndices inferExpression
     builtinMode
     initialEnv
     initialState
-    (preparedInferenceScope (prepareInferenceRecursiveScope builtinMode initialEnv statements))
+    (prepareInferenceScope builtinMode initialEnv statements)
 
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
   PreparedRecursiveScope ->
@@ -374,7 +375,7 @@ inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
   InferState ->
   (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope preludeStatementIndices inferExpression mode builtinMode initialEnv initialState =
-  let inferenceScope = preparedInferenceScope preparedScope
+  let inferenceScope = preparedInferenceScope (inferenceOuterBindingNames builtinMode initialEnv) preparedScope
    in inferenceScope `seq`
         inferScopeTypeInternal True preludeStatementIndices inferExpression mode builtinMode initialEnv initialState inferenceScope
 
@@ -389,7 +390,7 @@ inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builti
           builtinMode
           initialEnv
           initialState
-          (preparedInferenceScope (prepareInferenceRecursiveScope builtinMode initialEnv statements))
+          (prepareInferenceScope builtinMode initialEnv statements)
    in (inferredResult, finalState)
 
 inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
@@ -406,25 +407,34 @@ inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv in
           builtinMode
           initialEnv
           initialState
-          (preparedInferenceScope (prepareInferenceRecursiveScope builtinMode initialEnv statements))
+          (prepareInferenceScope builtinMode initialEnv statements)
    in (inferredExpressionType inferredResult, finalState)
 
-prepareInferenceRecursiveScope :: BuiltinResolutionMode -> TypeEnv -> [Statement] -> PreparedRecursiveScope
-prepareInferenceRecursiveScope builtinMode initialEnv =
-  prepareRecursiveScope
-    ( Set.union
-        (Map.keysSet initialEnv)
-        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
-    )
+prepareInferenceScope :: BuiltinResolutionMode -> TypeEnv -> [Statement] -> PreparedInferenceScope
+prepareInferenceScope builtinMode initialEnv statements =
+  preparedInferenceScope
+    outerBindingNames
+    (prepareRecursiveScope outerBindingNames statements)
+  where
+    outerBindingNames = inferenceOuterBindingNames builtinMode initialEnv
+
+inferenceOuterBindingNames :: BuiltinResolutionMode -> TypeEnv -> Set Name
+inferenceOuterBindingNames builtinMode initialEnv =
+  Set.union
+    (Map.keysSet initialEnv)
+    (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
 
 data PreparedInferenceScope = PreparedInferenceScope ![Statement] !(Map Int Name) !(Map Int [Int])
 
-preparedInferenceScope :: PreparedRecursiveScope -> PreparedInferenceScope
-preparedInferenceScope preparedScope =
+preparedInferenceScope :: Set Name -> PreparedRecursiveScope -> PreparedInferenceScope
+preparedInferenceScope expectedOuterBindingNames preparedScope =
   PreparedInferenceScope
     (preparedRecursiveScopeStatements preparedScope)
-    (preparedRecursiveScopeBindingNames preparedScope)
-    (preparedRecursiveScopeGroups preparedScope)
+    (recursiveScopeBindingNames recursiveScopeFactsValue)
+    (recursiveScopeGroups recursiveScopeFactsValue)
+  where
+    recursiveScopeFactsValue =
+      preparedRecursiveScopeFactsForOuterBindings expectedOuterBindingNames preparedScope
 
 inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> PreparedInferenceScope -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState (PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement) =
@@ -447,30 +457,61 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     indexedStatements = zip [0 ..] statements
     recursiveGroups =
       Set.toList (Set.fromList (Map.elems recursiveGroupsByStatement))
+    recursiveGroupIntervals =
+      [ (firstMember, lastMember, Set.fromList groupMembers, groupMembers)
+        | groupMembers <- recursiveGroups,
+          Just (firstMember, _) <- [uncons groupMembers],
+          Just (_, lastMember) <- [unsnoc groupMembers],
+          firstMember < lastMember
+      ]
+    recursiveGroupsStartingAt =
+      Map.fromList
+        [ (firstMember, (groupMemberSet, groupMembers))
+          | (firstMember, _, groupMemberSet, groupMembers) <- recursiveGroupIntervals
+        ]
+    recursiveGroupStartByLastMember =
+      Map.fromList
+        [ (lastMember, firstMember)
+          | (firstMember, lastMember, _, _) <- recursiveGroupIntervals
+        ]
+    recursiveGroupSweepIndices =
+      Set.toAscList
+        ( Set.unions
+            [ Map.keysSet bindingNamesByStatement,
+              Map.keysSet recursiveGroupsStartingAt,
+              Map.keysSet recursiveGroupStartByLastMember
+            ]
+        )
     recursiveGroupsByInterveningLet =
-      foldl' indexRecursiveGroup Map.empty recursiveGroups
-    indexRecursiveGroup groupsByStatement groupMembers =
-      case (uncons groupMembers, unsnoc groupMembers) of
-        (Just (firstMember, _), Just (_, lastMember)) ->
-          let groupMemberSet = Set.fromList groupMembers
-           in foldl'
-                (indexInterveningLet groupMembers groupMemberSet)
-                groupsByStatement
-                [firstMember + 1 .. lastMember - 1]
-        _ -> groupsByStatement
-    indexInterveningLet groupMembers groupMemberSet groupsByStatement statementIndex
-      | Set.member statementIndex groupMemberSet = groupsByStatement
-      | otherwise =
-          case Map.lookup statementIndex statementsByIndex of
-            Just SLet {} ->
-              -- Map.insertWith receives the new list first. Flipping append
-              -- retains the canonical Set order used by the former scan.
-              Map.insertWith
-                (flip (<>))
-                statementIndex
-                [groupMembers]
-                groupsByStatement
-            _ -> groupsByStatement
+      snd
+        ( foldl'
+            indexInterveningRecursiveGroups
+            (Map.empty, Map.empty)
+            recursiveGroupSweepIndices
+        )
+    -- A group stops before its last member is observed and starts only after
+    -- its first. Other group members are filtered while the interval is live.
+    indexInterveningRecursiveGroups (activeGroups, groupsByStatement) statementIndex =
+      (activeGroupsAfterStart, nextGroupsByStatement)
+      where
+        activeGroupsBeforeStart =
+          case Map.lookup statementIndex recursiveGroupStartByLastMember of
+            Just firstMember -> Map.delete firstMember activeGroups
+            Nothing -> activeGroups
+        interveningGroups =
+          [ groupMembers
+            | (groupMemberSet, groupMembers) <- Map.elems activeGroupsBeforeStart,
+              Set.notMember statementIndex groupMemberSet
+          ]
+        nextGroupsByStatement
+          | Map.member statementIndex bindingNamesByStatement,
+            not (null interveningGroups) =
+              Map.insert statementIndex interveningGroups groupsByStatement
+          | otherwise = groupsByStatement
+        activeGroupsAfterStart =
+          case Map.lookup statementIndex recursiveGroupsStartingAt of
+            Just groupInterval -> Map.insert statementIndex groupInterval activeGroupsBeforeStart
+            Nothing -> activeGroupsBeforeStart
     bindingIndicesByName =
       Map.foldlWithKey'
         (\indicesByName statementIndex bindingName ->
@@ -597,10 +638,20 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                       <> restProductionFailures
                in (scopeResultType, resultState, provisional, productionFailures)
             SData spanValue typeName typeParameters constructors ->
-              let (nextEnv, nextState) =
+              let dataTypeAlreadyDeclared =
+                    Map.member (identifierText typeName) (inferDataTypes state)
+                  (nextEnv, nextState) =
                     registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env state
+                  nextEnvFreeVariables =
+                    if dataTypeAlreadyDeclared
+                      then envFreeVariables
+                      else
+                        foldl'
+                          (insertRegisteredConstructorFreeVariables nextEnv)
+                          envFreeVariables
+                          constructors
                   (scopeResultType, resultState, provisionalRest, productionFailures) =
-                    go nextEnv (typeEnvFreeVariables nextEnv) lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts nextState rest
+                    go nextEnv nextEnvFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts nextState rest
                   provisional =
                     case mode of
                       ProduceTypedCoreExpressionDirectCall ->
@@ -2120,6 +2171,12 @@ concreteFloatNumericType expressionType =
     TNumericType NumericFloat64 -> Just NumericFloat64
     _ -> Nothing
 
+insertRegisteredConstructorFreeVariables :: TypeEnv -> TypeEnvFreeVariables -> DataConstructor -> TypeEnvFreeVariables
+insertRegisteredConstructorFreeVariables env summary (DataConstructor constructorName _) =
+  case Map.lookup constructorName env of
+    Just binding -> insertTypeEnvFreeVariables constructorName binding summary
+    Nothing -> summary
+
 registerDataConstructors :: Map Text DataTypeBinding -> SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> InferState -> (TypeEnv, InferState)
 registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters constructors env initialState =
   case Map.lookup typeNameText (inferDataTypes initialState) of
@@ -2153,10 +2210,8 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
     register (envAcc, stateAcc, constructorPayloadsAcc) (DataConstructor constructorName constructorArguments) =
       let (argumentTypes, nextState) =
             constructorArgumentTypes predeclaredDataTypes typeParameters constructorArguments stateAcc
-       in ( Map.insert
-            constructorName
-            (ConstructorTypeBinding typeName typeParameters argumentTypes)
-            envAcc,
+          binding = ConstructorTypeBinding typeName typeParameters argumentTypes
+       in ( Map.insert constructorName binding envAcc,
           nextState,
           argumentTypes : constructorPayloadsAcc
         )
