@@ -48,7 +48,7 @@ const wordmarkContracts = new Map([
   }],
 ]);
 
-function assertApprovedWordmarkGroup(source, assetName, surfaceColor) {
+function wordmarkGroupParts(source, assetName) {
   const groupMatches = [
     ...source.matchAll(/<g\b([^>]*\bdata-role="wordmark"[^>]*)>([\s\S]*?)<\/g>/g),
   ];
@@ -57,8 +57,11 @@ function assertApprovedWordmarkGroup(source, assetName, surfaceColor) {
     1,
     `${assetName} must expose exactly one rendered wordmark group`,
   );
-
   const [, attributes, contents] = groupMatches[0];
+  return {attributes, contents};
+}
+
+function assertWordmarkGroupAttributes(attributes, assetName, surfaceColor) {
   assert.match(
     attributes,
     new RegExp(`\\bfill="${surfaceColor}"`),
@@ -74,32 +77,50 @@ function assertApprovedWordmarkGroup(source, assetName, surfaceColor) {
     /\b(?:display|visibility|opacity|style|filter|mask|clip-path)=/,
     `${assetName} must not hide or restyle its wordmark group`,
   );
+}
 
+function wordmarkPathAttributes(contents, assetName) {
   const pathElements = [...contents.matchAll(/<path\b([^>]*)\/>/g)];
+  assert.equal(
+    contents.replace(/<path\b[^>]*\/>/g, '').trim(),
+    '',
+    `${assetName} wordmark group must contain only approved letter paths`,
+  );
   assert.equal(
     pathElements.length,
     wordmarkPaths.length,
     `${assetName} must render exactly four wordmark letters`,
   );
+  return pathElements.map(([, attributes]) => attributes);
+}
+
+function assertApprovedWordmarkPath(source, assetName, pathAttributes, wordmarkPath) {
+  assert.equal(
+    source.split(wordmarkPath).length - 1,
+    1,
+    `${assetName} must contain each approved letter path exactly once`,
+  );
+  const matchingPaths = pathAttributes.filter((attributes) =>
+    attributes.includes(`d="${wordmarkPath}"`),
+  );
+  assert.equal(
+    matchingPaths.length,
+    1,
+    `${assetName} must render each approved letter path exactly once`,
+  );
+  assert.doesNotMatch(
+    matchingPaths[0],
+    /\b(?:fill|stroke|transform|display|visibility|opacity|style|filter|mask|clip-path)=/,
+    `${assetName} letter paths must inherit the visible wordmark treatment`,
+  );
+}
+
+function assertApprovedWordmarkGroup(source, assetName, surfaceColor) {
+  const {attributes, contents} = wordmarkGroupParts(source, assetName);
+  assertWordmarkGroupAttributes(attributes, assetName, surfaceColor);
+  const pathAttributes = wordmarkPathAttributes(contents, assetName);
   for (const wordmarkPath of wordmarkPaths) {
-    assert.equal(
-      source.split(wordmarkPath).length - 1,
-      1,
-      `${assetName} must contain each approved letter path exactly once`,
-    );
-    const matchingPaths = pathElements.filter(([, pathAttributes]) =>
-      pathAttributes.includes(`d="${wordmarkPath}"`),
-    );
-    assert.equal(
-      matchingPaths.length,
-      1,
-      `${assetName} must render each approved letter path exactly once`,
-    );
-    assert.doesNotMatch(
-      matchingPaths[0][1],
-      /\b(?:fill|stroke|transform|display|visibility|opacity|style|filter|mask|clip-path)=/,
-      `${assetName} letter paths must inherit the visible wordmark treatment`,
-    );
+    assertApprovedWordmarkPath(source, assetName, pathAttributes, wordmarkPath);
   }
 }
 
@@ -217,6 +238,20 @@ test('wordmark surfaces render the approved matched Jazz lettering', async () =>
     assertApprovedWordmarkGroup(source, assetName, contract.surfaceColor);
     await assertRenderedWordmark(source, assetName, contract);
   }
+});
+
+test('wordmark validation rejects extra children outside the approved letters', async () => {
+  const source = await readFile(path.join(imageDirectory, 'jazz-wordmark.svg'), 'utf8');
+  const firstLetter = `<path d="${wordmarkPaths[0]}"/>`;
+  const malformedSource = source.replace(
+    firstLetter,
+    `<circle cx="1180" cy="460" r="8"/>${firstLetter}`,
+  );
+  assert.notEqual(malformedSource, source, 'wordmark mutation did not apply');
+  assert.throws(
+    () => assertApprovedWordmarkGroup(malformedSource, 'malformed-wordmark.svg', '#24182C'),
+    /must contain only approved letter paths/,
+  );
 });
 
 test('standalone marks and wordmarks retain transparent canvas padding', async () => {
