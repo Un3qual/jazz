@@ -13,12 +13,13 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-08-11`): the compiler performance follow-up is
-complete on `codex/compiler-performance-program`; its implementation plan owns
-the comparable receipts and explicit neutral/rejected dispositions. No
-implementation row is currently ready. The next curation pass should evaluate
-the scalar-binding bootstrap candidate below against RFC 0009 before promoting
-any new work.
+Current executor status (`2026-08-12`): the compiler performance follow-up and
+its Haskell/compiler-design cleanup are complete on
+`codex/compiler-performance-program`; their implementation plans own the
+comparable receipts, full closeout receipt, and explicit neutral/rejected
+dispositions. No implementation row is currently ready. The next curation pass
+should evaluate the scalar-binding bootstrap candidate below against RFC 0009
+before promoting any new work.
 
 ## Next Curation Target
 

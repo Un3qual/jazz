@@ -1,6 +1,6 @@
 # Compiler performance branch de-slop follow-up
 
-Status: Active
+Status: Complete
 Branch: `codex/compiler-performance-program`
 Base: `codex/typed-core-closure-recursion` at `6e3381f285357b4f9113589b318f8b0feb049ce2`
 
@@ -85,7 +85,31 @@ Lowered IR lowering owners.
 
 ## Closeout
 
-After the final source change: run affected subsystem gates once, run the single
-authoritative full main-functional closeout, obtain an independent whole-diff
-review, update this plan with evidence/dispositions, commit, and push the PR
-branch.
+Completed on 2026-08-12.
+
+- Batch commits: `c7657eac`, `1322e963`, `b713aee5`, `f6c18e37`,
+  `439e9709`, and `9b03b002`.
+- Focused Haskell owners passed for Typed Core production, runtime semantics and
+  observation, recursive inference, parser/operator behavior, Lowered IR,
+  benchmark stages/profiling, program corpus, and module runtime diagnostics.
+- CI policy, execution-queue, documentation, and executable-example checks
+  passed with the prebuilt Jazz handoff.
+- Three independent GPT-5.6 Sol `xhigh` whole-diff reviews covered the
+  typechecker/IR, runtime/parser/module, and benchmark/CI clusters. No remaining
+  actionable blocker was found.
+- Authoritative receipt:
+
+  ```bash
+  nix --extra-experimental-features 'nix-command flakes' develop -c env \
+    JAZZ_MAIN_PHASE=all \
+    JAZZ_CABAL_JOBS=1 \
+    JAZZ_NIX_JOBS=1 \
+    JAZZ_NIX_CORES=1 \
+    JAZZ_DIFF_BASE=6e3381f285357b4f9113589b318f8b0feb049ce2 \
+    bash scripts/ci/main-functional.sh
+  ```
+
+  The command exited `0` on 2026-08-12 after the full Cabal build/test suite,
+  examples, repository/docs/policy/queue checks, and bounded `nix flake check`.
+  The final plan/queue edits are internal documentation only and reuse this
+  still-valid source-artifact receipt.
