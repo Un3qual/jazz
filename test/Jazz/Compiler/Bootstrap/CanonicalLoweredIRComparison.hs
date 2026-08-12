@@ -5,21 +5,22 @@ module Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
     canonicalLoweredProgramsRuntimeValue,
     canonicalLoweredValidationFailuresRuntimeValue,
     closureEmissionContractPrograms,
-    decodeCanonicalLoweredValidationFailuresRuntimeValue
-  ) where
+    decodeCanonicalLoweredValidationFailuresRuntimeValue,
+  )
+where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalValue
   ( canonicalConstructor,
     canonicalNullaryConstructor,
-    runtimeIntValue
+    runtimeIntValue,
   )
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    untypedIntMetadata
+    untypedIntMetadata,
   )
 
 canonicalLoweredProgramRuntimeValue :: LoweredProgram -> RuntimeValue
@@ -66,17 +67,29 @@ closureEmissionContractPrograms =
         closureRepresentation
         [instruction 1 closureRepresentation (LoweredDirectCall chooseFunctionId [LoweredImmediateOperand (LoweredBoolImmediate False)])]
         (temporary 1 closureRepresentation)
+    ),
+    ( "lexical-capture",
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [captureLayout]
+        []
+        [captureFunction, captureEntryFunction]
+        entryFunctionId
     )
   ]
   where
     identityLayoutAt1, identityLayoutAt3 :: LoweredLayout
     identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
     identityLayoutAt3 = LoweredLayout identityLayoutIdAt3 (LoweredClosureEnvironmentLayout [])
+    captureLayout = LoweredLayout captureLayoutId (LoweredClosureEnvironmentLayout [int64Representation])
     identityLayoutIdAt1, identityLayoutIdAt3 :: LoweredLayoutId
     identityLayoutIdAt1 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
     identityLayoutIdAt3 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n8:identity"
+    captureLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n7:addSeed"
     closureRepresentation :: LoweredRepresentation
     closureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    captureClosureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [int64Representation] int64Representation)
+    int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
     identityFunction :: LoweredLayoutId -> LoweredFunction
     identityFunction layoutId =
       function
@@ -113,10 +126,65 @@ closureEmissionContractPrograms =
           constructClosure 2 identityLayoutIdAt1
         ]
         (temporary 2 closureRepresentation)
-    identityFunctionId, applyFunctionId, chooseFunctionId, entryFunctionId :: LoweredFunctionId
+    captureFunction =
+      function
+        captureFunctionId
+        (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation captureLayoutId)))
+        [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+        int64Representation
+        [ instruction
+            1
+            int64Representation
+            ( LoweredProjectField
+                captureLayoutId
+                0
+                (LoweredFunctionParameterOperand (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation captureLayoutId))
+            ),
+          instruction
+            2
+            int64Representation
+            ( LoweredPrimitiveOperation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [ LoweredFunctionParameterOperand (LoweredParameterId "arg1") int64Representation,
+                  temporary 1 int64Representation
+                ]
+            )
+        ]
+        (temporary 2 int64Representation)
+    captureEntryFunction =
+      function
+        entryFunctionId
+        Nothing
+        []
+        int64Representation
+        [ instruction
+            1
+            (LoweredManagedReferenceRepresentation captureLayoutId)
+            ( LoweredConstructProduct
+                captureLayoutId
+                [LoweredImmediateOperand (LoweredSignedIntegerImmediate LoweredIntegerWidth64 1)]
+            ),
+          instruction
+            2
+            captureClosureRepresentation
+            ( LoweredConstructClosure
+                captureFunctionId
+                (temporary 1 (LoweredManagedReferenceRepresentation captureLayoutId))
+            ),
+          instruction
+            3
+            int64Representation
+            ( LoweredClosureCall
+                (temporary 2 captureClosureRepresentation)
+                [LoweredImmediateOperand (LoweredSignedIntegerImmediate LoweredIntegerWidth64 41)]
+            )
+        ]
+        (temporary 3 int64Representation)
+    identityFunctionId, applyFunctionId, chooseFunctionId, captureFunctionId, entryFunctionId :: LoweredFunctionId
     identityFunctionId = LoweredFunctionId "App::Main::identity"
     applyFunctionId = LoweredFunctionId "App::Main::apply"
     chooseFunctionId = LoweredFunctionId "App::Main::choose"
+    captureFunctionId = LoweredFunctionId "App::Main::addSeed"
     entryFunctionId = LoweredFunctionId "App::Main::$entry"
     closureProgram :: LoweredLayout -> [LoweredFunction] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
     closureProgram layout functions resultRepresentation instructions resultOperand =

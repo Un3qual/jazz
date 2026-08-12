@@ -432,7 +432,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
               directArity = maybe 0 functionArity (Map.lookup name functions)
               (expressionFailures, maybeExpression) =
-                finalizeExpression functions callableShapes statementIndex [0] Map.empty (FunctionBindingExpression callableShape directArity) expression
+                finalizeExpression functions callableShapes statementIndex [0] scalarBindings (FunctionBindingExpression callableShape directArity) expression
               infoResult = callableInfo callableShape directArity statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
               owningStatementFailures =
@@ -574,7 +574,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                             childPath
                             TypedCoreDuplicateParameterUnsupported
                             (TypedCoreNameDetail (identifierText parameterName))
-                        | Map.member parameterName parameters
+                        | Just existingBinder <- [Map.lookup parameterName parameters],
+                          binderBelongsToStatement statementIndex existingBinder
                         ]
                       parameterPath = childPath
                       parameterBinder = TypedBinderId (modulePath, statementIndex : parameterPath, resolvedValueName parameterName)
@@ -590,9 +591,20 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       failures = duplicateParameterFailures <> bodyFailures
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
             _ ->
-              ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail],
-                Nothing
-              )
+              case callableInfo TypedClosureCallableShape (1 :: Int) statementIndex childPath expressionType of
+                Left failure -> ([failure], Nothing)
+                Right info ->
+                  let parameterBinder = TypedBinderId (modulePath, statementIndex : childPath, resolvedValueName parameterName)
+                      (bodyFailures, maybeBody) =
+                        finalizeExpression
+                          functions
+                          callableShapes
+                          statementIndex
+                          (childPath <> [0])
+                          (Map.insert parameterName parameterBinder parameters)
+                          ScalarExpression
+                          body
+                   in (bodyFailures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
         ProvisionalApplyExpression _ _ _ ->
           finalizeApplicationSpine functions callableShapes statementIndex childPath parameters expression
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
@@ -690,10 +702,32 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 Nothing
               )
             _ ->
-              ( failureAt statementIndex childPath TypedCoreCallableValueUnsupported TypedCoreUnsupportedRootDetail
-                  : argumentFailures,
-                Nothing
-              )
+              let actualArity = length arguments
+                  arityFailures =
+                    [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail 1 actualArity)
+                    | actualArity /= 1
+                    ]
+                  (calleeFailures, maybeCallee) =
+                    finalizeExpression
+                      functions
+                      callableShapes
+                      statementIndex
+                      (childPath <> replicate actualArity 0)
+                      parameters
+                      CalleeExpression
+                      callee
+                  childFailures = calleeFailures <> argumentFailures
+               in case (arityFailures, resultTypes, finalizedArguments) of
+                    (_ : _, _, _) -> (arityFailures <> childFailures, Nothing)
+                    ([], [resultType], [(_, maybeArgument)]) ->
+                      let (resultInfoFailures, maybeResultInfo) =
+                            case scalarOrCallableInfo statementIndex childPath resultType of
+                              Left failure -> ([failure], Nothing)
+                              Right info -> ([], Just info)
+                          failures = childFailures <> resultInfoFailures
+                          typedApplication = TypedApplyExpr <$> maybeResultInfo <*> maybeCallee <*> maybeArgument
+                       in (failures, if null failures then typedApplication else Nothing)
+                    _ -> (childFailures, Nothing)
 
     applicationSpine = go [] [] []
       where
@@ -712,6 +746,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     binderAt statementIndex suffix name =
       TypedBinderId (modulePath, statementIndex : suffix, name)
+
+    binderBelongsToStatement statementIndex (TypedBinderId (_, binderPath, _)) =
+      case binderPath of
+        ownerStatementIndex : _ -> ownerStatementIndex == statementIndex
+        [] -> False
 
     resolvedValueName name =
       case name of
@@ -822,10 +861,93 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       ]
 
     callableShapeTable functions statements =
-      foldl'
-        (collectStatementCallableUses functions Set.empty)
-        (Map.map (const TypedDirectCallableShape) functions)
-        statements
+      Map.mapWithKey promoteTransitiveCapture baseShapes
+      where
+        (_, baseShapes, directCaptureFunctions) =
+          foldl'
+            collect
+            (Set.empty, Map.map (const TypedDirectCallableShape) functions, Set.empty)
+            statements
+        closureDependencies =
+          foldl'
+            collectClosureDependencies
+            Map.empty
+            statements
+        collectClosureDependencies dependencies statement =
+          case statement of
+            ProvisionalFunctionBinding declaration expression ->
+              Map.insertWith
+                Set.union
+                (provisionalCallableName declaration)
+                (Set.intersection (Map.keysSet functions) (provisionalFreeNames expression))
+                dependencies
+            _ -> dependencies
+        transitiveCaptureFunctions = propagateCaptureDependencies directCaptureFunctions
+        propagateCaptureDependencies capturingFunctions =
+          let nextCapturingFunctions =
+                Map.foldlWithKey'
+                  promote
+                  capturingFunctions
+                  closureDependencies
+           in if nextCapturingFunctions == capturingFunctions
+                then capturingFunctions
+                else propagateCaptureDependencies nextCapturingFunctions
+          where
+            promote accumulatedCaptures name dependencies
+              | Set.null (Set.intersection accumulatedCaptures dependencies) = accumulatedCaptures
+              | otherwise = Set.insert name accumulatedCaptures
+        promoteTransitiveCapture name shape
+          | Set.member name transitiveCaptureFunctions = TypedClosureCallableShape
+          | otherwise = shape
+        collect (visibleScalars, callableShapes, capturingFunctions) statement =
+          let shapesAfterUses = collectStatementCallableUses functions Set.empty callableShapes statement
+           in case statement of
+                ProvisionalScalarBinding _ name _ _ _ ->
+                  (Set.insert name visibleScalars, shapesAfterUses, capturingFunctions)
+                ProvisionalFunctionBinding declaration expression ->
+                  let name = provisionalCallableName declaration
+                      capturesScalar = not (Set.disjoint visibleScalars (provisionalFreeNames expression))
+                      shapesAfterCapture =
+                        if capturesScalar
+                          then markClosure name shapesAfterUses
+                          else shapesAfterUses
+                      nextCapturingFunctions =
+                        if capturesScalar
+                          then Set.insert name capturingFunctions
+                          else capturingFunctions
+                   in (Set.delete name visibleScalars, shapesAfterCapture, nextCapturingFunctions)
+                ProvisionalUnsupportedCallableBinding declaration _ _ _ ->
+                  (Set.delete (provisionalCallableName declaration) visibleScalars, shapesAfterUses, capturingFunctions)
+                _ -> (visibleScalars, shapesAfterUses, capturingFunctions)
+
+    provisionalFreeNames = freeNames Set.empty
+      where
+        freeNames boundNames expression =
+          case expression of
+            ProvisionalVariableExpression name _
+              | Set.member name boundNames -> Set.empty
+              | otherwise -> Set.singleton name
+            ProvisionalLambdaExpression parameterName _ body ->
+              freeNames (Set.insert parameterName boundNames) body
+            ProvisionalApplyExpression _ function argument ->
+              freeNames boundNames function <> freeNames boundNames argument
+            ProvisionalBinaryExpression _ _ _ left right ->
+              freeNames boundNames left <> freeNames boundNames right
+            ProvisionalScopeStatements nestedStatements -> scopeFreeNames boundNames nestedStatements
+            _ -> Set.empty
+
+        scopeFreeNames _ [] = Set.empty
+        scopeFreeNames boundNames (statement : rest) =
+          case statement of
+            ProvisionalFunctionBinding declaration expression ->
+              let name = provisionalCallableName declaration
+                  nextBoundNames = Set.insert name boundNames
+               in freeNames nextBoundNames expression <> scopeFreeNames nextBoundNames rest
+            ProvisionalScalarBinding _ name _ _ expression ->
+              freeNames boundNames expression <> scopeFreeNames (Set.insert name boundNames) rest
+            ProvisionalTerminalExpression _ _ expression ->
+              freeNames boundNames expression <> scopeFreeNames boundNames rest
+            _ -> scopeFreeNames boundNames rest
 
     collectStatementCallableUses functions lexicalNames callableShapes statement =
       case statement of
