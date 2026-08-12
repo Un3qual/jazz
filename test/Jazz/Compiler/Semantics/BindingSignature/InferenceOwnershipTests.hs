@@ -56,6 +56,7 @@ import Jazz.Compiler.TypeInference.Elaboration
 import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
+    addStrictEqualityTypeVarConstraint,
     applySubstitution,
     bindTypeVar,
     freshTypeVar,
@@ -77,6 +78,8 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferNextTypeVar,
+    inferNumericVars,
+    inferStrictEqualityVars,
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
@@ -132,6 +135,8 @@ inferenceOwnershipTests =
     ("prepared inference scopes rederive facts for current outer bindings", testPreparedInferenceScopeRederivesForOuterBindings),
     ("recursive previews do not expose speculative solver state to intervening bindings", testRecursivePreviewSolverStateIsTransactional),
     ("recursive previews refresh after semantic solver changes", testRecursivePreviewRefreshesAfterSolverChange),
+    ("recursive previews refresh after numeric-constraint changes", testRecursivePreviewRefreshesAfterNumericConstraintChange),
+    ("recursive previews refresh after strict-equality-constraint changes", testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange),
     ("recursive previews are reused at an unchanged group frontier", testRecursivePreviewReuseAtSameFrontier),
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
@@ -618,6 +623,77 @@ testRecursivePreviewRefreshesAfterSolverChange =
               Just nextState -> nextState
               Nothing -> state
           )
+        EVar "probeLeft" ->
+          ( Just TBoolType,
+            case Map.lookup "left" env of
+              Just (PlainTypeBinding TBoolType) -> state
+              _ ->
+                modifyInferenceOutput
+                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                  state
+          )
+        _ -> (Just TBoolType, state)
+
+    bindingType binding =
+      case binding of
+        PlainTypeBinding expressionType -> Just expressionType
+        _ -> Nothing
+
+    sharedTypeVar = 1000000
+
+testRecursivePreviewRefreshesAfterNumericConstraintChange :: IO ()
+testRecursivePreviewRefreshesAfterNumericConstraintChange =
+  assertRecursivePreviewRefreshesAfterConstraintChange
+    "numeric constraint"
+    (\typeVar -> addNumericTypeVarConstraint typeVar AnyNumericConstraint)
+    (\typeVar -> Map.member typeVar . inferNumericVars)
+
+testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange :: IO ()
+testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange =
+  assertRecursivePreviewRefreshesAfterConstraintChange
+    "strict-equality constraint"
+    addStrictEqualityTypeVarConstraint
+    (\typeVar -> Set.member typeVar . inferStrictEqualityVars)
+
+assertRecursivePreviewRefreshesAfterConstraintChange ::
+  Text ->
+  (Int -> InferState -> InferState) ->
+  (Int -> InferState -> Bool) ->
+  IO ()
+assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasConstraint =
+  assertEqual
+    (label <> " refreshes the exposed recursive binding")
+    0
+    (inferErrorCount finalState)
+  where
+    (_, finalState) =
+      TypeInferenceScope.inferScopeType
+        Set.empty
+        syntheticPreviewInfer
+        ResolveKernelOnly
+        (Map.singleton "shared" (PlainTypeBinding (TVarType sharedTypeVar)))
+        initialInferState
+        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
+          SLet "advance" (SourceSpan 2 1) (EVar "advanceConstraint"),
+          SLet "probe" (SourceSpan 3 1) (EVar "probeLeft"),
+          SLet "right" (SourceSpan 4 1) (EApply (EVar "left") (EVar "constraintSensitive"))
+        ]
+
+    syntheticPreviewInfer :: InferExprFn
+    syntheticPreviewInfer _ env state expression =
+      case expression of
+        EVar "right" ->
+          (bindingType =<< Map.lookup "right" env, state)
+        EApply (EVar "left") (EVar "constraintSensitive") ->
+          ( Just
+              ( if hasConstraint sharedTypeVar state
+                  then TBoolType
+                  else TVarType sharedTypeVar
+              ),
+            state
+          )
+        EVar "advanceConstraint" ->
+          (Just TBoolType, addConstraint sharedTypeVar state)
         EVar "probeLeft" ->
           ( Just TBoolType,
             case Map.lookup "left" env of

@@ -129,6 +129,7 @@ import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType (..),
+    NumericConstraint,
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -1304,12 +1305,18 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                                           latestBindingIndexBefore statementIndex bindingName == Just memberIndex,
                                           Just binding <- [Map.lookup bindingName nextEnv]
                                       ]
+                                  previewDependencies =
+                                    recursiveGroupPreviewDependencyTypes stateAcc previewBindings
+                                  previewDependencyVariables = Map.keysSet previewDependencies
                                   cachedPreview =
                                     RecursiveGroupPreview
                                       { recursiveGroupPreviewBindings = previewBindings,
                                         recursiveGroupPreviewNextTypeVar = solverNextTypeVar (inferSolver previewState),
-                                        recursiveGroupPreviewDependencies =
-                                          recursiveGroupPreviewDependencyTypes stateAcc previewBindings
+                                        recursiveGroupPreviewDependencies = previewDependencies,
+                                        recursiveGroupPreviewNumericConstraints =
+                                          Map.restrictKeys (inferNumericVars stateAcc) previewDependencyVariables,
+                                        recursiveGroupPreviewStrictEqualityVars =
+                                          Set.intersection (inferStrictEqualityVars stateAcc) previewDependencyVariables
                                       }
                                   nextState = rollbackPreviewState stateAcc previewState
                                in (nextEnv, nextFreeVariables, nextState, Map.insert previewKey cachedPreview cacheAcc)
@@ -1345,10 +1352,21 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
             }
 
         recursiveGroupPreviewIsCurrent stateAcc cachedPreview =
-          Map.foldlWithKey'
-            (\isCurrent typeVar expectedType -> isCurrent && resolveType stateAcc (TVarType typeVar) == expectedType)
-            True
-            (recursiveGroupPreviewDependencies cachedPreview)
+          resolvedDependenciesAreCurrent
+            && currentNumericConstraints == recursiveGroupPreviewNumericConstraints cachedPreview
+            && currentStrictEqualityVars == recursiveGroupPreviewStrictEqualityVars cachedPreview
+          where
+            dependencies = recursiveGroupPreviewDependencies cachedPreview
+            dependencyVariables = Map.keysSet dependencies
+            resolvedDependenciesAreCurrent =
+              Map.foldlWithKey'
+                (\isCurrent typeVar expectedType -> isCurrent && resolveType stateAcc (TVarType typeVar) == expectedType)
+                True
+                dependencies
+            currentNumericConstraints =
+              Map.restrictKeys (inferNumericVars stateAcc) dependencyVariables
+            currentStrictEqualityVars =
+              Set.intersection (inferStrictEqualityVars stateAcc) dependencyVariables
 
         recursiveGroupPreviewDependencyTypes stateAcc bindings =
           Map.fromSet
@@ -1557,7 +1575,9 @@ data ForwardFunctionBinding = ForwardFunctionBinding
 data RecursiveGroupPreview = RecursiveGroupPreview
   { recursiveGroupPreviewBindings :: Map Int TypeBinding,
     recursiveGroupPreviewNextTypeVar :: Int,
-    recursiveGroupPreviewDependencies :: Map Int ExpressionType
+    recursiveGroupPreviewDependencies :: Map Int ExpressionType,
+    recursiveGroupPreviewNumericConstraints :: Map Int NumericConstraint,
+    recursiveGroupPreviewStrictEqualityVars :: Set Int
   }
 
 type RecursiveGroupPreviewCache = Map (Int, Int) RecursiveGroupPreview

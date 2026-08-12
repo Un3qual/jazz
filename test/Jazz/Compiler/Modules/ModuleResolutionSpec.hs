@@ -256,13 +256,13 @@ testResolvesMixedModuleFacts = do
             import Lib::Values (seed).
             import Lib::Values as V.
             data Local = Local T::Box.
-            main :: T::Box.
+            main :: Int.
             main = V::box seed.
             }
             """
           ),
           ("src/Lib/Types.jz", "module Lib::Types (type Box(..)) { data Box = Box. }"),
-          ("src/Lib/Values.jz", "module Lib::Values (seed, box) { seed = 1. box = 2. }")
+          ("src/Lib/Values.jz", "module Lib::Values (seed, box) { seed = 1. box = \\(candidate) -> candidate. }")
         ]
     lookupSource path = pure (Map.lookup path sources)
 
