@@ -212,6 +212,7 @@ data ProvisionalTypedExpr
 data ProvisionalTypedStatement
   = ProvisionalSignature Int Name SourceSpan ExpressionType
   | ProvisionalFunctionBinding ProvisionalCallableDeclaration ProvisionalTypedExpr
+  | ProvisionalScalarBinding Int Name SourceSpan ExpressionType ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
   | ProvisionalUnsupportedCallableBinding ProvisionalCallableDeclaration TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
   | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
@@ -312,31 +313,29 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           callableShapes = callableShapeTable functions provisionalStatements
           reboundFunctions = reboundFunctionStatements provisionalStatements
           recursiveBinders = recursiveDeclarationBinders declarations
-          finalizedStatements = map (finalizeStatement functions callableShapes reboundFunctions recursiveBinders) provisionalStatements
+          (statementFailures, typedStatements) =
+            finalizeStatements functions callableShapes reboundFunctions recursiveBinders provisionalStatements
           exportResult = finalizeExports functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
             | not (hasTerminalResult provisionalStatements)
             ]
           moduleFailures = missingResultFailures <> fst exportResult
-          productionFailures = moduleFailures <> concatMap fst finalizedStatements
+          productionFailures = moduleFailures <> statementFailures
        in case productionFailures of
             _ : _ -> ProductionUnsupported productionFailures
             [] ->
-              case traverse snd finalizedStatements of
-                Just typedStatements ->
-                  case reverse typedStatements of
-                    TypedExpressionStatement _ terminalExpression : _ ->
-                      let programValue =
-                            typedProgram
-                              (snd exportResult)
-                              typedStatements
-                              (typedExpressionInfo terminalExpression)
-                       in case validateTypedProgramOnce programValue of
-                            Right validatedProgram -> ProductionSucceeded validatedProgram
-                            Left failures -> ProductionInvariantFailures failures
-                    _ -> ProductionUnsupported [missingModuleResultFailure]
-                Nothing -> ProductionUnsupported [missingModuleResultFailure]
+              case reverse typedStatements of
+                TypedExpressionStatement _ terminalExpression : _ ->
+                  let programValue =
+                        typedProgram
+                          (snd exportResult)
+                          typedStatements
+                          (typedExpressionInfo terminalExpression)
+                   in case validateTypedProgramOnce programValue of
+                        Right validatedProgram -> ProductionSucceeded validatedProgram
+                        Left failures -> ProductionInvariantFailures failures
+                _ -> ProductionUnsupported [missingModuleResultFailure]
     ProvisionalUnsupportedExpression kind detail ->
       ProductionUnsupported [failureAt 0 [] kind detail]
     _ ->
@@ -375,17 +374,37 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatement functions callableShapes reboundFunctions recursiveBinders statement =
+    finalizeStatements functions callableShapes reboundFunctions recursiveBinders =
+      go Map.empty
+      where
+        go _ [] = ([], [])
+        go scalarBindings (statement : rest) =
+          let (failures, maybeStatement, nextScalarBindings) =
+                finalizeStatement
+                  functions
+                  callableShapes
+                  reboundFunctions
+                  recursiveBinders
+                  scalarBindings
+                  statement
+              (restFailures, restStatements) = go nextScalarBindings rest
+           in (failures <> restFailures, maybe restStatements (: restStatements) maybeStatement)
+
+    finalizeStatement functions callableShapes reboundFunctions recursiveBinders scalarBindings statement =
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
           let callableShape = shapeFor callableShapes name
               directArity = maybe (resolvedFunctionArity expressionType) functionArity (Map.lookup name functions)
-           in case callableInfo callableShape directArity statementIndex [] expressionType of
-                Left failure -> ([failure], Nothing)
+              infoResult =
+                case defaultScalarLiterals (resolveType state expressionType) of
+                  TFunctionType {} -> callableInfo callableShape directArity statementIndex [] expressionType
+                  _ -> valueInfo statementIndex [] expressionType
+           in case infoResult of
+                Left failure -> ([failure], Nothing, scalarBindings)
                 Right info ->
                   let typedName = resolvedValueName name
                       owner = binderAt statementIndex [] typedName
-                   in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info)))
+                   in ([], Just (TypedSignatureStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info)), scalarBindings)
         ProvisionalFunctionBinding declaration expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
@@ -427,24 +446,53 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 info <- either (const Nothing) Just infoResult
                 typedExpression <- maybeExpression
                 pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner callableShape info) typedExpression)
-           in (failures, if null failures then typedStatement else Nothing)
+           in (failures, if null failures then typedStatement else Nothing, scalarBindings)
           where
             statementIndex = provisionalCallableStatementIndex declaration
             name = provisionalCallableName declaration
             spanValue = provisionalCallableSpan declaration
             expressionType = provisionalCallableType declaration
             maybeBinding = provisionalCallableBinding declaration
+        ProvisionalScalarBinding statementIndex name spanValue expressionType expression ->
+          let typedName = resolvedValueName name
+              owner = binderAt statementIndex [] typedName
+              callableNameCollisionFailures =
+                [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail | Map.member name functions]
+              infoResult = valueInfo statementIndex [] expressionType
+              infoFailures = either (: []) (const []) infoResult
+              (expressionFailures, maybeExpression) =
+                finalizeExpression
+                  functions
+                  callableShapes
+                  statementIndex
+                  [0]
+                  scalarBindings
+                  ScalarExpression
+                  expression
+              failures = callableNameCollisionFailures <> infoFailures <> expressionFailures
+              typedStatement = do
+                info <- either (const Nothing) Just infoResult
+                typedExpression <- maybeExpression
+                pure (TypedLetStatement owner typedName (typedSpan spanValue) (scheme owner TypedDirectCallableShape info) typedExpression)
+              nextScalarBindings =
+                case infoResult of
+                  Right _
+                    | null callableNameCollisionFailures -> Map.insert name owner scalarBindings
+                  Left _ -> scalarBindings
+                  _ -> scalarBindings
+           in (failures, if null failures then typedStatement else Nothing, nextScalarBindings)
         ProvisionalTerminalExpression statementIndex spanValue expression ->
           let (failures, maybeTypedExpression) =
-                finalizeExpression functions callableShapes statementIndex [] Map.empty ScalarExpression expression
-           in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression)
+                finalizeExpression functions callableShapes statementIndex [] scalarBindings ScalarExpression expression
+           in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression, scalarBindings)
         ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
           ( recursiveFailures
               <> rebindingFailures
               <> ( statementFailure statementIndex kind detail
                      : map (qualifyInferredFailure statementIndex []) childFailures
                  ),
-            Nothing
+            Nothing,
+            scalarBindings
           )
           where
             statementIndex = provisionalCallableStatementIndex declaration
@@ -461,9 +509,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalUnsupportedStatement statementIndex kind detail childFailures ->
           ( statementFailure statementIndex kind detail
               : map (qualifyInferredFailure statementIndex []) childFailures,
-            Nothing
+            Nothing,
+            scalarBindings
           )
-
     finalizeExpression functions callableShapes statementIndex childPath parameters expressionRole expression =
       case expression of
         ProvisionalUnitExpression ->
@@ -784,6 +832,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       case statement of
         ProvisionalFunctionBinding _ expression ->
           collectExpressionCallableUses functions lexicalNames callableShapes expression
+        ProvisionalScalarBinding _ _ _ _ expression ->
+          collectExpressionCallableUses functions lexicalNames callableShapes expression
         ProvisionalTerminalExpression _ _ expression ->
           collectExpressionCallableUses functions lexicalNames callableShapes expression
         _ -> callableShapes
@@ -834,6 +884,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                in go (Set.insert name lexicalNames) nextShapes rest
               where
                 name = provisionalCallableName declaration
+            ProvisionalScalarBinding _ name _ _ expression ->
+              let nextShapes = collectExpressionCallableUses functions lexicalNames callableShapes expression
+               in go (Set.insert name lexicalNames) nextShapes rest
             ProvisionalTerminalExpression _ _ expression ->
               go lexicalNames (collectExpressionCallableUses functions lexicalNames callableShapes expression) rest
             _ -> go lexicalNames callableShapes rest

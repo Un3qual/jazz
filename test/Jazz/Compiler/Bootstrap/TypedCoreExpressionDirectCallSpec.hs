@@ -43,6 +43,7 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("preserves flattened recipes through a named direct leading-lambda chain", testThreeArgumentDirectLeadingLambdaRecipe),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
     ("lowers the full valid UInt64 domain twice", testFullUInt64Lowering),
@@ -350,6 +351,41 @@ testAcceptedManifestPipeline =
                 (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testScalarBindingProduction :: IO ()
+testScalarBindingProduction = do
+  mapM_ assertProduced scalarBindingExpectedPrograms
+  assertManagedBindingRejected
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+    assertManagedBindingRejected = do
+      let fixture = producerEdgeFixture "managed-scalar-binding"
+          expected =
+            TypedCoreProductionUnsupported
+              [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
+                expressionFailure 0 [0] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
+                expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message")
+              ]
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual "managed scalar binding repeatable rejection" firstRun secondRun
+      assertEqual "managed scalar binding complete rejection" expected (typedCoreProductionStatus firstRun)
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
 
 testThreeArgumentDirectLeadingLambdaRecipe :: IO ()
 testThreeArgumentDirectLeadingLambdaRecipe =
@@ -778,10 +814,6 @@ testCurriedArgumentFailurePath = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 5 [0, 0, 0, 1])
               TypedCoreCaptureUnsupported
               (TypedCoreNameDetail "seed")
@@ -795,17 +827,9 @@ testInvalidArityArgumentFailureAccumulation = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 4 [])
               TypedCoreCallArityUnsupported
-              (TypedCoreArityDetail 2 1),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 4 [1])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "seed")
+              (TypedCoreArityDetail 2 1)
           ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
@@ -823,17 +847,9 @@ testNonLocalCallArgumentFailureAccumulation = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
               TypedCoreNonLocalCallUnsupported
-              (TypedCoreNameDetail "__kernel_toFloat64"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [1])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "seed")
+              (TypedCoreNameDetail "__kernel_toFloat64")
           ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
@@ -851,10 +867,6 @@ testClosureUseArgumentFailureOrder = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
               TypedCoreCaptureUnsupported
               (TypedCoreNameDetail "seed"),
@@ -1299,7 +1311,6 @@ testRejectedCallableProfile =
   where
     expectedKinds =
       [ TypedCoreImportedInputsUnsupported,
-        TypedCoreUnsupportedRootExpression,
         TypedCoreUserDefinedOperatorUnsupported,
         TypedCoreCallArityUnsupported,
         TypedCoreCaptureUnsupported,
@@ -1382,9 +1393,7 @@ rejectedManifestExpectedStatuses =
     ),
     ( "capturing-function",
       unsupported
-        [ statementFailure 1 TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail,
-          expressionFailure 3 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "seed")
-        ]
+        [expressionFailure 3 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "seed")]
     ),
     ("self-recursive-function", unsupported [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]),
     ( "mutually-recursive-functions",
@@ -1591,10 +1600,6 @@ testMissingResultFailureAccumulation = do
               TypedCoreUnsupportedRootExpression
               TypedCoreUnsupportedRootDetail,
             TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
               TypedCoreCaptureUnsupported
               (TypedCoreNameDetail "seed")
@@ -1634,11 +1639,7 @@ testModuleFailureOrder = do
             TypedCoreProductionFailure
               (TypedCoreProductionModulePath ["App", "Main"])
               TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "alpha"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 0)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail
+              (TypedCoreNameDetail "alpha")
           ]
   resolvedModule <- resolveFixtureModule fixture
   let coreModule = resolvedModuleCore resolvedModule
@@ -1666,10 +1667,6 @@ testExportedCallableFailureOwnership = do
               (TypedCoreProductionModulePath ["App", "Main"])
               TypedCoreUnsupportedExport
               (TypedCoreNameDetail "seed"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
             TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
               TypedCoreUnresolvedExpressionType
@@ -2043,8 +2040,7 @@ testRejectedCallableRebinding requestedName =
           ]
         ),
         ( "scalar-then-rejected-callable-control",
-          [ rootFailure 0,
-            rootFailure 2,
+          [ rootFailure 2,
             conditionalFailure 2
           ]
         ),
@@ -2535,7 +2531,6 @@ testAdditionalProfileFailures =
               resolvedUnitModule
           inputFailure = [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
           rootExpressionFailure = [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
-          statementFailure = [TypedCoreProductionFailure (TypedCoreProductionStatementPath ["App", "Main"] 0) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
       assertUnsupported pathMismatch [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail]
       assertUnsupported importedValue inputFailure
       assertUnsupported importedData inputFailure
@@ -2549,7 +2544,11 @@ testAdditionalProfileFailures =
         unitFixture
         unsupportedExport
         [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreUnsupportedExport (TypedCoreNameDetail "missing")]
-      assertUnsupportedResolved unitFixture leadingStatement statementFailure
+      leadingStatementResult <- produceResolvedFixture unitFixture leadingStatement
+      case typedCoreProductionStatus leadingStatementResult of
+        TypedCoreProductionSucceeded programValue ->
+          assertEqual "unit scalar binding typed-core validation" [] (validateTypedProgram programValue)
+        _ -> failTest "unit scalar binding did not produce typed core"
     [] -> failTest "unit fixture is missing"
 
 assertUnsupportedResolved :: Fixture -> ResolvedModule -> [TypedCoreProductionFailure] -> IO ()

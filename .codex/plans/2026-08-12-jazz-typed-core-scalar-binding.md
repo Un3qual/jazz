@@ -138,7 +138,7 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   expressions, but start every named function body with an empty scalar map so
   existing capture failures remain unchanged.
 
-- [ ] **Step 1: Add exact producer fixtures before implementation.** Add source
+- [x] **Step 1: Add exact producer fixtures before implementation.** Add source
   fixtures and hand-derived `TypedProgram` expectations for:
 
   ```jazz
@@ -164,12 +164,12 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   binder, use `Nothing` callable shape in scalar schemes, put the prior binder
   on every scalar variable node, and retain exact source order.
 
-- [ ] **Step 2: Keep negative boundaries explicit.** Preserve the current
+- [x] **Step 2: Keep negative boundaries explicit.** Preserve the current
   capture rejection for a function body that reads a prior scalar and add a
   root managed-binding fixture whose `Text` initializer and later use remain
   rejected without producing a partial typed program.
 
-- [ ] **Step 3: Run the producer suite and verify RED.** Run:
+- [x] **Step 3: Run the producer suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -179,22 +179,22 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   `TypedCoreUnsupportedRootExpression`; all pre-existing cases retain their
   prior result.
 
-- [ ] **Step 4: Emit provisional scalar bindings.** In `Scope.hs`, select the
+- [x] **Step 4: Emit provisional scalar bindings.** In `Scope.hs`, select the
   new constructor only for a non-function `SLet` with a concrete retained
   expression and no production failures. Preserve the existing unsupported
   constructors for managed, structured, unresolved, callable-alias, and other
   rejected values.
 
-- [ ] **Step 5: Finalize statements in source order.** In `Elaboration.hs`,
+- [x] **Step 5: Finalize statements in source order.** In `Elaboration.hs`,
   finalize scalar schemes and initializer expressions, add successful scalar
   binders to the ordered root-local map, and resolve later variable nodes to
   those binders. Do not make the map visible inside function binding bodies.
 
-- [ ] **Step 6: Run the focused suite twice and verify GREEN.** Run the Step 3
+- [x] **Step 6: Run the focused suite twice and verify GREEN.** Run the Step 3
   command twice. Expected: both repetitions pass with identical ordered typed
   programs and exact rejection lists.
 
-- [ ] **Step 7: Commit the producer milestone.**
+- [x] **Step 7: Commit the producer milestone.**
 
   ```bash
   git add src/Jazz/Compiler/TypeInference/Scope.hs src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
