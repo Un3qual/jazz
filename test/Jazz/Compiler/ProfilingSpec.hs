@@ -185,7 +185,8 @@ testFailedStageMarkers = do
 
 testDeepInferenceForcing :: IO ()
 testDeepInferenceForcing = do
-  let deferredFailure = throw (userError "nested runtime hint was forced")
+  let marker = "nested runtime hint was forced"
+      deferredFailure = throw (userError marker)
       runtimeHintKey = ExplicitTypeApplicationRuntimeHintKey Nothing (SourceSpan 0 0)
       inference =
         InferenceResult
@@ -194,16 +195,14 @@ testDeepInferenceForcing = do
             inferredRuntimeTypeHints = Map.singleton runtimeHintKey (TypeList deferredFailure),
             inferredModuleInterface = emptyModuleInterface
           }
-  result <- try (evaluate (forceInferenceResult inference)) :: IO (Either IOException ())
-  case result of
-    Left _ -> pure ()
-    Right () -> ioError (userError "forceInferenceResult left a nested runtime hint unevaluated")
+  assertForcesMarker "nested runtime hint" marker (evaluate (forceInferenceResult inference))
 
 testDeepModuleInterfaceForcing :: IO ()
 testDeepModuleInterfaceForcing =
   mapM_
     assertInterfaceForced
     [ ( "value type",
+        "nested expression type was forced",
         emptyModuleInterface
           { interfaceValueTypes =
               Map.singleton
@@ -212,6 +211,7 @@ testDeepModuleInterfaceForcing =
           }
       ),
       ( "data type",
+        "nested expression type was forced",
         emptyModuleInterface
           { interfaceDataTypes =
               Map.singleton
@@ -220,6 +220,7 @@ testDeepModuleInterfaceForcing =
           }
       ),
       ( "class method",
+        "nested signature type was forced",
         emptyModuleInterface
           { interfaceClassMethods =
               Map.singleton
@@ -228,6 +229,7 @@ testDeepModuleInterfaceForcing =
           }
       ),
       ( "impl method",
+        "nested signature type was forced",
         emptyModuleInterface
           { interfaceConcreteImplMethods =
               Map.singleton
@@ -239,7 +241,7 @@ testDeepModuleInterfaceForcing =
   where
     deferredExpressionType = throw (userError "nested expression type was forced")
     deferredSignatureType = throw (userError "nested signature type was forced")
-    assertInterfaceForced (label, interface) = do
+    assertInterfaceForced (label, marker, interface) = do
       let inference =
             InferenceResult
               { inferredExpr = ELit (LInt 0),
@@ -247,21 +249,20 @@ testDeepModuleInterfaceForcing =
                 inferredRuntimeTypeHints = Map.empty,
                 inferredModuleInterface = interface
               }
-      result <- try (evaluate (forceInferenceResult inference)) :: IO (Either IOException ())
-      case result of
-        Left _ -> pure ()
-        Right () -> ioError (userError (Text.unpack (label <> " payload stayed lazy")))
+      assertForcesMarker (label <> " payload") marker (evaluate (forceInferenceResult inference))
 
 testDeepCompiledModuleForcing :: IO ()
 testDeepCompiledModuleForcing =
   mapM_
     assertCompiledMetadataForced
     [ ( "imports",
+        "compiled imports were forced",
         baseCompiledModule
           { compiledModuleImports = throw (userError "compiled imports were forced")
           }
       ),
       ( "export inventory",
+        "compiled export inventory was forced",
         baseCompiledModule
           { compiledModuleExportInventory = throw (userError "compiled export inventory was forced")
           }
@@ -277,11 +278,8 @@ testDeepCompiledModuleForcing =
           compiledModuleDiagnostics = [],
           compiledModuleExpr = ELit (LInt 0)
         }
-    assertCompiledMetadataForced (label, compiledModule) = do
-      result <- try (evaluate (forceCompiledModule compiledModule)) :: IO (Either IOException ())
-      case result of
-        Left _ -> pure ()
-        Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+    assertCompiledMetadataForced (label, marker, compiledModule) =
+      assertForcesMarker label marker (evaluate (forceCompiledModule compiledModule))
 
 testResolvedModuleProductionLaziness :: IO ()
 testResolvedModuleProductionLaziness = do
@@ -299,26 +297,31 @@ testDeepResolvedModuleForcing =
   mapM_
     assertResolvedContentForced
     [ ( "module path",
+        "resolved module path was forced",
         baseResolvedModule
           { resolvedModulePath = ["App", throw (userError "resolved module path was forced")]
           }
       ),
       ( "source path",
+        "resolved source path was forced",
         baseResolvedModule
           { resolvedSourcePath = "App/" <> throw (userError "resolved source path was forced")
           }
       ),
       ( "imports",
+        "resolved import was forced",
         baseResolvedModule
           { resolvedModuleImports = [throw (userError "resolved import was forced")]
           }
       ),
       ( "export inventory",
+        "resolved export inventory was forced",
         baseResolvedModule
           { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
           }
       ),
       ( "Core expression",
+        "resolved Core expression was forced",
         baseResolvedModule
           { resolvedModuleCore =
               (resolvedModuleCore baseResolvedModule)
@@ -328,11 +331,8 @@ testDeepResolvedModuleForcing =
       )
     ]
   where
-    assertResolvedContentForced (label, resolvedModule) = do
-      result <- try (evaluate (forceResolvedModule resolvedModule)) :: IO (Either IOException ())
-      case result of
-        Left _ -> pure ()
-        Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+    assertResolvedContentForced (label, marker, resolvedModule) =
+      assertForcesMarker label marker (evaluate (forceResolvedModule resolvedModule))
 
 testDeepLoweredProgramForcing :: IO ()
 testDeepLoweredProgramForcing = do
@@ -369,12 +369,16 @@ testDeepLoweredProgramForcing = do
     "poisoned lowered program remains structurally valid"
     []
     (validateLoweredProgram loweredProgram)
-  result <- try (evaluate (forceLoweredProgram loweredProgram)) :: IO (Either IOException ())
+  assertForcesMarker "lowered text payload" marker (evaluate (forceLoweredProgram loweredProgram))
+
+assertForcesMarker :: Text -> String -> IO () -> IO ()
+assertForcesMarker label marker action = do
+  result <- try action :: IO (Either IOException ())
   case result of
     Left exception
       | Text.pack marker `Text.isInfixOf` Text.pack (show exception) -> pure ()
       | otherwise -> throw exception
-    Right () -> ioError (userError "forceLoweredProgram left a lowered text payload unevaluated")
+    Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
 
 baseResolvedModule :: ResolvedModule
 baseResolvedModule =

@@ -90,7 +90,7 @@ class ExampleRunnerTests(unittest.TestCase):
                 "from pathlib import Path\n"
                 "with Path(os.environ['CABAL_LOG']).open('a', encoding='utf-8') as handle:\n"
                 "    handle.write(' '.join(sys.argv[1:]) + '\\t' + os.getcwd() + '\\n')\n"
-                "if sys.argv[1:] == ['build', 'jazz', '--jobs=1']:\n"
+                "if sys.argv[1:] == ['build', 'jazz', '--jobs=3']:\n"
                 "    raise SystemExit(0)\n"
                 "if sys.argv[1:] == ['list-bin', 'jazz']:\n"
                 "    print(os.environ['MISSING_JAZZ'])\n"
@@ -103,7 +103,7 @@ class ExampleRunnerTests(unittest.TestCase):
             environment["PATH"] = fake_bin + os.pathsep + environment["PATH"]
             environment["CABAL_LOG"] = str(log)
             environment["MISSING_JAZZ"] = str(missing_jazz)
-            environment["JAZZ_CABAL_JOBS"] = "1"
+            environment["JAZZ_CABAL_JOBS"] = "3"
 
             result = subprocess.run(
                 ["bash", str(WRAPPER)],
@@ -118,7 +118,7 @@ class ExampleRunnerTests(unittest.TestCase):
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
         self.assertEqual(
             [
-                f"build jazz --jobs=1\t{REPOSITORY_ROOT}",
+                f"build jazz --jobs=3\t{REPOSITORY_ROOT}",
                 f"list-bin jazz\t{REPOSITORY_ROOT}",
             ],
             cabal_log,

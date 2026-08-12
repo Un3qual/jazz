@@ -6,9 +6,9 @@ module Jazz.Compiler.Parser.Operator
     OperatorInfo (..),
     OperatorTable,
     builtinOperatorInfos,
+    builtinOperatorTable,
     declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
-    emptyOperatorTable,
     insertDeclaredOperator,
     isBuiltinOperatorSymbol,
     isDeclaredOperator,
@@ -69,15 +69,15 @@ data OperatorTable = OperatorTable
   }
   deriving (Eq, Show)
 
-emptyOperatorTable :: OperatorTable
-emptyOperatorTable =
+builtinOperatorTable :: OperatorTable
+builtinOperatorTable =
   OperatorTable
     { operatorInfosBySymbol = Map.fromList [(operatorSymbol info, info) | info <- builtinOperatorInfos],
       declaredOperatorSymbols = Set.empty
     }
 
 operatorTableFromDeclarations :: [OperatorInfo] -> OperatorTable
-operatorTableFromDeclarations = foldr insertDeclaredOperator emptyOperatorTable
+operatorTableFromDeclarations = foldr insertDeclaredOperator builtinOperatorTable
 
 insertDeclaredOperator :: OperatorInfo -> OperatorTable -> OperatorTable
 insertDeclaredOperator operatorInfo operatorTable =
@@ -100,7 +100,7 @@ isBuiltinOperatorSymbol symbol =
 -- | Lookup helper used by both the lexer and parser so they share the same
 -- operator vocabulary and fixity data.
 lookupOperatorInfo :: Text -> Maybe OperatorInfo
-lookupOperatorInfo symbol = Map.lookup symbol (operatorInfosBySymbol emptyOperatorTable)
+lookupOperatorInfo symbol = Map.lookup symbol (operatorInfosBySymbol builtinOperatorTable)
 
 -- | Lookup helper for parser state that extends the builtin table with
 -- source-unit-local user declarations.

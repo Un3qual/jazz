@@ -1182,6 +1182,7 @@ lowererBoundaryPrograms =
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
     ("callable-shape-body-disagreement", callableShapeBodyDisagreementLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
+    ("self-recursive-duplicate-parameter-function", selfRecursiveDuplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
     ("self-recursive-function", selfRecursiveLowererProgram),
@@ -1475,6 +1476,24 @@ duplicateParameterLowererProgram =
         (variableExpr "item" intInfo)
     ]
     (directCall "chooseSecond" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
+
+selfRecursiveDuplicateParameterLowererProgram :: TypedProgram
+selfRecursiveDuplicateParameterLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo), ("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        ( directCall
+            "loop"
+            [intInfo, intInfo]
+            intInfo
+            [variableExpr "item" intInfo, variableExpr "item" intInfo]
+        )
+    ]
+    (directCall "loop" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
 
 duplicateFunctionLowererProgram :: TypedProgram
 duplicateFunctionLowererProgram =

@@ -204,8 +204,8 @@ cabal bench jazz-bench --jobs=1 \
   --benchmark-options='--jazz-scale-case=sequential-polymorphic-bindings-0064 --list-tests'
 ```
 
-The leaves are stable, such as
-`All.compiler-scale.analysis.sequential-polymorphic-bindings-0064`. Repeat
+The unrecorded leaves are stable, such as
+`compiler-scale.analysis.sequential-polymorphic-bindings-0064`. Repeat
 `--jazz-scale-case=ID` to select a comparable curve, and add an environment
 label to record the ordinary `results.csv` and `environment.json` pair:
 

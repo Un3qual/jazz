@@ -191,7 +191,8 @@ VALID_EXTENDED = script(
     cabal --project-file=cabal.project.profile-stages build all --jobs="$JAZZ_CABAL_JOBS"
     cabal --project-file=cabal.project.profile-hotspots build all --jobs="$JAZZ_CABAL_JOBS"
     cabal bench jazz-bench \
---benchmark-options="--environment-label=${JAZZ_BENCHMARK_LABEL} --result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" \
+--benchmark-option="--environment-label=${JAZZ_BENCHMARK_LABEL}" \
+--benchmark-option="--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" \
 --jobs="$JAZZ_CABAL_JOBS"
     python3 - "$JAZZ_ARTIFACT_ROOT/benchmarks" "$JAZZ_BENCHMARK_LABEL" <<'PY'
     run_directories = [path for path in label_root.iterdir() if path.is_dir()]
@@ -695,6 +696,23 @@ class MainFunctionalScriptTests(unittest.TestCase):
                 "nix flake check --max-jobs 1 --cores 1",
             ],
         )
+
+    def test_worker_counts_expand_into_cabal_and_nix_commands(self) -> None:
+        result = self.run_main(
+            JAZZ_CABAL_JOBS="4",
+            JAZZ_NIX_JOBS="2",
+            JAZZ_NIX_CORES="3",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        commands = self.logged_commands()
+        for expected_command in (
+            "cabal build all --jobs=4",
+            "cabal test all --test-show-details=direct --jobs=4",
+            "nix flake check --max-jobs 2 --cores 3",
+        ):
+            with self.subTest(expected_command=expected_command):
+                self.assertIn(expected_command, commands)
 
     def test_low_memory_runs_bounded_compiler_and_repository_without_nix(self) -> None:
         result = self.run_main(JAZZ_MAIN_PHASE="low-memory")
@@ -1652,15 +1670,15 @@ class CiPolicyCheckerTests(unittest.TestCase):
             (
                 VALID_EXTENDED.replace(
                     (
-                        'cabal bench jazz-bench --benchmark-options="'
-                        '--environment-label=${JAZZ_BENCHMARK_LABEL} '
-                        '--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" '
+                        'cabal bench jazz-bench '
+                        '--benchmark-option="--environment-label=${JAZZ_BENCHMARK_LABEL}" '
+                        '--benchmark-option="--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks" '
                         '--jobs="$JAZZ_CABAL_JOBS"'
                     ),
                     (
-                        'cabal bench jazz-bench --benchmark-options="'
-                        '--environment-label=${JAZZ_BENCHMARK_LABEL} '
-                        '--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks"'
+                        'cabal bench jazz-bench '
+                        '--benchmark-option="--environment-label=${JAZZ_BENCHMARK_LABEL}" '
+                        '--benchmark-option="--result-root=${JAZZ_ARTIFACT_ROOT}/benchmarks"'
                     ),
                 ),
                 "extended tier must bound every heavyweight Cabal command",

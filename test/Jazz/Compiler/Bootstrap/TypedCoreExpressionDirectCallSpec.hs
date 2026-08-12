@@ -231,6 +231,7 @@ testIndependentLowererManifest = do
           "non-concrete-closure-representation",
           "callable-shape-body-disagreement",
           "duplicate-parameter-function",
+          "self-recursive-duplicate-parameter-function",
           "duplicate-function-identity",
           "capturing-function",
           "self-recursive-function",
@@ -491,6 +492,18 @@ testLowererCallableBoundary =
         ),
         ( "duplicate-parameter-function",
           [ expressionFailure
+              1
+              [0, 0]
+              LoweredIRDuplicateParameterIdentity
+              (LoweredIRNameFailureDetail (currentName "item"))
+          ]
+        ),
+        ( "self-recursive-duplicate-parameter-function",
+          [ statementFailure
+              1
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "loop")),
+            expressionFailure
               1
               [0, 0]
               LoweredIRDuplicateParameterIdentity

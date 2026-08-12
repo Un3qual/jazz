@@ -156,10 +156,17 @@ testRuntimeEvidenceSmallestCases =
   where
     assertRuntimeCase identifier = do
       programCase <- loadCompilerScaleCase identifier
-      prepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
-      runPreparedCompilerScaleBenchmark prepared
+      mapM_
+        ( \benchmarkGroup -> do
+            prepared <- prepareCompilerScaleBenchmark benchmarkGroup programCase
+            runPreparedCompilerScaleBenchmark prepared
+        )
+        (compilerScaleCaseBenchmarks programCase)
       output <- runCompilerScaleCase programCase
-      assertEqual (identifier <> " real-pipeline output") "7" output
+      assertEqual
+        (identifier <> " real-pipeline output")
+        (compilerScaleCaseExpectedOutput programCase)
+        output
 
 testCompilerScaleRegistry :: IO ()
 testCompilerScaleRegistry =
@@ -670,37 +677,29 @@ leftAssociatedPipeOperands = go []
         _ -> Nothing
 
 testLongTokenStreamExactSize :: IO ()
-testLongTokenStreamExactSize = do
-  programCase <- loadCompilerScaleCase "long-token-stream-01024"
-  source <-
-    case compilerScaleCaseEntrySource programCase of
-      Nothing -> failTest "long token stream scale case is missing its entry source"
-      Just value -> pure value
-  tokens <-
-    case tokenize source of
-      Left diagnostic -> failTest ("long token stream did not tokenize: " <> Text.pack (show diagnostic))
-      Right values -> pure values
-  assertEqual "long token stream token count" 1024 (length tokens)
-  prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+testLongTokenStreamExactSize = assertExactTokenCount "long-token-stream-01024"
 
 testTokenStreamControlsExactSize :: IO ()
 testTokenStreamControlsExactSize =
   mapM_ assertExactTokenCount ["identifier-token-stream-01024", "literal-token-stream-01024"]
-  where
-    assertExactTokenCount identifier = do
-      programCase <- loadCompilerScaleCase identifier
-      source <-
-        case compilerScaleCaseEntrySource programCase of
-          Nothing -> failTest (identifier <> " is missing its entry source")
-          Just value -> pure value
-      tokens <-
-        case tokenize source of
-          Left diagnostic -> failTest (identifier <> " did not tokenize: " <> Text.pack (show diagnostic))
-          Right values -> pure values
-      assertEqual (identifier <> " token count") 1024 (length tokens)
-      prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-      runPreparedCompilerScaleBenchmark prepared
+
+assertExactTokenCount :: Text -> IO ()
+assertExactTokenCount identifier = do
+  programCase <- loadCompilerScaleCase identifier
+  source <-
+    case compilerScaleCaseEntrySource programCase of
+      Nothing -> failTest (identifier <> " is missing its entry source")
+      Just value -> pure value
+  tokens <-
+    case tokenize source of
+      Left diagnostic -> failTest (identifier <> " did not tokenize: " <> Text.pack (show diagnostic))
+      Right values -> pure values
+  assertEqual
+    (identifier <> " token count")
+    (compilerScaleCaseSize programCase)
+    (length tokens)
+  prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
+  runPreparedCompilerScaleBenchmark prepared
 
 testCaseSelection :: IO ()
 testCaseSelection = do

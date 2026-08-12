@@ -88,9 +88,9 @@ import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
     OperatorTable,
+    builtinOperatorTable,
     declaredOperatorInfoForPrecedence,
     declaredOperatorInfoForTier,
-    emptyOperatorTable,
     insertDeclaredOperator,
     isBuiltinOperatorSymbol,
     isDeclaredOperator,
@@ -241,7 +241,7 @@ parseStatementParser parseExpression parseBlock context = do
       moduleBodyContext =
         ParserContext
           { parserKnownAliases = Set.empty,
-            parserDeclaredOperators = emptyOperatorTable,
+            parserDeclaredOperators = builtinOperatorTable,
             parserStatementContext = ModuleBodyContext
           }
       parseModuleBody =

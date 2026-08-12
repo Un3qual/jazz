@@ -212,7 +212,7 @@ bindTypeVar typeVar replacementType state
             ( \solver ->
                 solver
                   { solverSubstitution =
-                      IntMap.insert typeVar nextReplacementType (inferSubst state),
+                      IntMap.insert typeVar nextReplacementType (solverSubstitution solver),
                     solverStrictEqualityVars =
                       nextStrictEqualityVars nextReplacementType
                   }

@@ -1225,13 +1225,12 @@ collectPatternReferenceFacts patternValue facts =
     SPVariable _ -> facts
     SPLiteral _ -> facts
     SPConstructor constructorName nestedPatterns ->
-      foldl'
-        (flip collectPatternReferenceFacts)
-        facts
-          { referenceFactUnqualified =
-              Set.insert (identifierText constructorName) (referenceFactUnqualified facts)
-          }
-        nestedPatterns
+      let constructorFacts =
+            facts
+              { referenceFactUnqualified =
+                  Set.insert (identifierText constructorName) (referenceFactUnqualified facts)
+              }
+       in foldl' (flip collectPatternReferenceFacts) constructorFacts nestedPatterns
     SPList nestedPatterns -> foldl' (flip collectPatternReferenceFacts) facts nestedPatterns
     SPConsList headPattern tailPattern ->
       collectPatternReferenceFacts tailPattern (collectPatternReferenceFacts headPattern facts)

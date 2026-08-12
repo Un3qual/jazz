@@ -17,7 +17,7 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Operator
   ( OperatorTable,
-    emptyOperatorTable
+    builtinOperatorTable
   )
 import Jazz.Compiler.Parser.TokenParser (Parser)
 
@@ -42,6 +42,6 @@ initialParserContext :: ParserContext
 initialParserContext =
   ParserContext
     { parserKnownAliases = Set.empty,
-      parserDeclaredOperators = emptyOperatorTable,
+      parserDeclaredOperators = builtinOperatorTable,
       parserStatementContext = TopLevelContext
     }
