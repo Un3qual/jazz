@@ -223,6 +223,7 @@ import Jazz.Compiler.Runtime.Types
     foldRuntimeExplicitResultHints,
     data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
+    runtimeConstructorName,
     runtimeEvidenceTarget,
     runtimeExplicitResultHintsInOrder
   )
@@ -2180,19 +2181,15 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             _ ->
               throwRuntimeDiagnostic
                 (runtimeDiagnostic E3016 ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
-        VConstructorApplication typeName typeParameters constructorName constructorArity constructorArguments capturedArgs -> do
+        VConstructorApplication shape capturedArgs -> do
           let arguments = appendRuntimeConstructorArgument argumentValue capturedArgs
           resultValue <-
             liftRuntimeResult
               ( applyConstructor
-                  typeName
-                  typeParameters
-                  constructorName
-                  constructorArity
-                  constructorArguments
+                  shape
                   arguments
               )
-          if constructorApplicationIsSaturated constructorArity arguments
+          if constructorApplicationIsSaturated shape arguments
             then recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction SaturatedAdtConstruction 1)
             else pure ()
           continueWith (ReturnRuntimeValue resultValue) profiledMachine
@@ -2259,8 +2256,8 @@ runtimeCallableIdentity runtimeValue =
     VOperator operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionLeft operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionRight operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
-    VConstructorApplication _ _ constructorName _ _ _ ->
-      Just (ConstructorCallable (renderName constructorName))
+    VConstructorApplication shape _ ->
+      Just (ConstructorCallable (renderName (runtimeConstructorName shape)))
     VQualifiedMethod methodKey _ _ _ _ -> Just (MethodCallable methodKey)
     _ -> Nothing
 
