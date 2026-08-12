@@ -1189,9 +1189,6 @@ lowererBoundaryPrograms =
     ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
-    ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
-    ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
-    ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
 
@@ -1207,6 +1204,9 @@ invalidLowererBoundaryPrograms =
     ("variable-binder-reference-mismatch", variableBinderReferenceMismatchLowererProgram),
     ("direct-flattened-representation", directFlattenedRepresentationLowererProgram),
     ("direct-shaped-closure-value-self-recursion", directShapedClosureValueSelfRecursiveLowererProgram),
+    ("shape-rejected-self-recursion", shapeRejectedSelfRecursiveLowererProgram),
+    ("shape-rejected-mutual-recursion", shapeRejectedMutualRecursiveLowererProgram),
+    ("shape-rejected-binder-shadow-control", shapeRejectedBinderShadowControlLowererProgram),
     ("bare-function-value", bareFunctionLowererProgram),
     ("partial-direct-call", partialCallLowererProgram)
   ]

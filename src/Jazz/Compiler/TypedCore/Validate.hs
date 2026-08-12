@@ -1917,7 +1917,6 @@ validateBindingValue path (TypedScheme _ _ _ _ resultType resultRecipe _) info =
 validateCallableBindingShape :: TypedCoreValidationPath -> TypedScheme -> TypedExpr -> [TypedCoreValidationFailure]
 validateCallableBindingShape path (TypedScheme owner _ _ _ _ recipe callableShape) expression
   | callableShape == Just TypedDirectCallableShape,
-    leadingLambdaCount expression > 0,
     directCallableRecipeArity recipe /= Just (leadingLambdaCount expression) =
       [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
   | otherwise = []
@@ -4887,10 +4886,11 @@ validateLeftSectionOperator context path info left operator =
         TypedResolvedOperator {} ->
           validateOperatorRef context path operator
             <> case operatorValueContract context path info operator of
-              (contractFailures, Just (ValueContract (TypedFunctionType expectedLeft remainder@(TypedFunctionType _ _)) _)) ->
+              (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft remainder@(TypedFunctionType _ _)) operatorRecipe)) ->
                 contractFailures
                   <> mismatch TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
                   <> mismatch TypedApplicationResultMismatch remainder (typedNodeType info)
+                  <> leftOperandRecipeFailures operatorType operatorRecipe expectedLeft
               (contractFailures, Just (ValueContract actualType _)) ->
                 contractFailures
                   <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo left)) (typedNodeType info)) actualType)]
@@ -4898,6 +4898,13 @@ validateLeftSectionOperator context path info left operator =
     mismatch kind expected actual
       | expected == actual = []
       | otherwise = [failure path kind (TypedTypeDetail expected actual)]
+    leftOperandRecipeFailures operatorType operatorRecipe expectedType
+      | not (callableRecipeCompatible operatorType operatorRecipe) = []
+      | expectedType /= typedNodeType leftInfo = []
+      | Just expectedRecipeValue <- callableArgumentRecipe operatorRecipe =
+          recipeContractFailures path TypedApplicationArgumentMismatch expectedRecipeValue leftInfo
+      | otherwise = []
+    leftInfo = typedExpressionInfo left
 
 validateRightSectionOperator :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> [TypedCoreValidationFailure]
 validateRightSectionOperator context path info operator right =
@@ -4914,11 +4921,12 @@ validateRightSectionOperator context path info operator right =
         TypedResolvedOperator {} ->
           validateOperatorRef context path operator
             <> case operatorValueContract context path info operator of
-              (contractFailures, Just (ValueContract (TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) _)) ->
+              (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) operatorRecipe)) ->
                 let expectedSectionType = TypedFunctionType expectedLeft expectedResult
                  in contractFailures
                       <> mismatch TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
                       <> mismatch TypedApplicationResultMismatch expectedSectionType (typedNodeType info)
+                      <> rightOperandRecipeFailures operatorType operatorRecipe expectedRight
               (contractFailures, Just (ValueContract actualType _)) ->
                 contractFailures
                   <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType info) (typedNodeType (typedExpressionInfo right))) actualType)]
@@ -4926,6 +4934,14 @@ validateRightSectionOperator context path info operator right =
     mismatch kind expected actual
       | expected == actual = []
       | otherwise = [failure path kind (TypedTypeDetail expected actual)]
+    rightOperandRecipeFailures operatorType operatorRecipe expectedType
+      | not (callableRecipeCompatible operatorType operatorRecipe) = []
+      | expectedType /= typedNodeType rightInfo = []
+      | Just remainingRecipe <- applicationResultRecipe operatorRecipe,
+        Just expectedRecipeValue <- callableArgumentRecipe remainingRecipe =
+          recipeContractFailures path TypedApplicationArgumentMismatch expectedRecipeValue rightInfo
+      | otherwise = []
+    rightInfo = typedExpressionInfo right
 
 builtinOperatorHasTypedRule :: Text -> Bool
 builtinOperatorHasTypedRule symbol =

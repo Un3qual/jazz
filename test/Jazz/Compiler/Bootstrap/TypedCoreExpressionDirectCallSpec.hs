@@ -238,9 +238,6 @@ testIndependentLowererManifest = do
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "nested-lambda-closure-value-self-recursion",
-          "shape-rejected-self-recursion",
-          "shape-rejected-mutual-recursion",
-          "shape-rejected-binder-shadow-control",
           "imported-direct-call",
           "managed-scalar-entry",
           "conditional-entry"
@@ -252,6 +249,9 @@ testIndependentLowererManifest = do
           "variable-binder-reference-mismatch",
           "direct-flattened-representation",
           "direct-shaped-closure-value-self-recursion",
+          "shape-rejected-self-recursion",
+          "shape-rejected-mutual-recursion",
+          "shape-rejected-binder-shadow-control",
           "bare-function-value",
           "partial-direct-call"
         ]
@@ -554,63 +554,6 @@ testLowererCallableBoundary =
               LoweredIRNoFailureDetail
           ]
         ),
-        ( "shape-rejected-self-recursion",
-          [ statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "shape-rejected-mutual-recursion",
-          [ statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "left")),
-            statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "left")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail,
-            statementFailure
-              3
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "right")),
-            statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "right")),
-            expressionFailure
-              3
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "shape-rejected-binder-shadow-control",
-          [ statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
         ( "imported-direct-call",
           [ LoweredIRLoweringFailure
               TypedProgramPath
@@ -706,6 +649,17 @@ testInvalidLowererTypedCoreBoundary =
               (TypedBinderDetail (TypedBinderId (["App", "Main"], [3], currentName "loop")))
           ]
         ),
+        ( "shape-rejected-self-recursion",
+          [callableShapeFailureFor 1 "loop"]
+        ),
+        ( "shape-rejected-mutual-recursion",
+          [ callableShapeFailureFor 1 "left",
+            callableShapeFailureFor 3 "right"
+          ]
+        ),
+        ( "shape-rejected-binder-shadow-control",
+          [callableShapeFailureFor 1 "loop"]
+        ),
         ( "bare-function-value",
           [ TypedCoreValidationFailure
               (TypedExpressionPath ["App", "Main"] [2] [0])
@@ -722,11 +676,13 @@ testInvalidLowererTypedCoreBoundary =
         )
       ]
     callableShapeFailure statementIndex =
+      callableShapeFailureFor statementIndex "combine"
+    callableShapeFailureFor statementIndex identifier =
       TypedCoreValidationFailure
         (TypedStatementPath ["App", "Main"] [statementIndex])
         TypedCallableShapeMismatch
         ( TypedBinderDetail
-            (TypedBinderId (["App", "Main"], [statementIndex], currentName "combine"))
+            (TypedBinderId (["App", "Main"], [statementIndex], currentName identifier))
         )
     currentName = TypedResolvedName TypedCurrentModule TypedValueNamespace
 

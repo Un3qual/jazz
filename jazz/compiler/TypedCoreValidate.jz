@@ -3600,6 +3600,15 @@ module TypedCoreValidate (
       (resolvedOperatorCallableShapeFailures context path 2 operator)
   }.
 
+  leftSectionOperandRecipeFailures :: TypedCoreValidationPath -> TypedType -> TypedRepresentationRecipe -> TypedType -> TypedNodeInfo -> [TypedCoreValidationFailure].
+  leftSectionOperandRecipeFailures = \(path, operatorType, operatorRecipe, expectedType, actualInfo) ->
+    if callableRecipeCompatible operatorType operatorRecipe then
+      if typeEqual expectedType (nodeType actualInfo) then case callableArgumentRecipe operatorRecipe {
+        | Just expectedRecipeValue -> recipeContractFailures path TypedApplicationArgumentMismatch expectedRecipeValue actualInfo
+        | Nothing -> []
+      } else []
+    else [].
+
   validateLeftSectionOperatorContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedExpr -> TypedOperatorRef -> [TypedCoreValidationFailure].
   validateLeftSectionOperatorContract = \(context, path, info, left, operator) -> case operator {
     | TypedBuiltinOperator symbol -> listAppend (validateOperatorRef context path operator) (case nodeType info {
@@ -3610,7 +3619,13 @@ module TypedCoreValidate (
       | (contractFailures, Nothing) -> listAppend (validateOperatorRef context path operator) contractFailures
       | (contractFailures, Just (ValueContract operatorType operatorRecipe)) -> case operatorType {
         | TypedFunctionType expectedLeft remainder -> case remainder {
-          | TypedFunctionType expectedRight expectedResult -> listConcat [validateOperatorRef context path operator, contractFailures, typeMismatchFailure path TypedApplicationArgumentMismatch expectedLeft (nodeType (expressionInfo left)), typeMismatchFailure path TypedApplicationResultMismatch remainder (nodeType info)]
+          | TypedFunctionType expectedRight expectedResult -> listConcat
+            [ validateOperatorRef context path operator,
+              contractFailures,
+              typeMismatchFailure path TypedApplicationArgumentMismatch expectedLeft (nodeType (expressionInfo left)),
+              typeMismatchFailure path TypedApplicationResultMismatch remainder (nodeType info),
+              leftSectionOperandRecipeFailures path operatorType operatorRecipe expectedLeft (expressionInfo left)
+            ]
           | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo left)) (nodeType info)) operatorType)]]
         }
         | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType (expressionInfo left)) (nodeType info)) operatorType)]]
@@ -3623,6 +3638,18 @@ module TypedCoreValidate (
     (validateLeftSectionOperatorContract context path info left operator)
     (validateStagedCallableValueRecipe path info).
 
+  rightSectionOperandRecipeFailures :: TypedCoreValidationPath -> TypedType -> TypedRepresentationRecipe -> TypedType -> TypedNodeInfo -> [TypedCoreValidationFailure].
+  rightSectionOperandRecipeFailures = \(path, operatorType, operatorRecipe, expectedType, actualInfo) ->
+    if callableRecipeCompatible operatorType operatorRecipe then
+      if typeEqual expectedType (nodeType actualInfo) then case applicationResultRecipe operatorRecipe {
+        | Just remainingRecipe -> case callableArgumentRecipe remainingRecipe {
+          | Just expectedRecipeValue -> recipeContractFailures path TypedApplicationArgumentMismatch expectedRecipeValue actualInfo
+          | Nothing -> []
+        }
+        | Nothing -> []
+      } else []
+    else [].
+
   validateRightSectionOperatorContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedOperatorRef -> TypedExpr -> [TypedCoreValidationFailure].
   validateRightSectionOperatorContract = \(context, path, info, operator, right) -> case operator {
     | TypedBuiltinOperator symbol -> listAppend (validateOperatorRef context path operator) (case nodeType info {
@@ -3633,7 +3660,13 @@ module TypedCoreValidate (
       | (contractFailures, Nothing) -> listAppend (validateOperatorRef context path operator) contractFailures
       | (contractFailures, Just (ValueContract operatorType operatorRecipe)) -> case operatorType {
         | TypedFunctionType expectedLeft remainder -> case remainder {
-          | TypedFunctionType expectedRight expectedResult -> listConcat [validateOperatorRef context path operator, contractFailures, typeMismatchFailure path TypedApplicationArgumentMismatch expectedRight (nodeType (expressionInfo right)), typeMismatchFailure path TypedApplicationResultMismatch (TypedFunctionType expectedLeft expectedResult) (nodeType info)]
+          | TypedFunctionType expectedRight expectedResult -> listConcat
+            [ validateOperatorRef context path operator,
+              contractFailures,
+              typeMismatchFailure path TypedApplicationArgumentMismatch expectedRight (nodeType (expressionInfo right)),
+              typeMismatchFailure path TypedApplicationResultMismatch (TypedFunctionType expectedLeft expectedResult) (nodeType info),
+              rightSectionOperandRecipeFailures path operatorType operatorRecipe expectedRight (expressionInfo right)
+            ]
           | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType info) (nodeType (expressionInfo right))) operatorType)]]
         }
         | other -> listConcat [validateOperatorRef context path operator, contractFailures, [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (nodeType info) (nodeType (expressionInfo right))) operatorType)]]
@@ -5975,7 +6008,7 @@ module TypedCoreValidate (
   validateCallableBindingShape :: TypedCoreValidationPath -> TypedScheme -> TypedExpr -> [TypedCoreValidationFailure].
   validateCallableBindingShape = \(path, scheme, expression) -> case scheme {
     | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> case callableShape {
-      | Just TypedDirectCallableShape -> if leadingLambdaCount expression == 0 then [] else case directCallableRecipeArity resultRecipe {
+      | Just TypedDirectCallableShape -> case directCallableRecipeArity resultRecipe {
         | Just expectedArgumentCount -> if expectedArgumentCount == leadingLambdaCount expression then [] else [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
         | Nothing -> [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
       }
