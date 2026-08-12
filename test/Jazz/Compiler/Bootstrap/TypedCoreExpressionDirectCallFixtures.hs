@@ -15,6 +15,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     expectedNestedScalarLoweredProgram,
     scalarFixtures,
     scalarExpectedPrograms,
+    scalarBindingExpectedPrograms,
+    scalarBindingExpectedLoweredPrograms,
     directCallExpectedPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
@@ -27,6 +29,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     independentLowererPrograms,
     lowererStructuralBoundaryPrograms,
     producerEdgeFixtures,
+    scalarBindingProducerFixtures,
     ordinaryForwardVisibilityFixture,
     forwardVisibilityNegativeFixtures,
     rejectedScalarFixtures,
@@ -406,6 +409,138 @@ scalarExpectedPrograms =
         ]
     )
   ]
+
+scalarBindingProducerFixtures :: [(Text, Fixture)]
+scalarBindingProducerFixtures =
+  [ ("scalar-binding-literal", sourceFixtureNoExports "scalar-binding-literal" scalarBindingLiteralSource),
+    ("scalar-binding-ordered-reuse", sourceFixtureNoExports "scalar-binding-ordered-reuse" scalarBindingOrderedReuseSource),
+    ("scalar-binding-direct-call-result", sourceFixtureNoExports "scalar-binding-direct-call-result" scalarBindingDirectCallResultSource),
+    ("managed-scalar-binding", sourceFixtureNoExports "managed-scalar-binding" managedScalarBindingSource),
+    ("scalar-binding-failed-initializer-hidden", sourceFixtureNoExports "scalar-binding-failed-initializer-hidden" scalarBindingFailedInitializerSource)
+  ]
+
+scalarBindingExpectedPrograms :: [(Text, TypedProgram)]
+scalarBindingExpectedPrograms =
+  [ ("scalar-binding-literal", scalarBindingLiteralProgram),
+    ("scalar-binding-ordered-reuse", scalarBindingOrderedReuseProgram),
+    ("scalar-binding-direct-call-result", scalarBindingDirectCallResultProgram)
+  ]
+
+scalarBindingExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+scalarBindingExpectedLoweredPrograms =
+  [ ( "scalar-binding-literal",
+      scalarBindingLiteralProgram,
+      expectedCallableLoweredProgram
+        []
+        int64Representation
+        [expectedPrimitiveInstruction 1 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredInt64 40, loweredInt64 2]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "scalar-binding-ordered-reuse",
+      scalarBindingOrderedReuseProgram,
+      expectedCallableLoweredProgram
+        []
+        int64Representation
+        [expectedPrimitiveInstruction 1 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredInt64 40, loweredInt64 2]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "scalar-binding-direct-call-result",
+      scalarBindingDirectCallResultProgram,
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "identity"
+            [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+            LoweredBoolRepresentation
+            []
+            (loweredParameter 1 LoweredBoolRepresentation)
+        ]
+        LoweredBoolRepresentation
+        [expectedDirectCallInstruction 1 LoweredBoolRepresentation "identity" [loweredImmediate (LoweredBoolImmediate True)]]
+        (loweredTemporary 1 LoweredBoolRepresentation)
+    )
+  ]
+
+scalarBindingLiteralProgram :: TypedProgram
+scalarBindingLiteralProgram =
+  expectedRootProgram
+    [ TypedLetStatement seedBinder seedName (TypedSpan 2 1) seedScheme (TypedLiteralExpr inferredIntInfo (TypedIntegerLiteral "40")),
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( binaryExpr
+            inferredIntInfo
+            "+"
+            (boundVariableExpr seedName inferredIntInfo seedBinder)
+            (TypedLiteralExpr inferredIntInfo (TypedIntegerLiteral "2"))
+        )
+    ]
+    inferredIntInfo
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = scalarScheme seedBinder inferredIntInfo
+
+scalarBindingOrderedReuseProgram :: TypedProgram
+scalarBindingOrderedReuseProgram =
+  expectedRootProgram
+    [ TypedSignatureStatement signatureBinder seedName (TypedSpan 2 1) signatureScheme,
+      TypedLetStatement seedBinder seedName (TypedSpan 3 1) seedScheme (intExpr 40),
+      TypedLetStatement
+        answerBinder
+        answerName
+        (TypedSpan 4 1)
+        answerScheme
+        (binaryExpr intInfo "+" (boundVariableExpr seedName intInfo seedBinder) (intExpr 2)),
+      TypedExpressionStatement (TypedSpan 5 1) (boundVariableExpr answerName intInfo answerBinder)
+    ]
+    intInfo
+  where
+    seedName = resolvedName "seed"
+    signatureBinder = TypedBinderId (modulePath, [0], seedName)
+    signatureScheme = scalarScheme signatureBinder intInfo
+    seedBinder = TypedBinderId (modulePath, [1], seedName)
+    seedScheme = scalarScheme seedBinder intInfo
+    answerName = resolvedName "answer"
+    answerBinder = TypedBinderId (modulePath, [2], answerName)
+    answerScheme = scalarScheme answerBinder intInfo
+
+scalarBindingDirectCallResultProgram :: TypedProgram
+scalarBindingDirectCallResultProgram =
+  expectedRootProgram
+    ( functionStatements
+        <> [ TypedLetStatement answerBinder answerName (TypedSpan 4 1) answerScheme boundCall,
+             TypedExpressionStatement (TypedSpan 5 1) (boundVariableExpr answerName boolInfo answerBinder)
+           ]
+    )
+    boolInfo
+  where
+    function = ExpectedFunction "identity" [("item", boolInfo)] boolInfo TypedDirectCallableShape (variableExpr "item" boolInfo)
+    functionName = resolvedName "identity"
+    functionBinder = TypedBinderId (modulePath, [1], functionName)
+    functionStatements =
+      map
+        (bindExpectedStatementVariables (Map.singleton functionName functionBinder))
+        (expectedFunctionStatementsAtLineOffset 1 0 1 function)
+    answerName = resolvedName "answer"
+    answerBinder = TypedBinderId (modulePath, [2], answerName)
+    answerScheme = scalarScheme answerBinder boolInfo
+    boundCall =
+      bindExpectedExpressionVariables
+        (Map.singleton functionName functionBinder)
+        (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+
+expectedRootProgram :: [TypedStatement] -> TypedNodeInfo -> TypedProgram
+expectedRootProgram statements moduleInfo =
+  TypedProgram
+    Nothing
+    [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) statements moduleInfo]
+    modulePath
+
+scalarScheme :: TypedBinderId -> TypedNodeInfo -> TypedScheme
+scalarScheme owner info =
+  TypedScheme owner [] [] [] (typedExpressionType info) (typedExpressionRecipe info) Nothing
+
+boundVariableExpr :: TypedCoreName -> TypedNodeInfo -> TypedBinderId -> TypedExpr
+boundVariableExpr name info owner = TypedVariableExpr info name (Just owner)
 
 directCallExpectedPrograms :: [(Text, TypedProgram)]
 directCallExpectedPrograms =
@@ -1168,8 +1303,7 @@ loweredParameter index =
 
 lowererBoundaryPrograms :: [(Text, TypedProgram)]
 lowererBoundaryPrograms =
-  [ ("invalid-function-shape", scalarBindingProgram),
-    ("invalid-function-shape-rhs", invalidScalarBindingRhsProgram),
+  [ ("scalar-binding-unsupported-rhs", invalidScalarBindingRhsProgram),
     ("combined-statement-failure-order", combinedStatementFailureOrderLowererProgram),
     ("recursion-descendant-failure-order", recursionDescendantFailureOrderLowererProgram),
     ("closure-valued-parameter", closureValuedParameterLowererProgram),
@@ -1194,7 +1328,11 @@ lowererBoundaryPrograms =
 
 validIndependentLowererPrograms :: [(Text, TypedProgram)]
 validIndependentLowererPrograms =
-  lowererBoundaryPrograms <> lowererStructuralBoundaryPrograms
+  [ (name, programValue)
+  | (name, programValue, _) <- scalarBindingExpectedLoweredPrograms
+  ]
+    <> lowererBoundaryPrograms
+    <> lowererStructuralBoundaryPrograms
 
 invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
@@ -1513,32 +1651,6 @@ duplicateFunctionLowererProgram =
         (variableExpr "second" intInfo)
     ]
     (directCall "identity" [intInfo] intInfo [intExpr 1])
-
-scalarBindingProgram :: TypedProgram
-scalarBindingProgram =
-  TypedProgram
-    Nothing
-    [ TypedModule
-        modulePath
-        validSourcePath
-        []
-        []
-        (TypedModuleInterface [] [] [] [])
-        [ TypedLetStatement
-            seedBinder
-            seedName
-            (TypedSpan 1 1)
-            seedScheme
-            (intExpr 1),
-          TypedExpressionStatement (TypedSpan 2 1) (intExpr 1)
-        ]
-        intInfo
-    ]
-    modulePath
-  where
-    seedName = resolvedName "seed"
-    seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
 
 invalidScalarBindingRhsProgram :: TypedProgram
 invalidScalarBindingRhsProgram =
@@ -1944,7 +2056,8 @@ rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-uni
 
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
-  [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
+  scalarBindingProducerFixtures
+    <> [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
     ( "default-exported-polymorphic-callable",
       sourceFixture
         "default-exported-polymorphic-callable"
@@ -3247,6 +3360,37 @@ charEntrySource = "'j'."
 defaultIntEntrySource = "7."
 defaultFloatEntrySource = "1.05."
 
+scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource, scalarBindingFailedInitializerSource :: Text
+scalarBindingLiteralSource =
+  Text.unlines
+    [ "seed = 40.",
+      "seed + 2."
+    ]
+scalarBindingOrderedReuseSource =
+  Text.unlines
+    [ "seed :: Int.",
+      "seed = 40.",
+      "answer = seed + 2.",
+      "answer."
+    ]
+scalarBindingDirectCallResultSource =
+  Text.unlines
+    [ "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "answer = identity True.",
+      "answer."
+    ]
+managedScalarBindingSource =
+  Text.unlines
+    [ "message = \"managed\".",
+      "message."
+    ]
+scalarBindingFailedInitializerSource =
+  Text.unlines
+    [ "failed = __kernel_toFloat64 1.",
+      "failed."
+    ]
+
 arithmeticOperatorsSource, orderingOperatorsSource, equalityOperatorsSource :: Text
 arithmeticOperatorsSource = Text.unlines ["1 + 2.", "3 - 1.", "2 * 4.", "8 / 2."]
 orderingOperatorsSource = Text.unlines ["1 < 2.", "2 <= 2.", "3 > 2.", "3 >= 3."]
@@ -3292,6 +3436,8 @@ boolCallableInfo =
     []
 charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
 intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
+inferredIntInfo :: TypedNodeInfo
+inferredIntInfo = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
 floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
 textInfo = TypedNodeInfo TypedTextType TypedManagedTextRecipe [] []
 

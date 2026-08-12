@@ -681,7 +681,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                   provisional =
                     case (mode, nextPendingSignature) of
                       (ProduceTypedCoreExpressionDirectCall, Just pendingSignature)
-                        | TFunctionType {} <- pendingSignatureDeclaredType pendingSignature ->
+                        | supportedTypedCoreSignatureType (pendingSignatureDeclaredType pendingSignature) ->
                             [ProvisionalSignature statementIndex name signatureSpan (pendingSignatureDeclaredType pendingSignature)]
                       _ -> []
                in (scopeResultType, resultState, provisional <> provisionalRest, productionFailures)
@@ -930,12 +930,20 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                               canonicalRecursiveGroupMembers
                           )
                       _ -> Nothing
+                  productionValueResult =
+                    case nextBindingType of
+                      Just bindingType ->
+                        specializeInferredExpression
+                          stateAfterRecursiveGroupPrune
+                          bindingType
+                          rawValueResult
+                      Nothing -> rawValueResult
                   provisional =
-                    case (mode, valueProductionFailures, callableDeclaration, inferredProvisionalExpr rawValueResult) of
-                      (ProduceTypedCoreExpressionDirectCall, _, Just declaration, Just expression)
+                    case (mode, valueProductionFailures, callableDeclaration, nextBindingType, inferredProvisionalExpr productionValueResult) of
+                      (ProduceTypedCoreExpressionDirectCall, _, Just declaration, _, Just expression)
                         | ProvisionalLambdaExpression {} <- expression ->
                             [ProvisionalFunctionBinding declaration expression]
-                      (ProduceTypedCoreExpressionDirectCall, failures, Just declaration, _) ->
+                      (ProduceTypedCoreExpressionDirectCall, failures, Just declaration, _, _) ->
                         [ ProvisionalUnsupportedCallableBinding
                             declaration
                             TypedCoreUnsupportedRootExpression
@@ -944,7 +952,10 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                             | InferredProductionFailure childPath kind detail <- failures
                             ]
                         ]
-                      (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _) ->
+                      (ProduceTypedCoreExpressionDirectCall, [], Nothing, Just bindingType, Just expression)
+                        | not (isFunctionType bindingType) ->
+                            [ProvisionalScalarBinding statementIndex name bindingSpan bindingType expression]
+                      (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), _, _, _) ->
                         [ ProvisionalUnsupportedStatement
                             statementIndex
                             TypedCoreUnsupportedRootExpression
@@ -953,7 +964,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                             | InferredProductionFailure childPath kind detail <- failures
                             ]
                         ]
-                      (ProduceTypedCoreExpressionDirectCall, [], _, _) ->
+                      (ProduceTypedCoreExpressionDirectCall, [], _, _, _) ->
                         [ ProvisionalUnsupportedStatement
                             statementIndex
                             TypedCoreUnsupportedRootExpression
@@ -1030,6 +1041,22 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
                     failureDetail
                     : inferredProductionFailures result
             _ -> inferredProductionFailures result
+
+    supportedTypedCoreSignatureType expressionType =
+      case expressionType of
+        TFunctionType {} -> True
+        TIntType -> True
+        TFloatType -> True
+        TNumericType {} -> True
+        TBoolType -> True
+        TCharType -> True
+        TTupleType [] -> True
+        _ -> False
+
+    isFunctionType expressionType =
+      case expressionType of
+        TFunctionType {} -> True
+        _ -> False
 
     qualifyStatementProductionFailures statementIndex failures =
       [ InferredProductionFailure (statementIndex : childPath) kind detail

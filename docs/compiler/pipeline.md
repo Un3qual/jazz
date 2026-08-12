@@ -37,11 +37,14 @@ A bounded typed-core producer can retain a validated single-module scalar and
 direct-call profile during inference. The opt-in path also transports closed
 named functions as values, recursively represented unary closure parameters
 and results, explicit empty environments, and unary higher-order closure calls
-into validated backend-neutral control-flow IR.
+into validated backend-neutral control-flow IR. Concrete scalar bindings are
+also retained in entry modules with explicitly empty export lists, evaluated
+once in source order, and reused by exact binder identity in later entry
+expressions. Scalar value interfaces are not produced yet.
 
 This path does not participate in ordinary compile or run, which remain on
-canonical core and the reference interpreter. Scalar bindings,
-anonymous or nested closures, lexical capture, currying and partial
-application, oversaturation, recursion, full control flow, multi-module
-integration, native emission, linking, and a native runtime remain promotion
-gates. See the current [status](../project/status.md).
+canonical core and the reference interpreter. Anonymous or nested closures,
+lexical capture, currying and partial application, oversaturation, recursion,
+full control flow, multi-module integration, native emission, linking, and a
+native runtime remain promotion gates. See the current
+[status](../project/status.md).

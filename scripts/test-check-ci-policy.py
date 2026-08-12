@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tempfile
@@ -23,13 +24,13 @@ REQUIRED_WORKFLOWS = {
     ".github/workflows/release.yml",
 }
 ACTION_PINS = (
-    ("actions/checkout", "v4", "11d5960a326750d5838078e36cf38b85af677262"),
+    ("actions/checkout", "v7.0.1", "3d3c42e5aac5ba805825da76410c181273ba90b1"),
     ("cachix/install-nix-action", "v31", "630ae543ea3a38a9a4166f03376c02c50f408342"),
-    ("actions/cache", "v4", "0057852bfaa89a56745cba8c7296529d2fc39830"),
-    ("actions/upload-artifact", "v4", "ea165f8d65b6e75b540449e92b4886f43607fa02"),
-    ("dorny/paths-filter", "v3", "0e4a8c6effa4802afeda77dc8d303f8176d7dfad"),
-    ("pnpm/action-setup", "v4", "b906affcce14559ad1aafd4ab0e942779e9f58b1"),
-    ("actions/setup-node", "v4", "49933ea5288caeca8642d1e84afbd3f7d6820020"),
+    ("actions/cache", "v6.1.0", "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"),
+    ("actions/upload-artifact", "v7.0.1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"),
+    ("dorny/paths-filter", "v4.0.3", "ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d"),
+    ("pnpm/action-setup", "v6.0.10", "0977fd99725f1db4007ccb2928dbb4e90d06cc86"),
+    ("actions/setup-node", "v7.0.0", "820762786026740c76f36085b0efc47a31fe5020"),
 )
 
 FAST_COMPONENTS = (
@@ -72,7 +73,7 @@ def secured_workflow(contents: str) -> str:
         contents = contents.replace(
             f"{action}@{version}", f"{action}@{revision} # {version}"
         )
-    checkout = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4"
+    checkout = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
     lines: list[str] = []
     for line in contents.splitlines():
         lines.append(line)
@@ -298,10 +299,10 @@ VALID_PR_WORKFLOW = textwrap.dedent(
           compiler: ${{ steps.filter.outputs.compiler }}
         steps:
           - name: Check out repository
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7.0.1
           - name: Detect compiler-relevant changes
             id: filter
-            uses: dorny/paths-filter@v3
+            uses: dorny/paths-filter@v4.0.3
             with:
               predicate-quantifier: every
               filters: |
@@ -322,15 +323,15 @@ VALID_PR_WORKFLOW = textwrap.dedent(
         runs-on: ubuntu-latest
         steps:
           - name: Check out repository
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7.0.1
           - name: Install Nix
             uses: cachix/install-nix-action@v31
           - name: Set up pnpm
-            uses: pnpm/action-setup@v4
+            uses: pnpm/action-setup@v6.0.10
             with:
               version: 11.18.0
           - name: Set up Node.js
-            uses: actions/setup-node@v4
+            uses: actions/setup-node@v7.0.0
             with:
               node-version: 22
               cache: pnpm
@@ -353,11 +354,11 @@ VALID_PR_WORKFLOW = textwrap.dedent(
         timeout-minutes: 30
         steps:
           - name: Check out repository
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7.0.1
           - name: Install Nix
             uses: cachix/install-nix-action@v31
           - name: Cache Cabal dependencies and build output
-            uses: actions/cache@v4
+            uses: actions/cache@v6.1.0
             with:
               path: |
                 ~/.cabal/store
@@ -416,11 +417,11 @@ VALID_MAIN_WORKFLOW = textwrap.dedent(
         timeout-minutes: 60
         steps:
           - name: Check out repository
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7.0.1
           - name: Install Nix
             uses: cachix/install-nix-action@v31
           - name: Cache Cabal dependencies and build output
-            uses: actions/cache@v4
+            uses: actions/cache@v6.1.0
             with:
               path: |
                 ~/.cabal/store
@@ -445,7 +446,7 @@ VALID_MAIN_WORKFLOW = textwrap.dedent(
               fi
           - name: Upload ordinary test logs
             if: failure() && steps.ordinary.outcome == 'failure'
-            uses: actions/upload-artifact@v4
+            uses: actions/upload-artifact@v7.0.1
             with:
               name: ordinary-test-logs-${{ github.run_id }}
               path: artifacts/ordinary-test-logs
@@ -480,11 +481,11 @@ VALID_EXTENDED_WORKFLOW = textwrap.dedent(
           JAZZ_BENCHMARK_LABEL: github-actions-extended
         steps:
           - name: Check out repository
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7.0.1
           - name: Install Nix
             uses: cachix/install-nix-action@v31
           - name: Cache Cabal dependencies and build output
-            uses: actions/cache@v4
+            uses: actions/cache@v6.1.0
             with:
               path: |
                 ~/.cabal/store
@@ -497,7 +498,7 @@ VALID_EXTENDED_WORKFLOW = textwrap.dedent(
             run: nix develop --command bash scripts/ci/extended.sh
           - name: Upload extended verification evidence
             if: always()
-            uses: actions/upload-artifact@v4
+            uses: actions/upload-artifact@v7.0.1
             with:
               name: extended-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
               path: artifacts/extended/
@@ -582,15 +583,15 @@ VALID_RELEASE_WORKFLOW = textwrap.dedent(
             extra-experimental-features = nix-command flakes
         steps:
           - name: Check out repository
-            uses: actions/checkout@v4
+            uses: actions/checkout@v7.0.1
           - name: Install Nix
             uses: cachix/install-nix-action@v31
           - name: Set up pnpm
-            uses: pnpm/action-setup@v4
+            uses: pnpm/action-setup@v6.0.10
             with:
               version: 11.18.0
           - name: Set up Node.js
-            uses: actions/setup-node@v4
+            uses: actions/setup-node@v7.0.0
             with:
               node-version: 22
               cache: pnpm
@@ -612,7 +613,7 @@ VALID_RELEASE_WORKFLOW = textwrap.dedent(
             id: release
             run: nix develop --command bash scripts/release/build-alpha.sh
           - name: Upload verified alpha artifacts
-            uses: actions/upload-artifact@v4
+            uses: actions/upload-artifact@v7.0.1
             with:
               name: jazz-${{ env.JAZZ_RELEASE_VERSION }}-${{ github.sha }}-${{ github.run_id }}
               path: artifacts/release/${{ env.JAZZ_RELEASE_VERSION }}/
@@ -995,16 +996,19 @@ class CiPolicyCheckerTests(unittest.TestCase):
             "  check:\n"
             "    runs-on: ubuntu-latest\n"
             "    steps:\n"
-            "      - uses: actions/cache@v4\n",
+            "      - uses: actions/cache@v6.1.0\n",
         )
         self.assert_violation("workflow action must use an immutable commit")
 
     def test_approved_action_accepts_an_updated_immutable_revision(self) -> None:
         path = self.root / ".github/workflows/ci-pr.yml"
-        contents = path.read_text(encoding="utf-8").replace(
-            "0057852bfaa89a56745cba8c7296529d2fc39830",
-            "1111111111111111111111111111111111111111",
+        contents, replacements = re.subn(
+            r"(actions/cache@)[0-9a-f]{40}",
+            r"\g<1>1111111111111111111111111111111111111111",
+            path.read_text(encoding="utf-8"),
+            count=1,
         )
+        self.assertEqual(1, replacements)
         path.write_text(contents, encoding="utf-8")
 
         result = self.run_checker()
@@ -1021,7 +1025,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             "  check:\n"
             "    runs-on: ubuntu-latest\n"
             "    steps:\n"
-            "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n",
+            "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n",
         )
         self.assert_violation("checkout must set persist-credentials: false")
 
@@ -1035,7 +1039,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             "  check:\n"
             "    runs-on: ubuntu-latest\n"
             "    steps:\n"
-            "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n"
+            "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n"
             "        with:\n"
             "          persist-credentials: false\n"
             "          ref: main\n",
@@ -2128,9 +2132,9 @@ class CiPolicyCheckerTests(unittest.TestCase):
         requirements = (
             ("timeout-minutes: 480", "release job must have a 480-minute timeout"),
             ("cachix/install-nix-action@v31", "release job must install Nix"),
-            ("pnpm/action-setup@v4", "release job must use pnpm/action-setup"),
+            ("pnpm/action-setup@v6.0.10", "release job must use pnpm/action-setup"),
             ("version: 11.18.0", "release job must use pnpm 11.18.0"),
-            ("actions/setup-node@v4", "release job must set up Node.js"),
+            ("actions/setup-node@v7.0.0", "release job must set up Node.js"),
             ("node-version: 22", "release job must use Node 22"),
             ("cache: pnpm", "release job must use the pnpm cache"),
             (
@@ -2141,7 +2145,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "nix develop --command bash scripts/release/build-alpha.sh",
                 "release job must invoke scripts/release/build-alpha.sh",
             ),
-            ("actions/upload-artifact@v4", "release workflow must upload verified artifacts with actions/upload-artifact"),
+            ("actions/upload-artifact@v7.0.1", "release workflow must upload verified artifacts with actions/upload-artifact"),
             ("if-no-files-found: error", "release artifact upload must fail when files are missing"),
             ("retention-days: 30", "release artifact upload must retain artifacts for 30 days"),
         )
@@ -2299,7 +2303,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "cachix/install-nix-action@v31",
                 "extended job must use cachix/install-nix-action",
             ),
-            ("actions/cache@v4", "extended job must use actions/cache"),
+            ("actions/cache@v6.1.0", "extended job must use actions/cache"),
             ("~/.cabal/store", "extended cache must include ~/.cabal/store"),
             ("dist-newstyle", "extended cache must include dist-newstyle"),
             (
@@ -2379,7 +2383,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "extended evidence upload must run on success or failure",
             ),
             (
-                "actions/upload-artifact@v4",
+                "actions/upload-artifact@v7.0.1",
                 "extended evidence upload must use actions/upload-artifact",
             ),
             (
@@ -2605,7 +2609,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
         for old, expected in (
             ("timeout-minutes: 60", "main ordinary job must have a 60-minute timeout"),
             ("cachix/install-nix-action@v31", "main ordinary job must use cachix/install-nix-action"),
-            ("actions/cache@v4", "main ordinary job must use actions/cache"),
+            ("actions/cache@v6.1.0", "main ordinary job must use actions/cache"),
             ("~/.cabal/store", "main ordinary cache must include ~/.cabal/store"),
             ("dist-newstyle", "main ordinary cache must include dist-newstyle"),
             ("runner.os", "main ordinary cache key must include runner.os"),
@@ -2660,7 +2664,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "main workflow must upload ordinary test logs only for ordinary failure",
             ),
             (
-                "uses: actions/upload-artifact@v4",
+                "uses: actions/upload-artifact@v7.0.1",
                 "uses: actions/upload-artifact@v3",
                 "main workflow must use actions/upload-artifact for ordinary logs",
             ),
@@ -2752,7 +2756,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                     VALID_MAIN_WORKFLOW
                     + "      - name: Upload build cache\n"
                     + "        if: failure()\n"
-                    + "        uses: actions/upload-artifact@v4\n"
+                    + "        uses: actions/upload-artifact@v7.0.1\n"
                     + "        with:\n"
                     + "          name: forbidden-build-cache\n"
                     + f"          path: {forbidden_path}\n",
@@ -2849,7 +2853,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
 
     def test_changes_job_requires_paths_filter_and_compiler_output(self) -> None:
         for old, expected in (
-            ("dorny/paths-filter@v3", "changes job must use dorny/paths-filter"),
+            ("dorny/paths-filter@v4.0.3", "changes job must use dorny/paths-filter"),
             ("predicate-quantifier: every", "changes job must apply every docs-only exclusion"),
             (
                 "compiler: ${{ steps.filter.outputs.compiler }}",
@@ -2894,7 +2898,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
     def test_docs_job_requires_pinned_tools_node_cache_install_and_all_checks(self) -> None:
         for old, expected in (
             ("cachix/install-nix-action@v31", "docs-and-site job must install the pinned Nix documentation toolchain"),
-            ("pnpm/action-setup@v4", "docs-and-site job must use pnpm/action-setup"),
+            ("pnpm/action-setup@v6.0.10", "docs-and-site job must use pnpm/action-setup"),
             ("version: 11.18.0", "docs-and-site job must use pnpm 11.18.0"),
             ("node-version: 22", "docs-and-site job must use Node 22"),
             ("cache: pnpm", "docs-and-site job must use the pnpm cache"),
@@ -2947,7 +2951,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ("if: needs.changes.outputs.compiler == 'true'", "compiler-fast job must run only for compiler-relevant changes"),
             ("timeout-minutes: 30", "compiler-fast job must have a 30-minute timeout"),
             ("cachix/install-nix-action@v31", "compiler-fast job must use cachix/install-nix-action"),
-            ("actions/cache@v4", "compiler-fast job must use actions/cache"),
+            ("actions/cache@v6.1.0", "compiler-fast job must use actions/cache"),
             ("~/.cabal/store", "compiler-fast cache must include ~/.cabal/store"),
             ("dist-newstyle", "compiler-fast cache must include dist-newstyle"),
             ("runner.os", "compiler-fast cache key must include runner.os"),

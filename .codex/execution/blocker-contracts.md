@@ -155,29 +155,40 @@ Each blocked item should answer these questions:
   unary closure parameters and results, explicit empty environments, and unary
   higher-order closure calls while preserving every scalar/direct-call fixture.
   Normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: write and validate a matching ready-plan for concrete
-  scalar `let` production, ordered reuse, and entry lowering while retaining
-  unsupported managed bindings.
-- Decision needed: none for the semantic boundary. RFC 0009 fixes scalar
-  binding as the second ordered child, but an executor-ready plan with matching
-  frontmatter and exact fixtures has not been written.
-- Recommended default: keep scalar binding solely as the next curation target
-  until that plan validates. Keep normal compile/run on canonical core and the
-  reference interpreter.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001` completed on
+  `2026-08-12`. The opt-in producer now emits concrete scalar signatures and
+  bindings in source order, later expressions carry exact scalar binder
+  references, and entry lowering evaluates each initializer once and reuses
+  its binder-indexed operand. Managed values and function-body capture remain
+  rejected. Normal compile/run remains canonical-core/interpreter based.
+- Smallest unblocker: curate RFC 0009's lexical-capture child into one
+  executor-ready plan and queue row.
+- Decision needed: none for the semantic boundary. RFC 0009 fixes lexical
+  capture as the third ordered child after scalar binding.
+- Recommended default: promote only the lexical-capture child with the exact
+  RFC ownership matrix and G3 gate. Keep normal compile/run on canonical core
+  and the reference interpreter.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-LEXICAL-CAPTURE-001`.
+- Target paths: `src/Jazz/Compiler/RecursiveBindings.hs`;
+  `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`;
+  `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
   `src/Jazz/Compiler/LoweredIR/Lower.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`.
-- Verification: `cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`;
+  `test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`;
+  `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`;
+  `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`;
+  `test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`.
+- Verification: `cabal test recursive-bindings-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting the completed closure-call foundation; inline or
-  nested anonymous lambdas; lexical capture; partial application;
-  oversaturation; recursive groups; control flow; patterns; multi-module or
-  import integration; non-closure managed values; runtime services; tail
-  calls; LLVM emission; object generation; linking; native-runtime or ABI
-  implementation; a public compiler embedding API; bytecode or a VM; or
-  revival of removed legacy implementations.
+  nested lambda or capture behavior outside RFC 0009's lexical-capture fixture
+  boundary; currying; partial application; oversaturation; recursive groups;
+  control flow; patterns; multi-module or import integration; non-closure
+  managed values; runtime services; tail calls; LLVM emission; object
+  generation; linking; native-runtime or ABI implementation; a public compiler
+  embedding API; bytecode or a VM; or revival of removed legacy
+  implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
