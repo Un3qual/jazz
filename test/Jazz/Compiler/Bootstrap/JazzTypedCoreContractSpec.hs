@@ -449,6 +449,9 @@ reviewRegressionGroups =
     (("stages constructor values outside complete calls", testConstructorValueRecipeRole), [constructorValueRecipeProgram]),
     (("stages polymorphic builtin values outside complete calls", testPolymorphicBuiltinRecipeRole), [polymorphicBuiltinRecipeProgram]),
     (("stages builtin operator values outside complete calls", testBuiltinOperatorValueRecipeRole), [builtinOperatorValueRecipeProgram]),
+    (("rejects direct qualified methods in value position", testQualifiedDirectMethodValue), [qualifiedDirectMethodValueProgram]),
+    (("stages callable results after a direct ABI root", testDirectCallableResultValue), [directCallableResultValueProgram]),
+    (("checks implementation method callable shapes", testImplMethodCallableShape), [implMethodCallableShapeProgram]),
     (("rejects deferred evidence after the target argument", testAppliedTargetCandidateDeferral), [appliedTargetCandidateDeferralProgram]),
     (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram]),
     (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram]),
@@ -983,6 +986,41 @@ testBuiltinOperatorValueRecipeRole =
         (TypedRecipeDetail builtinIntOperatorValueRecipe builtinIntOperatorDirectRecipe)
     ]
     (validateTypedProgram builtinOperatorValueRecipeProgram)
+
+testQualifiedDirectMethodValue :: IO ()
+testQualifiedDirectMethodValue =
+  assertEqual
+    "direct-qualified methods cannot escape as values"
+    [ expressionFailureAt
+        "review-qualified-direct-method-value"
+        0
+        TypedCallableShapeMismatch
+        (TypedBinderDetail qualifiedDirectMethodOwner)
+    ]
+    (validateTypedProgram qualifiedDirectMethodValueProgram)
+
+testDirectCallableResultValue :: IO ()
+testDirectCallableResultValue =
+  assertEqual
+    "callable results after a direct ABI root require unary staging"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-direct-callable-result-value") [0] [0, 0])
+        TypedBindingValueMismatch
+        (TypedRecipeDetail textAppendValueRecipe textAppendDirectRecipe)
+    ]
+    (validateTypedProgram directCallableResultValueProgram)
+
+testImplMethodCallableShape :: IO ()
+testImplMethodCallableShape =
+  assertEqual
+    "impl method bodies match their direct callable ABI width"
+    [ statementFailure
+        "review-impl-method-callable-shape"
+        1
+        TypedCallableShapeMismatch
+        (TypedBinderDetail implMethodCallableShapeOwner)
+    ]
+    (validateTypedProgram implMethodCallableShapeProgram)
 
 testAppliedTargetCandidateDeferral :: IO ()
 testAppliedTargetCandidateDeferral =
@@ -2449,6 +2487,145 @@ builtinOperatorValueRecipeProgram =
       [ expressionStatement 1 (TypedOperatorValueExpr directInfo (TypedBuiltinOperator "+")),
         expressionStatement 2 (TypedOperatorValueExpr valueInfo (TypedBuiltinOperator "+")),
         expressionStatement 3 completeCall
+      ]
+
+qualifiedDirectMethodOwner :: TypedBinderId
+qualifiedDirectMethodOwner =
+  binder
+    ["Prelude"]
+    [1, 0]
+    (resolved TypedCurrentModule TypedValueNamespace "render")
+
+qualifiedDirectMethodValueProgram :: TypedProgram
+qualifiedDirectMethodValueProgram =
+  withFixturePrelude (expressionFixtureProgram fixture expression)
+  where
+    fixture = "review-qualified-direct-method-value"
+    capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
+    implId = TypedImplId ["Prelude"] capabilityName [TypedTextType]
+    constraint =
+      TypedCapabilityConstraint
+        (preludeCapability "Render")
+        (Just "Render::render")
+        TypedTextType
+    evidenceUse =
+      TypedEvidenceUse
+        Nothing
+        constraint
+        implId
+        (Just (TypedMethodId implId "render"))
+    expression =
+      fixtureVariableExpr
+        (TypedNodeInfo boolToBoolType boolToBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedBuiltinName "Render::render")
+
+textAppendType :: TypedType
+textAppendType =
+  TypedFunctionType TypedTextType (TypedFunctionType TypedTextType TypedTextType)
+
+textAppendDirectRecipe :: TypedRepresentationRecipe
+textAppendDirectRecipe =
+  TypedClosureRecipe
+    [TypedManagedTextRecipe, TypedManagedTextRecipe]
+    TypedManagedTextRecipe
+
+textAppendValueRecipe :: TypedRepresentationRecipe
+textAppendValueRecipe =
+  TypedClosureRecipe
+    [TypedManagedTextRecipe]
+    (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
+
+directCallableResultValueProgram :: TypedProgram
+directCallableResultValueProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-direct-callable-result-value"
+    modulePath = fixtureModulePath fixture
+    functionName = resolved TypedCurrentModule TypedValueNamespace "choose"
+    functionOwner = binder modulePath [0] functionName
+    parameterName = resolved TypedCurrentModule TypedValueNamespace "ignored"
+    functionType = TypedFunctionType TypedBoolType textAppendType
+    functionRecipe = TypedClosureRecipe [TypedBoolRecipe] textAppendDirectRecipe
+    functionInfo = info functionType functionRecipe
+    functionScheme =
+      fixtureScheme
+        functionOwner
+        []
+        []
+        []
+        functionType
+        functionRecipe
+    expression =
+      TypedLambdaExpr
+        functionInfo
+        (binder modulePath [0, 0] parameterName)
+        parameterName
+        ( fixtureVariableExpr
+            (info textAppendType textAppendDirectRecipe)
+            (TypedBuiltinName "__kernel_textAppend")
+        )
+    statements =
+      [ TypedLetStatement functionOwner functionName span1 functionScheme expression,
+        expressionStatement 2 trueExpr
+      ]
+
+implMethodCallableShapeOwner :: TypedBinderId
+implMethodCallableShapeOwner =
+  binder
+    (fixtureModulePath "review-impl-method-callable-shape")
+    [0, 0]
+    (resolved TypedCurrentModule TypedValueNamespace "choose")
+
+implMethodCallableShapeProgram :: TypedProgram
+implMethodCallableShapeProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-impl-method-callable-shape"
+    modulePath = fixtureModulePath fixture
+    parameter = TypedTypeParameterId 0
+    capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Chooser"
+    methodName = resolved TypedCurrentModule TypedValueNamespace "choose"
+    methodType = TypedFunctionType TypedBoolType boolToBoolType
+    methodRecipe = TypedClosureRecipe [TypedBoolRecipe] boolToBoolRecipe
+    methodScheme =
+      fixtureScheme
+        implMethodCallableShapeOwner
+        []
+        []
+        []
+        methodType
+        methodRecipe
+    classDeclaration =
+      TypedClassDeclaration
+        span1
+        capabilityName
+        [parameter]
+        [TypedMethodSignature methodName span1 methodScheme]
+    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    firstParameter = resolved TypedCurrentModule TypedValueNamespace "first"
+    secondParameter = resolved TypedCurrentModule TypedValueNamespace "second"
+    methodExpression =
+      TypedLambdaExpr
+        (info methodType methodRecipe)
+        (binder modulePath [1, 0, 0] firstParameter)
+        firstParameter
+        ( TypedLambdaExpr
+            boolToBoolInfo
+            (binder modulePath [1, 0, 0, 0] secondParameter)
+            secondParameter
+            trueExpr
+        )
+    methodDefinition =
+      TypedMethodDefinition
+        (TypedMethodId implId "choose")
+        (binder modulePath [1, 0] methodName)
+        methodName
+        span1
+        methodExpression
+    statements =
+      [ TypedClassStatement classDeclaration,
+        TypedImplStatement (TypedImplDeclaration span1 implId [methodDefinition]),
+        expressionStatement 3 trueExpr
       ]
 
 publishedImplWithoutCapabilityMetadataId :: TypedImplId
@@ -7116,7 +7293,7 @@ qualifiedMethodTypeApplicationProgram =
       resolved TypedCurrentModule TypedValueNamespace "print!"
     methodOwner = binder preludePath [0, 0] methodName
     methodScheme =
-      fixtureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
+      fixtureClosureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     classDeclaration =
       TypedClassDeclaration
         span1

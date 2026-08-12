@@ -287,17 +287,9 @@ collectFunctionShapes modulePath =
                 seenNames
                 seenGeneratedIdentities
             else case duplicateLeadingParameters expression of
-                duplicateParameters@(_ : _) ->
+                _ : _ ->
                   continue
-                    ( reverse
-                        [ LoweredIRLoweringFailure
-                            (TypedExpressionPath modulePath [statementIndex] parameterPath)
-                            LoweredIRDuplicateParameterIdentity
-                            (LoweredIRNameFailureDetail parameterName)
-                        | (parameterPath, parameterName) <- duplicateParameters
-                        ]
-                        <> reversedFailures
-                    )
+                    reversedFailures
                     reversedFunctions
                     (name : reversedLocalNames)
                     (Set.insert name seenNames)
@@ -592,7 +584,14 @@ validateStatementProfiles modulePath declarations functions localValueNames =
       case statement of
         TypedSignatureStatement {} -> continue reversedFailureChunks reversedCalls
         TypedLetStatement _ _ _ _ expression ->
-          let nextCalls =
+          let duplicateParameterFailures =
+                [ LoweredIRLoweringFailure
+                    (TypedExpressionPath modulePath [statementIndex] parameterPath)
+                    LoweredIRDuplicateParameterIdentity
+                    (LoweredIRNameFailureDetail parameterName)
+                | (parameterPath, parameterName) <- duplicateLeadingParameters expression
+                ]
+              nextCalls =
                 case find ((== statementIndex) . functionDeclarationStatementIndex) declarations of
                   Just declaration ->
                     ( functionDeclarationBinder declaration,
@@ -602,7 +601,7 @@ validateStatementProfiles modulePath declarations functions localValueNames =
            in case find ((== statementIndex) . functionShapeStatementIndex) functions of
             Nothing ->
               case expression of
-                TypedLambdaExpr {} -> continue reversedFailureChunks nextCalls
+                TypedLambdaExpr {} -> continue (duplicateParameterFailures : reversedFailureChunks) nextCalls
                 _ ->
                   let check =
                         inspectExpression
@@ -614,7 +613,7 @@ validateStatementProfiles modulePath declarations functions localValueNames =
                           []
                           expression
                    in continue
-                        (expressionCheckFailures check : reversedFailureChunks)
+                        ((duplicateParameterFailures <> expressionCheckFailures check) : reversedFailureChunks)
                         nextCalls
             Just function ->
               let check =
@@ -627,7 +626,7 @@ validateStatementProfiles modulePath declarations functions localValueNames =
                       (functionShapeParameters function)
                       (functionShapeBody function)
                in continue
-                    (expressionCheckFailures check : reversedFailureChunks)
+                    ((duplicateParameterFailures <> expressionCheckFailures check) : reversedFailureChunks)
                     nextCalls
         TypedExpressionStatement _ expression ->
           let check =

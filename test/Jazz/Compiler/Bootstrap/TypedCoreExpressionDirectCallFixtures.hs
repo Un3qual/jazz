@@ -1180,6 +1180,7 @@ lowererBoundaryPrograms =
     ("callable-parameter-value-shadows-enclosing-function-lowerer", callableParameterValueShadowsEnclosingFunctionLowererProgram),
     ("non-concrete-closure-representation", nonConcreteClosureRepresentationLowererProgram),
     ("duplicate-parameter-function", duplicateParameterLowererProgram),
+    ("recursive-duplicate-parameter-function", recursiveDuplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
     ("self-recursive-function", selfRecursiveLowererProgram),
@@ -1475,6 +1476,19 @@ duplicateParameterLowererProgram =
         (variableExpr "item" intInfo)
     ]
     (directCall "chooseSecond" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
+
+recursiveDuplicateParameterLowererProgram :: TypedProgram
+recursiveDuplicateParameterLowererProgram =
+  expectedFunctionProgram
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo), ("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        (directCall "loop" [intInfo, intInfo] intInfo [variableExpr "item" intInfo, variableExpr "item" intInfo])
+    ]
+    (directCall "loop" [intInfo, intInfo] intInfo [intExpr 1, intExpr 2])
 
 duplicateFunctionLowererProgram :: TypedProgram
 duplicateFunctionLowererProgram =

@@ -2439,7 +2439,7 @@ validateImplDeclaration context statementLocation path (TypedImplDeclaration spa
         <> validateLocalDefinitionName context [TypedValueNamespace] path name
         <> validateBinderDefinition context path binderId name
         <> (if coreNameIdentifier name == Just methodKey then [] else [failure path TypedMethodSelectionMismatch (TypedTextDetail methodKey)])
-        <> validateImplMethodContract context path implId methodKey (typedExpressionInfo expression)
+        <> validateImplMethodContract context path implId methodKey expression
         <> validateNamedExpression
           (implMethodContext context implId methodKey)
           statementLocation
@@ -2479,20 +2479,21 @@ missingImplMethodFailures context path (TypedImplId _ capability targets) method
         | TypedMethodDefinition (TypedMethodId _ methodKey) _ _ _ _ <- methods
         ]
 
-validateImplMethodContract :: ModuleContext -> TypedCoreValidationPath -> TypedImplId -> Text -> TypedNodeInfo -> [TypedCoreValidationFailure]
-validateImplMethodContract context path implId methodKey info =
+validateImplMethodContract :: ModuleContext -> TypedCoreValidationPath -> TypedImplId -> Text -> TypedExpr -> [TypedCoreValidationFailure]
+validateImplMethodContract context path implId methodKey expression =
   case lookupImplMethodScheme context implId methodKey of
     Left () -> []
     Right Nothing -> [failure path TypedMethodSelectionMismatch (TypedTextDetail methodKey)]
-    Right (Just (classParameters, TypedScheme owner _ _ _ resultType resultRecipe _))
+    Right (Just (classParameters, scheme@(TypedScheme owner _ _ _ resultType resultRecipe _)))
       | length classParameters == length targets ->
           validateValueContract
             path
-            info
+            (typedExpressionInfo expression)
             ( ValueContract
                 (substituteTypeParameters substitutions qualifiedType)
                 (substituteRepresentationParameters substitutions qualifiedRecipe)
             )
+            <> validateCallableBindingShape path scheme expression
       | otherwise -> []
       where
         targets = implTargetTypes implId
@@ -2543,13 +2544,13 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
         childContext
         statementLocation
         (expressionPath <> [childIndex])
-        (childRequiresStagedLambdaRecipe childIndex)
+        (childRequiresStagedLambdaRecipe childIndex child)
         (childDirectCalleeArgumentCount childIndex)
         (childExplicitSpan childIndex)
         child
-    childRequiresStagedLambdaRecipe childIndex =
-      case expression of
-        TypedLambdaExpr {}
+    childRequiresStagedLambdaRecipe childIndex child =
+      case (expression, child) of
+        (TypedLambdaExpr {}, TypedLambdaExpr {})
           | childIndex == 0 -> requireStagedLambdaRecipe
         _ -> True
     childDirectCalleeArgumentCount childIndex =
@@ -2973,7 +2974,7 @@ qualifiedMethodEvidenceTarget context methodKey (TypedNodeInfo _ _ _ evidenceSel
         Nothing -> False
     constraintMatches _ = False
 
-qualifiedMethodValueContracts :: ModuleContext -> Text -> TypedNodeInfo -> [ValueContract]
+qualifiedMethodValueContracts :: ModuleContext -> Text -> TypedNodeInfo -> [(TypedScheme, ValueContract)]
 qualifiedMethodValueContracts context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
   mapMaybe
     (qualifiedMethodConstraintContract context methodKey)
@@ -2984,17 +2985,29 @@ qualifiedMethodValueContracts context methodKey (TypedNodeInfo _ _ _ evidenceSel
         TypedSelectedEvidence (TypedEvidenceUse _ constraint _ _) -> constraint
         TypedEvidenceCandidates constraint _ -> constraint
 
-qualifiedMethodConstraintContract :: ModuleContext -> Text -> TypedCapabilityConstraint -> Maybe ValueContract
+qualifiedMethodSelectedSchemes :: ModuleContext -> Text -> TypedNodeInfo -> [TypedScheme]
+qualifiedMethodSelectedSchemes context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
+  mapMaybe
+    (fmap fst . qualifiedMethodConstraintContract context methodKey)
+    (nub selectedConstraints)
+  where
+    selectedConstraints =
+      [ constraint
+      | TypedSelectedEvidence (TypedEvidenceUse _ constraint _ _) <- evidenceSelections
+      ]
+
+qualifiedMethodConstraintContract :: ModuleContext -> Text -> TypedCapabilityConstraint -> Maybe (TypedScheme, ValueContract)
 qualifiedMethodConstraintContract context methodKey constraint =
   case matchingMethodContracts of
-    [(classParameter, TypedScheme owner _ _ _ resultType resultRecipe _)] ->
+    [(classParameter, scheme@(TypedScheme owner _ _ _ resultType resultRecipe _))] ->
       let substitutions = Map.singleton classParameter targetType
           ownerPath = binderModulePath owner
           (qualifiedType, qualifiedRecipe)
             | ownerPath == moduleContextPath context = (resultType, resultRecipe)
             | otherwise = (qualifyExternalType ownerPath resultType, qualifyExternalRecipe ownerPath resultRecipe)
        in Just
-            ( ValueContract
+            ( scheme,
+              ValueContract
                 (substituteTypeParameters substitutions qualifiedType)
                 (substituteRepresentationParameters substitutions qualifiedRecipe)
             )
@@ -3027,7 +3040,15 @@ validateVariableExpression context path requireStagedCallableRecipe directCallee
             validateAbsentBinderReference path binderReference
               <> case qualifiedMethodValueContracts context identifier info of
                 [] -> []
-                [contract] -> validateValueContract path info contract
+                [(_, contract)] ->
+                  let contractFailures = validateValueContract path info contract
+                      shapeFailures
+                        | null contractFailures =
+                            case qualifiedMethodSelectedSchemes context identifier info of
+                              [scheme] -> validateDirectCallableSchemeUse path directCalleeArgumentCount scheme
+                              _ -> []
+                        | otherwise = []
+                   in shapeFailures <> contractFailures
                 contracts ->
                   [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length contracts))]
         | otherwise ->
