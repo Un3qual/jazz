@@ -446,6 +446,9 @@ reviewRegressionGroups =
     (("enforces constructor-like identifier casing", testConstructorLikeIdentifierCasing), [lowercaseConstructorLikeNamesProgram]),
     (("orders duplicate name failures before impl failures", testDuplicateDeclarationOrdering), [duplicateDeclarationOrderingProgram]),
     (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram, builtinDirectCallProgram]),
+    (("stages constructor values outside complete calls", testConstructorValueRecipeRole), [constructorValueRecipeProgram]),
+    (("stages polymorphic builtin values outside complete calls", testPolymorphicBuiltinRecipeRole), [polymorphicBuiltinRecipeProgram]),
+    (("stages builtin operator values outside complete calls", testBuiltinOperatorValueRecipeRole), [builtinOperatorValueRecipeProgram]),
     (("rejects deferred evidence after the target argument", testAppliedTargetCandidateDeferral), [appliedTargetCandidateDeferralProgram]),
     (("binds capability exports to local class interfaces", testLocalCapabilityExportIdentity), [localCapabilityExportIdentityProgram]),
     (("enforces exact retained classes and structural identities", testStructuralIdentityRegressions), [invalidRetainedClassSpanProgram, duplicateRetainedClassMethodProgram, negativeBinderPathProgram, wrongDataNamespaceProgram, wrongConstructorNamespaceProgram]),
@@ -944,6 +947,42 @@ testBuiltinCatalogParity = do
     "a complete builtin call keeps its flattened direct recipe"
     []
     (validateTypedProgram builtinDirectCallProgram)
+
+testConstructorValueRecipeRole :: IO ()
+testConstructorValueRecipeRole =
+  assertEqual
+    "constructor values require staged recipes outside a complete call"
+    [ expressionFailureAt
+        "review-constructor-value-recipe"
+        1
+        TypedBindingValueMismatch
+        (TypedRecipeDetail pairConstructorValueRecipe pairConstructorDirectRecipe)
+    ]
+    (validateTypedProgram constructorValueRecipeProgram)
+
+testPolymorphicBuiltinRecipeRole :: IO ()
+testPolymorphicBuiltinRecipeRole =
+  assertEqual
+    "polymorphic builtin values require staged recipes outside a complete call"
+    [ expressionFailureAt
+        "review-polymorphic-builtin-value-recipe"
+        0
+        TypedBindingValueMismatch
+        (TypedRecipeDetail builtinMapValueRecipe builtinMapRecipe)
+    ]
+    (validateTypedProgram polymorphicBuiltinRecipeProgram)
+
+testBuiltinOperatorValueRecipeRole :: IO ()
+testBuiltinOperatorValueRecipeRole =
+  assertEqual
+    "builtin operator values require staged recipes outside a complete call"
+    [ expressionFailureAt
+        "review-builtin-operator-value-recipe"
+        0
+        TypedBindingValueMismatch
+        (TypedRecipeDetail builtinIntOperatorValueRecipe builtinIntOperatorDirectRecipe)
+    ]
+    (validateTypedProgram builtinOperatorValueRecipeProgram)
 
 testAppliedTargetCandidateDeferral :: IO ()
 testAppliedTargetCandidateDeferral =
@@ -2053,8 +2092,11 @@ builtinCatalogInfo symbol =
             (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedBoolType))
         )
         ( TypedClosureRecipe
-            [boolToBoolRecipe, TypedManagedListRecipe TypedBoolRecipe]
-            (TypedManagedListRecipe TypedBoolRecipe)
+            [boolToBoolRecipe]
+            ( TypedClosureRecipe
+                [TypedManagedListRecipe TypedBoolRecipe]
+                (TypedManagedListRecipe TypedBoolRecipe)
+            )
         )
     BuiltinHd ->
       functionInfo
@@ -2082,8 +2124,11 @@ builtinCatalogInfo symbol =
             (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedBoolType))
         )
         ( TypedClosureRecipe
-            [TypedBoolRecipe, TypedManagedListRecipe TypedBoolRecipe]
-            (TypedManagedListRecipe TypedBoolRecipe)
+            [TypedBoolRecipe]
+            ( TypedClosureRecipe
+                [TypedManagedListRecipe TypedBoolRecipe]
+                (TypedManagedListRecipe TypedBoolRecipe)
+            )
         )
     BuiltinListReverseRaw -> boolListTransformInfo
     BuiltinCharToUInt32 ->
@@ -2230,6 +2275,181 @@ builtinDirectCallProgram =
         textInfo
         (TypedApplyExpr afterFirstInfo functionExpression (argument "left"))
         (argument "right")
+
+pairConstructorType :: TypedType
+pairConstructorType =
+  TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType pairConstructorResultType)
+
+pairConstructorResultType :: TypedType
+pairConstructorResultType =
+  TypedDataType
+    (resolved TypedCurrentModule TypedTypeNamespace "Pair")
+    []
+
+pairConstructorDirectRecipe :: TypedRepresentationRecipe
+pairConstructorDirectRecipe =
+  TypedClosureRecipe
+    [TypedBoolRecipe, TypedBoolRecipe]
+    pairConstructorResultRecipe
+
+pairConstructorValueRecipe :: TypedRepresentationRecipe
+pairConstructorValueRecipe =
+  TypedClosureRecipe
+    [TypedBoolRecipe]
+    (TypedClosureRecipe [TypedBoolRecipe] pairConstructorResultRecipe)
+
+pairConstructorResultRecipe :: TypedRepresentationRecipe
+pairConstructorResultRecipe =
+  TypedManagedVariantRecipe
+    (resolved TypedCurrentModule TypedTypeNamespace "Pair")
+    []
+
+constructorValueRecipeProgram :: TypedProgram
+constructorValueRecipeProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface pairResultInfo modulePath
+  where
+    fixture = "review-constructor-value-recipe"
+    modulePath = fixtureModulePath fixture
+    dataName = resolved TypedCurrentModule TypedTypeNamespace "Pair"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Pair"
+    constructorOwner = binder modulePath [0, 0] constructorName
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            constructorOwner
+            constructorName
+            [TypedBoolType, TypedBoolType]
+            [TypedBoolRecipe, TypedBoolRecipe]
+        ]
+    constructor recipe =
+      fixtureBoundVariableExpr
+        constructorOwner
+        (info pairConstructorType recipe)
+        constructorName
+    afterFirstInfo =
+      info
+        (TypedFunctionType TypedBoolType pairConstructorResultType)
+        (TypedClosureRecipe [TypedBoolRecipe] pairConstructorResultRecipe)
+    pairResultInfo = info pairConstructorResultType pairConstructorResultRecipe
+    completeCall =
+      TypedApplyExpr
+        pairResultInfo
+        (TypedApplyExpr afterFirstInfo (constructor pairConstructorDirectRecipe) trueExpr)
+        falseExpr
+    statements =
+      [ TypedDataStatement declaration,
+        expressionStatement 1 (constructor pairConstructorDirectRecipe),
+        expressionStatement 2 (constructor pairConstructorValueRecipe),
+        expressionStatement 3 completeCall
+      ]
+
+builtinMapValueRecipe :: TypedRepresentationRecipe
+builtinMapValueRecipe =
+  TypedClosureRecipe
+    [TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe]
+    ( TypedClosureRecipe
+        [TypedManagedListRecipe TypedBoolRecipe]
+        (TypedManagedListRecipe TypedManagedTextRecipe)
+    )
+
+builtinMapValueInfo :: TypedNodeInfo
+builtinMapValueInfo = info builtinMapType builtinMapValueRecipe
+
+polymorphicBuiltinRecipeProgram :: TypedProgram
+polymorphicBuiltinRecipeProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface resultInfo modulePath
+  where
+    fixture = "review-polymorphic-builtin-value-recipe"
+    modulePath = fixtureModulePath fixture
+    mapperType = TypedFunctionType TypedBoolType TypedTextType
+    mapperRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe
+    mapperName = resolved TypedCurrentModule TypedValueNamespace "mapper"
+    mapper =
+      TypedLambdaExpr
+        (info mapperType mapperRecipe)
+        (binder modulePath [2, 1, 0] mapperName)
+        mapperName
+        (TypedLiteralExpr textInfo (TypedTextLiteral "mapped"))
+    intermediateInfo =
+      info
+        (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedTextType))
+        ( TypedClosureRecipe
+            [TypedManagedListRecipe TypedBoolRecipe]
+            (TypedManagedListRecipe TypedManagedTextRecipe)
+        )
+    argument =
+      TypedListExpr
+        (info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe))
+        [trueExpr]
+    resultInfo =
+      info
+        (TypedListType TypedTextType)
+        (TypedManagedListRecipe TypedManagedTextRecipe)
+    completeCall =
+      TypedApplyExpr
+        resultInfo
+        ( TypedApplyExpr
+            intermediateInfo
+            (fixtureVariableExpr builtinMapDirectInfo (TypedBuiltinName "map"))
+            mapper
+        )
+        argument
+    statements =
+      [ expressionStatement 1 (fixtureVariableExpr builtinMapDirectInfo (TypedBuiltinName "map")),
+        expressionStatement 2 (fixtureVariableExpr builtinMapValueInfo (TypedBuiltinName "map")),
+        expressionStatement 3 completeCall
+      ]
+
+builtinIntOperatorType :: TypedType
+builtinIntOperatorType =
+  TypedFunctionType TypedIntType (TypedFunctionType TypedIntType TypedIntType)
+
+builtinIntOperatorDirectRecipe :: TypedRepresentationRecipe
+builtinIntOperatorDirectRecipe =
+  TypedClosureRecipe
+    [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64]
+    (TypedSignedIntegerRecipe 64)
+
+builtinIntOperatorValueRecipe :: TypedRepresentationRecipe
+builtinIntOperatorValueRecipe =
+  TypedClosureRecipe
+    [TypedSignedIntegerRecipe 64]
+    (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+
+builtinOperatorValueRecipeProgram :: TypedProgram
+builtinOperatorValueRecipeProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface intInfo modulePath
+  where
+    fixture = "review-builtin-operator-value-recipe"
+    modulePath = fixtureModulePath fixture
+    intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
+    directInfo = info builtinIntOperatorType builtinIntOperatorDirectRecipe
+    valueInfo = info builtinIntOperatorType builtinIntOperatorValueRecipe
+    afterFirstInfo =
+      info
+        (TypedFunctionType TypedIntType TypedIntType)
+        (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
+    argument literal =
+      TypedLiteralExpr
+        intInfo
+        (TypedIntegerLiteral literal)
+    completeCall =
+      TypedApplyExpr
+        intInfo
+        ( TypedApplyExpr
+            afterFirstInfo
+            (TypedOperatorValueExpr directInfo (TypedBuiltinOperator "+"))
+            (argument "1")
+        )
+        (argument "2")
+    statements =
+      [ expressionStatement 1 (TypedOperatorValueExpr directInfo (TypedBuiltinOperator "+")),
+        expressionStatement 2 (TypedOperatorValueExpr valueInfo (TypedBuiltinOperator "+")),
+        expressionStatement 3 completeCall
+      ]
 
 publishedImplWithoutCapabilityMetadataId :: TypedImplId
 publishedImplWithoutCapabilityMetadataId =
@@ -7981,7 +8201,7 @@ qualifiedMapDispatchProgram fixture intermediateEvidence resultEvidence =
     intermediate =
       TypedApplyExpr
         (TypedNodeInfo intermediateType intermediateRecipe [] intermediateEvidence)
-        (fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map"))
+        (fixtureVariableExpr builtinMapDirectInfo (TypedBuiltinName "map"))
         mapper
     argument =
       TypedListExpr
@@ -9313,7 +9533,7 @@ fixturePrelude =
     renderArgument = resolved TypedCurrentModule TypedValueNamespace "renderArgument"
     renderExpression = TypedLambdaExpr boolToBoolInfo (binder ["Prelude"] [4, 0, 0] renderArgument) renderArgument trueExpr
     renderImplMethod = TypedMethodDefinition (TypedMethodId textRenderImpl "render") (binder ["Prelude"] [4, 0] renderName) renderName span1 renderExpression
-    mapExpression = fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map")
+    mapExpression = fixtureVariableExpr builtinMapDirectInfo (TypedBuiltinName "map")
     mapImplMethod = TypedMethodDefinition (TypedMethodId textRenderImpl "map") (binder ["Prelude"] [4, 1] mapName) mapName span1 mapExpression
 
 fixtureImplMethod :: [Text] -> [Int] -> TypedImplId -> Text -> TypedMethodDefinition
@@ -9330,7 +9550,7 @@ fixtureImplMethod modulePath methodPath implId methodKey =
     methodExpression
       | methodKey == "equal" = trueExpr
       | methodKey == "map" =
-          fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map")
+          fixtureVariableExpr builtinMapDirectInfo (TypedBuiltinName "map")
       | otherwise =
           TypedLambdaExpr
             boolToBoolInfo
@@ -11375,7 +11595,7 @@ missingImportProgram =
 
 candidateConstraintProgram :: TypedProgram
 candidateConstraintProgram =
-  withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface builtinMapInfo modulePath)
+  withFixturePrelude (singleModuleProgram fixture relativeSource [] statements emptyInterface builtinMapDirectInfo modulePath)
   where
     fixture = "review-candidate-constraint"
     modulePath = (fixtureModulePath fixture)
@@ -12719,7 +12939,7 @@ partialMethodCandidatesProgram =
         methodName
         span1
         methodExpression
-    methodExpression = fixtureVariableExpr builtinMapInfo (TypedBuiltinName "map")
+    methodExpression = fixtureVariableExpr builtinMapDirectInfo (TypedBuiltinName "map")
     expression =
       fixtureVariableExpr
         (TypedNodeInfo builtinMapType builtinMapRecipe [] [TypedEvidenceCandidates constraint candidates])
@@ -14680,7 +14900,7 @@ instantiationContractFixture =
     unknownName = fixtureValueName "unknown"
     unknownOwner = fixtureBinder fixture 9 unknownName
     instantiation = TypedInstantiation unknownOwner [] Nothing
-    expression = TypedVariableExpr (TypedNodeInfo builtinMapType builtinMapRecipe [instantiation] []) (TypedBuiltinName "map") Nothing
+    expression = TypedVariableExpr (TypedNodeInfo builtinMapType builtinMapValueRecipe [instantiation] []) (TypedBuiltinName "map") Nothing
 
 missingOrDuplicateEvidenceFixture :: InvalidFixture
 missingOrDuplicateEvidenceFixture =
@@ -14936,7 +15156,10 @@ builtinMapRecipe =
     (TypedManagedListRecipe TypedManagedTextRecipe)
 
 builtinMapInfo :: TypedNodeInfo
-builtinMapInfo = info builtinMapType builtinMapRecipe
+builtinMapInfo = info builtinMapType builtinMapValueRecipe
+
+builtinMapDirectInfo :: TypedNodeInfo
+builtinMapDirectInfo = info builtinMapType builtinMapRecipe
 
 moduleFailure :: Text -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 moduleFailure fixture = TypedCoreValidationFailure (TypedModulePath (fixtureModulePath fixture))

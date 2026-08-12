@@ -2572,9 +2572,9 @@ validateExpressionWithParentSpan context statementLocation expressionPath requir
       validateExpressionInstantiationOwners parentExplicitSpan context path expression
         <> case expression of
           TypedLiteralExpr info literal -> validateLiteral path info literal
-          TypedVariableExpr info name binderReference -> validateVariableExpression context path directCalleeArgumentCount info name binderReference
+          TypedVariableExpr info name binderReference -> validateVariableExpression context path requireStagedLambdaRecipe directCalleeArgumentCount info name binderReference
           TypedLambdaExpr info binderId name body -> validateLocalDefinitionName context [TypedValueNamespace] path name <> validateBinderDefinition context path binderId name <> validateLambda path requireStagedLambdaRecipe info body
-          TypedOperatorValueExpr info operator -> validateOperatorValue context path directCalleeArgumentCount info operator
+          TypedOperatorValueExpr info operator -> validateOperatorValue context path requireStagedLambdaRecipe directCalleeArgumentCount info operator
           TypedListExpr info expressions -> validateListShape path info expressions
           TypedTupleExpr info expressions -> validateTupleShape path info expressions
           TypedApplyExpr info function argument -> validateApplication path info function argument
@@ -3018,8 +3018,8 @@ qualifiedMethodConstraintContract context methodKey constraint =
         methodKeyMatches capability contractMethod methodKey
       ]
 
-validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> TypedCoreName -> Maybe TypedBinderId -> [TypedCoreValidationFailure]
-validateVariableExpression context path directCalleeArgumentCount info name binderReference =
+validateVariableExpression :: ModuleContext -> TypedCoreValidationPath -> Bool -> Int -> TypedNodeInfo -> TypedCoreName -> Maybe TypedBinderId -> [TypedCoreValidationFailure]
+validateVariableExpression context path requireStagedCallableRecipe directCalleeArgumentCount info name binderReference =
   visibilityFailures
     <> case name of
       TypedBuiltinName identifier
@@ -3032,7 +3032,7 @@ validateVariableExpression context path directCalleeArgumentCount info name bind
                   [failure path TypedAmbiguousEvidence (TypedArityDetail 1 (length contracts))]
         | otherwise ->
             validateAbsentBinderReference path binderReference
-              <> validateBuiltinValueContract context path directCalleeArgumentCount info identifier
+              <> validateBuiltinValueContract context path requireStagedCallableRecipe directCalleeArgumentCount info identifier
       _ ->
         case resolvedNameKey (moduleContextPath context) name >>= (`Map.lookup` moduleContextLexicalContracts context) of
           Just contract -> validateLexicalBinderReference path info binderReference contract
@@ -3046,7 +3046,7 @@ validateVariableExpression context path directCalleeArgumentCount info name bind
                 case lookupConstructorContract context name of
                   Just contract ->
                     validateConstructorBinderReference path binderReference contract
-                      <> validateConstructorExpressionContract context path info contract
+                      <> validateConstructorExpressionContract context path requireStagedCallableRecipe directCalleeArgumentCount info contract
                   Nothing -> validateAbsentBinderReference path binderReference
               _ -> validateAbsentBinderReference path binderReference
   where
@@ -3140,27 +3140,33 @@ validateReferencedValueContract path owner info (ValueContract expectedType expe
       []
   | otherwise = [failure path TypedBinderReferenceMismatch (TypedBinderDetail owner)]
 
-validateBuiltinValueContract :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> Text -> [TypedCoreValidationFailure]
-validateBuiltinValueContract context path directCalleeArgumentCount info identifier =
+validateBuiltinValueContract :: ModuleContext -> TypedCoreValidationPath -> Bool -> Int -> TypedNodeInfo -> Text -> [TypedCoreValidationFailure]
+validateBuiltinValueContract context path requireStagedCallableRecipe directCalleeArgumentCount info identifier =
   case lookupTypedBuiltinSymbol identifier of
     Nothing -> []
     Just builtinSymbol ->
       case builtinConcreteValueType builtinSymbol of
         Just expectedType ->
-          case expectedBuiltinUseRecipe directCalleeArgumentCount expectedType of
+          case expectedNativeCallableUseRecipe requireStagedCallableRecipe directCalleeArgumentCount expectedType of
             Just expectedRecipeValue ->
               validateValueContract path info (ValueContract expectedType expectedRecipeValue)
             Nothing -> [failure path TypedBindingValueMismatch (TypedTextDetail identifier)]
         Nothing
-          | builtinPolymorphicValueTypeMatches context builtinSymbol (typedNodeType info) -> []
+          | builtinPolymorphicValueTypeMatches context builtinSymbol (typedNodeType info) ->
+              case expectedNativeCallableUseRecipe requireStagedCallableRecipe directCalleeArgumentCount (typedNodeType info) of
+                Just expectedRecipeValue ->
+                  validateValueContract path info (ValueContract (typedNodeType info) expectedRecipeValue)
+                Nothing -> [failure path TypedBindingValueMismatch (TypedTextDetail identifier)]
           | otherwise -> [failure path TypedBindingValueMismatch (TypedTextDetail identifier)]
 
-expectedBuiltinUseRecipe :: Int -> TypedType -> Maybe TypedRepresentationRecipe
-expectedBuiltinUseRecipe directCalleeArgumentCount typeValue =
-  case expectedRecipe typeValue of
-    directRecipe@(Just recipe)
-      | directCallableRecipeArity recipe == Just directCalleeArgumentCount -> directRecipe
-    _ -> expectedValueRecipe typeValue
+expectedNativeCallableUseRecipe :: Bool -> Int -> TypedType -> Maybe TypedRepresentationRecipe
+expectedNativeCallableUseRecipe requireStagedCallableRecipe directCalleeArgumentCount typeValue
+  | not requireStagedCallableRecipe = expectedRecipe typeValue
+  | otherwise =
+      case expectedRecipe typeValue of
+        directRecipe@(Just recipe)
+          | directCallableRecipeArity recipe == Just directCalleeArgumentCount -> directRecipe
+        _ -> expectedValueRecipe typeValue
 
 lookupTypedBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupTypedBuiltinSymbol identifier =
@@ -3325,8 +3331,8 @@ lookupConstructorContract context name = do
   key <- resolvedNameKey (moduleContextPath context) name
   Map.lookup key (moduleContextConstructorContracts context)
 
-validateConstructorExpressionContract :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> ConstructorContract -> [TypedCoreValidationFailure]
-validateConstructorExpressionContract context path info (ConstructorContract owner dataKey parameters fieldTypes) =
+validateConstructorExpressionContract :: ModuleContext -> TypedCoreValidationPath -> Bool -> Int -> TypedNodeInfo -> ConstructorContract -> [TypedCoreValidationFailure]
+validateConstructorExpressionContract context path requireStagedCallableRecipe directCalleeArgumentCount info (ConstructorContract owner dataKey parameters fieldTypes) =
   missingInstantiationFailures
     <> validateValueContract path info (ValueContract expectedType expectedRecipeValue)
   where
@@ -3343,7 +3349,11 @@ validateConstructorExpressionContract context path info (ConstructorContract own
           Map.fromList [(parameterId, typeValue) | TypedTypeArgument parameterId typeValue <- arguments]
         Nothing -> inferConstructorSubstitutions context dataKey parameters (length fieldTypes) (typedNodeType info)
     expectedType = substituteTypeParameters substitutions genericType
-    expectedRecipeValue = maybe (typedNodeRecipe info) id (expectedRecipe expectedType)
+    expectedRecipeValue =
+      maybe
+        (typedNodeRecipe info)
+        id
+        (expectedNativeCallableUseRecipe requireStagedCallableRecipe directCalleeArgumentCount expectedType)
 
 inferConstructorSubstitutions :: ModuleContext -> ResolvedNameKey -> [TypedTypeParameterId] -> Int -> TypedType -> Map TypedTypeParameterId TypedType
 inferConstructorSubstitutions context dataKey parameters fieldCount actualType =
@@ -4767,12 +4777,12 @@ resolvedOperatorMatchesSymbol name symbol =
         bindingName == operatorBindingIdentifierText symbol
       _ -> False
 
-validateOperatorValue :: ModuleContext -> TypedCoreValidationPath -> Int -> TypedNodeInfo -> TypedOperatorRef -> [TypedCoreValidationFailure]
-validateOperatorValue context path directCalleeArgumentCount info operator =
+validateOperatorValue :: ModuleContext -> TypedCoreValidationPath -> Bool -> Int -> TypedNodeInfo -> TypedOperatorRef -> [TypedCoreValidationFailure]
+validateOperatorValue context path requireStagedCallableRecipe directCalleeArgumentCount info operator =
   case operator of
     TypedBuiltinOperator symbol ->
       validateOperatorRef context path operator
-        <> validateBuiltinOperatorValue context path symbol (typedNodeType info)
+        <> validateBuiltinOperatorValue context path requireStagedCallableRecipe directCalleeArgumentCount symbol info
     TypedResolvedOperator {} ->
       validateOperatorRef context path operator
         <> ( case operatorValueContract context path info operator of
@@ -4900,14 +4910,25 @@ builtinOperatorHasTypedRule :: Text -> Bool
 builtinOperatorHasTypedRule symbol =
   symbol `elem` ["+", "-", "*", "/", "<", "<=", ">", ">=", "==", "!=", "$"]
 
-validateBuiltinOperatorValue :: ModuleContext -> TypedCoreValidationPath -> Text -> TypedType -> [TypedCoreValidationFailure]
-validateBuiltinOperatorValue context path symbol operatorType
+validateBuiltinOperatorValue :: ModuleContext -> TypedCoreValidationPath -> Bool -> Int -> Text -> TypedNodeInfo -> [TypedCoreValidationFailure]
+validateBuiltinOperatorValue context path requireStagedCallableRecipe directCalleeArgumentCount symbol info
   | not (builtinOperatorHasTypedRule symbol) = []
   | otherwise =
+      typeFailures <> recipeFailures
+  where
+    operatorType = typedNodeType info
+    typeFailures =
       case operatorType of
         TypedFunctionType leftType (TypedFunctionType rightType resultType) ->
           validateBuiltinOperatorApplication context path symbol leftType rightType resultType
         _ -> [failure path TypedApplicationFunctionMismatch (TypedTextDetail symbol)]
+    recipeFailures
+      | null typeFailures =
+          case expectedNativeCallableUseRecipe requireStagedCallableRecipe directCalleeArgumentCount operatorType of
+            Just expectedRecipeValue ->
+              validateValueContract path info (ValueContract operatorType expectedRecipeValue)
+            Nothing -> [failure path TypedBindingValueMismatch (TypedTextDetail symbol)]
+      | otherwise = []
 
 validateBuiltinOperatorApplication :: ModuleContext -> TypedCoreValidationPath -> Text -> TypedType -> TypedType -> TypedType -> [TypedCoreValidationFailure]
 validateBuiltinOperatorApplication context path symbol leftType rightType resultType
