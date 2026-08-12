@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" role="img">
   <title>Jazz language social preview</title>
-  <desc>Jazz branding in warm brass and deep ink with the language promise and a large saxophone J.</desc>
+  <desc>The balanced wide-brass Jazz wordmark with the language promise on a deep ink stage.</desc>
+  <defs>
+    <linearGradient id="jazz-social-brass" x1="64" y1="72" x2="396" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFE66A"/>
+      <stop offset=".48" stop-color="#FFC43D"/>
+      <stop offset="1" stop-color="#F47A32"/>
+    </linearGradient>
+  </defs>
   <rect width="1200" height="630" fill="#171824"/>
   <g fill="#2A2C3A">
     <rect x="0" y="132" width="1200" height="2"/>
@@ -9,19 +16,22 @@
     <rect x="0" y="348" width="1200" height="2"/>
     <rect x="0" y="420" width="1200" height="2"/>
   </g>
-  <g transform="translate(92 160) scale(1.35)">
-    <path d="M30 38C46 31 55 24 72 24h24c16 0 26 13 26 30v76c0 39-23 63-55 63-28 0-49-17-49-42 0-22 16-36 37-37 18-1 33 8 42 23" fill="none" stroke="#F3EDDF" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M30 38C46 31 55 24 72 24h24c16 0 26 13 26 30v76c0 39-23 63-55 63-28 0-49-17-49-42 0-22 16-36 37-37 18-1 33 8 42 23" fill="none" stroke="#D49A35" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M5 32l28-5v22L5 44c-7-1-7-11 0-12Z" fill="#F3EDDF"/>
-    <path d="m88 128 16 18 41-30c8-6 9-15 3-22l-10-10c-6-6-16-5-21 3l-29 41Z" fill="#D49A35" stroke="#F3EDDF" stroke-width="9" stroke-linejoin="round"/>
-    <path d="M135 91c9 4 14 10 16 18" fill="none" stroke="#171824" stroke-width="6" stroke-linecap="round"/>
-    <circle cx="122" cy="76" r="5" fill="#171824"/>
-    <circle cx="122" cy="101" r="5" fill="#171824"/>
-    <circle cx="121" cy="126" r="5" fill="#171824"/>
-  </g>
-  <g transform="translate(330 205) scale(1.65)">
-    <path fill="#F3EDDF" fill-rule="evenodd" d="M54 0C17 0-9 25-9 61s25 60 59 60c17 0 31-6 41-17v13h31V5H91v13C81 6 69 0 54 0Zm2 30c21 0 35 13 35 31S77 92 56 92c-20 0-34-13-34-31s14-31 34-31Z"/>
-    <path fill="#F3EDDF" d="M135 5h105v24l-66 62h69v26H131V93l66-62h-62V5Zm116 0h105v24l-66 62h69v26H247V93l66-62h-62V5Z"/>
+  <g transform="translate(108 90) scale(.82)">
+    <g transform="translate(60 84) scale(.65)">
+      <rect x="20" y="94" width="108" height="36" rx="18" fill="#F3EDDF"/>
+      <rect x="31" y="103" width="63" height="18" rx="9" fill="#FFD54C"/>
+      <path d="M106 112C153 88 187 124 222 111C258 97 274 64 323 64C368 64 393 90 393 138V302C393 375 351 417 288 417C228 417 190 382 190 327V295" fill="none" stroke="#F3EDDF" stroke-width="120" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M106 112C153 88 187 124 222 111C258 97 274 64 323 64C368 64 393 90 393 138V302C393 375 351 417 288 417C228 417 190 382 190 327V295" fill="none" stroke="url(#jazz-social-brass)" stroke-width="72" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="393" cy="178" r="14" fill="#24182C"/>
+      <circle cx="393" cy="232" r="14" fill="#24182C"/>
+      <circle cx="393" cy="286" r="14" fill="#24182C"/>
+    </g>
+    <g data-role="wordmark" transform="translate(-39 0)" fill="#F3EDDF">
+      <path d="M535 92H615V300C615 362 577 396 519 396C499 396 481 392 466 386L480 326C491 330 502 332 513 332C528 332 535 321 535 300Z"/>
+      <path d="M635 390L710 92H780L857 390H783L771 337H702L690 390ZM715 278H758L737 183Z" fill-rule="evenodd"/>
+      <path d="M865 92H1008V154L939 327H1011V390H857V329L929 157H865Z"/>
+      <path d="M1018 92H1161V154L1092 327H1164V390H1010V329L1082 157H1018Z"/>
+    </g>
   </g>
   <!-- manrope-tagline:start -->
   <g transform="translate(96 487) scale(0.015 -0.015)" fill="#F3EDDF" stroke="#F3EDDF" stroke-width="35" stroke-linejoin="round" aria-label="A statically typed functional language with practical syntax" data-font-source="@fontsource-variable/manrope@5.3.0">
@@ -87,5 +97,5 @@
     <path d="M20 0L460 546L30 1080L134 1080L510 608L884 1080L988 1080L558 546L998 0L892 0L510 484L126 0Z" transform="translate(51735.29 0)"/>
   </g>
   <!-- manrope-tagline:end -->
-  <rect x="96" y="535" width="118" height="6" fill="#D49A35"/>
+  <rect x="96" y="535" width="118" height="6" fill="#FFC43D"/>
 </svg>

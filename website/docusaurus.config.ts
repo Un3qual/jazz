@@ -53,13 +53,12 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'Jazz',
       logo: {
-        alt: '',
-        src: 'img/jazz-mark.svg',
-        srcDark: 'img/jazz-mark-dark.svg',
-        width: 32,
-        height: 40,
+        alt: 'Jazz',
+        src: 'img/jazz-wordmark.svg',
+        srcDark: 'img/jazz-wordmark-dark.svg',
+        width: 120,
+        height: 48,
       },
       items: [
         {

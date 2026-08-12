@@ -141,7 +141,7 @@
 }
 
 .brandMark {
-  height: min(76vh, 46rem);
+  height: auto;
   max-width: none;
   position: absolute;
   right: clamp(-7rem, -6vw, -2rem);
@@ -433,7 +433,6 @@
   }
 
   .brandMark {
-    height: 17rem;
     right: -2rem;
     width: 14rem;
   }

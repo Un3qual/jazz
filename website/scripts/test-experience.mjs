@@ -136,6 +136,43 @@ test('homepage styling encodes the motion, focus, target, and full-bleed contrac
   assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
 
+test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
+  const globalCss = read('website/src/css/custom.css');
+  const wrapper = globalCss.match(/\.navbar__logo\s*\{(?<declarations>[^}]*)\}/)
+    ?.groups?.declarations;
+  const image = globalCss.match(/\.navbar__logo img\s*\{(?<declarations>[^}]*)\}/)
+    ?.groups?.declarations;
+
+  assert.ok(wrapper, 'navbar logo wrapper styling is missing');
+  assert.match(wrapper, /aspect-ratio:\s*5\s*\/\s*2/);
+  assert.ok(image, 'navbar logo image sizing is missing');
+  assert.match(image, /height:\s*100%/);
+  assert.match(image, /object-fit:\s*contain/);
+  assert.match(image, /width:\s*100%/);
+});
+
+test('homepage brand mark preserves its intrinsic aspect ratio at every breakpoint', () => {
+  const pageCss = read('website/src/pages/index.module.css');
+  const brandMarkDeclarations = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, selectors]) =>
+      selectors
+        .split(',')
+        .some((selector) => selector.trim() === '.brandMark'),
+    )
+    .map(([, , declarations]) => declarations);
+
+  assert.ok(brandMarkDeclarations.length > 0, 'brandMark styling is missing');
+  assert.ok(
+    brandMarkDeclarations.some((declarations) => /\bwidth\s*:/.test(declarations)),
+    'brandMark needs a responsive width',
+  );
+  for (const declarations of brandMarkDeclarations) {
+    for (const [, height] of declarations.matchAll(/\bheight\s*:\s*([^;]+);/g)) {
+      assert.equal(height.trim(), 'auto', 'brandMark height must follow its intrinsic ratio');
+    }
+  }
+});
+
 test('documentation layout reserves width only for a rendered desktop TOC', () => {
   const layout = read('website/src/theme/DocItem/Layout/index.tsx');
   const layoutCss = read('website/src/theme/DocItem/Layout/styles.module.css');
@@ -366,6 +403,15 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   const config = read('website/docusaurus.config.ts');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
   assert.match(config, /image:\s*'img\/social-card\.png'/);
+  const navbarLogo = config.match(
+    /navbar:\s*\{[\s\S]*?logo:\s*\{(?<contract>[\s\S]*?)\n\s*\},\n\s*items:/,
+  )?.groups?.contract;
+  assert.ok(navbarLogo, 'navbar.logo contract is missing');
+  assert.match(navbarLogo, /alt:\s*'Jazz'/);
+  assert.match(navbarLogo, /src:\s*'img\/jazz-wordmark\.svg'/);
+  assert.match(navbarLogo, /srcDark:\s*'img\/jazz-wordmark-dark\.svg'/);
+  assert.match(navbarLogo, /width:\s*120/);
+  assert.match(navbarLogo, /height:\s*48/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
   assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);

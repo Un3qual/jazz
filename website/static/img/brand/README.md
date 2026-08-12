@@ -1,36 +1,46 @@
 # Jazz visual identity
 
-The Jazz identity is a precise editorial score in deep ink and warm brass. Its
-primary symbol is an original saxophone silhouette shaped as the letter `J`.
-The restrained geometry remains legible from the favicon through the oversized
-homepage motif.
+The Jazz identity pairs deep ink with a yellow-to-orange brass gradient. Its
+primary symbol is a wide saxophone tube shaped as the letter `J`, with a bold
+edge and three deliberate key details. The same centerline and stroke ratio
+carry from the favicon through the oversized homepage motif.
 
 ## Asset roles
 
-- `jazz-mark.svg` and `jazz-mark-dark.svg` are the standalone light- and
-  dark-surface marks.
-- `jazz-wordmark.svg` and `jazz-wordmark-dark.svg` pair the mark with original
-  geometric `azz` lettering. The wordmark contains no converted font outlines.
-- `favicon.svg` is a deliberately simplified mark on a deep-ink field.
+- `website/static/img/jazz-mark.svg` and
+  `website/static/img/jazz-mark-dark.svg` are the standalone light- and
+  dark-surface versions of the balanced wide-bold mark.
+- `website/static/img/jazz-wordmark.svg` and
+  `website/static/img/jazz-wordmark-dark.svg` pair that mark with the approved
+  custom `JAZZ` lettering at matching optical height and weight. The wordmark
+  contains no converted font outlines.
+- `website/static/img/favicon.svg` fits the same Bellhook geometry to a
+  deep-ink field.
 - `editors/vscode-jazz/icon.png` is the deterministic 128×128 editor raster
-  generated from the canonical light-surface `jazz-mark.svg`.
-- `social-card.svg` is the editable 1200×630 source; `social-card.png` is its
-  deterministic rendered counterpart.
+  generated from the canonical light-surface
+  `website/static/img/jazz-mark.svg`.
+- `website/static/img/social-card.svg` is the editable 1200×630 source;
+  `website/static/img/social-card.png` is its deterministic rendered
+  counterpart.
 
 Use the light variant on paper or pale surfaces and the dark variant on deep
-ink. Do not recolor the mark, apply filters, or add gradients, shadows, gloss,
-or key details. Decorative instances in React must use empty alternative text;
-standalone informative images should keep the descriptions embedded here.
+ink. Keep the centerline, 120:72 edge-to-tube stroke ratio, gradient stops, and
+wordmark geometry unchanged. Do not apply filters, shadows, or gloss.
+Decorative instances in React must use empty alternative text; standalone
+informative images should keep the descriptions embedded here.
 
 ## Palette
 
-- Deep ink: `#171824`
-- Warm brass: `#D49A35`
+- Logo ink: `#24182C`
+- Stage ink: `#171824`
+- Brass highlight: `#FFE66A`
+- Brass midtone: `#FFC43D`
+- Brass finish: `#F47A32`
 - Warm paper: `#F3EDDF`
 - Score line: `#2A2C3A`
 
-Warm brass is the single accent. Paper and score-line colors are neutral
-contrast surfaces, not additional accents.
+The three brass colors form one continuous tube treatment. Paper and score-line
+colors are neutral contrast surfaces, not additional accents.
 
 ## Typography provenance
 
@@ -43,9 +53,9 @@ the complete license is installed at
 
 The renderer verifies the font asset SHA-256, uses pinned `fontkit@2.0.4` to
 lay out the tagline, and replaces the paths between the
-`manrope-tagline` markers in `social-card.svg`. Sharp receives only that
-path-based SVG, so host fonts and host font configuration cannot affect the
-PNG. The expected font SHA-256 is
+`manrope-tagline` markers in `website/static/img/social-card.svg`. Sharp
+receives only that path-based SVG, so host fonts and host font configuration
+cannot affect the PNG. The expected font SHA-256 is
 `a30ddcd349703aff7464c34bef3fffdff405ee50c113440d7c8693c02d210972`.
 
 ## Regenerating the social card
@@ -57,8 +67,9 @@ pnpm --dir website install --frozen-lockfile
 pnpm --dir website run render:brand
 ```
 
-The renderer synchronizes the licensed Manrope outlines in `social-card.svg`,
-writes `social-card.png` and the editor icon through Sharp, and fails unless
-their dimensions and formats match their contracts. `pnpm --dir website run
-test:brand` validates the outline source, transparent asset padding, favicon
-legibility, and the editor icon's exact provenance.
+The renderer synchronizes the licensed Manrope outlines in
+`website/static/img/social-card.svg`, writes
+`website/static/img/social-card.png` and the editor icon through Sharp, and
+fails unless their dimensions and formats match their contracts. `pnpm --dir
+website run test:brand` validates the outline source, transparent asset
+padding, favicon legibility, and the editor icon's exact provenance.
