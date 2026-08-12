@@ -1,12 +1,12 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001
-status: ready
+status: complete
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Full plan"
+plan_section: "Full closeout"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Scope.hs
   - src/Jazz/Compiler/TypeInference/Elaboration.hs
@@ -92,12 +92,12 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   while scalar binding is active.
 
 - [x] **Step 1: Correct RFC 0009 ownership and the blocker handoff.** Add
-  `TypeInference/Scope.hs` to the scalar-binding required paths and make the
-  blocker text point at execution of the validated ready child.
+      `TypeInference/Scope.hs` to the scalar-binding required paths and make the
+      blocker text point at execution of the validated ready child.
 
 - [x] **Step 2: Promote the queue row.** Use priority `P1`, size `M`, kind
-  `impl`, `autonomous_ready: yes`, the five exact implementation/test paths in
-  this plan frontmatter, and the four exact verification commands above.
+      `impl`, `autonomous_ready: yes`, the five exact implementation/test paths in
+      this plan frontmatter, and the four exact verification commands above.
 
 - [x] **Step 3: Validate plan metadata and queue consistency.** Run:
 
@@ -127,7 +127,7 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
 **Interfaces:**
 
 - Add `ProvisionalScalarBinding Int Name SourceSpan ExpressionType
-  ProvisionalTypedExpr` to `ProvisionalTypedStatement`.
+ProvisionalTypedExpr` to `ProvisionalTypedStatement`.
 - Emit it for a non-callable root `SLet` only when inference retained a
   provisional expression and reported no profile failures.
 - Replace independent statement mapping during finalization with an ordered
@@ -139,7 +139,7 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   existing capture failures remain unchanged.
 
 - [x] **Step 1: Add exact producer fixtures before implementation.** Add source
-  fixtures and hand-derived `TypedProgram` expectations for:
+      fixtures and hand-derived `TypedProgram` expectations for:
 
   ```jazz
   seed = 40.
@@ -165,9 +165,9 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   on every scalar variable node, and retain exact source order.
 
 - [x] **Step 2: Keep negative boundaries explicit.** Preserve the current
-  capture rejection for a function body that reads a prior scalar and add a
-  root managed-binding fixture whose `Text` initializer and later use remain
-  rejected without producing a partial typed program.
+      capture rejection for a function body that reads a prior scalar and add a
+      root managed-binding fixture whose `Text` initializer and later use remain
+      rejected without producing a partial typed program.
 
 - [x] **Step 3: Run the producer suite and verify RED.** Run:
 
@@ -180,19 +180,19 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   prior result.
 
 - [x] **Step 4: Emit provisional scalar bindings.** In `Scope.hs`, select the
-  new constructor only for a non-function `SLet` with a concrete retained
-  expression and no production failures. Preserve the existing unsupported
-  constructors for managed, structured, unresolved, callable-alias, and other
-  rejected values.
+      new constructor only for a non-function `SLet` with a concrete retained
+      expression and no production failures. Preserve the existing unsupported
+      constructors for managed, structured, unresolved, callable-alias, and other
+      rejected values.
 
 - [x] **Step 5: Finalize statements in source order.** In `Elaboration.hs`,
-  finalize scalar schemes and initializer expressions, add successful scalar
-  binders to the ordered root-local map, and resolve later variable nodes to
-  those binders. Do not make the map visible inside function binding bodies.
+      finalize scalar schemes and initializer expressions, add successful scalar
+      binders to the ordered root-local map, and resolve later variable nodes to
+      those binders. Do not make the map visible inside function binding bodies.
 
 - [x] **Step 6: Run the focused suite twice and verify GREEN.** Run the Step 3
-  command twice. Expected: both repetitions pass with identical ordered typed
-  programs and exact rejection lists.
+      command twice. Expected: both repetitions pass with identical ordered typed
+      programs and exact rejection lists.
 
 - [x] **Step 7: Commit the producer milestone.**
 
@@ -225,32 +225,32 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
   introduced accidentally.
 
 - [x] **Step 1: Promote scalar lowerer boundaries to exact success fixtures.**
-  Replace the current `invalid-function-shape` scalar program with exact
-  expected lowered programs for a literal binding, derived ordered reuse, and
-  a direct-call result binding. Assert instruction order and final return
-  operands literally.
+      Replace the current `invalid-function-shape` scalar program with exact
+      expected lowered programs for a literal binding, derived ordered reuse, and
+      a direct-call result binding. Assert instruction order and final return
+      operands literally.
 
 - [x] **Step 2: Retain exact lowerer failures.** Keep a scalar initializer with
-  unsupported control flow and a managed scalar binding as rejected cases;
-  update only the failure kinds displaced by recognizing concrete scalar lets.
+      unsupported control flow and a managed scalar binding as rejected cases;
+      update only the failure kinds displaced by recognizing concrete scalar lets.
 
 - [x] **Step 3: Run the focused suite and verify RED.** Run the Task 2 Step 3
-  command. Expected: scalar valid programs still report
-  `LoweredIRInvalidFunctionShape` and do not match the expected entry blocks.
+      command. Expected: scalar valid programs still report
+      `LoweredIRInvalidFunctionShape` and do not match the expected entry blocks.
 
 - [x] **Step 4: Separate scalar locals from function shapes.** Change
-  `collectFunctionShapes` so concrete non-callable `TypedLetStatement` values
-  remain visible to profile validation without entering the function index or
-  generated-identity checks.
+      `collectFunctionShapes` so concrete non-callable `TypedLetStatement` values
+      remain visible to profile validation without entering the function index or
+      generated-identity checks.
 
 - [x] **Step 5: Thread binder-indexed entry locals.** Lower each scalar
-  initializer once, update the local map only after a successful operand is
-  produced, and reuse the exact operand for later variables, binary operations,
-  direct-call arguments, and the terminal result.
+      initializer once, update the local map only after a successful operand is
+      produced, and reuse the exact operand for later variables, binary operations,
+      direct-call arguments, and the terminal result.
 
 - [x] **Step 6: Run the focused suite twice and verify GREEN.** Run the Task 2
-  Step 3 command twice. Expected: both repetitions pass with stable instruction
-  ordering and all prior direct/closure fixtures unchanged.
+      Step 3 command twice. Expected: both repetitions pass with stable instruction
+      ordering and all prior direct/closure fixtures unchanged.
 
 - [x] **Step 7: Commit the lowerer milestone.**
 
@@ -278,21 +278,21 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
 - State publicly that the opt-in profile supports concrete ordered scalar
   bindings while lexical capture and all later RFC 0009 children remain absent.
 
-- [ ] **Step 1: Run focused compiler verification.** Run the Task 2 Step 3
-  command twice after the final source edit.
+- [x] **Step 1: Run focused compiler verification.** Run the Task 2 Step 3
+      command twice after the final source edit.
 
-- [ ] **Step 2: Update public compiler-boundary pages.** Add concrete scalar
-  bindings and ordered entry reuse to the supported opt-in profile; retain the
-  normal compile/run disclaimer and the exclusions for anonymous/nested
-  closures, lexical capture, currying, partial application, oversaturation,
-  and recursion.
+- [x] **Step 2: Update public compiler-boundary pages.** Add concrete scalar
+      bindings and ordered entry reuse to the supported opt-in profile; retain the
+      normal compile/run disclaimer and the exclusions for anonymous/nested
+      closures, lexical capture, currying, partial application, oversaturation,
+      and recursion.
 
-- [ ] **Step 3: Synchronize plan, queue, and blocker state.** Check every task
-  box, set frontmatter `status: complete` and `autonomous_ready: no`, use plan
-  section `Full closeout`, remove the ready row, and add lexical capture as the
-  sole next curation candidate using RFC 0009's exact target paths and G3 gate.
+- [x] **Step 3: Synchronize plan, queue, and blocker state.** Check every task
+      box, set frontmatter `status: complete` and `autonomous_ready: no`, use plan
+      section `Full closeout`, remove the ready row, and add lexical capture as the
+      sole next curation candidate using RFC 0009's exact target paths and G3 gate.
 
-- [ ] **Step 4: Run closeout gates.** Run:
+- [x] **Step 4: Run closeout gates.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -302,11 +302,11 @@ stores its binder-indexed operand in entry-local lowering state for later reuse.
 
   Expected: every command exits zero.
 
-- [ ] **Step 5: Perform the anti-slop review.** Enumerate every new constructor,
-  helper, state field, branch, and fallback in the diff. Remove anything that
-  lacks a concrete scalar-production or binder-indexed-lowering responsibility.
+- [x] **Step 5: Perform the anti-slop review.** Enumerate every new constructor,
+      helper, state field, branch, and fallback in the diff. Remove anything that
+      lacks a concrete scalar-production or binder-indexed-lowering responsibility.
 
-- [ ] **Step 6: Commit closeout.**
+- [x] **Step 6: Commit closeout.**
 
   ```bash
   git add .codex/plans/2026-08-12-jazz-typed-core-scalar-binding.md .codex/execution/queue.md .codex/execution/blocker-contracts.md docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md

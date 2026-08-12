@@ -28,8 +28,9 @@ stage-0 values or structured failures, not merely success counts.
 still uses Haskell-owned parsing and semantic phases. Typed core and lowered IR
 currently cover a bounded opt-in profile. That profile supports closed named
 functions as values, unary closure parameters and results, explicit empty
-environments, and unary higher-order closure calls. It does not yet support
-scalar bindings, anonymous or nested closures, lexical capture, currying or
+environments, unary higher-order closure calls, and concrete scalar bindings
+evaluated once in source order and reused by later entry expressions. It does
+not yet support anonymous or nested closures, lexical capture, currying or
 partial application, oversaturation, or recursion, and it does not replace the
 canonical-core and reference-interpreter compile/run path.
 
