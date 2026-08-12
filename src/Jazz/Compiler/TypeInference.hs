@@ -11,7 +11,10 @@ module Jazz.Compiler.TypeInference
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionFailureDetail (..),
-    TypedCoreProductionResult (..),
+    TypedCoreProductionResult,
+    typedCoreProductionInferenceResult,
+    typedCoreProductionStatus,
+    typedCoreProductionValidatedProgram,
     inferResolvedModuleTypedCoreExpressionDirectCall,
     inferExpressionWithBuiltinsAndHiddenStatements,
     inferExpressionWithBuiltinsAndSourceUnitStatements,
@@ -101,12 +104,17 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
+    TypedCoreProductionOutcome,
     TypedCoreProductionPath (..),
     TypedCoreProductionStatus (..),
     blockProductionFailureKindAndDetail,
+    blockedTypedCoreProductionOutcome,
     finalizeValidatedTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
     specializeInferredExpression,
+    typedCoreProductionOutcomeStatus,
+    typedCoreProductionOutcomeValidatedProgram,
+    unsupportedTypedCoreProductionOutcome,
   )
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
@@ -189,14 +197,20 @@ data InferenceInputs = InferenceInputs
     inferenceCurrentModulePath :: Maybe [Text]
   }
 
-data TypedCoreProductionResult = TypedCoreProductionResult
-  { typedCoreProductionInferenceResult :: InferenceResult,
-    typedCoreProductionStatus :: TypedCoreProductionStatus,
-    -- | Opaque proof retained only for trusted producer-to-lowerer transport.
-    -- The status above remains the stable, raw Typed Program artifact.
-    typedCoreProductionValidatedProgram :: Maybe ValidatedTypedProgram
-  }
+-- | The constructor is private so callers can observe, but cannot rewrite, the
+-- inference result and its proof-carrying production outcome independently.
+data TypedCoreProductionResult = TypedCoreProductionResult InferenceResult TypedCoreProductionOutcome
   deriving (Eq, Show)
+
+typedCoreProductionInferenceResult :: TypedCoreProductionResult -> InferenceResult
+typedCoreProductionInferenceResult (TypedCoreProductionResult inferenceResult _) = inferenceResult
+
+typedCoreProductionStatus :: TypedCoreProductionResult -> TypedCoreProductionStatus
+typedCoreProductionStatus (TypedCoreProductionResult _ outcome) = typedCoreProductionOutcomeStatus outcome
+
+typedCoreProductionValidatedProgram :: TypedCoreProductionResult -> Maybe ValidatedTypedProgram
+typedCoreProductionValidatedProgram (TypedCoreProductionResult _ outcome) =
+  typedCoreProductionOutcomeValidatedProgram outcome
 
 -- This currently forwards analyzer diagnostics while the richer inference/type
 -- pipeline is still being built in jazz.
@@ -403,25 +417,18 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
         forwardBindings
         finalizedInference
     let outcome = productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
-    pure
-      TypedCoreProductionResult
-        { typedCoreProductionInferenceResult = inferenceResult,
-          typedCoreProductionStatus = fst outcome,
-          typedCoreProductionValidatedProgram = snd outcome
-        }
+    pure (TypedCoreProductionResult inferenceResult outcome)
 
-productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> (TypedCoreProductionStatus, Maybe ValidatedTypedProgram)
+productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionOutcome
 productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
-  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = (TypedCoreProductionBlockedByDiagnostics, Nothing)
-  | not (null profileFailures) = (TypedCoreProductionUnsupported profileFailures, Nothing)
+  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = blockedTypedCoreProductionOutcome
+  | not (null profileFailures) = unsupportedTypedCoreProductionOutcome profileFailures
   | otherwise =
       case inferredProvisionalExpr inferredResult of
         Just provisionalExpr -> finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
         Nothing ->
-          ( TypedCoreProductionUnsupported
-              [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail],
-            Nothing
-          )
+          unsupportedTypedCoreProductionOutcome
+            [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
   where
     profileFailures = inputFailures <> moduleFailures
     inputFailures =
