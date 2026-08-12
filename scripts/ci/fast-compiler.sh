@@ -51,7 +51,8 @@ cabal test "${test_components[@]}" \
   --jobs="$JAZZ_CABAL_JOBS"
 cabal check
 python3 scripts/release/test-verify-artifacts.py
-bash scripts/check-examples.sh
+jazz_bin="$(cabal list-bin jazz)"
+bash scripts/check-examples.sh --jazz-bin "$jazz_bin"
 if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
   git diff --check "$JAZZ_DIFF_BASE...HEAD"
 else

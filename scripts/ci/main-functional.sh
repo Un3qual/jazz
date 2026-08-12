@@ -44,6 +44,9 @@ run_compiler_phase() {
   cabal build all --jobs="$JAZZ_CABAL_JOBS"
   cabal test all --test-show-details=direct --jobs="$JAZZ_CABAL_JOBS"
   cabal check
+  local jazz_bin
+  jazz_bin="$(cabal list-bin jazz)"
+  bash scripts/check-examples.sh --jazz-bin "$jazz_bin"
 }
 
 run_repository_preflight() {
@@ -55,7 +58,7 @@ run_repository_checks() {
   python3 scripts/release/test-verify-artifacts.py
   bash scripts/check-docs.sh
   bash scripts/check-execution-queue.sh
-  bash scripts/check-examples.sh
+  python3 scripts/test-check-examples.py
   if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
     git diff --check "$JAZZ_DIFF_BASE...HEAD"
   else
@@ -82,6 +85,7 @@ case "$JAZZ_MAIN_PHASE" in
   repository)
     run_repository_preflight
     run_repository_checks
+    printf 'NOTE: repository verification omits executable Jazz example checks; use the compiler, low-memory, or all phase for those checks.\n' >&2
     ;;
   nix)
     run_nix_phase

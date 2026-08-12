@@ -94,7 +94,8 @@ VALID_FAST = script(
     cabal test "${{test_components[@]}}" --test-show-details=direct --jobs="$JAZZ_CABAL_JOBS"
     cabal check
     python3 scripts/release/test-verify-artifacts.py
-    bash scripts/check-examples.sh
+    jazz_bin="$(cabal list-bin jazz)"
+    bash scripts/check-examples.sh --jazz-bin "$jazz_bin"
     if [[ -n "${{JAZZ_DIFF_BASE:-}}" ]]; then
       git diff --check "$JAZZ_DIFF_BASE...HEAD"
     else
@@ -126,9 +127,12 @@ VALID_MAIN = script(
     python3 scripts/release/test-verify-artifacts.py
     bash scripts/check-docs.sh
     bash scripts/check-execution-queue.sh
-    bash scripts/check-examples.sh
+    python3 scripts/test-check-examples.py
+    jazz_bin="$(cabal list-bin jazz)"
+    bash scripts/check-examples.sh --jazz-bin "$jazz_bin"
     nix flake check --max-jobs "$JAZZ_NIX_JOBS" --cores "$JAZZ_NIX_CORES"
     printf 'NOTE: low-memory verification omits the Nix flake check\\n' >&2
+    printf 'NOTE: repository verification omits executable Jazz example checks\\n' >&2
     if [[ -n "${JAZZ_DIFF_BASE:-}" ]]; then
       git diff --check "$JAZZ_DIFF_BASE...HEAD"
     else
@@ -627,8 +631,12 @@ class MainFunctionalScriptTests(unittest.TestCase):
         self.bin_root = self.root / "bin"
         self.bin_root.mkdir()
         self.command_log = self.root / "commands.log"
-        for command in ("actionlint", "bash", "cabal", "nix", "python3"):
+        self.jazz_bin = self.root / "jazz"
+        self.jazz_bin.write_text("", encoding="utf-8")
+        for command in ("actionlint", "nix", "python3"):
             self.write_stub(command)
+        self.write_bash_stub()
+        self.write_cabal_stub()
         self.write_git_stub()
 
     def tearDown(self) -> None:
@@ -639,6 +647,32 @@ class MainFunctionalScriptTests(unittest.TestCase):
         path.write_text(
             "#!/bin/bash\n"
             f"printf '{command} %s\\n' \"$*\" >>\"$JAZZ_TEST_COMMAND_LOG\"\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+
+    def write_bash_stub(self) -> None:
+        path = self.bin_root / "bash"
+        path.write_text(
+            "#!/bin/bash\n"
+            "printf 'bash %s\\n' \"$*\" >>\"$JAZZ_TEST_COMMAND_LOG\"\n"
+            "if [[ \"${JAZZ_TEST_EXECUTE_EXAMPLES:-}\" == 1 "
+            "&& \"${1:-}\" == scripts/check-examples.sh ]]; then\n"
+            "  shift\n"
+            "  /bin/bash \"$JAZZ_TEST_CHECK_EXAMPLES\" \"$@\"\n"
+            "fi\n",
+            encoding="utf-8",
+        )
+        path.chmod(0o755)
+
+    def write_cabal_stub(self) -> None:
+        path = self.bin_root / "cabal"
+        path.write_text(
+            "#!/bin/bash\n"
+            "printf 'cabal %s\\n' \"$*\" >>\"$JAZZ_TEST_COMMAND_LOG\"\n"
+            "if [[ \"$*\" == 'list-bin jazz' ]]; then\n"
+            "  printf '%s\\n' \"$JAZZ_TEST_JAZZ_BIN\"\n"
+            "fi\n",
             encoding="utf-8",
         )
         path.chmod(0o755)
@@ -660,6 +694,8 @@ class MainFunctionalScriptTests(unittest.TestCase):
         environment = {
             "PATH": f"{self.bin_root}:/usr/bin:/bin",
             "JAZZ_TEST_COMMAND_LOG": str(self.command_log),
+            "JAZZ_TEST_CHECK_EXAMPLES": str(CHECK_EXAMPLES_SCRIPT),
+            "JAZZ_TEST_JAZZ_BIN": str(self.jazz_bin),
             "JAZZ_TEST_ROOT": str(self.root),
             **overrides,
         }
@@ -687,11 +723,13 @@ class MainFunctionalScriptTests(unittest.TestCase):
                 "cabal build all --jobs=1",
                 "cabal test all --test-show-details=direct --jobs=1",
                 "cabal check",
+                "cabal list-bin jazz",
+                f"bash scripts/check-examples.sh --jazz-bin {self.jazz_bin}",
                 "python3 scripts/test-check-ci-policy.py",
                 "python3 scripts/release/test-verify-artifacts.py",
                 "bash scripts/check-docs.sh",
                 "bash scripts/check-execution-queue.sh",
-                "bash scripts/check-examples.sh",
+                "python3 scripts/test-check-examples.py",
                 "git diff --check",
                 "nix flake check --max-jobs 1 --cores 1",
             ],
@@ -725,11 +763,13 @@ class MainFunctionalScriptTests(unittest.TestCase):
                 "cabal build all --jobs=1",
                 "cabal test all --test-show-details=direct --jobs=1",
                 "cabal check",
+                "cabal list-bin jazz",
+                f"bash scripts/check-examples.sh --jazz-bin {self.jazz_bin}",
                 "python3 scripts/test-check-ci-policy.py",
                 "python3 scripts/release/test-verify-artifacts.py",
                 "bash scripts/check-docs.sh",
                 "bash scripts/check-execution-queue.sh",
-                "bash scripts/check-examples.sh",
+                "python3 scripts/test-check-examples.py",
                 "git diff --check",
             ],
         )
@@ -745,7 +785,36 @@ class MainFunctionalScriptTests(unittest.TestCase):
                 "cabal build all --jobs=1",
                 "cabal test all --test-show-details=direct --jobs=1",
                 "cabal check",
+                "cabal list-bin jazz",
+                f"bash scripts/check-examples.sh --jazz-bin {self.jazz_bin}",
             ],
+        )
+
+    def test_compiler_phase_executes_examples_with_the_prebuilt_binary(self) -> None:
+        result = self.run_main(
+            JAZZ_MAIN_PHASE="compiler",
+            JAZZ_TEST_EXECUTE_EXAMPLES="1",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        commands = self.logged_commands()
+        self.assertEqual(
+            [command for command in commands if command.startswith("cabal ")],
+            [
+                "cabal build all --jobs=1",
+                "cabal test all --test-show-details=direct --jobs=1",
+                "cabal check",
+                "cabal list-bin jazz",
+            ],
+        )
+        self.assertIn(
+            f"bash scripts/check-examples.sh --jazz-bin {self.jazz_bin}",
+            commands,
+        )
+        self.assertIn(
+            f"python3 {REPOSITORY_ROOT}/scripts/check-examples.py "
+            f"{REPOSITORY_ROOT} --jazz-bin {self.jazz_bin}",
+            commands,
         )
 
     def test_repository_phase_runs_only_repository_commands(self) -> None:
@@ -760,9 +829,13 @@ class MainFunctionalScriptTests(unittest.TestCase):
                 "python3 scripts/release/test-verify-artifacts.py",
                 "bash scripts/check-docs.sh",
                 "bash scripts/check-execution-queue.sh",
-                "bash scripts/check-examples.sh",
+                "python3 scripts/test-check-examples.py",
                 "git diff --check",
             ],
+        )
+        self.assertIn(
+            "repository verification omits executable Jazz example checks",
+            result.stderr,
         )
 
     def test_nix_phase_runs_only_one_bounded_flake_check(self) -> None:
@@ -1046,6 +1119,43 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(expected=expected):
                 self.write("scripts/ci/fast-compiler.sh", contents)
                 self.assert_violation(expected)
+
+    def test_compiler_tiers_reuse_the_prebuilt_jazz_executable(self) -> None:
+        fixtures = (
+            (
+                "scripts/ci/fast-compiler.sh",
+                VALID_FAST.replace('jazz_bin="$(cabal list-bin jazz)"\n', ""),
+                "fast compiler tier must resolve the prebuilt Jazz executable",
+            ),
+            (
+                "scripts/ci/fast-compiler.sh",
+                VALID_FAST.replace(' --jazz-bin "$jazz_bin"', ""),
+                "fast compiler tier is missing required token: "
+                "scripts/check-examples.sh --jazz-bin",
+            ),
+            (
+                "scripts/ci/main-functional.sh",
+                VALID_MAIN.replace('jazz_bin="$(cabal list-bin jazz)"\n', ""),
+                "main functional tier must resolve the prebuilt Jazz executable",
+            ),
+            (
+                "scripts/ci/main-functional.sh",
+                VALID_MAIN.replace(' --jazz-bin "$jazz_bin"', ""),
+                "main functional tier is missing required token: "
+                "scripts/check-examples.sh --jazz-bin",
+            ),
+            (
+                "scripts/ci/main-functional.sh",
+                VALID_MAIN.replace(
+                    "printf 'NOTE: repository verification omits executable Jazz "
+                    "example checks\\n' >&2\n",
+                    "",
+                ),
+                "main functional tier must disclose the repository phase "
+                "example-check omission",
+            ),
+        )
+        self.assert_fixture_violations(fixtures)
 
     def test_each_verification_tier_requires_bounded_cabal_jobs(self) -> None:
         fixtures = (
@@ -1427,6 +1537,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             "cabal test all",
             "scripts/check-docs.sh",
             "scripts/check-execution-queue.sh",
+            "scripts/test-check-examples.py",
             "scripts/check-examples.sh",
             "nix flake check",
         ):

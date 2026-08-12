@@ -949,9 +949,13 @@ def check_fast(contents: str, violations: list[str]) -> None:
         violations,
         tier,
         contents,
-        "scripts/check-examples.sh",
-        r"bash\s+scripts/check-examples\.sh",
+        "scripts/check-examples.sh --jazz-bin",
+        r'bash\s+scripts/check-examples\.sh\s+--jazz-bin\s+"\$jazz_bin"',
     )
+    if 'jazz_bin="$(cabal list-bin jazz)"' not in contents:
+        violations.append(
+            "fast compiler tier must resolve the prebuilt Jazz executable"
+        )
     require_command(violations, tier, contents, "git diff --check", r"git\s+diff\s+--check")
     if 'git diff --check "$JAZZ_DIFF_BASE...HEAD"' not in contents:
         violations.append(
@@ -989,7 +993,14 @@ def check_main(contents: str, violations: list[str]) -> None:
             "scripts/check-execution-queue.sh",
             r"bash\s+scripts/check-execution-queue\.sh",
         ),
-        ("scripts/check-examples.sh", r"bash\s+scripts/check-examples\.sh"),
+        (
+            "scripts/test-check-examples.py",
+            r"python3\s+scripts/test-check-examples\.py",
+        ),
+        (
+            "scripts/check-examples.sh --jazz-bin",
+            r'bash\s+scripts/check-examples\.sh\s+--jazz-bin\s+"\$jazz_bin"',
+        ),
         ("nix flake check", r"nix\s+flake\s+check"),
         ("git diff --check", r"git\s+diff\s+--check"),
     )
@@ -1004,6 +1015,14 @@ def check_main(contents: str, violations: list[str]) -> None:
     if 'git diff --check "$JAZZ_DIFF_BASE...HEAD"' not in contents:
         violations.append(
             "main functional tier must check the committed diff when JAZZ_DIFF_BASE is set"
+        )
+    if 'jazz_bin="$(cabal list-bin jazz)"' not in contents:
+        violations.append(
+            "main functional tier must resolve the prebuilt Jazz executable"
+        )
+    if "repository verification omits executable Jazz example checks" not in contents:
+        violations.append(
+            "main functional tier must disclose the repository phase example-check omission"
         )
     require_command(
         violations,
