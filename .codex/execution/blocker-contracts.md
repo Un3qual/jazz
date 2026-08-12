@@ -159,18 +159,26 @@ Each blocked item should answer these questions:
   `2026-08-12`. The opt-in producer now emits concrete scalar signatures and
   bindings in source order, later expressions carry exact scalar binder
   references, and entry lowering evaluates each initializer once and reuses
-  its binder-indexed operand. Managed values and function-body capture remain
-  rejected. Normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: execute RFC 0009's validated lexical-capture ready row.
-- Decision needed: none for the semantic boundary. RFC 0009 fixes lexical
-  capture as the third ordered child after scalar binding.
-- Recommended default: execute only the lexical-capture child with the exact RFC
-  ownership matrix and G3 gate. Keep normal compile/run on canonical core and
-  the reference interpreter.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-LEXICAL-CAPTURE-001`.
-- Target paths: `src/Jazz/Compiler/RecursiveBindings.hs`;
-  `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`;
-  `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
+  its binder-indexed operand. At that milestone, managed values and
+  function-body capture remained rejected. Normal compile/run remains
+  canonical-core/interpreter based.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-LEXICAL-CAPTURE-001` completed on
+  `2026-08-12`. The opt-in producer now resolves inline and nested lambda
+  binders exactly; lowering emits deterministic lifted functions, immutable
+  first-occurrence capture environments, and entry projections for scalar and
+  closure-valued captures. Unsupported managed capture still fails closed.
+  Normal compile/run remains canonical-core/interpreter based.
+- Smallest unblocker: curate RFC 0009's curried-application child into a
+  focused, validated implementation plan.
+- Decision needed: none for the semantic boundary. RFC 0009 fixes curried
+  application as the fourth ordered child after lexical capture.
+- Recommended default: curate only the curried-application child with the exact
+  RFC ownership matrix and G1 gate; do not execute it until its plan is ready.
+  Keep normal compile/run on canonical core and the reference interpreter.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CURRIED-APPLICATION-001`.
+- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
+  `src/Jazz/Compiler/TypedCore/Validate.hs`;
+  `jazz/compiler/TypedCoreValidate.jz`;
   `src/Jazz/Compiler/LoweredIR/Lower.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`;
@@ -178,15 +186,14 @@ Each blocked item should answer these questions:
   `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`;
   `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`;
   `test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`.
-- Verification: `cabal test recursive-bindings-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
+- Verification: `cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
-- Not in scope: re-promoting the completed closure-call foundation; inline or
-  nested lambda or capture behavior outside RFC 0009's lexical-capture fixture
-  boundary; currying; partial application; oversaturation; recursive groups;
-  control flow; patterns; multi-module or import integration; non-closure
-  managed values; runtime services; tail calls; LLVM emission; object
-  generation; linking; native-runtime or ABI implementation; a public compiler
-  embedding API; bytecode or a VM; or revival of removed legacy
+- Not in scope: re-promoting the completed closure-call, scalar-binding, or
+  lexical-capture children; implementing currying during curation; recursive
+  groups; control flow; patterns; multi-module or import integration;
+  non-closure managed values; runtime services; tail calls; LLVM emission;
+  object generation; linking; native-runtime or ABI implementation; a public
+  compiler embedding API; bytecode or a VM; or revival of removed legacy
   implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001

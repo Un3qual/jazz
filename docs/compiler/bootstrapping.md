@@ -28,13 +28,15 @@ stage-0 values or structured failures, not merely success counts.
 still uses Haskell-owned parsing and semantic phases. Typed core and lowered IR
 currently cover a bounded opt-in profile. That profile supports closed named
 functions as values, unary closure parameters and results, explicit empty
-environments, unary higher-order closure calls, and concrete scalar bindings
-evaluated once in source order and reused by later entry expressions in entry
-modules with explicitly empty export lists. Scalar value interfaces are not
-produced yet. The profile does not yet support anonymous or nested closures,
-lexical capture, currying or partial application, oversaturation, or recursion,
-and it does not replace the canonical-core and reference-interpreter
-compile/run path.
+environments, unary higher-order closure calls, anonymous and nested unary
+closures, and binder-resolved scalar or closure-valued lexical capture.
+Capture environments are immutable, ordered by first binder occurrence, and
+use deterministic lifted function and layout identities. Concrete scalar
+bindings are evaluated once in source order and reused by later entry
+expressions in entry modules with explicitly empty export lists. Scalar value
+interfaces are not produced yet. The profile does not yet support currying or
+partial application, oversaturation, or recursion, and it does not replace the
+canonical-core and reference-interpreter compile/run path.
 
 Promotion requires the remaining typed-core and closure boundaries, a complete
 Jazz-authored semantic compiler, full module integration, a native backend and

@@ -1,12 +1,12 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-LEXICAL-CAPTURE-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Full plan"
+plan_section: "Full closeout"
 target_paths:
   - src/Jazz/Compiler/RecursiveBindings.hs
   - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
@@ -148,14 +148,14 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
 - Typed core carries only existing lambda nodes and binder references; capture
   lists remain a lowerer-derived property, not a new schema or sidecar map.
 
-- [ ] **Step 1: Add ordered capture-hint tests before implementation.** Extend
+- [x] **Step 1: Add ordered capture-hint tests before implementation.** Extend
       `testLambdaCapturePlans` with literal expected name lists proving
       left-to-right order, repeated-reference deduplication, nested-lambda
       isolation, parameter shadowing, and block-local rebinding. The production
       mutation these tests catch is any set/map-derived or scope-insensitive
       capture order.
 
-- [ ] **Step 2: Add exact producer fixtures before implementation.** Move
+- [x] **Step 2: Add exact producer fixtures before implementation.** Move
       `capturing-function` and `anonymous-lambda-result` into the accepted
       manifest and add hand-derived typed programs for:
 
@@ -211,13 +211,13 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
   recipes; shadowing binds the lambda parameter, while the second closure's
   environment order is `[right, left]`.
 
-- [ ] **Step 3: Preserve the rejected boundary.** Add exact repeated producer
+- [x] **Step 3: Preserve the rejected boundary.** Add exact repeated producer
       failures for an unsupported managed capture, a capture combined with a
       later unsupported sibling, partial application, oversaturation, and
       recursive capture. Failures remain ordered by statement and expression
       path with no partial typed artifact.
 
-- [ ] **Step 4: Run the producer and recursion suites and verify RED.** Run:
+- [x] **Step 4: Run the producer and recursion suites and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test recursive-bindings-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -227,23 +227,23 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
   projection, and the new accepted fixtures fail with the current
   `TypedCoreCaptureUnsupported` or `TypedCoreCallableValueUnsupported` results.
 
-- [ ] **Step 5: Implement stable capture-hint order.** Retain a first-occurrence
+- [x] **Step 5: Implement stable capture-hint order.** Retain a first-occurrence
       list beside set membership during the existing single traversal; preserve
       `lookupLambdaCapturedNames` for the runtime and expose the ordered
       projection for compiler production. Do not add a second AST walk.
 
-- [ ] **Step 6: Resolve lexical binders during typed-core finalization.** Replace
+- [x] **Step 6: Resolve lexical binders during typed-core finalization.** Replace
       the parameter-only variable environment with an exact visible-binder
       environment that distinguishes leading parameters for duplicate checks
       from outer scalars and nested shadowing. Pass prior scalars into named
       function bodies, admit anonymous lambdas with closure recipes, and make
       capture-driven callable shape classification source-order aware.
 
-- [ ] **Step 7: Run the Task 2 focused command twice and verify GREEN.** Expected:
+- [x] **Step 7: Run the Task 2 focused command twice and verify GREEN.** Expected:
       both repetitions pass with identical accepted artifacts and rejected
       failure order.
 
-- [ ] **Step 8: Commit the producer milestone.**
+- [x] **Step 8: Commit the producer milestone.**
 
   ```bash
   git add src/Jazz/Compiler/RecursiveBindings.hs test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
@@ -275,7 +275,7 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
   site, construct the immutable product from currently visible binder operands,
   then construct the closure.
 
-- [ ] **Step 1: Add exact lowerer expectations before implementation.** For each
+- [x] **Step 1: Add exact lowerer expectations before implementation.** For each
       accepted Task 2 fixture, hand-build the complete `LoweredProgram` with
       literal layout order, generated IDs, projection instruction order,
       temporary IDs, function order, environment operands, calls, and terminal
@@ -283,19 +283,19 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
       scalar capture, closure-parameter capture, shadowing, and repeated
       multi-capture order.
 
-- [ ] **Step 2: Add independent valid typed-core lowerer fixtures.** Construct
+- [x] **Step 2: Add independent valid typed-core lowerer fixtures.** Construct
       valid programs for the same boundaries without calling the producer, run
       each twice, and require exact lowered output plus permanent Lowered IR
       validation. These fixtures catch producer/lowerer coupling.
 
-- [ ] **Step 3: Add independent lowerer rejection fixtures.** Require exact
+- [x] **Step 3: Add independent lowerer rejection fixtures.** Require exact
       `LoweredIRCaptureUnsupported`, `LoweredIRDuplicateGeneratedIdentity`, or
       representation failures for a non-closure managed capture, a missing
       capture operand, an invalid generated-owner shape, and combined capture
       plus descendant failures. Every fixture must first pass typed-core
       validation.
 
-- [ ] **Step 4: Run the direct-call suite and verify RED.** Run:
+- [x] **Step 4: Run the direct-call suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -304,28 +304,28 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
   Expected: valid capture fixtures fail at the current lowerer capture or
   unsupported-lambda branches while prior boundaries remain green.
 
-- [ ] **Step 5: Collect root and lifted function shapes.** Traverse statements
+- [x] **Step 5: Collect root and lifted function shapes.** Traverse statements
       and expressions in canonical order, exclude each function's own binders,
       deduplicate free binder references on first occurrence, retain transitive
       captures needed to construct nested closures, and reject unsupported
       representations at the owning path.
 
-- [ ] **Step 6: Emit layouts, lifted functions, and projections.** Emit layouts
+- [x] **Step 6: Emit layouts, lifted functions, and projections.** Emit layouts
       and functions in source/preorder, seed function-local lowering state with
       environment projections, and ensure each generated ID participates in one
       duplicate-identity check before artifact construction.
 
-- [ ] **Step 7: Construct captured closures from visible operands.** Generalize
+- [x] **Step 7: Construct captured closures from visible operands.** Generalize
       the existing empty-environment closure helper so named and anonymous sites
       supply ordered capture operands from exact local binder or parameter maps.
       Missing operands fail closed; no name lookup or empty-environment fallback
       is permitted.
 
-- [ ] **Step 8: Run the Task 3 focused command twice and verify GREEN.** Expected:
+- [x] **Step 8: Run the Task 3 focused command twice and verify GREEN.** Expected:
       both repetitions pass with deterministic layouts, temporaries, lifted
       function order, and all existing empty-closure output unchanged.
 
-- [ ] **Step 9: Commit the lowering milestone.**
+- [x] **Step 9: Commit the lowering milestone.**
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
@@ -353,20 +353,20 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
   projection index, closure/environment mismatch, and duplicate generated
   identity cases to the existing invalid manifests.
 
-- [ ] **Step 1: Add valid typed-core parity cases.** Feed exact inline, nested,
+- [x] **Step 1: Add valid typed-core parity cases.** Feed exact inline, nested,
       shadowed, scalar-capture, and closure-capture programs through Haskell and
       hosted-Jazz validation twice and compare complete ordered canonical values.
 
-- [ ] **Step 2: Add valid lowered-IR parity cases.** Feed the exact capture
+- [x] **Step 2: Add valid lowered-IR parity cases.** Feed the exact capture
       layouts, projections, constructed environments, lifted functions, and
       closure calls through both validators twice.
 
-- [ ] **Step 3: Add invalid invariant cases.** Use hand-built artifacts whose
+- [x] **Step 3: Add invalid invariant cases.** Use hand-built artifacts whose
       single realistic mutation breaks binder visibility, field order or
       representation, projection bounds, closure environment identity, or
       generated uniqueness. Assert exact Haskell/Jazz failure parity.
 
-- [ ] **Step 4: Run G3 twice and verify GREEN.** Run:
+- [x] **Step 4: Run G3 twice and verify GREEN.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test recursive-bindings-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -374,7 +374,7 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
 
   Expected: both complete runs pass with stable manifest counts and ordering.
 
-- [ ] **Step 5: Commit the parity milestone.**
+- [x] **Step 5: Commit the parity milestone.**
 
   ```bash
   git add test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
@@ -391,6 +391,7 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
 - Modify: `docs/compiler/bootstrapping.md`
 - Modify: `docs/compiler/pipeline.md`
 - Modify: `docs/project/status.md`
+- Modify: `scripts/check-docs.sh`
 - Modify: `rfcs/accepted/0009-typed-core-closure-and-recursion.md`
 
 **Interfaces:**
@@ -404,10 +405,10 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
   nested lexical closures while currying, oversaturation, and recursion remain
   absent and ordinary compile/run stays unchanged.
 
-- [ ] **Step 1: Run fresh G3 verification.** Run the Task 4 Step 4 command once
+- [x] **Step 1: Run fresh G3 verification.** Run the Task 4 Step 4 command once
       after the final source edit and read the complete exit status.
 
-- [ ] **Step 2: Run the full serialized compiler suite.** Run:
+- [x] **Step 2: Run the full serialized compiler suite.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -415,18 +416,18 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
 
   Expected: every registered test suite passes without parallel timeout noise.
 
-- [ ] **Step 3: Update public compiler-boundary pages.** Add inline/nested
+- [x] **Step 3: Update public compiler-boundary pages.** Add inline/nested
       closures, binder-resolved scalar and closure capture, deterministic
       environments, and lifted identities to the supported opt-in profile;
       retain all later RFC 0009 exclusions and the normal compile/run disclaimer.
 
-- [ ] **Step 4: Synchronize plan, queue, blocker, and RFC state.** Check every
+- [x] **Step 4: Synchronize plan, queue, blocker, and RFC state.** Check every
       task box, set frontmatter `status: complete` and `autonomous_ready: no`,
       use plan section `Full closeout`, remove the ready row, and add currying as
       the sole next curation candidate using RFC 0009's required paths and G1
       gate.
 
-- [ ] **Step 5: Run closeout gates.** Run:
+- [x] **Step 5: Run closeout gates.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -436,14 +437,14 @@ Typed Core and Lowered IR v1 constructors remain unchanged.
 
   Expected: every command exits zero.
 
-- [ ] **Step 6: Perform the anti-slop review.** Enumerate every new private
+- [x] **Step 6: Perform the anti-slop review.** Enumerate every new private
       record, state field, helper, branch, and fallback. Remove any item without
       a concrete binder-resolution, ordered-capture, lifting, environment,
       invariant, or fixture responsibility. Confirm the final diff contains no
       parallel name-based environment, compatibility alias, dead abstraction,
       or implementation outside the RFC target paths and closeout owners.
 
-- [ ] **Step 7: Commit closeout.**
+- [x] **Step 7: Commit closeout.**
 
   ```bash
   git add .codex/plans/2026-08-12-jazz-typed-core-lexical-capture.md .codex/execution/queue.md .codex/execution/blocker-contracts.md docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0009-typed-core-closure-and-recursion.md
