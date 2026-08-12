@@ -86,7 +86,7 @@ coreTests =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 19 (length validFixtures)
+  assertEqual "valid fixture count" 20 (length validFixtures)
 
 testOutcomeEncoding :: IO ()
 testOutcomeEncoding = do
@@ -134,7 +134,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 75 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 76 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -3567,8 +3567,8 @@ testNewestReviewRegressions = do
         ( TypedTypeDetail
             (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
             TypedTextType
-        )
-    , statementFailure
+        ),
+      statementFailure
         "review-impl-method-contract"
         1
         TypedCallableShapeMismatch
@@ -8648,14 +8648,14 @@ recursiveBlockPeerProgram =
     recursiveLambda ownerPath argumentName peerOwner peerName =
       let argumentOwner = binder modulePath ownerPath argumentName
        in TypedLambdaExpr
-        boolToBoolInfo
-        argumentOwner
-        argumentName
-        ( TypedApplyExpr
-            boolInfo
-            (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
-            (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
-        )
+            boolToBoolInfo
+            argumentOwner
+            argumentName
+            ( TypedApplyExpr
+                boolInfo
+                (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
+                (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+            )
     leftArgument = resolved TypedCurrentModule TypedValueNamespace "leftArgument"
     rightArgument = resolved TypedCurrentModule TypedValueNamespace "rightArgument"
     leftStatement =
@@ -12636,7 +12636,8 @@ expectedValidFixtureNames =
     "patterns-binders",
     "or-pattern-alignment",
     "callable-shapes-binder-references",
-    "multi-module-interface"
+    "multi-module-interface",
+    "lexical-capture"
   ]
 
 validFixtures :: [ValidFixture]
@@ -12667,6 +12668,7 @@ validProgram fixtureName =
     "or-pattern-alignment" -> orPatternAlignmentProgram
     "callable-shapes-binder-references" -> callableShapesBinderReferencesProgram
     "multi-module-interface" -> multiModuleInterfaceProgram
+    "lexical-capture" -> lexicalCaptureProgram
     _ -> error "unknown valid typed-core fixture"
 
 programWith :: Text -> [TypedStatement] -> TypedModuleInterface -> TypedNodeInfo -> TypedProgram
@@ -12717,6 +12719,48 @@ scalarAliasesWidthsProgram =
         (TypedNumericType numericType)
         (TypedFloatRecipe width)
         (TypedFractionalLiteral "2" "25" (Just numericType))
+
+lexicalCaptureProgram :: TypedProgram
+lexicalCaptureProgram =
+  programWith
+    fixture
+    [ TypedLetStatement seedBinder seedName span1 seedScheme (TypedLiteralExpr intInfo (TypedIntegerLiteral "1")),
+      TypedLetStatement functionBinder functionName span1 functionScheme functionExpression,
+      TypedExpressionStatement span1 applicationExpression
+    ]
+    emptyInterface
+    intInfo
+  where
+    fixture = "lexical-capture"
+    modulePath = fixtureModulePath fixture
+    seedName = fixtureValueName "seed"
+    seedBinder = binder modulePath [0] seedName
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    functionName = fixtureValueName "addSeed"
+    functionBinder = binder modulePath [1] functionName
+    parameterName = fixtureValueName "item"
+    parameterBinder = binder modulePath [1, 0] parameterName
+    intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
+    callableType = TypedFunctionType TypedIntType TypedIntType
+    callableRecipe = TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64)
+    callableInfo = info callableType callableRecipe
+    functionScheme = TypedScheme functionBinder [] [] [] callableType callableRecipe (Just TypedClosureCallableShape)
+    functionExpression =
+      TypedLambdaExpr
+        callableInfo
+        parameterBinder
+        parameterName
+        ( TypedBinaryExpr
+            intInfo
+            (TypedBuiltinOperator "+")
+            (TypedVariableExpr intInfo parameterName (Just parameterBinder))
+            (TypedVariableExpr intInfo seedName (Just seedBinder))
+        )
+    applicationExpression =
+      TypedApplyExpr
+        intInfo
+        (TypedVariableExpr callableInfo functionName (Just functionBinder))
+        (TypedLiteralExpr intInfo (TypedIntegerLiteral "41"))
 
 resolvedNameOriginsProgram :: TypedProgram
 resolvedNameOriginsProgram =

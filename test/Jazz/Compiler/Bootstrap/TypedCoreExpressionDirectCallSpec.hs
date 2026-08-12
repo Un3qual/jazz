@@ -16,6 +16,7 @@ import Jazz.Compiler.Diagnostics
     diagnosticSubject,
     isErrorDiagnostic,
   )
+import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..), exportInventory)
@@ -44,6 +45,9 @@ tests =
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
+    ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
+    ("lowers lexical closures with exact environments", testLexicalCaptureLowering),
+    ("supports the complete lexical capture fixture matrix", testLexicalCaptureFixtureMatrix),
     ("lowers scalar bindings once for ordered entry reuse", testScalarBindingLowering),
     ("preserves flattened recipes through a named direct leading-lambda chain", testThreeArgumentDirectLeadingLambdaRecipe),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
@@ -57,10 +61,10 @@ tests =
     ("rechecks lowerer-only structural boundaries on arbitrary valid typed programs", testLowererStructuralBoundary),
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
-    ("reports curried argument failures at their real expression paths", testCurriedArgumentFailurePath),
+    ("admits captured arguments inside direct-call bodies", testCurriedArgumentCapture),
     ("retains supplied argument failures when direct-call arity is invalid", testInvalidArityArgumentFailureAccumulation),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
-    ("retains closure-call argument and later sibling failures in source order", testClosureUseArgumentFailureOrder),
+    ("retains later sibling failures after accepting a captured closure call", testClosureUseArgumentFailureOrder),
     ("collapses mixed callable-use reasons to one closure classification", testClosureShapeClassificationCollapse),
     ("specializes integer literals to direct-call parameter types", testNarrowLiteralDirectCall),
     ("specializes computed integer results to declared return types", testNarrowCompositeFunctionResult),
@@ -70,7 +74,7 @@ tests =
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("retains nested data-block child failures in structural order", testNestedDataFailureAccumulation),
-    ("rejects anonymous lambdas as module results", testAnonymousLambdaResultRejection),
+    ("accepts anonymous lambdas as module results", testAnonymousLambdaResultAcceptance),
     ("keeps invalid signed forward declarations visible to analysis", testInvalidForwardDeclarationAnalysisVisibility),
     ("preserves ordinary diagnostics while producing typed core", testProductionDiagnosticCompatibility),
     ("rejects class and impl declarations from the scalar direct-call profile", testUnsupportedDeclarationProfile),
@@ -157,7 +161,8 @@ testFixtureManifest = do
           "callable-parameter-shadows-named-function",
           "callable-parameter-shadows-enclosing-function",
           "mixed-direct-and-value-use",
-          "callable-parameter-value-shadows-enclosing-function"
+          "callable-parameter-value-shadows-enclosing-function",
+          "capturing-function"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -173,7 +178,6 @@ testFixtureManifest = do
           "local-block-binding",
           "partial-direct-call",
           "oversaturated-direct-call",
-          "capturing-function",
           "self-recursive-function",
           "mutually-recursive-functions",
           "closure-value-mutual-recursion",
@@ -185,8 +189,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 24 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 21 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 25 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 20 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 45 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -307,10 +311,12 @@ testAcceptedManifestPipeline =
         <> scalarExpectedPrograms
         <> directCallExpectedPrograms
         <> closedCallableExpectedPrograms
+        <> lexicalCaptureExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
         <> closedCallableExpectedLoweredPrograms
+        <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
 
     assertAccepted name =
       case lookup name expectedTypedPrograms of
@@ -373,6 +379,7 @@ testScalarBindingProduction = do
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
     assertManagedBindingRejected = do
       let fixture = producerEdgeFixture "managed-scalar-binding"
           expected =
@@ -401,6 +408,187 @@ testScalarBindingProduction = do
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
         kind
         detail
+
+testLexicalCaptureProduction :: IO ()
+testLexicalCaptureProduction =
+  mapM_ assertProduced lexicalCaptureExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture =
+            case lookup name producerEdgeFixtures of
+              Just edgeFixture -> edgeFixture
+              Nothing -> fixtureByName name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable lexical production") firstRun secondRun
+      assertEqual
+        (name <> " exact lexical typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected lexical typed validation") [] (validateTypedProgram expectedProgram)
+
+testLexicalCaptureLowering :: IO ()
+testLexicalCaptureLowering =
+  mapM_ assertLowered lexicalCaptureExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " is valid lexical typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lexical lowering") firstRun secondRun
+      assertEqual (name <> " exact lexical lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertEqual (name <> " expected lexical lowered validation") [] (validateLoweredProgram expectedProgram)
+
+testLexicalCaptureFixtureMatrix :: IO ()
+testLexicalCaptureFixtureMatrix = do
+  mapM_ assertSupported lexicalABIs
+  assertUnsupportedCapture
+  where
+    assertSupported (name, expectedBinders, expectedLayouts, expectedFunctionIds, expectedNestedEnvironment) = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " repeatable typed production") firstRun secondRun
+      case typedCoreProductionStatus firstRun of
+        TypedCoreProductionSucceeded typedProgram -> do
+          assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
+          assertEqual (name <> " exact lambda binders") expectedBinders (typedLambdaBinders typedProgram)
+          let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
+              secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
+          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+          case firstLowering of
+            LoweredIRSucceeded loweredProgram -> do
+              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+              assertEqual (name <> " exact environment layouts") expectedLayouts (loweredLayouts loweredProgram)
+              assertEqual (name <> " exact function identities") expectedFunctionIds (loweredFunctionIds loweredProgram)
+              case expectedNestedEnvironment of
+                Just (nestedLayoutId, fields) ->
+                  assertEqual (name <> " exact nested environment field order") [fields] (constructedEnvironmentFields nestedLayoutId loweredProgram)
+                Nothing -> pure ()
+            other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+
+    assertUnsupportedCapture = do
+      let fixture = producerEdgeFixture "unsupported-managed-capture"
+          expected =
+            TypedCoreProductionUnsupported
+              [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
+                expressionFailure 0 [0] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
+                expressionFailure 2 [0, 0, 0] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message"),
+                expressionFailure 2 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message")
+              ]
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual "unsupported managed capture repeatability" firstRun secondRun
+      assertEqual "unsupported managed capture exact rejection" expected (typedCoreProductionStatus firstRun)
+
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+
+    lexicalABIs :: [(Text, [TypedBinderId], [LoweredLayout], [LoweredFunctionId], Maybe (LoweredLayoutId, [LoweredOperand]))]
+    lexicalABIs =
+      [ ( "inline-anonymous-lambda-call",
+          [binder [0, 0] "item"],
+          [layout [0, 0] "item" []],
+          [lambdaFunction [0, 0] "item", loweredEntryFunctionId],
+          Nothing
+        ),
+        ( "nested-scalar-capture",
+          [binder [2] "outer", binder [2, 0] "item"],
+          [layout [2] "outer" [int64Representation], layout [2, 0] "item" [int64Representation, int64Representation]],
+          [lambdaFunction [2] "outer", lambdaFunction [2, 0] "item", loweredEntryFunctionId],
+          Just
+            ( layoutId [2, 0] "item",
+              [ loweredParameter 1 int64Representation,
+                loweredTemporary 1 int64Representation
+              ]
+            )
+        ),
+        ( "nested-shadow-capture-order",
+          [binder [4] "outer", binder [4, 0] "left"],
+          [layout [4] "outer" [int64Representation], layout [4, 0] "left" [int64Representation, int64Representation]],
+          [lambdaFunction [4] "outer", lambdaFunction [4, 0] "left", loweredEntryFunctionId],
+          Just
+            ( layoutId [4, 0] "left",
+              [ loweredTemporary 1 int64Representation,
+                loweredParameter 1 int64Representation
+              ]
+            )
+        ),
+        ( "nested-closure-valued-capture",
+          [binder [0] "predicate", binder [0, 0] "item"],
+          [layout [0] "predicate" [], layout [0, 0] "item" [boolClosureRepresentation]],
+          [lambdaFunction [0] "predicate", lambdaFunction [0, 0] "item", loweredEntryFunctionId],
+          Just
+            ( layoutId [0, 0] "item",
+              [loweredParameter 1 boolClosureRepresentation]
+            )
+        )
+      ]
+
+    binder :: [Int] -> Text -> TypedBinderId
+    binder path name =
+      TypedBinderId (["App", "Main"], path, TypedResolvedName TypedCurrentModule TypedValueNamespace name)
+    layout :: [Int] -> Text -> [LoweredRepresentation] -> LoweredLayout
+    layout path name fields = LoweredLayout (layoutId path name) (LoweredClosureEnvironmentLayout fields)
+    layoutId :: [Int] -> Text -> LoweredLayoutId
+    layoutId path name = LoweredLayoutId (generatedIdentity "closure-env" path name)
+    lambdaFunction :: [Int] -> Text -> LoweredFunctionId
+    lambdaFunction path name = LoweredFunctionId (generatedIdentity "lambda-fn" path name)
+    generatedIdentity :: Text -> [Int] -> Text -> Text
+    generatedIdentity domain path name =
+      "$jz1$"
+        <> domain
+        <> "$m2$3:App$4:Main$p"
+        <> Text.pack (show (length path))
+        <> "$"
+        <> Text.intercalate "," (map (Text.pack . show) path)
+        <> "$n"
+        <> Text.pack (show (Text.length name))
+        <> ":"
+        <> name
+    int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    boolClosureRepresentation =
+      LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    loweredEntryFunctionId = LoweredFunctionId "App::Main::$entry"
+    loweredParameter :: Int -> LoweredRepresentation -> LoweredOperand
+    loweredParameter index representation =
+      LoweredFunctionParameterOperand (LoweredParameterId ("arg" <> Text.pack (show index))) representation
+    loweredTemporary :: Int -> LoweredRepresentation -> LoweredOperand
+    loweredTemporary index representation =
+      LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index))) representation
+
+    typedLambdaBinders (TypedProgram _ modules _) =
+      concat
+        [ concatMap statementLambdaBinders statements
+        | TypedModule _ _ _ _ _ statements _ <- modules
+        ]
+    statementLambdaBinders statement =
+      case statement of
+        TypedLetStatement _ _ _ _ expression -> expressionLambdaBinders expression
+        TypedExpressionStatement _ expression -> expressionLambdaBinders expression
+        _ -> []
+    expressionLambdaBinders expression =
+      case expression of
+        TypedLambdaExpr _ parameterBinder _ body -> parameterBinder : expressionLambdaBinders body
+        TypedApplyExpr _ function argument -> expressionLambdaBinders function <> expressionLambdaBinders argument
+        TypedBinaryExpr _ _ left right -> expressionLambdaBinders left <> expressionLambdaBinders right
+        _ -> []
+    loweredLayouts (LoweredProgram _ layouts _ _ _) = layouts
+    loweredFunctionIds (LoweredProgram _ _ _ functions _) =
+      [functionId | LoweredFunction functionId _ _ _ _ _ <- functions]
+    constructedEnvironmentFields targetLayout (LoweredProgram _ _ _ functions _) =
+      [ fields
+      | LoweredFunction _ _ _ _ blocks _ <- functions,
+        LoweredBlock _ _ instructions _ <- blocks,
+        LoweredInstruction _ _ (LoweredConstructProduct layoutValue fields) <- instructions,
+        layoutValue == targetLayout
+      ]
 
 testScalarBindingLowering :: IO ()
 testScalarBindingLowering =
@@ -507,14 +695,6 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "identity"))
           ]
         ),
-        ( "capturing-function",
-          [ expressionFailure
-              2
-              [0, 0, 1]
-              LoweredIRCaptureUnsupported
-              (LoweredIRNameFailureDetail (currentName "seed"))
-          ]
-        ),
         ( "duplicate-parameter-function",
           [ expressionFailure
               1
@@ -589,12 +769,7 @@ testLowererCallableBoundary =
           [ statementFailure
               3
               LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
-              3
-              [0, 0, 1]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
+              (LoweredIRNameFailureDetail (currentName "loop"))
           ]
         ),
         ( "imported-direct-call",
@@ -661,15 +836,15 @@ testInvalidLowererTypedCoreBoundary =
           [ TypedCoreValidationFailure
               (TypedExpressionPath ["App", "Main"] [3] [0])
               TypedLambdaResultMismatch
-                ( TypedRecipeDetail
-                    (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
-                    (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
-                ),
-              TypedCoreValidationFailure
-                (TypedExpressionPath ["App", "Main"] [3] [0, 0])
-                TypedCallableShapeMismatch
-                (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "combine")))
-            ]
+              ( TypedRecipeDetail
+                  (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
+                  (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
+              ),
+            TypedCoreValidationFailure
+              (TypedExpressionPath ["App", "Main"] [3] [0, 0])
+              TypedCallableShapeMismatch
+              (TypedBinderDetail (TypedBinderId (["App", "Main"], [1], currentName "combine")))
+          ]
         ),
         ( "variable-binder-reference-mismatch",
           [ TypedCoreValidationFailure
@@ -812,18 +987,20 @@ testUnitForwardVisibility = do
       assertEqual "unit forward function typed-core validation" [] (validateTypedProgram programValue)
     _ -> failTest "unit forward function did not produce typed core"
 
-testCurriedArgumentFailurePath :: IO ()
-testCurriedArgumentFailurePath = do
+testCurriedArgumentCapture :: IO ()
+testCurriedArgumentCapture = do
   let fixture = producerEdgeFixture "curried-first-argument-capture"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 5 [0, 0, 0, 1])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "seed")
-          ]
-  result <- produceFixture fixture
-  assertEqual "curried first-argument capture path" expected (typedCoreProductionStatus result)
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "captured direct-call argument repeatability" firstRun secondRun
+  case typedCoreProductionStatus firstRun of
+    TypedCoreProductionSucceeded typedProgram -> do
+      assertEqual "captured direct-call argument typed validation" [] (validateTypedProgram typedProgram)
+      case lowerTypedCoreExpressionDirectCall typedProgram of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual "captured direct-call argument lowered validation" [] (validateLoweredProgram loweredProgram)
+        other -> failTest ("captured direct-call argument did not lower: " <> Text.pack (show other))
+    other -> failTest ("captured direct-call argument did not produce typed core: " <> Text.pack (show other))
 
 testInvalidArityArgumentFailureAccumulation :: IO ()
 testInvalidArityArgumentFailureAccumulation = do
@@ -871,10 +1048,6 @@ testClosureUseArgumentFailureOrder = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "seed"),
-            TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 7 [])
               TypedCoreStructuredValueUnsupported
               TypedCoreListValueDetail
@@ -1015,16 +1188,10 @@ testNestedDataFailureAccumulation =
       assertEqual "nested data failure structural order" expected (typedCoreProductionStatus firstRun)
     [] -> failTest "unit fixture is missing"
 
-testAnonymousLambdaResultRejection :: IO ()
-testAnonymousLambdaResultRejection = do
+testAnonymousLambdaResultAcceptance :: IO ()
+testAnonymousLambdaResultAcceptance = do
   let fixture = producerEdgeFixture "anonymous-lambda-result"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-              TypedCoreCallableValueUnsupported
-              TypedCoreUnsupportedRootDetail
-          ]
+      expected = lookup "anonymous-lambda-result" lexicalCaptureExpectedPrograms
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -1033,7 +1200,10 @@ testAnonymousLambdaResultRejection = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "anonymous lambda result repeatable production" firstRun secondRun
-  assertEqual "anonymous lambda module result rejection" expected (typedCoreProductionStatus firstRun)
+  case expected of
+    Just expectedProgram ->
+      assertEqual "anonymous lambda module result acceptance" (TypedCoreProductionSucceeded expectedProgram) (typedCoreProductionStatus firstRun)
+    Nothing -> failTest "anonymous lambda result expectation is missing"
 
 assertCompleteProduction :: Text -> Fixture -> IO ()
 assertCompleteProduction label fixture = do
@@ -1317,7 +1487,6 @@ testRejectedCallableProfile =
       [ TypedCoreImportedInputsUnsupported,
         TypedCoreUserDefinedOperatorUnsupported,
         TypedCoreCallArityUnsupported,
-        TypedCoreCaptureUnsupported,
         TypedCoreRecursiveFunctionUnsupported,
         TypedCoreNonMonomorphicFunctionUnsupported,
         TypedCoreUnresolvedExpressionType
@@ -1349,7 +1518,6 @@ callableRejectionNames :: [Text]
 callableRejectionNames =
   [ "partial-direct-call",
     "oversaturated-direct-call",
-    "capturing-function",
     "self-recursive-function",
     "mutually-recursive-functions",
     "closure-value-mutual-recursion",
@@ -1394,10 +1562,6 @@ rejectedManifestExpectedStatuses =
         [ expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
           expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 1 2)
         ]
-    ),
-    ( "capturing-function",
-      unsupported
-        [expressionFailure 3 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "seed")]
     ),
     ("self-recursive-function", unsupported [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]),
     ( "mutually-recursive-functions",
@@ -1602,11 +1766,7 @@ testMissingResultFailureAccumulation = do
           [ TypedCoreProductionFailure
               (TypedCoreProductionModulePath ["App", "Main"])
               TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "seed")
+              TypedCoreUnsupportedRootDetail
           ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture

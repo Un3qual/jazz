@@ -17,6 +17,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarExpectedPrograms,
     scalarBindingExpectedPrograms,
     scalarBindingExpectedLoweredPrograms,
+    lexicalCaptureExpectedPrograms,
+    lexicalCaptureExpectedLoweredPrograms,
     directCallExpectedPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
@@ -144,7 +146,8 @@ acceptedFixtures =
     sourceFixtureNoExports "callable-parameter-shadows-named-function" callableParameterShadowsNamedFunctionSource,
     sourceFixtureNoExports "callable-parameter-shadows-enclosing-function" callableParameterShadowsEnclosingFunctionSource,
     sourceFixtureNoExports "mixed-direct-and-value-use" mixedDirectAndValueUseSource,
-    sourceFixtureNoExports "callable-parameter-value-shadows-enclosing-function" callableParameterValueShadowsEnclosingFunctionSource
+    sourceFixtureNoExports "callable-parameter-value-shadows-enclosing-function" callableParameterValueShadowsEnclosingFunctionSource,
+    sourceFixtureNoExports "capturing-function" capturingFunctionSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -166,7 +169,6 @@ rejectedFixtures =
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "partial-direct-call" partialDirectCallSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
-    sourceFixtureNoExports "capturing-function" capturingFunctionSource,
     sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
     sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
     sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
@@ -459,6 +461,166 @@ scalarBindingExpectedLoweredPrograms =
         (loweredTemporary 1 LoweredBoolRepresentation)
     )
   ]
+
+lexicalCaptureExpectedPrograms :: [(Text, TypedProgram)]
+lexicalCaptureExpectedPrograms =
+  [ ("capturing-function", capturingProducerProgram),
+    ("anonymous-lambda-result", anonymousLambdaResultProgram)
+  ]
+
+capturingProducerProgram :: TypedProgram
+capturingProducerProgram =
+  expectedRootProgram
+    [ TypedSignatureStatement seedSignatureBinder seedName (TypedSpan 2 1) (scalarScheme seedSignatureBinder intInfo),
+      TypedLetStatement seedBinder seedName (TypedSpan 3 1) (scalarScheme seedBinder intInfo) (intExpr 1),
+      TypedSignatureStatement addSeedSignatureBinder addSeedName (TypedSpan 4 1) (callableScheme addSeedSignatureBinder),
+      TypedLetStatement
+        addSeedBinder
+        addSeedName
+        (TypedSpan 5 1)
+        (callableScheme addSeedBinder)
+        ( TypedLambdaExpr
+            addSeedInfo
+            itemBinder
+            itemName
+            ( binaryExpr
+                intInfo
+                "+"
+                (boundVariableExpr itemName intInfo itemBinder)
+                (boundVariableExpr seedName intInfo seedBinder)
+            )
+        ),
+      TypedExpressionStatement
+        (TypedSpan 6 1)
+        ( TypedApplyExpr
+            intInfo
+            (boundVariableExpr addSeedName addSeedInfo addSeedBinder)
+            (intExpr 41)
+        )
+    ]
+    intInfo
+  where
+    seedName = resolvedName "seed"
+    seedSignatureBinder = TypedBinderId (modulePath, [0], seedName)
+    seedBinder = TypedBinderId (modulePath, [1], seedName)
+    addSeedName = resolvedName "addSeed"
+    addSeedSignatureBinder = TypedBinderId (modulePath, [2], addSeedName)
+    addSeedBinder = TypedBinderId (modulePath, [3], addSeedName)
+    itemName = resolvedName "item"
+    itemBinder = TypedBinderId (modulePath, [3, 0], itemName)
+    addSeedInfo = functionInfo [("item", intInfo)] intInfo
+    callableScheme owner =
+      TypedScheme owner [] [] [] (typedExpressionType addSeedInfo) (typedExpressionRecipe addSeedInfo) (Just TypedClosureCallableShape)
+
+anonymousLambdaResultProgram :: TypedProgram
+anonymousLambdaResultProgram =
+  expectedRootProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedLambdaExpr
+            lambdaInfo
+            flagBinder
+            flagName
+            ( binaryExpr
+                boolInfo
+                "=="
+                (boundVariableExpr flagName boolInfo flagBinder)
+                (boolExpr True)
+            )
+        )
+    ]
+    lambdaInfo
+  where
+    flagName = resolvedName "flag"
+    flagBinder = TypedBinderId (modulePath, [0], flagName)
+    lambdaInfo = stagedFunctionInfo [("flag", boolInfo)] boolInfo
+
+lexicalCaptureExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+lexicalCaptureExpectedLoweredPrograms =
+  [ ("capturing-function", capturingProducerProgram, capturingExpectedLoweredProgram),
+    ("anonymous-lambda-result", anonymousLambdaResultProgram, anonymousLambdaExpectedLoweredProgram)
+  ]
+
+capturingExpectedLoweredProgram :: LoweredProgram
+capturingExpectedLoweredProgram =
+  expectedClosureCallableLoweredProgram
+    [LoweredLayout layoutId (LoweredClosureEnvironmentLayout [int64Representation])]
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::addSeed")
+        (Just environmentParameter)
+        [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                int64Representation
+                (LoweredProjectField layoutId 0 environmentOperand),
+              expectedPrimitiveInstruction
+                2
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredParameter 1 int64Representation, loweredTemporary 1 int64Representation]
+            ]
+            (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    int64Representation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        (LoweredManagedReferenceRepresentation layoutId)
+        (LoweredConstructProduct layoutId [loweredInt64 1]),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        closureRepresentation
+        (LoweredConstructClosure (LoweredFunctionId "App::Main::addSeed") (loweredTemporary 1 (LoweredManagedReferenceRepresentation layoutId))),
+      expectedClosureCallInstruction 3 int64Representation (loweredTemporary 2 closureRepresentation) [loweredInt64 41]
+    ]
+    (loweredTemporary 3 int64Representation)
+  where
+    layoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n7:addSeed"
+    environmentParameter = LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)
+    environmentOperand = LoweredFunctionParameterOperand (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)
+    closureRepresentation =
+      LoweredClosureRepresentation (LoweredCallSignature [int64Representation] int64Representation)
+
+anonymousLambdaExpectedLoweredProgram :: LoweredProgram
+anonymousLambdaExpectedLoweredProgram =
+  expectedClosureCallableLoweredProgram
+    [LoweredLayout layoutId (LoweredClosureEnvironmentLayout [])]
+    [ LoweredFunction
+        functionId
+        (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        LoweredBoolRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ expectedPrimitiveInstruction
+                1
+                LoweredBoolRepresentation
+                (LoweredComparisonPrimitive LoweredEqual)
+                [loweredParameter 1 LoweredBoolRepresentation, loweredImmediate (LoweredBoolImmediate True)]
+            ]
+            (Just (LoweredReturn (loweredTemporary 1 LoweredBoolRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    closureRepresentation
+    [ expectedEmptyEnvironmentInstruction 1 layoutId,
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        closureRepresentation
+        (LoweredConstructClosure functionId (loweredTemporary 1 (LoweredManagedReferenceRepresentation layoutId)))
+    ]
+    (loweredTemporary 2 closureRepresentation)
+  where
+    functionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p1$0$n4:flag"
+    layoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$0$n4:flag"
+    closureRepresentation =
+      LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
 
 scalarBindingLiteralProgram :: TypedProgram
 scalarBindingLiteralProgram =
@@ -1913,7 +2075,8 @@ shapeRejectedCycleLowererProgram functions =
               functionName
               (TypedSpan (signatureIndex + 1) 1)
               (functionScheme signatureIndex function),
-            bindExpectedStatementVariables binders
+            bindExpectedStatementVariables
+              binders
               ( TypedLetStatement
                   bindingBinder
                   functionName
@@ -2058,889 +2221,932 @@ producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   scalarBindingProducerFixtures
     <> [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
-    ( "default-exported-polymorphic-callable",
-      sourceFixture
-        "default-exported-polymorphic-callable"
-        ( Text.unlines
-            [ "seed :: Int.",
-              "seed = 1.",
-              "identity :: a -> a.",
-              "identity = \\(item) -> item.",
-              "()."
-            ]
-        )
-    ),
-    ( "self-recursive-function-rebinding",
-      sourceFixtureNoExports
-        "self-recursive-function-rebinding"
-        ( Text.unlines
-            [ "loop :: Int -> Int.",
-              "loop = \\(item) -> loop item.",
-              "loop :: Int -> Int.",
-              "loop = \\(item) -> loop (if True then item else item).",
-              "loop 1."
-            ]
-        )
-    ),
-    ( "later-callable-rebinding-calls-nearest-prior",
-      sourceFixtureNoExports
-        "later-callable-rebinding-calls-nearest-prior"
-        ( Text.unlines
-            [ "identity :: Bool -> Bool.",
-              "identity = \\(item) -> item.",
-              "identity :: Bool -> Bool.",
-              "identity = \\(item) -> identity item.",
-              "identity True."
-            ]
-        )
-    ),
-    ( "intervening-scalar-canonical-ownership",
-      sourceFixtureNoExports
-        "intervening-scalar-canonical-ownership"
-        ( Text.unlines
-            [ "a :: Bool -> Bool.",
-              "a = \\(item) -> b item.",
-              "a = True.",
-              "b :: Bool -> Bool.",
-              "b = \\(item) -> a.",
-              "True."
-            ]
-        )
-    ),
-    ( "multiple-intervening-scalars-canonical-ownership",
-      sourceFixtureNoExports
-        "multiple-intervening-scalars-canonical-ownership"
-        ( Text.unlines
-            [ "a :: Bool -> Bool.",
-              "a = \\(item) -> b item.",
-              "a = True.",
-              "a = False.",
-              "b :: Bool -> Bool.",
-              "b = \\(item) -> a.",
-              "True."
-            ]
-        )
-    ),
-    ( "interleaved-callable-scalar-canonical-ownership",
-      sourceFixtureNoExports
-        "interleaved-callable-scalar-canonical-ownership"
-        ( Text.unlines
-            [ "a :: Bool -> Bool.",
-              "a = \\(item) -> b item.",
-              "a = True.",
-              "a :: Bool -> Bool.",
-              "a = \\(item) -> b item.",
-              "a = False.",
-              "b :: Bool -> Bool.",
-              "b = \\(item) -> a.",
-              "True."
-            ]
-        )
-    ),
-    ( "three-same-name-nearest-prior-mutual-recursion",
-      sourceFixtureNoExports
-        "three-same-name-nearest-prior-mutual-recursion"
-        ( Text.unlines
-            [ "identity :: Bool -> Bool.",
-              "identity = \\(item) -> item.",
-              "identity :: Bool -> Bool.",
-              "identity = \\(item) -> item.",
-              "identity :: Bool -> Bool.",
-              "identity = \\(item) -> peer item.",
-              "peer :: Bool -> Bool.",
-              "peer = \\(item) -> identity item.",
-              "True."
-            ]
-        )
-    ),
-    ( "canonical-self-recursion-no-prior",
-      sourceFixtureNoExports
-        "canonical-self-recursion-no-prior"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> loop item.",
-              "True."
-            ]
-        )
-    ),
-    ( "canonical-mutual-recursion-peers",
-      sourceFixtureNoExports
-        "canonical-mutual-recursion-peers"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = \\(item) -> right item.",
-              "right :: Bool -> Bool.",
-              "right = \\(item) -> left item.",
-              "True."
-            ]
-        )
-    ),
-    ( "nearest-rebinding-mutual-control",
-      sourceFixtureNoExports
-        "nearest-rebinding-mutual-control"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = \\(item) -> item.",
-              "right :: Bool -> Bool.",
-              "right = \\(item) -> left item.",
-              "left :: Bool -> Bool.",
-              "left = \\(item) -> right item.",
-              "True."
-            ]
-        )
-    ),
-    ( "rebinding-parameter-shadow-control",
-      sourceFixtureNoExports
-        "rebinding-parameter-shadow-control"
-        ( Text.unlines
-            [ "apply :: (Bool -> Bool) -> Bool.",
-              "apply = \\(function) -> function True.",
-              "apply :: (Bool -> Bool) -> Bool.",
-              "apply = \\(apply) -> apply True.",
-              "True."
-            ]
-        )
-    ),
-    ( "rebinding-local-shadow-control",
-      sourceFixtureNoExports
-        "rebinding-local-shadow-control"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> item.",
-              "loop :: Bool -> Bool.",
-              "loop = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-self-alias-recursion",
-      sourceFixtureNoExports
-        "rejected-self-alias-recursion"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = loop.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-mutual-alias-recursion",
-      sourceFixtureNoExports
-        "rejected-mutual-alias-recursion"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = right.",
-              "right :: Bool -> Bool.",
-              "right = left.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-alias-conditional-mutual-recursion",
-      sourceFixtureNoExports
-        "rejected-alias-conditional-mutual-recursion"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = right.",
-              "right :: Bool -> Bool.",
-              "right = if True then left else left.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-operator-alias-self-recursion",
-      sourceFixtureNoExports
-        "rejected-operator-alias-self-recursion"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "(%%) :: Int -> Int -> Int.",
-              "(%%) = (%%).",
-              "0."
-            ]
-        )
-    ),
-    ( "rejected-eager-operator-conditional-control",
-      sourceFixtureNoExports
-        "rejected-eager-operator-conditional-control"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "(%%) :: Bool -> Bool -> Bool.",
-              "(%%) = if True %% False then (%%) else (%%).",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-alias-parameter-shadow-control",
-      sourceFixtureNoExports
-        "rejected-alias-parameter-shadow-control"
-        ( Text.unlines
-            [ "identity :: Bool -> Bool.",
-              "identity = \\(item) -> item.",
-              "loop :: Bool -> Bool.",
-              "loop = (\\(loop) -> loop) identity.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-alias-local-shadow-control",
-      sourceFixtureNoExports
-        "rejected-alias-local-shadow-control"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = {",
-              "  loop :: Bool -> Bool.",
-              "  loop = \\(item) -> item.",
-              "  loop.",
-              "}.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-eager-self-before-callable-result-control",
-      sourceFixtureNoExports
-        "rejected-eager-self-before-callable-result-control"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = { f True. \\(x) -> x. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-nearest-prior-callable-rebinding-recursion",
-      sourceFixtureNoExports
-        "rejected-block-nearest-prior-callable-rebinding-recursion"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = { inner :: Bool -> Bool. inner = \\(x) -> f x. inner = inner. inner. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-conditional-self-recursion",
-      sourceFixtureNoExports
-        "rejected-conditional-self-recursion"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> if item then loop False else item.",
-              "loop True."
-            ]
-        )
-    ),
-    ( "rejected-block-conditional-mutual-recursion",
-      sourceFixtureNoExports
-        "rejected-block-conditional-mutual-recursion"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = \\(item) -> { right item. }.",
-              "right :: Bool -> Bool.",
-              "right = \\(item) -> if item then left False else item.",
-              "left True."
-            ]
-        )
-    ),
-    ( "rejected-block-parameter-shadow-control",
-      sourceFixtureNoExports
-        "rejected-block-parameter-shadow-control"
-        ( Text.unlines
-            [ "apply :: (Bool -> Bool) -> Bool.",
-              "apply = \\(function) -> function True.",
-              "forward :: (Bool -> Bool) -> Bool.",
-              "forward = \\(forward) -> { apply forward. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-later-shadow-control",
-      sourceFixtureNoExports
-        "rejected-block-later-shadow-control"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> { loop item. loop = \\(nested) -> nested. loop item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-initializer-self-recursion",
-      sourceFixtureNoExports
-        "rejected-block-initializer-self-recursion"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> { loop = loop item. item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-initializer-mutual-recursion",
-      sourceFixtureNoExports
-        "rejected-block-initializer-mutual-recursion"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = \\(item) -> { right = right item. item. }.",
-              "right :: Bool -> Bool.",
-              "right = \\(item) -> { left = left item. item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "nested-prior-outer-alias-mutual-recursion",
-      sourceFixtureNoExports
-        "nested-prior-outer-alias-mutual-recursion"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = \\(item) -> right item.",
-              "right :: Bool -> Bool.",
-              "right = \\(item) -> { left = left. item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "nested-prior-outer-conditional-alias-mutual-recursion",
-      sourceFixtureNoExports
-        "nested-prior-outer-conditional-alias-mutual-recursion"
-        ( Text.unlines
-            [ "left :: Bool -> Bool.",
-              "left = \\(item) -> right item.",
-              "right :: Bool -> Bool.",
-              "right = \\(item) -> { left = if item then left else left. item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "nested-self-recursive-lambda-local-ownership",
-      sourceFixtureNoExports
-        "nested-self-recursive-lambda-local-ownership"
-        ( Text.unlines
-            [ "owner :: Bool -> Bool.",
-              "owner = \\(item) -> { loop = \\(nested) -> loop nested. item. }.",
-              "loop :: Bool -> Bool.",
-              "loop = \\(item) -> owner item.",
-              "True."
-            ]
-        )
-    ),
-    ( "accepted-then-rejected-callable-rebinding",
-      sourceFixtureNoExports
-        "accepted-then-rejected-callable-rebinding"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = \\(item) -> item.",
-              "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> item else \\(item) -> item.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-recursive-callable-rebinding-order",
-      sourceFixtureNoExports
-        "rejected-recursive-callable-rebinding-order"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = \\(item) -> item.",
-              "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> g item else \\(item) -> g item.",
-              "g :: Bool -> Bool.",
-              "g = \\(item) -> f item.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-then-accepted-callable-rebinding",
-      sourceFixtureNoExports
-        "rejected-then-accepted-callable-rebinding"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> item else \\(item) -> item.",
-              "f :: Bool -> Bool.",
-              "f = \\(item) -> item.",
-              "True."
-            ]
-        )
-    ),
-    ( "repeated-rejected-callable-rebinding",
-      sourceFixtureNoExports
-        "repeated-rejected-callable-rebinding"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> item else \\(item) -> item.",
-              "f :: Bool -> Bool.",
-              "f = if False then \\(item) -> item else \\(item) -> item.",
-              "True."
-            ]
-        )
-    ),
-    ( "scalar-then-rejected-callable-control",
-      sourceFixtureNoExports
-        "scalar-then-rejected-callable-control"
-        ( Text.unlines
-            [ "f = True.",
-              "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> item else \\(item) -> item.",
-              "True."
-            ]
-        )
-    ),
-    ( "accepted-scalar-rejected-callable-rebinding",
-      sourceFixtureNoExports
-        "accepted-scalar-rejected-callable-rebinding"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = \\(item) -> item.",
-              "f = True.",
-              "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> item else \\(item) -> item.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-scalar-accepted-callable-rebinding",
-      sourceFixtureNoExports
-        "rejected-scalar-accepted-callable-rebinding"
-        ( Text.unlines
-            [ "f :: Bool -> Bool.",
-              "f = if True then \\(item) -> item else \\(item) -> item.",
-              "f = True.",
-              "f :: Bool -> Bool.",
-              "f = \\(item) -> item.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-later-signed-shadow-control",
-      sourceFixtureNoExports
-        "rejected-block-later-signed-shadow-control"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> {",
-              "  observed = loop item.",
-              "  loop :: Bool -> Bool.",
-              "  loop = \\(nested) -> nested.",
-              "  loop item.",
-              "}.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-local-shadow-cycle-control",
-      sourceFixtureNoExports
-        "rejected-block-local-shadow-cycle-control"
-        ( Text.unlines
-            [ "loop :: Bool -> Bool.",
-              "loop = \\(item) -> forward item.",
-              "forward :: Bool -> Bool.",
-              "forward = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-block-parameter-shadow-cycle-control",
-      sourceFixtureNoExports
-        "rejected-block-parameter-shadow-cycle-control"
-        ( Text.unlines
-            [ "forward :: (Bool -> Bool) -> Bool.",
-              "forward = \\(loop) -> { loop True. }.",
-              "identity :: Bool -> Bool.",
-              "identity = \\(item) -> item.",
-              "loop :: Bool -> Bool.",
-              "loop = \\(item) -> forward identity.",
-              "True."
-            ]
-        )
-    ),
-    ( "rejected-operator-value-self-recursion",
-      sourceFixtureNoExports
-        "rejected-operator-value-self-recursion"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "(%%) :: Int -> Int -> Int.",
-              "(%%) = \\(left, right) -> (%%) left right.",
-              "0."
-            ]
-        )
-    ),
-    ( "rejected-infix-operator-mutual-recursion",
-      sourceFixtureNoExports
-        "rejected-infix-operator-mutual-recursion"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "operator ~~ tier 2.",
-              "(%%) :: Int -> Int -> Int.",
-              "(%%) = \\(left, right) -> left ~~ right.",
-              "(~~) :: Int -> Int -> Int.",
-              "(~~) = \\(left, right) -> left %% right.",
-              "0."
-            ]
-        )
-    ),
-    ( "rejected-section-operator-mutual-recursion",
-      sourceFixtureNoExports
-        "rejected-section-operator-mutual-recursion"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "operator ~~ tier 2.",
-              "(%%) :: Int -> Int -> Int.",
-              "(%%) = \\(left, right) -> (left ~~) right.",
-              "(~~) :: Int -> Int -> Int.",
-              "(~~) = \\(left, right) -> (%% right) left.",
-              "0."
-            ]
-        )
-    ),
-    ( "unit-forward-function",
-      sourceFixtureNoExports
-        "unit-forward-function"
-        ( Text.unlines
-            [ "first :: () -> ().",
-              "first = \\(item) -> second item.",
-              "second :: () -> ().",
-              "second = \\(item) -> item.",
-              "first ()."
-            ]
-        )
-    ),
-    ( "curried-first-argument-capture",
-      sourceFixtureNoExports
-        "curried-first-argument-capture"
-        ( Text.unlines
-            [ "seed :: Int.",
-              "seed = 1.",
-              "combine :: Int -> Int -> Int.",
-              "combine = \\(left, right) -> left + right.",
-              "use :: Int -> Int.",
-              "use = \\(item) -> combine seed item.",
-              "use 1."
-            ]
-        )
-    ),
-    ( "partial-call-argument-capture",
-      sourceFixtureNoExports
-        "partial-call-argument-capture"
-        ( Text.unlines
-            [ "seed :: Int.",
-              "seed = 1.",
-              "combine :: Int -> Int -> Int.",
-              "combine = \\(left, right) -> left + right.",
-              "combine seed."
-            ]
-        )
-    ),
-    ( "closure-use-argument-failure-order",
-      sourceFixtureNoExports
-        "closure-use-argument-failure-order"
-        ( Text.unlines
-            [ "seed :: Int.",
-              "seed = 1.",
-              "apply :: (Int -> Int) -> Int.",
-              "apply = \\(function) -> function seed.",
-              "identity :: Int -> Int.",
-              "identity = \\(item) -> item.",
-              "apply identity.",
-              "[1]."
-            ]
-        )
-    ),
-    ( "non-local-call-argument-capture",
-      sourceFixtureNoExports
-        "non-local-call-argument-capture"
-        ( Text.unlines
-            [ "seed :: Int.",
-              "seed = 1.",
-              "__kernel_toFloat64 seed."
-            ]
-        )
-    ),
-    ( "higher-order-parameter",
-      sourceFixtureNoExports
-        "higher-order-parameter"
-        ( Text.unlines
-            [ "ignore :: (Int -> Int) -> Int.",
-              "ignore = \\(function) -> 1.",
-              "1."
-            ]
-        )
-    ),
-    ( "narrow-literal-direct-call",
-      sourceFixtureNoExports
-        "narrow-literal-direct-call"
-        ( Text.unlines
-            [ "narrowIdentity :: Int8 -> Int8.",
-              "narrowIdentity = \\(item) -> item.",
-              "narrowIdentity 1."
-            ]
-        )
-    ),
-    ( "narrow-composite-function-result",
-      sourceFixtureNoExports
-        "narrow-composite-function-result"
-        ( Text.unlines
-            [ "narrowSum :: Bool -> Int8.",
-              "narrowSum = \\(ignored) -> 1 + 2.",
-              "narrowSum True."
-            ]
-        )
-    ),
-    ( "narrow-comparison-operand",
-      sourceFixtureNoExports
-        "narrow-comparison-operand"
-        ( Text.unlines
-            [ "isSmall :: Int8 -> Bool.",
-              "isSmall = \\(item) -> item < 2.",
-              "isSmall 1."
-            ]
-        )
-    ),
-    ( "narrow-root-binary-direct-call",
-      sourceFixtureNoExports
-        "narrow-root-binary-direct-call"
-        ( Text.unlines
-            [ "narrowIdentity :: Int8 -> Int8.",
-              "narrowIdentity = \\(item) -> item.",
-              "narrowIdentity 1 + 2."
-            ]
-        )
-    ),
-    ( "equivalent-scalar-alias-specialization",
-      sourceFixtureNoExports
-        "equivalent-scalar-alias-specialization"
-        ( Text.unlines
-            [ "asInt :: Bool -> Int.",
-              "asInt = \\(ignored) -> 1.",
-              "asInt64 :: Bool -> Int64.",
-              "asInt64 = \\(flag) -> asInt flag.",
-              "acceptInt64 :: Int64 -> Int64.",
-              "acceptInt64 = \\(item) -> item.",
-              "useInt64 :: Bool -> Int64.",
-              "useInt64 = \\(flag) -> acceptInt64 (asInt flag).",
-              "asFloat :: Bool -> Float.",
-              "asFloat = \\(ignored) -> 1.5.",
-              "asFloat64 :: Bool -> Float64.",
-              "asFloat64 = \\(flag) -> asFloat flag.",
-              "acceptFloat64 :: Float64 -> Float64.",
-              "acceptFloat64 = \\(item) -> item.",
-              "acceptFloat64 (asFloat True)."
-            ]
-        )
-    ),
-    ( "unused-user-defined-operator",
-      sourceFixtureNoExports
-        "unused-user-defined-operator"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "(%%) :: Int -> Int -> Int.",
-              "(%%) = \\(left, right) -> left + right.",
-              "()."
-            ]
-        )
-    ),
-    ( "root-data-failure-accumulation",
-      sourceFixtureNoExports
-        "root-data-failure-accumulation"
-        ( Text.unlines
-            [ "[1].",
-              "data Box = Box.",
-              "()."
-            ]
-        )
-    ),
-    ( "anonymous-lambda-result",
-      sourceFixtureNoExports
-        "anonymous-lambda-result"
-        "\\(flag) -> flag == True."
-    ),
-    ( "signed-function-only",
-      sourceFixtureNoExports
-        "signed-function-only"
-        ( Text.unlines
-            [ "identity :: Int -> Int.",
-              "identity = \\(item) -> item."
-            ]
-        )
-    ),
-    ( "missing-result-failure-accumulation",
-      sourceFixtureNoExports
-        "missing-result-failure-accumulation"
-        ( Text.unlines
-            [ "seed :: Int.",
-              "seed = 1.",
-              "addSeed :: Int -> Int.",
-              "addSeed = \\(item) -> item + seed."
-            ]
-        )
-    ),
-    ( "nested-unsupported-children",
-      sourceFixtureNoExports
-        "nested-unsupported-children"
-        "if True then [1] else [2]."
-    ),
-    ( "pattern-case-unsupported-children",
-      sourceFixtureNoExports
-        "pattern-case-unsupported-children"
-        "case [1] { | _ -> [2] }."
-    ),
-    ( "guarded-pattern-case-unsupported-children",
-      sourceFixtureNoExports
-        "guarded-pattern-case-unsupported-children"
-        "case [1] { | _ if if True then True else False -> [2] }."
-    ),
-    ( "nested-block-unsupported-child",
-      sourceFixtureNoExports
-        "nested-block-unsupported-child"
-        "{ ignored = [1]. [2]. }."
-    ),
-    ( "unsupported-binary-child",
-      sourceFixtureNoExports
-        "unsupported-binary-child"
-        ( Text.unlines
-            [ "operator %% tier 2.",
-              "(%%) :: Int -> Int -> Int.",
-              "(%%) = \\(left, right) -> left + right.",
-              "(if True then 1 else 2) %% (if True then 3 else 4)."
-            ]
-        )
-    ),
-    ( "left-section-unsupported-child",
-      sourceFixtureNoExports
-        "left-section-unsupported-child"
-        "((if True then 1 else 2) +)."
-    ),
-    ( "right-section-unsupported-child",
-      sourceFixtureNoExports
-        "right-section-unsupported-child"
-        "(+ (if True then 1 else 2))."
-    ),
-    ( "type-application-composite",
-      sourceFixtureNoExports
-        "type-application-composite"
-        ( Text.unlines
-            [ "identity :: a -> a.",
-              "identity = \\(item) -> item.",
-              "identity @Int 1."
-            ]
-        )
-    ),
-    ( "signed-function-rebinding",
-      sourceFixtureNoExports
-        "signed-function-rebinding"
-        ( Text.unlines
-            [ "identity :: Int -> Int.",
-              "identity = \\(item) -> item.",
-              "identity :: Int -> Int.",
-              "identity = \\(item) -> item + 1.",
-              "identity 1."
-            ]
-        )
-    ),
-    ( "duplicate-leading-parameters",
-      sourceFixtureNoExports
-        "duplicate-leading-parameters"
-        ( Text.unlines
-            [ "chooseSecond :: Int -> Int -> Int.",
-              "chooseSecond = \\(item, item) -> item.",
-              "chooseSecond 1 2."
-            ]
-        )
-    ),
-    ( "curried-shadowed-parameter",
-      sourceFixtureNoExports
-        "curried-shadowed-parameter"
-        ( Text.unlines
-            [ "chooseSecond :: Int -> Int -> Int.",
-              "chooseSecond = \\(item) -> \\(item) -> item.",
-              "chooseSecond 1 2."
-            ]
-        )
-    ),
-    ( "out-of-range-signed-function-literal",
-      sourceFixtureNoExports
-        "out-of-range-signed-function-literal"
-        ( Text.unlines
-            [ "invalid :: Bool -> Int8.",
-              "invalid = \\(ignored) -> 999.",
-              "invalid True."
-            ]
-        )
-    ),
-    ( "class-impl-declarations",
-      sourceFixtureNoExports
-        "class-impl-declarations"
-        ( Text.unlines
-            [ "class Marker(a) { }.",
-              "impl Marker(Int) { }.",
-              "1."
-            ]
-        )
-    ),
-    ( "impl-method-profile-failure",
-      sourceFixtureNoExports
-        "impl-method-profile-failure"
-        ( Text.unlines
-            [ "class Items(a) { items :: a -> [Int]. }.",
-              "impl Items(Int) { items = \\(item) -> [item]. }.",
-              "()."
-            ]
-        )
-    ),
-    ( "unsupported-binding-child-failure",
-      sourceFixtureNoExports
-        "unsupported-binding-child-failure"
-        ( Text.unlines
-            [ "seed = [1].",
-              "()."
-            ]
-        )
-    ),
-    ( "invalid-forward-signed-function",
-      sourceFixtureNoExports
-        "invalid-forward-signed-function"
-        ( Text.unlines
-            [ "first :: Int -> Int.",
-              "first = \\(item) -> later item.",
-              "later :: Int -> Int.",
-              "later = \\(item) -> item True.",
-              "first 1."
-            ]
-        )
-    ),
-    ( "qualified-method-profile-rejection",
-      sourceFixtureNoExports
-        "qualified-method-profile-rejection"
-        ( Text.unlines
-            [ "class Choice(a) { pick :: a -> Bool. }.",
-              "impl Choice(Int) { pick = \\(candidate) -> True. }.",
-              "impl Choice(Bool) { pick = \\(candidate) -> False. }.",
-              "Choice::pick 1."
-            ]
-        )
-    ),
-    ( "out-of-range-default-integer",
-      sourceFixtureNoExports
-        "out-of-range-default-integer"
-        "9223372036854775808."
-    ),
-    ( "out-of-range-default-integer-binary",
-      sourceFixtureNoExports
-        "out-of-range-default-integer-binary"
-        "9223372036854775807 + 1."
-    ),
-    ( "integer-literal-float64-promotion",
-      sourceFixtureNoExports
-        "integer-literal-float64-promotion"
-        "1 + 2.0."
-    ),
-    ( "integer-literal-float64-equality",
-      sourceFixtureNoExports
-        "integer-literal-float64-equality"
-        "1 == 2.0."
-    ),
-    ( "signed-parameter-float64-promotion",
-      sourceFixtureNoExports
-        "signed-parameter-float64-promotion"
-        ( Text.unlines
-            [ "promote :: Int -> Float64 -> Float64.",
-              "promote = \\(whole, fractional) -> whole + fractional.",
-              "promote 1 2.0."
-            ]
-        )
-    )
-  ]
+         ( "default-exported-polymorphic-callable",
+           sourceFixture
+             "default-exported-polymorphic-callable"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "identity :: a -> a.",
+                   "identity = \\(item) -> item.",
+                   "()."
+                 ]
+             )
+         ),
+         ( "self-recursive-function-rebinding",
+           sourceFixtureNoExports
+             "self-recursive-function-rebinding"
+             ( Text.unlines
+                 [ "loop :: Int -> Int.",
+                   "loop = \\(item) -> loop item.",
+                   "loop :: Int -> Int.",
+                   "loop = \\(item) -> loop (if True then item else item).",
+                   "loop 1."
+                 ]
+             )
+         ),
+         ( "later-callable-rebinding-calls-nearest-prior",
+           sourceFixtureNoExports
+             "later-callable-rebinding-calls-nearest-prior"
+             ( Text.unlines
+                 [ "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> item.",
+                   "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> identity item.",
+                   "identity True."
+                 ]
+             )
+         ),
+         ( "intervening-scalar-canonical-ownership",
+           sourceFixtureNoExports
+             "intervening-scalar-canonical-ownership"
+             ( Text.unlines
+                 [ "a :: Bool -> Bool.",
+                   "a = \\(item) -> b item.",
+                   "a = True.",
+                   "b :: Bool -> Bool.",
+                   "b = \\(item) -> a.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "multiple-intervening-scalars-canonical-ownership",
+           sourceFixtureNoExports
+             "multiple-intervening-scalars-canonical-ownership"
+             ( Text.unlines
+                 [ "a :: Bool -> Bool.",
+                   "a = \\(item) -> b item.",
+                   "a = True.",
+                   "a = False.",
+                   "b :: Bool -> Bool.",
+                   "b = \\(item) -> a.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "interleaved-callable-scalar-canonical-ownership",
+           sourceFixtureNoExports
+             "interleaved-callable-scalar-canonical-ownership"
+             ( Text.unlines
+                 [ "a :: Bool -> Bool.",
+                   "a = \\(item) -> b item.",
+                   "a = True.",
+                   "a :: Bool -> Bool.",
+                   "a = \\(item) -> b item.",
+                   "a = False.",
+                   "b :: Bool -> Bool.",
+                   "b = \\(item) -> a.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "three-same-name-nearest-prior-mutual-recursion",
+           sourceFixtureNoExports
+             "three-same-name-nearest-prior-mutual-recursion"
+             ( Text.unlines
+                 [ "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> item.",
+                   "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> item.",
+                   "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> peer item.",
+                   "peer :: Bool -> Bool.",
+                   "peer = \\(item) -> identity item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "canonical-self-recursion-no-prior",
+           sourceFixtureNoExports
+             "canonical-self-recursion-no-prior"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> loop item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "canonical-mutual-recursion-peers",
+           sourceFixtureNoExports
+             "canonical-mutual-recursion-peers"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = \\(item) -> right item.",
+                   "right :: Bool -> Bool.",
+                   "right = \\(item) -> left item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "nearest-rebinding-mutual-control",
+           sourceFixtureNoExports
+             "nearest-rebinding-mutual-control"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = \\(item) -> item.",
+                   "right :: Bool -> Bool.",
+                   "right = \\(item) -> left item.",
+                   "left :: Bool -> Bool.",
+                   "left = \\(item) -> right item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rebinding-parameter-shadow-control",
+           sourceFixtureNoExports
+             "rebinding-parameter-shadow-control"
+             ( Text.unlines
+                 [ "apply :: (Bool -> Bool) -> Bool.",
+                   "apply = \\(function) -> function True.",
+                   "apply :: (Bool -> Bool) -> Bool.",
+                   "apply = \\(apply) -> apply True.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rebinding-local-shadow-control",
+           sourceFixtureNoExports
+             "rebinding-local-shadow-control"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> item.",
+                   "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-self-alias-recursion",
+           sourceFixtureNoExports
+             "rejected-self-alias-recursion"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = loop.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-mutual-alias-recursion",
+           sourceFixtureNoExports
+             "rejected-mutual-alias-recursion"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = right.",
+                   "right :: Bool -> Bool.",
+                   "right = left.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-alias-conditional-mutual-recursion",
+           sourceFixtureNoExports
+             "rejected-alias-conditional-mutual-recursion"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = right.",
+                   "right :: Bool -> Bool.",
+                   "right = if True then left else left.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-operator-alias-self-recursion",
+           sourceFixtureNoExports
+             "rejected-operator-alias-self-recursion"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "(%%) :: Int -> Int -> Int.",
+                   "(%%) = (%%).",
+                   "0."
+                 ]
+             )
+         ),
+         ( "rejected-eager-operator-conditional-control",
+           sourceFixtureNoExports
+             "rejected-eager-operator-conditional-control"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "(%%) :: Bool -> Bool -> Bool.",
+                   "(%%) = if True %% False then (%%) else (%%).",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-alias-parameter-shadow-control",
+           sourceFixtureNoExports
+             "rejected-alias-parameter-shadow-control"
+             ( Text.unlines
+                 [ "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> item.",
+                   "loop :: Bool -> Bool.",
+                   "loop = (\\(loop) -> loop) identity.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-alias-local-shadow-control",
+           sourceFixtureNoExports
+             "rejected-alias-local-shadow-control"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = {",
+                   "  loop :: Bool -> Bool.",
+                   "  loop = \\(item) -> item.",
+                   "  loop.",
+                   "}.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-eager-self-before-callable-result-control",
+           sourceFixtureNoExports
+             "rejected-eager-self-before-callable-result-control"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = { f True. \\(x) -> x. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-nearest-prior-callable-rebinding-recursion",
+           sourceFixtureNoExports
+             "rejected-block-nearest-prior-callable-rebinding-recursion"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = { inner :: Bool -> Bool. inner = \\(x) -> f x. inner = inner. inner. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-conditional-self-recursion",
+           sourceFixtureNoExports
+             "rejected-conditional-self-recursion"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> if item then loop False else item.",
+                   "loop True."
+                 ]
+             )
+         ),
+         ( "rejected-block-conditional-mutual-recursion",
+           sourceFixtureNoExports
+             "rejected-block-conditional-mutual-recursion"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = \\(item) -> { right item. }.",
+                   "right :: Bool -> Bool.",
+                   "right = \\(item) -> if item then left False else item.",
+                   "left True."
+                 ]
+             )
+         ),
+         ( "rejected-block-parameter-shadow-control",
+           sourceFixtureNoExports
+             "rejected-block-parameter-shadow-control"
+             ( Text.unlines
+                 [ "apply :: (Bool -> Bool) -> Bool.",
+                   "apply = \\(function) -> function True.",
+                   "forward :: (Bool -> Bool) -> Bool.",
+                   "forward = \\(forward) -> { apply forward. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-later-shadow-control",
+           sourceFixtureNoExports
+             "rejected-block-later-shadow-control"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> { loop item. loop = \\(nested) -> nested. loop item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-initializer-self-recursion",
+           sourceFixtureNoExports
+             "rejected-block-initializer-self-recursion"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> { loop = loop item. item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-initializer-mutual-recursion",
+           sourceFixtureNoExports
+             "rejected-block-initializer-mutual-recursion"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = \\(item) -> { right = right item. item. }.",
+                   "right :: Bool -> Bool.",
+                   "right = \\(item) -> { left = left item. item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "nested-prior-outer-alias-mutual-recursion",
+           sourceFixtureNoExports
+             "nested-prior-outer-alias-mutual-recursion"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = \\(item) -> right item.",
+                   "right :: Bool -> Bool.",
+                   "right = \\(item) -> { left = left. item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "nested-prior-outer-conditional-alias-mutual-recursion",
+           sourceFixtureNoExports
+             "nested-prior-outer-conditional-alias-mutual-recursion"
+             ( Text.unlines
+                 [ "left :: Bool -> Bool.",
+                   "left = \\(item) -> right item.",
+                   "right :: Bool -> Bool.",
+                   "right = \\(item) -> { left = if item then left else left. item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "nested-self-recursive-lambda-local-ownership",
+           sourceFixtureNoExports
+             "nested-self-recursive-lambda-local-ownership"
+             ( Text.unlines
+                 [ "owner :: Bool -> Bool.",
+                   "owner = \\(item) -> { loop = \\(nested) -> loop nested. item. }.",
+                   "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> owner item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "accepted-then-rejected-callable-rebinding",
+           sourceFixtureNoExports
+             "accepted-then-rejected-callable-rebinding"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = \\(item) -> item.",
+                   "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> item else \\(item) -> item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-recursive-callable-rebinding-order",
+           sourceFixtureNoExports
+             "rejected-recursive-callable-rebinding-order"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = \\(item) -> item.",
+                   "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> g item else \\(item) -> g item.",
+                   "g :: Bool -> Bool.",
+                   "g = \\(item) -> f item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-then-accepted-callable-rebinding",
+           sourceFixtureNoExports
+             "rejected-then-accepted-callable-rebinding"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> item else \\(item) -> item.",
+                   "f :: Bool -> Bool.",
+                   "f = \\(item) -> item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "repeated-rejected-callable-rebinding",
+           sourceFixtureNoExports
+             "repeated-rejected-callable-rebinding"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> item else \\(item) -> item.",
+                   "f :: Bool -> Bool.",
+                   "f = if False then \\(item) -> item else \\(item) -> item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "scalar-then-rejected-callable-control",
+           sourceFixtureNoExports
+             "scalar-then-rejected-callable-control"
+             ( Text.unlines
+                 [ "f = True.",
+                   "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> item else \\(item) -> item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "accepted-scalar-rejected-callable-rebinding",
+           sourceFixtureNoExports
+             "accepted-scalar-rejected-callable-rebinding"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = \\(item) -> item.",
+                   "f = True.",
+                   "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> item else \\(item) -> item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-scalar-accepted-callable-rebinding",
+           sourceFixtureNoExports
+             "rejected-scalar-accepted-callable-rebinding"
+             ( Text.unlines
+                 [ "f :: Bool -> Bool.",
+                   "f = if True then \\(item) -> item else \\(item) -> item.",
+                   "f = True.",
+                   "f :: Bool -> Bool.",
+                   "f = \\(item) -> item.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-later-signed-shadow-control",
+           sourceFixtureNoExports
+             "rejected-block-later-signed-shadow-control"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> {",
+                   "  observed = loop item.",
+                   "  loop :: Bool -> Bool.",
+                   "  loop = \\(nested) -> nested.",
+                   "  loop item.",
+                   "}.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-local-shadow-cycle-control",
+           sourceFixtureNoExports
+             "rejected-block-local-shadow-cycle-control"
+             ( Text.unlines
+                 [ "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> forward item.",
+                   "forward :: Bool -> Bool.",
+                   "forward = \\(item) -> { loop = \\(nested) -> nested. loop item. }.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-block-parameter-shadow-cycle-control",
+           sourceFixtureNoExports
+             "rejected-block-parameter-shadow-cycle-control"
+             ( Text.unlines
+                 [ "forward :: (Bool -> Bool) -> Bool.",
+                   "forward = \\(loop) -> { loop True. }.",
+                   "identity :: Bool -> Bool.",
+                   "identity = \\(item) -> item.",
+                   "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> forward identity.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "rejected-operator-value-self-recursion",
+           sourceFixtureNoExports
+             "rejected-operator-value-self-recursion"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "(%%) :: Int -> Int -> Int.",
+                   "(%%) = \\(left, right) -> (%%) left right.",
+                   "0."
+                 ]
+             )
+         ),
+         ( "rejected-infix-operator-mutual-recursion",
+           sourceFixtureNoExports
+             "rejected-infix-operator-mutual-recursion"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "operator ~~ tier 2.",
+                   "(%%) :: Int -> Int -> Int.",
+                   "(%%) = \\(left, right) -> left ~~ right.",
+                   "(~~) :: Int -> Int -> Int.",
+                   "(~~) = \\(left, right) -> left %% right.",
+                   "0."
+                 ]
+             )
+         ),
+         ( "rejected-section-operator-mutual-recursion",
+           sourceFixtureNoExports
+             "rejected-section-operator-mutual-recursion"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "operator ~~ tier 2.",
+                   "(%%) :: Int -> Int -> Int.",
+                   "(%%) = \\(left, right) -> (left ~~) right.",
+                   "(~~) :: Int -> Int -> Int.",
+                   "(~~) = \\(left, right) -> (%% right) left.",
+                   "0."
+                 ]
+             )
+         ),
+         ( "unit-forward-function",
+           sourceFixtureNoExports
+             "unit-forward-function"
+             ( Text.unlines
+                 [ "first :: () -> ().",
+                   "first = \\(item) -> second item.",
+                   "second :: () -> ().",
+                   "second = \\(item) -> item.",
+                   "first ()."
+                 ]
+             )
+         ),
+         ( "curried-first-argument-capture",
+           sourceFixtureNoExports
+             "curried-first-argument-capture"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "combine :: Int -> Int -> Int.",
+                   "combine = \\(left, right) -> left + right.",
+                   "use :: Int -> Int.",
+                   "use = \\(item) -> combine seed item.",
+                   "use 1."
+                 ]
+             )
+         ),
+         ( "partial-call-argument-capture",
+           sourceFixtureNoExports
+             "partial-call-argument-capture"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "combine :: Int -> Int -> Int.",
+                   "combine = \\(left, right) -> left + right.",
+                   "combine seed."
+                 ]
+             )
+         ),
+         ( "closure-use-argument-failure-order",
+           sourceFixtureNoExports
+             "closure-use-argument-failure-order"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "apply :: (Int -> Int) -> Int.",
+                   "apply = \\(function) -> function seed.",
+                   "identity :: Int -> Int.",
+                   "identity = \\(item) -> item.",
+                   "apply identity.",
+                   "[1]."
+                 ]
+             )
+         ),
+         ( "non-local-call-argument-capture",
+           sourceFixtureNoExports
+             "non-local-call-argument-capture"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "__kernel_toFloat64 seed."
+                 ]
+             )
+         ),
+         ( "higher-order-parameter",
+           sourceFixtureNoExports
+             "higher-order-parameter"
+             ( Text.unlines
+                 [ "ignore :: (Int -> Int) -> Int.",
+                   "ignore = \\(function) -> 1.",
+                   "1."
+                 ]
+             )
+         ),
+         ( "narrow-literal-direct-call",
+           sourceFixtureNoExports
+             "narrow-literal-direct-call"
+             ( Text.unlines
+                 [ "narrowIdentity :: Int8 -> Int8.",
+                   "narrowIdentity = \\(item) -> item.",
+                   "narrowIdentity 1."
+                 ]
+             )
+         ),
+         ( "narrow-composite-function-result",
+           sourceFixtureNoExports
+             "narrow-composite-function-result"
+             ( Text.unlines
+                 [ "narrowSum :: Bool -> Int8.",
+                   "narrowSum = \\(ignored) -> 1 + 2.",
+                   "narrowSum True."
+                 ]
+             )
+         ),
+         ( "narrow-comparison-operand",
+           sourceFixtureNoExports
+             "narrow-comparison-operand"
+             ( Text.unlines
+                 [ "isSmall :: Int8 -> Bool.",
+                   "isSmall = \\(item) -> item < 2.",
+                   "isSmall 1."
+                 ]
+             )
+         ),
+         ( "narrow-root-binary-direct-call",
+           sourceFixtureNoExports
+             "narrow-root-binary-direct-call"
+             ( Text.unlines
+                 [ "narrowIdentity :: Int8 -> Int8.",
+                   "narrowIdentity = \\(item) -> item.",
+                   "narrowIdentity 1 + 2."
+                 ]
+             )
+         ),
+         ( "equivalent-scalar-alias-specialization",
+           sourceFixtureNoExports
+             "equivalent-scalar-alias-specialization"
+             ( Text.unlines
+                 [ "asInt :: Bool -> Int.",
+                   "asInt = \\(ignored) -> 1.",
+                   "asInt64 :: Bool -> Int64.",
+                   "asInt64 = \\(flag) -> asInt flag.",
+                   "acceptInt64 :: Int64 -> Int64.",
+                   "acceptInt64 = \\(item) -> item.",
+                   "useInt64 :: Bool -> Int64.",
+                   "useInt64 = \\(flag) -> acceptInt64 (asInt flag).",
+                   "asFloat :: Bool -> Float.",
+                   "asFloat = \\(ignored) -> 1.5.",
+                   "asFloat64 :: Bool -> Float64.",
+                   "asFloat64 = \\(flag) -> asFloat flag.",
+                   "acceptFloat64 :: Float64 -> Float64.",
+                   "acceptFloat64 = \\(item) -> item.",
+                   "acceptFloat64 (asFloat True)."
+                 ]
+             )
+         ),
+         ( "unused-user-defined-operator",
+           sourceFixtureNoExports
+             "unused-user-defined-operator"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "(%%) :: Int -> Int -> Int.",
+                   "(%%) = \\(left, right) -> left + right.",
+                   "()."
+                 ]
+             )
+         ),
+         ( "root-data-failure-accumulation",
+           sourceFixtureNoExports
+             "root-data-failure-accumulation"
+             ( Text.unlines
+                 [ "[1].",
+                   "data Box = Box.",
+                   "()."
+                 ]
+             )
+         ),
+         ( "anonymous-lambda-result",
+           sourceFixtureNoExports
+             "anonymous-lambda-result"
+             "\\(flag) -> flag == True."
+         ),
+         ( "inline-anonymous-lambda-call",
+           sourceFixtureNoExports
+             "inline-anonymous-lambda-call"
+             "(\\(item) -> item + 1) 41."
+         ),
+         ( "nested-scalar-capture",
+           sourceFixtureNoExports
+             "nested-scalar-capture"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "\\(outer) -> \\(item) -> item + outer + seed."
+                 ]
+             )
+         ),
+         ( "nested-shadow-capture-order",
+           sourceFixtureNoExports
+             "nested-shadow-capture-order"
+             ( Text.unlines
+                 [ "left :: Int.",
+                   "left = 10.",
+                   "right :: Int.",
+                   "right = 20.",
+                   "\\(outer) -> \\(left) -> right + outer + left + right."
+                 ]
+             )
+         ),
+         ( "nested-closure-valued-capture",
+           sourceFixtureNoExports
+             "nested-closure-valued-capture"
+             "\\(predicate) -> \\(item) -> predicate (item == True) == True."
+         ),
+         ( "unsupported-managed-capture",
+           sourceFixtureNoExports
+             "unsupported-managed-capture"
+             ( Text.unlines
+                 [ "message = \"managed\".",
+                   "check :: Bool -> Bool.",
+                   "check = \\(ignored) -> message == message.",
+                   "()."
+                 ]
+             )
+         ),
+         ( "signed-function-only",
+           sourceFixtureNoExports
+             "signed-function-only"
+             ( Text.unlines
+                 [ "identity :: Int -> Int.",
+                   "identity = \\(item) -> item."
+                 ]
+             )
+         ),
+         ( "missing-result-failure-accumulation",
+           sourceFixtureNoExports
+             "missing-result-failure-accumulation"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "addSeed :: Int -> Int.",
+                   "addSeed = \\(item) -> item + seed."
+                 ]
+             )
+         ),
+         ( "nested-unsupported-children",
+           sourceFixtureNoExports
+             "nested-unsupported-children"
+             "if True then [1] else [2]."
+         ),
+         ( "pattern-case-unsupported-children",
+           sourceFixtureNoExports
+             "pattern-case-unsupported-children"
+             "case [1] { | _ -> [2] }."
+         ),
+         ( "guarded-pattern-case-unsupported-children",
+           sourceFixtureNoExports
+             "guarded-pattern-case-unsupported-children"
+             "case [1] { | _ if if True then True else False -> [2] }."
+         ),
+         ( "nested-block-unsupported-child",
+           sourceFixtureNoExports
+             "nested-block-unsupported-child"
+             "{ ignored = [1]. [2]. }."
+         ),
+         ( "unsupported-binary-child",
+           sourceFixtureNoExports
+             "unsupported-binary-child"
+             ( Text.unlines
+                 [ "operator %% tier 2.",
+                   "(%%) :: Int -> Int -> Int.",
+                   "(%%) = \\(left, right) -> left + right.",
+                   "(if True then 1 else 2) %% (if True then 3 else 4)."
+                 ]
+             )
+         ),
+         ( "left-section-unsupported-child",
+           sourceFixtureNoExports
+             "left-section-unsupported-child"
+             "((if True then 1 else 2) +)."
+         ),
+         ( "right-section-unsupported-child",
+           sourceFixtureNoExports
+             "right-section-unsupported-child"
+             "(+ (if True then 1 else 2))."
+         ),
+         ( "type-application-composite",
+           sourceFixtureNoExports
+             "type-application-composite"
+             ( Text.unlines
+                 [ "identity :: a -> a.",
+                   "identity = \\(item) -> item.",
+                   "identity @Int 1."
+                 ]
+             )
+         ),
+         ( "signed-function-rebinding",
+           sourceFixtureNoExports
+             "signed-function-rebinding"
+             ( Text.unlines
+                 [ "identity :: Int -> Int.",
+                   "identity = \\(item) -> item.",
+                   "identity :: Int -> Int.",
+                   "identity = \\(item) -> item + 1.",
+                   "identity 1."
+                 ]
+             )
+         ),
+         ( "duplicate-leading-parameters",
+           sourceFixtureNoExports
+             "duplicate-leading-parameters"
+             ( Text.unlines
+                 [ "chooseSecond :: Int -> Int -> Int.",
+                   "chooseSecond = \\(item, item) -> item.",
+                   "chooseSecond 1 2."
+                 ]
+             )
+         ),
+         ( "curried-shadowed-parameter",
+           sourceFixtureNoExports
+             "curried-shadowed-parameter"
+             ( Text.unlines
+                 [ "chooseSecond :: Int -> Int -> Int.",
+                   "chooseSecond = \\(item) -> \\(item) -> item.",
+                   "chooseSecond 1 2."
+                 ]
+             )
+         ),
+         ( "out-of-range-signed-function-literal",
+           sourceFixtureNoExports
+             "out-of-range-signed-function-literal"
+             ( Text.unlines
+                 [ "invalid :: Bool -> Int8.",
+                   "invalid = \\(ignored) -> 999.",
+                   "invalid True."
+                 ]
+             )
+         ),
+         ( "class-impl-declarations",
+           sourceFixtureNoExports
+             "class-impl-declarations"
+             ( Text.unlines
+                 [ "class Marker(a) { }.",
+                   "impl Marker(Int) { }.",
+                   "1."
+                 ]
+             )
+         ),
+         ( "impl-method-profile-failure",
+           sourceFixtureNoExports
+             "impl-method-profile-failure"
+             ( Text.unlines
+                 [ "class Items(a) { items :: a -> [Int]. }.",
+                   "impl Items(Int) { items = \\(item) -> [item]. }.",
+                   "()."
+                 ]
+             )
+         ),
+         ( "unsupported-binding-child-failure",
+           sourceFixtureNoExports
+             "unsupported-binding-child-failure"
+             ( Text.unlines
+                 [ "seed = [1].",
+                   "()."
+                 ]
+             )
+         ),
+         ( "invalid-forward-signed-function",
+           sourceFixtureNoExports
+             "invalid-forward-signed-function"
+             ( Text.unlines
+                 [ "first :: Int -> Int.",
+                   "first = \\(item) -> later item.",
+                   "later :: Int -> Int.",
+                   "later = \\(item) -> item True.",
+                   "first 1."
+                 ]
+             )
+         ),
+         ( "qualified-method-profile-rejection",
+           sourceFixtureNoExports
+             "qualified-method-profile-rejection"
+             ( Text.unlines
+                 [ "class Choice(a) { pick :: a -> Bool. }.",
+                   "impl Choice(Int) { pick = \\(candidate) -> True. }.",
+                   "impl Choice(Bool) { pick = \\(candidate) -> False. }.",
+                   "Choice::pick 1."
+                 ]
+             )
+         ),
+         ( "out-of-range-default-integer",
+           sourceFixtureNoExports
+             "out-of-range-default-integer"
+             "9223372036854775808."
+         ),
+         ( "out-of-range-default-integer-binary",
+           sourceFixtureNoExports
+             "out-of-range-default-integer-binary"
+             "9223372036854775807 + 1."
+         ),
+         ( "integer-literal-float64-promotion",
+           sourceFixtureNoExports
+             "integer-literal-float64-promotion"
+             "1 + 2.0."
+         ),
+         ( "integer-literal-float64-equality",
+           sourceFixtureNoExports
+             "integer-literal-float64-equality"
+             "1 == 2.0."
+         ),
+         ( "signed-parameter-float64-promotion",
+           sourceFixtureNoExports
+             "signed-parameter-float64-promotion"
+             ( Text.unlines
+                 [ "promote :: Int -> Float64 -> Float64.",
+                   "promote = \\(whole, fractional) -> whole + fractional.",
+                   "promote 1 2.0."
+                 ]
+             )
+         )
+       ]
 
 explicitNumericTypes :: [Text]
 explicitNumericTypes =
@@ -3436,9 +3642,12 @@ boolCallableInfo =
     []
 charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
 intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
+
 inferredIntInfo :: TypedNodeInfo
 inferredIntInfo = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+
 floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
+
 textInfo = TypedNodeInfo TypedTextType TypedManagedTextRecipe [] []
 
 boolExpr :: Bool -> TypedExpr
