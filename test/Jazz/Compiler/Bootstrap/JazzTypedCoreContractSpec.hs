@@ -56,7 +56,12 @@ main = runTestSuite "JazzTypedCoreContract" tests
 
 tests :: [NamedTest]
 tests =
-  coreTests <> map fst reviewRegressionGroups <> [("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)]
+  coreTests
+    <> map fst reviewRegressionGroups
+    <> [ ("uses nearest-prior dependencies through rebinding", testNearestPriorBindingDependencies),
+         ("preserves source-ordered recursive visibility", testSourceOrderedRecursiveVisibility),
+         ("matches Haskell validation for every fixed and review fixture twice", testJazzValidationParity)
+       ]
 
 coreTests :: [NamedTest]
 coreTests =
@@ -361,7 +366,7 @@ reviewRegressionGroups =
     (("generalizes imported class methods without losing dispatch", testGeneralizedClassMethodImport), [generalizedClassMethodImportProgram, missingImportedClassMethodDispatchProgram]),
     (("rejects colliding imported class identifiers", testImportedClassCollision), [importedClassCollisionProgram]),
     (("preserves block statement scope order", testForwardBlockReference), [forwardBlockReferenceProgram]),
-    (("preserves proven recursive block peers", testRecursiveBlockPeers), [recursiveBlockPeerProgram]),
+    (("preserves proven recursive block peers", testRecursiveBlockPeers), [recursiveBlockPeerProgram, sourceOrderedRecursiveVisibilityProgram]),
     (("rejects malformed generalized literal bounds", testMalformedLiteralConstraintBounds), [malformedLiteralConstraintBoundsProgram]),
     (("preserves instantiated evidence order", testEvidenceSelectionOrder), [evidenceSelectionOrderProgram]),
     (("keeps private capability metadata out of source visibility", testPrivateCapabilityMetadataVisibility), [privateCapabilityMetadataVisibilityProgram]),
@@ -372,7 +377,7 @@ reviewRegressionGroups =
     (("keeps metadata-only impls out of evidence visibility", testMetadataOnlyImplVisibility), [metadataOnlyImplVisibilityProgram]),
     (("rejects expression-only metadata on patterns", testPatternExpressionMetadata), [patternExpressionMetadataProgram]),
     (("allows phantom data arguments in strict equality", testPhantomDataEquality), [phantomDataEqualityProgram]),
-    (("preserves same-scope value rebinding", testSameScopeValueRebinding), [sameScopeValueRebindingProgram]),
+    (("preserves same-scope value rebinding", testSameScopeValueRebinding), [sameScopeValueRebindingProgram, nearestPriorBindingDependencyProgram]),
     (("locks narrow forward signed-function visibility", testForwardSignedFunctionVisibility), map snd forwardSignedVisibilityPrograms),
     (("keeps forward signed-function visibility out of nested blocks", testNestedForwardSignedFunctionInvisibility), [nestedForwardSignedFunctionProgram]),
     (("preserves top-level statement scope order", testForwardModuleReference), [forwardModuleReferenceProgram]),
@@ -4660,6 +4665,35 @@ testSameScopeValueRebinding =
     "signed value rebinding remains valid and last-wins"
     []
     (validateTypedProgram sameScopeValueRebindingProgram)
+
+testNearestPriorBindingDependencies :: IO ()
+testNearestPriorBindingDependencies =
+  assertEqual
+    "acyclic binding chains resolve a repeated name to its nearest prior declaration"
+    []
+    (validateTypedProgram nearestPriorBindingDependencyProgram)
+
+testSourceOrderedRecursiveVisibility :: IO ()
+testSourceOrderedRecursiveVisibility =
+  assertEqual
+    "recursive groups retain source order without leaking future peers to interleaved statements"
+    [ expressionFailureAt
+        "review-source-ordered-recursive-visibility"
+        1
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "tail")),
+      expressionFailureAt
+        "review-source-ordered-recursive-visibility"
+        3
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "tail")),
+      expressionFailureAt
+        "review-source-ordered-recursive-visibility"
+        5
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "tail"))
+    ]
+    (validateTypedProgram sourceOrderedRecursiveVisibilityProgram)
 
 testForwardSignedFunctionVisibility :: IO ()
 testForwardSignedFunctionVisibility = do
@@ -9220,6 +9254,92 @@ sameScopeValueRebindingProgram =
           secondScheme
           (TypedLiteralExpr textInfo (TypedTextLiteral "latest")),
         expressionStatement 4 (fixtureBoundVariableExpr secondOwner textInfo valueName)
+      ]
+
+nearestPriorBindingDependencyProgram :: TypedProgram
+nearestPriorBindingDependencyProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-nearest-prior-binding-dependency"
+    modulePath = fixtureModulePath fixture
+    repeatedName = fixtureValueName "item"
+    linkName = fixtureValueName "link"
+    resultName = fixtureValueName "result"
+    firstOwner = binder modulePath [0] repeatedName
+    linkOwner = binder modulePath [1] linkName
+    secondOwner = binder modulePath [2] repeatedName
+    resultOwner = binder modulePath [3] resultName
+    statements =
+      [ TypedLetStatement firstOwner repeatedName span1 (monoScheme firstOwner) trueExpr,
+        TypedLetStatement
+          linkOwner
+          linkName
+          span1
+          (monoScheme linkOwner)
+          (fixtureBoundVariableExpr firstOwner boolInfo repeatedName),
+        TypedLetStatement
+          secondOwner
+          repeatedName
+          span1
+          (monoScheme secondOwner)
+          (fixtureBoundVariableExpr linkOwner boolInfo linkName),
+        TypedLetStatement
+          resultOwner
+          resultName
+          span1
+          (monoScheme resultOwner)
+          (fixtureBoundVariableExpr secondOwner boolInfo repeatedName),
+        expressionStatement 4 (fixtureBoundVariableExpr resultOwner boolInfo resultName)
+      ]
+
+sourceOrderedRecursiveVisibilityProgram :: TypedProgram
+sourceOrderedRecursiveVisibilityProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-source-ordered-recursive-visibility"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    bridgeName = fixtureValueName "bridge"
+    middleName = fixtureValueName "middle"
+    tailName = fixtureValueName "tail"
+    firstOwner = binder modulePath [0] firstName
+    bridgeOwner = binder modulePath [2] bridgeName
+    middleOwner = binder modulePath [4] middleName
+    tailOwner = binder modulePath [6] tailName
+    recursiveBinding statementIndex owner name peerOwner peerName =
+      let argumentName = fixtureValueName ("argument" <> Text.pack (show statementIndex))
+          argumentOwner = binder modulePath [statementIndex, 0] argumentName
+       in TypedLetStatement
+            owner
+            name
+            span1
+            (fixtureScheme owner [] [] [] boolToBoolType boolToBoolRecipe)
+            ( TypedLambdaExpr
+                boolToBoolInfo
+                argumentOwner
+                argumentName
+                ( TypedApplyExpr
+                    boolInfo
+                    (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
+                    (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+                )
+            )
+    unseenTail = fixtureVariableExpr boolToBoolInfo tailName
+    statements =
+      [ recursiveBinding 0 firstOwner firstName tailOwner tailName,
+        expressionStatement 1 unseenTail,
+        recursiveBinding 2 bridgeOwner bridgeName firstOwner firstName,
+        expressionStatement 3 unseenTail,
+        recursiveBinding 4 middleOwner middleName bridgeOwner bridgeName,
+        expressionStatement 5 unseenTail,
+        recursiveBinding 6 tailOwner tailName middleOwner middleName,
+        expressionStatement
+          7
+          ( TypedApplyExpr
+              boolInfo
+              (fixtureBoundVariableExpr middleOwner boolToBoolInfo middleName)
+              trueExpr
+          )
       ]
 
 forwardModuleReferenceProgram :: TypedProgram

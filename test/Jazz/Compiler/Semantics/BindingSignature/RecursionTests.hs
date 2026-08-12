@@ -4,26 +4,55 @@ module Jazz.Compiler.Semantics.BindingSignature.RecursionTests
   ( recursionTests
   ) where
 
+import Control.Exception
+  ( ErrorCall,
+    try
+  )
+import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
+import Jazz.Compiler.AST
+  ( Expr (..),
+    Literal (..),
+    Statement (..)
+  )
+import Jazz.Compiler.Analyzer
+  ( AnalysisInputs (..),
+    AnalysisResult (..)
+  )
+import qualified Jazz.Compiler.Analyzer as Analyzer
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly)
+  )
+import Jazz.Compiler.Diagnostics
+  ( SourceSpan (..),
+    isErrorDiagnostic
+  )
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileExpr
   )
+import Jazz.Compiler.RecursiveBindings
+  ( prepareRecursiveScope
+  )
+import Jazz.Compiler.Semantics.BindingSignature.Shared
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertSingleDiagnosticContains
+    assertSingleDiagnosticContains,
+    failTest
   )
-import Jazz.Compiler.Semantics.BindingSignature.Shared
-
 recursionTests :: [NamedTest]
 recursionTests =
   [ ("self-recursive binding is accepted", testSelfRecursiveBinding)
     , ("mutual recursion group is accepted", testMutualRecursionGroup)
     , ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup)
     , ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
+    , ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts)
+    , ("prepared analyzer scopes rederive facts for current outer bindings", testPreparedAnalyzerScopeRederivesForOuterBindings)
+    , ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness)
     , ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
     , ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion)
     , ("source pipeline keeps nested recursive helper inferred method obligations scoped", testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped)
@@ -35,6 +64,7 @@ recursionTests =
     , ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding)
     , ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies)
     , ("source pipeline previews through intervening recursive group members", testSourcePreviewsThroughInterveningRecursiveGroupMembers)
+    , ("source pipeline previews overlapping interleaved recursive groups", testSourcePreviewsOverlappingInterleavedRecursiveGroups)
     , ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference)
     , ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion)
     , ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup)
@@ -66,6 +96,100 @@ testNonRecursiveForwardReference = do
     "error text"
     "unbound variable 'y'"
     (compileErrors result)
+
+testPreparedScopesCannotCrossPairStatementsAndFacts :: IO ()
+testPreparedScopesCannotCrossPairStatementsAndFacts = do
+  AnalysisResult recursiveExpr recursiveDiagnostics <-
+    Analyzer.analyzeProgramWithInputsAndPreparedScope
+      analysisInputs
+      Set.empty
+      (prepareRecursiveScope Set.empty recursiveStatements)
+  AnalysisResult forwardExpr forwardDiagnostics <-
+    Analyzer.analyzeProgramWithInputsAndPreparedScope
+      analysisInputs
+      Set.empty
+      (prepareRecursiveScope Set.empty forwardStatements)
+  assertEqual
+    "recursive prepared expression"
+    (EBlock recursiveStatements)
+    recursiveExpr
+  assertEqual
+    "recursive prepared diagnostics"
+    []
+    (filter isErrorDiagnostic recursiveDiagnostics)
+  assertEqual
+    "forward prepared expression"
+    (EBlock forwardStatements)
+    forwardExpr
+  assertSingleDiagnosticContains
+    "prepared scope forward reference"
+    "unbound variable 'y'"
+    (filter isErrorDiagnostic forwardDiagnostics)
+  where
+    recursiveStatements =
+      [ SLet "left" (SourceSpan 1 1) (EVar "right"),
+        SLet "right" (SourceSpan 2 1) (EVar "left"),
+        SExpr (SourceSpan 3 1) (EVar "left")
+      ]
+    forwardStatements =
+      [ SLet "x" (SourceSpan 1 1) (EVar "y"),
+        SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
+        SExpr (SourceSpan 3 1) (EVar "x")
+      ]
+
+testPreparedAnalyzerScopeRederivesForOuterBindings :: IO ()
+testPreparedAnalyzerScopeRederivesForOuterBindings = do
+  ordinaryResult <-
+    Analyzer.analyzeProgramWithInputs
+      analysisInputs
+      Set.empty
+      (EBlock statements)
+  preparedResult <-
+    Analyzer.analyzeProgramWithInputsAndPreparedScope
+      analysisInputs
+      Set.empty
+      (prepareRecursiveScope (Set.singleton "self") statements)
+  assertEqual "prepared scope under current inputs" ordinaryResult preparedResult
+  where
+    statements =
+      [ SLet "self" (SourceSpan 1 1) (EVar "self"),
+        SExpr (SourceSpan 2 1) (EVar "self")
+      ]
+
+testAnalyzerRootLaziness :: IO ()
+testAnalyzerRootLaziness = do
+  ordinaryOutcome <-
+    try
+      ( Analyzer.analyzeProgramWithInputs
+          analysisInputs
+          Set.empty
+          (error "ordinary analyzer root was forced")
+      ) :: IO (Either ErrorCall AnalysisResult)
+  case ordinaryOutcome of
+    Left _ -> failTest "expected ordinary analyzer roots to remain lazy"
+    Right _ -> pure ()
+
+  preparedOutcome <-
+    try
+      ( Analyzer.analyzeProgramWithInputsAndPreparedScope
+          analysisInputs
+          Set.empty
+          (prepareRecursiveScope Set.empty (error "prepared statements were retained lazily"))
+      ) :: IO (Either ErrorCall AnalysisResult)
+  case preparedOutcome of
+    Left _ -> pure ()
+    Right _ -> failTest "expected the analyzer boundary to force its prepared statements"
+
+analysisInputs :: AnalysisInputs
+analysisInputs =
+  AnalysisInputs
+    { analysisBuiltinMode = ResolveKernelOnly,
+      analysisWarningSettings = defaultWarningSettings,
+      analysisImportedValues = Map.empty,
+      analysisForwardFunctions = Map.empty,
+      analysisImportedClasses = Set.empty,
+      analysisModulePath = Nothing
+    }
 
 testRebindingDoesNotCreateRetroactiveRecursion :: IO ()
 testRebindingDoesNotCreateRetroactiveRecursion = do
@@ -187,6 +311,17 @@ testSourcePreviewsThroughInterveningRecursiveGroupMembers =
   right = if False then middle else left.
   late = left 1.
   late.
+  """
+
+testSourcePreviewsOverlappingInterleavedRecursiveGroups :: IO ()
+testSourcePreviewsOverlappingInterleavedRecursiveGroups =
+  assertSourceOk """
+  aLeft = if True then \\(x) -> x else aRight.
+  bLeft = if True then \\(x) -> x else bRight.
+  probe = (aLeft True, bLeft 1).
+  aRight = if False then \\(x) -> x else aLeft.
+  bRight = if False then \\(x) -> x else bLeft.
+  probe.
   """
 
 testSourceRejectsNonRecursiveForwardReference :: IO ()

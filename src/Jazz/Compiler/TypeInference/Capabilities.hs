@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.TypeInference.Capabilities
-  ( applyCapabilityFacts,
+  ( TypeEnvFreeVariables,
+    applyCapabilityFacts,
     addInferredEqualityClassConstraintIfVisible,
     addUnpreservedInferredMethodConstraintErrors,
     applyTypeSchemePrimitiveConstraints,
@@ -25,9 +26,12 @@ module Jazz.Compiler.TypeInference.Capabilities
     instantiateQualifiedMethodType,
     instantiateQualifiedMethodTypeWithExpected,
     instantiateQualifiedMethodTypeWithExplicitTarget,
+    deleteTypeEnvFreeVariables,
+    insertTypeEnvFreeVariables,
     mergeCapabilityFacts,
     newInferredClassConstraints,
     qualifiedMethodClassIsVisible,
+    resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
     seedFacts,
@@ -35,13 +39,18 @@ module Jazz.Compiler.TypeInference.Capabilities
     typeSchemeDefiningFactsFromState,
     typeSchemeReferencedCapabilityFacts,
     structuralRuntimeEqualityType,
+    typeEnvFreeVariables,
     updateRootModuleBaselineFacts
   ) where
 
 import Control.Applicative ((<|>))
+import Data.Foldable (toList)
 import Data.List (uncons)
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -120,9 +129,10 @@ import Jazz.Compiler.TypeInference.State
     inferConcreteImplMethods,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
-    inferDeferredExplicitConstraints,
+    inferDeferredExplicitConstraintCount,
     inferErrorCount,
     inferGeneratedEqualityClassFacts,
+    inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     modifyDeclarationState,
@@ -190,6 +200,7 @@ typeSchemeDefiningFactsFromState state schemeConstraints =
         ]
 
 typeSchemeReferencedCapabilityFacts :: [TypeSchemeConstraint] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
+typeSchemeReferencedCapabilityFacts [] _ = emptyScopeCapabilityFacts
 typeSchemeReferencedCapabilityFacts schemeConstraints facts =
   facts
     { scopeClassFacts =
@@ -706,8 +717,8 @@ newInferredClassConstraints :: InferState -> InferState -> [TypeSchemeConstraint
 newInferredClassConstraints previousState state =
   take newConstraintCount (inferInferredClassConstraints state)
   where
-    previousConstraintCount = length (inferInferredClassConstraints previousState)
-    currentConstraintCount = length (inferInferredClassConstraints state)
+    previousConstraintCount = inferInferredClassConstraintCount previousState
+    currentConstraintCount = inferInferredClassConstraintCount state
     newConstraintCount = max 0 (currentConstraintCount - previousConstraintCount)
 
 inferredConstraintTargetPreserved :: InferState -> Set Int -> ExpressionType -> Bool
@@ -789,42 +800,100 @@ freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
 freeTypeVariablesInEnv state =
   Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
 
+data TypeEnvFreeVariables = TypeEnvFreeVariables
+  { typeEnvBindingFreeVariables :: Map Name (Set Int),
+    typeEnvFreeVariableReferenceCounts :: IntMap Int
+  }
+
+typeEnvFreeVariables :: TypeEnv -> TypeEnvFreeVariables
+typeEnvFreeVariables =
+  Map.foldlWithKey' (\summary name binding -> insertTypeEnvFreeVariables name binding summary) emptyTypeEnvFreeVariables
+
+emptyTypeEnvFreeVariables :: TypeEnvFreeVariables
+emptyTypeEnvFreeVariables = TypeEnvFreeVariables Map.empty IntMap.empty
+
+insertTypeEnvFreeVariables :: Name -> TypeBinding -> TypeEnvFreeVariables -> TypeEnvFreeVariables
+insertTypeEnvFreeVariables name binding summary =
+  TypeEnvFreeVariables
+    { typeEnvBindingFreeVariables =
+        Map.insert name newVariables (typeEnvBindingFreeVariables summary),
+      typeEnvFreeVariableReferenceCounts =
+        Set.foldl' incrementReference countsWithoutPriorBinding newVariables
+    }
+  where
+    newVariables = freeTypeVariablesInBindingRaw binding
+    priorVariables =
+      Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
+    countsWithoutPriorBinding =
+      Set.foldl' decrementTypeEnvFreeVariableReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
+    incrementReference counts typeVar = IntMap.insertWith (+) typeVar 1 counts
+
+deleteTypeEnvFreeVariables :: Name -> TypeEnvFreeVariables -> TypeEnvFreeVariables
+deleteTypeEnvFreeVariables name summary =
+  TypeEnvFreeVariables
+    { typeEnvBindingFreeVariables =
+        Map.delete name (typeEnvBindingFreeVariables summary),
+      typeEnvFreeVariableReferenceCounts =
+        Set.foldl'
+          decrementTypeEnvFreeVariableReference
+          (typeEnvFreeVariableReferenceCounts summary)
+          priorVariables
+    }
+  where
+    priorVariables =
+      Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
+
+decrementTypeEnvFreeVariableReference :: IntMap Int -> Int -> IntMap Int
+decrementTypeEnvFreeVariableReference counts typeVar =
+  IntMap.update decrement typeVar counts
+  where
+    decrement count
+      | count <= 1 = Nothing
+      | otherwise = Just (count - 1)
+
+resolveTypeEnvFreeVariables :: InferState -> TypeEnvFreeVariables -> Set Int
+resolveTypeEnvFreeVariables state summary =
+  Set.unions
+    [ freeTypeVariables (resolveType state (TVarType typeVar))
+      | typeVar <- IntMap.keys (typeEnvFreeVariableReferenceCounts summary)
+    ]
+
 freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set Int
 freeTypeVariablesInBinding state binding =
+  Set.unions
+    [ freeTypeVariables (resolveType state (TVarType typeVar))
+      | typeVar <- Set.toList (freeTypeVariablesInBindingRaw binding)
+    ]
+
+freeTypeVariablesInBindingRaw :: TypeBinding -> Set Int
+freeTypeVariablesInBindingRaw binding =
   case binding of
     PlainTypeBinding expressionType ->
-      freeTypeVariables (resolveType state expressionType)
+      freeTypeVariables expressionType
     SchemeTypeBinding typeScheme ->
-      freeTypeVariablesInScheme state typeScheme
+      freeTypeVariablesInSchemeRaw typeScheme
     OperatorAliasSchemeTypeBinding _ typeScheme ->
-      freeTypeVariablesInScheme state typeScheme
+      freeTypeVariablesInSchemeRaw typeScheme
     BuiltinAliasTypeBinding {} -> Set.empty
     BuiltinOperatorAliasTypeBinding {} -> Set.empty
     ConstructorTypeBinding _ _ argumentTypes ->
-      Set.unions (map (freeTypeVariablesInConstructorArgument state) argumentTypes)
+      Set.unions (map freeTypeVariablesInConstructorArgumentRaw argumentTypes)
 
-freeTypeVariablesInScheme :: InferState -> TypeScheme -> Set Int
-freeTypeVariablesInScheme state typeScheme =
-  Set.unions
-    [ freeTypeVariables (resolveType state (TVarType typeVar))
-      | typeVar <- Set.toList unquantifiedVariables
-    ]
-  where
-    unquantifiedVariables =
-      Set.difference
-        ( Set.unions
-            [ freeTypeVariables (schemeResultType typeScheme),
-              freeTypeVariablesInTypeSchemeConstraints (schemeClassConstraints typeScheme),
-              freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
-            ]
-        )
-        (schemeQuantifiedVariables typeScheme)
+freeTypeVariablesInSchemeRaw :: TypeScheme -> Set Int
+freeTypeVariablesInSchemeRaw typeScheme =
+  Set.difference
+    ( Set.unions
+        [ freeTypeVariables (schemeResultType typeScheme),
+          freeTypeVariablesInTypeSchemeConstraints (schemeClassConstraints typeScheme),
+          freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
+        ]
+    )
+    (schemeQuantifiedVariables typeScheme)
 
-freeTypeVariablesInConstructorArgument :: InferState -> ConstructorArgumentType -> Set Int
-freeTypeVariablesInConstructorArgument state argumentType =
+freeTypeVariablesInConstructorArgumentRaw :: ConstructorArgumentType -> Set Int
+freeTypeVariablesInConstructorArgumentRaw argumentType =
   case argumentType of
-    ConstructorArgumentMonomorphic expressionType ->
-      freeTypeVariables (resolveType state expressionType)
+    ConstructorArgumentMonomorphic expressionType -> freeTypeVariables expressionType
     ConstructorArgumentParameter {} -> Set.empty
     ConstructorArgumentStructured {} -> Set.empty
     ConstructorArgumentFresh -> Set.empty
@@ -864,8 +933,8 @@ deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints stat
         ( \output ->
             output
               { outputDeferredConstraints =
-                  inferDeferredExplicitConstraints state
-                    ++ map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints
+                  outputDeferredConstraints output
+                    Seq.>< Seq.fromList (map (typeSchemeConstraintToDeferredExplicitConstraint facts structuralFacts) explicitConstraints)
               }
         )
         state
@@ -916,15 +985,20 @@ resolveStatementDeferredExplicitConstraints :: [TypeSchemeConstraint] -> InferSt
 resolveStatementDeferredExplicitConstraints entailingConstraints statementStartState state =
   foldl' resolveDeferredExplicitConstraint stateWithoutStatementConstraints statementConstraints
   where
-    priorConstraints = inferDeferredExplicitConstraints statementStartState
-    currentConstraints = inferDeferredExplicitConstraints state
+    priorConstraintCount = inferDeferredExplicitConstraintCount statementStartState
+    currentConstraints = outputDeferredConstraints (inferOutput state)
+    priorConstraints = Seq.take priorConstraintCount currentConstraints
     statementConstraints =
       filter
         (not . deferredConstraintIsEntailed state entailingConstraints)
-        (drop (length priorConstraints) currentConstraints)
+        (toList (Seq.drop priorConstraintCount currentConstraints))
     stateWithoutStatementConstraints =
       modifyInferenceOutput
-        (\output -> output {outputDeferredConstraints = priorConstraints})
+        ( \output ->
+            output
+              { outputDeferredConstraints = priorConstraints
+              }
+        )
         state
 
 deferredConstraintIsEntailed :: InferState -> [TypeSchemeConstraint] -> DeferredExplicitConstraint -> Bool
@@ -1813,7 +1887,8 @@ addInferredClassConstraint constraintName argumentType state =
     ( \output ->
         output
           { outputInferredConstraints =
-              TypeSchemeInferredConstraint constraintName argumentType : inferInferredClassConstraints state
+              TypeSchemeInferredConstraint constraintName argumentType : outputInferredConstraints output,
+            outputInferredConstraintCount = outputInferredConstraintCount output + 1
           }
     )
     state
@@ -1824,7 +1899,8 @@ addInferredMethodClassConstraint constraintName methodKey argumentType state =
     ( \output ->
         output
           { outputInferredConstraints =
-              TypeSchemeMethodConstraint constraintName methodKey argumentType : inferInferredClassConstraints state
+              TypeSchemeMethodConstraint constraintName methodKey argumentType : outputInferredConstraints output,
+            outputInferredConstraintCount = outputInferredConstraintCount output + 1
           }
     )
     state

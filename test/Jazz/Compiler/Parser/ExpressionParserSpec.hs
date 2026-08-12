@@ -48,6 +48,7 @@ import Jazz.Compiler.Parser.Lexer
 import Jazz.Compiler.Parser.Operator
   ( Associativity (..),
     OperatorInfo (..),
+    operatorTableFromDeclarations,
   )
 import Jazz.Compiler.Parser.TestSupport
   ( lexSource,
@@ -76,6 +77,7 @@ tests =
     ("parses qualified variables with list and tuple arguments", testQualifiedVariablesListsAndTuples),
     ("rejects whitespace after a qualified-name separator", testRejectsWhitespaceAfterQualifiedSeparator),
     ("parses control-flow and block expression starters", testControlFlowAndBlockExpressionStarters),
+    ("keeps fractional case bodies before later arms", testFractionalCaseBodyBeforeLaterArm),
     ("uses known aliases for block statement disambiguation", testKnownAliasesDisambiguateBlockStatements),
     ("parses operator values and sections", testOperatorValuesAndSections),
     ("parses fractional literal suffix", testFractionalLiteralSuffix),
@@ -218,6 +220,23 @@ testKnownAliasesDisambiguateBlockStatements = do
     [TDot]
     (parseExpressionTokens Set.empty [] qualifiedMethodTokens)
 
+testFractionalCaseBodyBeforeLaterArm :: IO ()
+testFractionalCaseBodyBeforeLaterArm = do
+  tokens <- lexSource "case 0 { | _ -> 1.2 | _ -> 3 }."
+  assertExpression
+    "fractional case body before later arm"
+    ( SECase
+        (SELit (SLInt 0))
+        [ SurfaceCaseArm
+            SPWildcard
+            Nothing
+            (SELit (SLFloat 1.2 (mkFractionalLiteralSource 1 2 1) Nothing)),
+          SurfaceCaseArm SPWildcard Nothing (SELit (SLInt 3))
+        ]
+    )
+    [TDot]
+    (parseExpressionTokens Set.empty [] tokens)
+
 testOperatorValuesAndSections :: IO ()
 testOperatorValuesAndSections = do
   tokens <- lexSource "(+) (10 +) (+ 20)."
@@ -306,7 +325,7 @@ parseExpressionTokens knownAliases declaredOperators =
     initialContext =
       ParserContext
         { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = declaredOperators,
+          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
           parserStatementContext = NestedBlockContext
         }
     expressionParser = parseExpressionParser blockParser
@@ -324,7 +343,7 @@ parseExpressionTokensDetailed knownAliases declaredOperators =
     initialContext =
       ParserContext
         { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = declaredOperators,
+          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
           parserStatementContext = NestedBlockContext
         }
     expressionParser = parseExpressionParser blockParser

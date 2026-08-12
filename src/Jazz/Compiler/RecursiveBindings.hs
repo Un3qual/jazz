@@ -4,24 +4,36 @@
 -- type inference, and runtime.
 module Jazz.Compiler.RecursiveBindings
   ( LambdaCaptureHints,
+    PreparedRecursiveScope,
+    RecursiveScopeFacts,
+    buildRecursiveScopeFacts,
     closureCaptureCandidatesWithBound,
     collectBindingNames,
     collectLambdaCaptureHints,
+    emptyLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
     exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
     inferSelfRecursiveBindings,
-    lookupLambdaCapturedNames
+    lambdaCaptureHintsChild,
+    lookupLambdaCapturedNames,
+    prepareRecursiveScope,
+    preparedRecursiveScopeBindingNames,
+    preparedRecursiveScopeFactsForOuterBindings,
+    preparedRecursiveScopeGroups,
+    preparedRecursiveScopeOuterBindingNames,
+    preparedRecursiveScopeStatements,
+    recursiveScopeBindingNames,
+    recursiveScopeGroups
   ) where
 
 import Data.Graph
   ( SCC (..),
     stronglyConnComp
   )
-import Data.List
-  ( unsnoc
-  )
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -30,7 +42,6 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
-    ImplMethod (..),
     Statement (..)
   )
 import Jazz.Compiler.Name
@@ -38,7 +49,8 @@ import Jazz.Compiler.Name
     operatorBindingName
   )
 import Jazz.Compiler.Pattern
-  ( extendBoundWithPattern
+  ( extendBoundWithPattern,
+    patternBinderNames
   )
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol
@@ -54,80 +66,215 @@ collectBindingNames =
           Map.insert statementIndex bindingName bindingNames
         _ -> bindingNames
 
--- | Free-variable facts arranged in the same nesting shape as the lambda AST.
--- Closures retain only their body's nested hints, avoiding both repeated AST
--- walks and retention of unrelated sibling expressions.
-data LambdaCaptureHint = LambdaCaptureHint Name Expr (Set Name) LambdaCaptureHints
+-- | Immutable local recursion facts for one exact statement scope and outer
+-- visibility projection. The product deliberately retains names and integer
+-- indices only; callers continue to own the statement AST.
+data RecursiveScopeFacts = RecursiveScopeFacts
+  { recursiveScopeBindingNames :: Map Int Name,
+    recursiveScopeGroups :: Map Int [Int]
+  }
 
-type LambdaCaptureHints = [LambdaCaptureHint]
+buildRecursiveScopeFacts :: Set Name -> [(Int, Statement)] -> RecursiveScopeFacts
+buildRecursiveScopeFacts outerBindingNames indexedStatements =
+  RecursiveScopeFacts
+    { recursiveScopeBindingNames = collectBindingNames indexedStatements,
+      recursiveScopeGroups = inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements
+    }
+
+-- | One statement scope paired with the outer visibility projection and
+-- recursive facts from which it was derived. The constructor stays private so
+-- consumers cannot cross-pair any of the three.
+data PreparedRecursiveScope = PreparedRecursiveScope ![Statement] !(Set Name) !RecursiveScopeFacts
+
+prepareRecursiveScope :: Set Name -> [Statement] -> PreparedRecursiveScope
+prepareRecursiveScope outerBindingNames statements =
+  PreparedRecursiveScope
+    statements
+    outerBindingNames
+    (buildRecursiveScopeFacts outerBindingNames (zip [0 ..] statements))
+
+preparedRecursiveScopeStatements :: PreparedRecursiveScope -> [Statement]
+preparedRecursiveScopeStatements (PreparedRecursiveScope statements _ _) = statements
+
+preparedRecursiveScopeOuterBindingNames :: PreparedRecursiveScope -> Set Name
+preparedRecursiveScopeOuterBindingNames (PreparedRecursiveScope _ outerBindingNames _) =
+  outerBindingNames
+
+-- | Reuse the owned facts when the consumer has the same outer visibility.
+-- A prepared scope crossing a compiler boundary with different imports or
+-- builtin visibility is repaired from its retained statements rather than
+-- silently applying recursion facts derived for another environment.
+preparedRecursiveScopeFactsForOuterBindings ::
+  Set Name ->
+  PreparedRecursiveScope ->
+  RecursiveScopeFacts
+preparedRecursiveScopeFactsForOuterBindings
+  expectedOuterBindingNames
+  (PreparedRecursiveScope statements preparedOuterBindingNames recursiveScopeFactsValue)
+  | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
+  | otherwise =
+      buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
+
+preparedRecursiveScopeBindingNames :: PreparedRecursiveScope -> Map Int Name
+preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
+  recursiveScopeBindingNames recursiveScopeFactsValue
+
+preparedRecursiveScopeGroups :: PreparedRecursiveScope -> Map Int [Int]
+preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
+  recursiveScopeGroups recursiveScopeFactsValue
+
+-- | Free-variable facts arranged in the same child-index shape as the lambda
+-- AST. The plan deliberately retains neither lambda bodies nor parameters, so
+-- runtime lookup cannot fall back to structural expression equality.
+data LambdaCaptureHint = LambdaCaptureHint (Set Name) LambdaCaptureHints
+
+data LambdaCaptureHints = LambdaCaptureHints
+  { lambdaCaptureHintAtRoot :: Maybe LambdaCaptureHint,
+    lambdaCaptureChildHints :: IntMap LambdaCaptureHints
+  }
+
+emptyLambdaCaptureHints :: LambdaCaptureHints
+emptyLambdaCaptureHints = LambdaCaptureHints Nothing IntMap.empty
+
+lambdaCaptureHintsChild :: Int -> LambdaCaptureHints -> LambdaCaptureHints
+lambdaCaptureHintsChild childIndex =
+  IntMap.findWithDefault emptyLambdaCaptureHints childIndex . lambdaCaptureChildHints
 
 collectLambdaCaptureHints :: Expr -> LambdaCaptureHints
-collectLambdaCaptureHints expr =
+collectLambdaCaptureHints = snd . analyzeLambdaCaptures
+
+analyzeLambdaCaptures :: Expr -> (Set Name, LambdaCaptureHints)
+analyzeLambdaCaptures expr =
   case expr of
-    ELit _ -> []
-    EVar _ -> []
+    ELit _ -> emptyCaptureAnalysis
+    EVar name -> (Set.singleton name, emptyLambdaCaptureHints)
     ELambda parameterName bodyExpr ->
-      [ LambdaCaptureHint
-          parameterName
-          bodyExpr
-          (closureCaptureCandidatesWithBound (Set.singleton parameterName) bodyExpr)
-          (collectLambdaCaptureHints bodyExpr)
-      ]
-    EOperatorValue _ -> []
-    EList elements -> concatMap collectLambdaCaptureHints elements
-    ETuple elements -> concatMap collectLambdaCaptureHints elements
+      let (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
+          capturedNames = Set.delete parameterName bodyFreeNames
+       in ( capturedNames,
+            LambdaCaptureHints
+              (Just (LambdaCaptureHint capturedNames bodyHints))
+              IntMap.empty
+          )
+    EOperatorValue operatorSymbol ->
+      (operatorBindingFreeVar Set.empty operatorSymbol, emptyLambdaCaptureHints)
+    EList elements -> analyzeLambdaChildren elements
+    ETuple elements -> analyzeLambdaChildren elements
     EApply functionExpr argumentExpr ->
-      collectLambdaCaptureHints functionExpr
-        <> collectLambdaCaptureHints argumentExpr
+      analyzeLambdaChildren [functionExpr, argumentExpr]
     ETypeApplication functionExpr _ _ ->
-      collectLambdaCaptureHints functionExpr
+      analyzeLambdaChildren [functionExpr]
     EIf conditionExpr thenExpr elseExpr ->
-      collectLambdaCaptureHints conditionExpr
-        <> collectLambdaCaptureHints thenExpr
-        <> collectLambdaCaptureHints elseExpr
+      analyzeLambdaChildren [conditionExpr, thenExpr, elseExpr]
     EPatternCase scrutineeExpr caseArms ->
-      collectLambdaCaptureHints scrutineeExpr
-        <> concatMap collectCaseArmLambdaCaptureHints caseArms
-    EBinary _ leftExpr rightExpr ->
-      collectLambdaCaptureHints leftExpr
-        <> collectLambdaCaptureHints rightExpr
-    ESectionLeft leftExpr _ ->
-      collectLambdaCaptureHints leftExpr
-    ESectionRight _ rightExpr ->
-      collectLambdaCaptureHints rightExpr
+      analyzeLambdaPatternCase scrutineeExpr caseArms
+    EBinary operatorSymbol leftExpr rightExpr ->
+      let (freeNames, hints) = analyzeLambdaChildren [leftExpr, rightExpr]
+       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+    ESectionLeft leftExpr operatorSymbol ->
+      let (freeNames, hints) = analyzeLambdaChildren [leftExpr]
+       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+    ESectionRight operatorSymbol rightExpr ->
+      let (freeNames, hints) = analyzeLambdaChildren [rightExpr]
+       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
     EBlock statements ->
-      concatMap collectStatementLambdaCaptureHints statements
+      analyzeLambdaScope statements
 
-collectCaseArmLambdaCaptureHints :: CaseArm -> LambdaCaptureHints
-collectCaseArmLambdaCaptureHints (CaseArm _ guardExpr bodyExpr) =
-  maybe [] collectLambdaCaptureHints guardExpr
-    <> collectLambdaCaptureHints bodyExpr
+emptyCaptureAnalysis :: (Set Name, LambdaCaptureHints)
+emptyCaptureAnalysis = (Set.empty, emptyLambdaCaptureHints)
 
-collectStatementLambdaCaptureHints :: Statement -> LambdaCaptureHints
-collectStatementLambdaCaptureHints statement =
-  case statement of
-    SLet _ _ valueExpr -> collectLambdaCaptureHints valueExpr
-    SImpl _ _ _ methods ->
-      concatMap
-        (\(ImplMethod _ _ methodExpr) -> collectLambdaCaptureHints methodExpr)
-        methods
-    SExpr _ valueExpr -> collectLambdaCaptureHints valueExpr
-    SSignature {} -> []
-    SData {} -> []
-    SClass {} -> []
-    SModule {} -> []
-    SImport {} -> []
-
-lookupLambdaCapturedNames :: Name -> Expr -> LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
-lookupLambdaCapturedNames parameterName bodyExpr =
-  go
+analyzeLambdaChildren :: [Expr] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaChildren expressions =
+  ( Set.unions freeNames,
+    LambdaCaptureHints Nothing (IntMap.fromList childHints)
+  )
   where
-    go [] = Nothing
-    go (LambdaCaptureHint hintParameter hintBody capturedNames nestedHints : rest)
-      | parameterName == hintParameter,
-        bodyExpr == hintBody =
-          Just (capturedNames, nestedHints)
-      | otherwise = go rest
+    analyses = map analyzeLambdaCaptures expressions
+    freeNames = map fst analyses
+    childHints =
+      [ (childIndex, hints)
+      | (childIndex, (_, hints)) <- zip [0 ..] analyses,
+        not (lambdaCaptureHintsAreEmpty hints)
+      ]
+
+analyzeLambdaPatternCase :: Expr -> [CaseArm] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaPatternCase scrutineeExpr caseArms =
+  foldl' analyzeArm initialAnalysis (zip [0 ..] caseArms)
+  where
+    (scrutineeFreeNames, scrutineeHints) = analyzeLambdaCaptures scrutineeExpr
+    initialAnalysis =
+      ( scrutineeFreeNames,
+        insertLambdaChildHint 0 scrutineeHints emptyLambdaCaptureHints
+      )
+
+    analyzeArm (freeNames, hints) (armIndex, CaseArm pattern guardExpr bodyExpr) =
+      ( Set.unions
+          [ freeNames,
+            Set.difference guardFreeNames boundNames,
+            Set.difference bodyFreeNames boundNames
+          ],
+        insertLambdaChildHint
+          bodyChildIndex
+          bodyHints
+          (insertLambdaChildHint guardChildIndex guardHints hints)
+      )
+      where
+        boundNames = patternBinderNames pattern
+        (guardFreeNames, guardHints) =
+          maybe emptyCaptureAnalysis analyzeLambdaCaptures guardExpr
+        (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
+        guardChildIndex = 1 + (2 * armIndex)
+        bodyChildIndex = guardChildIndex + 1
+
+analyzeLambdaScope :: [Statement] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaScope statements =
+  (freeNames, LambdaCaptureHints Nothing childHints)
+  where
+    (_, freeNames, childHints) =
+      foldl' analyzeStatement (Set.empty, Set.empty, IntMap.empty) (zip [0 ..] statements)
+
+    analyzeStatement (boundNames, accumulatedFreeNames, accumulatedHints) (statementIndex, statement) =
+      case statement of
+        SLet bindingName _ valueExpr ->
+          analyzeValue (Set.insert bindingName boundNames) valueExpr
+        SExpr _ valueExpr ->
+          analyzeValue boundNames valueExpr
+        SSignature {} -> unchanged
+        SData {} -> unchanged
+        SClass {} -> unchanged
+        SImpl {} -> unchanged
+        SModule {} -> unchanged
+        SImport {} -> unchanged
+      where
+        unchanged = (boundNames, accumulatedFreeNames, accumulatedHints)
+        analyzeValue nextBoundNames valueExpr =
+          let (valueFreeNames, valueHints) = analyzeLambdaCaptures valueExpr
+           in ( nextBoundNames,
+                Set.union accumulatedFreeNames (Set.difference valueFreeNames boundNames),
+                insertLambdaChildHintMap statementIndex valueHints accumulatedHints
+              )
+
+insertLambdaChildHint :: Int -> LambdaCaptureHints -> LambdaCaptureHints -> LambdaCaptureHints
+insertLambdaChildHint childIndex childHints hints =
+  hints
+    { lambdaCaptureChildHints =
+        insertLambdaChildHintMap childIndex childHints (lambdaCaptureChildHints hints)
+    }
+
+insertLambdaChildHintMap :: Int -> LambdaCaptureHints -> IntMap LambdaCaptureHints -> IntMap LambdaCaptureHints
+insertLambdaChildHintMap childIndex childHints hints
+  | lambdaCaptureHintsAreEmpty childHints = hints
+  | otherwise = IntMap.insert childIndex childHints hints
+
+lambdaCaptureHintsAreEmpty :: LambdaCaptureHints -> Bool
+lambdaCaptureHintsAreEmpty (LambdaCaptureHints Nothing childHints) = IntMap.null childHints
+lambdaCaptureHintsAreEmpty _ = False
+
+lookupLambdaCapturedNames :: LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
+lookupLambdaCapturedNames hints =
+  case lambdaCaptureHintAtRoot hints of
+    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (capturedNames, nestedHints)
+    Nothing -> Nothing
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
 freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
@@ -242,11 +389,12 @@ freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
   snd (foldl' step (initialBound, Set.empty) indexedStatements)
   where
     indexedStatements = zip [0 ..] statements
-    recursiveGroupsByStatement =
-      inferRecursiveGroupsOrdered
+    recursiveScopeFactsValue =
+      buildRecursiveScopeFacts
         (Set.union visibleBindingNames initialBound)
         indexedStatements
-    bindingNamesByStatement = collectBindingNames indexedStatements
+    recursiveGroupsByStatement = recursiveScopeGroups recursiveScopeFactsValue
+    bindingNamesByStatement = recursiveScopeBindingNames recursiveScopeFactsValue
 
     recursiveGroupMemberNames statementIndex =
       Set.fromList
@@ -280,7 +428,11 @@ freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
             )
 
 inferRecursiveGroupsOrdered :: Set Name -> [(Int, Statement)] -> Map Int [Int]
-inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
+inferRecursiveGroupsOrdered outerBindingNames =
+  recursiveScopeGroups . buildRecursiveScopeFacts outerBindingNames
+
+inferRecursiveGroupsOrderedInternal :: Set Name -> [(Int, Statement)] -> Map Int [Int]
+inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
   Map.fromList
     [ (statementIndex, componentStatements)
       | component <- stronglyConnComp graphNodes,
@@ -293,29 +445,32 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
       [ (statementIndex, bindingName, valueExpr)
         | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
       ]
-    declarationStatementsByName =
-      foldl' collectDeclaration Map.empty declarationInfo
+    firstDeclarationStatementByName =
+      foldl' collectFirstDeclaration Map.empty declarationInfo
     baseDependencies =
       Map.fromList
         [ (statementIndex, Set.empty)
           | (statementIndex, _, _) <- declarationInfo
         ]
-    dependenciesByStatement =
-      foldl' addBindingDependencies baseDependencies declarationInfo
+    (_, _, dependenciesByStatement) =
+      foldl'
+        addBindingDependencies
+        (outerBindingNames, Map.empty, baseDependencies)
+        declarationInfo
     graphNodes =
       [ (statementIndex, statementIndex, Set.toList dependencies)
         | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
       ]
 
-    collectDeclaration declarationsByName (statementIndex, bindingNameText, _) =
-      Map.insertWith (\new old -> old ++ new) bindingNameText [statementIndex] declarationsByName
+    collectFirstDeclaration firstDeclarations (statementIndex, bindingNameText, _) =
+      Map.insertWith (\_ firstDeclaration -> firstDeclaration) bindingNameText statementIndex firstDeclarations
 
-    addBindingDependencies dependencies (statementIndex, bindingNameText, valueExpr) =
+    addBindingDependencies (visibleBindingNames, latestDeclarationByName, dependencies) (statementIndex, bindingNameText, valueExpr) =
       let localDependencyNames =
             Set.filter
-              (`Map.member` declarationStatementsByName)
+              (`Map.member` firstDeclarationStatementByName)
               ( freeVarsExprWithVisibleBindings
-                  (visibleBindingNamesBefore statementIndex)
+                  visibleBindingNames
                   Set.empty
                   valueExpr
               )
@@ -324,51 +479,30 @@ inferRecursiveGroupsOrdered outerBindingNames indexedStatements =
               [ dependencyStatementIndex
                 | dependencyName <- Set.toList localDependencyNames,
                   Just dependencyStatementIndex <-
-                    [resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName]
+                    [resolveDependencyStatement latestDeclarationByName statementIndex bindingNameText valueExpr dependencyName]
               ]
-       in
-        Map.insert statementIndex resolvedDependencies dependencies
+       in ( Set.insert bindingNameText visibleBindingNames,
+            Map.insert bindingNameText statementIndex latestDeclarationByName,
+            Map.insert statementIndex resolvedDependencies dependencies
+          )
 
-    visibleBindingNamesBefore statementIndex =
-      Set.union
-        outerBindingNames
-        ( Set.fromList
-            [ bindingName
-              | (candidateIndex, bindingName, _) <- declarationInfo,
-                candidateIndex < statementIndex
-            ]
-        )
-
-    resolveDependencyStatement statementIndex bindingNameText valueExpr dependencyName =
-      case Map.lookup dependencyName declarationStatementsByName of
-        Nothing -> Nothing
-        Just declarationStatements ->
-          -- Rebindings snapshot the nearest earlier declaration. If there is no
-          -- prior local binding, fall back to an outer binding before creating
-          -- a forward edge to the first later local declaration. Same-name
-          -- references become self-edges for alias-shaped wrappers and
-          -- callable-producing initializers, matching the cells owned during
-          -- evaluation. Eager scalar self-use stays on the existing
-          -- non-recursive path instead of forcing itself into an SCC.
-          case closestPriorDeclaration declarationStatements of
-            Just prior -> Just prior
-            Nothing
-              | Set.member dependencyName outerBindingNames -> Nothing
-              | dependencyName == bindingNameText ->
-                  if selfReferenceOwnsRecursiveCell bindingNameText valueExpr
-                    then Just statementIndex
-                    else Nothing
-              | otherwise -> closestFutureDeclaration declarationStatements
-      where
-        closestPriorDeclaration declarations =
-          case unsnoc (filter (< statementIndex) declarations) of
-            Nothing -> Nothing
-            Just (_, priorDeclaration) -> Just priorDeclaration
-
-        closestFutureDeclaration declarations =
-          case filter (> statementIndex) declarations of
-            [] -> Nothing
-            firstFuture : _ -> Just firstFuture
+    resolveDependencyStatement latestDeclarationByName statementIndex bindingNameText valueExpr dependencyName =
+      -- Rebindings snapshot the nearest earlier declaration, which the
+      -- source-order fold keeps directly. If there is no prior local binding,
+      -- fall back to an outer binding before creating a forward edge to the
+      -- first local declaration. Same-name references become self-edges for
+      -- alias-shaped wrappers and callable-producing initializers, matching
+      -- the cells owned during evaluation. Eager scalar self-use stays on the
+      -- existing non-recursive path instead of forcing itself into an SCC.
+      case Map.lookup dependencyName latestDeclarationByName of
+        Just priorDeclaration -> Just priorDeclaration
+        Nothing
+          | Set.member dependencyName outerBindingNames -> Nothing
+          | dependencyName == bindingNameText ->
+              if selfReferenceOwnsRecursiveCell bindingNameText valueExpr
+                then Just statementIndex
+                else Nothing
+          | otherwise -> Map.lookup dependencyName firstDeclarationStatementByName
 
     componentStatementIndices component =
       let memberIndices =

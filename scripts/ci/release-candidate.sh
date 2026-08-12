@@ -11,6 +11,20 @@ fi
 NIX_CONFIG+='extra-experimental-features = nix-command flakes'
 export NIX_CONFIG
 
+JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
+JAZZ_NIX_JOBS="${JAZZ_NIX_JOBS-1}"
+JAZZ_NIX_CORES="${JAZZ_NIX_CORES-1}"
+for variable_name in JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES; do
+  value="${!variable_name}"
+  case "$value" in
+    "" | 0 | *[!0-9]*)
+      printf 'FAIL: %s must be a positive integer\n' "$variable_name" >&2
+      exit 2
+      ;;
+  esac
+done
+export JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES
+
 : "${JAZZ_RELEASE_VERSION:?JAZZ_RELEASE_VERSION is required}"
 if [[ ! "$JAZZ_RELEASE_VERSION" =~ ^0\.[0-9]+\.[0-9]+-alpha\.[0-9]+$ ]]; then
   printf 'FAIL: JAZZ_RELEASE_VERSION must match 0.<minor>.<patch>-alpha.<n>\n' >&2
@@ -160,11 +174,14 @@ pnpm --dir website run clear
 pnpm --dir website run build
 bash scripts/check-website.sh
 
-bash scripts/ci/main-functional.sh
+JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh
 bash scripts/ci/extended.sh
 
 cabal sdist all --output-directory="$JAZZ_RELEASE_SDIST_ROOT"
-nix build .#jazz --out-link "$JAZZ_NIX_RESULT"
+nix build .#jazz \
+  --out-link "$JAZZ_NIX_RESULT" \
+  --max-jobs "$JAZZ_NIX_JOBS" \
+  --cores "$JAZZ_NIX_CORES"
 
 require_path website/build/index.html
 require_path "$JAZZ_RELEASE_SDIST_ROOT"

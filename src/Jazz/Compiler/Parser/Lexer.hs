@@ -161,12 +161,15 @@ lineComment = do
 tokenParser :: LexerParser Token
 tokenParser = do
   position <- MP.getSourcePos
+  nextChar <- MP.lookAhead MP.anySingle
   let spanValue = sourcePosSpan position
-  charToken spanValue
-    <|> textToken spanValue
-    <|> intToken spanValue
-    <|> identifierToken spanValue
-    <|> symbolToken spanValue
+  case nextChar of
+    '\'' -> charToken spanValue
+    '"' -> textToken spanValue
+    _
+      | isDigit nextChar -> intToken spanValue
+      | isIdentifierStart nextChar -> identifierToken spanValue
+      | otherwise -> symbolToken spanValue nextChar
 
 charToken :: SourceSpan -> LexerParser Token
 charToken spanValue = do
@@ -296,9 +299,8 @@ identifierToken spanValue = do
         tokenSpan = spanValue
       }
 
-symbolToken :: SourceSpan -> LexerParser Token
-symbolToken spanValue = do
-  nextChar <- MP.lookAhead MP.anySingle
+symbolToken :: SourceSpan -> Char -> LexerParser Token
+symbolToken spanValue nextChar =
   case nextChar of
     ':' ->
       fixedToken TColonColon "::" spanValue <|> fixedToken TColon ":" spanValue

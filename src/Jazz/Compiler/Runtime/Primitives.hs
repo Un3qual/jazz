@@ -76,6 +76,7 @@ import Jazz.Compiler.Runtime.Types
     RuntimeIntMetadata (..),
     RuntimeValue (..),
     constructorIsSaturated,
+    foldrRuntimeConstructorArguments,
     data VExplicitResultHints
   )
 
@@ -563,7 +564,7 @@ evalBinaryPure operatorSymbol leftValue rightValue
     ("==", VText leftText, VText rightText) -> Right (VBool (leftText == rightText))
     ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
     ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
-    ("==", VConstructor {}, VConstructor {}) -> evalStructuralEquality "==" leftValue rightValue
+    ("==", VConstructorApplication {}, VConstructorApplication {}) -> evalStructuralEquality "==" leftValue rightValue
     ("!=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
     ("!=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
@@ -579,7 +580,7 @@ evalBinaryPure operatorSymbol leftValue rightValue
     ("!=", VText leftText, VText rightText) -> Right (VBool (leftText /= rightText))
     ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
     ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
-    ("!=", VConstructor {}, VConstructor {}) -> evalStructuralEquality "!=" leftValue rightValue
+    ("!=", VConstructorApplication {}, VConstructorApplication {}) -> evalStructuralEquality "!=" leftValue rightValue
     _ ->
       Left
         ( runtimeDiagnostic
@@ -904,8 +905,11 @@ runtimeValueContainsFunction value =
           any runtimeValueContainsFunction elements
         VTuple elements ->
           any runtimeValueContainsFunction elements
-        VConstructor _ _ _ _ capturedArgs ->
-          any runtimeValueContainsFunction capturedArgs
+        VConstructorApplication _ capturedArgs ->
+          foldrRuntimeConstructorArguments
+            (\argumentValue containsFunction -> runtimeValueContainsFunction argumentValue || containsFunction)
+            False
+            capturedArgs
         VTyped _ innerValue ->
           runtimeValueContainsFunction innerValue
         VExplicitTypeApplication _ innerValue ->

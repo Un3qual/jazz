@@ -14,8 +14,7 @@ module Jazz.Compiler.ModuleRuntime
 
 import Control.Monad.Trans.Except
   ( ExceptT (..),
-    runExceptT,
-    throwE
+    runExceptT
   )
 import Data.Functor.Identity (runIdentity)
 import Data.Map.Strict (Map)
@@ -34,10 +33,7 @@ import Jazz.Compiler.Diagnostics
     DiagnosticOrigin (..),
     mkErrorDiagnostic
   )
-import Jazz.Compiler.ModuleGraph
-  ( ResolvedImport (..),
-    ResolvedModule (resolvedModuleExportInventory, resolvedModuleImports, resolvedModulePath)
-  )
+import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -52,7 +48,7 @@ import Jazz.Compiler.ModuleInterface
     CompiledPrelude (..),
     CompiledProgram (..),
     ModuleInterface (..),
-    compiledProgramErrors,
+    firstCompiledProgramError,
     moduleInterfaceExportInventory
   )
 import Jazz.Compiler.Name
@@ -135,13 +131,10 @@ evaluateCompiledProgramObserved observationRequest compiledProgram =
   runIdentity
     (evaluateCompiledProgramWithHostObserved observationRequest disabledRuntimeHost compiledProgram)
 
-evaluateCompiledProgramPure :: CompiledProgram -> Either Diagnostic RuntimeProgram
-evaluateCompiledProgramPure compiledProgram =
-  case compiledProgramErrors compiledProgram of
-    firstError : _ -> Left firstError
-    [] -> do
-      ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
-      evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+evaluateCompiledProgramPureUnchecked :: CompiledProgram -> Either Diagnostic RuntimeProgram
+evaluateCompiledProgramPureUnchecked compiledProgram = do
+  ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
+  evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
     compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
@@ -152,8 +145,7 @@ evaluateCompiledProgramPure compiledProgram =
           Right
             (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
-          let resolvedModule = compiledResolvedModule compiledModule
-              modulePath = resolvedModulePath resolvedModule
+          let modulePath = compiledModulePath compiledModule
               evaluationMode =
                 if modulePath == entryPath
                   then EvaluateEntryModule
@@ -162,7 +154,7 @@ evaluateCompiledProgramPure compiledProgram =
                 foldr
                   (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
                   ambientEnv
-                  (resolvedModuleImports resolvedModule)
+                  (compiledModuleImports compiledModule)
           scopeResult <-
             evaluateModuleScope
               (Just modulePath)
@@ -177,7 +169,7 @@ evaluateCompiledProgramPure compiledProgram =
                     runtimeModuleExports =
                       publishExports
                         CurrentModule
-                        (resolvedModuleExportInventory resolvedModule)
+                        (compiledModuleExportInventory compiledModule)
                         (compiledModuleInterface compiledModule)
                         (scopeResultEnvironment scopeResult)
                   }
@@ -225,9 +217,9 @@ evaluateCompiledProgramWithHostObserved ::
   m (RuntimeObservationResult RuntimeProgram)
 evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram =
   {-# SCC "jazz-stage:evaluation" #-}
-  case compiledProgramErrors compiledProgram of
-    firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
-    [] ->
+  case firstCompiledProgramError compiledProgram of
+    Just firstError -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
+    Nothing ->
       case observationRequest of
         RuntimeObservationDisabled -> do
           outcome <- evaluateCompiledProgramWithHostUnobserved host compiledProgram
@@ -235,7 +227,7 @@ evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram 
         _ -> do
           (outcome, observationState) <-
             runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-              evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram
+              evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram
           pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateCompiledProgramWithHostUnobserved ::
@@ -248,21 +240,18 @@ evaluateCompiledProgramWithHostUnobserved host compiledProgram =
     then
       runtimeControlOutcome
         <$> runRuntimeHostEvaluation host (\evaluationHost ->
-          evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram)
-    else pure (diagnosticResultOutcome (evaluateCompiledProgramPure compiledProgram))
+          evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram)
+    else pure (diagnosticResultOutcome (evaluateCompiledProgramPureUnchecked compiledProgram))
 
-evaluateCompiledProgramWithEvaluationHost ::
+evaluateCompiledProgramWithEvaluationHostUnchecked ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledProgram ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
-evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
-  runExceptT $
-    case compiledProgramErrors compiledProgram of
-      firstError : _ -> throwE (RuntimeDiagnostic firstError)
-      [] -> do
-        ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
-        evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram =
+  runExceptT $ do
+    ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
+    evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
     compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
@@ -273,8 +262,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
           pure
             (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
-          let resolvedModule = compiledResolvedModule compiledModule
-              modulePath = resolvedModulePath resolvedModule
+          let modulePath = compiledModulePath compiledModule
               evaluationMode =
                 if modulePath == entryPath
                   then EvaluateEntryModule
@@ -283,7 +271,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
                 foldr
                   (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
                   ambientEnv
-                  (resolvedModuleImports resolvedModule)
+                  (compiledModuleImports compiledModule)
           scopeResult <-
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
@@ -301,7 +289,7 @@ evaluateCompiledProgramWithEvaluationHost evaluationHost compiledProgram =
                     runtimeModuleExports =
                       publishExports
                         CurrentModule
-                        (resolvedModuleExportInventory resolvedModule)
+                        (compiledModuleExportInventory compiledModule)
                         (compiledModuleInterface compiledModule)
                         (scopeResultEnvironment scopeResult)
                   }
@@ -380,7 +368,7 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
   case (Map.lookup dependencyPath compiledModules, Map.lookup dependencyPath runtimeModules) of
     (Just compiledDependency, Just runtimeDependency) ->
       let publicInventory =
-            resolvedModuleExportInventory (compiledResolvedModule compiledDependency)
+            compiledModuleExportInventory compiledDependency
           selectedExports =
             [ (runtimeExport, cell)
               | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
@@ -425,7 +413,7 @@ buildCompiledModulePathIndex :: CompiledProgram -> Map [Text] CompiledModule
 buildCompiledModulePathIndex =
   Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
     . map
-      (\compiledModule -> (resolvedModulePath (compiledResolvedModule compiledModule), compiledModule))
+      (\compiledModule -> (compiledModulePath compiledModule, compiledModule))
     . compiledProgramModules
 
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv

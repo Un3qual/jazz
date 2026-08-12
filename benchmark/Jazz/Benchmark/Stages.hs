@@ -1,13 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.Stages
-  ( runBenchmarkMain,
+  ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
+    benchmarkIngredientsWithFinalizer,
+    parseBenchmarkCommand,
+    runBenchmarkMain,
     runBenchmarkMainWithEnvironmentCapture,
     runBenchmarkMainWithArguments,
   )
 where
 
-import Control.Monad (forM_, void, (<=<))
+import Control.Monad (forM_, void, when, (<=<))
 import Data.List (find)
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -26,9 +29,18 @@ import Jazz.Benchmark.Metadata
     validateEnvironmentLabel,
     writeBenchmarkEnvironment,
   )
+import Jazz.Benchmark.ScaleCases
+  ( CompilerScaleCase,
+    compilerScaleCaseBenchmarks,
+    compilerScaleCaseIdentifier,
+    compilerScaleCases,
+    selectCompilerScaleCases,
+  )
 import Jazz.Benchmark.StageInputs
   ( prepareBenchmark,
+    prepareCompilerScaleBenchmark,
     runPreparedBenchmark,
+    runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
 import Jazz.Compiler.Profiling
@@ -57,16 +69,14 @@ import Test.Tasty.Bench
     env,
     nfIO,
   )
-import Test.Tasty.Ingredients
-  ( Ingredient (..),
-    composeReporters,
-  )
+import Test.Tasty.Ingredients (Ingredient (..))
 
 data BenchmarkCommand = BenchmarkCommand
   { benchmarkCommandSmoke :: Bool,
     benchmarkCommandEnvironmentLabel :: Maybe Text,
     benchmarkCommandResultRoot :: Maybe FilePath,
     benchmarkCommandSelectedCases :: [Text],
+    benchmarkCommandSelectedScaleCases :: [Text],
     benchmarkCommandForwardedArguments :: [String]
   }
 
@@ -84,6 +94,25 @@ runBenchmarkMainWithEnvironmentCapture ::
 runBenchmarkMainWithEnvironmentCapture captureEnvironment arguments = do
   benchmarkCommand <- fromEitherText (parseBenchmarkCommand arguments)
   corpus <- loadCorpus
+  case benchmarkCommandSelectedScaleCases benchmarkCommand of
+    [] -> runCorpusBenchmarks captureEnvironment benchmarkCommand corpus
+    selectedIdentifiers -> do
+      selectedCases <-
+        fromEitherText (selectCompilerScaleCases selectedIdentifiers compilerScaleCases)
+      packageRoot <- corpusPackageRoot corpus
+      runCompilerScaleBenchmarks
+        captureEnvironment
+        benchmarkCommand
+        (programCorpusSchemaVersion corpus)
+        packageRoot
+        selectedCases
+
+runCorpusBenchmarks ::
+  (BenchmarkEnvironmentCapture -> IO BenchmarkEnvironment) ->
+  BenchmarkCommand ->
+  ProgramCorpus ->
+  IO ()
+runCorpusBenchmarks captureEnvironment benchmarkCommand corpus = do
   selectedCases <-
     fromEitherText
       (selectProgramCases (benchmarkCommandSelectedCases benchmarkCommand) (programCorpusCases corpus))
@@ -94,13 +123,39 @@ runBenchmarkMainWithEnvironmentCapture captureEnvironment arguments = do
         withArgs
           (benchmarkCommandForwardedArguments benchmarkCommand)
           (defaultMain (benchmarkTree selectedCases))
-      Just environmentLabel ->
+      Just environmentLabel -> do
+        packageRoot <- selectedProgramCasePackageRoot selectedCases
         runRecordedBenchmarks
           captureEnvironment
           benchmarkCommand
           environmentLabel
           (programCorpusSchemaVersion corpus)
-          selectedCases
+          packageRoot
+          (map programCaseIdentifier selectedCases)
+          (benchmarkTree selectedCases)
+
+runCompilerScaleBenchmarks ::
+  (BenchmarkEnvironmentCapture -> IO BenchmarkEnvironment) ->
+  BenchmarkCommand ->
+  Int ->
+  FilePath ->
+  [CompilerScaleCase] ->
+  IO ()
+runCompilerScaleBenchmarks captureEnvironment benchmarkCommand corpusSchemaVersion packageRoot programCases =
+  case benchmarkCommandEnvironmentLabel benchmarkCommand of
+    Nothing ->
+      withArgs
+        (benchmarkCommandForwardedArguments benchmarkCommand)
+        (defaultMain (compilerScaleBenchmarkTree programCases))
+    Just environmentLabel ->
+      runRecordedBenchmarks
+        captureEnvironment
+        benchmarkCommand
+        environmentLabel
+        corpusSchemaVersion
+        packageRoot
+        (map compilerScaleCaseIdentifier programCases)
+        (compilerScaleBenchmarkTree programCases)
 
 loadCorpus :: IO ProgramCorpus
 loadCorpus = do
@@ -135,17 +190,57 @@ benchmarkTree programCases =
       ]
   ]
 
+compilerScaleBenchmarkTree :: [CompilerScaleCase] -> [Benchmark]
+compilerScaleBenchmarkTree programCases =
+  [ bgroup
+      "compiler-scale"
+      [ bgroup
+          (Text.unpack (benchmarkGroupName benchmarkGroup))
+          [ env
+              (prepareCompilerScaleBenchmark benchmarkGroup programCase)
+              ( \preparedBenchmark ->
+                  bench
+                    (Text.unpack (compilerScaleCaseIdentifier programCase))
+                    (nfIO (runPreparedCompilerScaleBenchmark preparedBenchmark))
+              )
+          | programCase <- programCases,
+            benchmarkGroup `elem` compilerScaleCaseBenchmarks programCase
+          ]
+      | benchmarkGroup <- [minBound .. maxBound]
+      ]
+  ]
+
 runSmoke :: [ProgramCase] -> IO ()
 runSmoke programCases =
   forM_ ([minBound .. maxBound] :: [BenchmarkGroup]) $ \benchmarkGroup ->
     case find (isFastParticipant benchmarkGroup) programCases of
       Nothing ->
-        ioError
-          ( userError
-              ( "no fast corpus case participates in benchmark group: "
-                  <> Text.unpack (benchmarkGroupName benchmarkGroup)
+        case compilerScaleSmokeCaseIdentifier benchmarkGroup of
+          Nothing ->
+            ioError
+              ( userError
+                  ( "no fast corpus case participates in benchmark group: "
+                      <> Text.unpack (benchmarkGroupName benchmarkGroup)
+                  )
               )
-          )
+          Just identifier ->
+            case find ((== identifier) . compilerScaleCaseIdentifier) compilerScaleCases of
+              Nothing ->
+                ioError
+                  ( userError
+                      ( "no generated case participates in benchmark smoke group: "
+                          <> Text.unpack (benchmarkGroupName benchmarkGroup)
+                      )
+                  )
+              Just programCase -> do
+                TextIO.putStrLn
+                  ( "SMOKE "
+                      <> benchmarkGroupName benchmarkGroup
+                      <> "/"
+                      <> compilerScaleCaseIdentifier programCase
+                  )
+                prepareCompilerScaleBenchmark benchmarkGroup programCase
+                  >>= runPreparedCompilerScaleBenchmark
       Just programCase -> do
         TextIO.putStrLn
           ( "SMOKE "
@@ -154,6 +249,15 @@ runSmoke programCases =
               <> programCaseIdentifier programCase
           )
         prepareBenchmark benchmarkGroup programCase >>= runPreparedBenchmark
+
+compilerScaleSmokeCaseIdentifier :: BenchmarkGroup -> Maybe Text
+compilerScaleSmokeCaseIdentifier benchmarkGroup =
+  case benchmarkGroup of
+    DiagnosticAnalysisBenchmark -> Just "analyzer-diagnostic-chain-0064"
+    TypedValidationBenchmark -> Just "typed-recursive-statement-graph-0128"
+    LoweredValidationBenchmark -> Just "lowered-temporary-validation-0064"
+    TypedLoweringBenchmark -> Just "typed-validation-handoff-0064"
+    _ -> Nothing
 
 isFastParticipant :: BenchmarkGroup -> ProgramCase -> Bool
 isFastParticipant benchmarkGroup programCase =
@@ -165,24 +269,19 @@ runRecordedBenchmarks ::
   BenchmarkCommand ->
   Text ->
   Int ->
-  [ProgramCase] ->
+  FilePath ->
+  [Text] ->
+  [Benchmark] ->
   IO ()
-runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpusSchemaVersion programCases = do
-  firstCase <-
-    case programCases of
-      [] -> ioError (userError "no corpus cases were selected for the recorded benchmark")
-      value : _ -> pure value
+runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpusSchemaVersion packageRoot selectedCaseIdentifiers benchmarks = do
   timeMode <-
     fromEitherText
       (benchmarkTimeModeFromArguments (benchmarkCommandForwardedArguments benchmarkCommand))
   (runIdentifier, runTimestamp) <- benchmarkRunIdentity
-  let packageRoot = programCasePackageRoot firstCase
-      resultRoot =
+  let resultRoot =
         case benchmarkCommandResultRoot benchmarkCommand of
           Nothing -> packageRoot </> "benchmark-results"
           Just configuredRoot -> configuredRoot
-      selectedCaseIdentifiers =
-        map programCaseIdentifier programCases
   artifactPaths <-
     fromEitherText (benchmarkArtifactPaths resultRoot environmentLabel runIdentifier)
   environment <-
@@ -205,8 +304,20 @@ runRecordedBenchmarks captureEnvironment benchmarkCommand environmentLabel corpu
     )
     ( defaultMainWithIngredients
         (benchmarkIngredientsWithFinalizer (finalizeRecordedBenchmarks artifactPaths environment))
-        (bgroup "All" (benchmarkTree programCases))
+        (bgroup "All" benchmarks)
     )
+
+selectedProgramCasePackageRoot :: [ProgramCase] -> IO FilePath
+selectedProgramCasePackageRoot programCases =
+  case programCases of
+    [] -> ioError (userError "no corpus cases were selected for the recorded benchmark")
+    programCase : _ -> pure (programCasePackageRoot programCase)
+
+corpusPackageRoot :: ProgramCorpus -> IO FilePath
+corpusPackageRoot corpus =
+  case programCorpusCases corpus of
+    [] -> ioError (userError "compiler scale benchmarks require a non-empty corpus")
+    programCase : _ -> pure (programCasePackageRoot programCase)
 
 finalizeRecordedBenchmarks :: BenchmarkArtifactPaths -> BenchmarkEnvironment -> IO ()
 finalizeRecordedBenchmarks artifactPaths environment = do
@@ -216,15 +327,19 @@ finalizeRecordedBenchmarks artifactPaths environment = do
 benchmarkIngredientsWithFinalizer :: IO () -> [Ingredient]
 benchmarkIngredientsWithFinalizer finalize = map addFinalizer benchIngredients
   where
-    finalizer =
-      TestReporter [] $ \_ _ ->
-        Just $ \_ ->
-          pure $ \_ -> do
-            finalize
-            pure True
     addFinalizer ingredient =
       case ingredient of
-        TestReporter _ _ -> composeReporters ingredient finalizer
+        TestReporter options reporter ->
+          TestReporter options $ \optionSet testTree ->
+            case reporter optionSet testTree of
+              Nothing -> Nothing
+              Just reportStatusMap ->
+                Just $ \statusMap -> do
+                  reportTime <- reportStatusMap statusMap
+                  pure $ \time -> do
+                    successful <- reportTime time
+                    when successful finalize
+                    pure successful
         TestManager _ _ -> ingredient
 
 parseBenchmarkCommand :: [String] -> Either Text BenchmarkCommand
@@ -236,6 +351,7 @@ parseBenchmarkCommand = finalize <=< go emptyBenchmarkCommand
         ["--environment-label"] -> Left "--environment-label requires a value"
         ["--result-root"] -> Left "--result-root requires a value"
         ["--jazz-case"] -> Left "--jazz-case requires a value"
+        ["--jazz-scale-case"] -> Left "--jazz-scale-case requires a value"
         "--jazz-smoke" : remaining ->
           go (benchmarkCommand {benchmarkCommandSmoke = True}) remaining
         "--environment-label" : value : remaining ->
@@ -244,6 +360,8 @@ parseBenchmarkCommand = finalize <=< go emptyBenchmarkCommand
           setResultRoot benchmarkCommand value >>= \updated -> go updated remaining
         "--jazz-case" : value : remaining ->
           addSelectedCase benchmarkCommand (Text.pack value) >>= \updated -> go updated remaining
+        "--jazz-scale-case" : value : remaining ->
+          addSelectedScaleCase benchmarkCommand (Text.pack value) >>= \updated -> go updated remaining
         argument : remaining
           | Just value <- Text.stripPrefix "--environment-label=" (Text.pack argument) ->
               setEnvironmentLabel benchmarkCommand value >>= \updated -> go updated remaining
@@ -251,6 +369,8 @@ parseBenchmarkCommand = finalize <=< go emptyBenchmarkCommand
               setResultRoot benchmarkCommand (Text.unpack value) >>= \updated -> go updated remaining
           | Just value <- Text.stripPrefix "--jazz-case=" (Text.pack argument) ->
               addSelectedCase benchmarkCommand value >>= \updated -> go updated remaining
+          | Just value <- Text.stripPrefix "--jazz-scale-case=" (Text.pack argument) ->
+              addSelectedScaleCase benchmarkCommand value >>= \updated -> go updated remaining
           | argument == "--csv" || "--csv=" `Text.isPrefixOf` Text.pack argument ->
               Left "use --environment-label to write an owned results.csv and environment.json pair"
           | otherwise ->
@@ -270,6 +390,14 @@ parseBenchmarkCommand = finalize <=< go emptyBenchmarkCommand
         _ -> pure ()
       if benchmarkCommandSmoke benchmarkCommand && isJust (benchmarkCommandEnvironmentLabel benchmarkCommand)
         then Left "--jazz-smoke cannot write durable benchmark results"
+        else pure ()
+      if not (null (benchmarkCommandSelectedCases benchmarkCommand))
+        && not (null (benchmarkCommandSelectedScaleCases benchmarkCommand))
+        then Left "--jazz-case and --jazz-scale-case cannot be combined"
+        else pure ()
+      if benchmarkCommandSmoke benchmarkCommand
+        && not (null (benchmarkCommandSelectedScaleCases benchmarkCommand))
+        then Left "--jazz-smoke cannot select compiler scale cases"
         else Right benchmarkCommand
 
 emptyBenchmarkCommand :: BenchmarkCommand
@@ -279,6 +407,7 @@ emptyBenchmarkCommand =
       benchmarkCommandEnvironmentLabel = Nothing,
       benchmarkCommandResultRoot = Nothing,
       benchmarkCommandSelectedCases = [],
+      benchmarkCommandSelectedScaleCases = [],
       benchmarkCommandForwardedArguments = []
     }
 
@@ -306,6 +435,19 @@ addSelectedCase benchmarkCommand identifier
         ( benchmarkCommand
             { benchmarkCommandSelectedCases =
                 benchmarkCommandSelectedCases benchmarkCommand <> [identifier]
+            }
+        )
+
+addSelectedScaleCase :: BenchmarkCommand -> Text -> Either Text BenchmarkCommand
+addSelectedScaleCase benchmarkCommand identifier
+  | Text.null identifier = Left "--jazz-scale-case must not be empty"
+  | identifier `elem` benchmarkCommandSelectedScaleCases benchmarkCommand =
+      Left ("duplicate --jazz-scale-case: " <> identifier)
+  | otherwise =
+      Right
+        ( benchmarkCommand
+            { benchmarkCommandSelectedScaleCases =
+                benchmarkCommandSelectedScaleCases benchmarkCommand <> [identifier]
             }
         )
 

@@ -75,7 +75,8 @@ import Jazz.Compiler.ModuleCompiler
   )
 import Jazz.Compiler.ModuleInterface
   ( CompiledProgram (..),
-    compileInputs
+    compileInputs,
+    compiledProgramDiagnostics
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,

@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import re
+import shlex
 import sys
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -60,6 +63,7 @@ MAIN_FORBIDDEN = (
 )
 
 POLICY_PATHS = (
+    "scripts/check-examples.sh",
     "scripts/ci/determinism.sh",
     "scripts/ci/extended.sh",
     "scripts/ci/fast-compiler.sh",
@@ -115,6 +119,92 @@ TIMING_THRESHOLD_PATTERN = re.compile(
     r"|(?:threshold|regression[_ -]?percent).*(?:timing|benchmark)",
     re.IGNORECASE,
 )
+SHELL_ASSIGNMENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", re.DOTALL)
+
+
+@dataclass
+class ShellInvocation:
+    start: int
+    program: str
+    arguments: tuple[str, ...]
+    assignments: dict[str, str]
+    unset_variables: set[str]
+    environment_cleared: bool
+
+
+@dataclass(frozen=True)
+class ShellSimpleCommand:
+    start: int
+    text: str
+    masked_unquoted: str
+
+
+@dataclass
+class ShellInvocationState:
+    tokens: list[str]
+    index: int
+    assignments: dict[str, str]
+    unset_variables: set[str]
+    environment_cleared: bool
+
+
+@dataclass
+class ShellCommandSubstitutionScan:
+    contents: str
+    index: int
+    depth: int = 1
+    quote: str | None = None
+    escaped: bool = False
+    malformed: bool = False
+
+    def advance(self) -> int | None:
+        character = self.contents[self.index]
+        if self.escaped:
+            self.escaped = False
+            self.index += 1
+            return None
+        if character == "\\" and self.quote != "'":
+            self.escaped = True
+            self.index += 1
+            return None
+        if self.quote is not None:
+            self.advance_quoted(character)
+            return None
+        return self.advance_unquoted(character)
+
+    def advance_quoted(self, character: str) -> None:
+        if character == self.quote:
+            self.quote = None
+            self.index += 1
+            return
+        if self.quote == '"' and self.contents.startswith("$(", self.index):
+            self.advance_nested_substitution()
+            return
+        self.index += 1
+
+    def advance_unquoted(self, character: str) -> int | None:
+        if character in ("'", '"'):
+            self.quote = character
+            self.index += 1
+            return None
+        if self.contents.startswith("$(", self.index):
+            self.advance_nested_substitution()
+            return None
+        if character == "(":
+            self.depth += 1
+        elif character == ")":
+            self.depth -= 1
+            if self.depth == 0:
+                return self.index
+        self.index += 1
+        return None
+
+    def advance_nested_substitution(self) -> None:
+        nested_end = shell_command_substitution_end(self.contents, self.index)
+        if nested_end is None:
+            self.malformed = True
+            return
+        self.index = nested_end + 1
 
 
 def active_text(contents: str) -> str:
@@ -332,6 +422,495 @@ def require_nix_features_before(
         )
 
 
+def shell_function_ranges(contents: str) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    function_start = re.compile(
+        r"(?m)^\s*(?:function\s+)?[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\)\s*\{\s*$"
+    )
+    function_end = re.compile(r"(?m)^\s*}\s*$")
+    for start in function_start.finditer(contents):
+        end = function_end.search(contents, start.end())
+        if end is not None:
+            ranges.append((start.start(), end.end()))
+    return ranges
+
+
+def is_in_shell_function(position: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in ranges)
+
+
+def top_level_matches(
+    contents: str, pattern: str, flags: int = 0
+) -> list[re.Match[str]]:
+    function_ranges = shell_function_ranges(contents)
+    return [
+        match
+        for match in re.finditer(pattern, contents, flags)
+        if not is_in_shell_function(match.start(), function_ranges)
+    ]
+
+
+def shell_command_substitution_end(contents: str, start: int) -> int | None:
+    """Return the closing parenthesis for one shell command substitution."""
+    scan = ShellCommandSubstitutionScan(contents=contents, index=start + 2)
+    while scan.index < len(contents) and not scan.malformed:
+        closing_index = scan.advance()
+        if closing_index is not None:
+            return closing_index
+    return None
+
+
+def shell_backtick_substitution_end(contents: str, start: int) -> int | None:
+    """Return the unescaped closing backtick for one legacy substitution."""
+    escaped = False
+    for index in range(start + 1, len(contents)):
+        character = contents[index]
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == "`":
+            return index
+    return None
+
+
+def masked_unquoted_shell_text(contents: str) -> str:
+    """Mask inert quoted text while exposing shell-executed command text."""
+    masked = [" "] * len(contents)
+
+    def mask_backtick_substitution(start: int) -> int:
+        substitution_end = shell_backtick_substitution_end(contents, start)
+        inner_end = len(contents) if substitution_end is None else substitution_end
+        inner = masked_unquoted_shell_text(contents[start + 1 : inner_end])
+        masked[start + 1 : inner_end] = inner
+        return len(contents) if substitution_end is None else substitution_end + 1
+
+    def mask_double_quoted(start: int) -> int:
+        index = start + 1
+        while index < len(contents):
+            character = contents[index]
+            if character == "\\":
+                index += 2
+                continue
+            if character == '"':
+                return index + 1
+            if character == "`":
+                index = mask_backtick_substitution(index)
+                continue
+            if contents.startswith("$(", index):
+                substitution_end = shell_command_substitution_end(contents, index)
+                inner_end = len(contents) if substitution_end is None else substitution_end
+                inner = masked_unquoted_shell_text(contents[index + 2 : inner_end])
+                masked[index + 2 : inner_end] = inner
+                if substitution_end is None:
+                    return len(contents)
+                index = substitution_end + 1
+                continue
+            index += 1
+        return index
+
+    index = 0
+    while index < len(contents):
+        character = contents[index]
+        if character == "'":
+            closing_quote = contents.find("'", index + 1)
+            index = len(contents) if closing_quote < 0 else closing_quote + 1
+            continue
+        if character == '"':
+            index = mask_double_quoted(index)
+            continue
+        if character == "`":
+            index = mask_backtick_substitution(index)
+            continue
+        if character == "#" and (
+            index == 0 or contents[index - 1].isspace()
+        ):
+            break
+        if character == "\\" and index + 1 < len(contents):
+            masked[index] = character
+            masked[index + 1] = contents[index + 1]
+            index += 2
+            continue
+        masked[index] = character
+        index += 1
+    return "".join(masked)
+
+
+def shell_simple_commands(contents: str) -> list[ShellSimpleCommand]:
+    """Split unquoted shell lists into the simple commands policy must inspect."""
+    commands: list[ShellSimpleCommand] = []
+
+    def append_segment(line_start: int, segment_start: int, segment: str) -> None:
+        if not segment.strip():
+            return
+        leading_space = len(segment) - len(segment.lstrip())
+        text = segment.lstrip()
+        commands.append(
+            ShellSimpleCommand(
+                start=line_start + segment_start + leading_space,
+                text=text,
+                masked_unquoted=masked_unquoted_shell_text(text),
+            )
+        )
+
+    for line in re.finditer(r"(?m)^(?P<body>[^\n]+)$", contents):
+        body = line["body"]
+        segment_start = 0
+        quote: str | None = None
+        escaped = False
+        index = 0
+
+        while index < len(body):
+            character = body[index]
+            if escaped:
+                escaped = False
+            elif character == "\\" and quote != "'":
+                escaped = True
+            elif quote is not None:
+                if character == quote:
+                    quote = None
+            elif character in ("'", '"'):
+                quote = character
+            elif character in ";|&":
+                segment = body[segment_start:index]
+                append_segment(line.start(), segment_start, segment)
+                while index + 1 < len(body) and body[index + 1] in ";|&":
+                    index += 1
+                segment_start = index + 1
+            index += 1
+
+        segment = body[segment_start:]
+        append_segment(line.start(), segment_start, segment)
+    return commands
+
+
+def shell_command_tokens(command: ShellSimpleCommand) -> list[str] | None:
+    try:
+        tokens = shlex.split(command.text, comments=True, posix=True)
+    except ValueError:
+        return None
+    return tokens or None
+
+
+def consume_shell_assignment(state: ShellInvocationState) -> bool:
+    assignment = SHELL_ASSIGNMENT_RE.fullmatch(state.tokens[state.index])
+    if assignment is None:
+        return False
+    name, value = assignment.groups()
+    state.assignments[name] = value
+    state.unset_variables.discard(name)
+    state.index += 1
+    return True
+
+
+def consume_command_wrapper(state: ShellInvocationState) -> bool:
+    if state.tokens[state.index] != "command":
+        return False
+    state.index += 1
+    query_only = False
+    while (
+        state.index < len(state.tokens)
+        and state.tokens[state.index].startswith("-")
+    ):
+        option = state.tokens[state.index]
+        state.index += 1
+        if option == "--":
+            break
+        if "v" in option or "V" in option:
+            query_only = True
+    if query_only:
+        state.index = len(state.tokens)
+    return True
+
+
+def unset_shell_environment_variable(
+    state: ShellInvocationState, name: str
+) -> None:
+    state.assignments.pop(name, None)
+    state.unset_variables.add(name)
+
+
+def expand_env_split_string(state: ShellInvocationState, value: str) -> None:
+    split_tokens = shlex.split(value, comments=True, posix=True)
+    state.tokens[state.index : state.index] = split_tokens
+
+
+def consume_env_option(state: ShellInvocationState, option: str) -> bool:
+    if option == "--":
+        return False
+    if option in ("-i", "--ignore-environment"):
+        state.assignments.clear()
+        state.unset_variables.clear()
+        state.environment_cleared = True
+    elif option in ("-u", "--unset") and state.index < len(state.tokens):
+        unset_shell_environment_variable(state, state.tokens[state.index])
+        state.index += 1
+    elif option.startswith("--unset="):
+        unset_shell_environment_variable(state, option.split("=", 1)[1])
+    elif option in ("-C", "--chdir"):
+        state.index = min(state.index + 1, len(state.tokens))
+    elif option in ("-S", "--split-string") and state.index < len(state.tokens):
+        value = state.tokens.pop(state.index)
+        expand_env_split_string(state, value)
+    elif option.startswith("--split-string="):
+        expand_env_split_string(state, option.split("=", 1)[1])
+    return True
+
+
+def consume_env_wrapper(state: ShellInvocationState) -> bool:
+    if state.tokens[state.index] != "env":
+        return False
+    state.index += 1
+    while (
+        state.index < len(state.tokens)
+        and state.tokens[state.index].startswith("-")
+    ):
+        option = state.tokens[state.index]
+        state.index += 1
+        if not consume_env_option(state, option):
+            break
+    return True
+
+
+def parse_shell_invocation(command: ShellSimpleCommand) -> ShellInvocation | None:
+    tokens = shell_command_tokens(command)
+    if tokens is None:
+        return None
+    state = ShellInvocationState(
+        tokens=tokens,
+        index=0,
+        assignments={},
+        unset_variables=set(),
+        environment_cleared=False,
+    )
+    while state.index < len(state.tokens):
+        if consume_shell_assignment(state):
+            continue
+        if consume_command_wrapper(state):
+            continue
+        if consume_env_wrapper(state):
+            continue
+        break
+    if state.index >= len(state.tokens):
+        return None
+    return ShellInvocation(
+        start=command.start,
+        program=state.tokens[state.index],
+        arguments=tuple(state.tokens[state.index + 1 :]),
+        assignments=state.assignments,
+        unset_variables=state.unset_variables,
+        environment_cleared=state.environment_cleared,
+    )
+
+
+def shell_invocations(contents: str) -> list[ShellInvocation]:
+    return [
+        invocation
+        for command in shell_simple_commands(contents)
+        if (invocation := parse_shell_invocation(command)) is not None
+    ]
+
+
+def is_cabal_build_test_invocation(invocation: ShellInvocation) -> bool:
+    return invocation.program == "cabal" and any(
+        argument in ("build", "test") for argument in invocation.arguments
+    )
+
+
+def cabal_build_test_commands(contents: str) -> list[ShellInvocation]:
+    return [
+        invocation
+        for invocation in shell_invocations(contents)
+        if is_cabal_build_test_invocation(invocation)
+    ]
+
+
+def has_unsupported_target_invocation(
+    contents: str,
+    target_pattern: re.Pattern[str],
+    is_supported: Callable[[ShellInvocation], bool],
+) -> bool:
+    invocations_by_start = {
+        invocation.start: invocation for invocation in shell_invocations(contents)
+    }
+    for command in shell_simple_commands(contents):
+        target_count = len(target_pattern.findall(command.masked_unquoted))
+        invocation = invocations_by_start.get(command.start)
+        supported_count = int(invocation is not None and is_supported(invocation))
+        if target_count > supported_count:
+            return True
+    return False
+
+
+CABAL_BUILD_TEST_TEXT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])cabal\b[^\n]*?\b(?:build|test)\b"
+)
+
+
+def has_unsupported_cabal_build_test(contents: str) -> bool:
+    return has_unsupported_target_invocation(
+        contents,
+        CABAL_BUILD_TEST_TEXT_RE,
+        is_cabal_build_test_invocation,
+    )
+
+
+def has_unsupported_child_invocation(contents: str, child_path: str) -> bool:
+    target_pattern = re.compile(
+        r"(?<![A-Za-z0-9_-])bash\b[^\n]*?"
+        + re.escape(child_path)
+        + r"(?=$|[\s)])"
+    )
+    return has_unsupported_target_invocation(
+        contents,
+        target_pattern,
+        lambda invocation: (
+            invocation.program == "bash"
+            and bool(invocation.arguments)
+            and invocation.arguments[0] == child_path
+        ),
+    )
+
+
+def has_valid_cabal_job_argument(invocation: ShellInvocation) -> bool:
+    if "--jobs=$JAZZ_CABAL_JOBS" in invocation.arguments:
+        return True
+    return any(
+        argument == "--jobs"
+        and index + 1 < len(invocation.arguments)
+        and invocation.arguments[index + 1] == "$JAZZ_CABAL_JOBS"
+        for index, argument in enumerate(invocation.arguments)
+    )
+
+
+def positive_cabal_validation(contents: str) -> re.Match[str] | None:
+    direct = top_level_matches(
+        contents,
+        r'case\s+"\$JAZZ_CABAL_JOBS"\s+in(?P<body>.*?)\besac\b',
+        re.DOTALL,
+    )
+    for match in direct:
+        if re.search(
+            r'""\s*\|\s*0\s*\|\s*\*\[!0-9\]\*\)', match["body"]
+        ) and re.search(r"\bexit\s+2\b", match["body"]):
+            return match
+
+    helper_body = re.search(
+        r'case\s+"\$value"\s+in(?P<body>.*?)\besac\b',
+        contents,
+        re.DOTALL,
+    )
+    helper_calls = top_level_matches(
+        contents,
+        r'(?m)^\s*require_positive_integer\s+JAZZ_CABAL_JOBS\s+"\$JAZZ_CABAL_JOBS"\s*$',
+    )
+    if helper_body is not None and helper_calls and (
+        re.search(
+            r'""\s*\|\s*0\s*\|\s*\*\[!0-9\]\*\)', helper_body["body"]
+        )
+        and re.search(r"\bexit\s+2\b", helper_body["body"])
+    ):
+        return helper_calls[0]
+    return None
+
+
+def require_cabal_job_policy(
+    contents: str,
+    tier: str,
+    violations: list[str],
+) -> None:
+    executable = joined_text(contents)
+    defaults = top_level_matches(
+        executable,
+        r'(?m)^\s*JAZZ_CABAL_JOBS="\$\{JAZZ_CABAL_JOBS-1}"\s*$',
+    )
+    if not defaults:
+        violations.append(f"{tier} must default JAZZ_CABAL_JOBS to 1")
+
+    validation = positive_cabal_validation(executable)
+    if validation is None:
+        violations.append(
+            f"{tier} must validate JAZZ_CABAL_JOBS as a positive integer"
+        )
+
+    commands = cabal_build_test_commands(executable)
+    if has_unsupported_cabal_build_test(executable):
+        violations.append(
+            f"{tier} contains an unsupported compound/dynamic "
+            "Cabal build/test invocation"
+        )
+    if any(not has_valid_cabal_job_argument(command) for command in commands):
+        violations.append(
+            f"{tier} must bound every Cabal build and test command"
+        )
+
+    if defaults and validation is not None:
+        initialized = any(default.end() <= validation.start() for default in defaults)
+        if not initialized or any(
+            command.start <= validation.end() for command in commands
+        ):
+            violations.append(
+                f"{tier} must initialize and validate JAZZ_CABAL_JOBS "
+                "before every Cabal build/test command"
+            )
+
+
+def require_cabal_jobs_for_child(
+    contents: str,
+    tier: str,
+    child_path: str,
+    violations: list[str],
+) -> None:
+    executable = joined_text(contents)
+    if has_unsupported_child_invocation(executable, child_path):
+        violations.append(
+            f"{tier} contains an unsupported compound/dynamic invocation "
+            f"of {child_path}"
+        )
+    children = [
+        invocation
+        for invocation in shell_invocations(executable)
+        if invocation.program == "bash"
+        and invocation.arguments
+        and invocation.arguments[0] == child_path
+    ]
+    if not children:
+        return
+
+    validation = positive_cabal_validation(executable)
+    exports = top_level_matches(
+        executable,
+        r"(?m)^\s*export\s+[^\n]*\bJAZZ_CABAL_JOBS\b",
+    )
+    for child in children:
+        if child_receives_validated_cabal_jobs(child, validation, exports):
+            continue
+        violations.append(
+            f"{tier} must propagate JAZZ_CABAL_JOBS to {child_path}"
+        )
+        return
+
+
+def child_receives_validated_cabal_jobs(
+    child: ShellInvocation,
+    validation: re.Match[str] | None,
+    exports: list[re.Match[str]],
+) -> bool:
+    if validation is None or validation.end() > child.start:
+        return False
+    job_assignment = child.assignments.get("JAZZ_CABAL_JOBS")
+    if job_assignment == "$JAZZ_CABAL_JOBS":
+        return True
+    inherited_environment = not child.environment_cleared and (
+        "JAZZ_CABAL_JOBS" not in child.unset_variables
+    )
+    return (
+        job_assignment is None
+        and inherited_environment
+        and any(export.end() <= child.start for export in exports)
+    )
+
+
 def load_policy_files(root: Path, violations: list[str]) -> dict[str, str]:
     policies: dict[str, str] = {}
     for relative_path in POLICY_PATHS:
@@ -370,9 +949,13 @@ def check_fast(contents: str, violations: list[str]) -> None:
         violations,
         tier,
         contents,
-        "scripts/check-examples.sh",
-        r"bash\s+scripts/check-examples\.sh",
+        "scripts/check-examples.sh --jazz-bin",
+        r'bash\s+scripts/check-examples\.sh\s+--jazz-bin\s+"\$jazz_bin"',
     )
+    if 'jazz_bin="$(cabal list-bin jazz)"' not in contents:
+        violations.append(
+            "fast compiler tier must resolve the prebuilt Jazz executable"
+        )
     require_command(violations, tier, contents, "git diff --check", r"git\s+diff\s+--check")
     if 'git diff --check "$JAZZ_DIFF_BASE...HEAD"' not in contents:
         violations.append(
@@ -382,6 +965,17 @@ def check_fast(contents: str, violations: list[str]) -> None:
     for component in FAST_COMPONENTS:
         if not re.search(rf"(?<![a-z0-9-]){re.escape(component)}(?![a-z0-9-])", components):
             violations.append(f"{tier} is missing required token: {component}")
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
+    )
+    require_cabal_jobs_for_child(
+        contents,
+        tier,
+        "scripts/check-examples.sh",
+        violations,
+    )
     reject_tokens(violations, "fast compiler tier", contents, FAST_FORBIDDEN)
 
 
@@ -399,7 +993,14 @@ def check_main(contents: str, violations: list[str]) -> None:
             "scripts/check-execution-queue.sh",
             r"bash\s+scripts/check-execution-queue\.sh",
         ),
-        ("scripts/check-examples.sh", r"bash\s+scripts/check-examples\.sh"),
+        (
+            "scripts/test-check-examples.py",
+            r"python3\s+scripts/test-check-examples\.py",
+        ),
+        (
+            "scripts/check-examples.sh --jazz-bin",
+            r'bash\s+scripts/check-examples\.sh\s+--jazz-bin\s+"\$jazz_bin"',
+        ),
         ("nix flake check", r"nix\s+flake\s+check"),
         ("git diff --check", r"git\s+diff\s+--check"),
     )
@@ -415,6 +1016,14 @@ def check_main(contents: str, violations: list[str]) -> None:
         violations.append(
             "main functional tier must check the committed diff when JAZZ_DIFF_BASE is set"
         )
+    if 'jazz_bin="$(cabal list-bin jazz)"' not in contents:
+        violations.append(
+            "main functional tier must resolve the prebuilt Jazz executable"
+        )
+    if "repository verification omits executable Jazz example checks" not in contents:
+        violations.append(
+            "main functional tier must disclose the repository phase example-check omission"
+        )
     require_command(
         violations,
         tier,
@@ -422,13 +1031,40 @@ def check_main(contents: str, violations: list[str]) -> None:
         "--test-show-details=direct",
         r"cabal\s+test\s+all\s+--test-show-details=direct",
     )
+    if "all | compiler | repository | nix | low-memory" not in contents:
+        violations.append(
+            "main functional tier must expose all, compiler, repository, nix, and low-memory phases"
+        )
+    require_cabal_job_policy(contents, tier, violations)
+    if not has_command(
+        contents,
+        r'nix\s+flake\s+check[^\n]*--max-jobs\s+"\$JAZZ_NIX_JOBS"[^\n]*--cores\s+"\$JAZZ_NIX_CORES"',
+    ):
+        violations.append("main functional tier must bound Nix max jobs and cores")
+    if "low-memory verification omits the Nix flake check" not in contents:
+        violations.append(
+            "main functional tier must disclose the omitted Nix gate in low-memory mode"
+        )
+    require_cabal_jobs_for_child(
+        contents,
+        tier,
+        "scripts/check-examples.sh",
+        violations,
+    )
+    require_nix_features_before(
+        contents,
+        "scripts/ci/main-functional.sh",
+        "nix flake check",
+        violations,
+    )
     reject_tokens(violations, "main functional tier", contents, MAIN_FORBIDDEN)
 
 
 def check_determinism(contents: str, violations: list[str]) -> None:
+    tier = "determinism tier"
     require_tokens(
         violations,
-        "determinism tier",
+        tier,
         contents,
         (
             'JAZZ_ARTIFACT_ROOT="${JAZZ_ARTIFACT_ROOT:-artifacts/determinism}"',
@@ -436,6 +1072,18 @@ def check_determinism(contents: str, violations: list[str]) -> None:
             "--runtime-stats=json",
             "--runtime-profile=",
         ),
+    )
+    require_command(
+        violations,
+        tier,
+        contents,
+        "cabal build jazz",
+        r"cabal\s+build\s+jazz",
+    )
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
     )
     command_lines = [
         match.group(0)
@@ -560,6 +1208,29 @@ def check_extended(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
+    )
+    bounded_heavyweight_commands = (
+        r'cabal\s+test\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+test\s+program-corpus-spec[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+--project-file=cabal\.project\.profile-stages\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+--project-file=cabal\.project\.profile-hotspots\s+build\s+all[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+bench\s+jazz-bench[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+        r'cabal\s+test\s+benchmark-metadata-spec[^\n]*--jobs="\$JAZZ_CABAL_JOBS"',
+    )
+    if not all(
+        has_command(contents, pattern) for pattern in bounded_heavyweight_commands
+    ):
+        violations.append("extended tier must bound every heavyweight Cabal command")
+    require_cabal_jobs_for_child(
+        contents,
+        tier,
+        "scripts/ci/determinism.sh",
+        violations,
+    )
     require_tokens(
         violations,
         tier,
@@ -594,11 +1265,30 @@ def check_extended(contents: str, violations: list[str]) -> None:
         violations.append("extended tier must not fail on a timing regression threshold")
 
 
+def check_examples(contents: str, violations: list[str]) -> None:
+    tier = "example checker"
+    require_command(
+        violations,
+        tier,
+        contents,
+        "cabal build jazz",
+        r"cabal\s+build\s+jazz",
+    )
+    require_cabal_job_policy(
+        contents,
+        tier,
+        violations,
+    )
+
+
 def check_release(contents: str, violations: list[str]) -> None:
     tier = "release candidate tier"
     require_tokens(violations, tier, contents, ("JAZZ_RELEASE_VERSION",))
     commands = (
-        ("scripts/ci/main-functional.sh", r"bash\s+scripts/ci/main-functional\.sh"),
+        (
+            "scripts/ci/main-functional.sh",
+            r"JAZZ_MAIN_PHASE=all\s+bash\s+scripts/ci/main-functional\.sh",
+        ),
         ("scripts/ci/extended.sh", r"bash\s+scripts/ci/extended\.sh"),
         ("scripts/check-docs.sh", r"bash\s+scripts/check-docs\.sh"),
         (
@@ -619,6 +1309,19 @@ def check_release(contents: str, violations: list[str]) -> None:
     )
     for token, pattern in commands:
         require_command(violations, tier, contents, token, pattern)
+    if "JAZZ_MAIN_PHASE=all bash scripts/ci/main-functional.sh" not in contents:
+        violations.append(
+            "release candidate tier must force complete main verification"
+        )
+    if "export JAZZ_CABAL_JOBS JAZZ_NIX_JOBS JAZZ_NIX_CORES" not in contents:
+        violations.append(
+            "release candidate tier must export bounded Cabal and Nix workers"
+        )
+    if not has_command(
+        contents,
+        r'nix\s+build\s+\.\#jazz[^\n]*--max-jobs\s+"\$JAZZ_NIX_JOBS"[^\n]*--cores\s+"\$JAZZ_NIX_CORES"',
+    ):
+        violations.append("release candidate tier must bound Nix max jobs and cores")
 
     category_tokens = (
         "required_artifacts = {",
@@ -1548,11 +2251,29 @@ def check_generated_release_ignores(root: Path, violations: list[str]) -> None:
             )
 
 
+def check_blocker_contracts(root: Path, violations: list[str]) -> None:
+    path = root / ".codex/execution/blocker-contracts.md"
+    if not path.is_file():
+        return
+    contents = path.read_text(encoding="utf-8")
+    current_blockers = re.search(
+        r"(?ms)^## Current Blockers\s*$\n(?P<body>.*?)(?=^##\s|\Z)",
+        contents,
+    )
+    completed_child = "JN-COMPILER-PERFORMANCE-CONSTRAINT-BUFFERS-006"
+    if current_blockers is not None and completed_child in current_blockers["body"]:
+        violations.append(
+            "blocker contracts must not keep completed child "
+            f"{completed_child} under Current Blockers"
+        )
+
+
 def check_repository(root: Path) -> list[str]:
     violations: list[str] = []
     policies = load_policy_files(root, violations)
 
     checks = (
+        ("scripts/check-examples.sh", check_examples),
         ("scripts/ci/fast-compiler.sh", check_fast),
         ("scripts/ci/main-functional.sh", check_main),
         ("scripts/ci/determinism.sh", check_determinism),
@@ -1571,6 +2292,7 @@ def check_repository(root: Path) -> list[str]:
     check_workflow_supply_chain(root, violations)
     check_pull_request_workflows(root, violations)
     check_generated_release_ignores(root, violations)
+    check_blocker_contracts(root, violations)
     return sorted(set(violations))
 
 

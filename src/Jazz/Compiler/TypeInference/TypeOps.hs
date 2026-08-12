@@ -20,12 +20,13 @@ import Jazz.Compiler.TypeInference.Types
   )
 
 dedupeTypeSchemeConstraints :: [TypeSchemeConstraint] -> [TypeSchemeConstraint]
-dedupeTypeSchemeConstraints =
-  foldr insertIfMissing []
+dedupeTypeSchemeConstraints constraints =
+  snd (foldl' insertIfMissing (Set.empty, []) (reverse constraints))
   where
-    insertIfMissing constraint constraints
-      | constraint `elem` constraints = constraints
-      | otherwise = constraint : constraints
+    insertIfMissing result@(seen, _) constraint
+      | Set.member constraint seen = result
+    insertIfMissing (seen, deduplicated) constraint =
+      (Set.insert constraint seen, constraint : deduplicated)
 
 freeTypeVariablesInTypeSchemeConstraints :: [TypeSchemeConstraint] -> Set Int
 freeTypeVariablesInTypeSchemeConstraints constraints =

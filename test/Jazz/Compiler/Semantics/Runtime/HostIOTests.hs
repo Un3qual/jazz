@@ -43,6 +43,7 @@ import Jazz.Compiler.Driver
     runSourceWithPreludeAndHost
   )
 import Jazz.Compiler.Name (Name, qualifiedName)
+import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeValue (..),
@@ -635,7 +636,7 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
           RuntimeClosure
             { runtimeClosureEnvironment = Map.empty,
               runtimeClosureEnvironmentMayReachHostCells = False,
-              runtimeClosureLambdaCaptureHints = [],
+              runtimeClosureLambdaCaptureHints = emptyLambdaCaptureHints,
               runtimeClosureParameter = "itemValue",
               runtimeClosureBody = EVar "itemValue",
               runtimeClosureTypeHint = Nothing,

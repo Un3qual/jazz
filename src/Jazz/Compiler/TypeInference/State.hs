@@ -14,10 +14,12 @@ module Jazz.Compiler.TypeInference.State
     inferCurrentModulePath,
     inferRuntimeHintPath,
     inferDataTypes,
+    inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferErrorsRev,
     inferGeneratedEqualityClassFacts,
+    inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferModuleCapabilityFacts,
     inferNextTypeVar,
@@ -33,8 +35,13 @@ module Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState
   ) where
 
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -55,7 +62,7 @@ import Jazz.Compiler.TypeInference.Types
 
 data SolverState = SolverState
   { solverNextTypeVar :: Int,
-    solverSubstitution :: Map Int ExpressionType,
+    solverSubstitution :: IntMap ExpressionType,
     solverStrictEqualityVars :: Set Int,
     solverNumericVars :: Map Int NumericConstraint,
     solverRigidTypeVars :: Set Int
@@ -84,8 +91,9 @@ data ModuleInferenceState = ModuleInferenceState
 
 data InferenceOutput = InferenceOutput
   { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
-    outputDeferredConstraints :: [DeferredExplicitConstraint],
+    outputDeferredConstraints :: Seq DeferredExplicitConstraint,
     outputInferredConstraints :: [TypeSchemeConstraint],
+    outputInferredConstraintCount :: Int,
     outputErrorsRev :: [Diagnostic],
     outputErrorCount :: Int
   }
@@ -127,7 +135,7 @@ initialInferState =
     { inferSolver =
         SolverState
           { solverNextTypeVar = 0,
-            solverSubstitution = Map.empty,
+            solverSubstitution = IntMap.empty,
             solverStrictEqualityVars = Set.empty,
             solverNumericVars = Map.empty,
             solverRigidTypeVars = Set.empty
@@ -152,8 +160,9 @@ initialInferState =
       inferOutput =
         InferenceOutput
           { outputRuntimeHints = Map.empty,
-            outputDeferredConstraints = [],
+            outputDeferredConstraints = Seq.empty,
             outputInferredConstraints = [],
+            outputInferredConstraintCount = 0,
             outputErrorsRev = [],
             outputErrorCount = 0
           }
@@ -162,7 +171,7 @@ initialInferState =
 inferNextTypeVar :: InferState -> Int
 inferNextTypeVar = solverNextTypeVar . inferSolver
 
-inferSubst :: InferState -> Map Int ExpressionType
+inferSubst :: InferState -> IntMap ExpressionType
 inferSubst = solverSubstitution . inferSolver
 
 inferStrictEqualityVars :: InferState -> Set Int
@@ -211,10 +220,16 @@ inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey SignatureType
 inferRuntimeTypeHints = outputRuntimeHints . inferOutput
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]
-inferDeferredExplicitConstraints = outputDeferredConstraints . inferOutput
+inferDeferredExplicitConstraints = toList . outputDeferredConstraints . inferOutput
+
+inferDeferredExplicitConstraintCount :: InferState -> Int
+inferDeferredExplicitConstraintCount = Seq.length . outputDeferredConstraints . inferOutput
 
 inferInferredClassConstraints :: InferState -> [TypeSchemeConstraint]
 inferInferredClassConstraints = outputInferredConstraints . inferOutput
+
+inferInferredClassConstraintCount :: InferState -> Int
+inferInferredClassConstraintCount = outputInferredConstraintCount . inferOutput
 
 inferErrorsRev :: InferState -> [Diagnostic]
 inferErrorsRev = outputErrorsRev . inferOutput

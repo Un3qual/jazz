@@ -19,24 +19,54 @@ import Jazz.Compiler.AST
     SignaturePayload (SignatureType),
     SignatureType (TypeInt, TypeList),
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
+import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
+import Jazz.Compiler.Diagnostics
+  ( DiagnosticOrigin (CompilationOrigin),
+    SourceSpan (SourceSpan),
+    mkErrorDiagnostic,
+  )
 import Jazz.Compiler.Force
   ( forceCompiledModule,
+    forceCompiledProgram,
     forceInferenceResult,
+    forceLoweredProgram,
+    forceResolvedModule,
     forceRuntimeProgramOutputResult,
+    forceTypedProgram,
   )
+import Jazz.Compiler.LoweredIR
+  ( LoweredBlock (LoweredBlock),
+    LoweredBlockId (LoweredBlockId),
+    LoweredFunction (LoweredFunction),
+    LoweredFunctionId (LoweredFunctionId),
+    LoweredInstruction (LoweredInstruction),
+    LoweredLayout (LoweredLayout),
+    LoweredLayoutId (LoweredLayoutId),
+    LoweredLayoutShape (LoweredTextLayout),
+    LoweredOperand (LoweredTemporaryOperand),
+    LoweredOperation (LoweredConstructText),
+    LoweredProgram (LoweredProgram),
+    LoweredRepresentation (LoweredManagedReferenceRepresentation),
+    LoweredTemporaryId (LoweredTemporaryId),
+    LoweredTerminator (LoweredReturn),
+    supportedLoweredIRVersion,
+  )
+import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     exportInventory,
   )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (CoreModule),
-    ResolvedModule (..),
-  )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
+    CompiledPrelude (..),
+    CompiledProgram (..),
     ModuleInterface (..),
+    emptyCompiledPrelude,
     emptyModuleInterface,
+  )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedModule (..),
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (RuntimeBindingExport),
@@ -45,8 +75,11 @@ import Jazz.Compiler.ModuleRuntime
   )
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
 import Jazz.Compiler.Profiling
-  ( CompilerStage (..),
+  ( BenchmarkGroup (..),
+    CompilerStage (..),
     CompilerStageBoundary (..),
+    benchmarkGroupName,
+    benchmarkGroupStages,
     compilerStageMarkerName,
     compilerStageName,
     withCompilerStageMarkers,
@@ -62,6 +95,7 @@ import Jazz.Compiler.TypeInference.Types
     ImplMethodType (ImplMethodType),
     TypeBinding (PlainTypeBinding),
   )
+import qualified Jazz.Compiler.TypedCore as Typed
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -74,15 +108,66 @@ main = runTestSuite "ProfilingSpec" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("compiler stage names are stable, non-empty, and unique", testCompilerStageNames),
+  [ ("benchmark group names and stage mappings are exact", testBenchmarkGroupMetadata),
+    ("compiler stage names are stable, non-empty, and unique", testCompilerStageNames),
     ("compiler stage markers pair around successful actions", testSuccessfulStageMarkers),
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
-    ("compiled-module forcing evaluates resolved runtime metadata", testDeepResolvedModuleForcing),
+    ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
+    ("compiled-program forcing owns prelude diagnostics", testDeepCompiledProgramForcing),
+    ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
+    ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
+    ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
+    ("typed-program forcing evaluates nested artifact payloads", testDeepTypedProgramForcing),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
+
+testBenchmarkGroupMetadata :: IO ()
+testBenchmarkGroupMetadata = do
+  let groups = [minBound .. maxBound] :: [BenchmarkGroup]
+  assertEqual
+    "benchmark group names"
+    [ "parse-lower",
+      "analysis",
+      "diagnostic-analysis",
+      "module-preparation",
+      "typed-validation",
+      "lowered-validation",
+      "typed-lowering",
+      "runtime",
+      "whole-program"
+    ]
+    (map benchmarkGroupName groups)
+  assertEqual
+    "benchmark group stage mappings"
+    [ (ParseLowerBenchmark, [LexingStage, ParsingStage, LoweringStage]),
+      (AnalysisBenchmark, [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]),
+      (DiagnosticAnalysisBenchmark, [StaticAnalysisStage]),
+      (ModulePreparationBenchmark, [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]),
+      (TypedValidationBenchmark, [TypedCoreValidationStage]),
+      (LoweredValidationBenchmark, [LoweredIRValidationStage]),
+      (TypedLoweringBenchmark, [TypedCoreValidationStage, LoweringStage]),
+      (RuntimeBenchmark, [EvaluationStage, HostOperationStage]),
+      ( WholeProgramBenchmark,
+        [ SourceLoadingStage,
+          ModuleDiscoveryStage,
+          LexingStage,
+          ParsingStage,
+          LoweringStage,
+          ModuleResolutionStage,
+          StaticAnalysisStage,
+          TypeInferenceStage,
+          ConstraintSolvingStage,
+          CapabilitySolvingStage,
+          RuntimePreparationStage,
+          EvaluationStage,
+          HostOperationStage
+        ]
+      )
+    ]
+    [(group, benchmarkGroupStages group) | group <- groups]
 
 testCompilerStageNames :: IO ()
 testCompilerStageNames = do
@@ -130,7 +215,8 @@ testFailedStageMarkers = do
 
 testDeepInferenceForcing :: IO ()
 testDeepInferenceForcing = do
-  let deferredFailure = throw (userError "nested runtime hint was forced")
+  let marker = "nested runtime hint was forced"
+      deferredFailure = throw (userError marker)
       runtimeHintKey = ExplicitTypeApplicationRuntimeHintKey Nothing (SourceSpan 0 0)
       inference =
         InferenceResult
@@ -139,16 +225,14 @@ testDeepInferenceForcing = do
             inferredRuntimeTypeHints = Map.singleton runtimeHintKey (TypeList deferredFailure),
             inferredModuleInterface = emptyModuleInterface
           }
-  result <- try (evaluate (forceInferenceResult inference)) :: IO (Either IOException ())
-  case result of
-    Left _ -> pure ()
-    Right () -> ioError (userError "forceInferenceResult left a nested runtime hint unevaluated")
+  assertForcesMarker "nested runtime hint" marker (evaluate (forceInferenceResult inference))
 
 testDeepModuleInterfaceForcing :: IO ()
 testDeepModuleInterfaceForcing =
   mapM_
     assertInterfaceForced
     [ ( "value type",
+        "nested expression type was forced",
         emptyModuleInterface
           { interfaceValueTypes =
               Map.singleton
@@ -157,6 +241,7 @@ testDeepModuleInterfaceForcing =
           }
       ),
       ( "data type",
+        "nested expression type was forced",
         emptyModuleInterface
           { interfaceDataTypes =
               Map.singleton
@@ -165,6 +250,7 @@ testDeepModuleInterfaceForcing =
           }
       ),
       ( "class method",
+        "nested signature type was forced",
         emptyModuleInterface
           { interfaceClassMethods =
               Map.singleton
@@ -173,6 +259,7 @@ testDeepModuleInterfaceForcing =
           }
       ),
       ( "impl method",
+        "nested signature type was forced",
         emptyModuleInterface
           { interfaceConcreteImplMethods =
               Map.singleton
@@ -184,7 +271,7 @@ testDeepModuleInterfaceForcing =
   where
     deferredExpressionType = throw (userError "nested expression type was forced")
     deferredSignatureType = throw (userError "nested signature type was forced")
-    assertInterfaceForced (label, interface) = do
+    assertInterfaceForced (label, marker, interface) = do
       let inference =
             InferenceResult
               { inferredExpr = ELit (LInt 0),
@@ -192,47 +279,215 @@ testDeepModuleInterfaceForcing =
                 inferredRuntimeTypeHints = Map.empty,
                 inferredModuleInterface = interface
               }
-      result <- try (evaluate (forceInferenceResult inference)) :: IO (Either IOException ())
-      case result of
-        Left _ -> pure ()
-        Right () -> ioError (userError (Text.unpack (label <> " payload stayed lazy")))
+      assertForcesMarker (label <> " payload") marker (evaluate (forceInferenceResult inference))
 
-testDeepResolvedModuleForcing :: IO ()
-testDeepResolvedModuleForcing =
+testDeepCompiledModuleForcing :: IO ()
+testDeepCompiledModuleForcing =
   mapM_
-    assertResolvedMetadataForced
+    assertCompiledMetadataForced
     [ ( "imports",
-        baseResolvedModule
-          { resolvedModuleImports = throw (userError "resolved imports were forced")
+        "compiled imports were forced",
+        baseCompiledModule
+          { compiledModuleImports = throw (userError "compiled imports were forced")
+          }
+      ),
+      ( "diagnostics",
+        "compiled diagnostics were forced",
+        baseCompiledModule
+          { compiledModuleDiagnostics =
+              [ mkErrorDiagnostic
+                  E1001
+                  CompilationOrigin
+                  (throw (userError "compiled diagnostics were forced"))
+              ]
           }
       ),
       ( "export inventory",
-        baseResolvedModule
-          { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
+        "compiled export inventory was forced",
+        baseCompiledModule
+          { compiledModuleExportInventory = throw (userError "compiled export inventory was forced")
           }
       )
     ]
   where
-    baseResolvedModule =
-      ResolvedModule
-        { resolvedModulePath = ["App", "Main"],
-          resolvedSourcePath = "src/App/Main.jz",
-          resolvedModuleImports = [],
-          resolvedModuleExportInventory = exportInventory [],
-          resolvedModuleCore = CoreModule Nothing Nothing [] (ELit (LInt 0))
+    baseCompiledModule =
+      CompiledModule
+        { compiledModulePath = ["App", "Main"],
+          compiledModuleImports = [],
+          compiledModuleExportInventory = exportInventory [],
+          compiledModuleInterface = emptyModuleInterface,
+          compiledModuleDiagnostics = [],
+          compiledModuleExpr = ELit (LInt 0)
         }
-    assertResolvedMetadataForced (label, resolvedModule) = do
-      let compiledModule =
-            CompiledModule
-              { compiledResolvedModule = resolvedModule,
-                compiledModuleInterface = emptyModuleInterface,
-                compiledModuleDiagnostics = [],
-                compiledModuleExpr = ELit (LInt 0)
-              }
-      result <- try (evaluate (forceCompiledModule compiledModule)) :: IO (Either IOException ())
-      case result of
-        Left _ -> pure ()
-        Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+    assertCompiledMetadataForced (label, marker, compiledModule) =
+      assertForcesMarker label marker (evaluate (forceCompiledModule compiledModule))
+
+testDeepCompiledProgramForcing :: IO ()
+testDeepCompiledProgramForcing = do
+  let marker = "compiled prelude diagnostics were forced"
+      compiledPrelude =
+        emptyCompiledPrelude
+          { compiledPreludeDiagnostics =
+              [mkErrorDiagnostic E1001 CompilationOrigin (throw (userError marker))]
+          }
+      compiledProgram =
+        CompiledProgram
+          { compiledProgramPrelude = compiledPrelude,
+            compiledProgramEntryPath = ["App", "Main"],
+            compiledProgramModules = []
+          }
+  assertForcesMarker
+    "compiled prelude diagnostic"
+    marker
+    (evaluate (forceCompiledProgram compiledProgram))
+
+testResolvedModuleProductionLaziness :: IO ()
+testResolvedModuleProductionLaziness = do
+  let resolvedModule =
+        baseResolvedModule
+          { resolvedModuleCore = throw (userError "production forced the resolved Core module")
+          }
+  result <- try (evaluate resolvedModule) :: IO (Either IOException ResolvedModule)
+  case result of
+    Left exception -> throw exception
+    Right _ -> pure ()
+
+testDeepResolvedModuleForcing :: IO ()
+testDeepResolvedModuleForcing =
+  mapM_
+    assertResolvedContentForced
+    [ ( "module path",
+        "resolved module path was forced",
+        baseResolvedModule
+          { resolvedModulePath = ["App", throw (userError "resolved module path was forced")]
+          }
+      ),
+      ( "source path",
+        "resolved source path was forced",
+        baseResolvedModule
+          { resolvedSourcePath = "App/" <> throw (userError "resolved source path was forced")
+          }
+      ),
+      ( "imports",
+        "resolved import was forced",
+        baseResolvedModule
+          { resolvedModuleImports = [throw (userError "resolved import was forced")]
+          }
+      ),
+      ( "export inventory",
+        "resolved export inventory was forced",
+        baseResolvedModule
+          { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
+          }
+      ),
+      ( "Core expression",
+        "resolved Core expression was forced",
+        baseResolvedModule
+          { resolvedModuleCore =
+              (resolvedModuleCore baseResolvedModule)
+                { coreModuleExpr = throw (userError "resolved Core expression was forced")
+                }
+          }
+      )
+    ]
+  where
+    assertResolvedContentForced (label, marker, resolvedModule) =
+      assertForcesMarker label marker (evaluate (forceResolvedModule resolvedModule))
+
+testDeepLoweredProgramForcing :: IO ()
+testDeepLoweredProgramForcing = do
+  let marker = "lowered text payload was forced"
+      textLayoutId = LoweredLayoutId "text"
+      textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+      functionId = LoweredFunctionId "main"
+      blockId = LoweredBlockId "entry"
+      temporaryId = LoweredTemporaryId "text-value"
+      loweredProgram =
+        LoweredProgram
+          supportedLoweredIRVersion
+          [LoweredLayout textLayoutId LoweredTextLayout]
+          []
+          [ LoweredFunction
+              functionId
+              Nothing
+              []
+              textRepresentation
+              [ LoweredBlock
+                  blockId
+                  []
+                  [ LoweredInstruction
+                      temporaryId
+                      textRepresentation
+                      (LoweredConstructText textLayoutId (throw (userError marker)))
+                  ]
+                  (Just (LoweredReturn (LoweredTemporaryOperand temporaryId textRepresentation)))
+              ]
+              blockId
+          ]
+          functionId
+  assertEqual
+    "poisoned lowered program remains structurally valid"
+    []
+    (validateLoweredProgram loweredProgram)
+  assertForcesMarker "lowered text payload" marker (evaluate (forceLoweredProgram loweredProgram))
+
+testDeepTypedProgramForcing :: IO ()
+testDeepTypedProgramForcing =
+  mapM_ assertTypedPayloadForced typedPayloadCases
+  where
+    assertTypedPayloadForced (label, marker, typedProgram) =
+      assertForcesMarker label marker (evaluate (forceTypedProgram typedProgram))
+    typedPayloadCases =
+      [ ( "typed source path",
+          "typed source path was forced",
+          typedProgramWith
+            (throw (userError "typed source path was forced"))
+            baseExpression
+        ),
+        ( "typed literal payload",
+          "typed literal payload was forced",
+          typedProgramWith
+            (Typed.TypedSourcePath "Main.jz")
+            ( Typed.TypedLiteralExpr
+                boolInfo
+                (throw (userError "typed literal payload was forced"))
+            )
+        )
+      ]
+    typedProgramWith sourcePath expression =
+      Typed.TypedProgram
+        Nothing
+        [ Typed.TypedModule
+            ["Main"]
+            sourcePath
+            []
+            []
+            (Typed.TypedModuleInterface [] [] [] [])
+            [Typed.TypedExpressionStatement (Typed.TypedSpan 1 1) expression]
+            boolInfo
+        ]
+        ["Main"]
+    baseExpression = Typed.TypedLiteralExpr boolInfo (Typed.TypedBooleanLiteral True)
+    boolInfo = Typed.TypedNodeInfo Typed.TypedBoolType Typed.TypedBoolRecipe [] []
+
+assertForcesMarker :: Text -> String -> IO () -> IO ()
+assertForcesMarker label marker action = do
+  result <- try action :: IO (Either IOException ())
+  case result of
+    Left exception
+      | Text.pack marker `Text.isInfixOf` Text.pack (show exception) -> pure ()
+      | otherwise -> throw exception
+    Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
+
+baseResolvedModule :: ResolvedModule
+baseResolvedModule =
+  ResolvedModule
+    { resolvedModulePath = ["App", "Main"],
+      resolvedSourcePath = "App/Main.jazz",
+      resolvedModuleImports = [],
+      resolvedModuleExportInventory = exportInventory [],
+      resolvedModuleCore = CoreModule Nothing Nothing [] (ELit (LInt 0))
+    }
 
 testRuntimeResultForcingFollowsRendering :: IO ()
 testRuntimeResultForcingFollowsRendering = do

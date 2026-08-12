@@ -9,8 +9,11 @@ module Jazz.Compiler.Force
     forceExpr,
     forceInferenceResult,
     forceListWith,
+    forceLoweredProgram,
+    forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
+    forceTypedProgram,
     forceTokens,
   )
 where
@@ -49,6 +52,33 @@ import Jazz.Compiler.Diagnostics
     diagnosticWarningCategory,
     labelMessage,
     labelSpan,
+  )
+import Jazz.Compiler.LoweredIR
+  ( LoweredBlock (..),
+    LoweredBlockId (..),
+    LoweredCallSignature (..),
+    LoweredFunction (..),
+    LoweredFunctionId (..),
+    LoweredImmediate (..),
+    LoweredInstruction (..),
+    LoweredIRVersion (..),
+    LoweredLayout (..),
+    LoweredLayoutId (..),
+    LoweredLayoutShape (..),
+    LoweredOperand (..),
+    LoweredOperation (..),
+    LoweredParameter (..),
+    LoweredParameterId (..),
+    LoweredPrimitive (..),
+    LoweredProgram (..),
+    LoweredRepresentation (..),
+    LoweredRuntimeService (..),
+    LoweredRuntimeServiceId (..),
+    LoweredSwitchCase (..),
+    LoweredSwitchDefault (..),
+    LoweredTemporaryId (..),
+    LoweredTerminator (..),
+    LoweredVariantLayout (..),
   )
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -110,6 +140,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
   )
+import qualified Jazz.Compiler.TypedCore as Typed
 
 forceExpr :: Expr -> ()
 forceExpr expression =
@@ -131,6 +162,278 @@ forceExpr expression =
 
 forceTokens :: [Token] -> ()
 forceTokens = forceListWith forceToken
+
+forceTypedProgram :: Typed.TypedProgram -> ()
+forceTypedProgram (Typed.TypedProgram prelude modules entryPath) =
+  forceMaybeWith forceTypedModule prelude `seq`
+    forceListWith forceTypedModule modules `seq`
+      forceListWhnf entryPath
+
+forceTypedModule :: Typed.TypedModule -> ()
+forceTypedModule (Typed.TypedModule path sourcePath imports exports interface statements resultInfo) =
+  forceListWhnf path `seq`
+    forceTypedSourcePath sourcePath `seq`
+      forceListWith forceTypedImport imports `seq`
+        forceListWith forceTypedExport exports `seq`
+          forceTypedModuleInterface interface `seq`
+            forceListWith forceTypedStatement statements `seq`
+              forceTypedNodeInfo resultInfo
+
+forceTypedSourcePath :: Typed.TypedSourcePath -> ()
+forceTypedSourcePath (Typed.TypedSourcePath path) = path `seq` ()
+
+forceTypedImport :: Typed.TypedResolvedImport -> ()
+forceTypedImport (Typed.TypedResolvedImport spanValue path alias symbols) =
+  forceTypedSpan spanValue `seq`
+    forceListWhnf path `seq`
+      forceMaybeWith (`seq` ()) alias `seq`
+        forceMaybeWith forceListWhnf symbols
+
+forceTypedExport :: Typed.TypedModuleExport -> ()
+forceTypedExport (Typed.TypedModuleExport namespace name) = namespace `seq` name `seq` ()
+
+forceTypedModuleInterface :: Typed.TypedModuleInterface -> ()
+forceTypedModuleInterface (Typed.TypedModuleInterface values dataValues classes impls) =
+  forceListWith forceTypedValueInterface values `seq`
+    forceListWith forceTypedDataInterface dataValues `seq`
+      forceListWith forceTypedClassInterface classes `seq`
+        forceListWith forceTypedImplInterface impls
+
+forceTypedValueInterface :: Typed.TypedValueInterface -> ()
+forceTypedValueInterface (Typed.TypedValueInterface name scheme) =
+  forceTypedCoreName name `seq` forceTypedScheme scheme
+
+forceTypedDataInterface :: Typed.TypedDataInterface -> ()
+forceTypedDataInterface (Typed.TypedDataInterface declaration) = forceTypedDataDeclaration declaration
+
+forceTypedClassInterface :: Typed.TypedClassInterface -> ()
+forceTypedClassInterface (Typed.TypedClassInterface declaration) = forceTypedClassDeclaration declaration
+
+forceTypedImplInterface :: Typed.TypedImplInterface -> ()
+forceTypedImplInterface (Typed.TypedImplInterface implId) = forceTypedImplId implId
+
+forceTypedStatement :: Typed.TypedStatement -> ()
+forceTypedStatement statement =
+  case statement of
+    Typed.TypedLetStatement binder name spanValue scheme expression ->
+      forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedScheme scheme `seq` forceTypedExpr expression
+    Typed.TypedSignatureStatement binder name spanValue scheme ->
+      forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedScheme scheme
+    Typed.TypedDataStatement declaration -> forceTypedDataDeclaration declaration
+    Typed.TypedClassStatement declaration -> forceTypedClassDeclaration declaration
+    Typed.TypedImplStatement declaration -> forceTypedImplDeclaration declaration
+    Typed.TypedExpressionStatement spanValue expression -> forceTypedSpan spanValue `seq` forceTypedExpr expression
+
+forceTypedExpr :: Typed.TypedExpr -> ()
+forceTypedExpr expression =
+  case expression of
+    Typed.TypedLiteralExpr info literal -> forceTypedNodeInfo info `seq` forceTypedLiteral literal
+    Typed.TypedVariableExpr info name binder -> forceTypedNodeInfo info `seq` forceTypedCoreName name `seq` forceMaybeWith forceTypedBinderId binder
+    Typed.TypedLambdaExpr info binder name body -> forceTypedNodeInfo info `seq` forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedExpr body
+    Typed.TypedOperatorValueExpr info operator -> forceTypedNodeInfo info `seq` forceTypedOperator operator
+    Typed.TypedListExpr info values -> forceTypedNodeInfo info `seq` forceListWith forceTypedExpr values
+    Typed.TypedTupleExpr info values -> forceTypedNodeInfo info `seq` forceListWith forceTypedExpr values
+    Typed.TypedApplyExpr info callable argument -> forceTypedNodeInfo info `seq` forceTypedExpr callable `seq` forceTypedExpr argument
+    Typed.TypedTypeApplicationExpr info value spanValue typeValue -> forceTypedNodeInfo info `seq` forceTypedExpr value `seq` forceTypedSpan spanValue `seq` forceTypedType typeValue
+    Typed.TypedIfExpr info condition whenTrue whenFalse -> forceTypedNodeInfo info `seq` forceTypedExpr condition `seq` forceTypedExpr whenTrue `seq` forceTypedExpr whenFalse
+    Typed.TypedPatternCaseExpr info value arms -> forceTypedNodeInfo info `seq` forceTypedExpr value `seq` forceListWith forceTypedCaseArm arms
+    Typed.TypedBinaryExpr info operator left right -> forceTypedNodeInfo info `seq` forceTypedOperator operator `seq` forceTypedExpr left `seq` forceTypedExpr right
+    Typed.TypedLeftSectionExpr info value operator -> forceTypedNodeInfo info `seq` forceTypedExpr value `seq` forceTypedOperator operator
+    Typed.TypedRightSectionExpr info operator value -> forceTypedNodeInfo info `seq` forceTypedOperator operator `seq` forceTypedExpr value
+    Typed.TypedBlockExpr info statements -> forceTypedNodeInfo info `seq` forceListWith forceTypedStatement statements
+
+forceTypedCaseArm :: Typed.TypedCaseArm -> ()
+forceTypedCaseArm (Typed.TypedCaseArm patternValue guard body) =
+  forceTypedPattern patternValue `seq` forceMaybeWith forceTypedExpr guard `seq` forceTypedExpr body
+
+forceTypedPattern :: Typed.TypedPattern -> ()
+forceTypedPattern patternValue =
+  case patternValue of
+    Typed.TypedWildcardPattern info -> forceTypedNodeInfo info
+    Typed.TypedVariablePattern info binder name -> forceTypedNodeInfo info `seq` forceTypedBinderId binder `seq` forceTypedCoreName name
+    Typed.TypedLiteralPattern info literal -> forceTypedNodeInfo info `seq` forceTypedLiteral literal
+    Typed.TypedConstructorPattern info name patterns -> forceTypedNodeInfo info `seq` forceTypedCoreName name `seq` forceListWith forceTypedPattern patterns
+    Typed.TypedListPattern info patterns -> forceTypedNodeInfo info `seq` forceListWith forceTypedPattern patterns
+    Typed.TypedConsListPattern info headPattern tailPattern -> forceTypedNodeInfo info `seq` forceTypedPattern headPattern `seq` forceTypedPattern tailPattern
+    Typed.TypedTuplePattern info patterns -> forceTypedNodeInfo info `seq` forceListWith forceTypedPattern patterns
+    Typed.TypedAsPattern info binder name patternInner -> forceTypedNodeInfo info `seq` forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedPattern patternInner
+    Typed.TypedOrPattern info patterns -> forceTypedNodeInfo info `seq` forceListWith forceTypedPattern patterns
+
+forceTypedNodeInfo :: Typed.TypedNodeInfo -> ()
+forceTypedNodeInfo (Typed.TypedNodeInfo typeValue recipe instantiations evidence) =
+  forceTypedType typeValue `seq`
+    forceTypedRecipe recipe `seq`
+      forceListWith forceTypedInstantiation instantiations `seq`
+        forceListWith forceTypedEvidenceSelection evidence
+
+forceTypedLiteral :: Typed.TypedLiteral -> ()
+forceTypedLiteral literal =
+  case literal of
+    Typed.TypedIntegerLiteral value -> value `seq` ()
+    Typed.TypedFractionalLiteral whole fractional numericType -> whole `seq` fractional `seq` forceMaybeWith (`seq` ()) numericType
+    Typed.TypedBooleanLiteral value -> value `seq` ()
+    Typed.TypedCharacterLiteral value -> value `seq` ()
+    Typed.TypedTextLiteral value -> value `seq` ()
+
+forceTypedDataDeclaration :: Typed.TypedDataDeclaration -> ()
+forceTypedDataDeclaration (Typed.TypedDataDeclaration spanValue name parameters constructors) =
+  forceTypedSpan spanValue `seq` forceTypedCoreName name `seq` forceListWith forceTypedTypeParameterId parameters `seq` forceListWith forceTypedConstructorDeclaration constructors
+
+forceTypedConstructorDeclaration :: Typed.TypedConstructorDeclaration -> ()
+forceTypedConstructorDeclaration (Typed.TypedConstructorDeclaration binder name arguments recipes) =
+  forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceListWith forceTypedType arguments `seq` forceListWith forceTypedRecipe recipes
+
+forceTypedClassDeclaration :: Typed.TypedClassDeclaration -> ()
+forceTypedClassDeclaration (Typed.TypedClassDeclaration spanValue name parameters methods) =
+  forceTypedSpan spanValue `seq` forceTypedCoreName name `seq` forceListWith forceTypedTypeParameterId parameters `seq` forceListWith forceTypedMethodSignature methods
+
+forceTypedMethodSignature :: Typed.TypedMethodSignature -> ()
+forceTypedMethodSignature (Typed.TypedMethodSignature name spanValue scheme) =
+  forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedScheme scheme
+
+forceTypedImplDeclaration :: Typed.TypedImplDeclaration -> ()
+forceTypedImplDeclaration (Typed.TypedImplDeclaration spanValue implId methods) =
+  forceTypedSpan spanValue `seq` forceTypedImplId implId `seq` forceListWith forceTypedMethodDefinition methods
+
+forceTypedMethodDefinition :: Typed.TypedMethodDefinition -> ()
+forceTypedMethodDefinition (Typed.TypedMethodDefinition methodId binder name spanValue body) =
+  forceTypedMethodId methodId `seq` forceTypedBinderId binder `seq` forceTypedCoreName name `seq` forceTypedSpan spanValue `seq` forceTypedExpr body
+
+forceTypedScheme :: Typed.TypedScheme -> ()
+forceTypedScheme (Typed.TypedScheme binder parameters evidence primitiveConstraints typeValue recipe callableShape) =
+  forceTypedBinderId binder `seq`
+    forceListWith forceTypedTypeParameterId parameters `seq`
+      forceListWith forceTypedEvidenceParameter evidence `seq`
+        forceListWith forceTypedPrimitiveConstraint primitiveConstraints `seq`
+          forceTypedType typeValue `seq`
+            forceTypedRecipe recipe `seq`
+              forceMaybeWith (`seq` ()) callableShape
+
+forceTypedType :: Typed.TypedType -> ()
+forceTypedType typeValue =
+  case typeValue of
+    Typed.TypedIntType -> ()
+    Typed.TypedFloatType -> ()
+    Typed.TypedNumericType numericType -> numericType `seq` ()
+    Typed.TypedBoolType -> ()
+    Typed.TypedCharType -> ()
+    Typed.TypedTextType -> ()
+    Typed.TypedListType item -> forceTypedType item
+    Typed.TypedTupleType items -> forceListWith forceTypedType items
+    Typed.TypedDataType name arguments -> forceTypedCoreName name `seq` forceListWith forceTypedType arguments
+    Typed.TypedFunctionType argument result -> forceTypedType argument `seq` forceTypedType result
+    Typed.TypedTypeParameterType parameter -> forceTypedTypeParameterId parameter
+
+forceTypedRecipe :: Typed.TypedRepresentationRecipe -> ()
+forceTypedRecipe recipe =
+  case recipe of
+    Typed.TypedUnitRecipe -> ()
+    Typed.TypedBoolRecipe -> ()
+    Typed.TypedSignedIntegerRecipe width -> width `seq` ()
+    Typed.TypedUnsignedIntegerRecipe width -> width `seq` ()
+    Typed.TypedFloatRecipe width -> width `seq` ()
+    Typed.TypedCharRecipe -> ()
+    Typed.TypedManagedTextRecipe -> ()
+    Typed.TypedManagedListRecipe item -> forceTypedRecipe item
+    Typed.TypedManagedProductRecipe items -> forceListWith forceTypedRecipe items
+    Typed.TypedManagedVariantRecipe name arguments -> forceTypedCoreName name `seq` forceListWith forceTypedType arguments
+    Typed.TypedClosureRecipe arguments result -> forceListWith forceTypedRecipe arguments `seq` forceTypedRecipe result
+    Typed.TypedRepresentationParameterRecipe parameter -> forceTypedTypeParameterId parameter
+
+forceTypedPrimitiveConstraint :: Typed.TypedPrimitiveConstraint -> ()
+forceTypedPrimitiveConstraint constraint =
+  case constraint of
+    Typed.TypedNumericPrimitiveConstraint numeric typeValue -> forceTypedNumericConstraint numeric `seq` forceTypedType typeValue
+    Typed.TypedStrictEqualityPrimitiveConstraint typeValue -> forceTypedType typeValue
+
+forceTypedNumericConstraint :: Typed.TypedNumericConstraint -> ()
+forceTypedNumericConstraint constraint =
+  case constraint of
+    Typed.TypedAnyNumericConstraint -> ()
+    Typed.TypedRuntimeArithmeticNumericConstraint -> ()
+    Typed.TypedRuntimeComparisonNumericConstraint -> ()
+    Typed.TypedIntegralNumericConstraint -> ()
+    Typed.TypedIntegralLiteralNumericConstraint lower upper -> lower `seq` upper `seq` ()
+
+forceTypedEvidenceParameter :: Typed.TypedEvidenceParameter -> ()
+forceTypedEvidenceParameter (Typed.TypedEvidenceParameter parameter constraint) =
+  forceTypedEvidenceParameterId parameter `seq` forceTypedCapabilityConstraint constraint
+
+forceTypedCapabilityConstraint :: Typed.TypedCapabilityConstraint -> ()
+forceTypedCapabilityConstraint (Typed.TypedCapabilityConstraint name method typeValue) =
+  forceTypedCoreName name `seq` forceMaybeWith (`seq` ()) method `seq` forceTypedType typeValue
+
+forceTypedInstantiation :: Typed.TypedInstantiation -> ()
+forceTypedInstantiation (Typed.TypedInstantiation binder arguments spanValue) =
+  forceTypedBinderId binder `seq` forceListWith forceTypedTypeArgument arguments `seq` forceMaybeWith forceTypedSpan spanValue
+
+forceTypedTypeArgument :: Typed.TypedTypeArgument -> ()
+forceTypedTypeArgument (Typed.TypedTypeArgument parameter typeValue) = forceTypedTypeParameterId parameter `seq` forceTypedType typeValue
+
+forceTypedEvidenceSelection :: Typed.TypedEvidenceSelection -> ()
+forceTypedEvidenceSelection selection =
+  case selection of
+    Typed.TypedSelectedEvidence evidence -> forceTypedEvidenceUse evidence
+    Typed.TypedEvidenceCandidates constraint candidates -> forceTypedCapabilityConstraint constraint `seq` forceListWith forceTypedEvidenceCandidate candidates
+
+forceTypedEvidenceUse :: Typed.TypedEvidenceUse -> ()
+forceTypedEvidenceUse (Typed.TypedEvidenceUse parameter constraint implId methodId) =
+  forceMaybeWith forceTypedEvidenceParameterRef parameter `seq` forceTypedCapabilityConstraint constraint `seq` forceTypedImplId implId `seq` forceMaybeWith forceTypedMethodId methodId
+
+forceTypedEvidenceCandidate :: Typed.TypedEvidenceCandidate -> ()
+forceTypedEvidenceCandidate (Typed.TypedEvidenceCandidate implId methodId) = forceTypedImplId implId `seq` forceMaybeWith forceTypedMethodId methodId
+
+forceTypedEvidenceParameterRef :: Typed.TypedEvidenceParameterRef -> ()
+forceTypedEvidenceParameterRef (Typed.TypedEvidenceParameterRef binder parameter) = forceTypedBinderId binder `seq` forceTypedEvidenceParameterId parameter
+
+forceTypedOperator :: Typed.TypedOperatorRef -> ()
+forceTypedOperator operator =
+  case operator of
+    Typed.TypedBuiltinOperator symbol -> symbol `seq` ()
+    Typed.TypedResolvedOperator name symbol -> forceTypedCoreName name `seq` symbol `seq` ()
+
+forceTypedImplId :: Typed.TypedImplId -> ()
+forceTypedImplId (Typed.TypedImplId path name arguments) = forceListWhnf path `seq` forceTypedCoreName name `seq` forceListWith forceTypedType arguments
+
+forceTypedMethodId :: Typed.TypedMethodId -> ()
+forceTypedMethodId (Typed.TypedMethodId implId name) = forceTypedImplId implId `seq` name `seq` ()
+
+forceTypedBinderId :: Typed.TypedBinderId -> ()
+forceTypedBinderId (Typed.TypedBinderId (path, indices, name)) = forceListWhnf path `seq` forceListWhnf indices `seq` forceTypedCoreName name
+
+forceTypedCoreName :: Typed.TypedCoreName -> ()
+forceTypedCoreName name =
+  case name of
+    Typed.TypedUnresolvedSourceName value -> value `seq` ()
+    Typed.TypedUnresolvedQualifiedName qualifier member -> qualifier `seq` member `seq` ()
+    Typed.TypedResolvedName origin namespace value -> forceTypedNameOrigin origin `seq` namespace `seq` value `seq` ()
+    Typed.TypedBuiltinName value -> value `seq` ()
+    Typed.TypedGeneratedName kind -> forceTypedGeneratedNameKind kind
+
+forceTypedNameOrigin :: Typed.TypedNameOrigin -> ()
+forceTypedNameOrigin origin =
+  case origin of
+    Typed.TypedCurrentModule -> ()
+    Typed.TypedImportedModule path -> forceListWhnf path
+    Typed.TypedAmbientPrelude -> ()
+
+forceTypedGeneratedNameKind :: Typed.TypedGeneratedNameKind -> ()
+forceTypedGeneratedNameKind kind =
+  case kind of
+    Typed.TypedLambdaPatternArgument index -> index `seq` ()
+    Typed.TypedOperatorBinding symbol -> symbol `seq` ()
+    Typed.TypedOperatorSectionFunction -> ()
+    Typed.TypedOperatorSectionLeft -> ()
+    Typed.TypedOperatorSectionRight -> ()
+
+forceTypedSpan :: Typed.TypedSpan -> ()
+forceTypedSpan (Typed.TypedSpan start end) = start `seq` end `seq` ()
+
+forceTypedTypeParameterId :: Typed.TypedTypeParameterId -> ()
+forceTypedTypeParameterId (Typed.TypedTypeParameterId value) = value `seq` ()
+
+forceTypedEvidenceParameterId :: Typed.TypedEvidenceParameterId -> ()
+forceTypedEvidenceParameterId (Typed.TypedEvidenceParameterId value) = value `seq` ()
 
 forceToken :: Token -> ()
 forceToken token =
@@ -334,8 +637,7 @@ forceCompiledProgram :: CompiledProgram -> ()
 forceCompiledProgram compiledProgram =
   forceCompiledPrelude (compiledProgramPrelude compiledProgram) `seq`
     forceListWhnf (compiledProgramEntryPath compiledProgram) `seq`
-      forceListWith forceCompiledModule (compiledProgramModules compiledProgram) `seq`
-        forceListWith forceDiagnostic (compiledProgramDiagnostics compiledProgram)
+      forceListWith forceCompiledModule (compiledProgramModules compiledProgram)
 
 forceRuntimeProgramOutputResult :: Either Diagnostic RuntimeProgram -> ()
 forceRuntimeProgramOutputResult result =
@@ -346,6 +648,188 @@ forceRuntimeProgramOutputResult result =
 
 forceRenderedRuntimeValue :: RuntimeValue -> ()
 forceRenderedRuntimeValue runtimeValue = Text.length (renderRuntimeValue runtimeValue) `seq` ()
+
+forceLoweredProgram :: LoweredProgram -> ()
+forceLoweredProgram (LoweredProgram version layouts runtimeServices functions entryFunction) =
+  forceLoweredIRVersion version `seq`
+    forceListWith forceLoweredLayout layouts `seq`
+      forceListWith forceLoweredRuntimeService runtimeServices `seq`
+        forceListWith forceLoweredFunction functions `seq`
+          forceLoweredFunctionId entryFunction
+
+forceLoweredIRVersion :: LoweredIRVersion -> ()
+forceLoweredIRVersion (LoweredIRVersion version) = version `seq` ()
+
+forceLoweredFunctionId :: LoweredFunctionId -> ()
+forceLoweredFunctionId (LoweredFunctionId functionId) = functionId `seq` ()
+
+forceLoweredBlockId :: LoweredBlockId -> ()
+forceLoweredBlockId (LoweredBlockId blockId) = blockId `seq` ()
+
+forceLoweredTemporaryId :: LoweredTemporaryId -> ()
+forceLoweredTemporaryId (LoweredTemporaryId temporaryId) = temporaryId `seq` ()
+
+forceLoweredLayoutId :: LoweredLayoutId -> ()
+forceLoweredLayoutId (LoweredLayoutId layoutId) = layoutId `seq` ()
+
+forceLoweredRuntimeServiceId :: LoweredRuntimeServiceId -> ()
+forceLoweredRuntimeServiceId (LoweredRuntimeServiceId runtimeServiceId) = runtimeServiceId `seq` ()
+
+forceLoweredParameterId :: LoweredParameterId -> ()
+forceLoweredParameterId (LoweredParameterId parameterId) = parameterId `seq` ()
+
+forceLoweredRepresentation :: LoweredRepresentation -> ()
+forceLoweredRepresentation representation =
+  case representation of
+    LoweredUnitRepresentation -> ()
+    LoweredBoolRepresentation -> ()
+    LoweredSignedIntegerRepresentation width -> width `seq` ()
+    LoweredUnsignedIntegerRepresentation width -> width `seq` ()
+    LoweredFloatRepresentation width -> width `seq` ()
+    LoweredCharRepresentation -> ()
+    LoweredManagedReferenceRepresentation layoutId -> forceLoweredLayoutId layoutId
+    LoweredClosureRepresentation signature -> forceLoweredCallSignature signature
+
+forceLoweredCallSignature :: LoweredCallSignature -> ()
+forceLoweredCallSignature (LoweredCallSignature parameters resultRepresentation) =
+  forceListWith forceLoweredRepresentation parameters `seq`
+    forceLoweredRepresentation resultRepresentation
+
+forceLoweredVariantLayout :: LoweredVariantLayout -> ()
+forceLoweredVariantLayout (LoweredVariantLayout tag fields) =
+  tag `seq` forceListWith forceLoweredRepresentation fields
+
+forceLoweredLayoutShape :: LoweredLayoutShape -> ()
+forceLoweredLayoutShape shape =
+  case shape of
+    LoweredProductLayout fields -> forceListWith forceLoweredRepresentation fields
+    LoweredVariantLayouts variants -> forceListWith forceLoweredVariantLayout variants
+    LoweredClosureEnvironmentLayout fields -> forceListWith forceLoweredRepresentation fields
+    LoweredTextLayout -> ()
+    LoweredListLayout elementRepresentation -> forceLoweredRepresentation elementRepresentation
+
+forceLoweredLayout :: LoweredLayout -> ()
+forceLoweredLayout (LoweredLayout layoutId shape) =
+  forceLoweredLayoutId layoutId `seq` forceLoweredLayoutShape shape
+
+forceLoweredRuntimeService :: LoweredRuntimeService -> ()
+forceLoweredRuntimeService (LoweredRuntimeService runtimeServiceId signature) =
+  forceLoweredRuntimeServiceId runtimeServiceId `seq` forceLoweredCallSignature signature
+
+forceLoweredParameter :: LoweredParameter -> ()
+forceLoweredParameter (LoweredParameter parameterId representation) =
+  forceLoweredParameterId parameterId `seq` forceLoweredRepresentation representation
+
+forceLoweredImmediate :: LoweredImmediate -> ()
+forceLoweredImmediate immediate =
+  case immediate of
+    LoweredUnitImmediate -> ()
+    LoweredBoolImmediate value -> value `seq` ()
+    LoweredSignedIntegerImmediate width value -> width `seq` value `seq` ()
+    LoweredUnsignedIntegerImmediate width value -> width `seq` value `seq` ()
+    LoweredFloatImmediate width value -> width `seq` value `seq` ()
+    LoweredCharImmediate value -> value `seq` ()
+
+forceLoweredOperand :: LoweredOperand -> ()
+forceLoweredOperand operand =
+  case operand of
+    LoweredFunctionParameterOperand parameterId representation ->
+      forceLoweredParameterId parameterId `seq` forceLoweredRepresentation representation
+    LoweredBlockParameterOperand parameterId representation ->
+      forceLoweredParameterId parameterId `seq` forceLoweredRepresentation representation
+    LoweredTemporaryOperand temporaryId representation ->
+      forceLoweredTemporaryId temporaryId `seq` forceLoweredRepresentation representation
+    LoweredImmediateOperand immediate -> forceLoweredImmediate immediate
+
+forceLoweredPrimitive :: LoweredPrimitive -> ()
+forceLoweredPrimitive primitive =
+  case primitive of
+    LoweredArithmeticPrimitive operation -> operation `seq` ()
+    LoweredComparisonPrimitive operation -> operation `seq` ()
+    LoweredBooleanPrimitive operation -> operation `seq` ()
+
+forceLoweredOperation :: LoweredOperation -> ()
+forceLoweredOperation operation =
+  case operation of
+    LoweredPrimitiveOperation primitive operands ->
+      forceLoweredPrimitive primitive `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructProduct layoutId operands ->
+      forceLoweredLayoutId layoutId `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructVariant layoutId tag operands ->
+      forceLoweredLayoutId layoutId `seq` tag `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructList layoutId operands ->
+      forceLoweredLayoutId layoutId `seq` forceListWith forceLoweredOperand operands
+    LoweredConstructText layoutId value -> forceLoweredLayoutId layoutId `seq` value `seq` ()
+    LoweredConstructClosure functionId environment ->
+      forceLoweredFunctionId functionId `seq` forceLoweredOperand environment
+    LoweredProjectField layoutId fieldIndex operand ->
+      forceLoweredLayoutId layoutId `seq` fieldIndex `seq` forceLoweredOperand operand
+    LoweredProjectVariantTag layoutId operand ->
+      forceLoweredLayoutId layoutId `seq` forceLoweredOperand operand
+    LoweredProjectVariantField layoutId tag fieldIndex operand ->
+      forceLoweredLayoutId layoutId `seq`
+        tag `seq`
+          fieldIndex `seq`
+            forceLoweredOperand operand
+    LoweredDirectCall functionId operands ->
+      forceLoweredFunctionId functionId `seq` forceListWith forceLoweredOperand operands
+    LoweredClosureCall functionOperand operands ->
+      forceLoweredOperand functionOperand `seq` forceListWith forceLoweredOperand operands
+    LoweredRuntimeCall runtimeServiceId operands ->
+      forceLoweredRuntimeServiceId runtimeServiceId `seq` forceListWith forceLoweredOperand operands
+
+forceLoweredInstruction :: LoweredInstruction -> ()
+forceLoweredInstruction (LoweredInstruction temporaryId representation operation) =
+  forceLoweredTemporaryId temporaryId `seq`
+    forceLoweredRepresentation representation `seq`
+      forceLoweredOperation operation
+
+forceLoweredSwitchCase :: LoweredSwitchCase -> ()
+forceLoweredSwitchCase (LoweredSwitchCase tag blockId operands) =
+  tag `seq`
+    forceLoweredBlockId blockId `seq`
+      forceListWith forceLoweredOperand operands
+
+forceLoweredSwitchDefault :: LoweredSwitchDefault -> ()
+forceLoweredSwitchDefault (LoweredSwitchDefault blockId operands) =
+  forceLoweredBlockId blockId `seq` forceListWith forceLoweredOperand operands
+
+forceLoweredTerminator :: LoweredTerminator -> ()
+forceLoweredTerminator terminator =
+  case terminator of
+    LoweredReturn operand -> forceLoweredOperand operand
+    LoweredJump blockId operands ->
+      forceLoweredBlockId blockId `seq` forceListWith forceLoweredOperand operands
+    LoweredBranch condition thenBlock thenOperands elseBlock elseOperands ->
+      forceLoweredOperand condition `seq`
+        forceLoweredBlockId thenBlock `seq`
+          forceListWith forceLoweredOperand thenOperands `seq`
+            forceLoweredBlockId elseBlock `seq`
+              forceListWith forceLoweredOperand elseOperands
+    LoweredSwitch operand cases maybeDefault ->
+      forceLoweredOperand operand `seq`
+        forceListWith forceLoweredSwitchCase cases `seq`
+          forceMaybeWith forceLoweredSwitchDefault maybeDefault
+    LoweredDirectTailCall functionId operands ->
+      forceLoweredFunctionId functionId `seq` forceListWith forceLoweredOperand operands
+    LoweredClosureTailCall functionOperand operands ->
+      forceLoweredOperand functionOperand `seq` forceListWith forceLoweredOperand operands
+
+forceLoweredBlock :: LoweredBlock -> ()
+forceLoweredBlock (LoweredBlock blockId parameters instructions maybeTerminator) =
+  forceLoweredBlockId blockId `seq`
+    forceListWith forceLoweredParameter parameters `seq`
+      forceListWith forceLoweredInstruction instructions `seq`
+        forceMaybeWith forceLoweredTerminator maybeTerminator
+
+forceLoweredFunction :: LoweredFunction -> ()
+forceLoweredFunction (LoweredFunction functionId maybeEnvironment parameters resultRepresentation blocks entryBlock) =
+  forceLoweredFunctionId functionId `seq`
+    forceMaybeWith forceLoweredParameter maybeEnvironment `seq`
+      forceListWith forceLoweredParameter parameters `seq`
+        forceLoweredRepresentation resultRepresentation `seq`
+          forceListWith forceLoweredBlock blocks `seq`
+            forceLoweredBlockId entryBlock
 
 forceLiteral :: Literal -> ()
 forceLiteral literal =
@@ -456,10 +940,9 @@ forceDiagnostic diagnostic =
           diagnosticSummary diagnostic `seq`
             forceMaybeWith forceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
               forceListWith forceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
-                diagnosticSubject diagnostic `seq`
+                forceMaybeWith (\subject -> subject `seq` ()) (diagnosticSubject diagnostic) `seq`
                   forceListWhnf (diagnosticNotes diagnostic) `seq`
-                    diagnosticHelp diagnostic `seq`
-                      ()
+                    forceMaybeWith (\helpText -> helpText `seq` ()) (diagnosticHelp diagnostic)
 
 forceDiagnosticLabel :: DiagnosticLabel -> ()
 forceDiagnosticLabel diagnosticLabel =
@@ -584,10 +1067,12 @@ forceCompiledPrelude compiledPrelude =
 
 forceCompiledModule :: CompiledModule -> ()
 forceCompiledModule compiledModule =
-  forceResolvedModule (compiledResolvedModule compiledModule) `seq`
-    forceModuleInterface (compiledModuleInterface compiledModule) `seq`
-      forceListWith forceDiagnostic (compiledModuleDiagnostics compiledModule) `seq`
-        forceExpr (compiledModuleExpr compiledModule)
+  forceListWhnf (compiledModulePath compiledModule) `seq`
+    forceListWith forceResolvedImport (compiledModuleImports compiledModule) `seq`
+      forceModuleExportInventory (compiledModuleExportInventory compiledModule) `seq`
+        forceModuleInterface (compiledModuleInterface compiledModule) `seq`
+          forceListWith forceDiagnostic (compiledModuleDiagnostics compiledModule) `seq`
+            forceExpr (compiledModuleExpr compiledModule)
 
 forceResolvedModule :: ResolvedModule -> ()
 forceResolvedModule resolvedModule =
@@ -596,6 +1081,18 @@ forceResolvedModule resolvedModule =
       forceListWith forceResolvedImport (resolvedModuleImports resolvedModule) `seq`
         forceModuleExportInventory (resolvedModuleExportInventory resolvedModule) `seq`
           forceCoreModule (resolvedModuleCore resolvedModule)
+
+forceCoreModule :: CoreModule -> ()
+forceCoreModule coreModule =
+  forceMaybeWith forceListWhnf (coreModuleDeclaredPath coreModule) `seq`
+    forceMaybeWith forceDeclaredModuleExports (coreModuleDeclaredExports coreModule) `seq`
+      forceListWith forceResolvedImport (coreModuleImports coreModule) `seq`
+        forceExpr (coreModuleExpr coreModule)
+
+forceDeclaredModuleExports :: DeclaredModuleExports -> ()
+forceDeclaredModuleExports declaredExports =
+  forceSourceSpan (declaredModuleExportsSpan declaredExports) `seq`
+    forceListWith forceModuleExportSelector (declaredModuleExportSelectors declaredExports)
 
 forceResolvedImport :: ResolvedImport -> ()
 forceResolvedImport resolvedImport =
@@ -612,18 +1109,6 @@ forceModuleExport moduleExport =
   moduleExportNamespace moduleExport `seq`
     moduleExportName moduleExport `seq`
       ()
-
-forceCoreModule :: CoreModule -> ()
-forceCoreModule coreModule =
-  forceMaybeWith forceListWhnf (coreModuleDeclaredPath coreModule) `seq`
-    forceMaybeWith forceDeclaredModuleExports (coreModuleDeclaredExports coreModule) `seq`
-      forceListWith forceResolvedImport (coreModuleImports coreModule) `seq`
-        forceExpr (coreModuleExpr coreModule)
-
-forceDeclaredModuleExports :: DeclaredModuleExports -> ()
-forceDeclaredModuleExports declaredExports =
-  forceSourceSpan (declaredModuleExportsSpan declaredExports) `seq`
-    forceListWith forceModuleExportSelector (declaredModuleExportSelectors declaredExports)
 
 forceCompiledModules :: [CompiledModule] -> ()
 forceCompiledModules = forceListWith forceCompiledModule

@@ -13,16 +13,13 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-08-10`): the first RFC 0009 child is complete.
-The opt-in typed-core and lowering path now supports closed named functions as
-values, recursively represented unary closure parameters and results, explicit
-empty environments, and unary higher-order closure calls while retaining the
-scalar/direct-call regression baseline. Normal compile/run remains
-canonical-core/interpreter based. `Ready Now` is empty because scalar binding
-has no matching validated ready-plan. Scalar binding is solely the next
-curation target; anonymous or nested closures, lexical capture, currying and
-partial application, oversaturation, recursion, control flow, multi-module
-integration, LLVM, object/link, and native-runtime work remain unpromoted.
+Current executor status (`2026-08-12`): the compiler performance follow-up and
+its Haskell/compiler-design cleanup are complete on
+`codex/compiler-performance-program`; their implementation plans own the
+comparable receipts, full closeout receipt, and explicit neutral/rejected
+dispositions. No implementation row is currently ready. The next curation pass
+should evaluate the scalar-binding bootstrap candidate below against RFC 0009
+before promoting any new work.
 
 ## Next Curation Target
 

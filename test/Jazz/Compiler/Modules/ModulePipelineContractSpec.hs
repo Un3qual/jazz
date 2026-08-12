@@ -18,8 +18,15 @@ import Jazz.Compiler.AST
     SignatureType (..),
     Statement (..)
   )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (E1001, E1002, E1003),
+    WarningCategory (SameScopeRebinding)
+  )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( DiagnosticOrigin (CompilationOrigin),
+    SourceSpan (..),
+    mkErrorDiagnostic,
+    mkWarningDiagnostic
   )
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic
@@ -37,28 +44,39 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.ModuleResolver (resolveProgram)
-import Jazz.Compiler.ModuleCompiler (compileResolvedProgram)
+import Jazz.Compiler.ModuleCompiler
+  ( compileResolvedModule,
+    compileResolvedProgram
+  )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (..),
     RuntimeModule (runtimeModuleExports, runtimeModulePath),
     RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
     evaluateCompiledProgram,
     evaluateCompiledProgramWithHost,
+    evaluateCompiledProgramWithHostObserved,
     lookupRuntimeModule
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
+import Jazz.Compiler.Runtime.Observation
+  ( RuntimeObservationRequest (RuntimeObservationStatistics),
+    RuntimeObservationResult (runtimeObservationOutcome),
+    RuntimeOutcome (RuntimeOutcomeFailed)
+  )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     RuntimeHostExit (..)
   )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
+    CompiledPrelude (..),
     CompiledProgram (..),
     ModuleInterface (..),
     compiledProgramErrors,
     emptyCompiledPrelude,
     emptyCompileInputs,
     emptyModuleInterface,
+    firstCompiledProgramError,
     lookupCompiledModule
   )
 import Jazz.Compiler.ModuleExports
@@ -67,7 +85,6 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries
   )
-import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
     ResolvedImport (..),
@@ -85,7 +102,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (TTextType),
+    ExpressionType (TIntType, TTextType),
     TypeBinding (PlainTypeBinding)
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -117,7 +134,10 @@ tests =
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
     ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
+    ("compiled error lookup preserves prelude-then-module order", testFirstCompiledProgramErrorOrder),
+    ("compile errors prevent observed host evaluation", testCompileErrorPreventsObservedHostEvaluation),
     ("duplicate compiled module paths preserve first-match imports and lookup", testDuplicateCompiledModulePathsPreserveFirstMatch),
+    ("module compilation preserves first-match dependency lookup", testCompileResolvedModulePreservesFirstDependency),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract),
@@ -209,8 +229,54 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
       CompiledProgram
         { compiledProgramPrelude = emptyCompiledPrelude,
           compiledProgramEntryPath = ["App", "Main"],
-          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule],
-          compiledProgramDiagnostics = []
+          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule]
+        }
+
+testCompileResolvedModulePreservesFirstDependency :: IO ()
+testCompileResolvedModulePreservesFirstDependency = do
+  compiled <-
+    compileResolvedModule
+      (emptyCompileInputs defaultWarningSettings)
+      [firstDependency, secondDependency]
+      targetModule
+  assertEqual
+    "first dependency interface wins"
+    (Just (PlainTypeBinding TTextType))
+    (Map.lookup targetExport (interfaceValueTypes (compiledModuleInterface compiled)))
+  where
+    dependencyPath = ["Lib", "Duplicate"]
+    dependencyExport = ModuleExport ValueNamespace "value"
+    dependencyInventory = exportInventory [dependencyExport]
+    firstDependency =
+      compiledModule
+        dependencyPath
+        []
+        [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LText "first"))]
+        dependencyInventory
+        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TTextType)})
+    secondDependency =
+      compiledModule
+        dependencyPath
+        []
+        [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LInt 2))]
+        dependencyInventory
+        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TIntType)})
+    targetExport = ModuleExport ValueNamespace "copied"
+    targetImport = chainImport dependencyPath
+    targetExpr =
+      EBlock
+        [ SLet
+            (resolvedLocalName ValueNamespace (mkIdentifier "copied"))
+            (SourceSpan 1 1)
+            (EVar (resolvedImportedName dependencyPath ValueNamespace (mkIdentifier "value")))
+        ]
+    targetModule =
+      ResolvedModule
+        { resolvedModulePath = ["App", "Main"],
+          resolvedSourcePath = "<module-index-test>",
+          resolvedModuleImports = [targetImport],
+          resolvedModuleExportInventory = exportInventory [targetExport],
+          resolvedModuleCore = CoreModule (Just ["App", "Main"]) Nothing [targetImport] targetExpr
         }
 
 compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
@@ -251,6 +317,68 @@ testLongCompiledDependencyChainHost = do
   calls <- readIORef callsRef
   assertEqual "host chain calls" ["arguments"] calls
 
+testFirstCompiledProgramErrorOrder :: IO ()
+testFirstCompiledProgramErrorOrder = do
+  assertEqual
+    "prelude error precedes module errors"
+    (Just preludeError)
+    (firstCompiledProgramError programWithPreludeError)
+  assertEqual
+    "earlier module error precedes later module errors"
+    (Just firstModuleError)
+    (firstCompiledProgramError programWithModuleErrors)
+  where
+    preludeError = mkErrorDiagnostic E1001 CompilationOrigin "prelude error"
+    firstModuleError = mkErrorDiagnostic E1002 CompilationOrigin "first module error"
+    secondModuleError = mkErrorDiagnostic E1003 CompilationOrigin "second module error"
+    warning = mkWarningDiagnostic SameScopeRebinding CompilationOrigin "warning"
+    firstModule =
+      (compiledModule ["Lib", "First"] [] [] (exportInventory []) emptyModuleInterface)
+        { compiledModuleDiagnostics = [warning, firstModuleError]
+        }
+    secondModule =
+      (compiledModule ["App", "Main"] [] [] (exportInventory []) emptyModuleInterface)
+        { compiledModuleDiagnostics = [secondModuleError]
+        }
+    programWithModuleErrors =
+      CompiledProgram
+        { compiledProgramPrelude = emptyCompiledPrelude,
+          compiledProgramEntryPath = ["App", "Main"],
+          compiledProgramModules = [firstModule, secondModule]
+        }
+    programWithPreludeError =
+      programWithModuleErrors
+        { compiledProgramPrelude =
+            emptyCompiledPrelude
+              { compiledPreludeDiagnostics = [warning, preludeError]
+              }
+        }
+
+testCompileErrorPreventsObservedHostEvaluation :: IO ()
+testCompileErrorPreventsObservedHostEvaluation = do
+  callsRef <- newIORef []
+  result <-
+    evaluateCompiledProgramWithHostObserved
+      RuntimeObservationStatistics
+      (recordingHost callsRef)
+      compiledWithError
+  calls <- readIORef callsRef
+  case runtimeObservationOutcome result of
+    RuntimeOutcomeFailed diagnostic ->
+      assertEqual "compile error outcome" compileError diagnostic
+    _ -> fail "compile error evaluation did not fail"
+  assertEqual "compile error host calls" [] calls
+  where
+    compileError = mkErrorDiagnostic E1001 CompilationOrigin "compile error"
+    compiledWithError =
+      (compiledChainProgram 1 True)
+        { compiledProgramModules =
+            case compiledProgramModules (compiledChainProgram 1 True) of
+              [] -> []
+              firstModule : rest ->
+                firstModule {compiledModuleDiagnostics = [compileError]} : rest
+        }
+
 evaluatePureChain :: CompiledProgram -> Int -> IO ()
 evaluatePureChain compiled moduleCount =
   case evaluateCompiledProgram compiled of
@@ -284,8 +412,7 @@ compiledChainProgram moduleCount requiresHost =
   CompiledProgram
     { compiledProgramPrelude = emptyCompiledPrelude,
       compiledProgramEntryPath = ["App", "Main"],
-      compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount],
-      compiledProgramDiagnostics = []
+      compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount]
     }
 
 chainDependency :: Int -> CompiledModule
@@ -329,14 +456,9 @@ chainEntry requiresHost moduleCount =
 compiledModule :: [Text] -> [ResolvedImport] -> [Statement] -> ModuleExportInventory -> ModuleInterface -> CompiledModule
 compiledModule path imports statements inventory moduleInterface =
   CompiledModule
-    { compiledResolvedModule =
-        ResolvedModule
-          { resolvedModulePath = path,
-            resolvedSourcePath = "<runtime-chain>",
-            resolvedModuleImports = imports,
-            resolvedModuleExportInventory = inventory,
-            resolvedModuleCore = CoreModule (Just path) Nothing imports (EBlock statements)
-          },
+    { compiledModulePath = path,
+      compiledModuleImports = imports,
+      compiledModuleExportInventory = inventory,
       compiledModuleInterface = moduleInterface,
       compiledModuleDiagnostics = [],
       compiledModuleExpr = EBlock statements
@@ -416,7 +538,7 @@ testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
         "public compiled inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
         ( exportInventoryEntries
-            (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule valueModule))
+            (compiledModuleExportInventory valueModule)
         )
 
 testRuntimeModulePublishesExplicitExportsOnly :: IO ()
@@ -602,7 +724,7 @@ testGroupedExportsPublishSelectedConstructor = do
               ]
           )
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory (compiledResolvedModule choiceModule))
+              (compiledModuleExportInventory choiceModule)
           )
   case evaluateCompiledProgram compiled of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))

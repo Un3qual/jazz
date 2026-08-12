@@ -36,7 +36,7 @@ import Jazz.ProgramCorpus.Runner
     runProgramCaseObserved,
   )
 import Jazz.ProgramCorpus.Types
-  ( BenchmarkGroup,
+  ( BenchmarkGroup (..),
     FeatureTag (..),
     ProgramBudgetMetric (..),
     ProgramBudgetViolation (..),
@@ -388,7 +388,7 @@ testCheckedInCorpusCoverage = do
     (Set.fromList (map programCaseWorkload cases))
   assertEqual
     "benchmark group coverage"
-    (Set.fromList ([minBound .. maxBound] :: [BenchmarkGroup]))
+    (Set.fromList corpusBenchmarkGroups)
     (Set.fromList (concatMap programCaseBenchmarks cases))
   sourceCounts <- mapM countJazzSources cases
   if any (> 1) sourceCounts
@@ -409,13 +409,28 @@ testAlgorithmicWorkloads = do
       (programCaseWorkload programCase)
     assertEqual
       (identifier <> " benchmark groups")
-      (Set.fromList ([minBound .. maxBound] :: [BenchmarkGroup]))
+      (Set.fromList corpusBenchmarkGroups)
       (Set.fromList (programCaseBenchmarks programCase))
     when (identifier == "symbolic-differentiation") $
       assertEqual
         "symbolic differentiation does not claim generic ADT coverage"
         False
         (GenericAdtsFeature `elem` programCaseFeatures programCase)
+
+-- Direct diagnostic analysis, Typed and Lowered validation, and Typed lowering
+-- are exercised by generated compiler-scale cases; the checked-in corpus is
+-- not expected to cover them.
+corpusBenchmarkGroups :: [BenchmarkGroup]
+corpusBenchmarkGroups =
+  filter
+    ( `notElem`
+        [ DiagnosticAnalysisBenchmark,
+          TypedValidationBenchmark,
+          LoweredValidationBenchmark,
+          TypedLoweringBenchmark
+        ]
+    )
+    [minBound .. maxBound]
 
 algorithmicCaseIdentifiers :: [Text]
 algorithmicCaseIdentifiers =
