@@ -155,17 +155,17 @@ Each blocked item should answer these questions:
   unary closure parameters and results, explicit empty environments, and unary
   higher-order closure calls while preserving every scalar/direct-call fixture.
   Normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: write and validate a matching ready-plan for concrete
-  scalar `let` production, ordered reuse, and entry lowering while retaining
+- Smallest unblocker: execute the validated ready child for concrete scalar
+  `let` production, ordered reuse, and entry lowering while retaining
   unsupported managed bindings.
 - Decision needed: none for the semantic boundary. RFC 0009 fixes scalar
-  binding as the second ordered child, but an executor-ready plan with matching
-  frontmatter and exact fixtures has not been written.
-- Recommended default: keep scalar binding solely as the next curation target
-  until that plan validates. Keep normal compile/run on canonical core and the
-  reference interpreter.
+  binding as the second ordered child, and its executor-ready plan now
+  validates with the shared inference-scope owner included.
+- Recommended default: execute the scalar-binding ready row. Keep normal
+  compile/run on canonical core and the reference interpreter.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
+- Target paths: `src/Jazz/Compiler/TypeInference/Scope.hs`;
+  `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
   `src/Jazz/Compiler/LoweredIR/Lower.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`.
