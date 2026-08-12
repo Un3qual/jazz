@@ -113,3 +113,23 @@ Completed on 2026-08-12.
   examples, repository/docs/policy/queue checks, and bounded `nix flake check`.
   The final plan/queue edits are internal documentation only and reuse this
   still-valid source-artifact receipt.
+
+## Post-closeout review follow-up
+
+Commit `e466c78c` closes the final actionable CodeRabbit findings from the
+pre-cleanup review snapshot:
+
+- Recursive preview cache validation now snapshots numeric and strict-equality
+  constraints only for the preview's dependency variables. Constraint-only
+  changes refresh the preview without invalidating it for unrelated solver
+  work.
+- The mixed module-resolution fixture now describes a type-consistent identity
+  call while preserving its import and public-inventory scenario.
+- The `data` namespace export syntax remains unchanged because the repository is
+  pinned to GHC 9.14.1 and the full build accepts it. Generic `Box a`
+  applications also remain unchanged because independent constructor
+  instantiation is an explicit Jazz semantic contract.
+
+The binding-signature, module-resolution, ADT type, and parser-foundation owners
+passed with `--jobs=1`. The authoritative `JAZZ_MAIN_PHASE=all` command above
+then passed again, including the bounded Nix derivation's 61/61 test suites.
