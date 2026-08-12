@@ -30,6 +30,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     invalidLowererBoundaryPrograms,
     independentLowererPrograms,
     lowererStructuralBoundaryPrograms,
+    reviewLowererBoundaryPrograms,
     producerEdgeFixtures,
     scalarBindingProducerFixtures,
     ordinaryForwardVisibilityFixture,
@@ -1521,6 +1522,56 @@ lowererStructuralBoundaryPrograms =
     ("conditional-entry", conditionalLowererProgram)
   ]
 
+reviewLowererBoundaryPrograms :: [(Text, TypedProgram)]
+reviewLowererBoundaryPrograms =
+  [ ("lifted-lambda-failure-preorder", liftedLambdaFailurePreorderProgram),
+    ("exported-scalar-lifted-lambda-name-collision", exportedScalarLiftedLambdaNameCollisionProgram)
+  ]
+
+liftedLambdaFailurePreorderProgram :: TypedProgram
+liftedLambdaFailurePreorderProgram =
+  expectedScalarProgram
+    intInfo
+    ( TypedApplyExpr
+        intInfo
+        ( TypedLambdaExpr
+            lambdaInfo
+            parameterBinder
+            parameterName
+            (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2))
+        )
+        (TypedIfExpr intInfo (boolExpr True) (intExpr 3) (intExpr 4))
+    )
+  where
+    parameterName = resolvedName "item"
+    parameterBinder = TypedBinderId (modulePath, [0, 0], parameterName)
+    lambdaInfo = stagedFunctionInfo [("item", intInfo)] intInfo
+
+exportedScalarLiftedLambdaNameCollisionProgram :: TypedProgram
+exportedScalarLiftedLambdaNameCollisionProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        [TypedModuleExport TypedValueNamespace "item"]
+        (TypedModuleInterface [TypedValueInterface itemName itemScheme] [] [] [])
+        [ TypedLetStatement itemBinder itemName (TypedSpan 1 1) itemScheme (intExpr 1),
+          TypedExpressionStatement
+            (TypedSpan 2 1)
+            (TypedLambdaExpr lambdaInfo parameterBinder itemName (boundVariableExpr itemName intInfo parameterBinder))
+        ]
+        lambdaInfo
+    ]
+    modulePath
+  where
+    itemName = resolvedName "item"
+    itemBinder = TypedBinderId (modulePath, [0], itemName)
+    itemScheme = scalarScheme itemBinder intInfo
+    parameterBinder = TypedBinderId (modulePath, [1], itemName)
+    lambdaInfo = stagedFunctionInfo [("item", intInfo)] intInfo
+
 managedScalarLowererProgram :: TypedProgram
 managedScalarLowererProgram =
   expectedScalarProgram
@@ -2939,6 +2990,32 @@ producerEdgeFixtures =
            sourceFixtureNoExports
              "nested-closure-valued-capture"
              "\\(predicate) -> \\(item) -> predicate (item == True) == True."
+         ),
+         ( "named-nested-captured-closure-call",
+           sourceFixtureNoExports
+             "named-nested-captured-closure-call"
+             ( Text.unlines
+                 [ "seed :: Bool.",
+                   "seed = True.",
+                   "makePredicate :: (Bool -> Bool) -> Bool -> Bool.",
+                   "makePredicate = \\(predicate) -> \\(item) -> predicate item == seed.",
+                   "True."
+                 ]
+             )
+         ),
+         ( "transitive-named-closure-capture",
+           sourceFixtureNoExports
+             "transitive-named-closure-capture"
+             ( Text.unlines
+                 [ "seed :: Int.",
+                   "seed = 1.",
+                   "addSeed :: Int -> Int.",
+                   "addSeed = \\(item) -> item + seed.",
+                   "callAddSeed :: Int -> Int.",
+                   "callAddSeed = \\(item) -> addSeed item.",
+                   "callAddSeed 41."
+                 ]
+             )
          ),
          ( "unsupported-managed-capture",
            sourceFixtureNoExports

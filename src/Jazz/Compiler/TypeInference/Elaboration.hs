@@ -861,28 +861,64 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       ]
 
     callableShapeTable functions statements =
-      snd
-        ( foldl'
-            collect
-            (Set.empty, Map.map (const TypedDirectCallableShape) functions)
-            statements
-        )
+      Map.mapWithKey promoteTransitiveCapture baseShapes
       where
-        collect (visibleScalars, callableShapes) statement =
+        (_, baseShapes, directCaptureFunctions) =
+          foldl'
+            collect
+            (Set.empty, Map.map (const TypedDirectCallableShape) functions, Set.empty)
+            statements
+        closureDependencies =
+          foldl'
+            collectClosureDependencies
+            Map.empty
+            statements
+        collectClosureDependencies dependencies statement =
+          case statement of
+            ProvisionalFunctionBinding declaration expression ->
+              Map.insertWith
+                Set.union
+                (provisionalCallableName declaration)
+                (Set.intersection (Map.keysSet functions) (provisionalFreeNames expression))
+                dependencies
+            _ -> dependencies
+        transitiveCaptureFunctions = propagateCaptureDependencies directCaptureFunctions
+        propagateCaptureDependencies capturingFunctions =
+          let nextCapturingFunctions =
+                Map.foldlWithKey'
+                  promote
+                  capturingFunctions
+                  closureDependencies
+           in if nextCapturingFunctions == capturingFunctions
+                then capturingFunctions
+                else propagateCaptureDependencies nextCapturingFunctions
+          where
+            promote accumulatedCaptures name dependencies
+              | Set.null (Set.intersection accumulatedCaptures dependencies) = accumulatedCaptures
+              | otherwise = Set.insert name accumulatedCaptures
+        promoteTransitiveCapture name shape
+          | Set.member name transitiveCaptureFunctions = TypedClosureCallableShape
+          | otherwise = shape
+        collect (visibleScalars, callableShapes, capturingFunctions) statement =
           let shapesAfterUses = collectStatementCallableUses functions Set.empty callableShapes statement
            in case statement of
                 ProvisionalScalarBinding _ name _ _ _ ->
-                  (Set.insert name visibleScalars, shapesAfterUses)
+                  (Set.insert name visibleScalars, shapesAfterUses, capturingFunctions)
                 ProvisionalFunctionBinding declaration expression ->
                   let name = provisionalCallableName declaration
+                      capturesScalar = not (Set.disjoint visibleScalars (provisionalFreeNames expression))
                       shapesAfterCapture =
-                        if not (Set.disjoint visibleScalars (provisionalFreeNames expression))
+                        if capturesScalar
                           then markClosure name shapesAfterUses
                           else shapesAfterUses
-                   in (Set.delete name visibleScalars, shapesAfterCapture)
+                      nextCapturingFunctions =
+                        if capturesScalar
+                          then Set.insert name capturingFunctions
+                          else capturingFunctions
+                   in (Set.delete name visibleScalars, shapesAfterCapture, nextCapturingFunctions)
                 ProvisionalUnsupportedCallableBinding declaration _ _ _ ->
-                  (Set.delete (provisionalCallableName declaration) visibleScalars, shapesAfterUses)
-                _ -> (visibleScalars, shapesAfterUses)
+                  (Set.delete (provisionalCallableName declaration) visibleScalars, shapesAfterUses, capturingFunctions)
+                _ -> (visibleScalars, shapesAfterUses, capturingFunctions)
 
     provisionalFreeNames = freeNames Set.empty
       where

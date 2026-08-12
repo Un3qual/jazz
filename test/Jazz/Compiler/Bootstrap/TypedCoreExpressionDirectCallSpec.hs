@@ -48,6 +48,10 @@ tests =
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("lowers lexical closures with exact environments", testLexicalCaptureLowering),
     ("supports the complete lexical capture fixture matrix", testLexicalCaptureFixtureMatrix),
+    ("dispatches captured closure callees from nested named closures", testClosureCaptureReviewRegression "named-nested-captured-closure-call"),
+    ("propagates transitive named closure environments", testClosureCaptureReviewRegression "transitive-named-closure-capture"),
+    ("preserves lifted lambda failure preorder", testLiftedLambdaFailurePreorder),
+    ("rejects lifted lambda aliases for module metadata", testLiftedLambdaMetadataAlias),
     ("lowers scalar bindings once for ordered entry reuse", testScalarBindingLowering),
     ("preserves flattened recipes through a named direct leading-lambda chain", testThreeArgumentDirectLeadingLambdaRecipe),
     ("retains every explicit numeric width while lowering", testExplicitNumericWidthLowering),
@@ -589,6 +593,62 @@ testLexicalCaptureFixtureMatrix = do
         LoweredInstruction _ _ (LoweredConstructProduct layoutValue fields) <- instructions,
         layoutValue == targetLayout
       ]
+
+testClosureCaptureReviewRegression :: Text -> IO ()
+testClosureCaptureReviewRegression name = do
+  let fixture = producerEdgeFixture name
+  firstProduction <- produceFixture fixture
+  secondProduction <- produceFixture fixture
+  assertEqual (name <> " repeatable typed production") firstProduction secondProduction
+  case typedCoreProductionStatus firstProduction of
+    TypedCoreProductionSucceeded typedProgram -> do
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
+          secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+      case firstLowering of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual (name <> " valid lowered IR") [] (validateLoweredProgram loweredProgram)
+        other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+    other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+
+testLiftedLambdaFailurePreorder :: IO ()
+testLiftedLambdaFailurePreorder =
+  case lookup "lifted-lambda-failure-preorder" reviewLowererBoundaryPrograms of
+    Just programValue -> do
+      assertEqual "lifted failure-order fixture is valid typed core" [] (validateTypedProgram programValue)
+      assertEqual
+        "lifted lambda failures follow canonical expression preorder"
+        ( LoweredIRUnsupported
+            [ expressionFailure [0, 0, 0],
+              expressionFailure [0, 1]
+            ]
+        )
+        (lowerTypedCoreExpressionDirectCall programValue)
+    Nothing -> failTest "lifted failure-order regression fixture is missing"
+  where
+    expressionFailure expressionPath =
+      LoweredIRLoweringFailure
+        (TypedExpressionPath ["App", "Main"] [0] expressionPath)
+        LoweredIRUnsupportedExpression
+        LoweredIRNoFailureDetail
+
+testLiftedLambdaMetadataAlias :: IO ()
+testLiftedLambdaMetadataAlias =
+  case lookup "exported-scalar-lifted-lambda-name-collision" reviewLowererBoundaryPrograms of
+    Just programValue -> do
+      assertEqual "metadata collision fixture is valid typed core" [] (validateTypedProgram programValue)
+      assertEqual
+        "lifted lambda names cannot satisfy scalar module metadata"
+        ( LoweredIRUnsupported
+            [ LoweredIRLoweringFailure
+                (TypedModulePath ["App", "Main"])
+                LoweredIRUnsupportedModule
+                LoweredIRNoFailureDetail
+            ]
+        )
+        (lowerTypedCoreExpressionDirectCall programValue)
+    Nothing -> failTest "metadata collision regression fixture is missing"
 
 testScalarBindingLowering :: IO ()
 testScalarBindingLowering =

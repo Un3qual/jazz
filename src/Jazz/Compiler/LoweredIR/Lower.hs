@@ -13,7 +13,7 @@ module Jazz.Compiler.LoweredIR.Lower
 where
 
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (find)
+import Data.List (find, sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -307,11 +307,12 @@ supportedModuleMetadata imports exports (TypedModuleInterface values datas class
     && all supportedExport exports
     && all supportedInterfaceValue values
   where
+    sourceFunctions = filter functionShapeSourceBinding functions
     supportedExport (TypedModuleExport namespace identifier) =
       namespace == TypedValueNamespace
-        && any (matchesIdentifier identifier . functionShapeName) functions
+        && any (matchesIdentifier identifier . functionShapeName) sourceFunctions
     supportedInterfaceValue (TypedValueInterface name _) =
-      any ((== name) . functionShapeName) functions
+      any ((== name) . functionShapeName) sourceFunctions
     matchesIdentifier identifier name =
       case name of
         TypedResolvedName TypedCurrentModule TypedValueNamespace candidate ->
@@ -332,8 +333,11 @@ collectFunctionShapes modulePath statements =
         [ (functionShapeStatementIndex function, function)
         | function <- rootFunctionShapes
         ]
-    globalFunctionBinders =
-      Set.fromList (map functionShapeBinder rootFunctionShapes)
+    rootShapesByBinder =
+      Map.fromList
+        [ (functionShapeBinder function, function)
+        | function <- rootFunctionShapes
+        ]
     orderedFunctionShapes =
       concat
         [ shapesForStatement statementIndex statement
@@ -342,19 +346,19 @@ collectFunctionShapes modulePath statements =
     shapesForStatement statementIndex statement =
       case Map.lookup statementIndex rootShapesByStatement of
         Just rootFunction ->
-          let capturedRoot = attachFunctionCaptures globalFunctionBinders rootFunction
+          let capturedRoot = attachFunctionCaptures rootShapesByBinder rootFunction
            in capturedRoot
                 : collectGeneratedFunctionShapes
-                  globalFunctionBinders
+                  rootShapesByBinder
                   statementIndex
                   (functionShapeReversedBodyPath capturedRoot)
                   (functionShapeBody capturedRoot)
         Nothing ->
           case statement of
             TypedLetStatement _ _ _ _ expression ->
-              collectGeneratedFunctionShapes globalFunctionBinders statementIndex [0] expression
+              collectGeneratedFunctionShapes rootShapesByBinder statementIndex [0] expression
             TypedExpressionStatement _ expression ->
-              collectGeneratedFunctionShapes globalFunctionBinders statementIndex [0] expression
+              collectGeneratedFunctionShapes rootShapesByBinder statementIndex [0] expression
             _ -> []
 
 collectRootFunctionShapes ::
@@ -541,25 +545,26 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
             functionShapeSourceBinding = True
           }
 
-attachFunctionCaptures :: Set.Set TypedBinderId -> FunctionShape -> FunctionShape
-attachFunctionCaptures globalFunctionBinders function
+attachFunctionCaptures :: Map.Map TypedBinderId FunctionShape -> FunctionShape -> FunctionShape
+attachFunctionCaptures globalFunctions function
   | functionShapeCallableShape function == TypedClosureCallableShape =
       function
         { functionShapeCaptures =
             collectCaptureShapes
-              globalFunctionBinders
+              globalFunctions
+              (Set.singleton (functionShapeBinder function))
               (Set.fromList (map functionParameterBinder (functionShapeParameters function)))
               (functionShapeBody function)
         }
   | otherwise = function
 
 collectGeneratedFunctionShapes ::
-  Set.Set TypedBinderId ->
+  Map.Map TypedBinderId FunctionShape ->
   Int ->
   [Int] ->
   TypedExpr ->
   [FunctionShape]
-collectGeneratedFunctionShapes globalFunctionBinders statementIndex reversedExpressionPath expression =
+collectGeneratedFunctionShapes globalFunctions statementIndex reversedExpressionPath expression =
   case expression of
     TypedLambdaExpr info parameterBinder parameterName _ ->
       case ( collectUnaryClosureShape
@@ -582,7 +587,8 @@ collectGeneratedFunctionShapes globalFunctionBinders statementIndex reversedExpr
                     functionShapeParameters = parameters,
                     functionShapeCaptures =
                       collectCaptureShapes
-                        globalFunctionBinders
+                        globalFunctions
+                        Set.empty
                         (Set.fromList (map functionParameterBinder parameters))
                         functionBody,
                     functionShapeResultRepresentation = resultRepresentation,
@@ -592,7 +598,7 @@ collectGeneratedFunctionShapes globalFunctionBinders statementIndex reversedExpr
                   }
            in function
                 : collectGeneratedFunctionShapes
-                  globalFunctionBinders
+                  globalFunctions
                   statementIndex
                   reversedBodyPath
                   functionBody
@@ -612,53 +618,62 @@ collectGeneratedFunctionShapes globalFunctionBinders statementIndex reversedExpr
   where
     child childIndex =
       collectGeneratedFunctionShapes
-        globalFunctionBinders
+        globalFunctions
         statementIndex
         (childIndex : reversedExpressionPath)
     children = concatMap (uncurry child)
 
-collectCaptureShapes :: Set.Set TypedBinderId -> Set.Set TypedBinderId -> TypedExpr -> [CaptureShape]
-collectCaptureShapes globalFunctionBinders initiallyBound expression =
-  snd (go initiallyBound Set.empty expression)
+collectCaptureShapes :: Map.Map TypedBinderId FunctionShape -> Set.Set TypedBinderId -> Set.Set TypedBinderId -> TypedExpr -> [CaptureShape]
+collectCaptureShapes globalFunctions initiallyExpanded initiallyBound expression =
+  snd (go initiallyExpanded initiallyBound Set.empty expression)
   where
-    go boundBinders seenBinders currentExpression =
+    go expandedFunctions boundBinders seenBinders currentExpression =
       case currentExpression of
         TypedVariableExpr info _ (Just binder)
-          | Set.notMember binder boundBinders,
-            Set.notMember binder globalFunctionBinders,
-            Set.notMember binder seenBinders,
+          | Set.member binder boundBinders -> (seenBinders, [])
+          | Just function <- Map.lookup binder globalFunctions,
+            functionShapeCallableShape function == TypedClosureCallableShape,
+            Set.notMember binder expandedFunctions ->
+              go
+                (Set.insert binder expandedFunctions)
+                (Set.fromList (map functionParameterBinder (functionShapeParameters function)))
+                seenBinders
+                (functionShapeBody function)
+          | Map.member binder globalFunctions -> (seenBinders, [])
+          | Set.notMember binder seenBinders,
             Just representation <- loweredRepresentation (typedNodeRecipe info) ->
               ( Set.insert binder seenBinders,
                 [CaptureShape binder representation]
               )
           | otherwise -> (seenBinders, [])
         TypedLambdaExpr _ parameterBinder _ body ->
-          go (Set.insert parameterBinder boundBinders) seenBinders body
+          go expandedFunctions (Set.insert parameterBinder boundBinders) seenBinders body
         TypedApplyExpr _ function argument ->
-          combine boundBinders seenBinders [function, argument]
+          combine expandedFunctions boundBinders seenBinders [function, argument]
         TypedBinaryExpr _ _ left right ->
-          combine boundBinders seenBinders [left, right]
-        TypedTupleExpr _ elements -> combine boundBinders seenBinders elements
-        TypedListExpr _ elements -> combine boundBinders seenBinders elements
-        TypedTypeApplicationExpr _ function _ _ -> go boundBinders seenBinders function
+          combine expandedFunctions boundBinders seenBinders [left, right]
+        TypedTupleExpr _ elements -> combine expandedFunctions boundBinders seenBinders elements
+        TypedListExpr _ elements -> combine expandedFunctions boundBinders seenBinders elements
+        TypedTypeApplicationExpr _ function _ _ -> go expandedFunctions boundBinders seenBinders function
         TypedIfExpr _ condition thenExpression elseExpression ->
-          combine boundBinders seenBinders [condition, thenExpression, elseExpression]
+          combine expandedFunctions boundBinders seenBinders [condition, thenExpression, elseExpression]
         TypedPatternCaseExpr _ scrutinee arms ->
           combine
+            expandedFunctions
             boundBinders
             seenBinders
             (scrutinee : concatMap armExpressions arms)
-        TypedLeftSectionExpr _ left _ -> go boundBinders seenBinders left
-        TypedRightSectionExpr _ _ right -> go boundBinders seenBinders right
+        TypedLeftSectionExpr _ left _ -> go expandedFunctions boundBinders seenBinders left
+        TypedRightSectionExpr _ _ right -> go expandedFunctions boundBinders seenBinders right
         TypedBlockExpr _ statements ->
-          combine boundBinders seenBinders (concatMap statementExpressions statements)
+          combine expandedFunctions boundBinders seenBinders (concatMap statementExpressions statements)
         _ -> (seenBinders, [])
 
-    combine boundBinders seenBinders expressions =
+    combine expandedFunctions boundBinders seenBinders expressions =
       foldl' collectOne (seenBinders, []) expressions
       where
         collectOne (seenSoFar, captures) childExpression =
-          let (nextSeenBinders, childCaptures) = go boundBinders seenSoFar childExpression
+          let (nextSeenBinders, childCaptures) = go expandedFunctions boundBinders seenSoFar childExpression
            in (nextSeenBinders, captures <> childCaptures)
 
     armExpressions (TypedCaseArm _ maybeGuard result) = maybe [] (: []) maybeGuard <> [result]
@@ -837,8 +852,9 @@ validateStatementProfiles ::
   [TypedStatement] ->
   ([LoweredIRLoweringFailure], [(TypedBinderId, [TypedBinderId])])
 validateStatementProfiles modulePath functions localValueNames statements =
-  (statementFailures <> generatedFunctionFailures, functionCalls)
+  (sortOn loweringFailurePath (statementFailures <> generatedFunctionFailures), functionCalls)
   where
+    loweringFailurePath (LoweredIRLoweringFailure path _ _) = path
     (statementFailures, functionCalls) = go 0 [] [] statements
     generatedFunctionFailures =
       concat
@@ -1641,73 +1657,62 @@ lowerApplication ::
 lowerApplication modulePath statementPath expressionPath path functions parameters state expression =
   case callee of
     TypedVariableExpr _ name binderReference ->
-      case findFunctionShape binderReference functions of
-        Just target
-          | functionShapeCallableShape target == TypedClosureCallableShape ->
-              lowerUnaryClosureApplication
-                modulePath
-                statementPath
-                expressionPath
-                path
-                functions
-                parameters
-                state
-                expression
-          | length arguments == length (functionShapeParameters target) ->
-              case resultRepresentationFailures <> argumentFailures of
-                failures@(_ : _) -> (failures, Nothing, argumentState)
-                [] ->
-                  case (maybeResultRepresentation, sequence argumentOperands) of
-                    (Just resultRepresentation, Just operands) ->
-                      let temporaryIndex = loweringNextTemporary argumentState
-                          temporaryId =
-                            LoweredTemporaryId
-                              ("t" <> Text.pack (show temporaryIndex))
-                          instruction =
-                            LoweredInstruction
-                              temporaryId
-                              resultRepresentation
-                              (LoweredDirectCall (functionShapeId target) operands)
-                          nextState =
-                            argumentState
-                              { loweringNextTemporary = temporaryIndex + 1,
-                                loweringInstructions =
-                                  instruction : loweringInstructions argumentState
-                              }
-                       in ([], Just (LoweredTemporaryOperand temporaryId resultRepresentation), nextState)
-                    _ -> unsupportedExpression path argumentState
-          | otherwise ->
-              ( [ LoweredIRLoweringFailure
-                    path
-                    LoweredIRCallArityUnsupported
-                    ( LoweredIRArityFailureDetail
-                        (length (functionShapeParameters target))
-                        (length arguments)
-                    )
-                ],
-                Nothing,
-                state
-              )
-        Nothing
-          | Just _ <- findParameterShape binderReference parameters ->
-              lowerUnaryClosureApplication
-                modulePath
-                statementPath
-                expressionPath
-                path
-                functions
-                parameters
-                state
-                expression
-          | otherwise ->
-              ( [ LoweredIRLoweringFailure
-                    path
-                    LoweredIRNonLocalCallUnsupported
-                    (LoweredIRNameFailureDetail name)
-                ],
-                Nothing,
-                state
-              )
+      case binderReference >>= (`Map.lookup` loweringLocalBindings state) of
+        Just operand
+          | LoweredClosureRepresentation {} <- loweredOperandRepresentation operand ->
+              lowerClosureApplication
+        _ ->
+          case findFunctionShape binderReference functions of
+            Just target
+              | functionShapeCallableShape target == TypedClosureCallableShape ->
+                  lowerClosureApplication
+              | length arguments == length (functionShapeParameters target) ->
+                  case resultRepresentationFailures <> argumentFailures of
+                    failures@(_ : _) -> (failures, Nothing, argumentState)
+                    [] ->
+                      case (maybeResultRepresentation, sequence argumentOperands) of
+                        (Just resultRepresentation, Just operands) ->
+                          let temporaryIndex = loweringNextTemporary argumentState
+                              temporaryId =
+                                LoweredTemporaryId
+                                  ("t" <> Text.pack (show temporaryIndex))
+                              instruction =
+                                LoweredInstruction
+                                  temporaryId
+                                  resultRepresentation
+                                  (LoweredDirectCall (functionShapeId target) operands)
+                              nextState =
+                                argumentState
+                                  { loweringNextTemporary = temporaryIndex + 1,
+                                    loweringInstructions =
+                                      instruction : loweringInstructions argumentState
+                                  }
+                           in ([], Just (LoweredTemporaryOperand temporaryId resultRepresentation), nextState)
+                        _ -> unsupportedExpression path argumentState
+              | otherwise ->
+                  ( [ LoweredIRLoweringFailure
+                        path
+                        LoweredIRCallArityUnsupported
+                        ( LoweredIRArityFailureDetail
+                            (length (functionShapeParameters target))
+                            (length arguments)
+                        )
+                    ],
+                    Nothing,
+                    state
+                  )
+            Nothing
+              | Just _ <- findParameterShape binderReference parameters ->
+                  lowerClosureApplication
+              | otherwise ->
+                  ( [ LoweredIRLoweringFailure
+                        path
+                        LoweredIRNonLocalCallUnsupported
+                        (LoweredIRNameFailureDetail name)
+                    ],
+                    Nothing,
+                    state
+                  )
     _ ->
       lowerUnaryClosureApplication
         modulePath
@@ -1719,6 +1724,16 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
         state
         expression
   where
+    lowerClosureApplication =
+      lowerUnaryClosureApplication
+        modulePath
+        statementPath
+        expressionPath
+        path
+        functions
+        parameters
+        state
+        expression
     (callee, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
       representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
