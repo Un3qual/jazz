@@ -139,6 +139,74 @@ class ShellSimpleCommand:
     masked_unquoted: str
 
 
+@dataclass
+class ShellInvocationState:
+    tokens: list[str]
+    index: int
+    assignments: dict[str, str]
+    unset_variables: set[str]
+    environment_cleared: bool
+
+
+@dataclass
+class ShellCommandSubstitutionScan:
+    contents: str
+    index: int
+    depth: int = 1
+    quote: str | None = None
+    escaped: bool = False
+    malformed: bool = False
+
+    def advance(self) -> int | None:
+        character = self.contents[self.index]
+        if self.escaped:
+            self.escaped = False
+            self.index += 1
+            return None
+        if character == "\\" and self.quote != "'":
+            self.escaped = True
+            self.index += 1
+            return None
+        if self.quote is not None:
+            self.advance_quoted(character)
+            return None
+        return self.advance_unquoted(character)
+
+    def advance_quoted(self, character: str) -> None:
+        if character == self.quote:
+            self.quote = None
+            self.index += 1
+            return
+        if self.quote == '"' and self.contents.startswith("$(", self.index):
+            self.advance_nested_substitution()
+            return
+        self.index += 1
+
+    def advance_unquoted(self, character: str) -> int | None:
+        if character in ("'", '"'):
+            self.quote = character
+            self.index += 1
+            return None
+        if self.contents.startswith("$(", self.index):
+            self.advance_nested_substitution()
+            return None
+        if character == "(":
+            self.depth += 1
+        elif character == ")":
+            self.depth -= 1
+            if self.depth == 0:
+                return self.index
+        self.index += 1
+        return None
+
+    def advance_nested_substitution(self) -> None:
+        nested_end = shell_command_substitution_end(self.contents, self.index)
+        if nested_end is None:
+            self.malformed = True
+            return
+        self.index = nested_end + 1
+
+
 def active_text(contents: str) -> str:
     """Return non-comment lines used to enforce executable policy tokens."""
     return "\n".join(
@@ -384,38 +452,11 @@ def top_level_matches(
 
 def shell_command_substitution_end(contents: str, start: int) -> int | None:
     """Return the closing parenthesis for one shell command substitution."""
-    depth = 1
-    quote: str | None = None
-    escaped = False
-    index = start + 2
-    while index < len(contents):
-        character = contents[index]
-        if escaped:
-            escaped = False
-        elif character == "\\" and quote != "'":
-            escaped = True
-        elif quote is not None:
-            if character == quote:
-                quote = None
-            elif quote == '"' and contents.startswith("$(", index):
-                nested_end = shell_command_substitution_end(contents, index)
-                if nested_end is None:
-                    return None
-                index = nested_end
-        elif character in ("'", '"'):
-            quote = character
-        elif contents.startswith("$(", index):
-            nested_end = shell_command_substitution_end(contents, index)
-            if nested_end is None:
-                return None
-            index = nested_end
-        elif character == "(":
-            depth += 1
-        elif character == ")":
-            depth -= 1
-            if depth == 0:
-                return index
-        index += 1
+    scan = ShellCommandSubstitutionScan(contents=contents, index=start + 2)
+    while scan.index < len(contents) and not scan.malformed:
+        closing_index = scan.advance()
+        if closing_index is not None:
+            return closing_index
     return None
 
 
@@ -543,92 +584,131 @@ def shell_simple_commands(contents: str) -> list[ShellSimpleCommand]:
     return commands
 
 
-def shell_invocations(contents: str) -> list[ShellInvocation]:
-    invocations: list[ShellInvocation] = []
-    for command in shell_simple_commands(contents):
-        try:
-            tokens = shlex.split(command.text, comments=True, posix=True)
-        except ValueError:
-            continue
-        if not tokens:
-            continue
+def shell_command_tokens(command: ShellSimpleCommand) -> list[str] | None:
+    try:
+        tokens = shlex.split(command.text, comments=True, posix=True)
+    except ValueError:
+        return None
+    return tokens or None
 
-        assignments: dict[str, str] = {}
-        unset_variables: set[str] = set()
-        environment_cleared = False
-        index = 0
 
-        while index < len(tokens):
-            assignment = SHELL_ASSIGNMENT_RE.fullmatch(tokens[index])
-            if assignment is not None:
-                name, value = assignment.groups()
-                assignments[name] = value
-                unset_variables.discard(name)
-                index += 1
-                continue
+def consume_shell_assignment(state: ShellInvocationState) -> bool:
+    assignment = SHELL_ASSIGNMENT_RE.fullmatch(state.tokens[state.index])
+    if assignment is None:
+        return False
+    name, value = assignment.groups()
+    state.assignments[name] = value
+    state.unset_variables.discard(name)
+    state.index += 1
+    return True
 
-            if tokens[index] == "command":
-                index += 1
-                query_only = False
-                while index < len(tokens) and tokens[index].startswith("-"):
-                    option = tokens[index]
-                    index += 1
-                    if option == "--":
-                        break
-                    if "v" in option or "V" in option:
-                        query_only = True
-                if query_only:
-                    index = len(tokens)
-                    break
-                continue
 
-            if tokens[index] == "env":
-                index += 1
-                while index < len(tokens) and tokens[index].startswith("-"):
-                    option = tokens[index]
-                    index += 1
-                    if option == "--":
-                        break
-                    if option in ("-i", "--ignore-environment"):
-                        assignments.clear()
-                        unset_variables.clear()
-                        environment_cleared = True
-                    elif option in ("-u", "--unset") and index < len(tokens):
-                        unset_name = tokens[index]
-                        index += 1
-                        assignments.pop(unset_name, None)
-                        unset_variables.add(unset_name)
-                    elif option.startswith("--unset="):
-                        unset_name = option.split("=", 1)[1]
-                        assignments.pop(unset_name, None)
-                        unset_variables.add(unset_name)
-                    elif option in ("-C", "--chdir"):
-                        index = min(index + 1, len(tokens))
-                    elif option in ("-S", "--split-string") and index < len(tokens):
-                        split_tokens = shlex.split(tokens[index], comments=True, posix=True)
-                        tokens[index : index + 1] = split_tokens
-                    elif option.startswith("--split-string="):
-                        split_tokens = shlex.split(
-                            option.split("=", 1)[1], comments=True, posix=True
-                        )
-                        tokens[index:index] = split_tokens
-                continue
-
+def consume_command_wrapper(state: ShellInvocationState) -> bool:
+    if state.tokens[state.index] != "command":
+        return False
+    state.index += 1
+    query_only = False
+    while (
+        state.index < len(state.tokens)
+        and state.tokens[state.index].startswith("-")
+    ):
+        option = state.tokens[state.index]
+        state.index += 1
+        if option == "--":
             break
+        if "v" in option or "V" in option:
+            query_only = True
+    if query_only:
+        state.index = len(state.tokens)
+    return True
 
-        if index >= len(tokens):
+
+def unset_shell_environment_variable(
+    state: ShellInvocationState, name: str
+) -> None:
+    state.assignments.pop(name, None)
+    state.unset_variables.add(name)
+
+
+def expand_env_split_string(state: ShellInvocationState, value: str) -> None:
+    split_tokens = shlex.split(value, comments=True, posix=True)
+    state.tokens[state.index : state.index] = split_tokens
+
+
+def consume_env_option(state: ShellInvocationState, option: str) -> bool:
+    if option == "--":
+        return False
+    if option in ("-i", "--ignore-environment"):
+        state.assignments.clear()
+        state.unset_variables.clear()
+        state.environment_cleared = True
+    elif option in ("-u", "--unset") and state.index < len(state.tokens):
+        unset_shell_environment_variable(state, state.tokens[state.index])
+        state.index += 1
+    elif option.startswith("--unset="):
+        unset_shell_environment_variable(state, option.split("=", 1)[1])
+    elif option in ("-C", "--chdir"):
+        state.index = min(state.index + 1, len(state.tokens))
+    elif option in ("-S", "--split-string") and state.index < len(state.tokens):
+        value = state.tokens.pop(state.index)
+        expand_env_split_string(state, value)
+    elif option.startswith("--split-string="):
+        expand_env_split_string(state, option.split("=", 1)[1])
+    return True
+
+
+def consume_env_wrapper(state: ShellInvocationState) -> bool:
+    if state.tokens[state.index] != "env":
+        return False
+    state.index += 1
+    while (
+        state.index < len(state.tokens)
+        and state.tokens[state.index].startswith("-")
+    ):
+        option = state.tokens[state.index]
+        state.index += 1
+        if not consume_env_option(state, option):
+            break
+    return True
+
+
+def parse_shell_invocation(command: ShellSimpleCommand) -> ShellInvocation | None:
+    tokens = shell_command_tokens(command)
+    if tokens is None:
+        return None
+    state = ShellInvocationState(
+        tokens=tokens,
+        index=0,
+        assignments={},
+        unset_variables=set(),
+        environment_cleared=False,
+    )
+    while state.index < len(state.tokens):
+        if consume_shell_assignment(state):
             continue
-        invocations.append(
-            ShellInvocation(
-                start=command.start,
-                program=tokens[index],
-                arguments=tuple(tokens[index + 1 :]),
-                assignments=assignments,
-                unset_variables=unset_variables,
-                environment_cleared=environment_cleared,
-            )
-        )
-    return invocations
+        if consume_command_wrapper(state):
+            continue
+        if consume_env_wrapper(state):
+            continue
+        break
+    if state.index >= len(state.tokens):
+        return None
+    return ShellInvocation(
+        start=command.start,
+        program=state.tokens[state.index],
+        arguments=tuple(state.tokens[state.index + 1 :]),
+        assignments=state.assignments,
+        unset_variables=state.unset_variables,
+        environment_cleared=state.environment_cleared,
+    )
+
+
+def shell_invocations(contents: str) -> list[ShellInvocation]:
+    return [
+        invocation
+        for command in shell_simple_commands(contents)
+        if (invocation := parse_shell_invocation(command)) is not None
+    ]
 
 
 def is_cabal_build_test_invocation(invocation: ShellInvocation) -> bool:
@@ -803,26 +883,32 @@ def require_cabal_jobs_for_child(
         r"(?m)^\s*export\s+[^\n]*\bJAZZ_CABAL_JOBS\b",
     )
     for child in children:
-        job_assignment = child.assignments.get("JAZZ_CABAL_JOBS")
-        forwarded = job_assignment == "$JAZZ_CABAL_JOBS"
-        inherited_environment = not (
-            child.environment_cleared
-            or "JAZZ_CABAL_JOBS" in child.unset_variables
-        )
-        exported = inherited_environment and any(
-            export.end() <= child.start for export in exports
-        )
-        validation_precedes_child = (
-            validation is not None and validation.end() <= child.start
-        )
-        if validation_precedes_child and (
-            forwarded or (job_assignment is None and exported)
-        ):
+        if child_receives_validated_cabal_jobs(child, validation, exports):
             continue
         violations.append(
             f"{tier} must propagate JAZZ_CABAL_JOBS to {child_path}"
         )
         return
+
+
+def child_receives_validated_cabal_jobs(
+    child: ShellInvocation,
+    validation: re.Match[str] | None,
+    exports: list[re.Match[str]],
+) -> bool:
+    if validation is None or validation.end() > child.start:
+        return False
+    job_assignment = child.assignments.get("JAZZ_CABAL_JOBS")
+    if job_assignment == "$JAZZ_CABAL_JOBS":
+        return True
+    inherited_environment = not child.environment_cleared and (
+        "JAZZ_CABAL_JOBS" not in child.unset_variables
+    )
+    return (
+        job_assignment is None
+        and inherited_environment
+        and any(export.end() <= child.start for export in exports)
+    )
 
 
 def load_policy_files(root: Path, violations: list[str]) -> dict[str, str]:

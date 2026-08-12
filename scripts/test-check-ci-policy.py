@@ -870,6 +870,25 @@ class CiPolicyCheckerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(expected, result.stdout)
 
+    def assert_fixture_violations(
+        self, fixtures: tuple[tuple[str, str, str], ...]
+    ) -> None:
+        for path, contents, expected in fixtures:
+            with self.subTest(path=path, expected=expected):
+                self.write(path, contents)
+                self.assert_violation(expected)
+
+    def assert_validation_order_violations(
+        self, fixtures: tuple[tuple[str, str, str], ...]
+    ) -> None:
+        for path, contents, tier in fixtures:
+            with self.subTest(path=path):
+                self.write(path, contents)
+                self.assert_violation(
+                    f"{tier} must initialize and validate JAZZ_CABAL_JOBS "
+                    "before every Cabal build/test command"
+                )
+
     def test_accepts_a_complete_tier_policy(self) -> None:
         result = self.run_checker()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -1010,7 +1029,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 self.write("scripts/ci/fast-compiler.sh", contents)
                 self.assert_violation(expected)
 
-    def test_every_cabal_build_or_test_invocation_must_be_bounded(self) -> None:
+    def test_each_verification_tier_requires_bounded_cabal_jobs(self) -> None:
         fixtures = (
             (
                 "scripts/ci/fast-compiler.sh",
@@ -1037,6 +1056,11 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 VALID_CHECK_EXAMPLES + "cabal test smoke-spec\n",
                 "example checker must bound every Cabal build and test command",
             ),
+        )
+        self.assert_fixture_violations(fixtures)
+
+    def test_wrapped_cabal_build_or_test_invocations_must_be_bounded(self) -> None:
+        fixtures = (
             (
                 "scripts/ci/fast-compiler.sh",
                 VALID_FAST
@@ -1070,6 +1094,11 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 + "env -S 'FOO=bar cabal test smoke-spec'\n",
                 "fast compiler tier must bound every Cabal build and test command",
             ),
+        )
+        self.assert_fixture_violations(fixtures)
+
+    def test_each_simple_command_requires_its_own_cabal_job_bound(self) -> None:
+        fixtures = (
             (
                 "scripts/ci/fast-compiler.sh",
                 VALID_FAST.replace(
@@ -1085,12 +1114,9 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "fast compiler tier must bound every Cabal build and test command",
             ),
         )
-        for path, contents, expected in fixtures:
-            with self.subTest(path=path):
-                self.write(path, contents)
-                self.assert_violation(expected)
+        self.assert_fixture_violations(fixtures)
 
-    def test_cabal_job_validation_must_precede_every_build_or_test(self) -> None:
+    def test_primary_tiers_validate_jobs_before_cabal_build_or_test(self) -> None:
         fixtures = (
             (
                 "scripts/ci/fast-compiler.sh",
@@ -1122,6 +1148,11 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 ),
                 "determinism tier",
             ),
+        )
+        self.assert_validation_order_violations(fixtures)
+
+    def test_remaining_tiers_validate_jobs_before_cabal_build_or_test(self) -> None:
+        fixtures = (
             (
                 "scripts/ci/extended.sh",
                 VALID_EXTENDED.replace(
@@ -1142,6 +1173,11 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 ),
                 "example checker",
             ),
+        )
+        self.assert_validation_order_violations(fixtures)
+
+    def test_wrapped_cabal_commands_cannot_precede_job_validation(self) -> None:
+        fixtures = (
             (
                 "scripts/ci/fast-compiler.sh",
                 VALID_FAST.replace(
@@ -1165,13 +1201,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "determinism tier",
             ),
         )
-        for path, contents, tier in fixtures:
-            with self.subTest(path=path):
-                self.write(path, contents)
-                self.assert_violation(
-                    f"{tier} must initialize and validate JAZZ_CABAL_JOBS "
-                    "before every Cabal build/test command"
-                )
+        self.assert_validation_order_violations(fixtures)
 
     def test_cabal_validation_inside_an_uncalled_function_is_inert(self) -> None:
         validation = (
