@@ -161,13 +161,12 @@ Each blocked item should answer these questions:
   references, and entry lowering evaluates each initializer once and reuses
   its binder-indexed operand. Managed values and function-body capture remain
   rejected. Normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: curate RFC 0009's lexical-capture child into one
-  executor-ready plan and queue row.
+- Smallest unblocker: execute RFC 0009's validated lexical-capture ready row.
 - Decision needed: none for the semantic boundary. RFC 0009 fixes lexical
   capture as the third ordered child after scalar binding.
-- Recommended default: promote only the lexical-capture child with the exact
-  RFC ownership matrix and G3 gate. Keep normal compile/run on canonical core
-  and the reference interpreter.
+- Recommended default: execute only the lexical-capture child with the exact RFC
+  ownership matrix and G3 gate. Keep normal compile/run on canonical core and
+  the reference interpreter.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-LEXICAL-CAPTURE-001`.
 - Target paths: `src/Jazz/Compiler/RecursiveBindings.hs`;
   `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`;
