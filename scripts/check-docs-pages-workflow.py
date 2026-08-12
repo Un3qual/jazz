@@ -16,12 +16,12 @@ WORKFLOW = Path(".github/workflows/docs-pages.yml")
 SHA = r"[0-9a-f]{40}"
 USES_RE = re.compile(r"(?m)^\s*uses:\s+([^\s#]+)")
 
-CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-PNPM_ACTION = "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
-SETUP_NODE_ACTION = "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
-CONFIGURE_PAGES_ACTION = "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b"
-UPLOAD_PAGES_ACTION = "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa"
-DEPLOY_PAGES_ACTION = "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e"
+CHECKOUT_ACTION = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+PNPM_ACTION = "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
+SETUP_NODE_ACTION = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+CONFIGURE_PAGES_ACTION = "actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d"
+UPLOAD_PAGES_ACTION = "actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9"
+DEPLOY_PAGES_ACTION = "actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128"
 
 EXPECTED_ACTIONS = (
     CHECKOUT_ACTION,

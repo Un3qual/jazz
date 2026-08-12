@@ -78,13 +78,13 @@ EXTENDED_WORKFLOW_PATH = ".github/workflows/ci-extended.yml"
 RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml"
 
 PINNED_ACTIONS = (
-    ("actions/checkout", "v4", "11d5960a326750d5838078e36cf38b85af677262"),
+    ("actions/checkout", "v7.0.1", "3d3c42e5aac5ba805825da76410c181273ba90b1"),
     ("cachix/install-nix-action", "v31", "630ae543ea3a38a9a4166f03376c02c50f408342"),
-    ("actions/cache", "v4", "0057852bfaa89a56745cba8c7296529d2fc39830"),
-    ("actions/upload-artifact", "v4", "ea165f8d65b6e75b540449e92b4886f43607fa02"),
-    ("dorny/paths-filter", "v3", "0e4a8c6effa4802afeda77dc8d303f8176d7dfad"),
-    ("pnpm/action-setup", "v4", "b906affcce14559ad1aafd4ab0e942779e9f58b1"),
-    ("actions/setup-node", "v4", "49933ea5288caeca8642d1e84afbd3f7d6820020"),
+    ("actions/cache", "v6.1.0", "55cc8345863c7cc4c66a329aec7e433d2d1c52a9"),
+    ("actions/upload-artifact", "v7.0.1", "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"),
+    ("dorny/paths-filter", "v4.0.3", "ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d"),
+    ("pnpm/action-setup", "v6.0.10", "0977fd99725f1db4007ccb2928dbb4e90d06cc86"),
+    ("actions/setup-node", "v7.0.0", "820762786026740c76f36085b0efc47a31fe5020"),
 )
 ACTION_USE_RE = re.compile(
     r"(?m)^\s*(?:-\s+)?uses:\s*([^@\s]+)@([^\s#]+)"
@@ -1431,8 +1431,8 @@ def check_pr_changes_job(contents: str, violations: list[str]) -> None:
     if not job:
         violations.append("pull-request workflow is missing the changes job")
         return
-    if not re.search(r"(?m)^\s*(?:-\s+)?uses:\s+dorny/paths-filter@v3\s*$", job):
-        violations.append("changes job must use dorny/paths-filter@v3")
+    if not re.search(r"(?m)^\s*(?:-\s+)?uses:\s+dorny/paths-filter@v4.0.3\s*$", job):
+        violations.append("changes job must use dorny/paths-filter@v4.0.3")
     if not re.search(r"(?m)^\s*predicate-quantifier:\s*every\s*$", job):
         violations.append("changes job must apply every docs-only exclusion")
     if not re.search(r"(?m)^\s*id:\s*filter\s*$", job):
@@ -1463,16 +1463,16 @@ def check_pr_docs_job(contents: str, violations: list[str]) -> None:
             "docs-and-site job must install the pinned Nix documentation toolchain",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v4\s*$",
-            "docs-and-site job must use pnpm/action-setup@v4",
+            r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v6.0.10\s*$",
+            "docs-and-site job must use pnpm/action-setup@v6.0.10",
         ),
         (
             r"(?m)^\s*version:\s*11\.18\.0\s*$",
             "docs-and-site job must use pnpm 11.18.0",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v4\s*$",
-            "docs-and-site job must use actions/setup-node@v4",
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v7.0.0\s*$",
+            "docs-and-site job must use actions/setup-node@v7.0.0",
         ),
         (
             r"(?m)^\s*node-version:\s*22\s*$",
@@ -1551,8 +1551,8 @@ def check_pr_compiler_job(contents: str, violations: list[str]) -> None:
             "compiler-fast job must use cachix/install-nix-action@v31",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?uses:\s*actions/cache@v4\s*$",
-            "compiler-fast job must use actions/cache@v4",
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/cache@v6.1.0\s*$",
+            "compiler-fast job must use actions/cache@v6.1.0",
         ),
         (
             r"(?m)^\s*~/.cabal/store\s*$",
@@ -1756,8 +1756,8 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
             "main ordinary job must use cachix/install-nix-action@v31",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?uses:\s*actions/cache@v4\s*$",
-            "main ordinary job must use actions/cache@v4",
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/cache@v6.1.0\s*$",
+            "main ordinary job must use actions/cache@v6.1.0",
         ),
         (
             r"(?m)^\s*~/.cabal/store\s*$",
@@ -1818,10 +1818,10 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
             "main workflow must upload ordinary test logs only for ordinary failure"
         )
     if not re.search(
-        r"(?m)^\s*uses:\s*actions/upload-artifact@v4\s*$", upload_step
+        r"(?m)^\s*uses:\s*actions/upload-artifact@v7.0.1\s*$", upload_step
     ):
         violations.append(
-            "main workflow must use actions/upload-artifact@v4 for ordinary logs"
+            "main workflow must use actions/upload-artifact@v7.0.1 for ordinary logs"
         )
     if not re.search(
         r"(?m)^\s*path:\s*artifacts/ordinary-test-logs\s*$", upload_step
@@ -1922,8 +1922,8 @@ def check_extended_workflow(root: Path, violations: list[str]) -> None:
     cache_step = workflow_step(job, "Cache Cabal dependencies and build output")
     cache_requirements = (
         (
-            r"(?m)^\s*uses:\s*actions/cache@v4\s*$",
-            "extended job must use actions/cache@v4",
+            r"(?m)^\s*uses:\s*actions/cache@v6.1.0\s*$",
+            "extended job must use actions/cache@v6.1.0",
         ),
         (
             r"(?m)^\s*key:\s*.*\$\{\{\s*runner\.os\s*\}\}.*$",
@@ -1990,8 +1990,8 @@ def check_extended_workflow(root: Path, violations: list[str]) -> None:
             "extended evidence upload must run on success or failure",
         ),
         (
-            r"(?m)^\s*uses:\s*actions/upload-artifact@v4\s*$",
-            "extended evidence upload must use actions/upload-artifact@v4",
+            r"(?m)^\s*uses:\s*actions/upload-artifact@v7.0.1\s*$",
+            "extended evidence upload must use actions/upload-artifact@v7.0.1",
         ),
         (
             r"(?m)^\s*name:\s*extended-\$\{\{\s*github\.sha\s*\}\}-\$\{\{\s*github\.run_id\s*\}\}-\$\{\{\s*github\.run_attempt\s*\}\}\s*$",
@@ -2126,15 +2126,15 @@ def check_release_workflow(root: Path, violations: list[str]) -> None:
             "release job must install Nix",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v4\s*$",
-            "release job must use pnpm/action-setup@v4",
+            r"(?m)^\s*(?:-\s+)?uses:\s*pnpm/action-setup@v6.0.10\s*$",
+            "release job must use pnpm/action-setup@v6.0.10",
         ),
         (
             r"(?m)^\s*version:\s*11\.18\.0\s*$",
             "release job must use pnpm 11.18.0",
         ),
         (
-            r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v4\s*$",
+            r"(?m)^\s*(?:-\s+)?uses:\s*actions/setup-node@v7.0.0\s*$",
             "release job must set up Node.js",
         ),
         (
@@ -2184,8 +2184,8 @@ def check_release_workflow(root: Path, violations: list[str]) -> None:
     upload_step = workflow_step(job, "Upload verified alpha artifacts")
     upload_requirements = (
         (
-            r"(?m)^\s*uses:\s*actions/upload-artifact@v4\s*$",
-            "release workflow must upload verified artifacts with actions/upload-artifact@v4",
+            r"(?m)^\s*uses:\s*actions/upload-artifact@v7.0.1\s*$",
+            "release workflow must upload verified artifacts with actions/upload-artifact@v7.0.1",
         ),
         (
             r"(?m)^\s*path:\s*artifacts/release/\$\{\{\s*env\.JAZZ_RELEASE_VERSION\s*\}\}/\s*$",

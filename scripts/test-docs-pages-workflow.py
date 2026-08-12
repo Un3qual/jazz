@@ -13,7 +13,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 CHECKER = REPOSITORY_ROOT / "scripts/check-docs-pages-workflow.py"
 WORKFLOW = Path(".github/workflows/docs-pages.yml")
-PNPM_ACTION = "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
+PNPM_ACTION = "pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86"
 
 
 class DocsPagesWorkflowTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.assert_violation("required workflow setting is missing")
 
     def test_actions_must_use_immutable_commits(self) -> None:
-        self.replace(PNPM_ACTION, "pnpm/action-setup@v4")
+        self.replace(PNPM_ACTION, "pnpm/action-setup@v6")
         self.assert_violation("action must use an immutable commit")
 
     def test_checkout_must_not_persist_credentials(self) -> None:
@@ -129,7 +129,7 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         )
         upload = (
             "      - name: Upload GitHub Pages artifact\n"
-            "        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3\n"
+            "        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0\n"
             "        with:\n"
             "          path: website/build\n"
         )
