@@ -16,12 +16,12 @@ WORKFLOW = Path(".github/workflows/docs-pages.yml")
 SHA = r"[0-9a-f]{40}"
 USES_RE = re.compile(r"(?m)^\s*uses:\s+([^\s#]+)")
 
-CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
-PNPM_ACTION = "pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1"
-SETUP_NODE_ACTION = "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020"
-CONFIGURE_PAGES_ACTION = "actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b"
-UPLOAD_PAGES_ACTION = "actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa"
-DEPLOY_PAGES_ACTION = "actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e"
+CHECKOUT_ACTION = "actions/checkout"
+PNPM_ACTION = "pnpm/action-setup"
+SETUP_NODE_ACTION = "actions/setup-node"
+CONFIGURE_PAGES_ACTION = "actions/configure-pages"
+UPLOAD_PAGES_ACTION = "actions/upload-pages-artifact"
+DEPLOY_PAGES_ACTION = "actions/deploy-pages"
 
 EXPECTED_ACTIONS = (
     CHECKOUT_ACTION,
@@ -118,10 +118,14 @@ def validate(root: Path) -> list[str]:
     for action in actions:
         if action.startswith("./"):
             continue
-        reference = action.rsplit("@", 1)[-1]
+        _, separator, reference = action.rpartition("@")
+        if not separator:
+            violations.append(f"action must use an immutable commit: {action}")
+            continue
         if re.fullmatch(SHA, reference) is None:
             violations.append(f"action must use an immutable commit: {action}")
-    if actions != EXPECTED_ACTIONS:
+    action_names = tuple(action.rpartition("@")[0] for action in actions)
+    if action_names != EXPECTED_ACTIONS:
         violations.append("Pages workflow actions must be the approved pinned actions in order")
 
     checkout = step_block(source, "Check out repository")

@@ -136,6 +136,21 @@ test('homepage styling encodes the motion, focus, target, and full-bleed contrac
   assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
 
+test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
+  const globalCss = read('website/src/css/custom.css');
+  const wrapper = globalCss.match(/\.navbar__logo\s*\{(?<declarations>[^}]*)\}/)
+    ?.groups?.declarations;
+  const image = globalCss.match(/\.navbar__logo img\s*\{(?<declarations>[^}]*)\}/)
+    ?.groups?.declarations;
+
+  assert.ok(wrapper, 'navbar logo wrapper styling is missing');
+  assert.match(wrapper, /aspect-ratio:\s*5\s*\/\s*2/);
+  assert.ok(image, 'navbar logo image sizing is missing');
+  assert.match(image, /height:\s*100%/);
+  assert.match(image, /object-fit:\s*contain/);
+  assert.match(image, /width:\s*100%/);
+});
+
 test('homepage brand mark preserves its intrinsic aspect ratio at every breakpoint', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const brandMarkDeclarations = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
