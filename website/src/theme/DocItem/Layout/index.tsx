@@ -44,7 +44,9 @@ export default function DocItemLayout({children}: Props): ReactNode {
             <DocBreadcrumbs />
             <DocVersionBadge />
             {docTOC.mobile}
-            <DocItemContent>{children}</DocItemContent>
+            <div data-pagefind-body>
+              <DocItemContent>{children}</DocItemContent>
+            </div>
             <DocItemFooter />
           </article>
           <DocItemPaginator />

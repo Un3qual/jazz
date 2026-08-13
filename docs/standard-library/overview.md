@@ -1,36 +1,44 @@
 ---
 title: Standard library
-description: Survey the bundled Prelude and explicit-import Jazz library modules.
+description: Browse the bundled Prelude and explicit-import library modules.
 sidebar_position: 1
 ---
 
 The bundled [Prelude](prelude.md) loads automatically unless the CLI uses
-`--no-prelude`. Other modules require an explicit import and module mode must
-search the bundled library root. From the repository root, include both the
-application root and `jazz/stdlib`, in that order:
+`--no-prelude`. Other library modules require an explicit import. Collection
+updates return new values, so older values remain usable.
+
+When a module graph imports one of these modules, include both the application
+root and the standard-library root. From the repository checkout:
 
 ```bash
 cabal run jazz -- --run --entry-module App::Main \
-  --module-root path/to/app/src \
-  --module-root jazz/stdlib
+  --module-root path/to/app --module-root jazz/stdlib
 ```
 
-| Module            | Public abstraction          | Purpose                                                                  |
-| ----------------- | --------------------------- | ------------------------------------------------------------------------ |
-| `Prelude`         | `Ordering` and capabilities | Scalar capabilities, conversions, and basic helpers                      |
-| `List`            | built-in `[a]`              | Total list queries, transformations, folds, grouping, and stable sorting |
-| `Maybe`, `Result` | public ADTs                 | Optional and recoverable values                                          |
-| `NonEmpty`        | public ADT                  | Lists with a statically present first value                              |
-| `Dictionary`      | abstract                    | Insertion-ordered lookup using `Eq` keys                                 |
-| `Queue`           | abstract                    | Persistent first-in, first-out traversal                                 |
-| `Map`, `Set`      | abstract                    | Persistent ordered collections using `Ord` values                        |
-| `Char`, `Text`    | built-in values             | Unicode-scalar conversion and text processing                            |
-| `IOError`, `IO`   | public errors and effects   | Strict UTF-8 host files, streams, arguments, and exit                    |
+Complexity statements describe logical Jazz operations. Callback cost is
+excluded unless a page states otherwise.
 
-`Maybe`, `Result`, and `NonEmpty` expose constructors. `Dictionary`, `Queue`,
-`Map`, and `Set` keep their representations private. All collection updates
-return new values; older values remain usable.
+## Data
 
-Complexity statements describe logical Jazz operations. `n` is a collection
-or input length, `m` is a second input length, and `k` is output length.
-Callback cost is excluded unless stated otherwise.
+- [Maybe](maybe.md) — optional values.
+- [Result](result.md) — successful values and recoverable errors.
+- [NonEmpty](nonempty.md) — lists with a statically present first value.
+
+## Collections
+
+- [List](list.md) — total access, transformation, folds, grouping, and sorting.
+- [Dictionary](dictionary.md) — insertion-ordered lookup with `Eq` keys.
+- [Queue](queue.md) — persistent first-in, first-out traversal.
+- [Map](map.md) — ordered key-value storage with `Ord` keys.
+- [Set](set.md) — persistent ordered unique values.
+
+## Text
+
+- [Char](char.md) — Unicode scalar conversion and classification.
+- [Text](text.md) — immutable Unicode-scalar text processing.
+
+## System
+
+- [IO](io.md) — files, streams, arguments, and process exit.
+- [IOError](io-error.md) — stable error categories and values.

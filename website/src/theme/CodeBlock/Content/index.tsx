@@ -15,11 +15,20 @@ import type {
 import type {ThemedToken} from 'shiki/types';
 
 import {tokenizeJazz} from '../../../../scripts/jazz-highlighter.mjs';
+import {
+  getJazzTypeLinkSpans,
+  type JazzTypeLinkSpan,
+} from '../../../../scripts/jazz-type-links.mjs';
 import styles from './styles.module.css';
 
 interface JazzToken extends Token {
   color?: string;
+  destination?: string;
   fontStyle?: number;
+}
+
+interface JazzSignatureMetadata {
+  jazzSignature?: boolean;
 }
 
 function toJazzToken(token: ThemedToken): JazzToken {
@@ -29,6 +38,62 @@ function toJazzToken(token: ThemedToken): JazzToken {
     color: token.color,
     fontStyle: token.fontStyle,
   };
+}
+
+function splitJazzToken(
+  token: ThemedToken,
+  tokenStart: number,
+  spans: JazzTypeLinkSpan[],
+): JazzToken[] {
+  if (token.content.length === 0) {
+    return [toJazzToken(token)];
+  }
+
+  const tokenEnd = tokenStart + token.content.length;
+  const intersecting = spans.filter(
+    (span) => span.start < tokenEnd && span.end > tokenStart,
+  );
+  const boundaries = new Set([tokenStart, tokenEnd]);
+  for (const span of intersecting) {
+    boundaries.add(Math.max(tokenStart, span.start));
+    boundaries.add(Math.min(tokenEnd, span.end));
+  }
+
+  const ordered = [...boundaries].sort((left, right) => left - right);
+  return ordered.slice(0, -1).map((start, index) => {
+    const end = ordered[index + 1]!;
+    const destination = intersecting.find(
+      (span) => span.start <= start && start < span.end,
+    )?.destination;
+    return {
+      ...toJazzToken({
+        ...token,
+        content: token.content.slice(start - tokenStart, end - tokenStart),
+      }),
+      destination,
+    };
+  });
+}
+
+function toJazzSignatureLines(
+  themedLines: ThemedToken[][],
+  source: string,
+): JazzToken[][] {
+  const spans = getJazzTypeLinkSpans(source);
+  let sourceOffset = 0;
+
+  return themedLines.map((line, lineIndex) => {
+    const linkedLine = line.flatMap((token) => {
+      const split = splitJazzToken(token, sourceOffset, spans);
+      sourceOffset += token.content.length;
+      return split;
+    });
+
+    if (lineIndex < themedLines.length - 1) {
+      sourceOffset += source.startsWith('\r\n', sourceOffset) ? 2 : 1;
+    }
+    return linkedLine;
+  });
 }
 
 function getLineProps({className, style}: LineInputProps): LineOutputProps {
@@ -65,7 +130,11 @@ export default function CodeBlockContent(props: Props): ReactNode {
   }
 
   const {bg, fg, tokens} = tokenizeJazz(metadata.code, colorMode);
-  const lines = tokens.map((line) => line.map(toJazzToken));
+  const jazzSignature = (metadata as typeof metadata & JazzSignatureMetadata)
+    .jazzSignature;
+  const lines = jazzSignature
+    ? toJazzSignatureLines(tokens, metadata.code)
+    : tokens.map((line) => line.map(toJazzToken));
   const codeStyle: CSSProperties = {
     counterReset:
       metadata.lineNumbersStart === undefined
@@ -78,6 +147,7 @@ export default function CodeBlockContent(props: Props): ReactNode {
       ref={wordWrap.codeBlockRef}
       tabIndex={0}
       data-jazz-highlighter="textmate"
+      data-jazz-signature={jazzSignature || undefined}
       className={clsx(
         props.className,
         metadata.className,

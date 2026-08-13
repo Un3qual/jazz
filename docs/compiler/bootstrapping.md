@@ -1,53 +1,52 @@
 ---
 title: Bootstrapping
-description: Understand Jazz self-hosting progress and the evidence required to promote hosted components.
+description: Understand Jazz self-hosting stages and their promotion requirements.
 sidebar_position: 3
 ---
 
 Jazz uses the current Haskell compiler and interpreter as stage 0. Hosted
-compiler components are ordinary Jazz modules executed by that stage. A
-self-hosted compiler means the canonical compiler implementation is written in
-Jazz and can compile its own source through a promoted, behaviorally equivalent
-pipeline; it does not require discarding a trusted seed compiler.
+compiler components are Jazz modules executed by that stage. A self-hosted
+compiler is a promoted Jazz implementation that can compile its own source
+through a behaviorally equivalent pipeline; the trusted stage-0 seed can remain
+available for reproducible bootstrap builds.
 
-## Implemented hosted components
+## Hosted front end
 
-- canonical tokens and a Jazz-authored lexer;
-- a complete Jazz-authored parser split into focused grammar modules;
-- canonical-core schemas, full surface lowering, and module lowering;
-- typed-core and lowered-IR schemas with total validators; and
-- repeated differential suites against the Haskell stage-0 implementation.
+The hosted front end currently covers lexing, parsing, canonical-core lowering,
+and validation schemas for typed core and lowered IR.
 
-The fixed parser corpus assigns every accepted and rejected fixture to one
-family. Hosted parsing and core lowering run repeatedly and must match complete
-stage-0 values or structured failures, not merely success counts.
+The lexer, parser, and core lowering are compared against stage 0 across the
+accepted and rejected parser corpus. Repeated runs must match complete values or
+structured failures, not only success counts.
 
-## Promotion boundary
+## Current boundary
 
-**Partial:** hosted front-end parity is implemented, but production compilation
-still uses Haskell-owned parsing and semantic phases. Typed core and lowered IR
-currently cover a bounded opt-in profile. That profile supports closed named
-functions as values, unary closure parameters and results, explicit empty
-environments, unary higher-order closure calls, anonymous and nested unary
-closures, and binder-resolved scalar or closure-valued lexical capture.
-Capture environments are immutable, ordered by first binder occurrence, and
-use deterministic lifted function and layout identities. Concrete scalar
-bindings are evaluated once in source order and reused by later entry
-expressions in entry modules with explicitly empty export lists. Scalar value
-interfaces are not produced yet. The profile also preserves unary curried
-staging for named functions, callable parameters, and inline lambdas; partial
-application returns an ordinary closure, and oversaturation proceeds only while
-each intermediate result remains callable. The profile transports ordered
-recursive-group binder identities for both direct and closure-shaped self and
-mutual recursion. Capture-free, non-escaping groups retain direct calls.
-Escaping or capturing groups use one immutable shared environment containing
-only prior external captures; member closures share that environment, and
-self/peer references reconstruct closures from it without cyclic initialization.
-Later or interleaved external captures remain rejected. The profile does not
-replace the canonical-core and reference-interpreter compile/run path.
+Hosted front-end parity is implemented, but ordinary compilation still uses
+the stage-0 parsing and semantic pipeline. Typed core and lowered IR cover a
+bounded opt-in profile rather than the full language. It supports scalar
+bindings, direct calls, function values, unary closures, lexical capture,
+higher-order calls, curried application, capture-free, non-escaping direct self
+and mutual recursion, and closure-shaped self and mutual recursion when every
+external capture is available before the first group member. Closure-shaped
+groups share one immutable environment containing ordered external captures;
+members reuse it and reconstruct self or peer closures without cyclic
+initialization. Later or interleaved external captures, full control flow,
+scalar exports, and complete multi-module integration remain outside that
+profile. Ordinary run mode continues to evaluate canonical core with the
+interpreter.
 
-Promotion still requires broader typed-core coverage, a complete Jazz-authored
-semantic compiler, full module integration, a native backend and runtime, and
-end-to-end deterministic conformance. Until those gates pass,
-“hosted” means tested compiler components, not the shipping canonical compiler.
-The horizons are tracked on the [roadmap](../project/roadmap.md).
+Backend preparation also covers only a subset of the language. The current
+supported forms and exclusions are maintained in
+[Project status](../project/status.md).
+
+## Promotion
+
+A hosted stage is promoted only when it covers its accepted input domain,
+matches the canonical stage deterministically, preserves structured failures,
+and integrates with the next pipeline stage. Self-hosting additionally requires
+a complete Jazz-authored semantic compiler, full module integration, native
+emission and linking, a runtime, and end-to-end conformance.
+
+Until those gates pass, hosted components are tested compiler stages rather
+than the canonical shipping pipeline. See the [roadmap](../project/roadmap.md)
+and current [status](../project/status.md).

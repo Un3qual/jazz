@@ -1,0 +1,23 @@
+.typeLink,
+.typeLink:visited,
+.typeLink:hover,
+.typeLink:active,
+.typeLink:focus,
+.typeLink:focus-visible {
+  color: inherit;
+  text-decoration: none;
+}
+
+.typeLink {
+  border-radius: 0.15rem;
+}
+
+.typeLink:hover {
+  background: var(--jazz-type-link-hover-background);
+}
+
+.typeLink:focus-visible {
+  background: var(--jazz-type-link-focus-background);
+  outline: 2px solid currentcolor;
+  outline-offset: 2px;
+}

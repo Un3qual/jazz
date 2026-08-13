@@ -4,9 +4,9 @@ description: Understand Jazz class constraints, concrete implementations, and cu
 sidebar_position: 9
 ---
 
-Jazz uses `class` declarations and concrete `impl` declarations for
-capabilities. The bundled vocabulary is `Eq`, `Ord`, `Num`, `Integral`,
-`Fractional`, `Showable`, and `Default`.
+A capability states which operations a type must provide. A constrained
+function can use those operations without committing to one concrete type. An
+implementation connects the capability to a concrete type.
 
 Fragment:
 
@@ -22,15 +22,19 @@ impl Equal(Int) {
 }.
 ```
 
-Class parameters are explicit lowercase type variables. Class bodies currently
-contain method signatures, and impl targets must be concrete. Constrained
-signatures use `@{Class(Type)}:`. Duplicate declarations, wrong arity, missing
-facts, and ambiguous concrete implementations are diagnosed.
+Capability bodies currently contain method signatures, and implementation
+targets must be concrete. The compiler rejects duplicate capabilities or
+implementations, incorrect arity, an unsatisfied constraint, and ambiguous
+concrete implementations.
 
-**Partial:** explicit `Class::method` references can dispatch to exactly one
-visible concrete implementation after the method body is type-checked. Broader
-cross-module method visibility, user-visible dictionaries, default methods,
-superclasses, and general overlap policy are not implemented.
+The bundled capabilities are `Eq`, `Ord`, `Num`, `Integral`, `Fractional`,
+`Showable`, and `Default`. Their methods and built-in implementations are
+documented in [Prelude](../standard-library/prelude.md).
 
-Jazz does not accept an alternate trait declaration keyword. Future semantic
-changes require the [governance process](../project/governance.md).
+**Partial:** an explicit `Class::method` reference can dispatch when exactly one
+visible concrete implementation applies. Cross-module method visibility,
+user-visible dictionaries, default methods, superclasses, and a general overlap
+policy are not implemented.
+
+See the [expression grammar](../reference/expression-grammar.md) for declaration
+and constraint notation.

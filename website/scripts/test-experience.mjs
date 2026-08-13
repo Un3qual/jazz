@@ -1,15 +1,102 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import {unified} from 'unified';
+import remarkParse from 'remark-parse';
+
+import {JAZZ_TYPE_DESTINATIONS} from './jazz-type-links.mjs';
 
 const websiteRoot = path.resolve(import.meta.dirname, '..');
 const repositoryRoot = path.resolve(websiteRoot, '..');
 
 function read(relativePath) {
   return readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+}
+
+function writeBuildFile(buildRoot, relativePath, contents) {
+  const file = path.join(buildRoot, relativePath);
+  mkdirSync(path.dirname(file), {recursive: true});
+  writeFileSync(file, contents);
+}
+
+function writeTypeLinkBuildFixture(buildRoot, {baseUrl = '/jazz/', intFragment = 'int'} = {}) {
+  const href = (route) => `${baseUrl}${route.replace(/^\//, '')}`;
+  const link = (text, route) =>
+    `<a data-jazz-type-link="true" href="${href(route)}">${text}</a>`;
+
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/list.html',
+    [
+      '<main>',
+      '<pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>',
+      `nested :: ${link('Maybe', '/docs/standard-library/maybe')}(${link('[', '/docs/standard-library/list')}a${link(']', '/docs/standard-library/list')})`,
+      ` -&gt; ${link('Int', `/docs/reference/runtime-values#${intFragment}`)}.`,
+      '</code></pre>',
+      '<pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>',
+      `split :: ${link('(', '/docs/reference/runtime-values#tuples')}a, b${link(')', '/docs/reference/runtime-values#tuples')}.`,
+      '</code></pre>',
+      '</main>',
+    ].join(''),
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/io.html',
+    `<pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>read! :: ${link('()', '/docs/reference/runtime-values#unit')}.</code></pre>`,
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/prelude.html',
+    `<h3 id="num">Num</h3><pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>convert :: @{${link('Num', '/docs/standard-library/prelude#num')}(a)}: a.</code></pre>`,
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/maybe.html',
+    '<h1 id="maybe">Maybe</h1>',
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/reference/runtime-values.html',
+    '<h3 id="int">Int</h3><h3 id="tuples">Tuples</h3><h3 id="unit">Unit</h3>',
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/language/types-and-signatures.html',
+    '<pre data-jazz-highlighter="textmate"><code><span>ordinary :: Maybe(a).</span></code></pre>',
+  );
+
+  for (const destination of new Set(Object.values(JAZZ_TYPE_DESTINATIONS))) {
+    const url = new URL(
+      `${baseUrl}${destination.replace(/^\/+/, '')}`,
+      'https://jazz.invalid',
+    );
+    const route = url.pathname.slice(baseUrl.length).replace(/^\/+|\/+$/g, '');
+    const file = `${route}.html`;
+    const target = path.join(buildRoot, file);
+    const fragment = decodeURIComponent(url.hash.slice(1));
+    const existing = existsSync(target) ? readFileSync(target, 'utf8') : '';
+    const anchor = fragment && !existing.includes(`id="${fragment}"`)
+      ? `<span id="${fragment}"></span>`
+      : '';
+    writeBuildFile(buildRoot, file, `${existing}${anchor}`);
+  }
+}
+
+function markdownText(node) {
+  if (typeof node.value === 'string') {
+    return node.value;
+  }
+  return (node.children ?? []).map(markdownText).join('');
 }
 
 function tokenScopes(tokens) {
@@ -90,50 +177,121 @@ test('factorial sync accepts CRLF example manifests', () => {
   }
 });
 
-test('homepage exposes four semantic regions with one heading and direct doc routes', () => {
+test('homepage introduces Jazz and provides direct documentation routes', () => {
   const page = read('website/src/pages/index.tsx');
   const componentSources = [
     'BrandMark.tsx',
     'CodeProof.tsx',
-    'EditorialBand.tsx',
+    'DocumentationDirectory.tsx',
     'HomepageHeader.tsx',
-    'HomepageFooterCta.tsx',
-  ].map((name) => read(`website/src/components/${name}`));
+  ].map((name) => {
+    const component = path.join(repositoryRoot, 'website/src/components', name);
+    return existsSync(component) ? read(`website/src/components/${name}`) : '';
+  });
   const source = [page, ...componentSources].join('\n');
 
   assert.equal((source.match(/<h1\b/g) ?? []).length, 1);
-  assert.equal((source.match(/<section\b/g) ?? []).length, 4);
   assert.match(source, /<main\b/);
   assert.match(source, /<header\b/);
+  assert.match(source, /<CodeProof\b/);
   for (const route of [
     '/docs/getting-started/overview',
     '/docs/language/overview',
-    '/docs/language/types-and-signatures',
-    '/docs/language/bindings-and-functions',
-    '/docs/language/algebraic-data-types-and-patterns',
+    '/docs/standard-library/overview',
+    '/docs/reference/expression-grammar',
     '/docs/compiler/architecture',
-    '/docs/compiler/bootstrapping',
-    '/docs/getting-started/installation',
     '/docs/project/status',
   ]) {
     assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
   }
+  for (const forbidden of [
+    'EditorialBand',
+    'HomepageFooterCta',
+    'Language, in three movements',
+    'Strong ideas. Clear notation.',
+    'The next phrase is yours',
+    'synchronized directly from the repository',
+    'compiler-backed example check',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(forbidden.replaceAll('.', '\\.')));
+  }
   assert.doesNotMatch(source, /\b(?:fetch|useEffect|useState)\s*\(/);
 });
 
-test('homepage styling encodes the motion, focus, target, and full-bleed contracts', () => {
+test('documentation directory owns its component styles', () => {
+  const component = read('website/src/components/DocumentationDirectory.tsx');
+  const pageStyles = read('website/src/pages/index.module.css');
+  const componentStyles = read(
+    'website/src/components/DocumentationDirectory.module.css',
+  );
+
+  assert.match(component, /from '\.\/DocumentationDirectory\.module\.css'/);
+  assert.match(componentStyles, /\.directory\b/);
+  assert.match(componentStyles, /\.directoryGrid\b/);
+  assert.match(componentStyles, /\.directorySection\b/);
+  assert.doesNotMatch(pageStyles, /\.directory(?:Heading|Grid|Section)?\b/);
+});
+
+test('homepage styling is compact, responsive, and accessible', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
   const source = `${pageCss}\n${globalCss}`;
 
-  assert.match(pageCss, /100(?:svw|vw)/);
   assert.match(source, /prefers-reduced-motion:\s*reduce/);
   assert.match(source, /:focus-visible/);
   assert.match(source, /min-height:\s*44px/);
   assert.match(source, /min-width:\s*44px/);
+  assert.match(pageCss, /@media \(max-width: 760px\)/);
+  assert.doesNotMatch(pageCss, /min-height:\s*calc\(100svh/);
+  assert.doesNotMatch(pageCss, /100vw/);
+  assert.doesNotMatch(pageCss, /\.editorialBand/);
+  assert.doesNotMatch(pageCss, /\.closing/);
   assert.doesNotMatch(source, /gradient\s*\(/i);
+  assert.match(
+    pageCss,
+    /grid-template-columns:\s*minmax\(0,\s*0\.85fr\)\s+minmax\(0,\s*1\.15fr\)/,
+  );
+  assert.match(pageCss, /@keyframes intro-enter\b/);
   assert.match(globalCss, /body\s*\{[^}]*font-weight:\s*450/s);
   assert.doesNotMatch(globalCss, /font-variation-settings/);
+});
+
+test('public orientation copy describes Jazz rather than repository mechanics', () => {
+  const publicSources = [
+    'website/src/components/CodeProof.tsx',
+    'docs/getting-started/overview.md',
+    'docs/compiler/architecture.md',
+    'docs/compiler/pipeline.md',
+    'docs/compiler/bootstrapping.md',
+    'docs/project/status.md',
+  ].map(read);
+  const source = publicSources.join('\n');
+  const compiler = publicSources.slice(2, 5).join('\n');
+  const architecture = publicSources[2];
+
+  for (const phrase of [
+    'available after merge',
+    'pages enablement',
+    'post-merge follow-up',
+    'synchronized directly from the repository',
+    'compiler-backed example check',
+    'documentation-only commits',
+    'implementation snapshot:',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(phrase, 'i'));
+  }
+  assert.doesNotMatch(compiler, /`(?:src|jazz|app|test|programs)\//);
+  for (const heading of [
+    'Source and modules',
+    'Parse',
+    'Resolve',
+    'Analyze',
+    'Diagnose',
+    'Interpret',
+    'Prepare a backend',
+  ]) {
+    assert.match(architecture, new RegExp(`^## ${heading}$`, 'm'));
+  }
 });
 
 test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
@@ -151,16 +309,41 @@ test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
   assert.match(image, /width:\s*100%/);
 });
 
-test('homepage brand mark preserves its intrinsic aspect ratio at every breakpoint', () => {
+test('homepage brand mark is a substantial normal-flow title lockup', () => {
+  const header = read('website/src/components/HomepageHeader.tsx');
   const pageCss = read('website/src/pages/index.module.css');
-  const brandMarkDeclarations = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const declarationsFor = (selector) =>
+    rules
+      .filter(([, selectors]) =>
+        selectors
+          .split(',')
+          .some((candidate) => candidate.trim() === selector),
+      )
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  const brandMarkDeclarations = rules
     .filter(([, selectors]) =>
       selectors
         .split(',')
         .some((selector) => selector.trim() === '.brandMark'),
     )
     .map(([, , declarations]) => declarations);
+  const brandPlane = declarationsFor('.brandPlane');
+  const mobile = pageCss.match(
+    /@media \(max-width: 760px\)\s*\{(?<rules>[\s\S]*?)\n\}/,
+  )?.groups?.rules;
 
+  assert.match(
+    header,
+    /<div className=\{styles\.titleLockup\}>\s*<BrandMark \/>\s*<h1/s,
+  );
+  assert.match(declarationsFor('.titleLockup'), /display:\s*flex/);
+  assert.match(brandPlane, /width:\s*clamp\(/);
+  assert.doesNotMatch(brandPlane, /position:\s*absolute/);
+  assert.doesNotMatch(brandPlane, /(?:bottom|right):/);
+  assert.doesNotMatch(brandPlane, /opacity:\s*0?\.2/);
+  assert.match(mobile ?? '', /\.titleLockup\s*\{[^}]*flex-direction:\s*column/s);
   assert.ok(brandMarkDeclarations.length > 0, 'brandMark styling is missing');
   assert.ok(
     brandMarkDeclarations.some((declarations) => /\bwidth\s*:/.test(declarations)),
@@ -184,64 +367,124 @@ test('documentation layout reserves width only for a rendered desktop TOC', () =
   assert.doesNotMatch(layoutCss, /(?:^|\n)\s*(?:column-gap|gap)\s*:/);
 });
 
-test('hero stagger includes the brass motif and completes under 500ms', () => {
-  const pageCss = read('website/src/pages/index.module.css');
-  const participants = [
-    'heroKicker',
-    'heroTitle',
-    'heroPromise',
-    'heroActions',
-    'brandPlane',
-  ];
-  const animationRule = pageCss.match(
-    /([^{}]+)\{[^{}]*animation-duration:\s*(\d+)ms;[^{}]*\}/,
-  );
-  assert.ok(animationRule, 'hero animation must declare a measurable duration');
-
-  const duration = Number(animationRule[2]);
-  for (const participant of participants) {
-    assert.match(animationRule[1], new RegExp(`\\.${participant}\\b`));
-  }
-
-  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const declarationsFor = (participant) =>
-    rules
-      .filter(([_, selectors]) =>
-        selectors
-          .split(',')
-          .some((selector) => selector.trim() === `.${participant}`),
-      )
-      .map(([_, __, declarations]) => declarations)
-      .join('\n');
-  const delays = participants.map((participant) => {
-    const declarations = declarationsFor(participant);
-    const delay = declarations.match(/animation-delay:\s*(\d+)ms/);
-    assert.ok(delay, `${participant} must declare its animation delay`);
-    return Number(delay[1]);
-  });
-
-  assert.ok(duration > 0 && Math.max(...delays) > 0);
-  assert.ok(
-    duration + Math.max(...delays) < 500,
-    `hero sequence is ${duration + Math.max(...delays)}ms`,
-  );
-  assert.match(declarationsFor('brandPlane'), /animation-name:\s*motifEnter/);
-  assert.match(
-    pageCss,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.brandPlane[\s\S]*animation:\s*none/,
-  );
-});
-
-test('brand-dark sections keep invariant high-contrast colors in both themes', () => {
+test('homepage introduction keeps invariant high-contrast colors in both themes', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
 
   assert.match(globalCss, /--jazz-brand-ink:\s*#171824/);
   assert.match(globalCss, /--jazz-brand-paper:\s*#f3eddf/);
-  assert.match(pageCss, /\.hero\s*\{[^}]*background:\s*var\(--jazz-brand-ink\)/s);
-  assert.match(pageCss, /\.hero\s*\{[^}]*color:\s*var\(--jazz-brand-paper\)/s);
-  assert.match(pageCss, /\.closing\s*\{[^}]*background:\s*var\(--jazz-brand-ink\)/s);
+  assert.match(pageCss, /\.intro\s*\{[^}]*background:\s*var\(--jazz-brand-ink\)/s);
+  assert.match(pageCss, /\.intro\s*\{[^}]*color:\s*var\(--jazz-brand-paper\)/s);
   assert.match(pageCss, /\.primaryAction\s*\{[^}]*color:\s*var\(--jazz-brand-ink\)/s);
+});
+
+test('Runtime values exposes every stable built-in type destination', () => {
+  const tree = unified()
+    .use(remarkParse)
+    .parse(read('docs/reference/runtime-values.md'));
+  const headings = new Set(
+    tree.children
+      .filter((node) => node.type === 'heading')
+      .map((node) => markdownText(node)),
+  );
+
+  for (const destination of [
+    'Bool',
+    'Int',
+    'Int8',
+    'Int16',
+    'Int32',
+    'Int64',
+    'UInt8',
+    'UInt16',
+    'UInt32',
+    'UInt64',
+    'Float',
+    'Float16',
+    'Float32',
+    'Float64',
+    'Tuples',
+    'Unit',
+  ]) {
+    assert.ok(headings.has(destination), `missing Runtime values heading: ${destination}`);
+  }
+
+  const source = read('docs/reference/runtime-values.md');
+  for (const name of ['Float16', 'Float32']) {
+    const section = source.split(`### \`${name}\``, 2)[1].split('\n### ', 1)[0];
+    assert.doesNotMatch(section, /storage/i);
+    assert.match(section, /precision|rounding/i);
+  }
+});
+
+test('built type-link checker accepts valid signature links and ordinary Jazz', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-valid-'));
+  try {
+    writeTypeLinkBuildFixture(fixture);
+    const output = execFileSync(
+      process.execPath,
+      [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+      {encoding: 'utf8'},
+    );
+    assert.match(output, /Jazz type-link check passed/);
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
+test('built type-link checker rejects links outside the configured base URL', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-base-url-'));
+  try {
+    writeTypeLinkBuildFixture(fixture, {baseUrl: '/'});
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+          {encoding: 'utf8', stdio: 'pipe'},
+        ),
+      (error) => error.status !== 0 && /base URL/.test(error.stderr),
+    );
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
+test('built type-link checker rejects a missing destination fragment', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-fragment-'));
+  try {
+    writeTypeLinkBuildFixture(fixture, {intFragment: 'missing'});
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+          {encoding: 'utf8', stdio: 'pipe'},
+        ),
+      (error) => error.status !== 0 && /fragment/.test(error.stderr),
+    );
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
+test('built type-link checker validates mapped destinations absent from signatures', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-unused-destination-'));
+  try {
+    writeTypeLinkBuildFixture(fixture);
+    rmSync(path.join(fixture, 'docs/standard-library/result.html'));
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+          {encoding: 'utf8', stdio: 'pipe'},
+        ),
+      (error) => error.status !== 0 && /target does not exist/.test(error.stderr),
+    );
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
 });
 
 test('Docusaurus renders Jazz with TextMate and delegates other languages', () => {
@@ -254,9 +497,10 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   assert.match(renderer, /data-jazz-highlighter="textmate"/);
   assert.equal(packageJson.scripts.prebuild, undefined);
   assert.equal(packageJson.scripts.postbuild, undefined);
+  assert.equal(packageJson.devDependencies.pagefind, '1.5.2');
   assert.equal(
     packageJson.scripts.build,
-    'node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-highlighting.mjs',
+    'node scripts/sync-factorial.mjs && docusaurus build && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
   );
 
   for (const relativePath of [
@@ -283,6 +527,205 @@ test('active Docusaurus configuration preserves the public site contract', async
   assert.equal(classic.docs.path, '../docs');
   assert.equal(classic.docs.routeBasePath, 'docs');
   assert.equal(classic.blog, false);
+});
+
+test('primary navigation separates learning, library, and reference contexts', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {loadSidebarsFile} = await import(
+    '@docusaurus/plugin-content-docs/lib/sidebars/index.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+  const sidebars = await loadSidebarsFile(path.join(websiteRoot, 'sidebars.ts'));
+  const navbarItems = siteConfig.themeConfig.navbar.items;
+
+  assert.deepEqual(
+    navbarItems.map(({label}) => label),
+    ['Learn', 'Language', 'Standard Library', 'Reference', undefined, 'GitHub'],
+  );
+  assert.deepEqual(
+    navbarItems
+      .filter(({type}) => type === 'docSidebar')
+      .map(({sidebarId}) => sidebarId),
+    ['learnSidebar', 'standardLibrarySidebar', 'referenceSidebar'],
+  );
+  assert.deepEqual(Object.keys(sidebars), [
+    'learnSidebar',
+    'standardLibrarySidebar',
+    'referenceSidebar',
+  ]);
+});
+
+test('documentation search is a keyboard-first navbar dialog', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+  const navbarItems = siteConfig.themeConfig.navbar.items;
+  const searchIndex = navbarItems.findIndex(({type}) => type === 'search');
+  const searchBar = read('website/src/theme/SearchBar/index.tsx');
+  const searchModel = read('website/scripts/pagefind-search-model.mjs');
+
+  assert.equal(searchIndex, navbarItems.findIndex(({label}) => label === 'GitHub') - 1);
+  assert.deepEqual(navbarItems[searchIndex], {type: 'search', position: 'right'});
+  assert.match(searchBar, /<dialog\b/);
+  assert.match(searchBar, /aria-label="Search documentation"/);
+  assert.match(searchBar, /onCancel=\{\(event\) => \{\s*event\.preventDefault\(\);\s*closeSearch\(\);\s*\}\}/s);
+  assert.match(searchBar, /if \(!open\) \{\s*dialogRef\.current\?\.close\(\);\s*return;\s*\}/s);
+  assert.match(searchBar, /activeResultRef\.current\?\.scrollIntoView\(\{block: 'nearest'\}\)/);
+  assert.match(searchModel, /Loading search index/);
+  assert.match(searchModel, /No documentation matches/);
+  assert.match(searchModel, /Search is unavailable in this preview/);
+});
+
+test('documentation search clears stale rows before accepting a new query', () => {
+  const searchBar = read('website/src/theme/SearchBar/index.tsx');
+
+  assert.match(
+    searchBar,
+    /onChange=\{\(event\) => \{[\s\S]*?replaceSearchResults\(state, \[\]\)[\s\S]*?setQuery/,
+  );
+});
+
+test('documentation search exposes keyboard selection to assistive technology', () => {
+  const searchBar = read('website/src/theme/SearchBar/index.tsx');
+
+  assert.match(searchBar, /aria-activedescendant=/);
+  assert.match(searchBar, /role="status"/);
+  assert.match(searchBar, /aria-live="polite"/);
+  assert.match(searchBar, /aria-atomic="true"/);
+  assert.match(searchBar, /role="listbox"/);
+  assert.match(searchBar, /role="option"/);
+  assert.match(searchBar, /aria-selected=/);
+});
+
+test('published combined standard-library routes redirect to canonical module pages', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+
+  assert.deepEqual(siteConfig.plugins, [[
+    '@docusaurus/plugin-client-redirects',
+    {
+      redirects: [
+        {
+          from: '/docs/standard-library/maybe-result-nonempty',
+          to: '/docs/standard-library/maybe',
+        },
+        {
+          from: '/docs/standard-library/map-and-set',
+          to: '/docs/standard-library/map',
+        },
+        {
+          from: '/docs/standard-library/char-and-text',
+          to: '/docs/standard-library/char',
+        },
+      ],
+    },
+  ]]);
+});
+
+test('public docs retain non-obvious numeric, complexity, and module-root contracts', () => {
+  const operators = read('docs/language/operators.md');
+  const operatorSection = operators.split('## Executable built-ins', 2)[1];
+  assert.match(operatorSection, /same numeric type/i);
+  assert.match(operatorSection, /integral[^\n]+(?:`Float`|`Float64`)/i);
+  assert.match(operatorSection, /explicit conversion/i);
+
+  const overview = read('docs/standard-library/overview.md');
+  assert.match(overview, /--module-root[^\n]+--module-root/s);
+  assert.match(overview, /jazz\/stdlib/);
+
+  const queue = read('docs/standard-library/queue.md');
+  const queueIntroduction = queue.split('## Type', 1)[0];
+  assert.match(queueIntroduction, /`queueEmpty` and `queueSingleton`[\s\S]+`O\(1\)`/);
+
+  const text = read('docs/standard-library/text.md');
+  const repeatSection = text.split('### `textRepeat`', 2)[1].split('\n### ', 1)[0];
+  assert.match(repeatSection, /non-positive[\s\S]+`O\(1\)`/i);
+  assert.match(repeatSection, /positive[\s\S]+repetition count plus the output size/i);
+});
+
+test('documentation search styles satisfy the configured keyword casing', () => {
+  const searchStyles = read('website/src/theme/SearchBar/styles.module.css');
+
+  assert.doesNotMatch(searchStyles, /currentColor/);
+  assert.match(searchStyles, /currentcolor/);
+});
+
+test('website search tests include the generated index contract', () => {
+  const scripts = JSON.parse(read('website/package.json')).scripts;
+  const websiteGate = read('scripts/check-website.sh');
+  const checkerTests = read('website/scripts/test-check-built-search.mjs');
+
+  assert.equal(
+    scripts['test:search'],
+    'node --test scripts/test-pagefind-search-model.mjs scripts/test-check-built-search.mjs',
+  );
+  assert.equal(
+    scripts['test:search:production'],
+    'node --test scripts/test-built-search-index.mjs',
+  );
+  assert.match(
+    websiteGate,
+    /run build[\s\S]*run test:search:production/,
+  );
+  assert.doesNotMatch(checkerTests, /execFileSync\('pnpm', \['run', 'build'\]/);
+});
+
+test('standard library navigation exposes one page per module', async () => {
+  const {loadSidebarsFile} = await import(
+    '@docusaurus/plugin-content-docs/lib/sidebars/index.js'
+  );
+  const sidebars = await loadSidebarsFile(path.join(websiteRoot, 'sidebars.ts'));
+  const documentIds = (items) =>
+    items.flatMap((item) =>
+      typeof item === 'string' ? [item] : documentIds(item.items ?? []),
+    );
+
+  assert.deepEqual(documentIds(sidebars.standardLibrarySidebar), [
+    'standard-library/overview',
+    'standard-library/prelude',
+    'standard-library/maybe',
+    'standard-library/result',
+    'standard-library/nonempty',
+    'standard-library/list',
+    'standard-library/dictionary',
+    'standard-library/queue',
+    'standard-library/map',
+    'standard-library/set',
+    'standard-library/char',
+    'standard-library/text',
+    'standard-library/io',
+    'standard-library/io-error',
+  ]);
+});
+
+test('documentation navigation is compact on desktop and touchable on mobile', () => {
+  const source = read('website/src/css/custom.css');
+  const rules = [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const declarationsFor = (selector) =>
+    rules
+      .filter(([, selectors]) =>
+        selectors
+          .split(',')
+          .some((candidate) => candidate.trim() === selector),
+      )
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  const mobile = source.match(
+    /@media \(max-width: 996px\)\s*\{(?<rules>[\s\S]*?)\n\}/,
+  )?.groups?.rules;
+
+  assert.match(source, /--ifm-navbar-height:\s*3\.5rem/);
+  assert.match(declarationsFor('.navbar__inner'), /align-items:\s*center/);
+  assert.match(declarationsFor('.navbar__item'), /height:\s*2\.1rem/);
+  assert.match(declarationsFor('.navbar__link'), /align-items:\s*center/);
+  assert.match(declarationsFor('.navbar__link'), /height:\s*2\.1rem/);
+  assert.match(mobile ?? '', /min-height:\s*44px/);
+  assert.match(mobile ?? '', /min-width:\s*44px/);
 });
 
 test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => {

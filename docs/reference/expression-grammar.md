@@ -4,9 +4,6 @@ description: Reference implemented Jazz declarations, expressions, patterns, typ
 sidebar_position: 2
 ---
 
-This is a compact description of the accepted surface, not a parser generator
-grammar.
-
 ```text
 source      := statement*
 statement   := signature | binding | data | class | impl
@@ -26,22 +23,16 @@ pattern     := literal-pattern | identifier | "_" | constructor-pattern
              | list-pattern | cons-list-pattern | tuple-pattern | as-pattern
 ```
 
-Primary expressions are integer, fractional, boolean, character, and text
-literals; identifiers; lists; tuples; blocks; lambdas; conditionals; and cases.
-Juxtaposition applies functions and binds tighter than infix operators.
-`callable @Type` applies an explicit type argument. Qualified value lookup is
-`Alias::member` with no whitespace inside the qualified name.
+Function application binds tighter than infix operators. Explicit type
+application selects a type argument for a callable. Qualified lookup requires
+an imported alias and does not admit whitespace within the qualified name.
 
-Lists are `[a, b]`; tuples are `()` or `(a, b, ...)`; parentheses group one
-expression. `\(a, b) -> body` accepts one or more comma-separated lambda
-parameters. Ordered pattern lambdas use `\|(patterns) -> body` followed by
-additional `|(patterns) -> body` clauses of the same arity.
+Parentheses around one expression group it; zero or at least two comma-separated
+elements form a tuple. Every clause of an ordered pattern lambda has the same
+arity.
 
-`if condition then yes else no` always has both branches. Cases use
-`case expression { | pattern -> body ... }`; a guarded arm inserts
-`if guard` before `->`. Patterns include literals other than fractional
-literals, variables, wildcard `_`, constructors, lists, cons lists, tuples,
-as-patterns, and alternatives.
+Conditionals always include both branches. Fractional literals are not valid
+patterns.
 
 The `pattern` production does not recursively include alternatives.
 Alternatives are recognized only by the outer `case-arm-pattern` or
@@ -50,9 +41,8 @@ constructor, tuple, list, cons-list, or as-pattern is unsupported. Lambda
 parameters do not accept guards. The optional `if` guard belongs only to a
 complete case-arm pattern.
 
-Function types are right-associative. Type atoms are primitive names, type
-variables, named types, `Name(arguments)`, lists, tuples, and parenthesized
-types. Constraints use `@{Capability(type), ...}: type`.
+Function types associate to the right. Constraints apply to the complete type
+that follows them.
 
 Built-in precedence and source-local operator declarations are documented in
 [operators](../language/operators.md). Declaration scope restrictions are in

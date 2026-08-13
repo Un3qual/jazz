@@ -78,6 +78,84 @@ class WebsiteBoundaryTests(unittest.TestCase):
         )
         self.assert_violation("generated output contains a non-allowlisted remote URL")
 
+    def test_built_output_rejects_javascript_remote_resources(self) -> None:
+        (self.build / "main.js").write_text(
+            'fetch("https://cdn.example/index.json");\n'
+            'import("https://cdn.example/search.js");\n',
+            encoding="utf-8",
+        )
+        self.assert_violation("generated output contains a non-allowlisted remote URL")
+
+    def test_built_output_allows_javascript_url_parsing_bases(self) -> None:
+        (self.build / "main.js").write_text(
+            'new URL(path, "https://jazz.invalid");\n'
+            'new URL(`https://example.com${normalized}`);\n',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Website boundary checks passed.\n", result.stdout)
+
+    def test_built_output_rejects_inline_html_css_resources(self) -> None:
+        cases = {
+            "style element": (
+                "<style>"
+                "@font-face{src:url(https://fonts.example/jazz.woff2)}"
+                "</style>"
+            ),
+            "double-quoted style attribute": (
+                '<div style="background:url(https://cdn.example/double.png)"></div>'
+            ),
+            "single-quoted style attribute": (
+                "<div style='background:url(https://cdn.example/single.png)'></div>"
+            ),
+            "unquoted style attribute": (
+                "<div style=background:url(https://cdn.example/unquoted.png)></div>"
+            ),
+        }
+        for label, source in cases.items():
+            with self.subTest(label):
+                (self.build / "index.html").write_text(source, encoding="utf-8")
+                self.assert_violation(
+                    "generated output contains a non-allowlisted remote URL"
+                )
+
+    def test_built_output_rejects_inline_html_javascript_resources(self) -> None:
+        (self.build / "index.html").write_text(
+            '<script>fetch("https://cdn.example/index.json");'
+            'import("https://cdn.example/search.js");</script>',
+            encoding="utf-8",
+        )
+        self.assert_violation("generated output contains a non-allowlisted remote URL")
+
+    def test_built_output_rejects_resources_before_attribute_bearing_end_tags(self) -> None:
+        cases = {
+            "script": (
+                '<script>fetch("https://cdn.example/index.json")'
+                "</script\t\n foo>"
+            ),
+            "style": (
+                "<style>body{background:url(https://cdn.example/paper.png)}"
+                "</style data-generated>"
+            ),
+        }
+        for label, source in cases.items():
+            with self.subTest(label):
+                (self.build / "index.html").write_text(source, encoding="utf-8")
+                self.assert_violation(
+                    "generated output contains a non-allowlisted remote URL"
+                )
+
+    def test_built_output_allows_inline_html_url_parsing_bases(self) -> None:
+        (self.build / "index.html").write_text(
+            '<script>new URL(path, "https://jazz.invalid");'
+            'new URL(`https://example.com${normalized}`);</script>',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Website boundary checks passed.\n", result.stdout)
+
     def test_built_output_allows_navigation_data_urls_and_local_assets(self) -> None:
         (self.build / "index.html").write_text(
             '<link rel="canonical" href="https://un3qual.github.io/jazz/">\n'

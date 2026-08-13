@@ -117,8 +117,8 @@ class AuthorityCheckerTests(unittest.TestCase):
             ),
             (
                 "docs/project/governance.md",
-                "implementation. A proposal",
-                "delivery. A proposal",
+                "implementation. It records",
+                "delivery. It records",
             ),
             (
                 "rfcs/accepted/0001-language-authority-and-change-control.md",

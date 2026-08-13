@@ -1,5 +1,7 @@
 .codeBlock {
   --ifm-pre-background: var(--prism-background-color);
+  --jazz-type-link-hover-background: color-mix(in srgb, currentcolor 9%, transparent);
+  --jazz-type-link-focus-background: color-mix(in srgb, currentcolor 14%, transparent);
   margin: 0;
   padding: 0;
 }
