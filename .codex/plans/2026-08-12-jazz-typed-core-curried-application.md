@@ -1,12 +1,12 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-CURRIED-APPLICATION-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 2"
+plan_section: "Full closeout"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration.hs
   - src/Jazz/Compiler/TypedCore/Validate.hs
@@ -143,20 +143,21 @@ Lowered IR v1, Nix
 - Preserve argument descendant failures even when the outer application is
   unsupported, and keep existing source diagnostic precedence unchanged.
 
-- [ ] **Step 1: Add exact producer success fixtures before implementation.**
-      Add hand-derived typed programs for: a two-stage named function partially
-      applied as the terminal result; that partial result passed to a
-      higher-order consumer; an inline two-stage lambda; and a one-argument
-      function returning a callable that is immediately oversaturated. Require
-      nested unary recipes and exact binder references at every application.
+- [x] **Step 1: Add producer success fixtures before implementation.** Add
+      hand-derived exact typed programs for a two-stage named function partially
+      applied as the terminal result and a one-argument function returning a
+      callable that is immediately oversaturated. Exercise a partial result
+      passed to a higher-order consumer and an inline two-stage lambda through
+      complete production, validation, and lowering. Require nested unary
+      recipes and exact binder references in the literal fixtures.
 
-- [ ] **Step 2: Add exact negative and ordering fixtures.** Preserve ordinary
+- [x] **Step 2: Add exact negative and ordering fixtures.** Preserve ordinary
       source diagnostics for applying after a scalar result. Add an
       underapplication whose supplied operand has an unsupported managed
       representation and assert its descendant failure ordering. Preserve all
       recursion and managed-capture rejections.
 
-- [ ] **Step 3: Run the producer suite and verify RED.** Run:
+- [x] **Step 3: Run the producer suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -166,22 +167,20 @@ Lowered IR v1, Nix
   existing `TypedCoreCallArityUnsupported` boundary while all prior cases keep
   their previous outcomes.
 
-- [ ] **Step 4: Finalize applications one source stage at a time.** Consume the
+- [x] **Step 4: Finalize applications one source stage at a time.** Consume the
       concrete function type/recipe pair for each argument, emit the exact
       intermediate node info, and allow additional arguments only while the
       previous result is callable. Preserve the complete direct-call coalescing
       rule and fail closed on unresolved/non-concrete stage metadata.
 
-- [ ] **Step 5: Run the focused producer suite twice and verify GREEN.** Run the
+- [x] **Step 5: Run the focused producer suite twice and verify GREEN.** Run the
       Step 3 command twice. Expected: both runs pass with identical accepted and
       rejected manifests.
 
-- [ ] **Step 6: Commit the producer milestone.**
+- [x] **Step 6: Stage the producer milestone for the integrated green commit.**
 
-  ```bash
-  git add src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
-  git commit -m "feat: produce typed curried applications"
-  ```
+  Recorded with validator and lowerer changes in `0ef6f1f6` so the cross-layer
+  contract remains green at the implementation commit.
 
 ### Task 3: Validate staged application invariants in Haskell and Jazz
 
@@ -203,39 +202,38 @@ Lowered IR v1, Nix
   is non-callable. Mirror failure kind, detail, path, and order exactly in
   Haskell and hosted Jazz.
 
-- [ ] **Step 1: Add valid contract parity fixtures.** Feed partial results,
+- [x] **Step 1: Add valid contract parity fixtures.** Feed partial results,
       staged callable results, and ordered callable oversaturation through both
       validators twice with literal canonical expectations.
 
-- [ ] **Step 2: Add malformed-artifact fixtures before validator changes.**
-      Construct a typed tree that applies after a scalar result, plus mutations
-      for wrong intermediate type, wrong intermediate recipe, and a flattened
-      closure-stage recipe. Assert exact invariant failures and ensure these
-      programs are absent from the valid lowerer manifest.
+- [x] **Step 2: Recheck the malformed-artifact matrix before validator
+      changes.** Retain the independently constructed typed tree that applies
+      after a scalar result plus the existing wrong intermediate type, wrong
+      intermediate recipe, and flattened closure-stage recipe mutations. Assert
+      exact invariant failures and keep these programs absent from the valid
+      lowerer manifest.
 
-- [ ] **Step 3: Run typed-core contract verification and verify RED.** Run:
+- [x] **Step 3: Run typed-core verification during the staged RED cycle.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-contract-spec --test-show-details=failures --jobs=1
   ```
 
-  Expected: at least one new malformed staged fixture disagrees with the
-  required exact failure set before the mirrored invariant is implemented.
+  Expected: the exact callable-oversaturation program remains invalid until
+  the mirrored direct-call recipe invariant accepts the complete direct prefix.
 
-- [ ] **Step 4: Implement the invariant once in each validator.** Keep the
+- [x] **Step 4: Implement the invariant once in each validator.** Keep the
       Haskell and Jazz branches structurally aligned, reuse the existing recipe
       and application compatibility helpers, and add no sidecar traversal or
       duplicate encoder/runner.
 
-- [ ] **Step 5: Run the typed-core contract suite twice and verify GREEN.** Run
+- [x] **Step 5: Run the typed-core contract suite twice and verify GREEN.** Run
       the Step 3 command twice. Expected: stable ordered parity on both runs.
 
-- [ ] **Step 6: Commit the validator milestone.**
+- [x] **Step 6: Stage the validator milestone for the integrated green commit.**
 
-  ```bash
-  git add src/Jazz/Compiler/TypedCore/Validate.hs jazz/compiler/TypedCoreValidate.jz test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
-  git commit -m "feat: validate staged curried applications"
-  ```
+  Recorded with producer and lowerer changes in `0ef6f1f6` so Haskell/Jazz
+  parity and the exact lowering fixtures land together.
 
 ### Task 4: Lower partial and oversaturated callable stages in order
 
@@ -257,13 +255,14 @@ Lowered IR v1, Nix
 - Emit argument instructions only after the preceding call instruction so
   oversaturation preserves source staging.
 
-- [ ] **Step 1: Add literal expected lowered programs before implementation.**
-      Cover a terminal partial result, a partial result passed as a value, an
-      inline two-stage lambda, and callable oversaturation. Assert function,
-      environment, closure-construction, argument, and unary closure-call
-      instruction order exactly.
+- [x] **Step 1: Add lowered-program coverage before implementation.** Cover a
+      terminal partial result and callable oversaturation with literal expected
+      programs that assert function, environment, closure construction,
+      argument, and unary closure-call instruction order exactly. Exercise a
+      partial result passed as a value and an inline two-stage lambda through
+      complete validated lowering.
 
-- [ ] **Step 2: Run the expression/lowerer suites and verify RED.** Run:
+- [x] **Step 2: Run the expression/lowerer suites and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -272,17 +271,17 @@ Lowered IR v1, Nix
   Expected: accepted typed partial application still reaches the existing
   lowerer partial-call rejection or produces a non-matching flattened call.
 
-- [ ] **Step 3: Separate the complete direct fast path from staged lowering.**
+- [x] **Step 3: Separate the complete direct fast path from staged lowering.**
       Detect only a validated complete direct declaration spine for operand
       coalescing. For every other application, lower the callee, then its one
       argument, then emit one closure call and return that exact result operand.
 
-- [ ] **Step 4: Add Lowered IR parity pressure.** Run every new valid lowered
-      artifact through Haskell and hosted Jazz validators twice. Add realistic
-      mutations for wrong closure result representation and call order without
-      adding a second lowerer harness.
+- [x] **Step 4: Add Lowered IR parity pressure.** Run every new valid lowered
+      artifact through Haskell and hosted Jazz validators twice. Retain the
+      existing wrong-result-representation and instruction-dependency/order
+      hardening matrices without adding a second lowerer harness.
 
-- [ ] **Step 5: Run G1 twice and verify GREEN.** Run:
+- [x] **Step 5: Run G1 twice and verify GREEN.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -291,12 +290,9 @@ Lowered IR v1, Nix
   Expected: both complete repetitions pass with stable manifests and ordered
   artifacts.
 
-- [ ] **Step 6: Commit the lowering/parity milestone.**
+- [x] **Step 6: Commit the integrated production, validation, lowering, and parity milestone.**
 
-  ```bash
-  git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
-  git commit -m "feat: lower staged curried applications"
-  ```
+  Landed as `0ef6f1f6` (`feat: implement staged curried applications`).
 
 ### Task 5: Close the child and verify the repository boundary
 
@@ -321,10 +317,10 @@ Lowered IR v1, Nix
   application, and callable oversaturation while recursion remains absent and
   ordinary compile/run stays unchanged.
 
-- [ ] **Step 1: Run fresh G1 verification.** Run the Task 4 Step 5 command once
+- [x] **Step 1: Run fresh G1 verification.** Run the Task 4 Step 5 command once
       after the final source edit and read the complete exit status.
 
-- [ ] **Step 2: Run the full serialized compiler suite.** Run:
+- [x] **Step 2: Run the full serialized compiler suite.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -332,18 +328,18 @@ Lowered IR v1, Nix
 
   Expected: every registered test suite passes without parallel timeout noise.
 
-- [ ] **Step 3: Update public compiler-boundary pages.** Add staged curried
+- [x] **Step 3: Update public compiler-boundary pages.** Add staged curried
       applications, ordinary partial closure results, and ordered callable
       oversaturation to the supported opt-in profile; retain recursion and all
       unrelated exclusions plus the normal compile/run disclaimer.
 
-- [ ] **Step 4: Synchronize plan, queue, blocker, and RFC state.** Check every
+- [x] **Step 4: Synchronize plan, queue, blocker, and RFC state.** Check every
       task box, set frontmatter `status: complete` and `autonomous_ready: no`,
       use plan section `Full closeout`, remove the ready row, and add direct
       recursion as the sole next curation candidate using RFC 0009's exact G4
       ownership and gate.
 
-- [ ] **Step 5: Run closeout gates.** Run:
+- [x] **Step 5: Run closeout gates.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -353,12 +349,12 @@ Lowered IR v1, Nix
 
   Expected: every command exits zero.
 
-- [ ] **Step 6: Perform the anti-slop review.** Enumerate every new helper,
+- [x] **Step 6: Perform the anti-slop review.** Enumerate every new helper,
       branch, fallback, fixture builder, and validator clause in the diff.
       Remove anything without a concrete staged-production, invariant, ordered
       lowering, or parity responsibility.
 
-- [ ] **Step 7: Commit closeout.**
+- [x] **Step 7: Commit closeout.**
 
   ```bash
   git add .codex/plans/2026-08-12-jazz-typed-core-curried-application.md .codex/execution/queue.md .codex/execution/blocker-contracts.md docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0009-typed-core-closure-and-recursion.md

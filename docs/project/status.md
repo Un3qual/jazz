@@ -42,6 +42,9 @@ order in immutable environments with stable lifted identities. Concrete scalar
 bindings are evaluated once in source order and reused by exact binder identity
 in later entry expressions. Scalar bindings currently require an entry module
 with an explicitly empty export list because scalar value interfaces are not
-produced. Ordinary compile and run remain on canonical core and the reference
-interpreter. The opt-in profile still excludes currying and partial application,
-oversaturation, and recursion.
+produced. Curried source applications now retain unary staging across named
+functions, callable parameters, and inline lambdas. Partial application returns
+the remaining closure, and callable oversaturation evaluates each next argument
+only after the preceding call returns another callable value. Ordinary compile
+and run remain on canonical core and the reference interpreter. The opt-in
+profile still excludes recursion.
