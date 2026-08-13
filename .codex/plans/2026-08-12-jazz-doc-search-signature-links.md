@@ -109,11 +109,11 @@
 - Consumes: the lazy-loaded generated module at `<baseUrl>/pagefind/pagefind.js` and Pagefind `search(query)`/`result.data()` responses.
 - Produces: normalized result rows `{url, pageTitle, sectionTitle, category, excerpt}` plus an accessible navbar search dialog.
 
-- [ ] **Step 1: Write search-model tests.** Cover `/`, `Ctrl+K`, and `Cmd+K`; editable-target exclusion; category derivation for Getting started, Language, Standard library, Compiler, Project, and Reference routes; base-URL-safe result URLs; page results with and without Pagefind `sub_results`; and empty result normalization. Require excerpts to come only from the local Pagefind response.
+- [x] **Step 1: Write search-model tests.** Cover `/`, `Ctrl+K`, and `Cmd+K`; editable-target exclusion; category derivation for Getting started, Language, Standard library, Compiler, Project, and Reference routes; base-URL-safe result URLs; page results with and without Pagefind `sub_results`; and empty result normalization. Require excerpts to come only from the local Pagefind response.
 
-- [ ] **Step 2: Add failing navbar/UI contracts.** Extend `test-experience.mjs` to require a right-positioned `{type: 'search'}` item immediately before GitHub, a real swizzled `SearchBar`, a modal dialog with an accessible name, and explicit loading, empty, and unavailable copy. Add `test:search` to `website/package.json` and invoke it from `scripts/check-website.sh`.
+- [x] **Step 2: Add failing navbar/UI contracts.** Extend `test-experience.mjs` to require a right-positioned `{type: 'search'}` item immediately before GitHub, a real swizzled `SearchBar`, a modal dialog with an accessible name, and explicit loading, empty, and unavailable copy. Add `test:search` to `website/package.json` and invoke it from `scripts/check-website.sh`.
 
-- [ ] **Step 3: Run the search tests and verify RED.** Run:
+- [x] **Step 3: Run the search tests and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:search
@@ -122,15 +122,15 @@
 
   Expected: the model/UI contracts fail because neither implementation exists.
 
-- [ ] **Step 4: Implement the pure search model.** Add exact shortcut detection, editable-target detection, route categorization, result flattening, and `/jazz/`-safe URL normalization in `pagefind-search-model.mjs`. Keep this module DOM-free so the Node tests exercise the same behavior used by React.
+- [x] **Step 4: Implement the pure search model.** Add exact shortcut detection, editable-target detection, route categorization, result flattening, and `/jazz/`-safe URL normalization in `pagefind-search-model.mjs`. Keep this module DOM-free so the Node tests exercise the same behavior used by React.
 
-- [ ] **Step 5: Implement lazy Pagefind loading and dialog state.** In `SearchBar`, use the configured base URL to dynamically import the generated Pagefind browser module only after the dialog opens. Model `idle`, `loading`, `ready`, and `unavailable` states; cancel stale async query updates; and show a concise unavailable state during `docusaurus start`, where no generated index is expected.
+- [x] **Step 5: Implement lazy Pagefind loading and dialog state.** In `SearchBar`, use the configured base URL to dynamically import the generated Pagefind browser module only after the dialog opens. Model `idle`, `loading`, `ready`, and `unavailable` states; cancel stale async query updates; and show a concise unavailable state during `docusaurus start`, where no generated index is expected.
 
-- [ ] **Step 6: Implement accessible interaction.** Use a modal `<dialog>` with autofocus search input, close control, keyboard hint, and a ranked result list. Keep the active row visible, handle Arrow Up/Down and Enter from the input, close on successful internal navigation, and rely on modal focus containment plus explicit opener-focus restoration. Register `/` and `Ctrl/Cmd+K` once and remove listeners on unmount.
+- [x] **Step 6: Implement accessible interaction.** Use a modal `<dialog>` with autofocus search input, close control, keyboard hint, and a ranked result list. Keep the active row visible, handle Arrow Up/Down and Enter from the input, close on successful internal navigation, and rely on modal focus containment plus explicit opener-focus restoration. Register `/` and `Ctrl/Cmd+K` once and remove listeners on unmount.
 
-- [ ] **Step 7: Style the utility UI.** Make the desktop control compact and text-forward, reduce it to a search icon with an accessible label at narrow widths, make the mobile dialog use the available viewport width, and keep all touch targets at least 44px. Add restrained open/close and active-row state changes with a reduced-motion override; do not add cards, gradients, promotional copy, or persistent search history.
+- [x] **Step 7: Style the utility UI.** Make the desktop control compact and text-forward, reduce it to a search icon with an accessible label at narrow widths, make the mobile dialog use the available viewport width, and keep all touch targets at least 44px. Add restrained open/close and active-row state changes with a reduced-motion override; do not add cards, gradients, promotional copy, or persistent search history.
 
-- [ ] **Step 8: Verify search behavior.** Run:
+- [x] **Step 8: Verify search behavior.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:search
@@ -141,12 +141,19 @@
 
   Then serve the production build and query `maybeMap`; verify a Standard library result links to the `maybeMap` section. Also verify `/`, `Ctrl/Cmd+K`, Escape, Arrow keys, Enter, empty results, and that typing `/` in the search input does not reopen or reset the dialog.
 
-- [ ] **Step 9: Commit the search-interface milestone.** Run:
+- [x] **Step 9: Commit the search-interface milestone.** Run:
 
   ```bash
   git add website/scripts/pagefind-search-model.mjs website/scripts/pagefind-search-model.d.mts website/scripts/test-pagefind-search-model.mjs website/src/theme/SearchBar website/docusaurus.config.ts website/package.json website/scripts/test-experience.mjs scripts/check-website.sh
   git commit -m "feat(website): add local documentation search"
   ```
+
+**Verification receipts (2026-08-12):**
+
+- RED: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:search` failed because `pagefind-search-model.mjs` did not exist; `... run test:experience` failed because the search navbar item and swizzled dialog did not exist.
+- GREEN: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:search` passed all 6 model tests; `... run test:experience` passed all 21 tests; and `... run typecheck` passed.
+- Artifact: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run build` passed after Pagefind indexed 42 documentation pages and emitted 42 fragments.
+- Browser: served the production artifact under `/jazz/`; `/`, `Ctrl+K`, and `Cmd+K` opened the named modal; `maybeMap` returned the Standard library `Maybe` section and Arrow Up/Down plus Enter navigated to `docs/standard-library/maybe.html#maybemap`; an impossible query rendered the empty state; `/` in the input remained text; and Escape closed the dialog and restored focus to its opener.
 
 ### Task 3: Carry signature markers into code-block metadata and map type syntax
 
