@@ -477,7 +477,8 @@ curriedApplicationExpectedPrograms =
     ("curried-partial-application", curriedPartialApplicationProgram),
     ("curried-callable-oversaturation", curriedCallableOversaturationProgram),
     ("curried-partial-higher-order-consumer", curriedPartialHigherOrderProgram),
-    ("inline-curried-lambda-call", inlineCurriedLambdaProgram)
+    ("inline-curried-lambda-call", inlineCurriedLambdaProgram),
+    ("curried-named-function-value", curriedNamedFunctionValueProgram)
   ]
 
 curriedPartialApplicationProgram :: TypedProgram
@@ -599,6 +600,16 @@ inlineCurriedLambdaProgram =
     remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
     lambdaInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
 
+curriedNamedFunctionValueProgram :: TypedProgram
+curriedNamedFunctionValueProgram =
+  expectedFunctionProgramWithLineOffset
+    1
+    []
+    [combineFunction {expectedFunctionShape = TypedClosureCallableShape}]
+    (variableExpr "combine" combineInfo)
+  where
+    combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
+
 curriedApplicationExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
 curriedApplicationExpectedLoweredPrograms =
   [ ( "partial-direct-call",
@@ -620,6 +631,10 @@ curriedApplicationExpectedLoweredPrograms =
     ( "inline-curried-lambda-call",
       inlineCurriedLambdaProgram,
       inlineCurriedLambdaLoweredProgram
+    ),
+    ( "curried-named-function-value",
+      curriedNamedFunctionValueProgram,
+      curriedNamedFunctionValueLoweredProgram
     )
   ]
 
@@ -644,6 +659,23 @@ curriedPartialApplicationLoweredProgram =
         [loweredInt64 1]
     ]
     (loweredTemporary 3 curriedCombineInnerClosureRepresentation)
+
+curriedNamedFunctionValueLoweredProgram :: LoweredProgram
+curriedNamedFunctionValueLoweredProgram =
+  expectedClosureCallableLoweredProgram
+    curriedCombineLayouts
+    curriedCombineFunctions
+    curriedCombineOuterClosureRepresentation
+    [ expectedEmptyEnvironmentInstruction 1 curriedCombineOuterLayoutId,
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        curriedCombineOuterClosureRepresentation
+        ( LoweredConstructClosure
+            (LoweredFunctionId "App::Main::combine")
+            (loweredTemporary 1 (LoweredManagedReferenceRepresentation curriedCombineOuterLayoutId))
+        )
+    ]
+    (loweredTemporary 2 curriedCombineOuterClosureRepresentation)
 
 curriedPartialHigherOrderLoweredProgram :: LoweredProgram
 curriedPartialHigherOrderLoweredProgram =
@@ -3478,6 +3510,16 @@ producerEdgeFixtures =
            sourceFixtureNoExports
              "inline-curried-lambda-call"
              "(\\(left, right) -> left + right) 20 22."
+         ),
+         ( "curried-named-function-value",
+           sourceFixtureNoExports
+             "curried-named-function-value"
+             ( Text.unlines
+                 [ "combine :: Int -> Int -> Int.",
+                   "combine = \\(left, right) -> left + right.",
+                   "combine."
+                 ]
+             )
          ),
          ( "non-callable-oversaturation-diagnostic",
            sourceFixtureNoExports

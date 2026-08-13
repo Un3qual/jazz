@@ -549,7 +549,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) (Just parameterBinder)))
           | Just function <- Map.lookup name functions ->
               let callableShape = shapeFor callableShapes name
-                  valueUseSupported = callableShape == TypedClosureCallableShape && functionArity function == 1
+                  valueUseSupported = callableShape == TypedClosureCallableShape
                in case expressionRole of
                     CalleeExpression -> finalizeNamedFunctionReference name callableShape function
                     _
