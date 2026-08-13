@@ -22,6 +22,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     curriedApplicationExpectedPrograms,
     curriedApplicationExpectedLoweredPrograms,
     directCallExpectedPrograms,
+    directRecursionExpectedPrograms,
+    directRecursionExpectedLoweredPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
     closedCallableExpectedLoweredPrograms,
@@ -151,7 +153,9 @@ acceptedFixtures =
     sourceFixtureNoExports "mixed-direct-and-value-use" mixedDirectAndValueUseSource,
     sourceFixtureNoExports "callable-parameter-value-shadows-enclosing-function" callableParameterValueShadowsEnclosingFunctionSource,
     sourceFixtureNoExports "capturing-function" capturingFunctionSource,
-    sourceFixtureNoExports "partial-direct-call" partialDirectCallSource
+    sourceFixtureNoExports "partial-direct-call" partialDirectCallSource,
+    sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
+    sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -172,8 +176,6 @@ rejectedFixtures =
     sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
-    sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
-    sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
     sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
     sourceFixtureNoExports "closure-value-self-recursion" closureValueSelfRecursionSource,
     sourceFixtureNoExports "polymorphic-or-evidence-function" polymorphicFunctionSource,
@@ -1167,7 +1169,7 @@ expectedRootProgram :: [TypedStatement] -> TypedNodeInfo -> TypedProgram
 expectedRootProgram statements moduleInfo =
   TypedProgram
     Nothing
-    [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) statements moduleInfo]
+    [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) [] statements moduleInfo]
     modulePath
 
 scalarScheme :: TypedBinderId -> TypedNodeInfo -> TypedScheme
@@ -1237,6 +1239,87 @@ directCallExpectedPrograms =
         (directCall "increment" [intInfo] intInfo [intExpr 41])
     )
   ]
+
+directRecursionExpectedPrograms :: [(Text, TypedProgram)]
+directRecursionExpectedPrograms =
+  [ ("self-recursive-function", selfRecursiveExpectedProgram),
+    ("mutually-recursive-functions", mutuallyRecursiveExpectedProgram)
+  ]
+
+directRecursionExpectedLoweredPrograms ::
+  [(Text, TypedProgram, LoweredProgram)]
+directRecursionExpectedLoweredPrograms =
+  [ ( "self-recursive-function",
+      selfRecursiveExpectedProgram,
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "loop"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "loop" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "loop" [loweredInt64 1]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "mutually-recursive-functions",
+      mutuallyRecursiveExpectedProgram,
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "left"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "right" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation),
+          expectedLocalFunction
+            "right"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "left" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "left" [loweredInt64 1]]
+        (loweredTemporary 1 int64Representation)
+    )
+  ]
+
+selfRecursiveExpectedProgram :: TypedProgram
+selfRecursiveExpectedProgram =
+  expectedFunctionProgramWithLineOffsetAndRecursiveGroups
+    1
+    [["loop"]]
+    []
+    [ ExpectedFunction
+        "loop"
+        [("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
+    ]
+    (directCall "loop" [intInfo] intInfo [intExpr 1])
+
+mutuallyRecursiveExpectedProgram :: TypedProgram
+mutuallyRecursiveExpectedProgram =
+  expectedFunctionProgramWithLineOffsetAndRecursiveGroups
+    1
+    [["left", "right"]]
+    []
+    [ ExpectedFunction
+        "left"
+        [("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo]),
+      ExpectedFunction
+        "right"
+        [("item", intInfo)]
+        intInfo
+        TypedDirectCallableShape
+        (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
+    ]
+    (directCall "left" [intInfo] intInfo [intExpr 1])
 
 closedCallableExpectedPrograms :: [(Text, TypedProgram)]
 closedCallableExpectedPrograms =
@@ -1698,6 +1781,7 @@ rfcClosureEnvironmentIdentityProgram = (typedProgram, loweredProgram)
             []
             []
             (TypedModuleInterface [] [] [] [])
+            []
             [ TypedLetStatement
                 functionBinder
                 functionName
@@ -1952,9 +2036,7 @@ lowererBoundaryPrograms =
     ("self-recursive-duplicate-parameter-function", selfRecursiveDuplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
-    ("self-recursive-function", selfRecursiveLowererProgram),
     ("closure-shaped-self-recursive-function", closureShapedSelfRecursiveLowererProgram),
-    ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
     ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
@@ -1966,6 +2048,9 @@ validIndependentLowererPrograms =
   [ (name, programValue)
   | (name, programValue, _) <- scalarBindingExpectedLoweredPrograms
   ]
+    <> [ (name, programValue)
+       | (name, programValue, _) <- directRecursionExpectedLoweredPrograms
+       ]
     <> lowererBoundaryPrograms
     <> lowererStructuralBoundaryPrograms
 
@@ -2029,6 +2114,7 @@ exportedScalarLiftedLambdaNameCollisionProgram =
         []
         [TypedModuleExport TypedValueNamespace "item"]
         (TypedModuleInterface [TypedValueInterface itemName itemScheme] [] [] [])
+        []
         [ TypedLetStatement itemBinder itemName (TypedSpan 1 1) itemScheme (intExpr 1),
           TypedExpressionStatement
             (TypedSpan 2 1)
@@ -2120,6 +2206,7 @@ nonConcreteClosureRepresentationLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (polymorphicScheme signatureBinder),
           TypedLetStatement
             bindingBinder
@@ -2197,7 +2284,7 @@ callableShapeBodyDisagreementLowererProgram =
         []
     rewriteChooserShape programValue =
       case programValue of
-        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+        TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
           TypedProgram
             prelude
             [ TypedModule
@@ -2206,6 +2293,7 @@ callableShapeBodyDisagreementLowererProgram =
                 imports
                 exports
                 interface
+                recursiveGroups
                 (map rewriteStatement statements)
                 moduleInfo
             ]
@@ -2241,10 +2329,10 @@ closureShapeFlattenedRecipeLowererProgram =
     flattenedInfo = functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo
     rewriteRootRecipe programValue =
       case programValue of
-        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+        TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
           TypedProgram
             prelude
-            [TypedModule path source imports exports interface (map rewriteStatement statements) moduleInfo]
+            [TypedModule path source imports exports interface recursiveGroups (map rewriteStatement statements) moduleInfo]
             entryPath
         _ -> error "closure flattened-recipe lowerer fixture changed shape"
     rewriteStatement statement =
@@ -2275,10 +2363,10 @@ directShapeStagedRecipeLowererProgram =
         []
     rewriteRootRecipe programValue =
       case programValue of
-        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+        TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
           TypedProgram
             prelude
-            [TypedModule path source imports exports interface (map rewriteStatement statements) moduleInfo]
+            [TypedModule path source imports exports interface recursiveGroups (map rewriteStatement statements) moduleInfo]
             entryPath
         _ -> error "direct staged-recipe lowerer fixture changed shape"
     rewriteStatement statement =
@@ -2299,10 +2387,10 @@ directShapeStagedRecipeLowererProgram =
 variableBinderReferenceMismatchLowererProgram :: TypedProgram
 variableBinderReferenceMismatchLowererProgram =
   case expectedFunctionProgram [] [boolIdentityFunction] (variableExpr "identity" boolCallableInfo) of
-    TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+    TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
       TypedProgram
         prelude
-        [TypedModule path source imports exports interface (map corruptTerminal statements) moduleInfo]
+        [TypedModule path source imports exports interface recursiveGroups (map corruptTerminal statements) moduleInfo]
         entryPath
     _ -> error "variable binder-reference lowerer fixture changed shape"
   where
@@ -2328,7 +2416,8 @@ duplicateParameterLowererProgram =
 
 selfRecursiveDuplicateParameterLowererProgram :: TypedProgram
 selfRecursiveDuplicateParameterLowererProgram =
-  expectedFunctionProgram
+  expectedFunctionProgramWithRecursiveGroups
+    [["loop"]]
     []
     [ ExpectedFunction
         "loop"
@@ -2373,6 +2462,7 @@ invalidScalarBindingRhsProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedLetStatement
             seedBinder
             seedName
@@ -2399,6 +2489,7 @@ combinedStatementFailureOrderLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedLetStatement
             seedBinder
             seedName
@@ -2434,6 +2525,7 @@ recursionDescendantFailureOrderLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        [TypedRecursiveGroup [loopBinder]]
         ( scalarStatement
             <> map
               (bindExpectedStatementVariables bindings)
@@ -2478,6 +2570,7 @@ capturingLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         ( scalarStatement
             <> map
               (bindExpectedStatementVariables bindings)
@@ -2507,22 +2600,10 @@ capturingLowererProgram =
         TypedDirectCallableShape
         (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo))
 
-selfRecursiveLowererProgram :: TypedProgram
-selfRecursiveLowererProgram =
-  expectedFunctionProgram
-    []
-    [ ExpectedFunction
-        "loop"
-        [("item", intInfo)]
-        intInfo
-        TypedDirectCallableShape
-        (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
-    ]
-    (directCall "loop" [intInfo] intInfo [intExpr 1])
-
 closureShapedSelfRecursiveLowererProgram :: TypedProgram
 closureShapedSelfRecursiveLowererProgram =
-  expectedFunctionProgram
+  expectedFunctionProgramWithRecursiveGroups
+    [["loop"]]
     []
     [ ExpectedFunction
         "loop"
@@ -2533,42 +2614,26 @@ closureShapedSelfRecursiveLowererProgram =
     ]
     (boolExpr True)
 
-mutuallyRecursiveLowererProgram :: TypedProgram
-mutuallyRecursiveLowererProgram =
-  expectedFunctionProgram
-    []
-    [ ExpectedFunction
-        "left"
-        [("item", intInfo)]
-        intInfo
-        TypedDirectCallableShape
-        (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo]),
-      ExpectedFunction
-        "right"
-        [("item", intInfo)]
-        intInfo
-        TypedDirectCallableShape
-        (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
-    ]
-    (directCall "left" [intInfo] intInfo [intExpr 1])
-
 closureValueSelfRecursiveLowererProgram :: TypedProgram
 closureValueSelfRecursiveLowererProgram =
-  expectedFunctionProgram
+  expectedFunctionProgramWithRecursiveGroups
+    [["loop"]]
     []
     [applyFunction, closurePassingLoopFunction]
     (boolExpr True)
 
 closureValueMutualRecursiveLowererProgram :: TypedProgram
 closureValueMutualRecursiveLowererProgram =
-  expectedFunctionProgram
+  expectedFunctionProgramWithRecursiveGroups
+    [["left", "right"]]
     []
     [applyFunction, closurePassingLeftFunction, closurePassingRightFunction]
     (boolExpr True)
 
 directShapedClosureValueSelfRecursiveLowererProgram :: TypedProgram
 directShapedClosureValueSelfRecursiveLowererProgram =
-  expectedFunctionProgram
+  expectedFunctionProgramWithRecursiveGroups
+    [["loop"]]
     []
     [ applyFunction,
       closurePassingLoopFunction {expectedFunctionShape = TypedDirectCallableShape}
@@ -2577,7 +2642,8 @@ directShapedClosureValueSelfRecursiveLowererProgram =
 
 nestedLambdaClosureValueSelfRecursiveLowererProgram :: TypedProgram
 nestedLambdaClosureValueSelfRecursiveLowererProgram =
-  expectedFunctionProgram
+  expectedFunctionProgramWithRecursiveGroups
+    [["loop"]]
     []
     [applyFunction, nestedLambdaClosurePassingLoopFunction]
     (boolExpr True)
@@ -2600,6 +2666,11 @@ shapeRejectedCycleLowererProgram functions =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        [ TypedRecursiveGroup
+            [ binders Map.! resolvedName name
+            | (name, _) <- functions
+            ]
+        ]
         (concatMap functionStatements indexedFunctions <> [TypedExpressionStatement (TypedSpan (length functions * 2 + 1) 1) (boolExpr True)])
         boolInfo
     ]
@@ -2659,6 +2730,7 @@ shapeRejectedBinderShadowControlLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (functionScheme 0 function),
           TypedLetStatement
             bindingBinder
@@ -2735,6 +2807,7 @@ importedDirectCallLowererProgram =
         []
         [TypedModuleExport TypedValueNamespace "foreign"]
         (TypedModuleInterface [TypedValueInterface providerName providerScheme] [] [] [])
+        []
         [ TypedLetStatement
             providerOwner
             providerName
@@ -2760,6 +2833,7 @@ importedDirectCallLowererProgram =
         [TypedResolvedImport (TypedSpan 1 1) providerPath Nothing (Just ["foreign"])]
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [TypedExpressionStatement (TypedSpan 1 1) callExpression]
         intInfo
 
@@ -2884,6 +2958,18 @@ producerEdgeFixtures =
                    "right :: Bool -> Bool.",
                    "right = \\(item) -> left item.",
                    "True."
+                 ]
+             )
+         ),
+         ( "nested-lambda-direct-recursion",
+           sourceFixtureNoExports
+             "nested-lambda-direct-recursion"
+             ( Text.unlines
+                 [ "apply :: (Bool -> Bool) -> Bool.",
+                   "apply = \\(function) -> function True.",
+                   "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> apply (\\(nested) -> loop nested).",
+                   "loop False."
                  ]
              )
          ),
@@ -4270,6 +4356,7 @@ entryModule =
     []
     []
     (TypedModuleInterface [] [] [] [])
+    []
     [TypedExpressionStatement (TypedSpan 1 1) (TypedTupleExpr unitInfo [])]
     unitInfo
 
@@ -4311,7 +4398,7 @@ binaryExpr resultInfo operator left right = TypedBinaryExpr resultInfo (TypedBui
 
 expectedScalarProgram :: TypedNodeInfo -> TypedExpr -> TypedProgram
 expectedScalarProgram moduleInfo expression =
-  TypedProgram Nothing [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) [TypedExpressionStatement (TypedSpan 1 1) expression] moduleInfo] modulePath
+  TypedProgram Nothing [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) [] [TypedExpressionStatement (TypedSpan 1 1) expression] moduleInfo] modulePath
 
 expectedScalarStatements :: [TypedExpr] -> TypedProgram
 expectedScalarStatements expressions =
@@ -4323,6 +4410,7 @@ expectedScalarStatements expressions =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         (zipWith (\line expression -> TypedExpressionStatement (TypedSpan line 1) expression) [1 ..] expressions)
         (typedExpressionInfo (last expressions))
     ]
@@ -4534,23 +4622,41 @@ explicitNumericFunctions =
             TypedDirectCallableShape
             (TypedLiteralExpr resultInfo literal)
 
+typedRecursiveGroupSchemaSentinel :: TypedRecursiveGroup
+typedRecursiveGroupSchemaSentinel =
+  TypedRecursiveGroup
+    [TypedBinderId (modulePath, [1], resolvedName "loop")]
+
 expectedFunctionProgram :: [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
-expectedFunctionProgram = expectedFunctionProgramWithLineOffset 0
+expectedFunctionProgram = expectedFunctionProgramWithRecursiveGroups []
+
+expectedFunctionProgramWithRecursiveGroups ::
+  [[Text]] ->
+  [Text] ->
+  [ExpectedFunction] ->
+  TypedExpr ->
+  TypedProgram
+expectedFunctionProgramWithRecursiveGroups = expectedFunctionProgramWithLineOffsetAndRecursiveGroups 0
 
 expectedFunctionProgramWithLineOffset :: Int -> [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
-expectedFunctionProgramWithLineOffset lineOffset exportedNames functions terminalExpression =
-  TypedProgram
-    Nothing
-    [ TypedModule
-        modulePath
-        validSourcePath
-        []
-        [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
-        typedInterface
-        statements
-        (typedExpressionInfo boundTerminalExpression)
-    ]
-    modulePath
+expectedFunctionProgramWithLineOffset lineOffset = expectedFunctionProgramWithLineOffsetAndRecursiveGroups lineOffset []
+
+expectedFunctionProgramWithLineOffsetAndRecursiveGroups :: Int -> [[Text]] -> [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
+expectedFunctionProgramWithLineOffsetAndRecursiveGroups lineOffset recursiveGroupNames exportedNames functions terminalExpression =
+  typedRecursiveGroupSchemaSentinel `seq`
+    TypedProgram
+      Nothing
+      [ TypedModule
+          modulePath
+          validSourcePath
+          []
+          [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
+          typedInterface
+          recursiveGroups
+          statements
+          (typedExpressionInfo boundTerminalExpression)
+      ]
+      modulePath
   where
     functionOwners =
       Map.fromList
@@ -4570,6 +4676,13 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         ]
     terminalIndex = length functionStatements
     boundTerminalExpression = bindExpectedExpressionVariables functionOwners terminalExpression
+    recursiveGroups =
+      [ TypedRecursiveGroup
+          [ functionOwners Map.! resolvedName name
+          | name <- names
+          ]
+      | names <- recursiveGroupNames
+      ]
     statements =
       functionStatements
         <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) boundTerminalExpression]

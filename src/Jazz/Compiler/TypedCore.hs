@@ -326,6 +326,9 @@ data TypedModuleInterface
       [TypedImplInterface]
   deriving (Eq, Ord, Show)
 
+newtype TypedRecursiveGroup = TypedRecursiveGroup [TypedBinderId]
+  deriving (Eq, Ord, Show)
+
 data TypedModule
   = TypedModule
       [Text]
@@ -333,6 +336,7 @@ data TypedModule
       [TypedResolvedImport]
       [TypedModuleExport]
       TypedModuleInterface
+      [TypedRecursiveGroup]
       [TypedStatement]
       TypedNodeInfo
   deriving (Eq, Ord, Show)
@@ -394,6 +398,7 @@ data TypedCoreValidationKind
   | TypedDataRecipeMismatch
   | TypedCallableRecipeMismatch
   | TypedCallableShapeMismatch
+  | TypedRecursiveGroupMismatch
   | TypedBinderReferenceMismatch
   | TypedModuleInterfaceMismatch
   deriving (Bounded, Enum, Eq, Ord, Show)

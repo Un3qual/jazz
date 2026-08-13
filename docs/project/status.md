@@ -6,7 +6,7 @@ sidebar_position: 1
 
 Updated: 2026-08-12
 
-Implementation snapshot: `33f3d7c1a7a98d46dd95efcc86cd90ebe9d54dea`
+Implementation snapshot: `becf38a2d474d97bcb23c7e2f69153d1ec03de0a`
 
 Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
 implementation snapshot above; documentation-only commits do not alter that
@@ -45,6 +45,8 @@ with an explicitly empty export list because scalar value interfaces are not
 produced. Curried source applications now retain unary staging across named
 functions, callable parameters, and inline lambdas. Partial application returns
 the remaining closure, and callable oversaturation evaluates each next argument
-only after the preceding call returns another callable value. Ordinary compile
-and run remain on canonical core and the reference interpreter. The opt-in
-profile still excludes recursion.
+only after the preceding call returns another callable value. Ordered
+recursive-group metadata now admits capture-free, non-escaping direct self and
+mutual recursion and lowers recursive references through existing direct calls.
+Ordinary compile and run remain on canonical core and the reference interpreter.
+Closure-shaped recursive groups remain outside the opt-in profile.

@@ -170,14 +170,15 @@ forceTypedProgram (Typed.TypedProgram prelude modules entryPath) =
       forceListWhnf entryPath
 
 forceTypedModule :: Typed.TypedModule -> ()
-forceTypedModule (Typed.TypedModule path sourcePath imports exports interface statements resultInfo) =
+forceTypedModule (Typed.TypedModule path sourcePath imports exports interface recursiveGroups statements resultInfo) =
   forceListWhnf path `seq`
     forceTypedSourcePath sourcePath `seq`
       forceListWith forceTypedImport imports `seq`
         forceListWith forceTypedExport exports `seq`
           forceTypedModuleInterface interface `seq`
-            forceListWith forceTypedStatement statements `seq`
-              forceTypedNodeInfo resultInfo
+            forceListWith forceTypedRecursiveGroup recursiveGroups `seq`
+              forceListWith forceTypedStatement statements `seq`
+                forceTypedNodeInfo resultInfo
 
 forceTypedSourcePath :: Typed.TypedSourcePath -> ()
 forceTypedSourcePath (Typed.TypedSourcePath path) = path `seq` ()
@@ -198,6 +199,10 @@ forceTypedModuleInterface (Typed.TypedModuleInterface values dataValues classes 
     forceListWith forceTypedDataInterface dataValues `seq`
       forceListWith forceTypedClassInterface classes `seq`
         forceListWith forceTypedImplInterface impls
+
+forceTypedRecursiveGroup :: Typed.TypedRecursiveGroup -> ()
+forceTypedRecursiveGroup (Typed.TypedRecursiveGroup members) =
+  forceListWith forceTypedBinderId members
 
 forceTypedValueInterface :: Typed.TypedValueInterface -> ()
 forceTypedValueInterface (Typed.TypedValueInterface name scheme) =
