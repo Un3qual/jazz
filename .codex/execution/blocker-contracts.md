@@ -182,13 +182,13 @@ Each blocked item should answer these questions:
   Capture-free, non-escaping self and mutual recursion use the existing direct
   callable representation. Normal compile/run remains canonical-core/interpreter
   based.
-- Smallest unblocker: curate
-  `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001` from accepted RFC 0009.
+- Smallest unblocker: execute
+  `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001` from accepted RFC 0009 using
+  `.codex/plans/2026-08-13-jazz-typed-core-closure-recursion.md`.
 - Decision needed: none for the semantic boundary. RFC 0009 fixes closure
   recursion as the sixth ordered child after direct recursion.
-- Recommended default: validate the live G5 ownership matrix and create one
-  matching closure-recursion implementation plan before promotion. Keep normal
-  compile/run on canonical core and the reference interpreter.
+- Recommended default: execute the promoted plan through G5 and queue closeout.
+  Keep normal compile/run on canonical core and the reference interpreter.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001`.
 - Target paths: `src/Jazz/Compiler/RecursiveBindings.hs`;
   `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`;
