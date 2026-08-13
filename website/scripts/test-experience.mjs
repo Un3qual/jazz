@@ -362,7 +362,9 @@ test('documentation navigation is compact on desktop and touchable on mobile', (
 
   assert.match(source, /--ifm-navbar-height:\s*3\.5rem/);
   assert.match(declarationsFor('.navbar__inner'), /align-items:\s*center/);
+  assert.match(declarationsFor('.navbar__item'), /height:\s*2\.1rem/);
   assert.match(declarationsFor('.navbar__link'), /align-items:\s*center/);
+  assert.match(declarationsFor('.navbar__link'), /height:\s*2\.1rem/);
   assert.match(mobile ?? '', /min-height:\s*44px/);
   assert.match(mobile ?? '', /min-width:\s*44px/);
 });
