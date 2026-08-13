@@ -3,22 +3,92 @@ title: IO
 description: Perform strict UTF-8 file, stream, argument, and process operations.
 ---
 
-Import `IO` for effectful host operations. The module exports:
+Import `IO` for effectful host operations. Recoverable operations return
+[Result](result.md); costs depend on the installed host and payload size.
 
-- `readText! :: Text -> Result(IOError, Text)`;
-- `writeText! :: Text -> Text -> Result(IOError, ())`;
-- `readStdin! :: () -> Result(IOError, Text)`;
-- `writeStdout! :: Text -> Result(IOError, ())`;
-- `writeStderr! :: Text -> Result(IOError, ())`;
-- `arguments! :: () -> [Text]`; and
-- `exit! :: Int -> ()`.
+## Files
 
-Files and streams use strict UTF-8. Recoverable operations return [Result](result.md);
-file errors attach a path and stream errors do not. Arguments preserve process
-order. `exit!` accepts statuses from `0` through `255`; an out-of-range status
-fails with fatal diagnostic `E3030` before the host is called. Valid statuses
-delegate to the installed runtime host. Cost depends on the host and payload
-and has no collection-style complexity promise.
+### `readText!`
 
-The `!` suffix participates in Jazz's current [purity contract](../language/purity.md).
-Error categories and values are documented by [IOError](io-error.md).
+<!-- jazz-signature -->
+
+```jazz
+readText! :: Text -> Result(IOError, Text).
+```
+
+Reads the file at the supplied path as strict UTF-8. Success returns `Ok text`.
+Failure returns `Err` with an [IOError](io-error.md) that includes the path when
+available.
+
+### `writeText!`
+
+<!-- jazz-signature -->
+
+```jazz
+writeText! :: Text -> Text -> Result(IOError, ()).
+```
+
+Writes the second argument to the path supplied first using strict UTF-8.
+Success returns `Ok ()`; failure returns an error with the path when available.
+
+## Standard streams
+
+### `readStdin!`
+
+<!-- jazz-signature -->
+
+```jazz
+readStdin! :: () -> Result(IOError, Text).
+```
+
+Reads standard input as strict UTF-8. Stream errors do not attach a path. Pass
+`()` to perform the read.
+
+### `writeStdout!`
+
+<!-- jazz-signature -->
+
+```jazz
+writeStdout! :: Text -> Result(IOError, ()).
+```
+
+Writes text to standard output. Success returns `Ok ()`; stream errors do not
+attach a path.
+
+### `writeStderr!`
+
+<!-- jazz-signature -->
+
+```jazz
+writeStderr! :: Text -> Result(IOError, ()).
+```
+
+Writes text to standard error. Success returns `Ok ()`; stream errors do not
+attach a path.
+
+## Process
+
+### `arguments!`
+
+<!-- jazz-signature -->
+
+```jazz
+arguments! :: () -> List(Text).
+```
+
+Returns process arguments in host-provided order. Pass `()` to retrieve them.
+
+### `exit!`
+
+<!-- jazz-signature -->
+
+```jazz
+exit! :: Int -> ().
+```
+
+Terminates through the installed runtime host with a status from `0` through
+`255`. An out-of-range status fails with fatal diagnostic `E3030` before the
+host is called.
+
+The `!` suffix participates in Jazz's current
+[purity contract](../language/purity.md).
