@@ -127,8 +127,9 @@ Returns values from the first set that are absent from the second. This is
 setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
 ```
 
-Returns whether every value in the first set occurs in the second. The search
-short-circuits and is `O(n log m)` worst case.
+Returns whether every value in the first set occurs in the second. After a
+missing value is found, later membership lookups are skipped, but traversal of
+the first set continues. This is `O(n log m)` worst case.
 
 ## Transforming and traversal
 

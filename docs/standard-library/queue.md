@@ -39,8 +39,7 @@ Constructs a queue containing one value in `O(1)`.
 queueFromList :: [a] -> Queue(a).
 ```
 
-Constructs a queue whose FIFO order matches the input order. This is `O(1)` at
-the API boundary.
+Constructs a queue whose FIFO order matches the input order in `O(n)` time.
 
 ### `queueToList`
 
@@ -114,8 +113,8 @@ single call may spend `O(n)` normalizing the rear. `queueDequeue` is amortized
 queueMap :: Queue(a) -> (a -> b) -> Queue(b).
 ```
 
-Transforms values from oldest to newest and preserves FIFO order. This is
-`O(n)` plus callback work.
+Transforms every value and preserves FIFO order in the returned queue. Callback
+evaluation order is not guaranteed. This is `O(n)` plus callback work.
 
 ### `queueFoldLeft`
 

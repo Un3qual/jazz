@@ -26,6 +26,13 @@ export interface SearchResultState<T> {
   revision: number;
 }
 
+export interface EmptySearchState {
+  status: 'idle' | 'loading' | 'ready' | 'unavailable';
+  query: string;
+  resultCount: number;
+  pending: boolean;
+}
+
 export interface PagefindResultData {
   url?: string;
   excerpt?: string;
@@ -44,6 +51,7 @@ export function replaceSearchResults<T>(
   state: SearchResultState<T>,
   rows: T[],
 ): SearchResultState<T>;
+export function shouldShowNoMatches(state: EmptySearchState): boolean;
 export function shouldOpenSearch(event: SearchShortcutEvent): boolean;
 export function withBaseUrl(url: string, baseUrl?: string): string;
 export function categoryForUrl(url: string): string;

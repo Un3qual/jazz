@@ -24,6 +24,13 @@ export function replaceSearchResults(state, rows) {
   };
 }
 
+export function shouldShowNoMatches({status, query, resultCount, pending}) {
+  return status === 'ready'
+    && query.trim().length > 0
+    && resultCount === 0
+    && !pending;
+}
+
 export function isEditableTarget(target) {
   if (!target) {
     return false;

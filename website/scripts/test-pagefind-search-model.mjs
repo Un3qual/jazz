@@ -48,6 +48,32 @@ test('replacing results advances the visible result-set revision', () => {
   });
 });
 
+test('empty-result feedback waits for the current Pagefind request', async () => {
+  // Mutation caught: treating an in-flight empty row set as a completed empty
+  // search flashes "No documentation matches" before Pagefind responds.
+  const searchModel = await import('./pagefind-search-model.mjs');
+
+  assert.equal(typeof searchModel.shouldShowNoMatches, 'function');
+  assert.equal(searchModel.shouldShowNoMatches({
+    status: 'ready',
+    query: 'maybe',
+    resultCount: 0,
+    pending: true,
+  }), false);
+  assert.equal(searchModel.shouldShowNoMatches({
+    status: 'ready',
+    query: 'maybe',
+    resultCount: 0,
+    pending: false,
+  }), true);
+  assert.equal(searchModel.shouldShowNoMatches({
+    status: 'ready',
+    query: 'maybe',
+    resultCount: 1,
+    pending: false,
+  }), false);
+});
+
 test('search categories follow public documentation routes', () => {
   // Mutation caught: changing the route prefix sends a result to the wrong
   // reference context, making a dense result list harder to scan.

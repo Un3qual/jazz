@@ -6,6 +6,7 @@ import {
   createSearchRequestTracker,
   normalizePagefindResults,
   replaceSearchResults,
+  shouldShowNoMatches,
   shouldOpenSearch,
   type PagefindSearchResponse,
   type SearchResultRow,
@@ -37,6 +38,7 @@ export default function SearchBar() {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<SearchStatus>('idle');
   const [query, setQuery] = useState('');
+  const [searchPending, setSearchPending] = useState(false);
   const [resultState, setResultState] = useState({
     rows: [] as SearchResultRow[],
     activeIndex: 0,
@@ -49,6 +51,7 @@ export default function SearchBar() {
     dialogRef.current?.close();
     setOpen(false);
     setQuery('');
+    setSearchPending(false);
     setResultState((state) => replaceSearchResults(state, []));
     openerRef.current?.focus();
   }, []);
@@ -114,20 +117,24 @@ export default function SearchBar() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       searchRequestsRef.current.invalidate();
+      setSearchPending(false);
       setResultState((state) => replaceSearchResults(state, []));
       return;
     }
 
     const currentRequest = searchRequestsRef.current.begin();
+    setSearchPending(true);
     pagefindRef.current.search(trimmedQuery)
       .then((response) => normalizePagefindResults(response, baseUrl))
       .then((rows) => {
         if (searchRequestsRef.current.isCurrent(currentRequest)) {
+          setSearchPending(false);
           setResultState((state) => replaceSearchResults(state, rows));
         }
       })
       .catch(() => {
         if (searchRequestsRef.current.isCurrent(currentRequest)) {
+          setSearchPending(false);
           setStatus('unavailable');
           setResultState((state) => replaceSearchResults(state, []));
         }
@@ -208,9 +215,11 @@ export default function SearchBar() {
             placeholder="Search the reference"
             autoComplete="off"
             onChange={(event) => {
+              const nextQuery = event.target.value;
               searchRequestsRef.current.invalidate();
               setResultState((state) => replaceSearchResults(state, []));
-              setQuery(event.target.value);
+              setSearchPending(nextQuery.trim().length > 0);
+              setQuery(nextQuery);
             }}
             onKeyDown={onInputKeyDown}
           />
@@ -219,7 +228,12 @@ export default function SearchBar() {
         <p className={styles.keyboardHint}>↑↓ to select · Enter to open · Esc to close</p>
         {status === 'loading' && <p className={styles.state}>Loading search index…</p>}
         {status === 'unavailable' && <p className={styles.state}>Search is unavailable in this preview.</p>}
-        {status === 'ready' && query.trim() && results.length === 0 && <p className={styles.state}>No documentation matches.</p>}
+        {shouldShowNoMatches({
+          status,
+          query,
+          resultCount: results.length,
+          pending: searchPending,
+        }) && <p className={styles.state}>No documentation matches.</p>}
         {status === 'ready' && results.length > 0 && (
           <ol
             id="documentation-search-results"
