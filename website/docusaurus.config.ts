@@ -2,6 +2,8 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+import remarkJazzSignatures from './scripts/remark-jazz-signatures.mjs';
+
 const config: Config = {
   title: 'Jazz',
   titleDelimiter: '·',
@@ -31,6 +33,7 @@ const config: Config = {
           path: '../docs',
           routeBasePath: 'docs',
           sidebarPath: './sidebars.ts',
+          remarkPlugins: [remarkJazzSignatures],
         },
         blog: false,
         theme: {

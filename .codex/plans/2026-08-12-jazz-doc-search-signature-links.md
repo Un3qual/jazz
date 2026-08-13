@@ -175,9 +175,9 @@
 - Consumes: a Markdown AST where an HTML `<!-- jazz-signature -->` node is immediately followed, allowing only whitespace, by a Jazz code node.
 - Produces: a `jazz-signature` metastring flag, extended code-block metadata, and deterministic link spans `{start, end, destination}` over raw signature source.
 
-- [ ] **Step 1: Write marker-transform tests.** Cover an adjacent Jazz fence, the permitted blank line represented by the AST, a non-Jazz fence, an ordinary Jazz example, a non-adjacent marker, and preservation of existing fence metadata. Only the adjacent Jazz fence may receive `jazz-signature`.
+- [x] **Step 1: Write marker-transform tests.** Cover an adjacent Jazz fence, the permitted blank line represented by the AST, a non-Jazz fence, an ordinary Jazz example, a non-adjacent marker, and preservation of existing fence metadata. Only the adjacent Jazz fence may receive `jazz-signature`.
 
-- [ ] **Step 2: Write type-map tests.** Require these destinations:
+- [x] **Step 2: Write type-map tests.** Require these destinations:
 
   - module pages for `Maybe`, `Result`, `NonEmpty`, `Dictionary`, `Queue`, `Map`, `Set`, `Char`, `Text`, and `List`;
   - List for `[` and `]` type-syntax delimiters;
@@ -187,7 +187,7 @@
 
   Also cover repeated occurrences, nested types such as `Result(IOError, Maybe(Text))`, generic variables, lowercase values, unknown capitalized identifiers, list nesting, function-argument parentheses, tuple parentheses, and unit `()`.
 
-- [ ] **Step 3: Run the marker and mapping tests and verify RED.** Run:
+- [x] **Step 3: Run the marker and mapping tests and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:signatures
@@ -195,13 +195,13 @@
 
   Expected: failure because the transform and mapping modules do not exist.
 
-- [ ] **Step 4: Implement the remark transform.** Export a pure tree transform plus the remark plugin wrapper. Append `jazz-signature` to the following Jazz code node's `meta` without removing other metadata or altering the visible HTML marker. Register it in the classic docs preset before the default remark plugins.
+- [x] **Step 4: Implement the remark transform.** Export a pure tree transform plus the remark plugin wrapper. Append `jazz-signature` to the following Jazz code node's `meta` without removing other metadata or altering the visible HTML marker. Register it in the classic docs preset before the default remark plugins.
 
-- [ ] **Step 5: Preserve the signature flag in Docusaurus context.** Swizzle `CodeBlock/Content/String`, reuse Docusaurus's standard metadata creation and word-wrap behavior, and add a typed `jazzSignature` boolean derived from the exact metastring token. Do not infer signatures from `::`, capitalization, the current route, or code contents.
+- [x] **Step 5: Preserve the signature flag in Docusaurus context.** Swizzle `CodeBlock/Content/String`, reuse Docusaurus's standard metadata creation and word-wrap behavior, and add a typed `jazzSignature` boolean derived from the exact metastring token. Do not infer signatures from `::`, capitalization, the current route, or code contents.
 
-- [ ] **Step 6: Implement lexical link spans.** Keep one explicit immutable destination map. Match known identifiers exactly; detect balanced list syntax; classify parentheses as unit or tuple only when structurally warranted; and link only the delimiters for composite list/tuple syntax so nested concrete identifiers can retain their own links. Resolve overlaps deterministically and leave unknowns untouched.
+- [x] **Step 6: Implement lexical link spans.** Keep one explicit immutable destination map. Match known identifiers exactly; detect balanced list syntax; classify parentheses as unit or tuple only when structurally warranted; and link only the delimiters for composite list/tuple syntax so nested concrete identifiers can retain their own links. Resolve overlaps deterministically and leave unknowns untouched.
 
-- [ ] **Step 7: Verify marker and mapping behavior.** Run:
+- [x] **Step 7: Verify marker and mapping behavior.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:signatures
@@ -210,12 +210,19 @@
 
   Expected: every transform/mapping regression and TypeScript check passes.
 
-- [ ] **Step 8: Commit the semantic-foundation milestone.** Run:
+- [x] **Step 8: Commit the semantic-foundation milestone.** Run:
 
   ```bash
   git add website/scripts/remark-jazz-signatures.mjs website/scripts/remark-jazz-signatures.d.mts website/scripts/test-remark-jazz-signatures.mjs website/scripts/jazz-type-links.mjs website/scripts/jazz-type-links.d.mts website/scripts/test-jazz-type-links.mjs website/src/theme/CodeBlock/Content/String/index.tsx website/docusaurus.config.ts website/package.json scripts/check-website.sh
   git commit -m "feat(website): identify signature type destinations"
   ```
+
+**Verification receipts (2026-08-12):**
+
+- RED: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:signatures` failed before implementation because both new semantic modules were absent.
+- GREEN: the same focused command passed all 9 AST-transform and literal-span fixtures after implementation.
+- Integration: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run typecheck` and `... run build` passed; the build preserved the existing Pagefind artifact checks and indexed 42 documentation pages.
+- Scope: Task 3 only carries an explicit marker into code-block metadata and returns deterministic raw-source spans. Rendering links and adding Runtime values anchors remain Task 4 work.
 
 ### Task 4: Render linked signature tokens and add canonical built-in anchors
 
