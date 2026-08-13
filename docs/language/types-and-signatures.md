@@ -4,22 +4,21 @@ description: Write primitive, function, tuple, list, generic, and constrained Ja
 sidebar_position: 4
 ---
 
-Jazz infers expression types and accepts explicit signatures with `::`.
-Function arrows associate to the right; parentheses group types; `[a]` is list
-syntax; and `(a, b)` is a tuple.
+Jazz infers the type of each expression. An explicit signature documents and
+constrains that result; the program is rejected when the implementation cannot
+satisfy it. Type variables allow one definition to work uniformly across
+several concrete types, while capability constraints require specific
+operations from those types.
 
-Implemented primitive type names are `Bool`, `Char`, `Text`, `Int`, `Float`,
-`Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`,
-`Float16`, `Float32`, and `Float64`. `Int` and `Float` are the default-width
-aliases. Numeric operations normally require one concrete width. The only
-implicit mixed-domain rule is the direct built-in integral-to-`Float` or
-`Float64` exception described in [runtime values](../reference/runtime-values.md);
-it does not widen to `Float16` or `Float32`, combine concrete float widths, or
-apply to user-defined operators. Use the target-named conversion functions for
-every other width change.
+Numeric operations normally require one concrete width; `Int` and `Float` are
+the default-width aliases. The only implicit mixed-domain rule is the direct
+built-in integral-to-`Float` or `Float64` exception. It does not widen to
+`Float16` or `Float32`, combine concrete float widths, or apply to user-defined
+operators. Use the target-named conversion functions for every other width
+change. [Runtime values](../reference/runtime-values.md) lists the built-in
+types and their exact promotion behavior.
 
-Named generic types use adjacent lowercase parameters in declarations and
-parenthesized arguments in signatures:
+Named types can carry type parameters:
 
 Fragment:
 
@@ -30,7 +29,8 @@ data Box a = Box a.
 extract :: Box(Int) -> Int.
 ```
 
-Constraints precede a signature type:
+This signature requires equality for its element type, while `identity` is
+unconstrained:
 
 Fragment:
 
@@ -44,6 +44,7 @@ identity = \(item) -> item.
 identity @Int 1.
 ```
 
-Explicit type application is written immediately after a callable expression,
-as in `identity @Int 1` above. The capability solver and explicit method
-dispatch are intentionally bounded; see [capabilities](capabilities.md).
+Explicit type application can select a type when inference does not have enough
+context, as `identity @Int 1` does above. See [capabilities](capabilities.md)
+for the current constraint and dispatch model, and the
+[expression grammar](../reference/expression-grammar.md) for exact type syntax.

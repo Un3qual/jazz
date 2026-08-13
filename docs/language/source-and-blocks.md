@@ -4,17 +4,9 @@ description: Learn Jazz source units, statement terminators, comments, and block
 sidebar_position: 2
 ---
 
-A Jazz source unit contains either ordinary top-level forms or one
-brace-bodied module declaration. Ordinary signatures, bindings, imports, data
-declarations, `class` and `impl` declarations, operator declarations,
-operator signatures and bindings, and expression statements end with `.`.
-Whitespace is not significant beyond separating tokens, and `#` starts a line
-comment.
-
-A module declaration has the form `module A::B { ... }`. It ends at `}` with
-no trailing `.`, must be the first top-level form, and owns the remainder of
-the source unit. Module declarations are forbidden inside module bodies and
-nested expression blocks.
+Jazz processes declarations and evaluates expressions in source order. Earlier
+bindings are available to later expressions; ordinary forward references are
+not. The final top-level expression is the result of a standalone program.
 
 Fragment:
 
@@ -26,8 +18,9 @@ answer = 40 + 2.
 answer.
 ```
 
-Braces form expression blocks. Bindings become visible to later statements in
-the same lexical block, and the last expression is the block value.
+Blocks introduce a lexical scope. Their statements run in order, bindings are
+visible to later statements in the block, and the last expression becomes the
+block's value.
 
 Fragment:
 
@@ -41,14 +34,14 @@ Fragment:
 }
 ```
 
-Bindings use `name = expression.`; there is no required `let` keyword. A later
-same-scope binding with the same name replaces the earlier one. Optional
-warnings can report rebinding, outer-scope shadowing, and unused ordinary block
-bindings.
+A later binding with the same name replaces it only for subsequent statements
+in that scope. Existing values and closures keep the environment they captured.
+Warnings can report same-scope rebinding, shadowing of an outer name, and an
+unused block binding.
 
-Direct module-body forms are imports, data declarations, `class` and `impl`
-declarations, operator declarations, operator signatures and bindings,
-ordinary signatures and bindings, and expression statements. Nested expression
-blocks accept ordinary signatures, bindings, and expressions, but reject
-modules, imports, data, capability, and operator declarations. See the exact
-[lexical grammar](../reference/lexical-grammar.md).
+A module owns an entire source unit and cannot be nested. Imports, data types,
+capabilities, and operators belong at source or module scope; expression blocks
+contain ordinary bindings, signatures, and expressions. See the
+[expression grammar](../reference/expression-grammar.md) for the exact forms
+and [lexical grammar](../reference/lexical-grammar.md) for comments and
+terminators.

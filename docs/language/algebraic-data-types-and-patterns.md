@@ -4,8 +4,9 @@ description: Declare generic data types and destructure values with typed, order
 sidebar_position: 5
 ---
 
-`data` declares one or more constructors. Constructors begin with uppercase
-letters and may carry zero or more payloads.
+An algebraic data type describes a fixed set of alternatives. Each constructor
+identifies one alternative and may carry values specific to that case. This
+makes the possible shapes of a value explicit in its type.
 
 This checked program defines a generic result type and matches both branches:
 
@@ -29,18 +30,19 @@ Expected output:
 41
 ```
 
-Patterns cover literals, variables, `_`, constructors, tuples, fixed lists,
-cons-like `[head | tail]`, alternatives, and `name @ pattern` as-patterns.
-Constructor patterns are structural and bind their payload patterns.
+Patterns test a value's shape and bind the parts needed by a branch. They can
+match literals, constructors, tuples, lists, alternatives, or a value together
+with one of those shapes. `_` ignores a part that the branch does not need.
 
-Alternatives are supported only at the top level of a case arm or lambda
-parameter. Grouped or nested alternatives are not supported, and
-lambda-parameter guards are not supported. A case arm may place one guard after
-its complete top-level alternative pattern.
+Pattern alternatives are available at the top level of a case arm or pattern
+lambda parameter. Every alternative must bind the same names with the same
+types. Nested alternatives and guards on pattern-lambda parameters are not
+currently supported; case arms support one guard after the complete pattern.
 
-The compiler checks patterns against the scrutinee type. It validates
-constructor ownership and arity, list and tuple shape, duplicate binders,
-or-pattern binder agreement, guard types, and arm-result agreement.
+The compiler checks each pattern against the value being matched. Constructors
+must belong to its type and carry the expected number of fields. Tuple and list
+shapes, duplicate binders, alternative binders, guard types, and branch result
+types are checked before evaluation.
 
 Case arms are tried in source order. Static exhaustiveness and unreachable-arm
 analysis are not implemented yet. If no pattern and guard select an arm at

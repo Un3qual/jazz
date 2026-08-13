@@ -4,10 +4,9 @@ description: Define values, write lambdas, use partial application, and express 
 sidebar_position: 3
 ---
 
-A binding associates a name with an expression. Signatures are separate,
-period-terminated statements and must agree with the inferred type. A
-signature must immediately precede the binding with the same name; an
-intervening expression or declaration breaks the attachment.
+A binding gives an expression a name within its lexical scope. A signature
+immediately before that binding constrains its inferred type; a disagreement is
+a compile-time error.
 
 Fragment:
 
@@ -20,10 +19,10 @@ increment = add 1.
 increment 41.
 ```
 
-The compact parameter list lowers to nested unary lambdas, so functions remain
-curried and may be partially applied. `\(item) -> body` is an ordinary lambda.
-`\|(pattern) -> body |(pattern) -> body` is an ordered multi-body pattern
-lambda. Named equation syntax is not accepted.
+Functions are curried. Supplying fewer arguments than a function accepts
+returns another function, which is why `add 1` can define `increment` above.
+A lambda with several parameters has the same application behavior as nested
+single-parameter functions. Pattern lambdas try their bodies in source order.
 
 Declaration order is observable. A non-recursive reference to a later binding
 is invalid. Ordinary binding values and closures resolve earlier names against
@@ -32,11 +31,10 @@ subsequent definitions and expressions; it does not retroactively change a
 captured value.
 
 Self-recursive and mutually recursive function groups are the forward-reference
-exception. Their members are inferred together with shared monomorphic
-placeholders, then generalized as a group; this does not provide polymorphic
-recursion. A later rebinding cannot retroactively turn an earlier invalid
-forward reference into a recursive group, and recursive type mismatches remain
-compile-time errors.
+exception. Their members are inferred together and generalized as a group.
+Recursive calls remain monomorphic within that group, so this does not provide
+polymorphic recursion. A later rebinding cannot retroactively turn an earlier
+invalid reference into recursion.
 
 Application binds tighter than infix operators. Explicit type application uses
 `@Type`, as described in [types and signatures](types-and-signatures.md).

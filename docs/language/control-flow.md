@@ -6,7 +6,7 @@ sidebar_position: 6
 
 ## Conditionals
 
-Jazz conditionals are expressions:
+Conditionals produce values:
 
 Fragment:
 
@@ -17,8 +17,7 @@ if score >= 60 then "pass" else "retry"
 ```
 
 The condition must be `Bool`, and both branches must have compatible types.
-The compiler lowers this form to its canonical conditional node; it is not
-library syntax.
+Only the selected branch is evaluated.
 
 ## Cases and guards
 
@@ -35,18 +34,15 @@ case input {
 }
 ```
 
-An arm may have pattern alternatives and one guard. Patterns are checked
-against the scrutinee type; constructor and tuple arity, duplicate binders, and
-inconsistent or-pattern binder sets or binder types are diagnosed. Guards can
-use pattern binders and must have type `Bool`. Arm bodies must have compatible
-result types. Ordered pattern lambdas use the same pattern semantics.
+Failed patterns fall through without evaluating their guards. A matching arm's
+guard can use names bound by the pattern; `False` continues to the next arm.
+Guards must be `Bool`, and every arm body must produce a compatible result
+type. Ordered pattern lambdas use the same selection rules.
 
-Static exhaustiveness and unreachable-arm analysis are planned, not currently
-implemented. At runtime, failed patterns skip their guards, a `False` guard
-falls through, and a case or pattern lambda with no selected arm fails with
-`E3022`.
+Static exhaustiveness and unreachable-arm analysis are not implemented. A case
+or pattern lambda with no selected arm therefore fails at runtime with `E3022`.
 
 ## Static checks
 
-There are no imperative loops in the current surface. Use recursion and
-standard-library folds from the [List guide](../standard-library/list.md).
+Jazz has no imperative loop construct. Repetition uses recursion or collection
+operations such as the folds in the [List module](../standard-library/list.md).

@@ -94,10 +94,10 @@ require_pattern "docs/language/control-flow.md" "static checks" '^## Static chec
 require_pattern "docs/language/operators.md" "built-in precedence" '^## Built-in precedence$'
 require_pattern "docs/language/operators.md" "operator values and sections" '^## Operator values and sections$'
 require_pattern "docs/language/operators.md" "source-local declarations" '^## Source-local declarations$'
-require_contract_pattern "docs/language/operators.md" "pipe is fixity-only and rejected with E2003" '`\|` is parser/fixity metadata only\.[[:space:]]+It has no executable built-in type rule;[[:space:]]+`True \| False` is rejected with `E2003`\.'
-require_contract_pattern "docs/language/operators.md" "executable built-ins are callable values" 'The executable built-ins can be parenthesized as callable values\.'
-require_contract_pattern "docs/language/operators.md" "supported built-in section families" 'Built-in sections are supported only for arithmetic `\+`, `-`, `\*`, `/`; ordering `<`, `<=`, `>`, `>=`; and equality `==`, `!=`\.'
-require_contract_pattern "docs/language/operators.md" "dollar is callable but not sectionable" '`\$` is callable as `\(\$\)`, but it is not sectionable\.'
+require_contract_pattern "docs/language/operators.md" "pipe is not Boolean OR and is rejected with E2003" '`\|` participates in pattern alternatives and list patterns; it is not Boolean[[:space:]]+OR\.[[:space:]]+`True \| False` is rejected with `E2003`\.'
+require_contract_pattern "docs/language/operators.md" "executable built-ins are callable values" 'An executable built-in can be used as a callable value\.'
+require_contract_pattern "docs/language/operators.md" "supported built-in section families" 'Sections are available[[:space:]]+for arithmetic `\+`, `-`, `\*`, `/`; ordering `<`, `<=`, `>`, `>=`; and equality[[:space:]]+`==`, `!=`\.'
+require_contract_pattern "docs/language/operators.md" "dollar is callable but not sectionable" '`\$` is[[:space:]]+callable but not sectionable\.'
 
 require_contract_pattern "docs/standard-library/queue.md" "queuePeek worst-case normalization" '`queuePeek` is `O\(1\)` when the front is populated and `O\(n\)` when it must[[:space:]]+reverse a non-empty rear to find the oldest value\.'
 require_contract_pattern "docs/standard-library/queue.md" "repeated queuePeek cost" 'Because `queuePeek` does not return the normalized[[:space:]]+queue, repeated peeks of the same front-empty value repeat that `O\(n\)` work\.'
@@ -112,8 +112,8 @@ require_contract_pattern "docs/standard-library/prelude.md" "filter preserves ma
 require_contract_pattern "docs/standard-library/prelude.md" "partial hd and tl" '`hd` and `tl` are partial:[[:space:]]+an empty list fails fatally with `E3009` or `E3010`, respectively\.'
 require_contract_pattern "docs/standard-library/prelude.md" "stub-v1 print behavior" 'In stub-v1, evaluates and returns its argument without emitting output\.'
 
-require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "top-level pattern alternatives" 'Alternatives are supported only at the top level of a case arm or lambda parameter\.'
-require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "nested and grouped alternatives unsupported" 'Grouped or nested alternatives are not supported, and lambda-parameter guards are not supported\.'
+require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "top-level pattern alternatives" 'Pattern alternatives are available at the top level of a case arm or pattern[[:space:]]+lambda parameter\.'
+require_contract_pattern "docs/language/algebraic-data-types-and-patterns.md" "nested alternatives and pattern-lambda guards unsupported" 'Nested alternatives and guards on pattern-lambda parameters are not[[:space:]]+currently supported'
 require_rendered_code_pattern "docs/reference/expression-grammar.md" "case-arm alternative grammar" 'case-arm-pattern[[:space:]]+:= pattern \("\|" pattern\)\*'
 require_contract_pattern "docs/reference/expression-grammar.md" "lambda guards unsupported" 'Lambda parameters do not accept guards\.'
 
