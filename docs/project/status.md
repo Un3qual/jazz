@@ -6,7 +6,7 @@ sidebar_position: 1
 
 Updated: 2026-08-13
 
-Implementation snapshot: `8c220f254b88819641370b6307a6546d81843216`
+Implementation snapshot: `9fed9096c72b6c4d86d77567242d283419dff808`
 
 Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
 implementation snapshot above; documentation-only commits do not alter that
