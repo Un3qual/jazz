@@ -285,6 +285,57 @@ test('active Docusaurus configuration preserves the public site contract', async
   assert.equal(classic.blog, false);
 });
 
+test('primary navigation separates learning, library, and reference contexts', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {loadSidebarsFile} = await import(
+    '../node_modules/@docusaurus/plugin-content-docs/lib/sidebars/index.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+  const sidebars = await loadSidebarsFile(path.join(websiteRoot, 'sidebars.ts'));
+  const navbarItems = siteConfig.themeConfig.navbar.items;
+
+  assert.deepEqual(
+    navbarItems.map(({label}) => label),
+    ['Learn', 'Language', 'Standard Library', 'Reference', 'GitHub'],
+  );
+  assert.deepEqual(
+    navbarItems
+      .filter(({type}) => type === 'docSidebar')
+      .map(({sidebarId}) => sidebarId),
+    ['learnSidebar', 'standardLibrarySidebar', 'referenceSidebar'],
+  );
+  assert.deepEqual(Object.keys(sidebars), [
+    'learnSidebar',
+    'standardLibrarySidebar',
+    'referenceSidebar',
+  ]);
+});
+
+test('documentation navigation is compact on desktop and touchable on mobile', () => {
+  const source = read('website/src/css/custom.css');
+  const rules = [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const declarationsFor = (selector) =>
+    rules
+      .filter(([, selectors]) =>
+        selectors
+          .split(',')
+          .some((candidate) => candidate.trim() === selector),
+      )
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  const mobile = source.match(
+    /@media \(max-width: 996px\)\s*\{(?<rules>[\s\S]*?)\n\}/,
+  )?.groups?.rules;
+
+  assert.match(source, /--ifm-navbar-height:\s*3\.5rem/);
+  assert.match(declarationsFor('.navbar__inner'), /align-items:\s*center/);
+  assert.match(declarationsFor('.navbar__link'), /align-items:\s*center/);
+  assert.match(mobile ?? '', /min-height:\s*44px/);
+  assert.match(mobile ?? '', /min-width:\s*44px/);
+});
+
 test('Jazz TextMate highlighter exposes the editor grammar scopes', async () => {
   const {tokenizeJazz} = await import('./jazz-highlighter.mjs');
   const fixture = read('editors/vscode-jazz/fixtures/representative.jz');

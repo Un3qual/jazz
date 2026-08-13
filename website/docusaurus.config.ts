@@ -63,8 +63,8 @@ const config: Config = {
       items: [
         {
           type: 'docSidebar',
-          sidebarId: 'jazzSidebar',
-          label: 'Docs',
+          sidebarId: 'learnSidebar',
+          label: 'Learn',
           position: 'left',
         },
         {
@@ -73,13 +73,15 @@ const config: Config = {
           position: 'left',
         },
         {
-          to: '/docs/standard-library/overview',
+          type: 'docSidebar',
+          sidebarId: 'standardLibrarySidebar',
           label: 'Standard Library',
           position: 'left',
         },
         {
-          to: '/docs/project/status',
-          label: 'Status',
+          type: 'docSidebar',
+          sidebarId: 'referenceSidebar',
+          label: 'Reference',
           position: 'left',
         },
         {

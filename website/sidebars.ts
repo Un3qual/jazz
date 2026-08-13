@@ -1,7 +1,7 @@
 import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 const sidebars: SidebarsConfig = {
-  jazzSidebar: [
+  learnSidebar: [
     'index',
     {
       type: 'category',
@@ -31,33 +31,6 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Standard library',
-      items: [
-        'standard-library/overview',
-        'standard-library/prelude',
-        'standard-library/list',
-        'standard-library/maybe-result-nonempty',
-        'standard-library/dictionary',
-        'standard-library/queue',
-        'standard-library/map-and-set',
-        'standard-library/char-and-text',
-        'standard-library/io',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'Reference',
-      items: [
-        'reference/lexical-grammar',
-        'reference/expression-grammar',
-        'reference/module-resolution',
-        'reference/cli',
-        'reference/diagnostics',
-        'reference/runtime-values',
-      ],
-    },
-    {
-      type: 'category',
       label: 'Compiler',
       items: [
         'compiler/architecture',
@@ -75,6 +48,47 @@ const sidebars: SidebarsConfig = {
         'project/contributing',
       ],
     },
+  ],
+  standardLibrarySidebar: [
+    'standard-library/overview',
+    'standard-library/prelude',
+    {
+      type: 'category',
+      label: 'Data',
+      collapsed: false,
+      items: ['standard-library/maybe-result-nonempty'],
+    },
+    {
+      type: 'category',
+      label: 'Collections',
+      collapsed: false,
+      items: [
+        'standard-library/list',
+        'standard-library/dictionary',
+        'standard-library/queue',
+        'standard-library/map-and-set',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Text',
+      collapsed: false,
+      items: ['standard-library/char-and-text'],
+    },
+    {
+      type: 'category',
+      label: 'System',
+      collapsed: false,
+      items: ['standard-library/io'],
+    },
+  ],
+  referenceSidebar: [
+    'reference/lexical-grammar',
+    'reference/expression-grammar',
+    'reference/module-resolution',
+    'reference/cli',
+    'reference/diagnostics',
+    'reference/runtime-values',
   ],
 };
 
