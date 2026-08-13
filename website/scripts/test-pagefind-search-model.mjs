@@ -3,7 +3,9 @@ import test from 'node:test';
 
 import {
   categoryForUrl,
+  createSearchRequestTracker,
   normalizePagefindResults,
+  replaceSearchResults,
   shouldOpenSearch,
   withBaseUrl,
 } from './pagefind-search-model.mjs';
@@ -17,6 +19,33 @@ test('search shortcuts open only outside editable targets', () => {
   assert.equal(shouldOpenSearch({key: 'k', target: {tagName: 'DIV'}}), false);
   assert.equal(shouldOpenSearch({key: '/', target: {tagName: 'INPUT'}}), false);
   assert.equal(shouldOpenSearch({key: 'k', ctrlKey: true, target: {isContentEditable: true}}), false);
+  assert.equal(shouldOpenSearch({key: '/', target: {tagName: 'BUTTON'}}), true);
+});
+
+test('clearing a search invalidates its outstanding Pagefind response', () => {
+  // Mutation caught: a completed request repopulates results after its query
+  // has been cleared because the empty-query branch kept its request current.
+  const requests = createSearchRequestTracker();
+  const request = requests.begin();
+
+  requests.invalidate();
+
+  assert.equal(requests.isCurrent(request), false);
+});
+
+test('replacing results advances the visible result-set revision', () => {
+  // Mutation caught: replacing a scrolled result list while the active row is
+  // already zero skips its visibility effect and leaves the active row hidden.
+  const replacement = replaceSearchResults(
+    {rows: [{url: '/jazz/docs/old'}], activeIndex: 0, revision: 4},
+    [{url: '/jazz/docs/new'}],
+  );
+
+  assert.deepEqual(replacement, {
+    rows: [{url: '/jazz/docs/new'}],
+    activeIndex: 0,
+    revision: 5,
+  });
 });
 
 test('search categories follow public documentation routes', () => {

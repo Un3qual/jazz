@@ -7,6 +7,23 @@ const routeCategories = [
   ['reference', 'Reference'],
 ];
 
+export function createSearchRequestTracker() {
+  let currentRequest = 0;
+  return {
+    begin: () => ++currentRequest,
+    invalidate: () => ++currentRequest,
+    isCurrent: (request) => request === currentRequest,
+  };
+}
+
+export function replaceSearchResults(state, rows) {
+  return {
+    rows,
+    activeIndex: 0,
+    revision: state.revision + 1,
+  };
+}
+
 export function isEditableTarget(target) {
   if (!target) {
     return false;
@@ -17,7 +34,7 @@ export function isEditableTarget(target) {
   }
 
   const tagName = target.tagName?.toLowerCase();
-  if (['input', 'textarea', 'select', 'button'].includes(tagName)) {
+  if (['input', 'textarea', 'select'].includes(tagName)) {
     return true;
   }
 

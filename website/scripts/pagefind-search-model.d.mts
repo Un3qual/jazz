@@ -14,6 +14,18 @@ export interface SearchResultRow {
   excerpt: string;
 }
 
+export interface SearchRequestTracker {
+  begin(): number;
+  invalidate(): number;
+  isCurrent(request: number): boolean;
+}
+
+export interface SearchResultState<T> {
+  rows: T[];
+  activeIndex: number;
+  revision: number;
+}
+
 export interface PagefindResultData {
   url?: string;
   excerpt?: string;
@@ -27,6 +39,11 @@ export interface PagefindSearchResponse {
 }
 
 export function isEditableTarget(target: unknown): boolean;
+export function createSearchRequestTracker(): SearchRequestTracker;
+export function replaceSearchResults<T>(
+  state: SearchResultState<T>,
+  rows: T[],
+): SearchResultState<T>;
 export function shouldOpenSearch(event: SearchShortcutEvent): boolean;
 export function withBaseUrl(url: string, baseUrl?: string): string;
 export function categoryForUrl(url: string): string;

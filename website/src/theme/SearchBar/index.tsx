@@ -3,7 +3,9 @@ import {useHistory} from '@docusaurus/router';
 import {useCallback, useEffect, useRef, useState} from 'react';
 
 import {
+  createSearchRequestTracker,
   normalizePagefindResults,
+  replaceSearchResults,
   shouldOpenSearch,
   type PagefindSearchResponse,
   type SearchResultRow,
@@ -31,20 +33,23 @@ export default function SearchBar() {
   const openerRef = useRef<HTMLButtonElement>(null);
   const activeResultRef = useRef<HTMLButtonElement>(null);
   const pagefindRef = useRef<Pagefind | undefined>(undefined);
-  const requestId = useRef(0);
+  const searchRequestsRef = useRef(createSearchRequestTracker());
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<SearchStatus>('idle');
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResultRow[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [resultState, setResultState] = useState({
+    rows: [] as SearchResultRow[],
+    activeIndex: 0,
+    revision: 0,
+  });
+  const {rows: results, activeIndex} = resultState;
 
   const closeSearch = useCallback(() => {
-    requestId.current += 1;
+    searchRequestsRef.current.invalidate();
     dialogRef.current?.close();
     setOpen(false);
     setQuery('');
-    setResults([]);
-    setActiveIndex(0);
+    setResultState((state) => replaceSearchResults(state, []));
     openerRef.current?.focus();
   }, []);
 
@@ -108,31 +113,30 @@ export default function SearchBar() {
 
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
-      setResults([]);
-      setActiveIndex(0);
+      searchRequestsRef.current.invalidate();
+      setResultState((state) => replaceSearchResults(state, []));
       return;
     }
 
-    const currentRequest = ++requestId.current;
+    const currentRequest = searchRequestsRef.current.begin();
     pagefindRef.current.search(trimmedQuery)
       .then((response) => normalizePagefindResults(response, baseUrl))
       .then((rows) => {
-        if (requestId.current === currentRequest) {
-          setResults(rows);
-          setActiveIndex(0);
+        if (searchRequestsRef.current.isCurrent(currentRequest)) {
+          setResultState((state) => replaceSearchResults(state, rows));
         }
       })
       .catch(() => {
-        if (requestId.current === currentRequest) {
+        if (searchRequestsRef.current.isCurrent(currentRequest)) {
           setStatus('unavailable');
-          setResults([]);
+          setResultState((state) => replaceSearchResults(state, []));
         }
       });
   }, [baseUrl, open, query, status]);
 
   useEffect(() => {
     activeResultRef.current?.scrollIntoView({block: 'nearest'});
-  }, [activeIndex]);
+  }, [activeIndex, resultState.revision]);
 
   const goToResult = useCallback((result: SearchResultRow) => {
     closeSearch();
@@ -142,11 +146,17 @@ export default function SearchBar() {
   const onInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown' && results.length > 0) {
       event.preventDefault();
-      setActiveIndex((index) => Math.min(index + 1, results.length - 1));
+      setResultState((state) => ({
+        ...state,
+        activeIndex: Math.min(state.activeIndex + 1, state.rows.length - 1),
+      }));
     }
     if (event.key === 'ArrowUp' && results.length > 0) {
       event.preventDefault();
-      setActiveIndex((index) => Math.max(index - 1, 0));
+      setResultState((state) => ({
+        ...state,
+        activeIndex: Math.max(state.activeIndex - 1, 0),
+      }));
     }
     if (event.key === 'Enter' && results[activeIndex]) {
       event.preventDefault();
@@ -205,7 +215,7 @@ export default function SearchBar() {
                   ref={index === activeIndex ? activeResultRef : undefined}
                   className={index === activeIndex ? styles.activeResult : styles.result}
                   type="button"
-                  onMouseMove={() => setActiveIndex(index)}
+                  onMouseMove={() => setResultState((state) => ({...state, activeIndex: index}))}
                   onClick={() => goToResult(result)}>
                   <span className={styles.resultContext}>{result.category} · {result.pageTitle}</span>
                   {result.sectionTitle && <strong>{result.sectionTitle}</strong>}
