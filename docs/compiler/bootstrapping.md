@@ -12,9 +12,8 @@ available for reproducible bootstrap builds.
 
 ## Hosted front end
 
-The hosted work currently includes canonical token definitions, a Jazz lexer,
-a complete parser, canonical-core schemas and lowering, and typed-core and
-lowered-IR schemas with total validators.
+The hosted front end currently covers lexing, parsing, canonical-core lowering,
+and validation schemas for typed core and lowered IR.
 
 The lexer, parser, and core lowering are compared against stage 0 across the
 accepted and rejected parser corpus. Repeated runs must match complete values or
@@ -27,13 +26,9 @@ the stage-0 parsing and semantic pipeline. Typed core and lowered IR cover a
 bounded opt-in profile rather than the full language, and ordinary run mode
 continues to evaluate canonical core with the interpreter.
 
-The bounded backend profile supports concrete scalar bindings, direct calls,
-closed named functions as values, anonymous and nested unary closures, lexical
-capture, unary higher-order closure calls, partial application, and ordered
-application of additional arguments while intermediate results remain callable.
-Captured values use immutable environments with deterministic field ordering.
-The profile does not yet support recursion, full control flow, scalar exports,
-or complete module integration.
+Backend preparation also covers only a subset of the language. The current
+supported forms and exclusions are maintained in
+[Project status](../project/status.md).
 
 ## Promotion
 

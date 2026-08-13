@@ -21,9 +21,9 @@ graph with explicit dependency relationships.
 
 ## Parse
 
-Lexing recognizes identifiers, literals, operators, punctuation, and comments.
-Parsing builds the surface program and lowers accepted syntax into canonical
-core. Parser failures retain source spans and become structured diagnostics.
+Lexing divides source into located tokens. Parsing determines their structure
+and lowers the surface program into canonical core. Failures retain source
+spans and become structured diagnostics.
 
 Canonical core removes surface-only notation while preserving the bindings,
 expressions, patterns, declarations, and module information needed by later
@@ -71,16 +71,10 @@ statistics and profiles observe evaluation without changing the result.
 
 ## Prepare a backend
 
-An opt-in path retains a validated typed-core subset during analysis, lowers it
-to backend-neutral control-flow IR, and validates both representations. Its
-current profile covers concrete scalar bindings, direct calls, named function
-values, anonymous and nested unary closures, lexical capture, higher-order
-closure calls, partial application, and ordered callable oversaturation.
-Captured values use immutable environments whose fields follow deterministic
-first-use order.
+An opt-in path retains typed information from analysis, validates it, lowers it
+to backend-neutral control-flow IR, and validates the lowered result. Programs
+outside the supported subset continue through ordinary compilation unchanged.
 
-This stage does not participate in ordinary compile or run mode. Recursion,
-full control flow, scalar exports, complete multi-module integration, native
-emission, linking, and a native runtime remain promotion boundaries. See
-[Project status](../project/status.md) for the current boundary and
-[Bootstrapping](bootstrapping.md) for how hosted compiler stages are promoted.
+This stage does not participate in ordinary compile or run mode. See
+[Project status](../project/status.md) for its current language coverage and
+[Bootstrapping](bootstrapping.md) for how a compiler stage becomes canonical.

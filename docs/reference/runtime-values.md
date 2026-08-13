@@ -6,10 +6,10 @@ sidebar_position: 6
 
 ## Value families and rendering
 
-The interpreter represents integral and floating values, booleans, characters,
-text, lists, tuples, closures, operators and sections, partially applied
-constructors, saturated ADT values, and bounded capability methods. Type and
-explicit-application metadata do not change user-visible rendering.
+Runtime values include numbers, booleans, characters, text, lists, tuples,
+closures, operators and sections, partially applied constructors, saturated
+algebraic values, and capability methods. Type annotations and explicit type
+application do not change how a value renders.
 
 Rendered values use stable Jazz-like syntax:
 
@@ -134,8 +134,7 @@ equality. Callable equality is rejected.
 
 ## Runtime failures
 
-Pattern matching is structural and ordered. Primitive misuse that escapes
-compile-time checks produces a stable fatal runtime diagnostic. Host I/O is
-routed through a replaceable runtime host so tests remain deterministic; the
-public API is described in [IO](../standard-library/io.md) and
-[IOError](../standard-library/io-error.md).
+Pattern matching is structural and ordered. A dynamic failure that cannot be
+rejected statically produces a fatal diagnostic with a stable code. Host I/O
+failures are values where recovery is possible; the public contracts are in
+[IO](../standard-library/io.md) and [IOError](../standard-library/io-error.md).

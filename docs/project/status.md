@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -27,21 +27,10 @@ from partial areas and planned work.
 | Native code generation, linking, and runtime                          | Planned     | [Roadmap](roadmap.md)                                                 |
 | Stable releases, package ecosystem, and language server               | Planned     | [Roadmap](roadmap.md)                                                 |
 
-Only `Implemented`, `Partial`, and `Planned` are used as status labels. A
-partial area has working, tested behavior but retains a stated boundary.
-
-The opt-in typed-core and backend-neutral lowering profile includes closed
-named functions as values, recursively represented unary closure parameters
-and results, explicit empty environments, unary higher-order closure calls,
-anonymous and nested unary closures, and binder-resolved scalar or
-closure-valued lexical capture. Capture fields use deterministic first-occurrence
-order in immutable environments with stable lifted identities. Concrete scalar
-bindings are evaluated once in source order and reused by exact binder identity
-in later entry expressions. Scalar bindings currently require an entry module
-with an explicitly empty export list because scalar value interfaces are not
-produced. Curried source applications now retain unary staging across named
-functions, callable parameters, and inline lambdas. Partial application returns
-the remaining closure, and callable oversaturation evaluates each next argument
-only after the preceding call returns another callable value. Ordinary compile
-and run remain on canonical core and the reference interpreter. The opt-in
-profile still excludes recursion.
+`Partial` means that working, tested behavior has an explicit boundary. The
+typed-core and backend-neutral lowering path currently covers scalar bindings,
+direct calls, function values, unary closures, lexical capture, higher-order
+calls, partial application, and ordered application of additional arguments.
+It excludes recursion, full control flow, scalar exports, and complete
+multi-module integration. Ordinary compile and run modes remain on canonical
+core and the interpreter.

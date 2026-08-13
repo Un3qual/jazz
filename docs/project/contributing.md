@@ -4,9 +4,8 @@ description: Build, test, document, and propose changes to the Jazz language and
 sidebar_position: 4
 ---
 
-Jazz welcomes focused compiler, runtime, standard-library, tooling, and
-documentation contributions. Start by reading the [status](status.md),
-[roadmap](roadmap.md), and [governance](governance.md).
+Before changing Jazz, read the [status](status.md), [roadmap](roadmap.md), and
+[governance](governance.md) to distinguish current behavior from planned work.
 
 ## Repository map
 
@@ -36,7 +35,7 @@ pull-request details.
 
 ## Public examples
 
-A complete runnable program used in public documentation must be a checked file
-under `examples/`; inline code is a fragment. Do not change semantics merely to
-make prose or an example pass—correct the claim or propose the language change
-first.
+A complete runnable program used in public documentation belongs under
+`examples/`; inline code is a fragment. If an example contradicts the
+implementation, correct the claim or propose a language change rather than
+changing semantics to fit the prose.
