@@ -11,9 +11,6 @@ type BrandMarkProps = {
 export default function BrandMark({className}: BrandMarkProps): ReactNode {
   return (
     <div className={clsx(styles.brandPlane, className)} aria-hidden="true">
-      <span className={styles.scoreLine} />
-      <span className={styles.scoreLine} />
-      <span className={styles.scoreLine} />
       <img
         className={styles.brandMark}
         src={useBaseUrl('/img/jazz-mark-dark.svg')}

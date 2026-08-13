@@ -90,47 +90,61 @@ test('factorial sync accepts CRLF example manifests', () => {
   }
 });
 
-test('homepage exposes four semantic regions with one heading and direct doc routes', () => {
+test('homepage introduces Jazz and provides direct documentation routes', () => {
   const page = read('website/src/pages/index.tsx');
   const componentSources = [
     'BrandMark.tsx',
     'CodeProof.tsx',
-    'EditorialBand.tsx',
+    'DocumentationDirectory.tsx',
     'HomepageHeader.tsx',
-    'HomepageFooterCta.tsx',
-  ].map((name) => read(`website/src/components/${name}`));
+  ].map((name) => {
+    const component = path.join(repositoryRoot, 'website/src/components', name);
+    return existsSync(component) ? read(`website/src/components/${name}`) : '';
+  });
   const source = [page, ...componentSources].join('\n');
 
   assert.equal((source.match(/<h1\b/g) ?? []).length, 1);
-  assert.equal((source.match(/<section\b/g) ?? []).length, 4);
   assert.match(source, /<main\b/);
   assert.match(source, /<header\b/);
+  assert.match(source, /<CodeProof\b/);
   for (const route of [
     '/docs/getting-started/overview',
     '/docs/language/overview',
-    '/docs/language/types-and-signatures',
-    '/docs/language/bindings-and-functions',
-    '/docs/language/algebraic-data-types-and-patterns',
+    '/docs/standard-library/overview',
+    '/docs/reference/expression-grammar',
     '/docs/compiler/architecture',
-    '/docs/compiler/bootstrapping',
-    '/docs/getting-started/installation',
     '/docs/project/status',
   ]) {
     assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
   }
+  for (const forbidden of [
+    'EditorialBand',
+    'HomepageFooterCta',
+    'Language, in three movements',
+    'Strong ideas. Clear notation.',
+    'The next phrase is yours',
+    'synchronized directly from the repository',
+    'compiler-backed example check',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(forbidden.replaceAll('.', '\\.')));
+  }
   assert.doesNotMatch(source, /\b(?:fetch|useEffect|useState)\s*\(/);
 });
 
-test('homepage styling encodes the motion, focus, target, and full-bleed contracts', () => {
+test('homepage styling is compact, responsive, and accessible', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
   const source = `${pageCss}\n${globalCss}`;
 
-  assert.match(pageCss, /100(?:svw|vw)/);
   assert.match(source, /prefers-reduced-motion:\s*reduce/);
   assert.match(source, /:focus-visible/);
   assert.match(source, /min-height:\s*44px/);
   assert.match(source, /min-width:\s*44px/);
+  assert.match(pageCss, /@media \(max-width: 760px\)/);
+  assert.doesNotMatch(pageCss, /min-height:\s*calc\(100svh/);
+  assert.doesNotMatch(pageCss, /100vw/);
+  assert.doesNotMatch(pageCss, /\.editorialBand/);
+  assert.doesNotMatch(pageCss, /\.closing/);
   assert.doesNotMatch(source, /gradient\s*\(/i);
   assert.match(globalCss, /body\s*\{[^}]*font-weight:\s*450/s);
   assert.doesNotMatch(globalCss, /font-variation-settings/);
@@ -184,63 +198,14 @@ test('documentation layout reserves width only for a rendered desktop TOC', () =
   assert.doesNotMatch(layoutCss, /(?:^|\n)\s*(?:column-gap|gap)\s*:/);
 });
 
-test('hero stagger includes the brass motif and completes under 500ms', () => {
-  const pageCss = read('website/src/pages/index.module.css');
-  const participants = [
-    'heroKicker',
-    'heroTitle',
-    'heroPromise',
-    'heroActions',
-    'brandPlane',
-  ];
-  const animationRule = pageCss.match(
-    /([^{}]+)\{[^{}]*animation-duration:\s*(\d+)ms;[^{}]*\}/,
-  );
-  assert.ok(animationRule, 'hero animation must declare a measurable duration');
-
-  const duration = Number(animationRule[2]);
-  for (const participant of participants) {
-    assert.match(animationRule[1], new RegExp(`\\.${participant}\\b`));
-  }
-
-  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const declarationsFor = (participant) =>
-    rules
-      .filter(([_, selectors]) =>
-        selectors
-          .split(',')
-          .some((selector) => selector.trim() === `.${participant}`),
-      )
-      .map(([_, __, declarations]) => declarations)
-      .join('\n');
-  const delays = participants.map((participant) => {
-    const declarations = declarationsFor(participant);
-    const delay = declarations.match(/animation-delay:\s*(\d+)ms/);
-    assert.ok(delay, `${participant} must declare its animation delay`);
-    return Number(delay[1]);
-  });
-
-  assert.ok(duration > 0 && Math.max(...delays) > 0);
-  assert.ok(
-    duration + Math.max(...delays) < 500,
-    `hero sequence is ${duration + Math.max(...delays)}ms`,
-  );
-  assert.match(declarationsFor('brandPlane'), /animation-name:\s*motifEnter/);
-  assert.match(
-    pageCss,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.brandPlane[\s\S]*animation:\s*none/,
-  );
-});
-
-test('brand-dark sections keep invariant high-contrast colors in both themes', () => {
+test('homepage introduction keeps invariant high-contrast colors in both themes', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
 
   assert.match(globalCss, /--jazz-brand-ink:\s*#171824/);
   assert.match(globalCss, /--jazz-brand-paper:\s*#f3eddf/);
-  assert.match(pageCss, /\.hero\s*\{[^}]*background:\s*var\(--jazz-brand-ink\)/s);
-  assert.match(pageCss, /\.hero\s*\{[^}]*color:\s*var\(--jazz-brand-paper\)/s);
-  assert.match(pageCss, /\.closing\s*\{[^}]*background:\s*var\(--jazz-brand-ink\)/s);
+  assert.match(pageCss, /\.intro\s*\{[^}]*background:\s*var\(--jazz-brand-ink\)/s);
+  assert.match(pageCss, /\.intro\s*\{[^}]*color:\s*var\(--jazz-brand-paper\)/s);
   assert.match(pageCss, /\.primaryAction\s*\{[^}]*color:\s*var\(--jazz-brand-ink\)/s);
 });
 
