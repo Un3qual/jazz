@@ -38,6 +38,11 @@ CSS_RESOURCE_RE = re.compile(
 SCRIPT_RESOURCE_RE = re.compile(
     r"(?i)\b(?:fetch|import)\(\s*(['\"])(.*?)\1"
 )
+STYLE_ELEMENT_RE = re.compile(r"(?is)<style\b[^>]*>(.*?)</style\s*>")
+SCRIPT_ELEMENT_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script\s*>")
+STYLE_ATTRIBUTE_RE = re.compile(
+    r'''(?is)\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))'''
+)
 PRODUCTION_PREFIXES = (
     "https://un3qual.github.io/jazz/",
     "//un3qual.github.io/jazz/",
@@ -55,6 +60,20 @@ def allowed_remote_url(url: str) -> bool:
     return cleaned.startswith(PRODUCTION_PREFIXES)
 
 
+def html_css_sources(source: str) -> list[str]:
+    markup = SCRIPT_ELEMENT_RE.sub("", source)
+    targets = [match.group(1) for match in STYLE_ELEMENT_RE.finditer(markup)]
+    targets.extend(
+        next(group for group in match.groups() if group is not None)
+        for match in STYLE_ATTRIBUTE_RE.finditer(markup)
+    )
+    return targets
+
+
+def html_script_sources(source: str) -> list[str]:
+    return [match.group(1) for match in SCRIPT_ELEMENT_RE.finditer(source)]
+
+
 def resource_targets(source: str, suffix: str) -> list[str]:
     targets: list[str] = []
     if suffix in {".html", ".svg"}:
@@ -62,13 +81,21 @@ def resource_targets(source: str, suffix: str) -> list[str]:
             match.group(2) for match in RESOURCE_ATTRIBUTE_RE.finditer(source)
         )
         targets.extend(match.group(2) for match in LINK_RESOURCE_RE.finditer(source))
-    if suffix in {".css", ".html", ".svg"}:
+    css_sources = [source] if suffix == ".css" else []
+    if suffix in {".html", ".svg"}:
+        css_sources.extend(html_css_sources(source))
+    for css_source in css_sources:
         targets.extend(
             match.group(1) or match.group(3)
-            for match in CSS_RESOURCE_RE.finditer(source)
+            for match in CSS_RESOURCE_RE.finditer(css_source)
         )
-    if suffix in {".js", ".html"}:
-        targets.extend(match.group(2) for match in SCRIPT_RESOURCE_RE.finditer(source))
+    script_sources = [source] if suffix == ".js" else []
+    if suffix in {".html", ".svg"}:
+        script_sources.extend(html_script_sources(source))
+    for script_source in script_sources:
+        targets.extend(
+            match.group(2) for match in SCRIPT_RESOURCE_RE.finditer(script_source)
+        )
     return targets
 
 
