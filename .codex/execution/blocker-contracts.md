@@ -174,7 +174,7 @@ Each blocked item should answer these questions:
   partial application returns the remaining closure, and additional arguments
   proceed only through callable intermediate results. Source non-callable
   oversaturation remains an ordinary diagnostic, and malformed typed artifacts
-  fail validation. Normal compile/run remains canonical-core/interpreter based.
+  fail validation. Normal compile/run remains canonical-core/interpreter-based.
 - Smallest unblocker: curate
   `JN-BOOTSTRAP-TYPED-CORE-DIRECT-RECURSION-001` from accepted RFC 0009.
 - Decision needed: none for the semantic boundary. RFC 0009 fixes direct

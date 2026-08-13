@@ -19,7 +19,7 @@ target_paths:
   - test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
   - test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
 verification:
-  - cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
   - git diff --check

@@ -475,7 +475,9 @@ curriedApplicationExpectedPrograms :: [(Text, TypedProgram)]
 curriedApplicationExpectedPrograms =
   [ ("partial-direct-call", curriedPartialApplicationProgram),
     ("curried-partial-application", curriedPartialApplicationProgram),
-    ("curried-callable-oversaturation", curriedCallableOversaturationProgram)
+    ("curried-callable-oversaturation", curriedCallableOversaturationProgram),
+    ("curried-partial-higher-order-consumer", curriedPartialHigherOrderProgram),
+    ("inline-curried-lambda-call", inlineCurriedLambdaProgram)
   ]
 
 curriedPartialApplicationProgram :: TypedProgram
@@ -526,6 +528,77 @@ curriedCallableOversaturationProgram =
         TypedDirectCallableShape
         (variableExpr "identity" intCallableInfo)
 
+curriedPartialHigherOrderProgram :: TypedProgram
+curriedPartialHigherOrderProgram =
+  expectedFunctionProgramWithLineOffset
+    1
+    []
+    [combine, apply]
+    ( directCall
+        "apply"
+        [remainingInfo]
+        intInfo
+        [ TypedApplyExpr
+            remainingInfo
+            (variableExpr "combine" combineInfo)
+            (intExpr 1)
+        ]
+    )
+  where
+    remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+    combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
+    combine = combineFunction {expectedFunctionShape = TypedClosureCallableShape}
+    apply =
+      ExpectedFunction
+        "apply"
+        [("function", remainingInfo)]
+        intInfo
+        TypedDirectCallableShape
+        ( TypedApplyExpr
+            intInfo
+            (variableExpr "function" remainingInfo)
+            (intExpr 2)
+        )
+
+inlineCurriedLambdaProgram :: TypedProgram
+inlineCurriedLambdaProgram =
+  expectedRootProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedApplyExpr
+            intInfo
+            ( TypedApplyExpr
+                remainingInfo
+                ( TypedLambdaExpr
+                    lambdaInfo
+                    leftBinder
+                    leftName
+                    ( TypedLambdaExpr
+                        remainingInfo
+                        rightBinder
+                        rightName
+                        ( binaryExpr
+                            intInfo
+                            "+"
+                            (boundVariableExpr leftName intInfo leftBinder)
+                            (boundVariableExpr rightName intInfo rightBinder)
+                        )
+                    )
+                )
+                (intExpr 20)
+            )
+            (intExpr 22)
+        )
+    ]
+    intInfo
+  where
+    leftName = resolvedName "left"
+    leftBinder = TypedBinderId (modulePath, [0, 0, 0], leftName)
+    rightName = resolvedName "right"
+    rightBinder = TypedBinderId (modulePath, [0, 0, 0, 0], rightName)
+    remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+    lambdaInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
+
 curriedApplicationExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
 curriedApplicationExpectedLoweredPrograms =
   [ ( "partial-direct-call",
@@ -539,89 +612,150 @@ curriedApplicationExpectedLoweredPrograms =
     ( "curried-callable-oversaturation",
       curriedCallableOversaturationProgram,
       curriedCallableOversaturationLoweredProgram
+    ),
+    ( "curried-partial-higher-order-consumer",
+      curriedPartialHigherOrderProgram,
+      curriedPartialHigherOrderLoweredProgram
+    ),
+    ( "inline-curried-lambda-call",
+      inlineCurriedLambdaProgram,
+      inlineCurriedLambdaLoweredProgram
     )
   ]
 
 curriedPartialApplicationLoweredProgram :: LoweredProgram
 curriedPartialApplicationLoweredProgram =
   expectedClosureCallableLoweredProgram
-    [ LoweredLayout outerLayoutId (LoweredClosureEnvironmentLayout []),
-      LoweredLayout innerLayoutId (LoweredClosureEnvironmentLayout [int64Representation])
-    ]
-    [ LoweredFunction
-        (LoweredFunctionId "App::Main::combine")
-        (Just (layoutEnvironmentParameter outerLayoutId))
-        [LoweredParameter (LoweredParameterId "arg1") int64Representation]
-        innerClosureRepresentation
-        [ LoweredBlock
-            (LoweredBlockId "entry")
-            []
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                (LoweredManagedReferenceRepresentation innerLayoutId)
-                ( LoweredConstructProduct
-                    innerLayoutId
-                    [loweredParameter 1 int64Representation]
-                ),
-              LoweredInstruction
-                (LoweredTemporaryId "t2")
-                innerClosureRepresentation
-                ( LoweredConstructClosure
-                    innerFunctionId
-                    (loweredTemporary 1 (LoweredManagedReferenceRepresentation innerLayoutId))
-                )
-            ]
-            (Just (LoweredReturn (loweredTemporary 2 innerClosureRepresentation)))
-        ]
-        (LoweredBlockId "entry"),
-      LoweredFunction
-        innerFunctionId
-        (Just (layoutEnvironmentParameter innerLayoutId))
-        [LoweredParameter (LoweredParameterId "arg1") int64Representation]
-        int64Representation
-        [ LoweredBlock
-            (LoweredBlockId "entry")
-            []
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                int64Representation
-                (LoweredProjectField innerLayoutId 0 (layoutEnvironmentOperand innerLayoutId)),
-              expectedPrimitiveInstruction
-                2
-                int64Representation
-                (LoweredArithmeticPrimitive LoweredAdd)
-                [loweredTemporary 1 int64Representation, loweredParameter 1 int64Representation]
-            ]
-            (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
-        ]
-        (LoweredBlockId "entry")
-    ]
-    innerClosureRepresentation
-    [ expectedEmptyEnvironmentInstruction 1 outerLayoutId,
+    curriedCombineLayouts
+    curriedCombineFunctions
+    curriedCombineInnerClosureRepresentation
+    [ expectedEmptyEnvironmentInstruction 1 curriedCombineOuterLayoutId,
       LoweredInstruction
         (LoweredTemporaryId "t2")
-        outerClosureRepresentation
+        curriedCombineOuterClosureRepresentation
         ( LoweredConstructClosure
             (LoweredFunctionId "App::Main::combine")
-            (loweredTemporary 1 (LoweredManagedReferenceRepresentation outerLayoutId))
+            (loweredTemporary 1 (LoweredManagedReferenceRepresentation curriedCombineOuterLayoutId))
         ),
       expectedClosureCallInstruction
         3
-        innerClosureRepresentation
-        (loweredTemporary 2 outerClosureRepresentation)
+        curriedCombineInnerClosureRepresentation
+        (loweredTemporary 2 curriedCombineOuterClosureRepresentation)
         [loweredInt64 1]
     ]
-    (loweredTemporary 3 innerClosureRepresentation)
-  where
-    outerLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n7:combine"
-    innerLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p3$1,0,0$n5:right"
-    innerFunctionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p3$1,0,0$n5:right"
-    innerClosureRepresentation =
-      LoweredClosureRepresentation
-        (LoweredCallSignature [int64Representation] int64Representation)
-    outerClosureRepresentation =
-      LoweredClosureRepresentation
-        (LoweredCallSignature [int64Representation] innerClosureRepresentation)
+    (loweredTemporary 3 curriedCombineInnerClosureRepresentation)
+
+curriedPartialHigherOrderLoweredProgram :: LoweredProgram
+curriedPartialHigherOrderLoweredProgram =
+  expectedClosureCallableLoweredProgram
+    curriedCombineLayouts
+    ( curriedCombineFunctions
+        <> [ expectedLocalFunction
+               "apply"
+               [LoweredParameter (LoweredParameterId "arg1") curriedCombineInnerClosureRepresentation]
+               int64Representation
+               [ expectedClosureCallInstruction
+                   1
+                   int64Representation
+                   (loweredParameter 1 curriedCombineInnerClosureRepresentation)
+                   [loweredInt64 2]
+               ]
+               (loweredTemporary 1 int64Representation)
+           ]
+    )
+    int64Representation
+    [ expectedEmptyEnvironmentInstruction 1 curriedCombineOuterLayoutId,
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        curriedCombineOuterClosureRepresentation
+        ( LoweredConstructClosure
+            (LoweredFunctionId "App::Main::combine")
+            (loweredTemporary 1 (LoweredManagedReferenceRepresentation curriedCombineOuterLayoutId))
+        ),
+      expectedClosureCallInstruction
+        3
+        curriedCombineInnerClosureRepresentation
+        (loweredTemporary 2 curriedCombineOuterClosureRepresentation)
+        [loweredInt64 1],
+      expectedDirectCallInstruction
+        4
+        int64Representation
+        "apply"
+        [loweredTemporary 3 curriedCombineInnerClosureRepresentation]
+    ]
+    (loweredTemporary 4 int64Representation)
+
+curriedCombineLayouts :: [LoweredLayout]
+curriedCombineLayouts =
+  [ LoweredLayout curriedCombineOuterLayoutId (LoweredClosureEnvironmentLayout []),
+    LoweredLayout curriedCombineInnerLayoutId (LoweredClosureEnvironmentLayout [int64Representation])
+  ]
+
+curriedCombineFunctions :: [LoweredFunction]
+curriedCombineFunctions =
+  [ LoweredFunction
+      (LoweredFunctionId "App::Main::combine")
+      (Just (layoutEnvironmentParameter curriedCombineOuterLayoutId))
+      [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+      curriedCombineInnerClosureRepresentation
+      [ LoweredBlock
+          (LoweredBlockId "entry")
+          []
+          [ LoweredInstruction
+              (LoweredTemporaryId "t1")
+              (LoweredManagedReferenceRepresentation curriedCombineInnerLayoutId)
+              ( LoweredConstructProduct
+                  curriedCombineInnerLayoutId
+                  [loweredParameter 1 int64Representation]
+              ),
+            LoweredInstruction
+              (LoweredTemporaryId "t2")
+              curriedCombineInnerClosureRepresentation
+              ( LoweredConstructClosure
+                  curriedCombineInnerFunctionId
+                  (loweredTemporary 1 (LoweredManagedReferenceRepresentation curriedCombineInnerLayoutId))
+              )
+          ]
+          (Just (LoweredReturn (loweredTemporary 2 curriedCombineInnerClosureRepresentation)))
+      ]
+      (LoweredBlockId "entry"),
+    LoweredFunction
+      curriedCombineInnerFunctionId
+      (Just (layoutEnvironmentParameter curriedCombineInnerLayoutId))
+      [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+      int64Representation
+      [ LoweredBlock
+          (LoweredBlockId "entry")
+          []
+          [ LoweredInstruction
+              (LoweredTemporaryId "t1")
+              int64Representation
+              (LoweredProjectField curriedCombineInnerLayoutId 0 (layoutEnvironmentOperand curriedCombineInnerLayoutId)),
+            expectedPrimitiveInstruction
+              2
+              int64Representation
+              (LoweredArithmeticPrimitive LoweredAdd)
+              [loweredTemporary 1 int64Representation, loweredParameter 1 int64Representation]
+          ]
+          (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
+      ]
+      (LoweredBlockId "entry")
+  ]
+
+curriedCombineOuterLayoutId, curriedCombineInnerLayoutId :: LoweredLayoutId
+curriedCombineOuterLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n7:combine"
+curriedCombineInnerLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p3$1,0,0$n5:right"
+
+curriedCombineInnerFunctionId :: LoweredFunctionId
+curriedCombineInnerFunctionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p3$1,0,0$n5:right"
+
+curriedCombineInnerClosureRepresentation, curriedCombineOuterClosureRepresentation :: LoweredRepresentation
+curriedCombineInnerClosureRepresentation =
+  LoweredClosureRepresentation
+    (LoweredCallSignature [int64Representation] int64Representation)
+curriedCombineOuterClosureRepresentation =
+  LoweredClosureRepresentation
+    (LoweredCallSignature [int64Representation] curriedCombineInnerClosureRepresentation)
 
 curriedCallableOversaturationLoweredProgram :: LoweredProgram
 curriedCallableOversaturationLoweredProgram =
@@ -678,6 +812,90 @@ curriedCallableOversaturationLoweredProgram =
     callableRepresentation =
       LoweredClosureRepresentation
         (LoweredCallSignature [int64Representation] int64Representation)
+
+inlineCurriedLambdaLoweredProgram :: LoweredProgram
+inlineCurriedLambdaLoweredProgram =
+  expectedClosureCallableLoweredProgram
+    [ LoweredLayout outerLayoutId (LoweredClosureEnvironmentLayout []),
+      LoweredLayout innerLayoutId (LoweredClosureEnvironmentLayout [int64Representation])
+    ]
+    [ LoweredFunction
+        outerFunctionId
+        (Just (layoutEnvironmentParameter outerLayoutId))
+        [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+        innerClosureRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                (LoweredManagedReferenceRepresentation innerLayoutId)
+                (LoweredConstructProduct innerLayoutId [loweredParameter 1 int64Representation]),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                innerClosureRepresentation
+                ( LoweredConstructClosure
+                    innerFunctionId
+                    (loweredTemporary 1 (LoweredManagedReferenceRepresentation innerLayoutId))
+                )
+            ]
+            (Just (LoweredReturn (loweredTemporary 2 innerClosureRepresentation)))
+        ]
+        (LoweredBlockId "entry"),
+      LoweredFunction
+        innerFunctionId
+        (Just (layoutEnvironmentParameter innerLayoutId))
+        [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                int64Representation
+                (LoweredProjectField innerLayoutId 0 (layoutEnvironmentOperand innerLayoutId)),
+              expectedPrimitiveInstruction
+                2
+                int64Representation
+                (LoweredArithmeticPrimitive LoweredAdd)
+                [loweredTemporary 1 int64Representation, loweredParameter 1 int64Representation]
+            ]
+            (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    int64Representation
+    [ expectedEmptyEnvironmentInstruction 1 outerLayoutId,
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        outerClosureRepresentation
+        ( LoweredConstructClosure
+            outerFunctionId
+            (loweredTemporary 1 (LoweredManagedReferenceRepresentation outerLayoutId))
+        ),
+      expectedClosureCallInstruction
+        3
+        innerClosureRepresentation
+        (loweredTemporary 2 outerClosureRepresentation)
+        [loweredInt64 20],
+      expectedClosureCallInstruction
+        4
+        int64Representation
+        (loweredTemporary 3 innerClosureRepresentation)
+        [loweredInt64 22]
+    ]
+    (loweredTemporary 4 int64Representation)
+  where
+    outerLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p3$0,0,0$n4:left"
+    innerLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p4$0,0,0,0$n5:right"
+    outerFunctionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p3$0,0,0$n4:left"
+    innerFunctionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p4$0,0,0,0$n5:right"
+    innerClosureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [int64Representation] int64Representation)
+    outerClosureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [int64Representation] innerClosureRepresentation)
 
 layoutEnvironmentParameter :: LoweredLayoutId -> LoweredParameter
 layoutEnvironmentParameter layoutId =

@@ -48,7 +48,6 @@ tests =
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
     ("lowers staged curried applications", testCurriedApplicationLowering),
-    ("composes partial results and inline curried lambdas", testCurriedApplicationComposition),
     ("keeps non-callable oversaturation at the source diagnostic boundary", testNonCallableOversaturationDiagnostic),
     ("lowers lexical closures with exact environments", testLexicalCaptureLowering),
     ("supports the complete lexical capture fixture matrix", testLexicalCaptureFixtureMatrix),
@@ -492,12 +491,6 @@ testNonCallableOversaturationDiagnostic = do
     TypedCoreProductionBlockedByDiagnostics
     (typedCoreProductionStatus firstRun)
   assertEqual "blocked oversaturation has no validation proof" Nothing (typedCoreProductionValidatedProgram firstRun)
-
-testCurriedApplicationComposition :: IO ()
-testCurriedApplicationComposition =
-  mapM_
-    (\name -> assertCompleteProduction name (producerEdgeFixture name))
-    ["curried-partial-higher-order-consumer", "inline-curried-lambda-call"]
 
 testLexicalCaptureLowering :: IO ()
 testLexicalCaptureLowering =
