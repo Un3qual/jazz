@@ -1228,12 +1228,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             expressionType
             captureTypes
         scalarBindingsBeforeStatements =
-          snd (foldl' collectScalarBinding (Map.empty, Map.empty) (zip [0 ..] statements))
-        collectScalarBinding (visibleBindings, snapshots) (statementIndex, statement) =
+          snd (foldl' collectScalarBinding (Map.empty, Map.empty) statements)
+        collectScalarBinding (visibleBindings, snapshots) statement =
           ( nextVisibleBindings,
             Map.insert statementIndex visibleBindings snapshots
           )
           where
+            statementIndex = provisionalStatementIndex statement
             nextVisibleBindings =
               case statement of
                 ProvisionalScalarBinding _ name _ _ _ ->
@@ -1264,7 +1265,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         scalarBinderStatements =
           Map.fromList
             [ (binderAt statementIndex [] (resolvedValueName name), statementIndex)
-            | (statementIndex, ProvisionalScalarBinding _ name _ _ _) <- zip [0 ..] statements,
+            | ProvisionalScalarBinding statementIndex name _ _ _ <- statements,
               Map.notMember name functions
             ]
         supportedMembers =
@@ -1306,6 +1307,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             [ (name, owner)
             | (owner, (name, _, _, _, _, _)) <- Map.toList supportedMembers
             ]
+        fullScalarCaptureTypesByOwner =
+          Map.mapWithKey
+            (\owner _ -> transitiveScalarCaptureTypes Set.empty owner)
+            supportedMembers
         unavailableClosureCaptureBinders =
           Set.fromList
             [ owner
@@ -1313,7 +1318,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               callableShape == TypedClosureCallableShape,
               Set.notMember owner recursiveMemberSet,
               Just statementIndex <- [binderStatementIndex owner],
-              capturesAtOrAfter statementIndex (transitiveScalarCaptureTypes Set.empty owner)
+              let scalarCaptureTypes = Map.findWithDefault [] owner fullScalarCaptureTypesByOwner,
+              capturesAtOrAfter statementIndex scalarCaptureTypes
             ]
         eagerClosureCaptureStatements =
           Map.fromList
@@ -1322,7 +1328,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               callableShape == TypedClosureCallableShape,
               let captureStatements =
                     [ scalarStatement
-                    | (binder, _) <- transitiveScalarCaptureTypes Set.empty owner,
+                    | (binder, _) <- Map.findWithDefault [] owner fullScalarCaptureTypesByOwner,
                       Just scalarStatement <- [Map.lookup binder scalarBinderStatements]
                     ],
               not (null captureStatements)
@@ -1388,6 +1394,14 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ]
         binderStatementIndex (TypedBinderId (_, statementIndex : _, _)) = Just statementIndex
         binderStatementIndex _ = Nothing
+        provisionalStatementIndex statement =
+          case statement of
+            ProvisionalSignature statementIndex _ _ _ -> statementIndex
+            ProvisionalFunctionBinding declaration _ -> provisionalCallableStatementIndex declaration
+            ProvisionalScalarBinding statementIndex _ _ _ _ -> statementIndex
+            ProvisionalTerminalExpression statementIndex _ _ -> statementIndex
+            ProvisionalUnsupportedCallableBinding declaration _ _ _ -> provisionalCallableStatementIndex declaration
+            ProvisionalUnsupportedStatement statementIndex _ _ _ -> statementIndex
         generatedOperatorName name =
           case name of
             GeneratedName (OperatorBinding _) -> True

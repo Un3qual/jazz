@@ -1337,7 +1337,7 @@ expectedCapturedRecursiveProgram groupNames functions terminalExpression =
     statements =
       TypedLetStatement seedBinder seedName (TypedSpan 2 1) seedScheme (intExpr 1)
         : functionStatements
-        <> [TypedExpressionStatement (TypedSpan (length functionStatements + 3) 1) boundTerminalExpression]
+          <> [TypedExpressionStatement (TypedSpan (length functionStatements + 3) 1) boundTerminalExpression]
 
 closureRecursionExpectedLoweredPrograms ::
   [(Text, TypedProgram, LoweredProgram)]
@@ -1352,8 +1352,8 @@ closureRecursionExpectedLoweredPrograms =
         ]
         LoweredBoolRepresentation
         [ expectedEmptyEnvironmentInstruction 1 recursiveGroupLayoutId,
-          expectedClosureWithEnvironmentInstruction 2 "left" recursiveGroupLayoutId (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
-          expectedClosureWithEnvironmentInstruction 3 "right" recursiveGroupLayoutId (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
+          expectedClosureWithEnvironmentInstruction 2 "left" (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
+          expectedClosureWithEnvironmentInstruction 3 "right" (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
           expectedClosureCallInstruction 4 LoweredBoolRepresentation (loweredTemporary 2 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate False)]
         ]
         (loweredTemporary 4 LoweredBoolRepresentation)
@@ -1367,7 +1367,7 @@ closureRecursionExpectedLoweredPrograms =
         ]
         LoweredBoolRepresentation
         [ expectedEmptyEnvironmentInstruction 1 recursiveGroupLayoutId,
-          expectedClosureWithEnvironmentInstruction 2 "loop" recursiveGroupLayoutId (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
+          expectedClosureWithEnvironmentInstruction 2 "loop" (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
           expectedClosureCallInstruction 3 LoweredBoolRepresentation (loweredTemporary 2 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate False)]
         ]
         (loweredTemporary 3 LoweredBoolRepresentation)
@@ -1403,12 +1403,12 @@ expectedCapturedRecursiveLoweredProgram recursiveFunctions functionNames =
     ( [ expectedEnvironmentInstruction 1 capturingRecursiveLayoutId [loweredInt64 1]
       ]
         <> zipWith
-          (\index functionName ->
-             expectedClosureWithEnvironmentInstructionFor
-               index
-               functionName
-               intClosureRepresentation
-               (loweredTemporary 1 (LoweredManagedReferenceRepresentation capturingRecursiveLayoutId))
+          ( \index functionName ->
+              expectedClosureWithEnvironmentInstructionFor
+                index
+                functionName
+                intClosureRepresentation
+                (loweredTemporary 1 (LoweredManagedReferenceRepresentation capturingRecursiveLayoutId))
           )
           [2 ..]
           functionNames
@@ -1982,7 +1982,7 @@ expectedRecursivePassingFunction functionName peerName layoutId =
     [ LoweredBlock
         (LoweredBlockId "entry")
         []
-        [ expectedClosureWithEnvironmentInstruction 1 peerName layoutId environmentOperand,
+        [ expectedClosureWithEnvironmentInstruction 1 peerName environmentOperand,
           expectedDirectCallInstruction 2 LoweredBoolRepresentation "apply" [loweredTemporary 1 boolClosureRepresentation]
         ]
         (Just (LoweredReturn (loweredTemporary 2 LoweredBoolRepresentation)))
@@ -2229,8 +2229,8 @@ expectedClosureInstruction index functionName layoutId =
         (loweredTemporary (index - 1) (LoweredManagedReferenceRepresentation layoutId))
     )
 
-expectedClosureWithEnvironmentInstruction :: Int -> Text -> LoweredLayoutId -> LoweredOperand -> LoweredInstruction
-expectedClosureWithEnvironmentInstruction index functionName _ environmentOperand =
+expectedClosureWithEnvironmentInstruction :: Int -> Text -> LoweredOperand -> LoweredInstruction
+expectedClosureWithEnvironmentInstruction index functionName environmentOperand =
   expectedClosureWithEnvironmentInstructionFor index functionName boolClosureRepresentation environmentOperand
 
 expectedClosureWithEnvironmentInstructionFor :: Int -> Text -> LoweredRepresentation -> LoweredOperand -> LoweredInstruction

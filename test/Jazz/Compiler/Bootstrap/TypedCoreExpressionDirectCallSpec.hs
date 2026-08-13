@@ -92,6 +92,7 @@ tests =
     ("specializes every use of a captured numeric scalar", testCapturedNumericScalarReferenceSpecialization),
     ("specializes enclosing expressions that reuse captured numeric scalars", testCapturedCompositeScalarSpecialization),
     ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
+    ("specializes recursive scalar alias captures across omitted source statements", testRecordedScalarStatementIndices),
     ("rejects eager recursive closure calls before their captures exist", testEagerRecursiveClosureCaptureAvailability),
     ("rejects eager nested closure construction before transitive captures exist", testEagerNestedClosureCaptureAvailability),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
@@ -1267,7 +1268,6 @@ testEarlierCallerTransitiveCaptureAvailability = do
 
 testCapturedNumericScalarReferenceSpecialization :: IO ()
 testCapturedNumericScalarReferenceSpecialization = do
-  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let spanValue = SourceSpan 1 1
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
@@ -1314,22 +1314,7 @@ testCapturedNumericScalarReferenceSpecialization = do
                   (ProvisionalLiteralExpression (LInt 1) uint8Type)
               )
           ]
-      status =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
-  case status of
-    TypedCoreProductionSucceeded programValue -> do
-      assertEqual "captured numeric scalar typed-core validation" [] (validateTypedProgram programValue)
-      case lowerTypedCoreExpressionDirectCall programValue of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual "captured numeric scalar lowered-IR validation" [] (validateLoweredProgram loweredProgram)
-        other -> failTest ("captured numeric scalar did not lower: " <> Text.pack (show other))
-    other -> failTest ("captured numeric scalar did not produce typed core: " <> Text.pack (show other))
+  assertProvisionalProductionCompletes "captured numeric scalar" provisionalScope
 
 testCapturedCompositeScalarSpecialization :: IO ()
 testCapturedCompositeScalarSpecialization = do
@@ -1427,6 +1412,68 @@ testCapturedScalarAliasSourceSpecialization = do
           ]
   assertProvisionalProductionCompletes "captured scalar alias source specialization" provisionalScope
 
+testRecordedScalarStatementIndices :: IO ()
+testRecordedScalarStatementIndices = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [3])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              1
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalScalarBinding
+              2
+              "copy"
+              spanValue
+              literalType
+              (ProvisionalVariableExpression "seed" literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "copy" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalLiteralExpression (LInt 1) uint8Type)
+              )
+          ]
+      status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  case status of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual "recorded scalar statement index typed-core validation" [] (validateTypedProgram programValue)
+    other -> failTest ("recorded scalar statement indices did not produce typed core: " <> Text.pack (show other))
+
 testEagerRecursiveClosureCaptureAvailability :: IO ()
 testEagerRecursiveClosureCaptureAvailability = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
@@ -1484,7 +1531,7 @@ testEagerRecursiveClosureCaptureAvailability = do
               TypedCoreCaptureUnsupported
               (TypedCoreNameDetail "loop")
           ]
-      firstRun =
+      status =
         typedCoreProductionOutcomeStatus
           ( finalizeValidatedTypedCoreExpressionDirectCall
               (TypedSourcePath "src/App/Main.jz")
@@ -1492,16 +1539,7 @@ testEagerRecursiveClosureCaptureAvailability = do
               initialInferState
               provisionalScope
           )
-      secondRun =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
-  assertEqual "eager recursive closure capture repeatability" firstRun secondRun
-  assertEqual "eager recursive closure capture rejection" expected firstRun
+  assertEqual "eager recursive closure capture rejection" expected status
 
 testEagerNestedClosureCaptureAvailability :: IO ()
 testEagerNestedClosureCaptureAvailability = do
@@ -1587,7 +1625,7 @@ testEagerNestedClosureCaptureAvailability = do
               TypedCoreCaptureUnsupported
               (TypedCoreNameDetail "loop")
           ]
-      firstRun =
+      status =
         typedCoreProductionOutcomeStatus
           ( finalizeValidatedTypedCoreExpressionDirectCall
               (TypedSourcePath "src/App/Main.jz")
@@ -1595,16 +1633,7 @@ testEagerNestedClosureCaptureAvailability = do
               initialInferState
               provisionalScope
           )
-      secondRun =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
-  assertEqual "eager nested closure capture repeatability" firstRun secondRun
-  assertEqual "eager nested closure capture rejection" expected firstRun
+  assertEqual "eager nested closure capture rejection" expected status
 
 assertProvisionalProductionCompletes :: Text -> ProvisionalTypedExpr -> IO ()
 assertProvisionalProductionCompletes label provisionalScope = do
