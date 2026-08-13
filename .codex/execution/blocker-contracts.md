@@ -168,12 +168,12 @@ Each blocked item should answer these questions:
   first-occurrence capture environments, and entry projections for scalar and
   closure-valued captures. Unsupported managed capture still fails closed.
   Normal compile/run remains canonical-core/interpreter based.
-- Smallest unblocker: curate RFC 0009's curried-application child into a
-  focused, validated implementation plan.
+- Smallest unblocker: execute the validated
+  `JN-BOOTSTRAP-TYPED-CORE-CURRIED-APPLICATION-001` ready row.
 - Decision needed: none for the semantic boundary. RFC 0009 fixes curried
   application as the fourth ordered child after lexical capture.
-- Recommended default: curate only the curried-application child with the exact
-  RFC ownership matrix and G1 gate; do not execute it until its plan is ready.
+- Recommended default: execute only the curried-application child with the exact
+  RFC ownership matrix and G1 gate. Keep both recursion children unpromoted.
   Keep normal compile/run on canonical core and the reference interpreter.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CURRIED-APPLICATION-001`.
 - Target paths: `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
