@@ -73,13 +73,14 @@ statistics and profiles observe evaluation without changing the result.
 
 An opt-in path retains a validated typed-core subset during analysis, lowers it
 to backend-neutral control-flow IR, and validates both representations. Its
-current profile covers concrete scalar bindings, direct calls, closed named
-functions as values, unary closure parameters and results, explicit empty
-environments, and unary higher-order closure calls.
+current profile covers concrete scalar bindings, direct calls, named function
+values, anonymous and nested unary closures, lexical capture, higher-order
+closure calls, partial application, and ordered callable oversaturation.
+Captured values use immutable environments whose fields follow deterministic
+first-use order.
 
-This stage does not participate in ordinary compile or run mode. Lexical
-capture, anonymous and nested closures, currying, oversaturation, recursion,
-full control flow, multi-module value interfaces, native emission, linking, and
-a native runtime remain promotion boundaries. See [Project status](../project/status.md)
-for the current boundary and [Bootstrapping](bootstrapping.md) for how hosted
-compiler stages are promoted.
+This stage does not participate in ordinary compile or run mode. Recursion,
+full control flow, scalar exports, complete multi-module integration, native
+emission, linking, and a native runtime remain promotion boundaries. See
+[Project status](../project/status.md) for the current boundary and
+[Bootstrapping](bootstrapping.md) for how hosted compiler stages are promoted.

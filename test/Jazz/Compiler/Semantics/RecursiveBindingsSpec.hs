@@ -12,21 +12,21 @@ import Jazz.Compiler.AST
     Pattern (..),
     SignaturePayload (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Name
   ( Name,
     mkIdentifier,
     operatorBindingName,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
-    collectBindingNames,
     buildRecursiveScopeFacts,
+    collectBindingNames,
     collectLambdaCaptureHints,
     freeVarsExprWithBound,
     freeVarsScopeWithBound,
@@ -34,18 +34,19 @@ import Jazz.Compiler.RecursiveBindings
     inferSelfRecursiveBindings,
     lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
+    lookupLambdaCapturedNamesOrdered,
     prepareRecursiveScope,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeGroups,
     preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
-    recursiveScopeGroups
+    recursiveScopeGroups,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -57,6 +58,7 @@ tests =
     ("recursive scope facts own binding names and ordered groups together", testRecursiveScopeFacts),
     ("prepared recursive scopes own exact statements and derived maps", testPreparedRecursiveScope),
     ("lambda capture plans address nested lambdas without AST keys", testLambdaCapturePlans),
+    ("lambda capture plans preserve first occurrence order", testLambdaCaptureOrder),
     ("free vars treat lambda parameters as bound", testFreeVarsLambdaParameterBound),
     ("ordinary binding initializers keep their own name free", testFreeVarsScopeKeepsOrdinaryInitializerNameFree),
     ("ordinary binding initializers resolve an outer same-name binding", testFreeVarsScopeResolvesOuterInitializerName),
@@ -129,7 +131,7 @@ testRecursiveScopeFacts = do
         Set.empty
         [ (0, SLet (ident "left") span0 (ELambda (ident "item") (EVar (ident "right")))),
           (1, SExpr span0 (ELit (LInt 0))),
-          (2, SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left"))) )
+          (2, SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left"))))
         ]
 
 testPreparedRecursiveScope :: IO ()
@@ -166,9 +168,17 @@ testLambdaCapturePlans = do
     (Just (Set.singleton (ident "outside")))
     (fst <$> lookupLambdaCapturedNames outerLambdaHints)
   assertEqual
+    "ordered outer lambda captures"
+    (Just [ident "outside"])
+    (fst <$> lookupLambdaCapturedNamesOrdered outerLambdaHints)
+  assertEqual
     "nested lambda captures"
     (Just (Set.fromList [ident "outside", ident "outer"]))
     (fst <$> lookupLambdaCapturedNames nestedLambdaHints)
+  assertEqual
+    "ordered nested lambda captures"
+    (Just [ident "outer", ident "outside"])
+    (fst <$> lookupLambdaCapturedNamesOrdered nestedLambdaHints)
   where
     rootHints = collectLambdaCaptureHints expression
     outerLambdaHints = lambdaCaptureHintsChild 1 rootHints
@@ -190,6 +200,48 @@ testLambdaCapturePlans = do
                     )
                 )
                 (EVar (ident "outer"))
+            )
+        )
+
+testLambdaCaptureOrder :: IO ()
+testLambdaCaptureOrder = do
+  assertEqual
+    "ordered captures deduplicate by first occurrence and exclude the parameter"
+    (Just [ident "right", ident "left"])
+    (fst <$> lookupLambdaCapturedNamesOrdered rootHints)
+  assertEqual
+    "ordered captures exclude a prior block-local binding"
+    (Just [ident "outside", ident "tail"])
+    (fst <$> lookupLambdaCapturedNamesOrdered blockHints)
+  where
+    rootHints =
+      collectLambdaCaptureHints
+        ( ELambda
+            (ident "item")
+            ( ETuple
+                [ EVar (ident "right"),
+                  EVar (ident "left"),
+                  EVar (ident "right"),
+                  EVar (ident "item")
+                ]
+            )
+        )
+    blockHints =
+      collectLambdaCaptureHints
+        ( ELambda
+            (ident "item")
+            ( EBlock
+                [ SLet (ident "local") span0 (EVar (ident "outside")),
+                  SExpr
+                    span0
+                    ( ETuple
+                        [ EVar (ident "local"),
+                          EVar (ident "outside"),
+                          EVar (ident "tail"),
+                          EVar (ident "item")
+                        ]
+                    )
+                ]
             )
         )
 

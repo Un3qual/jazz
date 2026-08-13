@@ -28,10 +28,12 @@ bounded opt-in profile rather than the full language, and ordinary run mode
 continues to evaluate canonical core with the interpreter.
 
 The bounded backend profile supports concrete scalar bindings, direct calls,
-closed named functions as values, unary closure parameters and results,
-explicit empty environments, and unary higher-order closure calls. It does not
-yet support lexical capture, anonymous or nested closures, currying,
-oversaturation, recursion, full control flow, or complete module integration.
+closed named functions as values, anonymous and nested unary closures, lexical
+capture, unary higher-order closure calls, partial application, and ordered
+application of additional arguments while intermediate results remain callable.
+Captured values use immutable environments with deterministic field ordering.
+The profile does not yet support recursion, full control flow, scalar exports,
+or complete module integration.
 
 ## Promotion
 

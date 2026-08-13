@@ -10,17 +10,17 @@ import Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
     canonicalLoweredProgramsRuntimeValue,
     canonicalLoweredValidationFailuresRuntimeValue,
     closureEmissionContractPrograms,
-    decodeCanonicalLoweredValidationFailuresRuntimeValue
+    decodeCanonicalLoweredValidationFailuresRuntimeValue,
   )
 import Jazz.Compiler.Bootstrap.CanonicalValue
   ( canonicalConstructor,
-    canonicalNullaryConstructor
+    canonicalNullaryConstructor,
   )
 import Jazz.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
     runModuleGraph,
-    runRuntimeErrors
+    runRuntimeErrors,
   )
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
@@ -28,7 +28,7 @@ import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    renderRuntimeValue
+    renderRuntimeValue,
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
@@ -36,7 +36,7 @@ import Jazz.TestHarness
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 import Jazz.TestSource (readCheckedInJazzProjectModuleSource)
 
@@ -71,7 +71,7 @@ tests =
     ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
     ("rejects malformed nested validation values", testCheckedValidationAdapterMalformedNestedValue),
     ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
-    ("matches Haskell validation for all 44 Jazz fixtures twice", testJazzValidationParity),
+    ("matches Haskell validation for all 47 Jazz fixtures twice", testJazzValidationParity),
     ("matches Haskell validation for every hardening regression twice", testJazzHardeningParity)
   ]
 
@@ -143,7 +143,7 @@ testCheckedValidationAdapterMalformedNestedValue =
         )
     )
 
-assertTextLeftContains :: Show value => Text -> Text -> Either Text value -> IO ()
+assertTextLeftContains :: (Show value) => Text -> Text -> Either Text value -> IO ()
 assertTextLeftContains label expected result =
   case result of
     Left actual -> assertContains label expected actual
@@ -159,7 +159,7 @@ testJazzValidationParity = do
                   [ canonicalLoweredProgramRuntimeValue programValue,
                     canonicalLoweredValidationFailuresRuntimeValue (validateLoweredProgram programValue)
                   ]
-                | programValue <- programs
+              | programValue <- programs
               ]
               Nothing
           )
@@ -179,7 +179,7 @@ testJazzHardeningParity = do
                   [ canonicalLoweredProgramRuntimeValue programValue,
                     canonicalLoweredValidationFailuresRuntimeValue (validateLoweredProgram programValue)
                   ]
-                | programValue <- programs
+              | programValue <- programs
               ]
               Nothing
           )
@@ -298,7 +298,7 @@ testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
   assertEqual "invalid fixture count" 31 (length invalidFixtures)
-  assertEqual "complete fixture count" 44 (length validFixtures + length invalidFixtures)
+  assertEqual "complete fixture count" 47 (length validFixtures + length invalidFixtures)
 
 testFixtureManifestIntegrity :: IO ()
 testFixtureManifestIntegrity = do
@@ -352,7 +352,7 @@ testJazzUInt64ImmediateRange = do
                   [ canonicalLoweredProgramRuntimeValue programValue,
                     canonicalLoweredValidationFailuresRuntimeValue expectedFailures
                   ]
-                | (_, programValue, expectedFailures) <- uint64ImmediateBoundaryCases
+              | (_, programValue, expectedFailures) <- uint64ImmediateBoundaryCases
               ]
               Nothing
           )
@@ -394,35 +394,37 @@ runJazzMalformedUnsignedImmediate immediateText =
 
 jazzMalformedUnsignedImmediateSource :: Text -> Text
 jazzMalformedUnsignedImmediateSource immediateText =
-  Text.replace "__IMMEDIATE__" immediateText
+  Text.replace
+    "__IMMEDIATE__"
+    immediateText
     """
-  module App::Main {
-    import LoweredIRTypes.
-    import LoweredIRValidate (validateProgram).
-    import Maybe.
-    validateProgram
-      (LoweredProgram
-        (LoweredIRVersion 1)
-        []
-        []
-        [LoweredFunction
-          (LoweredFunctionId "main")
-          Nothing
+    module App::Main {
+      import LoweredIRTypes.
+      import LoweredIRValidate (validateProgram).
+      import Maybe.
+      validateProgram
+        (LoweredProgram
+          (LoweredIRVersion 1)
           []
-          (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64)
-          [LoweredBlock
-            (LoweredBlockId "entry")
+          []
+          [LoweredFunction
+            (LoweredFunctionId "main")
+            Nothing
             []
-            []
-            (Just
-              (LoweredReturn
-                (LoweredImmediateOperand
-                  (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 "__IMMEDIATE__"))))]
-          (LoweredBlockId "entry")]
-        (LoweredFunctionId "main")).
-  }
+            (LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64)
+            [LoweredBlock
+              (LoweredBlockId "entry")
+              []
+              []
+              (Just
+                (LoweredReturn
+                  (LoweredImmediateOperand
+                    (LoweredUnsignedIntegerImmediate LoweredIntegerWidth64 "__IMMEDIATE__"))))]
+            (LoweredBlockId "entry")]
+          (LoweredFunctionId "main")).
+    }
 
-  """
+    """
 
 uint64ImmediateBoundaryCases :: [(Text, LoweredProgram, [LoweredIRValidationFailure])]
 uint64ImmediateBoundaryCases =
@@ -515,7 +517,7 @@ testCompleteFailureOrder =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 13 (length validFixtures)
+  assertEqual "valid fixture count" 16 (length validFixtures)
 
 testValidContractRendering :: IO ()
 testValidContractRendering = do
@@ -758,7 +760,10 @@ expectedValidFixtureNames =
     "text-list-layouts",
     "typed-core-named-function-value",
     "typed-core-higher-order-call",
-    "typed-core-closure-result"
+    "typed-core-closure-result",
+    "typed-core-curried-partial-application",
+    "typed-core-curried-callable-oversaturation",
+    "typed-core-lexical-capture"
   ]
 
 validConstructorInventory :: [Text]

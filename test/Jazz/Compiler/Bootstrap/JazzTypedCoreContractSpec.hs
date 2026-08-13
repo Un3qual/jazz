@@ -86,7 +86,7 @@ coreTests =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 19 (length validFixtures)
+  assertEqual "valid fixture count" 21 (length validFixtures)
 
 testOutcomeEncoding :: IO ()
 testOutcomeEncoding = do
@@ -134,7 +134,7 @@ testInvalidPrograms =
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =
-  assertEqual "combined fixture count" 75 (length validFixtures + length invalidFixtures)
+  assertEqual "combined fixture count" 77 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -3567,8 +3567,8 @@ testNewestReviewRegressions = do
         ( TypedTypeDetail
             (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
             TypedTextType
-        )
-    , statementFailure
+        ),
+      statementFailure
         "review-impl-method-contract"
         1
         TypedCallableShapeMismatch
@@ -8648,14 +8648,14 @@ recursiveBlockPeerProgram =
     recursiveLambda ownerPath argumentName peerOwner peerName =
       let argumentOwner = binder modulePath ownerPath argumentName
        in TypedLambdaExpr
-        boolToBoolInfo
-        argumentOwner
-        argumentName
-        ( TypedApplyExpr
-            boolInfo
-            (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
-            (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
-        )
+            boolToBoolInfo
+            argumentOwner
+            argumentName
+            ( TypedApplyExpr
+                boolInfo
+                (fixtureBoundVariableExpr peerOwner boolToBoolInfo peerName)
+                (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+            )
     leftArgument = resolved TypedCurrentModule TypedValueNamespace "leftArgument"
     rightArgument = resolved TypedCurrentModule TypedValueNamespace "rightArgument"
     leftStatement =
@@ -12636,7 +12636,9 @@ expectedValidFixtureNames =
     "patterns-binders",
     "or-pattern-alignment",
     "callable-shapes-binder-references",
-    "multi-module-interface"
+    "multi-module-interface",
+    "lexical-capture",
+    "curried-applications"
   ]
 
 validFixtures :: [ValidFixture]
@@ -12667,6 +12669,8 @@ validProgram fixtureName =
     "or-pattern-alignment" -> orPatternAlignmentProgram
     "callable-shapes-binder-references" -> callableShapesBinderReferencesProgram
     "multi-module-interface" -> multiModuleInterfaceProgram
+    "lexical-capture" -> lexicalCaptureProgram
+    "curried-applications" -> curriedApplicationsProgram
     _ -> error "unknown valid typed-core fixture"
 
 programWith :: Text -> [TypedStatement] -> TypedModuleInterface -> TypedNodeInfo -> TypedProgram
@@ -12717,6 +12721,124 @@ scalarAliasesWidthsProgram =
         (TypedNumericType numericType)
         (TypedFloatRecipe width)
         (TypedFractionalLiteral "2" "25" (Just numericType))
+
+lexicalCaptureProgram :: TypedProgram
+lexicalCaptureProgram =
+  programWith
+    fixture
+    [ TypedLetStatement seedBinder seedName span1 seedScheme (TypedLiteralExpr intInfo (TypedIntegerLiteral "1")),
+      TypedLetStatement functionBinder functionName span1 functionScheme functionExpression,
+      TypedExpressionStatement span1 applicationExpression
+    ]
+    emptyInterface
+    intInfo
+  where
+    fixture = "lexical-capture"
+    modulePath = fixtureModulePath fixture
+    seedName = fixtureValueName "seed"
+    seedBinder = binder modulePath [0] seedName
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    functionName = fixtureValueName "addSeed"
+    functionBinder = binder modulePath [1] functionName
+    parameterName = fixtureValueName "item"
+    parameterBinder = binder modulePath [1, 0] parameterName
+    intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
+    callableType = TypedFunctionType TypedIntType TypedIntType
+    callableRecipe = TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64)
+    callableInfo = info callableType callableRecipe
+    functionScheme = TypedScheme functionBinder [] [] [] callableType callableRecipe (Just TypedClosureCallableShape)
+    functionExpression =
+      TypedLambdaExpr
+        callableInfo
+        parameterBinder
+        parameterName
+        ( TypedBinaryExpr
+            intInfo
+            (TypedBuiltinOperator "+")
+            (TypedVariableExpr intInfo parameterName (Just parameterBinder))
+            (TypedVariableExpr intInfo seedName (Just seedBinder))
+        )
+    applicationExpression =
+      TypedApplyExpr
+        intInfo
+        (TypedVariableExpr callableInfo functionName (Just functionBinder))
+        (TypedLiteralExpr intInfo (TypedIntegerLiteral "41"))
+
+curriedApplicationsProgram :: TypedProgram
+curriedApplicationsProgram =
+  programWith
+    fixture
+    [ TypedLetStatement combineBinder combineName span1 combineScheme combineExpression,
+      expressionStatement 2 partialApplication,
+      TypedLetStatement identityBinder identityName span1 identityScheme identityExpression,
+      TypedLetStatement chooseBinder chooseName span1 chooseScheme chooseExpression,
+      expressionStatement 5 callableOversaturation
+    ]
+    emptyInterface
+    intInfo
+  where
+    fixture = "curried-applications"
+    modulePath = fixtureModulePath fixture
+    intRecipe = TypedSignedIntegerRecipe 64
+    intInfo = info TypedIntType intRecipe
+    intToIntType = TypedFunctionType TypedIntType TypedIntType
+    intToIntRecipe = TypedClosureRecipe [intRecipe] intRecipe
+    intToIntInfo = info intToIntType intToIntRecipe
+    combineType = TypedFunctionType TypedIntType intToIntType
+    combineRecipe = TypedClosureRecipe [intRecipe] intToIntRecipe
+    combineInfo = info combineType combineRecipe
+    combineName = fixtureValueName "combine"
+    combineBinder = binder modulePath [0] combineName
+    leftName = fixtureValueName "left"
+    leftBinder = binder modulePath [0, 0] leftName
+    rightName = fixtureValueName "right"
+    rightBinder = binder modulePath [0, 0, 0] rightName
+    combineScheme = TypedScheme combineBinder [] [] [] combineType combineRecipe (Just TypedClosureCallableShape)
+    combineExpression =
+      TypedLambdaExpr
+        combineInfo
+        leftBinder
+        leftName
+        ( TypedLambdaExpr
+            intToIntInfo
+            rightBinder
+            rightName
+            (fixtureBoundVariableExpr leftBinder intInfo leftName)
+        )
+    partialApplication =
+      TypedApplyExpr
+        intToIntInfo
+        (fixtureBoundVariableExpr combineBinder combineInfo combineName)
+        (TypedLiteralExpr intInfo (TypedIntegerLiteral "1"))
+    identityName = fixtureValueName "identity"
+    identityBinder = binder modulePath [2] identityName
+    itemName = fixtureValueName "item"
+    itemBinder = binder modulePath [2, 0] itemName
+    identityScheme = TypedScheme identityBinder [] [] [] intToIntType intToIntRecipe (Just TypedClosureCallableShape)
+    identityExpression = TypedLambdaExpr intToIntInfo itemBinder itemName (fixtureBoundVariableExpr itemBinder intInfo itemName)
+    chooseType = TypedFunctionType TypedBoolType intToIntType
+    chooseRecipe = TypedClosureRecipe [TypedBoolRecipe] intToIntRecipe
+    chooseInfo = info chooseType chooseRecipe
+    chooseName = fixtureValueName "choose"
+    chooseBinder = binder modulePath [3] chooseName
+    ignoredName = fixtureValueName "ignored"
+    ignoredBinder = binder modulePath [3, 0] ignoredName
+    chooseScheme = TypedScheme chooseBinder [] [] [] chooseType chooseRecipe (Just TypedDirectCallableShape)
+    chooseExpression =
+      TypedLambdaExpr
+        chooseInfo
+        ignoredBinder
+        ignoredName
+        (fixtureBoundVariableExpr identityBinder intToIntInfo identityName)
+    callableOversaturation =
+      TypedApplyExpr
+        intInfo
+        ( TypedApplyExpr
+            intToIntInfo
+            (fixtureBoundVariableExpr chooseBinder chooseInfo chooseName)
+            falseExpr
+        )
+        (TypedLiteralExpr intInfo (TypedIntegerLiteral "2"))
 
 resolvedNameOriginsProgram :: TypedProgram
 resolvedNameOriginsProgram =

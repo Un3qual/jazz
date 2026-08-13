@@ -3175,7 +3175,7 @@ validateVariableSchemeContract context path directCalleeArgumentCount info binde
 validateDirectCallableSchemeUse :: TypedCoreValidationPath -> Int -> TypedScheme -> [TypedCoreValidationFailure]
 validateDirectCallableSchemeUse path directCalleeArgumentCount (TypedScheme owner _ _ _ _ recipe callableShape)
   | callableShape == Just TypedDirectCallableShape,
-    directCallableRecipeArity recipe /= Just directCalleeArgumentCount =
+    maybe True (> directCalleeArgumentCount) (directCallableRecipeArity recipe) =
       [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
   | otherwise = []
 
@@ -3217,7 +3217,7 @@ expectedNativeCallableUseRecipe requireStagedCallableRecipe directCalleeArgument
   | otherwise =
       case expectedRecipe typeValue of
         directRecipe@(Just recipe)
-          | directCallableRecipeArity recipe == Just directCalleeArgumentCount -> directRecipe
+          | maybe False (<= directCalleeArgumentCount) (directCallableRecipeArity recipe) -> directRecipe
         _ -> expectedValueRecipe typeValue
 
 lookupTypedBuiltinSymbol :: Text -> Maybe BuiltinSymbol

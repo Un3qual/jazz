@@ -346,6 +346,17 @@ Completing a child removes its row and stale blocker wording, updates
 only the next accepted child. Queue and docs validators plus `git diff --check`
 run after every promotion and closeout.
 
+### Implementation progress
+
+As of `2026-08-12`, the closure-call foundation, scalar-binding prerequisite,
+lexical-capture, and curried-application children have landed through their
+required focused gates and the full serialized compiler suite. The opt-in
+profile now includes exact binder resolution, deterministic immutable capture
+environments, staged currying, ordinary partial-application closure results,
+and ordered callable oversaturation. Direct recursion is the next ordered child
+awaiting curation; closure recursion remains later in the accepted sequence.
+Ordinary compile and run remain unchanged.
+
 ## Context
 
 RFC 0005 established a single-pass typed-core producer whose implemented

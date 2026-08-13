@@ -32,11 +32,16 @@ partial area has working, tested behavior but retains a stated boundary.
 
 The opt-in typed-core and backend-neutral lowering profile includes closed
 named functions as values, recursively represented unary closure parameters
-and results, explicit empty environments, unary higher-order closure calls, and
-concrete scalar bindings evaluated once in source order and reused by exact
-binder identity in later entry expressions. Scalar bindings currently require
-an entry module with an explicitly empty export list because scalar value
-interfaces are not produced. Ordinary compile and run remain on canonical core
-and the reference interpreter. The opt-in profile still excludes anonymous or
-nested closures, lexical capture, currying and partial application,
-oversaturation, and recursion.
+and results, explicit empty environments, unary higher-order closure calls,
+anonymous and nested unary closures, and binder-resolved scalar or
+closure-valued lexical capture. Capture fields use deterministic first-occurrence
+order in immutable environments with stable lifted identities. Concrete scalar
+bindings are evaluated once in source order and reused by exact binder identity
+in later entry expressions. Scalar bindings currently require an entry module
+with an explicitly empty export list because scalar value interfaces are not
+produced. Curried source applications now retain unary staging across named
+functions, callable parameters, and inline lambdas. Partial application returns
+the remaining closure, and callable oversaturation evaluates each next argument
+only after the preceding call returns another callable value. Ordinary compile
+and run remain on canonical core and the reference interpreter. The opt-in
+profile still excludes recursion.

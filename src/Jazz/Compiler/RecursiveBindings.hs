@@ -18,6 +18,7 @@ module Jazz.Compiler.RecursiveBindings
     inferSelfRecursiveBindings,
     lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
+    lookupLambdaCapturedNamesOrdered,
     prepareRecursiveScope,
     preparedRecursiveScopeBindingNames,
     preparedRecursiveScopeFactsForOuterBindings,
@@ -25,12 +26,13 @@ module Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeOuterBindingNames,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
-    recursiveScopeGroups
-  ) where
+    recursiveScopeGroups,
+  )
+where
 
 import Data.Graph
   ( SCC (..),
-    stronglyConnComp
+    stronglyConnComp,
   )
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -42,18 +44,18 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Name
   ( Name,
-    operatorBindingName
+    operatorBindingName,
+  )
+import Jazz.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol,
   )
 import Jazz.Compiler.Pattern
   ( extendBoundWithPattern,
-    patternBinderNames
-  )
-import Jazz.Compiler.Parser.Operator
-  ( isBuiltinOperatorSymbol
+    patternBinderNames,
   )
 
 collectBindingNames :: [(Int, Statement)] -> Map Int Name
@@ -111,9 +113,9 @@ preparedRecursiveScopeFactsForOuterBindings ::
 preparedRecursiveScopeFactsForOuterBindings
   expectedOuterBindingNames
   (PreparedRecursiveScope statements preparedOuterBindingNames recursiveScopeFactsValue)
-  | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
-  | otherwise =
-      buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
+    | expectedOuterBindingNames == preparedOuterBindingNames = recursiveScopeFactsValue
+    | otherwise =
+        buildRecursiveScopeFacts expectedOuterBindingNames (zip [0 ..] statements)
 
 preparedRecursiveScopeBindingNames :: PreparedRecursiveScope -> Map Int Name
 preparedRecursiveScopeBindingNames (PreparedRecursiveScope _ _ recursiveScopeFactsValue) =
@@ -126,7 +128,9 @@ preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValu
 -- | Free-variable facts arranged in the same child-index shape as the lambda
 -- AST. The plan deliberately retains neither lambda bodies nor parameters, so
 -- runtime lookup cannot fall back to structural expression equality.
-data LambdaCaptureHint = LambdaCaptureHint (Set Name) LambdaCaptureHints
+data LambdaCaptureHint = LambdaCaptureHint OrderedNames LambdaCaptureHints
+
+data OrderedNames = OrderedNames (Set Name) [Name]
 
 data LambdaCaptureHints = LambdaCaptureHints
   { lambdaCaptureHintAtRoot :: Maybe LambdaCaptureHint,
@@ -143,21 +147,21 @@ lambdaCaptureHintsChild childIndex =
 collectLambdaCaptureHints :: Expr -> LambdaCaptureHints
 collectLambdaCaptureHints = snd . analyzeLambdaCaptures
 
-analyzeLambdaCaptures :: Expr -> (Set Name, LambdaCaptureHints)
+analyzeLambdaCaptures :: Expr -> (OrderedNames, LambdaCaptureHints)
 analyzeLambdaCaptures expr =
   case expr of
     ELit _ -> emptyCaptureAnalysis
-    EVar name -> (Set.singleton name, emptyLambdaCaptureHints)
+    EVar name -> (orderedNamesSingleton name, emptyLambdaCaptureHints)
     ELambda parameterName bodyExpr ->
       let (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
-          capturedNames = Set.delete parameterName bodyFreeNames
+          capturedNames = orderedNamesDelete parameterName bodyFreeNames
        in ( capturedNames,
             LambdaCaptureHints
               (Just (LambdaCaptureHint capturedNames bodyHints))
               IntMap.empty
           )
     EOperatorValue operatorSymbol ->
-      (operatorBindingFreeVar Set.empty operatorSymbol, emptyLambdaCaptureHints)
+      (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol), emptyLambdaCaptureHints)
     EList elements -> analyzeLambdaChildren elements
     ETuple elements -> analyzeLambdaChildren elements
     EApply functionExpr argumentExpr ->
@@ -170,22 +174,22 @@ analyzeLambdaCaptures expr =
       analyzeLambdaPatternCase scrutineeExpr caseArms
     EBinary operatorSymbol leftExpr rightExpr ->
       let (freeNames, hints) = analyzeLambdaChildren [leftExpr, rightExpr]
-       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+       in (orderedNamesUnion (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol)) freeNames, hints)
     ESectionLeft leftExpr operatorSymbol ->
       let (freeNames, hints) = analyzeLambdaChildren [leftExpr]
-       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+       in (orderedNamesUnion (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol)) freeNames, hints)
     ESectionRight operatorSymbol rightExpr ->
       let (freeNames, hints) = analyzeLambdaChildren [rightExpr]
-       in (Set.union (operatorBindingFreeVar Set.empty operatorSymbol) freeNames, hints)
+       in (orderedNamesUnion (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol)) freeNames, hints)
     EBlock statements ->
       analyzeLambdaScope statements
 
-emptyCaptureAnalysis :: (Set Name, LambdaCaptureHints)
-emptyCaptureAnalysis = (Set.empty, emptyLambdaCaptureHints)
+emptyCaptureAnalysis :: (OrderedNames, LambdaCaptureHints)
+emptyCaptureAnalysis = (orderedNamesEmpty, emptyLambdaCaptureHints)
 
-analyzeLambdaChildren :: [Expr] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaChildren :: [Expr] -> (OrderedNames, LambdaCaptureHints)
 analyzeLambdaChildren expressions =
-  ( Set.unions freeNames,
+  ( orderedNamesUnions freeNames,
     LambdaCaptureHints Nothing (IntMap.fromList childHints)
   )
   where
@@ -197,7 +201,7 @@ analyzeLambdaChildren expressions =
         not (lambdaCaptureHintsAreEmpty hints)
       ]
 
-analyzeLambdaPatternCase :: Expr -> [CaseArm] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaPatternCase :: Expr -> [CaseArm] -> (OrderedNames, LambdaCaptureHints)
 analyzeLambdaPatternCase scrutineeExpr caseArms =
   foldl' analyzeArm initialAnalysis (zip [0 ..] caseArms)
   where
@@ -208,10 +212,10 @@ analyzeLambdaPatternCase scrutineeExpr caseArms =
       )
 
     analyzeArm (freeNames, hints) (armIndex, CaseArm pattern guardExpr bodyExpr) =
-      ( Set.unions
+      ( orderedNamesUnions
           [ freeNames,
-            Set.difference guardFreeNames boundNames,
-            Set.difference bodyFreeNames boundNames
+            orderedNamesDifference guardFreeNames boundNames,
+            orderedNamesDifference bodyFreeNames boundNames
           ],
         insertLambdaChildHint
           bodyChildIndex
@@ -226,12 +230,12 @@ analyzeLambdaPatternCase scrutineeExpr caseArms =
         guardChildIndex = 1 + (2 * armIndex)
         bodyChildIndex = guardChildIndex + 1
 
-analyzeLambdaScope :: [Statement] -> (Set Name, LambdaCaptureHints)
+analyzeLambdaScope :: [Statement] -> (OrderedNames, LambdaCaptureHints)
 analyzeLambdaScope statements =
   (freeNames, LambdaCaptureHints Nothing childHints)
   where
     (_, freeNames, childHints) =
-      foldl' analyzeStatement (Set.empty, Set.empty, IntMap.empty) (zip [0 ..] statements)
+      foldl' analyzeStatement (Set.empty, orderedNamesEmpty, IntMap.empty) (zip [0 ..] statements)
 
     analyzeStatement (boundNames, accumulatedFreeNames, accumulatedHints) (statementIndex, statement) =
       case statement of
@@ -250,7 +254,7 @@ analyzeLambdaScope statements =
         analyzeValue nextBoundNames valueExpr =
           let (valueFreeNames, valueHints) = analyzeLambdaCaptures valueExpr
            in ( nextBoundNames,
-                Set.union accumulatedFreeNames (Set.difference valueFreeNames boundNames),
+                orderedNamesUnion accumulatedFreeNames (orderedNamesDifference valueFreeNames boundNames),
                 insertLambdaChildHintMap statementIndex valueHints accumulatedHints
               )
 
@@ -273,8 +277,49 @@ lambdaCaptureHintsAreEmpty _ = False
 lookupLambdaCapturedNames :: LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
 lookupLambdaCapturedNames hints =
   case lambdaCaptureHintAtRoot hints of
-    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (capturedNames, nestedHints)
+    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (orderedNamesSet capturedNames, nestedHints)
     Nothing -> Nothing
+
+lookupLambdaCapturedNamesOrdered :: LambdaCaptureHints -> Maybe ([Name], LambdaCaptureHints)
+lookupLambdaCapturedNamesOrdered hints =
+  case lambdaCaptureHintAtRoot hints of
+    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (orderedNamesList capturedNames, nestedHints)
+    Nothing -> Nothing
+
+orderedNamesEmpty :: OrderedNames
+orderedNamesEmpty = OrderedNames Set.empty []
+
+orderedNamesSingleton :: Name -> OrderedNames
+orderedNamesSingleton name = OrderedNames (Set.singleton name) [name]
+
+orderedNamesFromSet :: Set Name -> OrderedNames
+orderedNamesFromSet names = OrderedNames names (Set.toList names)
+
+orderedNamesSet :: OrderedNames -> Set Name
+orderedNamesSet (OrderedNames names _) = names
+
+orderedNamesList :: OrderedNames -> [Name]
+orderedNamesList (OrderedNames _ names) = names
+
+orderedNamesUnion :: OrderedNames -> OrderedNames -> OrderedNames
+orderedNamesUnion left (OrderedNames _ names) =
+  foldl' orderedNamesInsert left names
+
+orderedNamesUnions :: [OrderedNames] -> OrderedNames
+orderedNamesUnions = foldl' orderedNamesUnion orderedNamesEmpty
+
+orderedNamesInsert :: OrderedNames -> Name -> OrderedNames
+orderedNamesInsert ordered@(OrderedNames seen names) name
+  | Set.member name seen = ordered
+  | otherwise = OrderedNames (Set.insert name seen) (names <> [name])
+
+orderedNamesDelete :: Name -> OrderedNames -> OrderedNames
+orderedNamesDelete name (OrderedNames seen names) =
+  OrderedNames (Set.delete name seen) (filter (/= name) names)
+
+orderedNamesDifference :: OrderedNames -> Set Name -> OrderedNames
+orderedNamesDifference (OrderedNames seen names) removed =
+  OrderedNames (Set.difference seen removed) (filter (`Set.notMember` removed) names)
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
 freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty
@@ -300,7 +345,8 @@ freeVarsExprUsing scopeFreeVars bound expr =
       | Set.member name bound -> Set.empty
       | otherwise -> Set.singleton name
     ELambda parameterName bodyExpr ->
-      freeVarsExprUsing scopeFreeVars
+      freeVarsExprUsing
+        scopeFreeVars
         (Set.insert parameterName bound)
         bodyExpr
     EOperatorValue operatorSymbol ->
@@ -323,13 +369,13 @@ freeVarsExprUsing scopeFreeVars bound expr =
         ]
     EPatternCase scrutineeExpr caseArms ->
       Set.unions
-        ( freeVarsExprUsing scopeFreeVars bound scrutineeExpr :
-          [ Set.union
-              (maybe Set.empty (freeVarsExprUsing scopeFreeVars armBound) guardExpr)
-              (freeVarsExprUsing scopeFreeVars armBound bodyExpr)
-          | CaseArm pattern guardExpr bodyExpr <- caseArms,
-            let armBound = extendBoundWithPattern pattern bound
-          ]
+        ( freeVarsExprUsing scopeFreeVars bound scrutineeExpr
+            : [ Set.union
+                  (maybe Set.empty (freeVarsExprUsing scopeFreeVars armBound) guardExpr)
+                  (freeVarsExprUsing scopeFreeVars armBound bodyExpr)
+              | CaseArm pattern guardExpr bodyExpr <- caseArms,
+                let armBound = extendBoundWithPattern pattern bound
+              ]
         )
     EBinary operatorSymbol leftExpr rightExpr ->
       Set.unions
@@ -399,8 +445,8 @@ freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
     recursiveGroupMemberNames statementIndex =
       Set.fromList
         [ peerName
-          | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
-            Just peerName <- [Map.lookup peerIndex bindingNamesByStatement]
+        | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+          Just peerName <- [Map.lookup peerIndex bindingNamesByStatement]
         ]
 
     step (boundNames, freeNames) (statementIndex, statement) =
@@ -420,12 +466,11 @@ freeVarsScopeWithVisibleBindings visibleBindingNames initialBound statements =
         SLet bindingName _ valueExpr ->
           let boundWithSelf = Set.insert bindingName boundNames
               rhsBoundNames = Set.union boundNames (recursiveGroupMemberNames statementIndex)
-           in
-            ( boundWithSelf,
-              Set.union
-                freeNames
-                (freeVarsExprWithVisibleBindings visibleBindingNames rhsBoundNames valueExpr)
-            )
+           in ( boundWithSelf,
+                Set.union
+                  freeNames
+                  (freeVarsExprWithVisibleBindings visibleBindingNames rhsBoundNames valueExpr)
+              )
 
 inferRecursiveGroupsOrdered :: Set Name -> [(Int, Statement)] -> Map Int [Int]
 inferRecursiveGroupsOrdered outerBindingNames =
@@ -435,22 +480,22 @@ inferRecursiveGroupsOrderedInternal :: Set Name -> [(Int, Statement)] -> Map Int
 inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
   Map.fromList
     [ (statementIndex, componentStatements)
-      | component <- stronglyConnComp graphNodes,
-        let componentStatements = componentStatementIndices component,
-        isRecursiveComponent component,
-        statementIndex <- componentStatements
+    | component <- stronglyConnComp graphNodes,
+      let componentStatements = componentStatementIndices component,
+      isRecursiveComponent component,
+      statementIndex <- componentStatements
     ]
   where
     declarationInfo =
       [ (statementIndex, bindingName, valueExpr)
-        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+      | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
       ]
     firstDeclarationStatementByName =
       foldl' collectFirstDeclaration Map.empty declarationInfo
     baseDependencies =
       Map.fromList
         [ (statementIndex, Set.empty)
-          | (statementIndex, _, _) <- declarationInfo
+        | (statementIndex, _, _) <- declarationInfo
         ]
     (_, _, dependenciesByStatement) =
       foldl'
@@ -459,7 +504,7 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
         declarationInfo
     graphNodes =
       [ (statementIndex, statementIndex, Set.toList dependencies)
-        | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
+      | (statementIndex, dependencies) <- Map.toList dependenciesByStatement
       ]
 
     collectFirstDeclaration firstDeclarations (statementIndex, bindingNameText, _) =
@@ -477,9 +522,9 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
           resolvedDependencies =
             Set.fromList
               [ dependencyStatementIndex
-                | dependencyName <- Set.toList localDependencyNames,
-                  Just dependencyStatementIndex <-
-                    [resolveDependencyStatement latestDeclarationByName statementIndex bindingNameText valueExpr dependencyName]
+              | dependencyName <- Set.toList localDependencyNames,
+                Just dependencyStatementIndex <-
+                  [resolveDependencyStatement latestDeclarationByName statementIndex bindingNameText valueExpr dependencyName]
               ]
        in ( Set.insert bindingNameText visibleBindingNames,
             Map.insert bindingNameText statementIndex latestDeclarationByName,
@@ -509,13 +554,12 @@ inferRecursiveGroupsOrderedInternal outerBindingNames indexedStatements =
             case component of
               AcyclicSCC componentIndex -> Set.singleton componentIndex
               CyclicSCC indices -> Set.fromList indices
-       in
-        -- SCC traversal order is not the declaration order consumed by later
-        -- phases, so re-project members through the original statement list.
-        [ statementIndex
+       in -- SCC traversal order is not the declaration order consumed by later
+          -- phases, so re-project members through the original statement list.
+          [ statementIndex
           | (statementIndex, _) <- indexedStatements,
             Set.member statementIndex memberIndices
-        ]
+          ]
 
     isRecursiveComponent component =
       case component of
@@ -543,17 +587,17 @@ inferSelfRecursiveBindings outerBindingNames predicate =
 newtype ScopeBindingIdentity = ScopeBindingIdentity [Int]
   deriving (Eq, Ord)
 
-data ScopeBindingExpr =
-  ScopeBindingExpr
-    ScopeBindingIdentity
-    Name
-    Expr
-    [ScopeBindingExpr]
-    (Set Name)
-    [Int]
+data ScopeBindingExpr
+  = ScopeBindingExpr
+      ScopeBindingIdentity
+      Name
+      Expr
+      [ScopeBindingExpr]
+      (Set Name)
+      [Int]
 
-data ScopeStatementContext =
-  ScopeStatementContext Statement [ScopeBindingExpr] [Int]
+data ScopeStatementContext
+  = ScopeStatementContext Statement [ScopeBindingExpr] [Int]
 
 scopeStatementContexts ::
   [Int] -> Set Name -> [ScopeBindingExpr] -> [Statement] -> [ScopeStatementContext]
@@ -566,7 +610,7 @@ scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statem
         bindingBoundNames
         ( Set.fromList
             [ bindingName
-              | ScopeBindingExpr _ bindingName _ _ _ _ <- initialVisibleBindings
+            | ScopeBindingExpr _ bindingName _ _ _ _ <- initialVisibleBindings
             ]
         )
     recursiveGroupsByStatement =
@@ -585,12 +629,12 @@ scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statem
               bindingBoundNames
               (statementPath statementIndex)
           )
-          | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
+        | (statementIndex, SLet bindingName _ valueExpr) <- indexedStatements
         ]
     visibleBindingsByStatement =
       Map.fromList
         [ (statementIndex, visibleBindings)
-          | (statementIndex, ScopeStatementContext _ visibleBindings _) <- zip [0 ..] contexts
+        | (statementIndex, ScopeStatementContext _ visibleBindings _) <- zip [0 ..] contexts
         ]
 
     statementPath statementIndex = scopePath <> [statementIndex]
@@ -599,14 +643,14 @@ scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statem
       Map.findWithDefault initialVisibleBindings statementIndex visibleBindingsByStatement
         <> bindingsAt
           [ peerIndex
-            | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
-              peerIndex > statementIndex
+          | peerIndex <- Map.findWithDefault [] statementIndex recursiveGroupsByStatement,
+            peerIndex > statementIndex
           ]
 
     bindingsAt statementIndices =
       [ binding
-        | statementIndex <- statementIndices,
-          Just binding <- [Map.lookup statementIndex bindingByStatement]
+      | statementIndex <- statementIndices,
+        Just binding <- [Map.lookup statementIndex bindingByStatement]
       ]
 
     buildContexts _ [] = []
@@ -689,10 +733,10 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
     combineSummaries
       (leftAliasPath, leftNonAliasPath, leftCallableDisqualifyingPath)
       (rightAliasPath, rightNonAliasPath, rightCallableDisqualifyingPath) =
-      ( leftAliasPath || rightAliasPath,
-        leftNonAliasPath || rightNonAliasPath,
-        leftCallableDisqualifyingPath || rightCallableDisqualifyingPath
-      )
+        ( leftAliasPath || rightAliasPath,
+          leftNonAliasPath || rightNonAliasPath,
+          leftCallableDisqualifyingPath || rightCallableDisqualifyingPath
+        )
 
     -- A guard selects which callable case-arm body owns the binding. Keep it
     -- eager for alias-only classification, but do not confuse that selection
@@ -704,22 +748,21 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
       case expr of
         EVar name ->
           if Set.member name boundNames
-              then noSummary
-              else
-                case lookupScopeBinding name scopeBindings of
-                  Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
-                    | Set.notMember identity visitedBindings ->
-                        aliasSummary
-                          bindingPath
-                          bindingBoundNames
-                          priorBindings
-                          (Set.insert identity visitedBindings)
-                          bindingExpr
-                  Just _ -> noSummary
-                  Nothing ->
-                    if name == bindingName
-                      then (True, False, False)
-                      else noSummary
+            then noSummary
+            else case lookupScopeBinding name scopeBindings of
+              Just (ScopeBindingExpr identity _ bindingExpr priorBindings bindingBoundNames bindingPath)
+                | Set.notMember identity visitedBindings ->
+                    aliasSummary
+                      bindingPath
+                      bindingBoundNames
+                      priorBindings
+                      (Set.insert identity visitedBindings)
+                      bindingExpr
+              Just _ -> noSummary
+              Nothing ->
+                if name == bindingName
+                  then (True, False, False)
+                  else noSummary
         EOperatorValue operatorSymbol
           | not (isBuiltinOperatorSymbol operatorSymbol),
             operatorBindingName operatorSymbol == bindingName ->
@@ -757,8 +800,8 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                     visitedBindings
                     bodyExpr
                 )
-              | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
-                let armBoundNames = extendBoundWithPattern pattern boundNames
+            | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
+              let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBlock blockStatements ->
           let contexts = scopeStatementContexts expressionPath boundNames scopeBindings blockStatements
@@ -775,17 +818,16 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                   combineSummaries
                   noSummary
                   [ summary
-                    | ScopeStatementContext statement statementBindings statementPath <- eagerStatements,
-                      summary <-
-                        case statement of
-                          SLet _ _ valueExpr ->
-                            [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
-                          SExpr _ statementExpr ->
-                            [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
-                          _ -> []
+                  | ScopeStatementContext statement statementBindings statementPath <- eagerStatements,
+                    summary <-
+                      case statement of
+                        SLet _ _ valueExpr ->
+                          [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
+                        SExpr _ statementExpr ->
+                          [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
+                        _ -> []
                   ]
-           in
-            combineSummaries terminalSummary eagerBindingSummary
+           in combineSummaries terminalSummary eagerBindingSummary
         _ -> nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr
 
     nonAliasSummary expressionPath boundNames scopeBindings visitedBindings expr =
@@ -801,14 +843,14 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
             combineSummaries
             noSummary
             [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
-              | (elementIndex, element) <- zip [0 ..] elements
+            | (elementIndex, element) <- zip [0 ..] elements
             ]
         ETuple elements ->
           foldl'
             combineSummaries
             noSummary
             [ nonAliasSummary (expressionPath <> [elementIndex]) boundNames scopeBindings visitedBindings element
-              | (elementIndex, element) <- zip [0 ..] elements
+            | (elementIndex, element) <- zip [0 ..] elements
             ]
         EApply functionExpr argumentExpr ->
           foldl'
@@ -844,8 +886,8 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
                     visitedBindings
                     bodyExpr
                 )
-              | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
-                let armBoundNames = extendBoundWithPattern pattern boundNames
+            | (armIndex, CaseArm pattern guardExpr bodyExpr) <- zip [0 ..] caseArms,
+              let armBoundNames = extendBoundWithPattern pattern boundNames
             ]
         EBinary operatorSymbol leftExpr rightExpr ->
           foldl'
@@ -868,15 +910,15 @@ selfReferenceOwnsRecursiveCellWith containsFunctionBranch bindingName candidateE
             combineSummaries
             noSummary
             [ summary
-              | ScopeStatementContext statement statementBindings statementPath <-
-                  scopeStatementContexts expressionPath boundNames scopeBindings blockStatements,
-                summary <-
-                  case statement of
-                    SLet _ _ valueExpr ->
-                      [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
-                    SExpr _ statementExpr ->
-                      [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
-                    _ -> []
+            | ScopeStatementContext statement statementBindings statementPath <-
+                scopeStatementContexts expressionPath boundNames scopeBindings blockStatements,
+              summary <-
+                case statement of
+                  SLet _ _ valueExpr ->
+                    [nonAliasSummary statementPath boundNames statementBindings Set.empty valueExpr]
+                  SExpr _ statementExpr ->
+                    [nonAliasSummary statementPath boundNames statementBindings Set.empty statementExpr]
+                  _ -> []
             ]
 
     nonAliasOperatorSummary boundNames scopeBindings visitedBindings operatorSymbol
