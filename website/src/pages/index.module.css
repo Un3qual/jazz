@@ -28,7 +28,6 @@
 .introCopy {
   animation: introEnter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
   max-width: 35rem;
-  position: relative;
 }
 
 .eyebrow {
@@ -40,13 +39,20 @@
   text-transform: uppercase;
 }
 
+.titleLockup {
+  align-items: center;
+  display: flex;
+  gap: clamp(1rem, 2.4vw, 2rem);
+  margin-bottom: 1.4rem;
+}
+
 .introTitle {
   color: inherit;
   font-size: clamp(3.75rem, 8vw, 6.5rem);
   font-weight: 760;
   letter-spacing: -0.075em;
   line-height: 0.9;
-  margin: 0 0 1.4rem -0.05em;
+  margin: 0 0 0 -0.05em;
 }
 
 .introSummary {
@@ -116,13 +122,9 @@
 }
 
 .brandPlane {
-  bottom: -3.2rem;
-  height: 8rem;
-  opacity: 0.2;
-  pointer-events: none;
-  position: absolute;
-  right: -2rem;
-  width: 9rem;
+  flex: 0 0 auto;
+  line-height: 0;
+  width: clamp(7rem, 10vw, 9.5rem);
 }
 
 .brandMark {
@@ -262,6 +264,16 @@
 
   .introTitle {
     font-size: clamp(3.75rem, 20vw, 5.25rem);
+  }
+
+  .titleLockup {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+
+  .brandPlane {
+    width: clamp(7.5rem, 32vw, 9.5rem);
   }
 
   .introActions {

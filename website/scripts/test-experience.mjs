@@ -203,16 +203,41 @@ test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
   assert.match(image, /width:\s*100%/);
 });
 
-test('homepage brand mark preserves its intrinsic aspect ratio at every breakpoint', () => {
+test('homepage brand mark is a substantial normal-flow title lockup', () => {
+  const header = read('website/src/components/HomepageHeader.tsx');
   const pageCss = read('website/src/pages/index.module.css');
-  const brandMarkDeclarations = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const declarationsFor = (selector) =>
+    rules
+      .filter(([, selectors]) =>
+        selectors
+          .split(',')
+          .some((candidate) => candidate.trim() === selector),
+      )
+      .map(([, , declarations]) => declarations)
+      .join('\n');
+  const brandMarkDeclarations = rules
     .filter(([, selectors]) =>
       selectors
         .split(',')
         .some((selector) => selector.trim() === '.brandMark'),
     )
     .map(([, , declarations]) => declarations);
+  const brandPlane = declarationsFor('.brandPlane');
+  const mobile = pageCss.match(
+    /@media \(max-width: 760px\)\s*\{(?<rules>[\s\S]*?)\n\}/,
+  )?.groups?.rules;
 
+  assert.match(
+    header,
+    /<div className=\{styles\.titleLockup\}>\s*<BrandMark \/>\s*<h1/s,
+  );
+  assert.match(declarationsFor('.titleLockup'), /display:\s*flex/);
+  assert.match(brandPlane, /width:\s*clamp\(/);
+  assert.doesNotMatch(brandPlane, /position:\s*absolute/);
+  assert.doesNotMatch(brandPlane, /(?:bottom|right):/);
+  assert.doesNotMatch(brandPlane, /opacity:\s*0?\.2/);
+  assert.match(mobile ?? '', /\.titleLockup\s*\{[^}]*flex-direction:\s*column/s);
   assert.ok(brandMarkDeclarations.length > 0, 'brandMark styling is missing');
   assert.ok(
     brandMarkDeclarations.some((declarations) => /\bwidth\s*:/.test(declarations)),

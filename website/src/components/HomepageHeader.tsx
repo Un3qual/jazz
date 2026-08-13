@@ -11,9 +11,12 @@ export default function HomepageHeader(): ReactNode {
       <div className={styles.introInner}>
         <div className={styles.introCopy}>
           <p className={styles.eyebrow}>Jazz programming language</p>
-          <h1 className={styles.introTitle} id="jazz-home-title">
-            Jazz
-          </h1>
+          <div className={styles.titleLockup}>
+            <BrandMark />
+            <h1 className={styles.introTitle} id="jazz-home-title">
+              Jazz
+            </h1>
+          </div>
           <p className={styles.introSummary}>
             A statically typed functional language with practical syntax.
           </p>
@@ -31,7 +34,6 @@ export default function HomepageHeader(): ReactNode {
               Language guide
             </Link>
           </div>
-          <BrandMark />
         </div>
         <CodeProof />
       </div>
