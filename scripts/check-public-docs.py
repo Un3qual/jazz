@@ -107,9 +107,9 @@ LEGACY_SIGNATURE_MARKER_RE = re.compile(
     r"<!--\s*jazz-signature\s*-->", re.IGNORECASE
 )
 SIGNATURE_FENCE_RE = re.compile(
-    r"^[ ]{0,3}(?P<fence>`{3,}|~{3,})jazz"
+    r"^[ ]{0,3}(?P<fence_char>`|~)(?P<fence_tail>(?P=fence_char){2,})jazz"
     r"(?P<metadata>(?:[ \t][^\r\n]*)?)\r?\n"
-    r".*?\r?\n[ ]{0,3}(?:`{3,}|~{3,})[ \t]*\r?$",
+    r".*?\r?\n[ ]{0,3}(?P=fence_char)(?P=fence_tail)(?P=fence_char)*[ \t]*\r?$",
     re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
 OUTPUT_MARKER_RE = re.compile(r"<!--\s*jazz-example-output:.*?-->", re.DOTALL)

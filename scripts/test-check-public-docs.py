@@ -190,6 +190,30 @@ class PublicDocsCheckerTests(unittest.TestCase):
             "Jazz fence must have an adjacent jazz-example marker or jazz-signature fence metadata"
         )
 
+    def test_signature_fence_requires_a_matching_delimiter(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n```jazz jazz-signature\n"
+            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n~~~\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "Jazz fence must have an adjacent jazz-example marker or jazz-signature fence metadata"
+        )
+
+    def test_signature_fence_requires_a_closer_at_least_as_long_as_the_opener(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n````jazz jazz-signature\n"
+            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "Jazz fence must have an adjacent jazz-example marker or jazz-signature fence metadata"
+        )
+
     def test_every_docusaurus_jazz_fence_shape_is_synchronized(self) -> None:
         for opener, closer in (("~~~jazz", "~~~"), ("   ```jazz", "   ```")):
             with self.subTest(opener=opener):

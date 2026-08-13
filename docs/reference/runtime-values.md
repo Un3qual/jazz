@@ -70,11 +70,13 @@ Rendered values use stable Jazz-like syntax:
 
 ### `Float16`
 
-`Float16` uses IEEE binary16 storage and deterministic target rounding.
+`Float16` follows IEEE binary16 arithmetic precision with deterministic target
+rounding.
 
 ### `Float32`
 
-`Float32` uses IEEE binary32 storage and deterministic target rounding.
+`Float32` follows IEEE binary32 arithmetic precision with deterministic target
+rounding.
 
 ### `Float64`
 

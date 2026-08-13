@@ -25,6 +25,7 @@ MODULE_DOCUMENTS = {
     "IO.jz": "io.md",
     "IOError.jz": "io-error.md",
 }
+PUBLIC_MODULE_EXCEPTIONS = {"Prelude.jz"}
 PRELUDE_HEADINGS = (
     "Ordering",
     "LT",
@@ -183,6 +184,18 @@ def check_repository(root: Path) -> list[str]:
     violations: list[str] = []
     source_root = root / "jazz" / "stdlib"
     document_root = root / "docs" / "standard-library"
+    public_modules = {
+        path.relative_to(source_root).as_posix()
+        for path in source_root.rglob("*.jz")
+        if path.is_file()
+    }
+    for source_name in sorted(
+        public_modules - MODULE_DOCUMENTS.keys() - PUBLIC_MODULE_EXCEPTIONS
+    ):
+        violations.append(
+            f"{display(root, source_root / source_name)}: "
+            "public module has no API reference mapping"
+        )
     for source_name, document_name in MODULE_DOCUMENTS.items():
         source = source_root / source_name
         document = document_root / document_name

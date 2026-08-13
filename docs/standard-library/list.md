@@ -334,8 +334,9 @@ in different groups. This is `O(n)` plus equality work.
 listGroupBy :: (a -> a -> Bool) -> [a] -> [[a]].
 ```
 
-Groups each run by comparing the run's first value with following values until
-the predicate returns `False`. This is `O(n)` plus callback work.
+Groups runs according to adjacent comparisons. A run continues while the
+predicate returns `True` for each value and the value immediately following it.
+This is `O(n)` plus callback work.
 
 ## Ordering
 

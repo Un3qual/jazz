@@ -229,6 +229,56 @@ sampleMap :: a -> a.
         )
         self.assertIn("missing exact signature for `sampleMap`", violations[0])
 
+    def test_repository_reports_unmapped_standard_library_modules(self) -> None:
+        checker = load_checker()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source_root = root / "jazz" / "stdlib"
+            document_root = root / "docs" / "standard-library"
+            source_root.mkdir(parents=True)
+            document_root.mkdir(parents=True)
+
+            for source_name, document_name in checker.MODULE_DOCUMENTS.items():
+                (source_root / source_name).write_text(
+                    f"module {Path(source_name).stem} () {{}}\n",
+                    encoding="utf-8",
+                )
+                (document_root / document_name).write_text(
+                    "# Module\n", encoding="utf-8"
+                )
+            (source_root / "Prelude.jz").write_text(
+                "module Prelude () {}\n", encoding="utf-8"
+            )
+            (document_root / "prelude.md").write_text(
+                "\n".join(
+                    [f"## `{name}`" for name in checker.PRELUDE_HEADINGS]
+                    + [
+                        f"\n```jazz jazz-signature\n{name} :: {signature}.\n```"
+                        for name, signature in checker.PRELUDE_SIGNATURES.items()
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (source_root / "Future.jz").write_text(
+                "module Future () {}\n", encoding="utf-8"
+            )
+
+            violations = checker.check_repository(root)
+
+        self.assertIn(
+            "jazz/stdlib/Future.jz: public module has no API reference mapping",
+            violations,
+        )
+        self.assertFalse(any("Prelude.jz" in violation for violation in violations))
+
+    def test_checked_in_list_group_by_docs_describe_adjacent_comparisons(self) -> None:
+        document = (ROOT / "docs" / "standard-library" / "list.md").read_text(
+            encoding="utf-8"
+        )
+        section = document.split("### `listGroupBy`", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("adjacent", section.casefold())
+        self.assertNotIn("run's first value", section)
+
 
 if __name__ == "__main__":
     unittest.main()

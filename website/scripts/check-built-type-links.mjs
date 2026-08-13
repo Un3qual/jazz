@@ -1,6 +1,8 @@
 import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 
+import {JAZZ_TYPE_DESTINATIONS} from './jazz-type-links.mjs';
+
 const buildRoot = path.resolve(
   process.argv[2] ?? path.join(import.meta.dirname, '..', 'build'),
 );
@@ -25,14 +27,48 @@ function attribute(tag, name) {
   return match?.[1];
 }
 
+const HTML_CHARACTER_REFERENCES = Object.freeze({
+  lt: '<',
+  gt: '>',
+  amp: '&',
+  quot: '"',
+  '#x27': "'",
+});
+
 function textContent(html) {
-  return html
-    .replace(/<[^>]*>/g, '')
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#x27;', "'");
+  let text = '';
+  let index = 0;
+
+  while (index < html.length) {
+    if (html[index] === '<') {
+      const tagEnd = html.indexOf('>', index + 1);
+      if (tagEnd === -1) {
+        break;
+      }
+      index = tagEnd + 1;
+      continue;
+    }
+
+    if (html[index] === '&') {
+      const referenceEnd = html.indexOf(';', index + 1);
+      const reference = referenceEnd === -1
+        ? undefined
+        : html.slice(index + 1, referenceEnd);
+      const decoded = reference === undefined
+        ? undefined
+        : HTML_CHARACTER_REFERENCES[reference];
+      if (decoded !== undefined) {
+        text += decoded;
+        index = referenceEnd + 1;
+        continue;
+      }
+    }
+
+    text += html[index];
+    index += 1;
+  }
+
+  return text;
 }
 
 function signatureBlocks(html) {
@@ -138,6 +174,10 @@ for (const {href, text} of links) {
     throw new Error(`Jazz type link has no href: ${text}`);
   }
   requireTarget(href);
+}
+
+for (const destination of new Set(Object.values(JAZZ_TYPE_DESTINATIONS))) {
+  requireTarget(`${baseUrl}${destination.replace(/^\/+/, '')}`);
 }
 
 const moduleTypes = new Set([

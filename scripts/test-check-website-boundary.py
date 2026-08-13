@@ -128,6 +128,24 @@ class WebsiteBoundaryTests(unittest.TestCase):
         )
         self.assert_violation("generated output contains a non-allowlisted remote URL")
 
+    def test_built_output_rejects_resources_before_attribute_bearing_end_tags(self) -> None:
+        cases = {
+            "script": (
+                '<script>fetch("https://cdn.example/index.json")'
+                "</script\t\n foo>"
+            ),
+            "style": (
+                "<style>body{background:url(https://cdn.example/paper.png)}"
+                "</style data-generated>"
+            ),
+        }
+        for label, source in cases.items():
+            with self.subTest(label):
+                (self.build / "index.html").write_text(source, encoding="utf-8")
+                self.assert_violation(
+                    "generated output contains a non-allowlisted remote URL"
+                )
+
     def test_built_output_allows_inline_html_url_parsing_bases(self) -> None:
         (self.build / "index.html").write_text(
             '<script>new URL(path, "https://jazz.invalid");'

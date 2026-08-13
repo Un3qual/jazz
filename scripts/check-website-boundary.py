@@ -38,8 +38,8 @@ CSS_RESOURCE_RE = re.compile(
 SCRIPT_RESOURCE_RE = re.compile(
     r"(?i)\b(?:fetch|import)\(\s*(['\"])(.*?)\1"
 )
-STYLE_ELEMENT_RE = re.compile(r"(?is)<style\b[^>]*>(.*?)</style\s*>")
-SCRIPT_ELEMENT_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script\s*>")
+STYLE_ELEMENT_RE = re.compile(r"(?is)<style\b[^>]*>(.*?)</style\b[^>]*>")
+SCRIPT_ELEMENT_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script\b[^>]*>")
 STYLE_ATTRIBUTE_RE = re.compile(
     r'''(?is)\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))'''
 )

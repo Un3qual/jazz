@@ -46,7 +46,11 @@
   ```js
   assert.deepEqual(
     siteConfig.themeConfig.navbar.items.map(({ label }) => label),
-    ["Learn", "Language", "Standard Library", "Reference", "GitHub"],
+    ["Learn", "Language", "Standard Library", "Reference", undefined, "GitHub"],
+  );
+  assert.deepEqual(
+    siteConfig.themeConfig.navbar.items.find(({ type }) => type === "search"),
+    { type: "search", position: "right" },
   );
   assert.doesNotMatch(
     JSON.stringify(siteConfig.themeConfig.navbar.items),
@@ -60,7 +64,7 @@
   ]) {
     assert.match(sidebars, new RegExp(`\\b${sidebar}\\s*:`));
   }
-  assert.doesNotMatch(sidebars, /\\bjazzSidebar\\s*:/);
+  assert.doesNotMatch(sidebars, /\bjazzSidebar\s*:/);
   ```
 
   Add CSS contract checks for a desktop navbar height smaller than `4.25rem`, explicit vertical centering on `.navbar__inner`, `.navbar__items`, and `.navbar__link`, and a mobile rule that retains 44px targets.
@@ -221,8 +225,8 @@
 - Create: `docs/standard-library/set.md`
 - Create: `docs/standard-library/char.md`
 - Create: `docs/standard-library/text.md`
-- Create: `docs/standard-library/io.md`
-- Create: `docs/standard-library/io-error.md`
+- Modify: `docs/standard-library/io.md`
+- Modify: `docs/standard-library/io-error.md`
 - Delete: `docs/standard-library/maybe-result-nonempty.md`
 - Delete: `docs/standard-library/map-and-set.md`
 - Delete: `docs/standard-library/char-and-text.md`
@@ -238,9 +242,9 @@
 
 - Produces: stable module routes `/docs/standard-library/<lowercase-module-name>` except `IOError`, which uses `/docs/standard-library/io-error`.
 - Produces: required public page inventory entries for all 13 documented modules: Prelude, Maybe, Result, NonEmpty, List, Dictionary, Queue, Map, Set, Char, Text, IO, and IOError, plus the overview.
-- Removes: the four combined-page routes.
+- Removes: the three combined-page routes.
 
-- [x] **Step 1: Change the required-page and sidebar contracts before creating pages.** Replace the four combined entries in `REQUIRED_PAGES` with the nine split-page names. Extend the website experience test to require every final module id in `standardLibrarySidebar` and reject `maybe-result-nonempty`, `map-and-set`, and `char-and-text`.
+- [x] **Step 1: Change the required-page and sidebar contracts before creating pages.** Replace the three combined entries in `REQUIRED_PAGES` with the seven split-page names while preserving the existing IO and IOError entries. Extend the website experience test to require every final module id in `standardLibrarySidebar` and reject `maybe-result-nonempty`, `map-and-set`, and `char-and-text`.
 
 - [x] **Step 2: Run public-doc and website tests and verify RED.** Run:
 

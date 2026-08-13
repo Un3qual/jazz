@@ -14,6 +14,8 @@ import test from 'node:test';
 import {unified} from 'unified';
 import remarkParse from 'remark-parse';
 
+import {JAZZ_TYPE_DESTINATIONS} from './jazz-type-links.mjs';
+
 const websiteRoot = path.resolve(import.meta.dirname, '..');
 const repositoryRoot = path.resolve(websiteRoot, '..');
 
@@ -72,6 +74,22 @@ function writeTypeLinkBuildFixture(buildRoot, {baseUrl = '/jazz/', intFragment =
     'docs/language/types-and-signatures.html',
     '<pre data-jazz-highlighter="textmate"><code><span>ordinary :: Maybe(a).</span></code></pre>',
   );
+
+  for (const destination of new Set(Object.values(JAZZ_TYPE_DESTINATIONS))) {
+    const url = new URL(
+      `${baseUrl}${destination.replace(/^\/+/, '')}`,
+      'https://jazz.invalid',
+    );
+    const route = url.pathname.slice(baseUrl.length).replace(/^\/+|\/+$/g, '');
+    const file = `${route}.html`;
+    const target = path.join(buildRoot, file);
+    const fragment = decodeURIComponent(url.hash.slice(1));
+    const existing = existsSync(target) ? readFileSync(target, 'utf8') : '';
+    const anchor = fragment && !existing.includes(`id="${fragment}"`)
+      ? `<span id="${fragment}"></span>`
+      : '';
+    writeBuildFile(buildRoot, file, `${existing}${anchor}`);
+  }
 }
 
 function markdownText(node) {
@@ -215,6 +233,11 @@ test('homepage styling is compact, responsive, and accessible', () => {
   assert.doesNotMatch(pageCss, /\.editorialBand/);
   assert.doesNotMatch(pageCss, /\.closing/);
   assert.doesNotMatch(source, /gradient\s*\(/i);
+  assert.match(
+    pageCss,
+    /grid-template-columns:\s*minmax\(0,\s*0\.85fr\)\s+minmax\(0,\s*1\.15fr\)/,
+  );
+  assert.match(pageCss, /@keyframes intro-enter\b/);
   assert.match(globalCss, /body\s*\{[^}]*font-weight:\s*450/s);
   assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
@@ -371,6 +394,13 @@ test('Runtime values exposes every stable built-in type destination', () => {
   ]) {
     assert.ok(headings.has(destination), `missing Runtime values heading: ${destination}`);
   }
+
+  const source = read('docs/reference/runtime-values.md');
+  for (const name of ['Float16', 'Float32']) {
+    const section = source.split(`### \`${name}\``, 2)[1].split('\n### ', 1)[0];
+    assert.doesNotMatch(section, /storage/i);
+    assert.match(section, /precision|rounding/i);
+  }
 });
 
 test('built type-link checker accepts valid signature links and ordinary Jazz', () => {
@@ -424,6 +454,25 @@ test('built type-link checker rejects a missing destination fragment', () => {
   }
 });
 
+test('built type-link checker validates mapped destinations absent from signatures', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-unused-destination-'));
+  try {
+    writeTypeLinkBuildFixture(fixture);
+    rmSync(path.join(fixture, 'docs/standard-library/result.html'));
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+          {encoding: 'utf8', stdio: 'pipe'},
+        ),
+      (error) => error.status !== 0 && /target does not exist/.test(error.stderr),
+    );
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
 test('Docusaurus renders Jazz with TextMate and delegates other languages', () => {
   const renderer = read('website/src/theme/CodeBlock/Content/index.tsx');
   const packageJson = JSON.parse(read('website/package.json'));
@@ -471,7 +520,7 @@ test('primary navigation separates learning, library, and reference contexts', a
     '@docusaurus/core/lib/server/config.js'
   );
   const {loadSidebarsFile} = await import(
-    '../node_modules/@docusaurus/plugin-content-docs/lib/sidebars/index.js'
+    '@docusaurus/plugin-content-docs/lib/sidebars/index.js'
   );
   const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
   const sidebars = await loadSidebarsFile(path.join(websiteRoot, 'sidebars.ts'));
@@ -515,9 +564,41 @@ test('documentation search is a keyboard-first navbar dialog', async () => {
   assert.match(searchBar, /Search is unavailable in this preview/);
 });
 
+test('documentation search clears stale rows before accepting a new query', () => {
+  const searchBar = read('website/src/theme/SearchBar/index.tsx');
+
+  assert.match(
+    searchBar,
+    /onChange=\{\(event\) => \{[\s\S]*?replaceSearchResults\(state, \[\]\)[\s\S]*?setQuery/,
+  );
+});
+
+test('documentation search exposes keyboard selection to assistive technology', () => {
+  const searchBar = read('website/src/theme/SearchBar/index.tsx');
+
+  assert.match(searchBar, /aria-activedescendant=/);
+  assert.match(searchBar, /role="listbox"/);
+  assert.match(searchBar, /role="option"/);
+  assert.match(searchBar, /aria-selected=/);
+});
+
+test('documentation search styles satisfy the configured keyword casing', () => {
+  const searchStyles = read('website/src/theme/SearchBar/styles.module.css');
+
+  assert.doesNotMatch(searchStyles, /currentColor/);
+  assert.match(searchStyles, /currentcolor/);
+});
+
+test('website search tests include the generated index contract', () => {
+  assert.equal(
+    JSON.parse(read('website/package.json')).scripts['test:search'],
+    'node --test scripts/test-pagefind-search-model.mjs scripts/test-check-built-search.mjs',
+  );
+});
+
 test('standard library navigation exposes one page per module', async () => {
   const {loadSidebarsFile} = await import(
-    '../node_modules/@docusaurus/plugin-content-docs/lib/sidebars/index.js'
+    '@docusaurus/plugin-content-docs/lib/sidebars/index.js'
   );
   const sidebars = await loadSidebarsFile(path.join(websiteRoot, 'sidebars.ts'));
   const documentIds = (items) =>

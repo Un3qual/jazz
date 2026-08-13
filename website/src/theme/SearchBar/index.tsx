@@ -31,7 +31,7 @@ export default function SearchBar() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const openerRef = useRef<HTMLButtonElement>(null);
-  const activeResultRef = useRef<HTMLButtonElement>(null);
+  const activeResultRef = useRef<HTMLLIElement>(null);
   const pagefindRef = useRef<Pagefind | undefined>(undefined);
   const searchRequestsRef = useRef(createSearchRequestTracker());
   const [open, setOpen] = useState(false);
@@ -195,10 +195,23 @@ export default function SearchBar() {
             ref={inputRef}
             id="documentation-search"
             type="search"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={results.length > 0}
+            aria-controls={results.length > 0 ? 'documentation-search-results' : undefined}
+            aria-activedescendant={
+              results[activeIndex]
+                ? `documentation-search-result-${activeIndex}`
+                : undefined
+            }
             value={query}
             placeholder="Search the reference"
             autoComplete="off"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              searchRequestsRef.current.invalidate();
+              setResultState((state) => replaceSearchResults(state, []));
+              setQuery(event.target.value);
+            }}
             onKeyDown={onInputKeyDown}
           />
           <kbd className={styles.escapeHint}>Esc</kbd>
@@ -208,19 +221,24 @@ export default function SearchBar() {
         {status === 'unavailable' && <p className={styles.state}>Search is unavailable in this preview.</p>}
         {status === 'ready' && query.trim() && results.length === 0 && <p className={styles.state}>No documentation matches.</p>}
         {status === 'ready' && results.length > 0 && (
-          <ol className={styles.results} aria-label="Search results">
+          <ol
+            id="documentation-search-results"
+            className={styles.results}
+            role="listbox"
+            aria-label="Search results">
             {results.map((result, index) => (
-              <li key={result.url}>
-                <button
-                  ref={index === activeIndex ? activeResultRef : undefined}
-                  className={index === activeIndex ? styles.activeResult : styles.result}
-                  type="button"
-                  onMouseMove={() => setResultState((state) => ({...state, activeIndex: index}))}
-                  onClick={() => goToResult(result)}>
-                  <span className={styles.resultContext}>{result.category} · {result.pageTitle}</span>
-                  {result.sectionTitle && <strong>{result.sectionTitle}</strong>}
-                  <span>{result.excerpt}</span>
-                </button>
+              <li
+                ref={index === activeIndex ? activeResultRef : undefined}
+                id={`documentation-search-result-${index}`}
+                key={result.url}
+                className={index === activeIndex ? styles.activeResult : styles.result}
+                role="option"
+                aria-selected={index === activeIndex}
+                onMouseMove={() => setResultState((state) => ({...state, activeIndex: index}))}
+                onClick={() => goToResult(result)}>
+                <span className={styles.resultContext}>{result.category} · {result.pageTitle}</span>
+                {result.sectionTitle && <strong>{result.sectionTitle}</strong>}
+                <span>{result.excerpt}</span>
               </li>
             ))}
           </ol>
