@@ -31,6 +31,12 @@ fi
 if ! python3 scripts/test-check-public-docs.py; then
   fail "scripts/test-check-public-docs.py reported public documentation checker regressions"
 fi
+if ! python3 scripts/check-stdlib-api-docs.py "$ROOT"; then
+  fail "scripts/check-stdlib-api-docs.py reported standard-library API reference violations"
+fi
+if ! python3 scripts/test-check-stdlib-api-docs.py; then
+  fail "scripts/test-check-stdlib-api-docs.py reported standard-library API checker regressions"
+fi
 if ! python3 scripts/test-markdown-visibility.py; then
   fail "scripts/test-markdown-visibility.py reported rendered Markdown visibility regressions"
 fi
