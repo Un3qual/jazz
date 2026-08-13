@@ -73,6 +73,14 @@ test('maps repeated and nested concrete types without guessing identifiers', () 
   assert.deepEqual(getJazzTypeLinkSpans('a -> value -> Future'), []);
 });
 
+test('does not link mapped names inside valid unknown Jazz identifiers', () => {
+  const cases = ['_Maybe', 'Maybe_', "Maybe'", 'Maybe!', 'ΩMaybe'];
+
+  for (const source of cases) {
+    assert.deepEqual(getJazzTypeLinkSpans(source), []);
+  }
+});
+
 test('maps only balanced list delimiters and their nested concrete types', () => {
   assert.deepEqual(getJazzTypeLinkSpans('[[Maybe(Int)]]'), [
     {start: 0, end: 1, destination: '/docs/standard-library/list'},
@@ -100,4 +108,5 @@ test('maps tuple and unit syntax but not function-argument parentheses', () => {
   assert.deepEqual(getJazzTypeLinkSpans('(a -> Bool)'), [
     {start: 6, end: 10, destination: '/docs/reference/runtime-values#bool'},
   ]);
+  assert.deepEqual(getJazzTypeLinkSpans('Ω(a,b)'), []);
 });

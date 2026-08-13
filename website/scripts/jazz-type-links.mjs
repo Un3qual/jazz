@@ -49,6 +49,7 @@ const listCloseDestination = JAZZ_TYPE_DESTINATIONS[']'];
 const tupleOpenDestination = JAZZ_TYPE_DESTINATIONS['('];
 const tupleCloseDestination = JAZZ_TYPE_DESTINATIONS[')'];
 const unitDestination = JAZZ_TYPE_DESTINATIONS['()'];
+const jazzIdentifierPattern = /[\p{Alphabetic}_][\p{Alphabetic}\p{Number}_'!]*/gu;
 
 function findBalancedPairs(source, open, close) {
   const opens = [];
@@ -99,8 +100,12 @@ function hasTopLevelComma(source, start, end) {
   return false;
 }
 
-function isTypeApplication(source, openIndex) {
-  return /[A-Za-z0-9_]/.test(source[openIndex - 1] ?? '');
+function lexJazzIdentifiers(source) {
+  return [...source.matchAll(jazzIdentifierPattern)].map((match) => ({
+    start: match.index,
+    end: match.index + match[0].length,
+    name: match[0],
+  }));
 }
 
 function addSpan(spans, start, end, destination) {
@@ -127,11 +132,13 @@ function withoutOverlaps(spans) {
 
 export function getJazzTypeLinkSpans(source) {
   const spans = [];
+  const identifiers = lexJazzIdentifiers(source);
+  const identifierEnds = new Set(identifiers.map(({end}) => end));
 
-  for (const match of source.matchAll(/[A-Za-z][A-Za-z0-9]*/g)) {
-    const destination = JAZZ_TYPE_DESTINATIONS[match[0]];
+  for (const {start, end, name} of identifiers) {
+    const destination = JAZZ_TYPE_DESTINATIONS[name];
     if (destination) {
-      addSpan(spans, match.index, match.index + match[0].length, destination);
+      addSpan(spans, start, end, destination);
     }
   }
 
@@ -142,9 +149,10 @@ export function getJazzTypeLinkSpans(source) {
 
   for (const {start, end} of findBalancedPairs(source, '(', ')')) {
     const contents = source.slice(start + 1, end);
-    if (!isTypeApplication(source, start) && /^\s*$/.test(contents)) {
+    const isTypeApplication = identifierEnds.has(start);
+    if (!isTypeApplication && /^\s*$/.test(contents)) {
       addSpan(spans, start, end + 1, unitDestination);
-    } else if (!isTypeApplication(source, start) && hasTopLevelComma(source, start + 1, end)) {
+    } else if (!isTypeApplication && hasTopLevelComma(source, start + 1, end)) {
       addSpan(spans, start, start + 1, tupleOpenDestination);
       addSpan(spans, end, end + 1, tupleCloseDestination);
     }
