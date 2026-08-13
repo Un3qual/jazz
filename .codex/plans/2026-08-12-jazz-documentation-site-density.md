@@ -41,19 +41,22 @@
 - Preserves: a production-buildable sidebar inventory by using the existing
   combined standard-library pages until Task 3 replaces them atomically.
 
-- [ ] **Step 1: Add failing navigation and density contracts.** Replace the single-sidebar assumptions in `website/scripts/test-experience.mjs` with checks that load the active site configuration and read `website/sidebars.ts`. Require:
+- [x] **Step 1: Add failing navigation and density contracts.** Replace the single-sidebar assumptions in `website/scripts/test-experience.mjs` with checks that load the active site configuration and read `website/sidebars.ts`. Require:
 
   ```js
   assert.deepEqual(
-    siteConfig.themeConfig.navbar.items.map(({label}) => label),
-    ['Learn', 'Language', 'Standard Library', 'Reference', 'GitHub'],
+    siteConfig.themeConfig.navbar.items.map(({ label }) => label),
+    ["Learn", "Language", "Standard Library", "Reference", "GitHub"],
   );
-  assert.doesNotMatch(JSON.stringify(siteConfig.themeConfig.navbar.items), /Status/);
+  assert.doesNotMatch(
+    JSON.stringify(siteConfig.themeConfig.navbar.items),
+    /Status/,
+  );
 
   for (const sidebar of [
-    'learnSidebar',
-    'standardLibrarySidebar',
-    'referenceSidebar',
+    "learnSidebar",
+    "standardLibrarySidebar",
+    "referenceSidebar",
   ]) {
     assert.match(sidebars, new RegExp(`\\b${sidebar}\\s*:`));
   }
@@ -62,7 +65,7 @@
 
   Add CSS contract checks for a desktop navbar height smaller than `4.25rem`, explicit vertical centering on `.navbar__inner`, `.navbar__items`, and `.navbar__link`, and a mobile rule that retains 44px targets.
 
-- [ ] **Step 2: Run the focused website test and verify RED.** Run:
+- [x] **Step 2: Run the focused website test and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience
@@ -70,7 +73,7 @@
 
   Expected: failure because only `jazzSidebar` exists, the navbar still contains Docs and Status, and the navbar height remains `4.25rem`.
 
-- [ ] **Step 3: Define the three sidebars.** In `website/sidebars.ts`, create:
+- [x] **Step 3: Define the three sidebars.** In `website/sidebars.ts`, create:
 
   - `learnSidebar`: index, Getting Started, Language, Compiler, and Project categories;
   - `standardLibrarySidebar`: overview, Prelude, and the existing library pages,
@@ -81,7 +84,7 @@
 
   Use normal category labels and `collapsed: false` only for the top-level module groups that should remain visible as the API tree. Do not duplicate any document id between sidebars.
 
-- [ ] **Step 4: Replace the navbar contract.** In `website/docusaurus.config.ts`:
+- [x] **Step 4: Replace the navbar contract.** In `website/docusaurus.config.ts`:
 
   - rename Docs to Learn and target `learnSidebar`;
   - retain the direct Language overview link;
@@ -90,7 +93,7 @@
   - remove Status; and
   - retain GitHub on the right.
 
-- [ ] **Step 5: Tighten and center the shell.** In `website/src/css/custom.css`:
+- [x] **Step 5: Tighten and center the shell.** In `website/src/css/custom.css`:
 
   - set `--ifm-navbar-height` to `3.5rem`;
   - size the desktop wordmark wrapper to fit inside that height;
@@ -101,7 +104,7 @@
 
   Also reduce document `h1` size, section gaps, body leading, breadcrumbs, and desktop sidebar row padding without reducing the document content column below its current readable width.
 
-- [ ] **Step 6: Run focused tests and type checking.** Run:
+- [x] **Step 6: Run focused tests and type checking.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience
@@ -112,7 +115,7 @@
 
   Expected: all commands exit zero.
 
-- [ ] **Step 7: Commit the navigation milestone.** Run:
+- [x] **Step 7: Commit the navigation milestone.** Run:
 
   ```bash
   git add website/scripts/test-experience.mjs website/sidebars.ts website/docusaurus.config.ts website/src/css/custom.css
@@ -138,7 +141,7 @@
 - `DocumentationDirectory(): ReactNode` produces grouped direct links to Learn, Standard Library, Reference, Compiler, and Project destinations.
 - `CodeProof(): ReactNode` renders only the Jazz example, invocation, and result; it does not explain build synchronization.
 
-- [ ] **Step 1: Replace the old homepage source-shape test with a behavioral content contract.** Require one `h1`, a `header`, a `main`, one Jazz code proof, and direct routes for:
+- [x] **Step 1: Replace the old homepage source-shape test with a behavioral content contract.** Require one `h1`, a `header`, a `main`, one Jazz code proof, and direct routes for:
 
   ```text
   /docs/getting-started/overview
@@ -153,23 +156,23 @@
 
   ```js
   for (const forbidden of [
-    'EditorialBand',
-    'HomepageFooterCta',
-    'Language, in three movements',
-    'Strong ideas. Clear notation.',
-    'The next phrase is yours',
-    'synchronized directly from the repository',
-    'compiler-backed example check',
+    "EditorialBand",
+    "HomepageFooterCta",
+    "Language, in three movements",
+    "Strong ideas. Clear notation.",
+    "The next phrase is yours",
+    "synchronized directly from the repository",
+    "compiler-backed example check",
   ]) {
-    assert.doesNotMatch(source, new RegExp(forbidden.replaceAll('.', '\\.')));
+    assert.doesNotMatch(source, new RegExp(forbidden.replaceAll(".", "\\.")));
   }
   ```
 
   Replace the full-bleed/hero-motion test with a density contract that rejects `min-height: calc(100svh`, `100vw`, `.editorialBand`, and `.closing`, while retaining focus-visible, reduced-motion, and mobile rules.
 
-- [ ] **Step 2: Run the focused website test and verify RED.** Run the Task 1 focused website test. Expected: failure on the old editorial components, old copy, and viewport-filling hero CSS.
+- [x] **Step 2: Run the focused website test and verify RED.** Run the Task 1 focused website test. Expected: failure on the old editorial components, old copy, and viewport-filling hero CSS.
 
-- [ ] **Step 3: Build the compact introduction.** Update `HomepageHeader.tsx` so the first viewport contains:
+- [x] **Step 3: Build the compact introduction.** Update `HomepageHeader.tsx` so the first viewport contains:
 
   - `h1` Jazz;
   - the factual sentence “A statically typed functional language with practical syntax.”;
@@ -179,11 +182,11 @@
 
   Update `CodeProof.tsx` so its accessible label and caption present `factorial.jz`, the generated invocation, and the generated output without any synchronization or verification prose.
 
-- [ ] **Step 4: Add the documentation directory.** Create `DocumentationDirectory.tsx` with five plain sections: Learn, Standard Library, Reference, Compiler, and Project. Each section gets one factual sentence and 2-4 direct links; use lists and dividers, not cards, badges, metrics, or CTA copy.
+- [x] **Step 4: Add the documentation directory.** Create `DocumentationDirectory.tsx` with five plain sections: Learn, Standard Library, Reference, Compiler, and Project. Each section gets one factual sentence and 2-4 direct links; use lists and dividers, not cards, badges, metrics, or CTA copy.
 
-- [ ] **Step 5: Simplify the page composition.** Make `index.tsx` render `HomepageHeader` and `DocumentationDirectory` only. Delete `EditorialBand.tsx` and `HomepageFooterCta.tsx` after all imports are removed.
+- [x] **Step 5: Simplify the page composition.** Make `index.tsx` render `HomepageHeader` and `DocumentationDirectory` only. Delete `EditorialBand.tsx` and `HomepageFooterCta.tsx` after all imports are removed.
 
-- [ ] **Step 6: Replace homepage CSS.** Rebuild `index.module.css` around:
+- [x] **Step 6: Replace homepage CSS.** Rebuild `index.module.css` around:
 
   - a centered content width no wider than `92rem`;
   - a compact two-column intro with `clamp()` gutters and a single-column mobile breakpoint;
@@ -194,9 +197,9 @@
 
   Remove unused hero, score-line, editorial-band, and closing-section selectors and keyframes.
 
-- [ ] **Step 7: Run focused tests and type checking.** Run the Task 1 Step 6 commands. Expected: all commands exit zero.
+- [x] **Step 7: Run focused tests and type checking.** Run the Task 1 Step 6 commands. Expected: all commands exit zero.
 
-- [ ] **Step 8: Commit the homepage milestone.** Run:
+- [x] **Step 8: Commit the homepage milestone.** Run:
 
   ```bash
   git add website/scripts/test-experience.mjs website/src/pages/index.tsx website/src/pages/index.module.css website/src/components
@@ -237,9 +240,9 @@
 - Produces: required public page inventory entries for all 13 documented modules: Prelude, Maybe, Result, NonEmpty, List, Dictionary, Queue, Map, Set, Char, Text, IO, and IOError, plus the overview.
 - Removes: the four combined-page routes.
 
-- [ ] **Step 1: Change the required-page and sidebar contracts before creating pages.** Replace the four combined entries in `REQUIRED_PAGES` with the nine split-page names. Extend the website experience test to require every final module id in `standardLibrarySidebar` and reject `maybe-result-nonempty`, `map-and-set`, and `char-and-text`.
+- [x] **Step 1: Change the required-page and sidebar contracts before creating pages.** Replace the four combined entries in `REQUIRED_PAGES` with the nine split-page names. Extend the website experience test to require every final module id in `standardLibrarySidebar` and reject `maybe-result-nonempty`, `map-and-set`, and `char-and-text`.
 
-- [ ] **Step 2: Run public-doc and website tests and verify RED.** Run:
+- [x] **Step 2: Run public-doc and website tests and verify RED.** Run:
 
   ```bash
   python3 scripts/test-check-public-docs.py
@@ -248,17 +251,17 @@
 
   Expected: failure because the required split pages do not yet exist and the sidebar still references combined pages.
 
-- [ ] **Step 3: Split Data modules.** Move the existing `Maybe`, `Result`, and `NonEmpty` contracts into `maybe.md`, `result.md`, and `nonempty.md`. Each page must name its public constructors, helpers, branch behavior, and meaningful complexity. Cross-link conversions between Maybe and Result and the pattern-matching guide.
+- [x] **Step 3: Split Data modules.** Move the existing `Maybe`, `Result`, and `NonEmpty` contracts into `maybe.md`, `result.md`, and `nonempty.md`. Each page must name its public constructors, helpers, branch behavior, and meaningful complexity. Cross-link conversions between Maybe and Result and the pattern-matching guide.
 
-- [ ] **Step 4: Split collection modules.** Move Map and Set into `map.md` and `set.md`; retain the separate List, Dictionary, and Queue pages. Organize every collection page using consistent operation headings such as Construction, Querying, Updating, Traversal, and Complexity, omitting empty headings where a module does not expose that family.
+- [x] **Step 4: Split collection modules.** Move Map and Set into `map.md` and `set.md`; retain the separate List, Dictionary, and Queue pages. Organize every collection page using consistent operation headings such as Construction, Querying, Updating, Traversal, and Complexity, omitting empty headings where a module does not expose that family.
 
-- [ ] **Step 5: Split text and system modules.** Move Char and Text into `char.md` and `text.md`. Split the public error ADT into `io-error.md` and effectful host operations into `io.md`. Cross-link IO results to IOError and Result, and link text literal spelling to lexical grammar.
+- [x] **Step 5: Split text and system modules.** Move Char and Text into `char.md` and `text.md`. Split the public error ADT into `io-error.md` and effectful host operations into `io.md`. Cross-link IO results to IOError and Result, and link text literal spelling to lexical grammar.
 
-- [ ] **Step 6: Replace the Standard Library overview.** Remove the abstraction/purpose table and repository-root `--module-root jazz/stdlib` command. Explain automatic Prelude loading and explicit imports in two short paragraphs, followed by the same Data, Collections, Text, and System module tree as linked Markdown lists.
+- [x] **Step 6: Replace the Standard Library overview.** Remove the abstraction/purpose table and repository-root `--module-root jazz/stdlib` command. Explain automatic Prelude loading and explicit imports in two short paragraphs, followed by the same Data, Collections, Text, and System module tree as linked Markdown lists.
 
-- [ ] **Step 7: Update all internal links and the sidebar tree.** Point language/reference/library pages at the new module routes. Ensure the Standard Library sidebar categories use the exact tree from the design and no document id appears in Learn or Reference.
+- [x] **Step 7: Update all internal links and the sidebar tree.** Point language/reference/library pages at the new module routes. Ensure the Standard Library sidebar categories use the exact tree from the design and no document id appears in Learn or Reference.
 
-- [ ] **Step 8: Run focused publication and website checks.** Run:
+- [x] **Step 8: Run focused publication and website checks.** Run:
 
   ```bash
   python3 scripts/test-check-public-docs.py
@@ -270,7 +273,7 @@
 
   Expected: all commands exit zero and Docusaurus reports no broken links.
 
-- [ ] **Step 9: Commit the module-tree milestone.** Run:
+- [x] **Step 9: Commit the module-tree milestone.** Run:
 
   ```bash
   git add docs/standard-library docs/language/purity.md docs/reference scripts/check-public-docs.py website/sidebars.ts website/scripts/test-experience.mjs
@@ -297,7 +300,7 @@
 - Preserves: explicit separation between ordinary canonical-core interpretation and the bounded opt-in typed-core/lowered-IR path.
 - Removes: public Pages-enablement, repository-sync, compiler-backed-documentation, active-source-path, and documentation-snapshot commentary.
 
-- [ ] **Step 1: Add failing public-copy and compiler-stage contracts.** Add a test that concatenates the homepage components, `docs/getting-started/overview.md`, the three compiler pages, and `docs/project/status.md`. Reject these public phrases case-insensitively:
+- [x] **Step 1: Add failing public-copy and compiler-stage contracts.** Add a test that concatenates the homepage components, `docs/getting-started/overview.md`, the three compiler pages, and `docs/project/status.md`. Reject these public phrases case-insensitively:
 
   ```text
   available after merge
@@ -311,17 +314,17 @@
 
   For the three compiler pages, reject active-path forms matching `` `(?:src|jazz|app|test|programs)/ ``. Require architecture headings or lead terms for Source and modules, Parse, Resolve, Analyze, Diagnose, Interpret, and Prepare a backend.
 
-- [ ] **Step 2: Run the focused website test and verify RED.** Run the Task 1 focused website test. Expected: failure on the getting-started deployment note, architecture source paths, and status snapshot commentary.
+- [x] **Step 2: Run the focused website test and verify RED.** Run the Task 1 focused website test. Expected: failure on the getting-started deployment note, architecture source paths, and status snapshot commentary.
 
-- [ ] **Step 3: Rewrite Getting Started as user documentation.** Remove the website publication/settings paragraph. Start with what the Jazz executable can compile and run, retain the checked Hello example and command, and end with the first-program and language-guide links.
+- [x] **Step 3: Rewrite Getting Started as user documentation.** Remove the website publication/settings paragraph. Start with what the Jazz executable can compile and run, retain the checked Hello example and command, and end with the first-program and language-guide links.
 
-- [ ] **Step 4: Rewrite compiler architecture around stages.** In `architecture.md`, give each conceptual stage one short section explaining its input, responsibility, and output. Explain module-graph ordering where relevant, keep diagnostics presentation-neutral, and distinguish the canonical interpreter from optional backend preparation. Do not name implementation modules or repository paths.
+- [x] **Step 4: Rewrite compiler architecture around stages.** In `architecture.md`, give each conceptual stage one short section explaining its input, responsibility, and output. Explain module-graph ordering where relevant, keep diagnostics presentation-neutral, and distinguish the canonical interpreter from optional backend preparation. Do not name implementation modules or repository paths.
 
-- [ ] **Step 5: Tighten pipeline and bootstrapping.** Keep pipeline ordering exact for standalone and module-graph compilation, but express it through the shared stage vocabulary. Keep bootstrapping focused on stage 0, hosted components, parity evidence, the current promotion boundary, and remaining gates; remove source-layout discussion and long implementation-inventory prose.
+- [x] **Step 5: Tighten pipeline and bootstrapping.** Keep pipeline ordering exact for standalone and module-graph compilation, but express it through the shared stage vocabulary. Keep bootstrapping focused on stage 0, hosted components, parity evidence, the current promotion boundary, and remaining gates; remove source-layout discussion and long implementation-inventory prose.
 
-- [ ] **Step 6: Remove snapshot and publication commentary.** Remove the implementation commit hash and documentation-only disclaimer from Project Status. Update `scripts/check-docs.sh` to require the maintained `Updated: 2026-08-12` line but stop requiring a source snapshot hash. Remove the obsolete Pages-enablement note from the README website link while preserving the link itself.
+- [x] **Step 6: Remove snapshot and publication commentary.** Remove the implementation commit hash and documentation-only disclaimer from Project Status. Update `scripts/check-docs.sh` to require the maintained `Updated: 2026-08-12` line but stop requiring a source snapshot hash. Remove the obsolete Pages-enablement note from the README website link while preserving the link itself.
 
-- [ ] **Step 7: Run focused docs and website checks.** Run:
+- [x] **Step 7: Run focused docs and website checks.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience
@@ -332,7 +335,7 @@
 
   Expected: all commands exit zero.
 
-- [ ] **Step 8: Commit the content milestone.** Run:
+- [x] **Step 8: Commit the content milestone.** Run:
 
   ```bash
   git add README.md docs/getting-started/overview.md docs/compiler docs/project/status.md scripts/check-docs.sh website/scripts/test-experience.mjs website/src/components/CodeProof.tsx
@@ -350,7 +353,7 @@
 - Consumes: the four committed milestones above.
 - Produces: a clean production build and one authoritative Node 22/Nix website receipt.
 
-- [ ] **Step 1: Review the complete implementation diff.** Run:
+- [x] **Step 1: Review the complete implementation diff.** Run:
 
   ```bash
   git diff 9a8e66eb..HEAD -- website docs scripts/check-public-docs.py scripts/check-docs.sh README.md
@@ -359,7 +362,7 @@
 
   Expected: the diff contains only the approved documentation-site work; the text scan returns no prohibited public copy.
 
-- [ ] **Step 2: Run the authoritative website gate once.** Run:
+- [x] **Step 2: Run the authoritative website gate once.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-website.sh
@@ -367,7 +370,7 @@
 
   Expected: brand tests, experience tests, TypeScript, production build, TextMate output check, Pages policy, and website boundary checks all pass.
 
-- [ ] **Step 3: Run repository documentation and diff gates.** Run:
+- [x] **Step 3: Run repository documentation and diff gates.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
@@ -377,9 +380,16 @@
 
   Expected: docs and diff checks pass; status contains only the implementation-plan receipt update.
 
-- [ ] **Step 4: Record receipts and commit closeout.** Mark completed plan steps, record the exact successful commands and date under this task, then run:
+- [x] **Step 4: Record receipts and commit closeout.** Mark completed plan steps, record the exact successful commands and date under this task, then run:
 
   ```bash
   git add .codex/plans/2026-08-12-jazz-documentation-site-density.md
   git commit -m "docs: close documentation site redesign"
   ```
+
+**Verification receipts (2026-08-12):**
+
+- `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-website.sh` — passed: 10 brand tests, 20 experience tests, TypeScript, production build, Jazz highlighting, Pages policy, and website boundary checks.
+- `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh` — passed: public documentation, Markdown visibility, example, RFC structure, authority, and queue checks.
+- Browser visual QA — passed at 1440×1000 and 390×844: centered navigation, no horizontal overflow, responsive homepage, module-tree sidebar, and stage-based compiler architecture.
+- `git diff --check` and prohibited-copy scans — passed with no findings.
