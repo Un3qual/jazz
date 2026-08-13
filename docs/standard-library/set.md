@@ -5,7 +5,8 @@ description: Use a persistent ordered set with logarithmic membership and update
 
 Import `Set` for unique, ordered values. Values require `Ord(a)`, and views
 traverse them in ascending order. The representation and constructor are
-private.
+private. Membership and single-value updates are `O(log n)`; ordered traversal
+is `O(n)`.
 
 ## Type
 
@@ -21,15 +22,11 @@ private.
 setEmpty :: Set(a).
 ```
 
-The empty set. Construction is `O(1)`.
-
 ### `setSingleton`
 
 ```jazz jazz-signature
 setSingleton :: a -> Set(a).
 ```
-
-Constructs a one-value set in `O(1)`.
 
 ### `setFromList`
 
@@ -56,23 +53,17 @@ Returns values in ascending order in `O(n)`.
 setSize :: Set(a) -> Int.
 ```
 
-Returns the number of distinct values in `O(1)`.
-
 ### `setIsEmpty`
 
 ```jazz jazz-signature
 setIsEmpty :: Set(a) -> Bool.
 ```
 
-Returns `True` when the set contains no values. This is `O(1)`.
-
 ### `setContains`
 
 ```jazz jazz-signature
 setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
 ```
-
-Tests membership in `O(log n)`.
 
 ## Updating and combining
 
@@ -82,8 +73,7 @@ Tests membership in `O(log n)`.
 setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
 ```
 
-Adds a value and returns a new set. Inserting a duplicate does not change the
-size. This is `O(log n)`.
+Inserting a duplicate does not change the set.
 
 ### `setRemove`
 

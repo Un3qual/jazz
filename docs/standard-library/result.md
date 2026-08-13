@@ -17,12 +17,11 @@ data Result e a = Err e | Ok a.
 
 ### `Err`
 
-Constructs an error result from a value of type `e`.
+The error branch.
 
 ### `Ok`
 
-Constructs a successful result from a value of type `a`. Both constructors are
-public and may be used in
+The success branch. Both constructors are available to
 [patterns](../language/algebraic-data-types-and-patterns.md).
 
 ## Transforming
@@ -33,8 +32,7 @@ public and may be used in
 resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
 ```
 
-Transforms the value inside `Ok` and preserves `Err` unchanged. Example:
-`resultMap (\(value) -> value + 1) (Ok 2)` produces `Ok 3`.
+Transforms the value inside `Ok` and preserves `Err` unchanged.
 
 ### `resultMapError`
 
@@ -42,8 +40,7 @@ Transforms the value inside `Ok` and preserves `Err` unchanged. Example:
 resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
 ```
 
-Transforms the value inside `Err` and preserves `Ok` unchanged. Example:
-`resultMapError show (Err 4)` produces `Err "4"`.
+Transforms the value inside `Err` and preserves `Ok` unchanged.
 
 ### `resultAndThen`
 
@@ -61,8 +58,7 @@ resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
 ```
 
 Calls the recovery function for `Err`. `Ok` skips recovery and keeps its value.
-This can also change the error type. Example: `resultRecover (\(_) -> Ok 0)
-(Err "missing")` produces `Ok 0`.
+The recovery may change the error type.
 
 All transformation operations are `O(1)` apart from the callback.
 
@@ -74,7 +70,7 @@ All transformation operations are `O(1)` apart from the callback.
 resultWithDefault :: a -> Result(e, a) -> a.
 ```
 
-Returns the value inside `Ok`, or the first argument for `Err`.
+Uses the first argument only for `Err`.
 
 ### `resultIsOk`
 
@@ -82,15 +78,11 @@ Returns the value inside `Ok`, or the first argument for `Err`.
 resultIsOk :: Result(e, a) -> Bool.
 ```
 
-Returns `True` for `Ok` and `False` for `Err`. This is `O(1)`.
-
 ### `resultIsErr`
 
 ```jazz jazz-signature
 resultIsErr :: Result(e, a) -> Bool.
 ```
-
-Returns `True` for `Err` and `False` for `Ok`. This is `O(1)`.
 
 ## Conversion
 

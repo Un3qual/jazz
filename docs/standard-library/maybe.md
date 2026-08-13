@@ -3,9 +3,8 @@ title: Maybe
 description: Represent a value that may be absent.
 ---
 
-Import `Maybe` when an operation may return no value. The module exposes the
-type, both constructors, and helpers for transforming or eliminating the
-optional branch.
+Use `Maybe` when a value may be absent and the absent case needs no error
+information.
 
 ## Type and constructors
 
@@ -19,12 +18,12 @@ data Maybe a = Nothing | Just a.
 
 ### `Nothing`
 
-Constructs an absent `Maybe(a)`. The expected type determines `a`.
+The expected type determines the parameter of `Nothing`.
 
 ### `Just`
 
-Constructs a present `Maybe(a)` from one value. Both constructors are public
-and may be used in [patterns](../language/algebraic-data-types-and-patterns.md).
+Both constructors are available to
+[patterns](../language/algebraic-data-types-and-patterns.md).
 
 ## Transforming
 
@@ -34,10 +33,7 @@ and may be used in [patterns](../language/algebraic-data-types-and-patterns.md).
 maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
 ```
 
-Applies the function to the value inside `Just`. `Nothing` passes through
-unchanged. This is `O(1)` apart from the function call.
-
-Example: `maybeMap (\(value) -> value * 2) (Just 3)` produces `Just 6`.
+Calls the function for `Just`; `Nothing` passes through unchanged.
 
 ### `maybeAndThen`
 
@@ -45,9 +41,8 @@ Example: `maybeMap (\(value) -> value * 2) (Just 3)` produces `Just 6`.
 maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
 ```
 
-Calls the function for `Just` and returns its `Maybe` result without adding
-another layer. `Nothing` skips the function. This is `O(1)` apart from the
-function call.
+Calls the function for `Just` without nesting its `Maybe` result. `Nothing`
+skips the function.
 
 ### `maybeFilter`
 
@@ -58,7 +53,7 @@ maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
 Keeps a present value when the predicate returns `True`; otherwise returns
 `Nothing`. An absent value never calls the predicate.
 
-Example: `maybeFilter (\(value) -> value > 0) (Just -2)` produces `Nothing`.
+These transformations are `O(1)` apart from callback work.
 
 ## Defaults and alternatives
 
@@ -68,8 +63,7 @@ Example: `maybeFilter (\(value) -> value > 0) (Just -2)` produces `Nothing`.
 maybeWithDefault :: a -> Maybe(a) -> a.
 ```
 
-Returns the value inside `Just`, or the first argument when the value is
-`Nothing`. Example: `maybeWithDefault 0 Nothing` produces `0`.
+Returns the first argument only for `Nothing`.
 
 ### `maybeOrElse`
 
@@ -78,7 +72,7 @@ maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
 ```
 
 Returns the second argument when it is `Just`; otherwise returns the fallback
-passed first. Example: `maybeOrElse (Just 4) Nothing` produces `Just 4`.
+passed first.
 
 ## Inspection
 
@@ -88,15 +82,11 @@ passed first. Example: `maybeOrElse (Just 4) Nothing` produces `Just 4`.
 maybeIsJust :: Maybe(a) -> Bool.
 ```
 
-Returns `True` for `Just` and `False` for `Nothing`. This is `O(1)`.
-
 ### `maybeIsNothing`
 
 ```jazz jazz-signature
 maybeIsNothing :: Maybe(a) -> Bool.
 ```
-
-Returns `True` for `Nothing` and `False` for `Just`. This is `O(1)`.
 
 ## Conversion
 
@@ -106,7 +96,7 @@ Returns `True` for `Nothing` and `False` for `Just`. This is `O(1)`.
 maybeToList :: Maybe(a) -> [a].
 ```
 
-Converts `Nothing` to `[]` and `Just value` to `[value]`. This is `O(1)`.
+Maps `Nothing` to `[]` and `Just value` to `[value]`.
 
 ### `maybeFromList`
 
@@ -114,7 +104,7 @@ Converts `Nothing` to `[]` and `Just value` to `[value]`. This is `O(1)`.
 maybeFromList :: [a] -> Maybe(a).
 ```
 
-Returns `Just` containing the first list value, or `Nothing` for an empty list.
-The remainder of a non-empty list is ignored. This is `O(1)`.
+Uses the first list value, or returns `Nothing` for an empty list. The remainder
+is ignored.
 
 Use [Result](result.md) instead when the absent branch should carry an error.

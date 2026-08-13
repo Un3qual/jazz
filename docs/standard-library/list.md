@@ -85,8 +85,6 @@ listAt :: Int -> [a] -> Maybe(a).
 Returns the zero-based value at the index. Negative and out-of-range indices
 return `Nothing`. The cost is `O(min(n, index))` for a non-negative index.
 
-Example: `listAt 1 [10, 20, 30]` produces `Just 20`.
-
 ## Slicing
 
 ### `listTake`

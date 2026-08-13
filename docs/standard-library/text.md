@@ -53,8 +53,6 @@ textAt :: Int -> Text -> Maybe(Char).
 Returns the scalar at a zero-based index. Negative and out-of-range indices
 return `Nothing`. The cost is linear in the traversed prefix.
 
-Example: `textAt 1 "Jazz"` produces `Just 'a'`.
-
 ### `textTake`
 
 ```jazz jazz-signature
@@ -272,8 +270,6 @@ textPadLeft :: Int -> Char -> Text -> Text.
 
 Prepends the padding scalar until the text reaches the requested scalar width.
 If the text is already wide enough, it is returned unchanged.
-
-Example: `textPadLeft 4 '0' "12"` produces `"0012"`.
 
 ### `textPadRight`
 

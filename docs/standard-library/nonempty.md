@@ -18,8 +18,8 @@ tail. The same name refers to the type and its constructor.
 
 ### `NonEmpty`
 
-`NonEmpty first rest` constructs a non-empty sequence directly and may be used
-in [patterns](../language/algebraic-data-types-and-patterns.md).
+The constructor is available to
+[patterns](../language/algebraic-data-types-and-patterns.md).
 
 ## Construction and conversion
 
@@ -28,8 +28,6 @@ in [patterns](../language/algebraic-data-types-and-patterns.md).
 ```jazz jazz-signature
 nonEmptySingleton :: a -> NonEmpty(a).
 ```
-
-Constructs a one-value sequence. This is `O(1)`.
 
 ### `nonEmptyFromList`
 
@@ -46,16 +44,13 @@ traversing them. This is `O(1)`.
 nonEmptyToList :: NonEmpty(a) -> [a].
 ```
 
-Returns the head followed by the tail. This is `O(1)`.
-
 ### `nonEmptyPrepend`
 
 ```jazz jazz-signature
 nonEmptyPrepend :: a -> NonEmpty(a) -> NonEmpty(a).
 ```
 
-Adds a new first value and preserves the existing sequence after it. This is
-`O(1)`.
+Adds a new first value in `O(1)`.
 
 ### `nonEmptyAppendList`
 
@@ -74,7 +69,7 @@ original sequence tail.
 nonEmptyHead :: NonEmpty(a) -> a.
 ```
 
-Returns the guaranteed first value. The function is total and `O(1)`.
+Total and `O(1)`.
 
 ### `nonEmptyTail`
 
@@ -82,7 +77,7 @@ Returns the guaranteed first value. The function is total and `O(1)`.
 nonEmptyTail :: NonEmpty(a) -> [a].
 ```
 
-Returns every value after the head. The result may be empty. This is `O(1)`.
+The result may be empty. This is `O(1)`.
 
 ### `nonEmptyLast`
 

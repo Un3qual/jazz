@@ -16,19 +16,19 @@ import is required.
 data Ordering = LT | EQ | GT.
 ```
 
-Represents the result of a three-way comparison.
+The result of a three-way comparison.
 
 ### `LT`
 
-Indicates that the left value sorts before the right value.
+The left value precedes the right value.
 
 ### `EQ`
 
-Indicates that the compared values have equal ordering.
+The values have equal ordering.
 
 ### `GT`
 
-Indicates that the left value sorts after the right value.
+The left value follows the right value.
 
 ## Equality and ordering capabilities
 
@@ -47,8 +47,6 @@ and numeric types.
 equals :: a -> a -> Bool.
 ```
 
-Returns whether two values are equal through the active `Eq(a)` implementation.
-
 ### `Ord`
 
 ```jazz jazz-signature
@@ -63,8 +61,6 @@ use their ordinary order. `Text` compares lexicographically by Unicode scalar.
 ```jazz jazz-signature
 compare :: a -> a -> Ordering.
 ```
-
-Returns `LT`, `EQ`, or `GT` through the active `Ord(a)` implementation.
 
 ## Numeric capabilities
 
@@ -129,8 +125,6 @@ uses `False`, `Char` uses `'\0'`, and `Text` uses `""`.
 defaultValue :: a.
 ```
 
-Returns the value supplied by the active `Default(a)` implementation.
-
 ## Compatibility list helpers
 
 ### `map`
@@ -157,21 +151,15 @@ Keeps the items whose predicate is `True`, preserving order. Prefer
 hd :: [a] -> a.
 ```
 
-Returns the first value. This function is partial: `hd []` fails fatally with
-`E3009`. Prefer [`listHead`](list.md#listhead) when emptiness is possible.
-
 ### `tl`
 
 ```jazz jazz-signature
 tl :: [a] -> [a].
 ```
 
-Returns every value after the first. This function is partial: `tl []` fails
-fatally with `E3010`. Prefer [`listTail`](list.md#listtail) when emptiness is
-possible.
-
 `hd` and `tl` are partial: an empty list fails fatally with `E3009` or `E3010`,
-respectively.
+respectively. Prefer [`listHead`](list.md#listhead) and
+[`listTail`](list.md#listtail) when emptiness is possible.
 
 ## Effectful compatibility value
 
@@ -206,23 +194,17 @@ Converts to an 8-bit signed integer and rejects values outside `-128` through
 toInt16 :: @{Num(a)}: a -> Int16.
 ```
 
-Converts to a 16-bit signed integer with range checking.
-
 ### `toInt32`
 
 ```jazz jazz-signature
 toInt32 :: @{Num(a)}: a -> Int32.
 ```
 
-Converts to a 32-bit signed integer with range checking.
-
 ### `toInt64`
 
 ```jazz jazz-signature
 toInt64 :: @{Num(a)}: a -> Int64.
 ```
-
-Converts to a 64-bit signed integer with range checking.
 
 ### `toUInt8`
 
@@ -239,15 +221,11 @@ Converts to an 8-bit unsigned integer and rejects values outside `0` through
 toUInt16 :: @{Num(a)}: a -> UInt16.
 ```
 
-Converts to a 16-bit unsigned integer with range checking.
-
 ### `toUInt32`
 
 ```jazz jazz-signature
 toUInt32 :: @{Num(a)}: a -> UInt32.
 ```
-
-Converts to a 32-bit unsigned integer with range checking.
 
 ### `toUInt64`
 
@@ -255,15 +233,11 @@ Converts to a 32-bit unsigned integer with range checking.
 toUInt64 :: @{Num(a)}: a -> UInt64.
 ```
 
-Converts to a 64-bit unsigned integer with range checking.
-
 ### `toFloat16`
 
 ```jazz jazz-signature
 toFloat16 :: @{Num(a)}: a -> Float16.
 ```
-
-Converts to IEEE binary16 with deterministic rounding and overflow checks.
 
 ### `toFloat32`
 
@@ -271,15 +245,11 @@ Converts to IEEE binary16 with deterministic rounding and overflow checks.
 toFloat32 :: @{Num(a)}: a -> Float32.
 ```
 
-Converts to IEEE binary32 with deterministic rounding and overflow checks.
-
 ### `toFloat64`
 
 ```jazz jazz-signature
 toFloat64 :: @{Num(a)}: a -> Float64.
 ```
-
-Converts to IEEE binary64 with deterministic rounding and overflow checks.
 
 ### `toInt`
 

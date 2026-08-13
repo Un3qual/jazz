@@ -5,7 +5,8 @@ description: Use a persistent ordered map with logarithmic lookup and update.
 
 Import `Map` for a persistent balanced search tree. Keys require `Ord(k)`, and
 ordered views traverse keys in ascending order. The representation and
-constructor are private.
+constructor are private. Lookup and update are `O(log n)`; full views and folds
+are `O(n)` before callback work.
 
 ## Type
 
@@ -21,15 +22,11 @@ constructor are private.
 mapEmpty :: Map(k, v).
 ```
 
-The empty map. Construction is `O(1)`.
-
 ### `mapSingleton`
 
 ```jazz jazz-signature
 mapSingleton :: k -> v -> Map(k, v).
 ```
-
-Constructs a map with one pair in `O(1)`.
 
 ### `mapFromList`
 
@@ -56,15 +53,11 @@ Returns pairs in ascending key order in `O(n)`.
 mapSize :: Map(k, v) -> Int.
 ```
 
-Returns the number of keys in `O(1)`.
-
 ### `mapIsEmpty`
 
 ```jazz jazz-signature
 mapIsEmpty :: Map(k, v) -> Bool.
 ```
-
-Returns `True` when the map contains no keys. This is `O(1)`.
 
 ### `mapLookup`
 
@@ -90,8 +83,6 @@ Lookup is `O(log n)`.
 mapContainsKey :: @{Ord(k)}: Map(k, v) -> k -> Bool.
 ```
 
-Returns whether the key is present in `O(log n)`.
-
 ## Updating
 
 ### `mapInsert`
@@ -100,7 +91,7 @@ Returns whether the key is present in `O(log n)`.
 mapInsert :: @{Ord(k)}: Map(k, v) -> k -> v -> Map(k, v).
 ```
 
-Adds a key or replaces its value, returning a new balanced map in `O(log n)`.
+Adds a key or replaces its value.
 
 ### `mapReplace`
 

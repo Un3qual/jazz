@@ -35,8 +35,7 @@ Success returns `Ok ()`; failure returns an error with the path when available.
 readStdin! :: () -> Result(IOError, Text).
 ```
 
-Reads standard input as strict UTF-8. Stream errors do not attach a path. Pass
-`()` to perform the read.
+Reads standard input as strict UTF-8. Stream errors do not attach a path.
 
 ### `writeStdout!`
 
@@ -64,7 +63,7 @@ attach a path.
 arguments! :: () -> List(Text).
 ```
 
-Returns process arguments in host-provided order. Pass `()` to retrieve them.
+Returns process arguments in host-provided order.
 
 ### `exit!`
 

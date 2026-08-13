@@ -6,7 +6,8 @@ sidebar_position: 5
 
 Import `Dictionary` for an insertion-ordered association structure whose keys
 require equality but not ordering. The representation and constructor are
-private; every update returns a new dictionary.
+private; every update returns a new dictionary. Basic shape operations are
+`O(1)`; key lookup and update are `O(n)` worst case.
 
 ## Type
 
@@ -23,15 +24,11 @@ preserves the insertion position of each key.
 dictionaryEmpty :: Dictionary(k, v).
 ```
 
-The empty dictionary. Construction is `O(1)`.
-
 ### `dictionarySingleton`
 
 ```jazz jazz-signature
 dictionarySingleton :: k -> v -> Dictionary(k, v).
 ```
-
-Constructs a dictionary with one key-value pair in `O(1)`.
 
 ### `dictionaryFromList`
 
@@ -58,15 +55,11 @@ Returns key-value pairs in insertion order. This is `O(1)` at the API boundary.
 dictionarySize :: Dictionary(k, v) -> Int.
 ```
 
-Returns the number of distinct keys in `O(1)`.
-
 ### `dictionaryIsEmpty`
 
 ```jazz jazz-signature
 dictionaryIsEmpty :: Dictionary(k, v) -> Bool.
 ```
-
-Returns `True` when the dictionary has no keys. This is `O(1)`.
 
 ### `dictionaryLookup`
 
@@ -92,8 +85,6 @@ absent. Lookup is `O(n)` worst case.
 dictionaryContainsKey :: @{Eq(k)}: Dictionary(k, v) -> k -> Bool.
 ```
 
-Returns whether the key is present in `O(n)` worst case.
-
 ## Updating
 
 ### `dictionaryInsert`
@@ -103,7 +94,6 @@ dictionaryInsert :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Dictionary(k, v).
 ```
 
 Adds a new key at the end or replaces an existing value without moving its key.
-The update is `O(n)`.
 
 ### `dictionaryReplace`
 

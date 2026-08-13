@@ -6,7 +6,8 @@ sidebar_position: 6
 
 Import `Queue` for a persistent FIFO collection. Enqueueing adds values at the
 rear; observation and removal use the oldest value. The representation and
-constructor are private.
+constructor are private. Construction, size, emptiness, and enqueue are
+`O(1)`.
 
 ## Type
 
@@ -23,15 +24,11 @@ leaves older queue values valid.
 queueEmpty :: Queue(a).
 ```
 
-The empty queue. Construction is `O(1)`.
-
 ### `queueSingleton`
 
 ```jazz jazz-signature
 queueSingleton :: a -> Queue(a).
 ```
-
-Constructs a queue containing one value in `O(1)`.
 
 ### `queueFromList`
 
@@ -55,15 +52,11 @@ Returns values from oldest to newest in `O(n)`.
 queueSize :: Queue(a) -> Int.
 ```
 
-Returns the number of values in `O(1)`.
-
 ### `queueIsEmpty`
 
 ```jazz jazz-signature
 queueIsEmpty :: Queue(a) -> Bool.
 ```
-
-Returns `True` when the queue has no values. This is `O(1)`.
 
 ## Updating and observing
 
@@ -72,8 +65,6 @@ Returns `True` when the queue has no values. This is `O(1)`.
 ```jazz jazz-signature
 queueEnqueue :: Queue(a) -> a -> Queue(a).
 ```
-
-Adds a value at the rear and returns the updated queue in `O(1)`.
 
 ### `queueEnqueueAll`
 

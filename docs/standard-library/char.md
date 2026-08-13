@@ -33,7 +33,7 @@ the surrogate range return `Nothing`. This is logically `O(1)`.
 charIsAlpha :: Char -> Bool.
 ```
 
-Returns whether the scalar has a Unicode alphabetic property.
+Uses the Unicode Alphabetic property.
 
 ### `charIsAlphaNum`
 
@@ -41,7 +41,7 @@ Returns whether the scalar has a Unicode alphabetic property.
 charIsAlphaNum :: Char -> Bool.
 ```
 
-Returns whether the scalar is alphabetic or numeric under Unicode properties.
+Uses Unicode alphabetic and numeric properties.
 
 ### `charIsDigit`
 
@@ -49,7 +49,7 @@ Returns whether the scalar is alphabetic or numeric under Unicode properties.
 charIsDigit :: Char -> Bool.
 ```
 
-Returns whether the scalar is a Unicode digit.
+Uses the Unicode digit property, not only ASCII `0`–`9`.
 
 ### `charIsSpace`
 
@@ -57,7 +57,7 @@ Returns whether the scalar is a Unicode digit.
 charIsSpace :: Char -> Bool.
 ```
 
-Returns whether the scalar is Unicode whitespace.
+Uses the Unicode whitespace property.
 
 ### `charIsHexDigit`
 
@@ -65,8 +65,7 @@ Returns whether the scalar is Unicode whitespace.
 charIsHexDigit :: Char -> Bool.
 ```
 
-Returns whether the scalar is an ASCII hexadecimal digit: `0`-`9`, `a`-`f`, or
-`A`-`F`.
+Recognizes only ASCII `0`–`9`, `a`–`f`, and `A`–`F`.
 
 ### `charIsLower`
 
@@ -74,7 +73,7 @@ Returns whether the scalar is an ASCII hexadecimal digit: `0`-`9`, `a`-`f`, or
 charIsLower :: Char -> Bool.
 ```
 
-Returns whether the scalar has a Unicode lowercase property.
+Uses the Unicode Lowercase property.
 
 ### `charIsUpper`
 
@@ -82,7 +81,7 @@ Returns whether the scalar has a Unicode lowercase property.
 charIsUpper :: Char -> Bool.
 ```
 
-Returns whether the scalar has a Unicode uppercase property.
+Uses the Unicode Uppercase property.
 
 ### `charIsNewline`
 
