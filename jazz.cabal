@@ -493,6 +493,7 @@ test-suite jazz-typed-core-contract-spec
   other-modules:
       Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
       Jazz.Compiler.Bootstrap.CanonicalValue
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource

@@ -23,10 +23,18 @@ import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
 import Jazz.Compiler.TypeInference
-import Jazz.Compiler.TypeInference.Elaboration (expressionDependencyNames)
+import Jazz.Compiler.TypeInference.Elaboration
+  ( ProvisionalCallableDeclaration (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    expressionDependencyNames,
+    finalizeValidatedTypedCoreExpressionDirectCall,
+    typedCoreProductionOutcomeStatus,
+  )
+import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
-    ExpressionType (TBoolType),
+    ExpressionType (TBoolType, TFunctionType),
     ScopeCapabilityFacts (..),
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
@@ -100,6 +108,7 @@ tests =
     ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
+    ("rejects incomplete transported recursive group ownership", testIncompleteRecursiveGroupOwnership),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
     ("binds a later callable rebinding to the nearest prior declaration", testCanonicalCallableRebindingDependencies "later-callable-rebinding-calls-nearest-prior"),
     ("trusts canonical ownership across an intervening scalar declaration", testInterveningScalarCanonicalOwnership "intervening-scalar-canonical-ownership"),
@@ -2136,6 +2145,52 @@ testProducerIdentityBoundary =
         (name <> " exact identity failure")
         (TypedCoreProductionUnsupported expectedFailures)
         (typedCoreProductionStatus firstRun)
+
+testIncompleteRecursiveGroupOwnership :: IO ()
+testIncompleteRecursiveGroupOwnership = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      functionType = TFunctionType TBoolType TBoolType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [1, 3])
+      loopExpression =
+        ProvisionalLambdaExpression
+          "item"
+          functionType
+          ( ProvisionalApplyExpression
+              TBoolType
+              (ProvisionalVariableExpression "loop" functionType)
+              (ProvisionalVariableExpression "item" TBoolType)
+          )
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalFunctionBinding loopDeclaration loopExpression,
+            ProvisionalTerminalExpression 2 spanValue (ProvisionalLiteralExpression (LBool True) TBoolType)
+          ]
+      status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  assertEqual
+    "missing recursive declaration owner rejects the complete group"
+    ( TypedCoreProductionUnsupported
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 1)
+            TypedCoreRecursiveFunctionUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
+    )
+    status
 
 testSameStatementFailureKindOrder :: IO ()
 testSameStatementFailureKindOrder = do

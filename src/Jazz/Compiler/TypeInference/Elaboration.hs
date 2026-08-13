@@ -1079,14 +1079,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           case provisionalCallableRecursiveGroupMembers declaration of
             Just memberStatements
               | Set.notMember memberStatements seenGroups ->
-                  let memberBinders =
-                        [ memberBinder
-                        | memberStatement <- memberStatements,
-                          Just memberBinder <- [Map.lookup memberStatement declarationBindersByStatement]
-                        ]
-                   in ( Set.insert memberStatements seenGroups,
+                  case traverse (`Map.lookup` declarationBindersByStatement) memberStatements of
+                    Just memberBinders ->
+                      ( Set.insert memberStatements seenGroups,
                         groups <> [TypedRecursiveGroup memberBinders]
                       )
+                    Nothing -> (Set.insert memberStatements seenGroups, groups)
             _ -> (seenGroups, groups)
 
     allDirectRecursiveBinders functions callableShapes reboundFunctions statements typedRecursiveGroups =
