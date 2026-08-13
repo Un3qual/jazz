@@ -27,7 +27,7 @@
     "prism-react-renderer": "2.4.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "shiki": "4.4.2"
+    "shiki": "4.4.3"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.10.2",
@@ -36,7 +36,7 @@
     "@types/react": "19.2.18",
     "fontkit": "2.0.4",
     "sharp": "0.35.3",
-    "typescript": "6.0.2"
+    "typescript": "7.0.2"
   },
   "browserslist": {
     "production": [
