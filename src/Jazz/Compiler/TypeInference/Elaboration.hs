@@ -312,9 +312,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           declarations = callableDeclarations provisionalStatements
           callableShapes = callableShapeTable functions provisionalStatements
           reboundFunctions = reboundFunctionStatements provisionalStatements
+          typedRecursiveGroups = orderedTypedRecursiveGroups declarations
           recursiveBinders = recursiveDeclarationBinders declarations
+          acceptedRecursiveBinders =
+            allDirectRecursiveBinders
+              functions
+              callableShapes
+              reboundFunctions
+              provisionalStatements
+              typedRecursiveGroups
+          unsupportedRecursiveBinders = recursiveBinders Set.\\ acceptedRecursiveBinders
           (statementFailures, typedStatements) =
-            finalizeStatements functions callableShapes reboundFunctions recursiveBinders provisionalStatements
+            finalizeStatements functions callableShapes reboundFunctions unsupportedRecursiveBinders provisionalStatements
           exportResult = finalizeExports functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
@@ -330,6 +339,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   let programValue =
                         typedProgram
                           (snd exportResult)
+                          typedRecursiveGroups
                           typedStatements
                           (typedExpressionInfo terminalExpression)
                    in case validateTypedProgramOnce programValue of
@@ -343,7 +353,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
   where
     modulePath = resolvedModulePath resolvedModule
 
-    typedProgram typedInterface typedStatements moduleInfo =
+    typedProgram typedInterface typedRecursiveGroups typedStatements moduleInfo =
       TypedProgram
         Nothing
         [ TypedModule
@@ -352,7 +362,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             []
             (typedExports typedInterface)
             typedInterface
-            []
+            typedRecursiveGroups
             typedStatements
             moduleInfo
         ]
@@ -1048,6 +1058,74 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         | declaration <- declarations,
           Just _ <- [provisionalCallableRecursiveGroupMembers declaration]
         ]
+
+    orderedTypedRecursiveGroups ::
+      [ProvisionalCallableDeclaration] ->
+      [TypedRecursiveGroup]
+    orderedTypedRecursiveGroups declarations =
+      snd (foldl' collect (Set.empty, []) declarations)
+      where
+        declarationBindersByStatement =
+          Map.fromList
+            [ ( provisionalCallableStatementIndex declaration,
+                binderAt
+                  (provisionalCallableStatementIndex declaration)
+                  []
+                  (resolvedValueName (provisionalCallableName declaration))
+              )
+            | declaration <- declarations
+            ]
+        collect (seenGroups, groups) declaration =
+          case provisionalCallableRecursiveGroupMembers declaration of
+            Just memberStatements
+              | Set.notMember memberStatements seenGroups ->
+                  let memberBinders =
+                        [ memberBinder
+                        | memberStatement <- memberStatements,
+                          Just memberBinder <- [Map.lookup memberStatement declarationBindersByStatement]
+                        ]
+                   in ( Set.insert memberStatements seenGroups,
+                        groups <> [TypedRecursiveGroup memberBinders]
+                      )
+            _ -> (seenGroups, groups)
+
+    allDirectRecursiveBinders functions callableShapes reboundFunctions statements typedRecursiveGroups =
+      Set.fromList
+        [ member
+        | TypedRecursiveGroup members <- typedRecursiveGroups,
+          all (`Set.member` supportedMembers) members,
+          member <- members
+        ]
+      where
+        supportedMembers =
+          Set.fromList
+            [ owner
+            | ProvisionalFunctionBinding declaration expression <- statements,
+              let statementIndex = provisionalCallableStatementIndex declaration,
+              let name = provisionalCallableName declaration,
+              let owner = binderAt statementIndex [] (resolvedValueName name),
+              ProvisionalLambdaExpression {} <- [expression],
+              shapeFor callableShapes name == TypedDirectCallableShape,
+              Map.notMember statementIndex reboundFunctions,
+              not (generatedOperatorName name),
+              Just PlainTypeBinding {} <- [provisionalCallableBinding declaration],
+              let directArity = maybe 0 functionArity (Map.lookup name functions),
+              Right _ <- [callableInfo TypedDirectCallableShape directArity statementIndex [] (provisionalCallableType declaration)],
+              let (expressionFailures, _) =
+                    finalizeExpression
+                      functions
+                      callableShapes
+                      statementIndex
+                      [0]
+                      Map.empty
+                      (FunctionBindingExpression TypedDirectCallableShape directArity)
+                      expression,
+              null expressionFailures
+            ]
+        generatedOperatorName name =
+          case name of
+            GeneratedName (OperatorBinding _) -> True
+            _ -> False
 
     finalizeExports functions callableShapes =
       foldl'

@@ -66,6 +66,7 @@ tests =
 coreTests :: [NamedTest]
 coreTests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
+    ("accepts exact producer direct-recursion artifacts", testProducerDirectRecursionArtifacts),
     ("encodes every typed-core outcome constructor", testOutcomeEncoding),
     ("accepts every fixed valid program", testValidPrograms),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
@@ -115,6 +116,19 @@ testValidPrograms =
   mapM_
     (\fixture -> assertEqual (validFixtureName fixture <> " valid failures") [] (validateTypedProgram (validFixtureProgram fixture)))
     validFixtures
+
+testProducerDirectRecursionArtifacts :: IO ()
+testProducerDirectRecursionArtifacts = do
+  assertEqual
+    "producer direct-recursion fixture names"
+    ["self-recursive-function", "mutually-recursive-functions"]
+    (map fst producerDirectRecursionExpectedPrograms)
+  mapM_
+    ( \(fixture, program) -> do
+        assertEqual (fixture <> " producer artifact first validation") [] (validateTypedProgram program)
+        assertEqual (fixture <> " producer artifact second validation") [] (validateTypedProgram program)
+    )
+    producerDirectRecursionExpectedPrograms
 
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
@@ -273,7 +287,11 @@ allValidationKinds = [minBound .. maxBound]
 
 testJazzValidationParity :: IO ()
 testJazzValidationParity = do
-  let programs = map validFixtureProgram validFixtures <> map invalidFixtureProgram invalidFixtures <> reviewRegressionPrograms
+  let programs =
+        map validFixtureProgram validFixtures
+          <> map invalidFixtureProgram invalidFixtures
+          <> reviewRegressionPrograms
+          <> map snd producerDirectRecursionExpectedPrograms
       expectedRuntimeValue =
         VList
           [ VTuple
@@ -8896,6 +8914,70 @@ recursiveGroupDirectMutualProgram =
     [TypedDirectCallableShape, TypedDirectCallableShape]
     [Just 1, Just 0]
     [[0, 1]]
+
+producerDirectRecursionExpectedPrograms :: [(Text, TypedProgram)]
+producerDirectRecursionExpectedPrograms =
+  [ ("self-recursive-function", producerDirectRecursionProgram [("loop", "loop")] "loop" [[1]]),
+    ( "mutually-recursive-functions",
+      producerDirectRecursionProgram [("left", "right"), ("right", "left")] "left" [[1, 3]]
+    )
+  ]
+
+producerDirectRecursionProgram :: [(Text, Text)] -> Text -> [[Int]] -> TypedProgram
+producerDirectRecursionProgram declarations entryName recursiveGroupIndices =
+  TypedProgram Nothing [moduleValue] modulePath
+  where
+    modulePath = ["App", "Main"]
+    sourcePath = TypedSourcePath "src/App/Main.jz"
+    intRecipe = TypedSignedIntegerRecipe 64
+    intNodeInfo = info TypedIntType intRecipe
+    callableType = TypedFunctionType TypedIntType TypedIntType
+    callableRecipe = TypedClosureRecipe [intRecipe] intRecipe
+    callableInfo = info callableType callableRecipe
+    names = [resolved TypedCurrentModule TypedValueNamespace name | (name, _) <- declarations]
+    bindingOwners =
+      [ binder modulePath [functionOffset * 2 + 1] name
+      | (functionOffset, name) <- zip [0 ..] names
+      ]
+    ownerByName = zip names bindingOwners
+    ownerFor name =
+      case lookup (resolved TypedCurrentModule TypedValueNamespace name) ownerByName of
+        Just owner -> owner
+        Nothing -> error "unknown direct-recursion producer owner"
+    functionStatements =
+      concat
+        [ let signatureIndex = functionOffset * 2
+              bindingIndex = signatureIndex + 1
+              name = resolved TypedCurrentModule TypedValueNamespace sourceName
+              signatureOwner = binder modulePath [signatureIndex] name
+              bindingOwner = binder modulePath [bindingIndex] name
+              parameterName = resolved TypedCurrentModule TypedValueNamespace "item"
+              parameterOwner = binder modulePath [bindingIndex, 0] parameterName
+              signatureScheme = TypedScheme signatureOwner [] [] [] callableType callableRecipe (Just TypedDirectCallableShape)
+              bindingScheme = TypedScheme bindingOwner [] [] [] callableType callableRecipe (Just TypedDirectCallableShape)
+              body =
+                TypedApplyExpr
+                  intNodeInfo
+                  (fixtureBoundVariableExpr (ownerFor peerName) callableInfo (resolved TypedCurrentModule TypedValueNamespace peerName))
+                  (fixtureBoundVariableExpr parameterOwner intNodeInfo parameterName)
+              expression = TypedLambdaExpr callableInfo parameterOwner parameterName body
+           in [ TypedSignatureStatement signatureOwner name (TypedSpan (signatureIndex + 2) 1) signatureScheme,
+                TypedLetStatement bindingOwner name (TypedSpan (bindingIndex + 2) 1) bindingScheme expression
+              ]
+        | (functionOffset, (sourceName, peerName)) <- zip [0 ..] declarations
+        ]
+    terminalIndex = length functionStatements
+    entryTypedName = resolved TypedCurrentModule TypedValueNamespace entryName
+    terminalExpression =
+      TypedApplyExpr
+        intNodeInfo
+        (fixtureBoundVariableExpr (ownerFor entryName) callableInfo entryTypedName)
+        (TypedLiteralExpr intNodeInfo (TypedIntegerLiteral "1"))
+    recursiveGroups =
+      [TypedRecursiveGroup [bindingOwners !! statementOwnerOffset | statementIndex <- indices, let statementOwnerOffset = (statementIndex - 1) `div` 2] | indices <- recursiveGroupIndices]
+    statements = functionStatements <> [TypedExpressionStatement (TypedSpan (terminalIndex + 2) 1) terminalExpression]
+    moduleValue =
+      TypedModule modulePath sourcePath [] [] emptyInterface recursiveGroups statements intNodeInfo
 
 recursiveGroupEmptyProgram :: TypedProgram
 recursiveGroupEmptyProgram =

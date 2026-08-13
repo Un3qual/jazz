@@ -171,7 +171,9 @@ testFixtureManifest = do
           "mixed-direct-and-value-use",
           "callable-parameter-value-shadows-enclosing-function",
           "capturing-function",
-          "partial-direct-call"
+          "partial-direct-call",
+          "self-recursive-function",
+          "mutually-recursive-functions"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -186,8 +188,6 @@ testFixtureManifest = do
           "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
-          "self-recursive-function",
-          "mutually-recursive-functions",
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "polymorphic-or-evidence-function",
@@ -197,8 +197,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 26 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 28 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 45 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -318,6 +318,7 @@ testAcceptedManifestPipeline =
       [("unit-entry", expectedUnitProgram)]
         <> scalarExpectedPrograms
         <> directCallExpectedPrograms
+        <> directRecursionExpectedPrograms
         <> closedCallableExpectedPrograms
         <> lexicalCaptureExpectedPrograms
         <> curriedApplicationExpectedPrograms
@@ -367,6 +368,14 @@ testAcceptedManifestPipeline =
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
                 (Nothing, _) -> failTest (name <> " did not retain its validation proof")
+                (Just validatedProgram, Nothing)
+                  | name `elem` map fst directRecursionExpectedPrograms -> do
+                      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+                          trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
+                      assertEqual (name <> " trusted recursive rejection matches checked lowering") lowering trustedLowering
+                      case lowering of
+                        LoweredIRUnsupported _ -> pure ()
+                        _ -> failTest (name <> " was unexpectedly admitted by lowering")
                 (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
@@ -1666,8 +1675,6 @@ callableExpectedStatuses =
 callableRejectionNames :: [Text]
 callableRejectionNames =
   [ "oversaturated-direct-call",
-    "self-recursive-function",
-    "mutually-recursive-functions",
     "closure-value-mutual-recursion",
     "closure-value-self-recursion",
     "polymorphic-or-evidence-function",
@@ -1707,13 +1714,6 @@ rejectedManifestExpectedStatuses =
     ( "oversaturated-direct-call",
       unsupported
         [expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
-    ),
-    ("self-recursive-function", unsupported [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]),
-    ( "mutually-recursive-functions",
-      unsupported
-        [ statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
-          statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
-        ]
     ),
     ( "closure-value-mutual-recursion",
       unsupported
@@ -2143,10 +2143,6 @@ testSameStatementFailureKindOrder = do
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail "loop"),
-            TypedCoreProductionFailure
               (TypedCoreProductionStatementPath ["App", "Main"] 3)
               TypedCoreFunctionRebindingUnsupported
               (TypedCoreNameDetail "loop"),
@@ -2214,10 +2210,10 @@ testCanonicalRecursionTransportControls :: IO ()
 testCanonicalRecursionTransportControls =
   mapM_
     assertOwners
-    [ ("self-recursive-function-rebinding", [(1, "loop")]),
+    [ ("self-recursive-function-rebinding", []),
       ("three-same-name-nearest-prior-mutual-recursion", [(5, "identity"), (7, "peer")]),
-      ("canonical-self-recursion-no-prior", [(1, "loop")]),
-      ("canonical-mutual-recursion-peers", [(1, "left"), (3, "right")]),
+      ("canonical-self-recursion-no-prior", []),
+      ("canonical-mutual-recursion-peers", []),
       ("rejected-self-alias-recursion", [(1, "loop")]),
       ("rejected-mutual-alias-recursion", [(1, "left"), (3, "right")]),
       ("rejected-alias-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
@@ -2407,10 +2403,17 @@ testRejectedCallableRebinding requestedName =
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =
-  case lookup requestedName expectedResults of
-    Just expectedFailures -> assertExact requestedName expectedFailures
-    Nothing -> error "canonical callable rebinding fixture has no expected result"
+  case lookup requestedName acceptedGroups of
+    Just groups -> assertAccepted requestedName groups
+    Nothing ->
+      case lookup requestedName expectedResults of
+        Just expectedFailures -> assertExact requestedName expectedFailures
+        Nothing -> error "canonical callable rebinding fixture has no expected result"
   where
+    acceptedGroups =
+      [ ("canonical-self-recursion-no-prior", [[(1, "loop")]]),
+        ("canonical-mutual-recursion-peers", [[(1, "left"), (3, "right")]])
+      ]
     expectedResults =
       [ ( "later-callable-rebinding-calls-nearest-prior",
           [rebindingFailure 3 "identity"]
@@ -2420,14 +2423,6 @@ testCanonicalCallableRebindingDependencies requestedName =
             recursionFailure 5 "identity",
             rebindingFailure 5 "identity",
             recursionFailure 7 "peer"
-          ]
-        ),
-        ( "canonical-self-recursion-no-prior",
-          [recursionFailure 1 "loop"]
-        ),
-        ( "canonical-mutual-recursion-peers",
-          [ recursionFailure 1 "left",
-            recursionFailure 3 "right"
           ]
         ),
         ( "nearest-rebinding-mutual-control",
@@ -2458,6 +2453,29 @@ testCanonicalCallableRebindingDependencies requestedName =
         (name <> " exact canonical owners, order, and multiplicity")
         (TypedCoreProductionUnsupported expectedFailures)
         (typedCoreProductionStatus firstRun)
+    assertAccepted name expectedGroups = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+      assertEqual (name <> " repeatability") firstRun secondRun
+      case typedCoreProductionStatus firstRun of
+        TypedCoreProductionSucceeded program -> do
+          assertEqual (name <> " accepted recursive validation") [] (validateTypedProgram program)
+          assertEqual (name <> " exact typed recursive groups") expectedGroups (typedRecursiveGroupOwners program)
+        status -> failTest (name <> " did not produce typed recursion: " <> Text.pack (show status))
+    typedRecursiveGroupOwners program =
+      case program of
+        TypedProgram _ [TypedModule _ _ _ _ _ groups _ _] _ ->
+          [ [ (statementIndex, name)
+            | TypedBinderId (_, statementIndex : _, TypedResolvedName _ _ name) <- members
+            ]
+          | TypedRecursiveGroup members <- groups
+          ]
+        _ -> error "canonical direct recursion expected one typed module"
     recursionFailure statementIndex name =
       TypedCoreProductionFailure
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
