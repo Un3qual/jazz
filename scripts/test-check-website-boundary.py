@@ -78,6 +78,24 @@ class WebsiteBoundaryTests(unittest.TestCase):
         )
         self.assert_violation("generated output contains a non-allowlisted remote URL")
 
+    def test_built_output_rejects_javascript_remote_resources(self) -> None:
+        (self.build / "main.js").write_text(
+            'fetch("https://cdn.example/index.json");\n'
+            'import("https://cdn.example/search.js");\n',
+            encoding="utf-8",
+        )
+        self.assert_violation("generated output contains a non-allowlisted remote URL")
+
+    def test_built_output_allows_javascript_url_parsing_bases(self) -> None:
+        (self.build / "main.js").write_text(
+            'new URL(path, "https://jazz.invalid");\n'
+            'new URL(`https://example.com${normalized}`);\n',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Website boundary checks passed.\n", result.stdout)
+
     def test_built_output_allows_navigation_data_urls_and_local_assets(self) -> None:
         (self.build / "index.html").write_text(
             '<link rel="canonical" href="https://un3qual.github.io/jazz/">\n'

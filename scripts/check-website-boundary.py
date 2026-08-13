@@ -55,14 +55,20 @@ def allowed_remote_url(url: str) -> bool:
     return cleaned.startswith(PRODUCTION_PREFIXES)
 
 
-def resource_targets(source: str) -> list[str]:
-    targets = [match.group(2) for match in RESOURCE_ATTRIBUTE_RE.finditer(source)]
-    targets.extend(match.group(2) for match in LINK_RESOURCE_RE.finditer(source))
-    targets.extend(
-        match.group(1) or match.group(3)
-        for match in CSS_RESOURCE_RE.finditer(source)
-    )
-    targets.extend(match.group(2) for match in SCRIPT_RESOURCE_RE.finditer(source))
+def resource_targets(source: str, suffix: str) -> list[str]:
+    targets: list[str] = []
+    if suffix in {".html", ".svg"}:
+        targets.extend(
+            match.group(2) for match in RESOURCE_ATTRIBUTE_RE.finditer(source)
+        )
+        targets.extend(match.group(2) for match in LINK_RESOURCE_RE.finditer(source))
+    if suffix in {".css", ".html", ".svg"}:
+        targets.extend(
+            match.group(1) or match.group(3)
+            for match in CSS_RESOURCE_RE.finditer(source)
+        )
+    if suffix in {".js", ".html"}:
+        targets.extend(match.group(2) for match in SCRIPT_RESOURCE_RE.finditer(source))
     return targets
 
 
@@ -84,7 +90,7 @@ def check_output_tree(build: Path, label_root: Path, violations: list[str]) -> N
                 violations.append(
                     f"{relative}: generated output contains internal-only material: {term}"
                 )
-        for target in resource_targets(source):
+        for target in resource_targets(source, path.suffix.casefold()):
             if target.lstrip(" \t\r\n\"'").casefold().startswith("data:"):
                 continue
             for url in REMOTE_URL_RE.findall(target):
