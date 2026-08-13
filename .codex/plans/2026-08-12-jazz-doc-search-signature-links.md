@@ -303,7 +303,7 @@
 - Consumes: Tasks 1-4.
 - Produces: a clean committed tree with authoritative docs/site gates and desktop/mobile browser evidence.
 
-- [ ] **Step 1: Review the complete change.** Run:
+- [x] **Step 1: Review the complete change.** Run:
 
   ```bash
   git diff ee51f447..HEAD -- docs/reference/runtime-values.md scripts/check-website.sh website .codex/plans/2026-08-12-jazz-doc-search-signature-links.md
@@ -312,7 +312,7 @@
 
   Confirm there is no hosted-search configuration, telemetry, marketing copy, guessed identifier linking, ordinary-example linking, or unrelated navbar/homepage redesign.
 
-- [ ] **Step 2: Run the authoritative documentation gate.** Run:
+- [x] **Step 2: Run the authoritative documentation gate.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
@@ -320,7 +320,7 @@
 
   Expected: all documentation, examples, link, authority, queue, and formatting checks pass.
 
-- [ ] **Step 3: Run the authoritative website gate.** Run:
+- [x] **Step 3: Run the authoritative website gate.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-website.sh
@@ -328,11 +328,26 @@
 
   Expected: search-model, signature-model, brand, experience, TypeScript, production build, Pagefind index, highlighting, linked-target, Pages policy, and boundary checks all pass.
 
-- [ ] **Step 4: Perform production browser QA.** Serve `website/build` and inspect 1440x1000 and 390x844 viewports. At both sizes verify no horizontal overflow; the Search control is reachable; `/` and `Ctrl/Cmd+K` open the dialog; focus is contained and restored; `maybeMap` returns the correct API section; an impossible query shows the empty state; Escape closes; and reduced motion removes transforms. On Maybe, Result, List, IO, and Prelude pages, verify type links retain syntax colors, have no underline in any state, show visible keyboard focus, and resolve under `/jazz/`. Verify an ordinary Jazz example contains no links.
+- [x] **Step 4: Perform production browser QA.** Serve `website/build` and inspect 1440x1000 and 390x844 viewports. At both sizes verify no horizontal overflow; the Search control is reachable; `/` and `Ctrl/Cmd+K` open the dialog; focus is contained and restored; `maybeMap` returns the correct API section; an impossible query shows the empty state; Escape closes; and reduced motion removes transforms. On Maybe, Result, List, IO, and Prelude pages, verify type links retain syntax colors, have no underline in any state, show visible keyboard focus, and resolve under `/jazz/`. Verify an ordinary Jazz example contains no links.
 
-- [ ] **Step 5: Record receipts and commit closeout.** Mark completed plan steps, append the date and exact successful commands, then run:
+- [x] **Step 5: Record receipts and commit closeout.** Mark completed plan steps, append the date and exact successful commands, then run:
 
   ```bash
   git add .codex/plans/2026-08-12-jazz-doc-search-signature-links.md
   git commit -m "docs: close documentation search work"
   ```
+
+**Verification receipts (2026-08-12):**
+
+- Review: `git diff ee51f447..HEAD -- docs/reference/runtime-values.md scripts/check-website.sh website .codex/plans/2026-08-12-jazz-doc-search-signature-links.md` and `git diff --check` passed. The reviewed change contains no hosted-search configuration, runtime telemetry, marketing copy, guessed identifier linking, ordinary-example linking, or unrelated navbar/homepage redesign.
+- Documentation: `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh` passed all public-documentation, standard-library API, example, RFC, link, authority, clarification, execution-queue, regression, and formatting checks.
+- Website: `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-website.sh` passed the Pages policy, 10 brand tests, 8 search-model tests, 9 signature tests, 25 experience tests, TypeScript, production build, Pagefind index (42 pages and 42 fragments), highlighting (240 blocks and 6 token colors), linked targets (225 signatures and 683 links with 15 ordinary examples), and publication-boundary check.
+- Closeout repair: the first website-gate run exposed CSS `url(...)` syntax being applied to generated JavaScript and misclassifying `new URL(...)` parsing bases from the site model and Pagefind. `python3 scripts/test-check-website-boundary.py` failed RED on those parsing bases, then passed 8/8 after resource contexts became suffix-aware while literal JavaScript `fetch()` and `import()` URLs remained rejected. Commit `df05951b` records the repair.
+- Publication: `.github/workflows/docs-pages.yml` uploads `website/build`, so the generated `website/build/pagefind/` runtime, WASM, metadata, and fragments are included in the Pages artifact.
+- Browser, desktop: the production artifact served at `/jazz/` under a 1440x1000 viewport with zero horizontal overflow. Search was reachable; `/`, `Cmd+K`, and `Ctrl+K` opened the modal with focus contained; `maybeMap` returned the Standard library Maybe section; Arrow Down/Up and Enter navigated to `/jazz/docs/standard-library/maybe.html#maybemap`; an impossible query showed the empty state; and navigation/close restored opener focus. The generated reduced-motion rule disables the search dialog animation/transition, so its transform keyframe does not run.
+- Browser, mobile: at 390x844 the Search control was visible at 44x44, the page and dialog had zero horizontal overflow, `/` and `Cmd+K` opened the modal with focus contained, `maybeMap` returned and navigated to the same section, the impossible query showed the empty state, and close/navigation restored opener focus.
+- Escape: the Task 2 production-browser receipt above records Escape closing the modal and restoring opener focus. During this closeout, the in-app Browser's synthetic Escape dispatch did not consistently trigger the native dialog cancel path; source inspection confirmed the production `<dialog onCancel>` still prevents the native default, calls `closeSearch()`, closes the dialog, clears state, and restores the opener. This is recorded as an automation limitation rather than contradictory product evidence.
+- Signature links: Maybe (23), Result (22), List (194), IO (26), and Prelude (55) retained token colors, had no underline, resolved only under `/jazz/`, and showed a visible 2px keyboard-focus outline. `docs/getting-started/first-program` contained four ordinary Jazz blocks and zero type links.
+- Browser evidence: `.superpowers/sdd/2026-08-12-jazz-doc-search-signature-links/evidence/desktop-search-empty-1440x1000.png`, `.superpowers/sdd/2026-08-12-jazz-doc-search-signature-links/evidence/desktop-signature-focus-1440x1000.png`, and `.superpowers/sdd/2026-08-12-jazz-doc-search-signature-links/evidence/mobile-search-results-390x844.png`.
+- Minor ruling: the server compiler still warns that the base-URL-dependent Pagefind import request is an expression. It is the deliberate lazy local-runtime boundary, the production build and browser import both pass, and suppressing it narrowly would require hard-coding `/jazz/`, indirect evaluation, or bundling a generated module. No runtime behavior was changed solely to remove the warning.
+- Minor ruling: no additional token-splitting unit contract was added. Fresh production checks reconstructed all 225 signature blocks, verified 683 valid links, retained TextMate colors/styles in the browser, and kept 15 ordinary examples link-free; closeout produced no evidence that a separate byte-level LF/CRLF fixture is blocking.
