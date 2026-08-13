@@ -44,10 +44,13 @@ environments with deterministic lifted function and layout identities.
 Concrete scalar bindings are also retained in entry modules with explicitly
 empty export lists, evaluated once in source order, and reused by exact binder
 identity in later entry expressions. Scalar value interfaces are not produced
-yet.
+yet. Curried applications retain one unary closure stage per source
+application. Partial application therefore produces the remaining closure
+directly, while additional arguments are evaluated and applied in order only
+when the preceding result is callable. Proven complete direct declaration
+calls keep their coalesced direct-call lowering.
 
 This path does not participate in ordinary compile or run, which remain on
-canonical core and the reference interpreter. Currying and partial application,
-oversaturation, recursion, full control flow, multi-module integration, native
-emission, linking, and a native runtime remain promotion gates. See the current
-[status](../project/status.md).
+canonical core and the reference interpreter. Recursion, full control flow,
+multi-module integration, native emission, linking, and a native runtime remain
+promotion gates. See the current [status](../project/status.md).

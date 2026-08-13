@@ -1067,7 +1067,7 @@ module TypedCoreValidate (
   expectedNativeCallableUseRecipe = \(requireStagedCallableRecipe, directCalleeArgumentCount, typeValue) ->
     if requireStagedCallableRecipe then case expectedRecipe typeValue {
       | Just directRecipe -> case directCallableRecipeArity directRecipe {
-        | Just expectedArgumentCount -> if directCalleeArgumentCount == expectedArgumentCount then Just directRecipe else expectedValueRecipe typeValue
+        | Just expectedArgumentCount -> if directCalleeArgumentCount >= expectedArgumentCount then Just directRecipe else expectedValueRecipe typeValue
         | Nothing -> expectedValueRecipe typeValue
       }
       | Nothing -> expectedValueRecipe typeValue
@@ -3471,7 +3471,7 @@ module TypedCoreValidate (
   validateDirectCallableSchemeUse = \(path, directCalleeArgumentCount, scheme) -> case scheme {
     | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> case callableShape {
       | Just TypedDirectCallableShape -> case directCallableRecipeArity resultRecipe {
-        | Just expectedArgumentCount -> if directCalleeArgumentCount == expectedArgumentCount then [] else [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
+        | Just expectedArgumentCount -> if directCalleeArgumentCount >= expectedArgumentCount then [] else [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
         | Nothing -> [failure path TypedCallableShapeMismatch (TypedBinderDetail owner)]
       }
       | other -> []

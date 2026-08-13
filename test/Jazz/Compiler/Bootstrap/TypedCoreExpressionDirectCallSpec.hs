@@ -46,6 +46,9 @@ tests =
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
+    ("produces staged curried partial applications", testCurriedApplicationProduction),
+    ("lowers staged curried applications", testCurriedApplicationLowering),
+    ("keeps non-callable oversaturation at the source diagnostic boundary", testNonCallableOversaturationDiagnostic),
     ("lowers lexical closures with exact environments", testLexicalCaptureLowering),
     ("supports the complete lexical capture fixture matrix", testLexicalCaptureFixtureMatrix),
     ("dispatches captured closure callees from nested named closures", testClosureCaptureReviewRegression "named-nested-captured-closure-call"),
@@ -66,7 +69,8 @@ tests =
     ("keeps forward visibility inside the typed-core production profile", testForwardVisibilityBoundary),
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("admits captured arguments inside direct-call bodies", testCurriedArgumentCapture),
-    ("retains supplied argument failures when direct-call arity is invalid", testInvalidArityArgumentFailureAccumulation),
+    ("retains supplied arguments inside partial applications", testPartialApplicationArgumentCapture),
+    ("retains managed-argument failures inside valid partial applications", testPartialApplicationManagedArgumentFailure),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
     ("retains later sibling failures after accepting a captured closure call", testClosureUseArgumentFailureOrder),
     ("collapses mixed callable-use reasons to one closure classification", testClosureShapeClassificationCollapse),
@@ -166,7 +170,8 @@ testFixtureManifest = do
           "callable-parameter-shadows-enclosing-function",
           "mixed-direct-and-value-use",
           "callable-parameter-value-shadows-enclosing-function",
-          "capturing-function"
+          "capturing-function",
+          "partial-direct-call"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -180,7 +185,6 @@ testFixtureManifest = do
           "conditional",
           "pattern-case",
           "local-block-binding",
-          "partial-direct-call",
           "oversaturated-direct-call",
           "self-recursive-function",
           "mutually-recursive-functions",
@@ -193,8 +197,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 25 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 20 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 26 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 45 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -316,11 +320,13 @@ testAcceptedManifestPipeline =
         <> directCallExpectedPrograms
         <> closedCallableExpectedPrograms
         <> lexicalCaptureExpectedPrograms
+        <> curriedApplicationExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
+        <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
 
     assertAccepted name =
       case lookup name expectedTypedPrograms of
@@ -432,6 +438,59 @@ testLexicalCaptureProduction =
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected lexical typed validation") [] (validateTypedProgram expectedProgram)
+
+testCurriedApplicationProduction :: IO ()
+testCurriedApplicationProduction =
+  mapM_ assertProduced curriedApplicationExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = curriedApplicationFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
+testCurriedApplicationLowering :: IO ()
+testCurriedApplicationLowering =
+  mapM_ assertLowered curriedApplicationExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " valid typed input") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lowering") firstRun secondRun
+      assertEqual (name <> " exact lowered program") (LoweredIRSucceeded expectedProgram) firstRun
+      case firstRun of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+        other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+
+curriedApplicationFixture :: Text -> Fixture
+curriedApplicationFixture name
+  | name `elem` fixtureNames = fixtureByName name
+  | otherwise = producerEdgeFixture name
+
+testNonCallableOversaturationDiagnostic :: IO ()
+testNonCallableOversaturationDiagnostic = do
+  let fixture = producerEdgeFixture "non-callable-oversaturation-diagnostic"
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "non-callable oversaturation inference compatibility" ordinary (typedCoreProductionInferenceResult firstRun)
+  assertEqual "non-callable oversaturation repeatability" firstRun secondRun
+  assertEqual
+    "non-callable oversaturation has one ordinary type error"
+    1
+    (length (filter isErrorDiagnostic (inferredDiagnostics ordinary)))
+  assertEqual
+    "non-callable oversaturation blocks typed-core production"
+    TypedCoreProductionBlockedByDiagnostics
+    (typedCoreProductionStatus firstRun)
+  assertEqual "blocked oversaturation has no validation proof" Nothing (typedCoreProductionValidatedProgram firstRun)
 
 testLexicalCaptureLowering :: IO ()
 testLexicalCaptureLowering =
@@ -1062,25 +1121,56 @@ testCurriedArgumentCapture = do
         other -> failTest ("captured direct-call argument did not lower: " <> Text.pack (show other))
     other -> failTest ("captured direct-call argument did not produce typed core: " <> Text.pack (show other))
 
-testInvalidArityArgumentFailureAccumulation :: IO ()
-testInvalidArityArgumentFailureAccumulation = do
+testPartialApplicationArgumentCapture :: IO ()
+testPartialApplicationArgumentCapture = do
   let fixture = producerEdgeFixture "partial-call-argument-capture"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 4 [])
-              TypedCoreCallArityUnsupported
-              (TypedCoreArityDetail 2 1)
-          ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual
-    "partial-call argument failure inference compatibility"
+    "partial-call argument inference compatibility"
     ordinary
     (typedCoreProductionInferenceResult firstRun)
-  assertEqual "partial-call argument failure repeatability" firstRun secondRun
-  assertEqual "partial-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
+  assertEqual "partial-call argument repeatability" firstRun secondRun
+  case typedCoreProductionStatus firstRun of
+    TypedCoreProductionSucceeded typedProgram -> do
+      assertEqual "partial-call argument typed validation" [] (validateTypedProgram typedProgram)
+      case lowerTypedCoreExpressionDirectCall typedProgram of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual "partial-call argument lowered validation" [] (validateLoweredProgram loweredProgram)
+        other -> failTest ("partial-call argument did not lower: " <> Text.pack (show other))
+    other -> failTest ("partial-call argument did not produce typed core: " <> Text.pack (show other))
+
+testPartialApplicationManagedArgumentFailure :: IO ()
+testPartialApplicationManagedArgumentFailure = do
+  let fixture = producerEdgeFixture "partial-call-managed-argument-failure"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+              TypedCoreManagedValueUnsupported
+              TypedCoreTextValueDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [])
+              TypedCoreManagedValueUnsupported
+              TypedCoreTextValueDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0])
+              TypedCoreManagedValueUnsupported
+              TypedCoreTextValueDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+              TypedCoreManagedValueUnsupported
+              TypedCoreTextValueDetail,
+            TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [1])
+              TypedCoreManagedValueUnsupported
+              TypedCoreTextValueDetail
+          ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "partial managed-argument repeatability" firstRun secondRun
+  assertEqual "partial managed-argument failure path" expected (typedCoreProductionStatus firstRun)
 
 testNonLocalCallArgumentFailureAccumulation :: IO ()
 testNonLocalCallArgumentFailureAccumulation = do
@@ -1546,7 +1636,6 @@ testRejectedCallableProfile =
     expectedKinds =
       [ TypedCoreImportedInputsUnsupported,
         TypedCoreUserDefinedOperatorUnsupported,
-        TypedCoreCallArityUnsupported,
         TypedCoreRecursiveFunctionUnsupported,
         TypedCoreNonMonomorphicFunctionUnsupported,
         TypedCoreUnresolvedExpressionType
@@ -1576,8 +1665,7 @@ callableExpectedStatuses =
 
 callableRejectionNames :: [Text]
 callableRejectionNames =
-  [ "partial-direct-call",
-    "oversaturated-direct-call",
+  [ "oversaturated-direct-call",
     "self-recursive-function",
     "mutually-recursive-functions",
     "closure-value-mutual-recursion",
@@ -1616,12 +1704,9 @@ rejectedManifestExpectedStatuses =
     ("conditional", unsupported [expressionFailure 0 [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
     ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
-    ("partial-direct-call", unsupported [expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 2 1)]),
     ( "oversaturated-direct-call",
       unsupported
-        [ expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 1 2)
-        ]
+        [expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
     ),
     ("self-recursive-function", unsupported [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]),
     ( "mutually-recursive-functions",

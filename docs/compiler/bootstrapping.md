@@ -34,9 +34,12 @@ Capture environments are immutable, ordered by first binder occurrence, and
 use deterministic lifted function and layout identities. Concrete scalar
 bindings are evaluated once in source order and reused by later entry
 expressions in entry modules with explicitly empty export lists. Scalar value
-interfaces are not produced yet. The profile does not yet support currying or
-partial application, oversaturation, or recursion, and it does not replace the
-canonical-core and reference-interpreter compile/run path.
+interfaces are not produced yet. The profile also preserves unary curried
+staging for named functions, callable parameters, and inline lambdas; partial
+application returns an ordinary closure, and oversaturation proceeds only while
+each intermediate result remains callable. Recursion is still excluded, and
+the profile does not replace the canonical-core and reference-interpreter
+compile/run path.
 
 Promotion requires the remaining typed-core and closure boundaries, a complete
 Jazz-authored semantic compiler, full module integration, a native backend and

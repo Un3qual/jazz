@@ -6,7 +6,7 @@ sidebar_position: 1
 
 Updated: 2026-08-12
 
-Implementation snapshot: `81dca62eda28ac0eaee136205661b6d7d51b1c3f`
+Implementation snapshot: `33f3d7c1a7a98d46dd95efcc86cd90ebe9d54dea`
 
 Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
 implementation snapshot above; documentation-only commits do not alter that
@@ -42,6 +42,9 @@ order in immutable environments with stable lifted identities. Concrete scalar
 bindings are evaluated once in source order and reused by exact binder identity
 in later entry expressions. Scalar bindings currently require an entry module
 with an explicitly empty export list because scalar value interfaces are not
-produced. Ordinary compile and run remain on canonical core and the reference
-interpreter. The opt-in profile still excludes currying and partial application,
-oversaturation, and recursion.
+produced. Curried source applications now retain unary staging across named
+functions, callable parameters, and inline lambdas. Partial application returns
+the remaining closure, and callable oversaturation evaluates each next argument
+only after the preceding call returns another callable value. Ordinary compile
+and run remain on canonical core and the reference interpreter. The opt-in
+profile still excludes recursion.

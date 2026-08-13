@@ -349,12 +349,13 @@ run after every promotion and closeout.
 ### Implementation progress
 
 As of `2026-08-12`, the closure-call foundation, scalar-binding prerequisite,
-and lexical-capture child have landed through their required focused gates and
-the full serialized compiler suite. The opt-in profile now includes exact
-binder resolution for inline and nested unary closures plus deterministic
-immutable scalar and closure-valued capture environments. Curried application
-is the next ordered child awaiting curation; both recursion children remain
-later in the accepted sequence. Ordinary compile and run remain unchanged.
+lexical-capture, and curried-application children have landed through their
+required focused gates and the full serialized compiler suite. The opt-in
+profile now includes exact binder resolution, deterministic immutable capture
+environments, staged currying, ordinary partial-application closure results,
+and ordered callable oversaturation. Direct recursion is the next ordered child
+awaiting curation; closure recursion remains later in the accepted sequence.
+Ordinary compile and run remain unchanged.
 
 ## Context
 

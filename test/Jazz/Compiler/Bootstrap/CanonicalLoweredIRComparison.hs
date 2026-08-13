@@ -68,6 +68,17 @@ closureEmissionContractPrograms =
         [instruction 1 closureRepresentation (LoweredDirectCall chooseFunctionId [LoweredImmediateOperand (LoweredBoolImmediate False)])]
         (temporary 1 closureRepresentation)
     ),
+    ("curried-partial-application", curriedPartialApplicationProgram),
+    ( "curried-callable-oversaturation",
+      closureProgram
+        identityLayoutAt1
+        [identityFunction identityLayoutIdAt1, chooseFunction]
+        LoweredBoolRepresentation
+        [ instruction 1 closureRepresentation (LoweredDirectCall chooseFunctionId [LoweredImmediateOperand (LoweredBoolImmediate False)]),
+          instruction 2 LoweredBoolRepresentation (LoweredClosureCall (temporary 1 closureRepresentation) [LoweredImmediateOperand (LoweredBoolImmediate True)])
+        ]
+        (temporary 2 LoweredBoolRepresentation)
+    ),
     ( "lexical-capture",
       LoweredProgram
         (LoweredIRVersion 1)
@@ -86,9 +97,13 @@ closureEmissionContractPrograms =
     identityLayoutIdAt1 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
     identityLayoutIdAt3 = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n8:identity"
     captureLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n7:addSeed"
+    curriedOuterLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n7:combine"
+    curriedInnerLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p3$1,0,0$n5:right"
     closureRepresentation :: LoweredRepresentation
     closureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
     captureClosureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [int64Representation] int64Representation)
+    curriedInnerClosureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    curriedOuterClosureRepresentation = LoweredClosureRepresentation (LoweredCallSignature [LoweredBoolRepresentation] curriedInnerClosureRepresentation)
     int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
     identityFunction :: LoweredLayoutId -> LoweredFunction
     identityFunction layoutId =
@@ -180,11 +195,61 @@ closureEmissionContractPrograms =
             )
         ]
         (temporary 3 int64Representation)
-    identityFunctionId, applyFunctionId, chooseFunctionId, captureFunctionId, entryFunctionId :: LoweredFunctionId
+    curriedPartialApplicationProgram =
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [ LoweredLayout curriedOuterLayoutId (LoweredClosureEnvironmentLayout []),
+          LoweredLayout curriedInnerLayoutId (LoweredClosureEnvironmentLayout [LoweredBoolRepresentation])
+        ]
+        []
+        [curriedOuterFunction, curriedInnerFunction, curriedEntryFunction]
+        entryFunctionId
+    curriedOuterFunction =
+      function
+        curriedOuterFunctionId
+        (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation curriedOuterLayoutId)))
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        curriedInnerClosureRepresentation
+        [ instruction 1 (LoweredManagedReferenceRepresentation curriedInnerLayoutId) (LoweredConstructProduct curriedInnerLayoutId [LoweredFunctionParameterOperand (LoweredParameterId "arg1") LoweredBoolRepresentation]),
+          instruction 2 curriedInnerClosureRepresentation (LoweredConstructClosure curriedInnerFunctionId (temporary 1 (LoweredManagedReferenceRepresentation curriedInnerLayoutId)))
+        ]
+        (temporary 2 curriedInnerClosureRepresentation)
+    curriedInnerFunction =
+      function
+        curriedInnerFunctionId
+        (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation curriedInnerLayoutId)))
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        LoweredBoolRepresentation
+        [ instruction
+            1
+            LoweredBoolRepresentation
+            ( LoweredProjectField
+                curriedInnerLayoutId
+                0
+                (LoweredFunctionParameterOperand (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation curriedInnerLayoutId))
+            )
+        ]
+        (temporary 1 LoweredBoolRepresentation)
+    curriedEntryFunction =
+      function
+        entryFunctionId
+        Nothing
+        []
+        curriedInnerClosureRepresentation
+        [ constructCurriedEnvironment 1 curriedOuterLayoutId [],
+          instruction 2 curriedOuterClosureRepresentation (LoweredConstructClosure curriedOuterFunctionId (temporary 1 (LoweredManagedReferenceRepresentation curriedOuterLayoutId))),
+          instruction 3 curriedInnerClosureRepresentation (LoweredClosureCall (temporary 2 curriedOuterClosureRepresentation) [LoweredImmediateOperand (LoweredBoolImmediate True)])
+        ]
+        (temporary 3 curriedInnerClosureRepresentation)
+    constructCurriedEnvironment index layoutId fields =
+      instruction index (LoweredManagedReferenceRepresentation layoutId) (LoweredConstructProduct layoutId fields)
+    identityFunctionId, applyFunctionId, chooseFunctionId, captureFunctionId, curriedOuterFunctionId, curriedInnerFunctionId, entryFunctionId :: LoweredFunctionId
     identityFunctionId = LoweredFunctionId "App::Main::identity"
     applyFunctionId = LoweredFunctionId "App::Main::apply"
     chooseFunctionId = LoweredFunctionId "App::Main::choose"
     captureFunctionId = LoweredFunctionId "App::Main::addSeed"
+    curriedOuterFunctionId = LoweredFunctionId "App::Main::combine"
+    curriedInnerFunctionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p3$1,0,0$n5:right"
     entryFunctionId = LoweredFunctionId "App::Main::$entry"
     closureProgram :: LoweredLayout -> [LoweredFunction] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
     closureProgram layout functions resultRepresentation instructions resultOperand =
