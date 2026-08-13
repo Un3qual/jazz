@@ -223,6 +223,7 @@
 - GREEN: the same focused command passed all 9 AST-transform and literal-span fixtures after implementation.
 - Integration: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run typecheck` and `... run build` passed; the build preserved the existing Pagefind artifact checks and indexed 42 documentation pages.
 - Scope: Task 3 only carries an explicit marker into code-block metadata and returns deterministic raw-source spans. Rendering links and adding Runtime values anchors remain Task 4 work.
+- Fix round 1/5: parser-backed fixtures now parse Markdown with direct pinned `unified@11.0.5` and `remark-parse@11.0.0`, then run the exported remark plugin wrapper for adjacent, blank-line, non-Jazz, ordinary, and non-adjacent cases. The focused suite passed all 10 tests; typecheck and build passed.
 
 ### Task 4: Render linked signature tokens and add canonical built-in anchors
 
