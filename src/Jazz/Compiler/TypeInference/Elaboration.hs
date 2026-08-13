@@ -296,6 +296,10 @@ data ExpressionRole
   | CalleeExpression
   | ScalarExpression
 
+data ExpressionEvaluation
+  = EagerExpression
+  | DeferredExpression
+
 -- | Finalize once while retaining the opaque validation proof for a trusted
 -- downstream lowering handoff. The public status keeps exposing the exact raw
 -- Typed Program artifact for compatibility.
@@ -314,7 +318,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           reboundFunctions = reboundFunctionStatements provisionalStatements
           typedRecursiveGroups = orderedTypedRecursiveGroups declarations
           recursiveBinders = recursiveDeclarationBinders declarations
-          (acceptedRecursiveBinders, recursiveScalarCaptureTypes, unavailableClosureCaptureBinders) =
+          (acceptedRecursiveBinders, recursiveScalarCaptureTypes, unavailableClosureCaptureBinders, eagerClosureCaptureStatements) =
             supportedRecursiveProfile
               functions
               callableShapes
@@ -330,6 +334,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               unsupportedRecursiveBinders
               unavailableClosureCaptureBinders
               recursiveScalarCaptureTypes
+              eagerClosureCaptureStatements
               provisionalStatements
           exportResult = finalizeExports functions callableShapes
           missingResultFailures =
@@ -392,7 +397,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatements functions callableShapes reboundFunctions recursiveBinders unavailableClosureCaptureBinders recursiveScalarCaptureTypes =
+    finalizeStatements functions callableShapes reboundFunctions recursiveBinders unavailableClosureCaptureBinders recursiveScalarCaptureTypes eagerClosureCaptureStatements =
       go Map.empty
       where
         go _ [] = ([], [])
@@ -405,12 +410,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   recursiveBinders
                   unavailableClosureCaptureBinders
                   recursiveScalarCaptureTypes
+                  eagerClosureCaptureStatements
                   scalarBindings
                   statement
               (restFailures, restStatements) = go nextScalarBindings rest
            in (failures <> restFailures, maybe restStatements (: restStatements) maybeStatement)
 
-    finalizeStatement functions callableShapes reboundFunctions recursiveBinders unavailableClosureCaptureBinders recursiveScalarCaptureTypes scalarBindings statement =
+    finalizeStatement functions callableShapes reboundFunctions recursiveBinders unavailableClosureCaptureBinders recursiveScalarCaptureTypes eagerClosureCaptureStatements scalarBindings statement =
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
           let callableShape = shapeFor callableShapes name
@@ -456,7 +462,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
               directArity = maybe 0 functionArity (Map.lookup name functions)
               (expressionFailures, maybeExpression) =
-                finalizeExpression recursiveScalarCaptureTypes functions callableShapes statementIndex [0] scalarBindings (FunctionBindingExpression callableShape directArity) expression
+                finalizeExpression recursiveScalarCaptureTypes eagerClosureCaptureStatements DeferredExpression functions callableShapes statementIndex [0] scalarBindings (FunctionBindingExpression callableShape directArity) expression
               infoResult = callableInfo callableShape directArity statementIndex [] expressionType
               infoFailures = either (: []) (const []) infoResult
               owningStatementFailures =
@@ -481,13 +487,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalScalarBinding statementIndex name spanValue expressionType expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
+              selectedCaptureType =
+                Map.lookup owner recursiveScalarCaptureTypes
+                  <|> scalarCaptureExpectedType recursiveScalarCaptureTypes scalarBindings expression
               selectedExpressionType =
-                case expression of
-                  ProvisionalVariableExpression referencedName _
-                    | Just referencedBinder <- Map.lookup referencedName scalarBindings,
-                      Just captureType <- Map.lookup referencedBinder recursiveScalarCaptureTypes ->
-                        specializeExpressionType state captureType expressionType
-                  _ -> Map.findWithDefault expressionType owner recursiveScalarCaptureTypes
+                case selectedCaptureType of
+                  Just captureType -> specializeExpressionType state captureType expressionType
+                  Nothing -> expressionType
               selectedExpression =
                 specializeProvisionalExpression
                   state
@@ -500,6 +506,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               (expressionFailures, maybeExpression) =
                 finalizeExpression
                   recursiveScalarCaptureTypes
+                  eagerClosureCaptureStatements
+                  EagerExpression
                   functions
                   callableShapes
                   statementIndex
@@ -519,8 +527,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   Nothing -> scalarBindings
            in (failures, acceptedStatement, nextScalarBindings)
         ProvisionalTerminalExpression statementIndex spanValue expression ->
-          let (failures, maybeTypedExpression) =
-                finalizeExpression recursiveScalarCaptureTypes functions callableShapes statementIndex [] scalarBindings ScalarExpression expression
+          let selectedExpression =
+                case scalarCaptureExpectedType recursiveScalarCaptureTypes scalarBindings expression of
+                  Just captureType -> specializeProvisionalExpression state (Just captureType) expression
+                  Nothing -> expression
+              (failures, maybeTypedExpression) =
+                finalizeExpression recursiveScalarCaptureTypes eagerClosureCaptureStatements EagerExpression functions callableShapes statementIndex [] scalarBindings ScalarExpression selectedExpression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression, scalarBindings)
         ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
           ( recursiveFailures
@@ -549,7 +561,15 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             Nothing,
             scalarBindings
           )
-    finalizeExpression scalarCaptureTypes functions callableShapes statementIndex childPath parameters expressionRole expression =
+    scalarCaptureExpectedType scalarCaptureTypes scalarBindings expression =
+      case [ captureType
+           | (binder, _) <- provisionalScalarReferenceTypes scalarBindings expression,
+             Just captureType <- [Map.lookup binder scalarCaptureTypes]
+           ] of
+        captureType : _ -> Just captureType
+        [] -> Nothing
+
+    finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters expressionRole expression =
       case expression of
         ProvisionalUnitExpression ->
           ([], Just (TypedTupleExpr unitInfo []))
@@ -566,15 +586,15 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     case scalarInfo statementIndex childPath expressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just info)
-                  (leftFailures, maybeLeft) = finalizeExpression scalarCaptureTypes functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression left
-                  (rightFailures, maybeRight) = finalizeExpression scalarCaptureTypes functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression right
+                  (leftFailures, maybeLeft) = finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression left
+                  (rightFailures, maybeRight) = finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression right
                   failures = operatorFailures <> leftFailures <> rightFailures
                   typedExpression =
                     TypedBinaryExpr <$> maybeInfo <*> pure (TypedBuiltinOperator operatorSymbol) <*> maybeLeft <*> maybeRight
                in (failures, if null failures then typedExpression else Nothing)
           | otherwise ->
-              let (leftFailures, _) = finalizeExpression scalarCaptureTypes functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression left
-                  (rightFailures, _) = finalizeExpression scalarCaptureTypes functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression right
+              let (leftFailures, _) = finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression left
+                  (rightFailures, _) = finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression right
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
         ProvisionalVariableExpression name expressionType
           | TDataType {} <- resolveType state expressionType ->
@@ -635,6 +655,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       (bodyFailures, maybeBody) =
                         finalizeExpression
                           scalarCaptureTypes
+                          eagerClosureCaptureStatements
+                          DeferredExpression
                           functions
                           callableShapes
                           statementIndex
@@ -652,6 +674,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       (bodyFailures, maybeBody) =
                         finalizeExpression
                           scalarCaptureTypes
+                          eagerClosureCaptureStatements
+                          DeferredExpression
                           functions
                           callableShapes
                           statementIndex
@@ -661,30 +685,39 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           body
                    in (bodyFailures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
         ProvisionalApplyExpression _ _ _ ->
-          finalizeApplicationSpine scalarCaptureTypes functions callableShapes statementIndex childPath parameters expression
+          finalizeApplicationSpine scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters expression
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
         ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
         ProvisionalRetainedFailures failures ->
           (map (qualifyInferredFailure statementIndex childPath) failures, Nothing)
       where
         finalizeNamedFunctionReference name callableShape function =
-          case callableInfo callableShape (functionArity function) statementIndex childPath (functionType function) of
-            Left failure -> ([failure], Nothing)
-            Right info ->
-              let typedName = resolvedValueName name
-                  functionBinder = binderAt (functionStatementIndex function) [] typedName
-               in ([], Just (TypedVariableExpr info typedName (Just functionBinder)))
+          case (expressionEvaluation, Map.lookup name eagerClosureCaptureStatements) of
+            (EagerExpression, Just captureStatement)
+              | captureStatement >= statementIndex ->
+                  ( [failureAt statementIndex childPath TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))],
+                    Nothing
+                  )
+            _ ->
+              case callableInfo callableShape (functionArity function) statementIndex childPath (functionType function) of
+                Left failure -> ([failure], Nothing)
+                Right info ->
+                  let typedName = resolvedValueName name
+                      functionBinder = binderAt (functionStatementIndex function) [] typedName
+                   in ([], Just (TypedVariableExpr info typedName (Just functionBinder)))
 
     qualifyInferredFailure statementIndex parentPath (InferredProductionFailure relativePath kind detail) =
       failureAt statementIndex (parentPath <> relativePath) kind detail
 
-    finalizeApplicationSpine scalarCaptureTypes functions callableShapes statementIndex childPath parameters expression =
+    finalizeApplicationSpine scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters expression =
       let (callee, arguments, resultTypes) = applicationSpine expression
           finalizedArguments =
             map
               ( \(argumentPath, argument) ->
                   finalizeExpression
                     scalarCaptureTypes
+                    eagerClosureCaptureStatements
+                    expressionEvaluation
                     functions
                     callableShapes
                     statementIndex
@@ -706,7 +739,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           not (callableOversaturationSupported expectedArity resultTypes)
                         ]
                       (calleeFailures, maybeCallee) =
-                        finalizeExpression scalarCaptureTypes functions callableShapes statementIndex (childPath <> replicate actualArity 0) parameters CalleeExpression callee
+                        finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> replicate actualArity 0) parameters CalleeExpression callee
                       childFailures = calleeFailures <> argumentFailures
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
@@ -721,7 +754,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           not (callableOversaturationSupported expectedArity resultTypes)
                         ]
                       (calleeFailures, maybeCallee) =
-                        finalizeExpression scalarCaptureTypes functions callableShapes statementIndex childPath parameters CalleeExpression callee
+                        finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters CalleeExpression callee
                       childFailures = calleeFailures <> argumentFailures
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
@@ -742,6 +775,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (calleeFailures, maybeCallee) =
                     finalizeExpression
                       scalarCaptureTypes
+                      eagerClosureCaptureStatements
+                      expressionEvaluation
                       functions
                       callableShapes
                       statementIndex
@@ -1156,8 +1191,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     supportedRecursiveProfile functions callableShapes reboundFunctions statements typedRecursiveGroups =
       ( Set.fromList (map fst supportedMemberCaptures),
-        foldl' addCaptureType Map.empty (concatMap snd supportedMemberCaptures),
-        unavailableClosureCaptureBinders
+        foldl'
+          addCaptureType
+          Map.empty
+          (concatMap expandScalarAliasCapture (concatMap snd supportedMemberCaptures)),
+        unavailableClosureCaptureBinders,
+        eagerClosureCaptureStatements
       )
       where
         recursiveMemberSet =
@@ -1192,6 +1231,25 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     (binderAt statementIndex [] (resolvedValueName name))
                     visibleBindings
                 _ -> visibleBindings
+        scalarAliasSources =
+          Map.fromList
+            [ (owner, referencedBinder)
+            | ProvisionalScalarBinding statementIndex name _ _ (ProvisionalVariableExpression referencedName _) <- statements,
+              let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements,
+              Just referencedBinder <- [Map.lookup referencedName scalarBindings],
+              let owner = binderAt statementIndex [] (resolvedValueName name)
+            ]
+        expandScalarAliasCapture (binder, expressionType) =
+          [ (aliasBinder, expressionType)
+          | aliasBinder <- aliasSourceChain Set.empty binder
+          ]
+        aliasSourceChain seen binder
+          | Set.member binder seen = []
+          | otherwise =
+              binder
+                : case Map.lookup binder scalarAliasSources of
+                  Just sourceBinder -> aliasSourceChain (Set.insert binder seen) sourceBinder
+                  Nothing -> []
         scalarBinderStatements =
           Map.fromList
             [ (binderAt statementIndex [] (resolvedValueName name), statementIndex)
@@ -1216,6 +1274,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               let (expressionFailures, maybeTypedExpression) =
                     finalizeExpression
                       Map.empty
+                      Map.empty
+                      DeferredExpression
                       functions
                       callableShapes
                       statementIndex
@@ -1243,6 +1303,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               Set.notMember owner recursiveMemberSet,
               Just statementIndex <- [binderStatementIndex owner],
               capturesAtOrAfter statementIndex (transitiveScalarCaptureTypes Set.empty owner)
+            ]
+        eagerClosureCaptureStatements =
+          Map.fromList
+            [ (name, maximum captureStatements)
+            | (owner, (name, callableShape, _, _, _, _)) <- Map.toList supportedMembers,
+              callableShape == TypedClosureCallableShape,
+              let captureStatements =
+                    [ scalarStatement
+                    | (binder, _) <- transitiveScalarCaptureTypes Set.empty owner,
+                      Just scalarStatement <- [Map.lookup binder scalarBinderStatements]
+                    ],
+              not (null captureStatements)
             ]
         supportedGroupMembers memberSet members =
           case traverse (`Map.lookup` supportedMembers) members of
