@@ -23,6 +23,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     curriedApplicationExpectedLoweredPrograms,
     directCallExpectedPrograms,
     directRecursionExpectedPrograms,
+    directRecursionExpectedLoweredPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
     closedCallableExpectedLoweredPrograms,
@@ -1245,6 +1246,45 @@ directRecursionExpectedPrograms =
     ("mutually-recursive-functions", mutuallyRecursiveExpectedProgram)
   ]
 
+directRecursionExpectedLoweredPrograms ::
+  [(Text, TypedProgram, LoweredProgram)]
+directRecursionExpectedLoweredPrograms =
+  [ ( "self-recursive-function",
+      selfRecursiveExpectedProgram,
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "loop"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "loop" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "loop" [loweredInt64 1]]
+        (loweredTemporary 1 int64Representation)
+    ),
+    ( "mutually-recursive-functions",
+      mutuallyRecursiveExpectedProgram,
+      expectedCallableLoweredProgram
+        [ expectedLocalFunction
+            "left"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "right" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation),
+          expectedLocalFunction
+            "right"
+            [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+            int64Representation
+            [expectedDirectCallInstruction 1 int64Representation "left" [loweredParameter 1 int64Representation]]
+            (loweredTemporary 1 int64Representation)
+        ]
+        int64Representation
+        [expectedDirectCallInstruction 1 int64Representation "left" [loweredInt64 1]]
+        (loweredTemporary 1 int64Representation)
+    )
+  ]
+
 selfRecursiveExpectedProgram :: TypedProgram
 selfRecursiveExpectedProgram =
   expectedFunctionProgramWithLineOffsetAndRecursiveGroups
@@ -1996,9 +2036,7 @@ lowererBoundaryPrograms =
     ("self-recursive-duplicate-parameter-function", selfRecursiveDuplicateParameterLowererProgram),
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
-    ("self-recursive-function", selfRecursiveLowererProgram),
     ("closure-shaped-self-recursive-function", closureShapedSelfRecursiveLowererProgram),
-    ("mutually-recursive-functions", mutuallyRecursiveLowererProgram),
     ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
     ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
@@ -2010,6 +2048,9 @@ validIndependentLowererPrograms =
   [ (name, programValue)
   | (name, programValue, _) <- scalarBindingExpectedLoweredPrograms
   ]
+    <> [ (name, programValue)
+       | (name, programValue, _) <- directRecursionExpectedLoweredPrograms
+       ]
     <> lowererBoundaryPrograms
     <> lowererStructuralBoundaryPrograms
 
@@ -2559,20 +2600,6 @@ capturingLowererProgram =
         TypedDirectCallableShape
         (binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo))
 
-selfRecursiveLowererProgram :: TypedProgram
-selfRecursiveLowererProgram =
-  expectedFunctionProgramWithRecursiveGroups
-    [["loop"]]
-    []
-    [ ExpectedFunction
-        "loop"
-        [("item", intInfo)]
-        intInfo
-        TypedDirectCallableShape
-        (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
-    ]
-    (directCall "loop" [intInfo] intInfo [intExpr 1])
-
 closureShapedSelfRecursiveLowererProgram :: TypedProgram
 closureShapedSelfRecursiveLowererProgram =
   expectedFunctionProgramWithRecursiveGroups
@@ -2586,26 +2613,6 @@ closureShapedSelfRecursiveLowererProgram =
         (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
     (boolExpr True)
-
-mutuallyRecursiveLowererProgram :: TypedProgram
-mutuallyRecursiveLowererProgram =
-  expectedFunctionProgramWithRecursiveGroups
-    [["left", "right"]]
-    []
-    [ ExpectedFunction
-        "left"
-        [("item", intInfo)]
-        intInfo
-        TypedDirectCallableShape
-        (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo]),
-      ExpectedFunction
-        "right"
-        [("item", intInfo)]
-        intInfo
-        TypedDirectCallableShape
-        (directCall "left" [intInfo] intInfo [variableExpr "item" intInfo])
-    ]
-    (directCall "left" [intInfo] intInfo [intExpr 1])
 
 closureValueSelfRecursiveLowererProgram :: TypedProgram
 closureValueSelfRecursiveLowererProgram =

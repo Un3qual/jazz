@@ -243,6 +243,8 @@ testIndependentLowererManifest = do
         [ "scalar-binding-literal",
           "scalar-binding-ordered-reuse",
           "scalar-binding-direct-call-result",
+          "self-recursive-function",
+          "mutually-recursive-functions",
           "scalar-binding-unsupported-rhs",
           "combined-statement-failure-order",
           "recursion-descendant-failure-order",
@@ -257,9 +259,7 @@ testIndependentLowererManifest = do
           "self-recursive-duplicate-parameter-function",
           "duplicate-function-identity",
           "capturing-function",
-          "self-recursive-function",
           "closure-shaped-self-recursive-function",
-          "mutually-recursive-functions",
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "nested-lambda-closure-value-self-recursion",
@@ -334,6 +334,7 @@ testAcceptedManifestPipeline =
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
+        <> [(name, lowered) | (name, _, lowered) <- directRecursionExpectedLoweredPrograms]
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
@@ -377,14 +378,6 @@ testAcceptedManifestPipeline =
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
                 (Nothing, _) -> failTest (name <> " did not retain its validation proof")
-                (Just validatedProgram, Nothing)
-                  | name `elem` map fst directRecursionExpectedPrograms -> do
-                      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
-                          trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
-                      assertEqual (name <> " trusted recursive rejection matches checked lowering") lowering trustedLowering
-                      case lowering of
-                        LoweredIRUnsupported _ -> pure ()
-                        _ -> failTest (name <> " was unexpectedly admitted by lowering")
                 (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
@@ -814,11 +807,7 @@ testLowererCallableBoundary =
           ]
         ),
         ( "recursion-descendant-failure-order",
-          [ statementFailure
-              2
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
+          [ expressionFailure
               2
               [0, 0, 1]
               LoweredIRCaptureUnsupported
@@ -859,29 +848,11 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "identity"))
           ]
         ),
-        ( "self-recursive-function",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop"))
-          ]
-        ),
         ( "closure-shaped-self-recursive-function",
           [ statementFailure
               1
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "loop"))
-          ]
-        ),
-        ( "mutually-recursive-functions",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "left")),
-            statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "right"))
           ]
         ),
         ( "closure-value-mutual-recursion",
