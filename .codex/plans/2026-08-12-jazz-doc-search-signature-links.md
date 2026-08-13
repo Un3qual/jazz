@@ -39,9 +39,9 @@
 - Consumes: rendered files under `website/build/` whose document-content wrapper has `data-pagefind-body`.
 - Produces: `website/build/pagefind/pagefind.js`, the Pagefind WASM/runtime files, and index fragments shipped with the Pages artifact.
 
-- [ ] **Step 1: Add failing production-index contracts.** Extend `test-experience.mjs` to require a `data-pagefind-body` wrapper around `DocItemContent`, an exact `pagefind` dev dependency, and a build chain that runs Pagefind after Docusaurus and before built-output checks. Add `test-check-built-search.mjs` with temporary build fixtures for a missing runtime, missing WASM, empty index fragments, and a valid minimal generated index.
+- [x] **Step 1: Add failing production-index contracts.** Extend `test-experience.mjs` to require a `data-pagefind-body` wrapper around `DocItemContent`, an exact `pagefind` dev dependency, and a build chain that runs Pagefind after Docusaurus and before built-output checks. Add `test-check-built-search.mjs` with temporary build fixtures for a missing runtime, missing WASM, empty index fragments, and a valid minimal generated index.
 
-- [ ] **Step 2: Run the focused test and verify RED.** Run:
+- [x] **Step 2: Run the focused test and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience
@@ -50,7 +50,7 @@
 
   Expected: failure because the document body is not marked, Pagefind is absent, the build contract has not changed, and the checker implementation does not exist.
 
-- [ ] **Step 3: Pin Pagefind and update the lockfile.** Run:
+- [x] **Step 3: Pin Pagefind and update the lockfile.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website add --save-dev --save-exact pagefind@1.5.2
@@ -58,9 +58,9 @@
 
   Keep Pagefind in `devDependencies`; the browser runtime is generated into the static artifact and is not bundled from `node_modules`.
 
-- [ ] **Step 4: Mark only documentation content as searchable.** Wrap `DocItemContent` in a neutral element carrying `data-pagefind-body`. Keep breadcrumbs, version UI, mobile/desktop TOCs, footer, and paginator outside that element so repeated shell text cannot dominate results.
+- [x] **Step 4: Mark only documentation content as searchable.** Wrap `DocItemContent` in a neutral element carrying `data-pagefind-body`. Keep breadcrumbs, version UI, mobile/desktop TOCs, footer, and paginator outside that element so repeated shell text cannot dominate results.
 
-- [ ] **Step 5: Extend the production build.** Change the website build script to run:
+- [x] **Step 5: Extend the production build.** Change the website build script to run:
 
   ```text
   sync-factorial -> docusaurus build -> pagefind --site build --output-subdir pagefind -> highlighting check -> search-index check
@@ -68,7 +68,7 @@
 
   Make `check-built-search.mjs` assert the generated browser module, WASM, metadata, and at least one index fragment exist and that Pagefind reports indexed documentation pages. Do not generate the Pagefind playground.
 
-- [ ] **Step 6: Verify the generated artifact.** Run:
+- [x] **Step 6: Verify the generated artifact.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience
@@ -77,12 +77,18 @@
 
   Expected: both commands pass and `website/build/pagefind/` contains a non-empty local index.
 
-- [ ] **Step 7: Commit the static-index milestone.** Run:
+- [x] **Step 7: Commit the static-index milestone.** Run:
 
   ```bash
   git add website/package.json website/pnpm-lock.yaml website/src/theme/DocItem/Layout/index.tsx website/scripts/test-experience.mjs website/scripts/check-built-search.mjs website/scripts/test-check-built-search.mjs
   git commit -m "feat(website): build a static documentation index"
   ```
+
+**Verification receipts (2026-08-12):**
+
+- RED: `pnpm --dir website run test:experience` failed before implementation because the Pagefind body wrapper and exact dependency were absent; `node --test website/scripts/test-check-built-search.mjs` failed because the checker did not exist.
+- GREEN: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience` passed 21 tests, and `nix --extra-experimental-features 'nix-command flakes' develop --command node --test website/scripts/test-check-built-search.mjs` passed all four generated-artifact fixtures.
+- Artifact: `nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run build` passed after Pagefind 1.5.2 indexed 42 documentation pages and emitted 42 non-empty fragments.
 
 ### Task 2: Build the keyboard-first search dialog
 
