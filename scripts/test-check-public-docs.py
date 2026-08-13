@@ -65,8 +65,8 @@ class PublicDocsCheckerTests(unittest.TestCase):
     def test_docusaurus_owns_valid_front_matter_yaml(self) -> None:
         self.replace_once(
             "docs/getting-started/overview.md",
-            "description: Build Jazz, run checked examples, and find the next language guide.",
-            "description: >-\n  Build Jazz, run checked examples, and find the next language guide.",
+            "description: Compile and run a first Jazz program.",
+            "description: >-\n  Compile and run a first Jazz program.",
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)

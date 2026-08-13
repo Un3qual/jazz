@@ -150,6 +150,44 @@ test('homepage styling is compact, responsive, and accessible', () => {
   assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
 
+test('public orientation copy describes Jazz rather than repository mechanics', () => {
+  const publicSources = [
+    'website/src/components/CodeProof.tsx',
+    'docs/getting-started/overview.md',
+    'docs/compiler/architecture.md',
+    'docs/compiler/pipeline.md',
+    'docs/compiler/bootstrapping.md',
+    'docs/project/status.md',
+  ].map(read);
+  const source = publicSources.join('\n');
+  const compiler = publicSources.slice(2, 5).join('\n');
+  const architecture = publicSources[2];
+
+  for (const phrase of [
+    'available after merge',
+    'pages enablement',
+    'post-merge follow-up',
+    'synchronized directly from the repository',
+    'compiler-backed example check',
+    'documentation-only commits',
+    'implementation snapshot:',
+  ]) {
+    assert.doesNotMatch(source, new RegExp(phrase, 'i'));
+  }
+  assert.doesNotMatch(compiler, /`(?:src|jazz|app|test|programs)\//);
+  for (const heading of [
+    'Source and modules',
+    'Parse',
+    'Resolve',
+    'Analyze',
+    'Diagnose',
+    'Interpret',
+    'Prepare a backend',
+  ]) {
+    assert.match(architecture, new RegExp(`^## ${heading}$`, 'm'));
+  }
+});
+
 test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
   const globalCss = read('website/src/css/custom.css');
   const wrapper = globalCss.match(/\.navbar__logo\s*\{(?<declarations>[^}]*)\}/)

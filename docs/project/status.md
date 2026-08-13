@@ -6,11 +6,8 @@ sidebar_position: 1
 
 Updated: 2026-08-12
 
-Implementation snapshot: `a06d89b4082769769b6cf434547b13e8d71df540`
-
-Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
-implementation snapshot above; documentation-only commits do not alter that
-semantic baseline.
+Jazz is experimental and pre-1.0. This matrix separates implemented behavior
+from partial areas and planned work.
 
 | Area                                                                  | Status      | Evidence                                                              |
 | --------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------- |
