@@ -5384,7 +5384,7 @@ module TypedCoreValidate (
   rootGroupOrderingFailuresFrom :: [Text] -> [RootCallable] -> [TypedRecursiveGroup] -> Int -> Maybe(Int) -> [TypedCoreValidationFailure].
   rootGroupOrderingFailuresFrom = \(modulePath, callables, groups, groupIndex, previousIndex) -> case groups {
     | [] -> []
-    | [TypedRecursiveGroup members | rest] -> case rootGroupMemberIndices callables members {
+    | [TypedRecursiveGroup members | rest] -> case listSort (rootGroupMemberIndices callables members) {
       | [] -> rootGroupOrderingFailuresFrom modulePath callables rest (groupIndex + 1) previousIndex
       | [statementIndex | otherIndices] -> listAppend
         (case previousIndex {

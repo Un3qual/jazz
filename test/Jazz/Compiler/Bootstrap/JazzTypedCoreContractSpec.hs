@@ -292,7 +292,7 @@ testJazzValidationParity = do
 
 expectedContractFailures :: TypedProgram -> [TypedCoreValidationFailure]
 expectedContractFailures program =
-  case [failures | (_, candidate, failures) <- recursiveGroupContractCases, candidate == program] of
+  case [failures | (_, candidate, failures) <- recursiveGroupContractCases <> recursiveGroupFixCases, candidate == program] of
     failures : _ -> failures
     [] -> validateTypedProgram program
 
@@ -304,6 +304,15 @@ testRecursiveGroupContracts =
         assertEqual (fixture <> " Haskell validation second run") failures (validateTypedProgram program)
     )
     recursiveGroupContractCases
+
+testRecursiveGroupFixContracts :: IO ()
+testRecursiveGroupFixContracts = do
+  let expected = [(fixture, failures, failures) | (fixture, _, failures) <- recursiveGroupFixCases]
+      actual =
+        [ (fixture, validateTypedProgram program, validateTypedProgram program)
+        | (fixture, program, _) <- recursiveGroupFixCases
+        ]
+  assertEqual "recursive-group review regressions on both Haskell runs" expected actual
 
 testNestedBlockValidationRegressions :: IO ()
 testNestedBlockValidationRegressions = do
@@ -383,6 +392,7 @@ reviewRegressionGroups =
     (("preserves block statement scope order", testForwardBlockReference), [forwardBlockReferenceProgram]),
     (("preserves proven recursive block peers", testRecursiveBlockPeers), [recursiveBlockPeerProgram, sourceOrderedRecursiveVisibilityProgram]),
     (("validates declared root recursive groups exactly twice", testRecursiveGroupContracts), [program | (_, program, _) <- recursiveGroupContractCases]),
+    (("preserves earliest-member ordering and malformed root visibility parity", testRecursiveGroupFixContracts), [program | (_, program, _) <- recursiveGroupFixCases]),
     (("rejects malformed generalized literal bounds", testMalformedLiteralConstraintBounds), [malformedLiteralConstraintBoundsProgram]),
     (("preserves instantiated evidence order", testEvidenceSelectionOrder), [evidenceSelectionOrderProgram]),
     (("keeps private capability metadata out of source visibility", testPrivateCapabilityMetadataVisibility), [privateCapabilityMetadataVisibilityProgram]),
@@ -8783,6 +8793,93 @@ recursiveGroupContractCases =
       ]
     )
   ]
+
+recursiveGroupFixCases :: [(Text, TypedProgram, [TypedCoreValidationFailure])]
+recursiveGroupFixCases =
+  [ ( "review-recursive-group-earliest-member-order",
+      recursiveGroupEarliestMemberOrderProgram,
+      [ moduleFailure
+          "review-recursive-group-earliest-member-order"
+          TypedRecursiveGroupMismatch
+          (TypedIndexDetail 0)
+      ]
+    ),
+    ( "review-recursive-group-non-callable-visibility",
+      recursiveGroupNonCallableVisibilityProgram,
+      [ moduleFailure
+          "review-recursive-group-non-callable-visibility"
+          TypedUnknownBinder
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-non-callable-visibility" 1)),
+        TypedCoreValidationFailure
+          (TypedExpressionPath (fixtureModulePath "review-recursive-group-non-callable-visibility") [0] [0, 0])
+          TypedInvisibleName
+          (TypedNameDetail (fixtureValueName "function1")),
+        TypedCoreValidationFailure
+          (TypedExpressionPath (fixtureModulePath "review-recursive-group-non-callable-visibility") [0] [0, 0])
+          TypedBinderReferenceMismatch
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-non-callable-visibility" 1))
+      ]
+    ),
+    ( "review-recursive-group-first-overlap-visibility",
+      recursiveGroupFirstOverlapVisibilityProgram,
+      [ statementFailure
+          "review-recursive-group-first-overlap-visibility"
+          0
+          TypedDuplicateBinder
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-first-overlap-visibility" 0))
+      ]
+    )
+  ]
+
+recursiveGroupEarliestMemberOrderProgram :: TypedProgram
+recursiveGroupEarliestMemberOrderProgram =
+  recursiveGroupProgram
+    "review-recursive-group-earliest-member-order"
+    [TypedDirectCallableShape, TypedDirectCallableShape, TypedDirectCallableShape]
+    [Just 0, Just 1, Just 2]
+    [[2, 0], [1]]
+
+recursiveGroupNonCallableVisibilityProgram :: TypedProgram
+recursiveGroupNonCallableVisibilityProgram =
+  TypedProgram Nothing [moduleValue] modulePath
+  where
+    fixture = "review-recursive-group-non-callable-visibility"
+    modulePath = fixtureModulePath fixture
+    callableName = fixtureValueName "function0"
+    callableOwner = recursiveGroupOwner fixture 0
+    scalarName = fixtureValueName "function1"
+    scalarOwner = recursiveGroupOwner fixture 1
+    callableScheme = recursiveGroupScheme callableOwner TypedDirectCallableShape
+    argumentName = fixtureValueName "argument0"
+    argumentOwner = binder modulePath [0, 0] argumentName
+    callableExpression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        argumentOwner
+        argumentName
+        (fixtureBoundVariableExpr scalarOwner boolInfo scalarName)
+    statements =
+      [ TypedLetStatement callableOwner callableName span1 callableScheme callableExpression,
+        TypedLetStatement scalarOwner scalarName span1 (monoScheme scalarOwner) trueExpr
+      ]
+    moduleValue =
+      TypedModule
+        modulePath
+        relativeSource
+        []
+        []
+        emptyInterface
+        [TypedRecursiveGroup [callableOwner, scalarOwner]]
+        statements
+        unitInfo
+
+recursiveGroupFirstOverlapVisibilityProgram :: TypedProgram
+recursiveGroupFirstOverlapVisibilityProgram =
+  recursiveGroupProgram
+    "review-recursive-group-first-overlap-visibility"
+    [TypedDirectCallableShape, TypedDirectCallableShape, TypedDirectCallableShape]
+    [Just 1, Nothing, Nothing]
+    [[0, 1], [0, 2]]
 
 recursiveGroupDirectSelfProgram :: TypedProgram
 recursiveGroupDirectSelfProgram =

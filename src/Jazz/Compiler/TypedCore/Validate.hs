@@ -1563,10 +1563,14 @@ rootRecursiveGroupFailures modulePath statements declaredGroups
       ]
     groupOrderingFailures = snd (foldl' validateGroupOrder (Nothing, []) indexedFirstMembers)
     indexedFirstMembers =
-      [ (groupIndex, statementIndex)
-      | (groupIndex, TypedRecursiveGroup (member : _)) <- zip [0 :: Int ..] declaredGroups,
-        let statementIndex = fst (callableByBinder Map.! member)
+      [ (groupIndex, earliestMemberIndex member members)
+      | (groupIndex, TypedRecursiveGroup (member : members)) <- zip [0 :: Int ..] declaredGroups
       ]
+    earliestMemberIndex member members =
+      foldl'
+        min
+        (fst (callableByBinder Map.! member))
+        [fst (callableByBinder Map.! candidate) | candidate <- members]
     validateGroupOrder (previousIndex, failures) (groupIndex, statementIndex) =
       case previousIndex of
         Just previous
@@ -1603,20 +1607,23 @@ rootRecursiveGroupsByStatement :: [TypedStatement] -> [TypedRecursiveGroup] -> M
 rootRecursiveGroupsByStatement statements =
   foldl' addGroup Map.empty
   where
-    indexedStatements = zip [0 :: Int ..] statements
+    callableDeclarations = rootCallableDeclarations statements
     addGroup groups (TypedRecursiveGroup members) =
       let memberSet = Set.fromList members
           declarations =
             [ statement
-            | (_, statement@(TypedLetStatement binderId _ _ _ _)) <- indexedStatements,
+            | (_, binderId, statement, _) <- callableDeclarations,
               Set.member binderId memberSet
             ]
           memberIndices =
             [ statementIndex
-            | (statementIndex, TypedLetStatement binderId _ _ _ _) <- indexedStatements,
+            | (statementIndex, binderId, _, _) <- callableDeclarations,
               Set.member binderId memberSet
             ]
-       in foldl' (\result statementIndex -> Map.insert statementIndex declarations result) groups memberIndices
+       in foldl'
+            (\result statementIndex -> Map.insertWith (\_ existing -> existing) statementIndex declarations result)
+            groups
+            memberIndices
 
 rootCallableBinderDependencies :: Set TypedBinderId -> TypedExpr -> Set TypedBinderId
 rootCallableBinderDependencies callableBinders expression =
