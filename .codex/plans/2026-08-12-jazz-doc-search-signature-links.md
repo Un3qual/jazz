@@ -276,7 +276,7 @@
 
   Expected: all checks pass and the production HTML contains valid internal type links only in signature blocks.
 
-- [ ] **Step 9: Commit the linked-signature milestone.** Run:
+- [x] **Step 9: Commit the linked-signature milestone.** Run:
 
   ```bash
   git add website/src/theme/CodeBlock/Content/index.tsx website/src/theme/CodeBlock/Content/styles.module.css website/src/theme/CodeBlock/Line/Token website/scripts/check-built-type-links.mjs website/scripts/test-experience.mjs website/package.json docs/reference/runtime-values.md
@@ -290,6 +290,7 @@
 - GREEN: the native fence parser regression proves the exact `jazz-signature` metastring reaches `metadata.jazzSignature`, while near matches and ordinary Jazz fences remain false. Public documentation tests pass 17/17 and standard-library API tests pass 9/9.
 - Rendering: signature-only token splitting preserves TextMate content, color, and font-style bits; linked output uses Docusaurus base-URL resolution and retains copyable source text. Generated HTML contains 225 signature blocks and 683 links, with representative module, built-in, capability, nested, list, tuple, and unit targets present; 15 ordinary examples remain link-free.
 - GREEN: `scripts/check-docs.sh`, `pnpm --dir website run test:signatures` (7/7), `pnpm --dir website run test:experience` (25/25), `pnpm --dir website run typecheck`, and `pnpm --dir website run build` all pass. The pre-existing SearchBar dynamic-dependency webpack warning remains unchanged.
+- Commit: `ef458c1a` (`feat(docs): link types in API signatures`).
 
 ### Task 5: Integrated production and visual closeout
 
