@@ -314,8 +314,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           reboundFunctions = reboundFunctionStatements provisionalStatements
           typedRecursiveGroups = orderedTypedRecursiveGroups declarations
           recursiveBinders = recursiveDeclarationBinders declarations
-          acceptedRecursiveBinders =
-            allDirectRecursiveBinders
+          (acceptedRecursiveBinders, recursiveScalarCaptureTypes) =
+            supportedRecursiveProfile
               functions
               callableShapes
               reboundFunctions
@@ -323,7 +323,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               typedRecursiveGroups
           unsupportedRecursiveBinders = recursiveBinders Set.\\ acceptedRecursiveBinders
           (statementFailures, typedStatements) =
-            finalizeStatements functions callableShapes reboundFunctions unsupportedRecursiveBinders provisionalStatements
+            finalizeStatements
+              functions
+              callableShapes
+              reboundFunctions
+              unsupportedRecursiveBinders
+              recursiveScalarCaptureTypes
+              provisionalStatements
           exportResult = finalizeExports functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
@@ -385,7 +391,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
     failureAt statementIndex childPath kind detail =
       TypedCoreProductionFailure (TypedCoreProductionExpressionPath modulePath statementIndex childPath) kind detail
 
-    finalizeStatements functions callableShapes reboundFunctions recursiveBinders =
+    finalizeStatements functions callableShapes reboundFunctions recursiveBinders recursiveScalarCaptureTypes =
       go Map.empty
       where
         go _ [] = ([], [])
@@ -396,12 +402,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   callableShapes
                   reboundFunctions
                   recursiveBinders
+                  recursiveScalarCaptureTypes
                   scalarBindings
                   statement
               (restFailures, restStatements) = go nextScalarBindings rest
            in (failures <> restFailures, maybe restStatements (: restStatements) maybeStatement)
 
-    finalizeStatement functions callableShapes reboundFunctions recursiveBinders scalarBindings statement =
+    finalizeStatement functions callableShapes reboundFunctions recursiveBinders recursiveScalarCaptureTypes scalarBindings statement =
       case statement of
         ProvisionalSignature statementIndex name spanValue expressionType ->
           let callableShape = shapeFor callableShapes name
@@ -467,9 +474,16 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalScalarBinding statementIndex name spanValue expressionType expression ->
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
+              selectedExpressionType =
+                Map.findWithDefault expressionType owner recursiveScalarCaptureTypes
+              selectedExpression =
+                specializeProvisionalExpression
+                  state
+                  (Just selectedExpressionType)
+                  expression
               callableNameCollisionFailures =
                 [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail | Map.member name functions]
-              infoResult = valueInfo statementIndex [] expressionType
+              infoResult = valueInfo statementIndex [] selectedExpressionType
               infoFailures = either (: []) (const []) infoResult
               (expressionFailures, maybeExpression) =
                 finalizeExpression
@@ -479,7 +493,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   [0]
                   scalarBindings
                   ScalarExpression
-                  expression
+                  selectedExpression
               failures = callableNameCollisionFailures <> infoFailures <> expressionFailures
               typedStatement = do
                 info <- either (const Nothing) Just infoResult
@@ -872,7 +886,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       ]
 
     callableShapeTable functions statements =
-      Map.mapWithKey promoteTransitiveCapture baseShapes
+      foldl' promoteRecursiveGroup transitiveShapes orderedRecursiveGroupNames
       where
         (_, baseShapes, directCaptureFunctions) =
           foldl'
@@ -894,6 +908,27 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 dependencies
             _ -> dependencies
         transitiveCaptureFunctions = propagateCaptureDependencies directCaptureFunctions
+        transitiveShapes = Map.mapWithKey promoteTransitiveCapture baseShapes
+        orderedRecursiveGroupNames =
+          snd (foldl' collectRecursiveGroup (Set.empty, []) (callableDeclarations statements))
+        namesByStatement =
+          Map.fromList
+            [ (provisionalCallableStatementIndex declaration, provisionalCallableName declaration)
+            | declaration <- callableDeclarations statements
+            ]
+        collectRecursiveGroup (seenGroups, groups) declaration =
+          case provisionalCallableRecursiveGroupMembers declaration of
+            Just memberStatements
+              | Set.notMember memberStatements seenGroups ->
+                  case traverse (`Map.lookup` namesByStatement) memberStatements of
+                    Just memberNames ->
+                      (Set.insert memberStatements seenGroups, groups <> [memberNames])
+                    Nothing -> (Set.insert memberStatements seenGroups, groups)
+            _ -> (seenGroups, groups)
+        promoteRecursiveGroup shapes memberNames
+          | any ((== TypedClosureCallableShape) . shapeFor shapes) memberNames =
+              foldl' (flip markClosure) shapes memberNames
+          | otherwise = shapes
         propagateCaptureDependencies capturingFunctions =
           let nextCapturingFunctions =
                 Map.foldlWithKey'
@@ -1087,50 +1122,144 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     Nothing -> (Set.insert memberStatements seenGroups, groups)
             _ -> (seenGroups, groups)
 
-    allDirectRecursiveBinders functions callableShapes reboundFunctions statements typedRecursiveGroups =
-      Set.fromList
-        [ member
-        | TypedRecursiveGroup members <- typedRecursiveGroups,
-          let memberSet = Set.fromList members,
-          all (supportedMember memberSet) members,
-          member <- members
-        ]
+    supportedRecursiveProfile functions callableShapes reboundFunctions statements typedRecursiveGroups =
+      ( Set.fromList (map fst supportedMemberCaptures),
+        foldl' addCaptureType Map.empty (concatMap snd supportedMemberCaptures)
+      )
       where
+        supportedMemberCaptures =
+          concat
+            [ supportedGroupMembers (Set.fromList members) members
+            | TypedRecursiveGroup members <- typedRecursiveGroups
+            ]
+        addCaptureType captureTypes (binder, expressionType) =
+          Map.insertWith
+            (\_ existingType -> existingType)
+            binder
+            expressionType
+            captureTypes
+        scalarBindingsBeforeStatements =
+          snd (foldl' collectScalarBinding (Map.empty, Map.empty) (zip [0 ..] statements))
+        collectScalarBinding (visibleBindings, snapshots) (statementIndex, statement) =
+          ( nextVisibleBindings,
+            Map.insert statementIndex visibleBindings snapshots
+          )
+          where
+            nextVisibleBindings =
+              case statement of
+                ProvisionalScalarBinding _ name _ _ _ ->
+                  Map.insert
+                    name
+                    (binderAt statementIndex [] (resolvedValueName name))
+                    visibleBindings
+                _ -> visibleBindings
+        scalarBinderStatements =
+          Map.fromList
+            [ (binderAt statementIndex [] (resolvedValueName name), statementIndex)
+            | (statementIndex, ProvisionalScalarBinding _ name _ _ _) <- zip [0 ..] statements
+            ]
         supportedMembers =
           Map.fromList
-            [ (owner, (directArity, typedExpression))
+            [ (owner, (callableShape, directArity, typedExpression, scalarCaptureTypes, capturesAfterGroupStart))
             | ProvisionalFunctionBinding declaration expression <- statements,
               let statementIndex = provisionalCallableStatementIndex declaration,
               let name = provisionalCallableName declaration,
               let owner = binderAt statementIndex [] (resolvedValueName name),
               ProvisionalLambdaExpression {} <- [expression],
-              shapeFor callableShapes name == TypedDirectCallableShape,
+              let callableShape = shapeFor callableShapes name,
               Map.notMember statementIndex reboundFunctions,
               not (generatedOperatorName name),
               Just PlainTypeBinding {} <- [provisionalCallableBinding declaration],
               let directArity = maybe 0 functionArity (Map.lookup name functions),
-              Right _ <- [callableInfo TypedDirectCallableShape directArity statementIndex [] (provisionalCallableType declaration)],
+              Right _ <- [callableInfo callableShape directArity statementIndex [] (provisionalCallableType declaration)],
+              let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements,
               let (expressionFailures, maybeTypedExpression) =
                     finalizeExpression
                       functions
                       callableShapes
                       statementIndex
                       [0]
-                      Map.empty
-                      (FunctionBindingExpression TypedDirectCallableShape directArity)
+                      scalarBindings
+                      (FunctionBindingExpression callableShape directArity)
                       expression,
               null expressionFailures,
-              Just typedExpression <- [maybeTypedExpression]
+              Just typedExpression <- [maybeTypedExpression],
+              let scalarCaptureTypes = provisionalScalarReferenceTypes scalarBindings expression,
+              let capturesAfterGroupStart firstStatement =
+                    any
+                      (>= firstStatement)
+                      [ scalarStatement
+                      | (binder, _) <- scalarCaptureTypes,
+                        Just scalarStatement <- [Map.lookup binder scalarBinderStatements]
+                      ]
             ]
-        supportedMember memberSet member =
-          case Map.lookup member supportedMembers of
-            Just (directArity, typedExpression) ->
-              not (nestedLambdaReferencesAnyBinder directArity memberSet typedExpression)
-            Nothing -> False
+        supportedGroupMembers memberSet members =
+          case traverse (`Map.lookup` supportedMembers) members of
+            Just supported@((groupShape, _, _, _, _) : _)
+              | all ((== groupShape) . memberShape) supported ->
+                  case groupShape of
+                    TypedDirectCallableShape ->
+                      [ (member, [])
+                      | all
+                          (\(_, directArity, typedExpression, _, _) ->
+                             not (nestedLambdaReferencesAnyBinder directArity memberSet typedExpression)
+                          )
+                          supported,
+                        member <- members
+                      ]
+                    TypedClosureCallableShape ->
+                      case members of
+                        firstMember : _ ->
+                          case binderStatementIndex firstMember of
+                            Just firstStatement ->
+                              [ (member, scalarCaptureTypes)
+                              | (member, (_, _, _, scalarCaptureTypes, capturesAfterGroupStart)) <- zip members supported,
+                                not (capturesAfterGroupStart firstStatement)
+                              ]
+                            Nothing -> []
+                        [] -> []
+            _ -> []
+        memberShape (shape, _, _, _, _) = shape
+        binderStatementIndex (TypedBinderId (_, statementIndex : _, _)) = Just statementIndex
+        binderStatementIndex _ = Nothing
         generatedOperatorName name =
           case name of
             GeneratedName (OperatorBinding _) -> True
             _ -> False
+
+    provisionalScalarReferenceTypes scalarBindings = go Set.empty
+      where
+        go boundNames expression =
+          case expression of
+            ProvisionalUnitExpression -> []
+            ProvisionalLiteralExpression {} -> []
+            ProvisionalBinaryExpression _ _ _ left right -> child left <> child right
+            ProvisionalVariableExpression name expressionType
+              | Set.notMember name boundNames,
+                Just binder <- Map.lookup name scalarBindings ->
+                  [(binder, expressionType)]
+              | otherwise -> []
+            ProvisionalLambdaExpression parameterName _ body ->
+              go (Set.insert parameterName boundNames) body
+            ProvisionalApplyExpression _ function argument -> child function <> child argument
+            ProvisionalScopeStatements nestedStatements -> scope boundNames nestedStatements
+            ProvisionalUnsupportedExpression {} -> []
+            ProvisionalRetainedFailures {} -> []
+          where
+            child = go boundNames
+
+        scope _ [] = []
+        scope boundNames (statement : rest) =
+          case statement of
+            ProvisionalFunctionBinding declaration expression ->
+              let name = provisionalCallableName declaration
+                  nextBoundNames = Set.insert name boundNames
+               in go nextBoundNames expression <> scope nextBoundNames rest
+            ProvisionalScalarBinding _ name _ _ expression ->
+              go boundNames expression <> scope (Set.insert name boundNames) rest
+            ProvisionalTerminalExpression _ _ expression ->
+              go boundNames expression <> scope boundNames rest
+            _ -> scope boundNames rest
 
     nestedLambdaReferencesAnyBinder leadingLambdaCount binders = skipLeading leadingLambdaCount
       where

@@ -482,6 +482,7 @@ test-suite jazz-lowered-ir-contract-spec
   other-modules:
       Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
       Jazz.Compiler.Bootstrap.CanonicalValue
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource

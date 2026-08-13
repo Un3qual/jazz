@@ -71,7 +71,8 @@ data LoweredIRLoweringResult
 data LoweringState = LoweringState
   { loweringNextTemporary :: Int,
     loweringInstructions :: [LoweredInstruction],
-    loweringLocalBindings :: Map.Map TypedBinderId LoweredOperand
+    loweringLocalBindings :: Map.Map TypedBinderId LoweredOperand,
+    loweringSharedEnvironments :: Map.Map LoweredLayoutId LoweredOperand
   }
 
 data FunctionParameterShape = FunctionParameterShape
@@ -172,8 +173,10 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
     entryFunctionId =
       LoweredFunctionId (Text.intercalate "::" (modulePath <> ["$entry"]))
     entryBlockId = LoweredBlockId "entry"
-    (shapeFailures, functionShapes, localValueNames) =
+    (shapeFailures, collectedFunctionShapes, localValueNames) =
       collectFunctionShapes modulePath statements
+    functionShapes =
+      applyRecursiveClosureGroups recursiveGroups collectedFunctionShapes
     functionDeclarations = collectFunctionDeclarations statements
     functionIndex =
       FunctionIndex
@@ -233,14 +236,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
           Right
             ( LoweredProgram
                 supportedLoweredIRVersion
-                [ LoweredLayout
-                    layoutId
-                    ( LoweredClosureEnvironmentLayout
-                        (map captureShapeRepresentation (functionShapeCaptures function))
-                    )
-                | function <- functionShapes,
-                  Just layoutId <- [functionShapeEnvironmentLayout function]
-                ]
+                (orderedClosureLayouts functionShapes)
                 []
                 ( functions
                     <> [ LoweredFunction
@@ -354,6 +350,73 @@ collectFunctionShapes modulePath statements =
             TypedExpressionStatement _ expression ->
               collectGeneratedFunctionShapes rootShapesByBinder statementIndex [0] expression
             _ -> []
+
+applyRecursiveClosureGroups :: [TypedRecursiveGroup] -> [FunctionShape] -> [FunctionShape]
+applyRecursiveClosureGroups recursiveGroups initialFunctions =
+  foldl' applyGroup initialFunctions recursiveGroups
+  where
+    applyGroup functions (TypedRecursiveGroup members) =
+      case (members, traverse (`Map.lookup` functionsByBinder) members) of
+        (firstMember : _, Just memberFunctions)
+          | all closureSourceFunction memberFunctions,
+            Just layoutId <- recursiveEnvironmentLayoutId firstMember ->
+              let memberSet = Set.fromList members
+                  sharedCaptures =
+                    stableCaptureUnion
+                      [ collectCaptureShapes
+                          functionsByBinder
+                          memberSet
+                          (Set.fromList (map functionParameterBinder (functionShapeParameters function)))
+                          (functionShapeBody function)
+                      | function <- memberFunctions
+                      ]
+               in map (shareGroupEnvironment memberSet layoutId sharedCaptures) functions
+        _ -> functions
+      where
+        functionsByBinder =
+          Map.fromList
+            [ (functionShapeBinder function, function)
+            | function <- functions
+            ]
+    closureSourceFunction function =
+      functionShapeSourceBinding function
+        && functionShapeCallableShape function == TypedClosureCallableShape
+    shareGroupEnvironment memberSet layoutId captures function
+      | Set.member (functionShapeBinder function) memberSet =
+          function
+            { functionShapeEnvironmentLayout = Just layoutId,
+              functionShapeCaptures = captures
+            }
+      | otherwise = function
+
+stableCaptureUnion :: [[CaptureShape]] -> [CaptureShape]
+stableCaptureUnion = reverse . snd . foldl' collectGroup (Set.empty, [])
+  where
+    collectGroup state = foldl' collectCapture state
+    collectCapture (seen, reversedCaptures) capture
+      | Set.member (captureShapeBinder capture) seen = (seen, reversedCaptures)
+      | otherwise =
+          ( Set.insert (captureShapeBinder capture) seen,
+            capture : reversedCaptures
+          )
+
+orderedClosureLayouts :: [FunctionShape] -> [LoweredLayout]
+orderedClosureLayouts = reverse . snd . foldl' collect (Set.empty, [])
+  where
+    collect state function =
+      case functionShapeEnvironmentLayout function of
+        Nothing -> state
+        Just layoutId
+          | Set.member layoutId (fst state) -> state
+          | otherwise ->
+              ( Set.insert layoutId (fst state),
+                LoweredLayout
+                  layoutId
+                  ( LoweredClosureEnvironmentLayout
+                      (map captureShapeRepresentation (functionShapeCaptures function))
+                  )
+                  : snd state
+              )
 
 collectRootFunctionShapes ::
   [Text] ->
@@ -688,25 +751,34 @@ localValueIdentifier name =
 closureEnvironmentLayoutId :: TypedBinderId -> Maybe LoweredLayoutId
 closureEnvironmentLayoutId binder = LoweredLayoutId <$> generatedIdentity "closure-env" binder
 
+recursiveEnvironmentLayoutId :: TypedBinderId -> Maybe LoweredLayoutId
+recursiveEnvironmentLayoutId (TypedBinderId (binderModulePath, binderPath, _)) =
+  Just
+    ( LoweredLayoutId
+        (generatedIdentityText "recursive-env" binderModulePath binderPath "group")
+    )
+
 generatedFunctionId :: TypedBinderId -> Maybe LoweredFunctionId
 generatedFunctionId binder = LoweredFunctionId <$> generatedIdentity "lambda-fn" binder
 
 generatedIdentity :: Text -> TypedBinderId -> Maybe Text
 generatedIdentity domain (TypedBinderId (binderModulePath, binderPath, binderName)) = do
   identifier <- localValueIdentifier binderName
-  pure
-    ( "$jz1$"
-        <> domain
-        <> "$m"
-        <> decimal (length binderModulePath)
-        <> foldMap (("$" <>) . lengthPrefixedSegment) binderModulePath
-        <> "$p"
-        <> decimal (length binderPath)
-        <> "$"
-        <> Text.intercalate "," (map decimal binderPath)
-        <> "$n"
-        <> lengthPrefixedSegment identifier
-    )
+  pure (generatedIdentityText domain binderModulePath binderPath identifier)
+
+generatedIdentityText :: Text -> [Text] -> [Int] -> Text -> Text
+generatedIdentityText domain binderModulePath binderPath identifier =
+  "$jz1$"
+    <> domain
+    <> "$m"
+    <> decimal (length binderModulePath)
+    <> foldMap (("$" <>) . lengthPrefixedSegment) binderModulePath
+    <> "$p"
+    <> decimal (length binderPath)
+    <> "$"
+    <> Text.intercalate "," (map decimal binderPath)
+    <> "$n"
+    <> lengthPrefixedSegment identifier
   where
     decimal = Text.pack . show
     lengthPrefixedSegment segment = decimal (Text.length segment) <> ":" <> segment
@@ -1204,12 +1276,18 @@ recursiveGroupProfileFailures modulePath functions declarations =
   ]
   where
     supportedGroup members =
-      all directSourceFunction members
-        && not
-          ( any
-              (closureShapeReferencesGroup memberSet memberStatementIndexes)
-              (Map.elems (indexedFunctionShapes functions))
-          )
+      case traverse (`Map.lookup` indexedFunctionShapes functions) members of
+        Just memberFunctions
+          | all functionShapeSourceBinding memberFunctions,
+            all ((== TypedClosureCallableShape) . functionShapeCallableShape) memberFunctions -> True
+          | all functionShapeSourceBinding memberFunctions,
+            all ((== TypedDirectCallableShape) . functionShapeCallableShape) memberFunctions ->
+              not
+                ( any
+                    (closureShapeReferencesGroup memberSet memberStatementIndexes)
+                    (Map.elems (indexedFunctionShapes functions))
+                )
+        _ -> False
       where
         memberSet = Set.fromList members
         memberStatementIndexes =
@@ -1218,12 +1296,6 @@ recursiveGroupProfileFailures modulePath functions declarations =
             | binder <- members,
               Just member <- [Map.lookup binder (indexedFunctionShapes functions)]
             ]
-    directSourceFunction binder =
-      case Map.lookup binder (indexedFunctionShapes functions) of
-        Just function ->
-          functionShapeSourceBinding function
-            && functionShapeCallableShape function == TypedDirectCallableShape
-        Nothing -> False
     closureShapeReferencesGroup memberSet memberStatementIndexes function =
       not (functionShapeSourceBinding function)
         && Set.member
@@ -1310,17 +1382,27 @@ initializeFunctionState :: FunctionShape -> LoweringState
 initializeFunctionState function =
   case functionShapeEnvironmentLayout function of
     Just layoutId ->
-      foldl'
-        (projectCapture layoutId)
-        emptyState
-        (zip [0 ..] (functionShapeCaptures function))
+      let environmentOperand =
+            LoweredFunctionParameterOperand
+              (LoweredParameterId "environment")
+              (LoweredManagedReferenceRepresentation layoutId)
+          projectedState =
+            foldl'
+              (projectCapture layoutId)
+              emptyState
+              (zip [0 ..] (functionShapeCaptures function))
+       in projectedState
+            { loweringSharedEnvironments =
+                Map.singleton layoutId environmentOperand
+            }
     Nothing -> emptyState
   where
     emptyState =
       LoweringState
         { loweringNextTemporary = 1,
           loweringInstructions = [],
-          loweringLocalBindings = Map.empty
+          loweringLocalBindings = Map.empty,
+          loweringSharedEnvironments = Map.empty
         }
     projectCapture layoutId state (fieldIndex, capture) =
       let temporaryIndex = loweringNextTemporary state
@@ -1355,7 +1437,8 @@ emitEntry modulePath functions =
       LoweringState
         { loweringNextTemporary = 1,
           loweringInstructions = [],
-          loweringLocalBindings = Map.empty
+          loweringLocalBindings = Map.empty,
+          loweringSharedEnvironments = Map.empty
         }
     go _ (Just resultOperand) state [] = Right (resultOperand, state)
     go _ Nothing _ [] =
@@ -1396,6 +1479,29 @@ emitEntry modulePath functions =
                         LoweredIRUnsupportedExpression
                         LoweredIRNoFailureDetail
                     ]
+        TypedLetStatement binder _ _ _ _
+          | Just function <- Map.lookup statementIndex (indexedFunctionShapesByStatement functions),
+            functionShapeCallableShape function == TypedClosureCallableShape,
+            Just groupMembers <- Map.lookup binder (indexedRecursiveGroupMembers functions) ->
+              case prepareRecursiveEnvironment modulePath statementIndex groupMembers function state of
+                Left failures -> Left failures
+                Right environmentState ->
+                  case lowerClosureValue
+                    (TypedExpressionPath modulePath [statementIndex] [0])
+                    []
+                    function
+                    environmentState of
+                    ([], Just operand, nextState) ->
+                      go
+                        (statementIndex + 1)
+                        resultOperand
+                        nextState
+                          { loweringLocalBindings =
+                              Map.insert binder operand (loweringLocalBindings nextState)
+                          }
+                        rest
+                    (failures@(_ : _), _, _) -> Left failures
+                    _ -> Left [recursiveFailure statementIndex function]
         TypedExpressionStatement _ expression ->
           case lowerExpression
             modulePath
@@ -1416,6 +1522,57 @@ emitEntry modulePath functions =
                     LoweredIRNoFailureDetail
                 ]
         _ -> go (statementIndex + 1) resultOperand state rest
+
+    recursiveFailure statementIndex function =
+      LoweredIRLoweringFailure
+        (TypedStatementPath modulePath [statementIndex])
+        LoweredIRRecursiveFunctionUnsupported
+        (LoweredIRNameFailureDetail (functionShapeName function))
+
+prepareRecursiveEnvironment ::
+  [Text] ->
+  Int ->
+  [TypedBinderId] ->
+  FunctionShape ->
+  LoweringState ->
+  Either [LoweredIRLoweringFailure] LoweringState
+prepareRecursiveEnvironment modulePath statementIndex groupMembers function state =
+  case (functionShapeEnvironmentLayout function, groupMembers) of
+    (Just layoutId, _)
+      | Map.member layoutId (loweringSharedEnvironments state) -> Right state
+    (Just layoutId, firstMember : _)
+      | functionShapeBinder function == firstMember ->
+          case traverse captureOperand (functionShapeCaptures function) of
+            Just environmentFields ->
+              let temporaryIndex = loweringNextTemporary state
+                  temporary = LoweredTemporaryId ("t" <> Text.pack (show temporaryIndex))
+                  representation = LoweredManagedReferenceRepresentation layoutId
+                  operand = LoweredTemporaryOperand temporary representation
+                  instruction =
+                    LoweredInstruction
+                      temporary
+                      representation
+                      (LoweredConstructProduct layoutId environmentFields)
+               in Right
+                    state
+                      { loweringNextTemporary = temporaryIndex + 1,
+                        loweringInstructions = instruction : loweringInstructions state,
+                        loweringSharedEnvironments =
+                          Map.insert layoutId operand (loweringSharedEnvironments state)
+                      }
+            Nothing -> Left [unsupportedFailure]
+    _ -> Left [unsupportedFailure]
+  where
+    captureOperand capture = do
+      operand <- Map.lookup (captureShapeBinder capture) (loweringLocalBindings state)
+      if loweredOperandRepresentation operand == captureShapeRepresentation capture
+        then Just operand
+        else Nothing
+    unsupportedFailure =
+      LoweredIRLoweringFailure
+        (TypedStatementPath modulePath [statementIndex])
+        LoweredIRRecursiveFunctionUnsupported
+        (LoweredIRNameFailureDetail (functionShapeName function))
 
 lowerExpression ::
   [Text] ->
@@ -1494,8 +1651,12 @@ lowerClosureValue ::
   LoweringState ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerClosureValue path parameters function state =
-  case (functionShapeEnvironmentLayout function, captureOperands) of
-    (Just layoutId, Just environmentFields) ->
+  case functionShapeEnvironmentLayout function of
+    Just layoutId
+      | Just environmentOperand <- Map.lookup layoutId (loweringSharedEnvironments state) ->
+          constructClosure environmentOperand state
+    Just layoutId
+      | Just environmentFields <- captureOperands ->
       let environmentIndex = loweringNextTemporary state
           environmentTemporaryId = temporaryId environmentIndex
           environmentRepresentation = LoweredManagedReferenceRepresentation layoutId
@@ -1504,26 +1665,32 @@ lowerClosureValue path parameters function state =
               environmentTemporaryId
               environmentRepresentation
               (LoweredConstructProduct layoutId environmentFields)
-          closureIndex = environmentIndex + 1
+          environmentState =
+            state
+              { loweringNextTemporary = environmentIndex + 1,
+                loweringInstructions =
+                  environmentInstruction : loweringInstructions state
+              }
+       in constructClosure
+            (LoweredTemporaryOperand environmentTemporaryId environmentRepresentation)
+            environmentState
+    _ -> unsupportedExpression path state
+  where
+    constructClosure environmentOperand currentState =
+      let closureIndex = loweringNextTemporary currentState
           closureTemporaryId = temporaryId closureIndex
           closureRepresentation = functionClosureRepresentation function
           closureInstruction =
             LoweredInstruction
               closureTemporaryId
               closureRepresentation
-              ( LoweredConstructClosure
-                  (functionShapeId function)
-                  (LoweredTemporaryOperand environmentTemporaryId environmentRepresentation)
-              )
+              (LoweredConstructClosure (functionShapeId function) environmentOperand)
           nextState =
-            state
+            currentState
               { loweringNextTemporary = closureIndex + 1,
-                loweringInstructions =
-                  closureInstruction : environmentInstruction : loweringInstructions state
+                loweringInstructions = closureInstruction : loweringInstructions currentState
               }
        in ([], Just (LoweredTemporaryOperand closureTemporaryId closureRepresentation), nextState)
-    _ -> unsupportedExpression path state
-  where
     captureOperands = traverse captureOperand (functionShapeCaptures function)
     captureOperand capture =
       case Map.lookup (captureShapeBinder capture) (loweringLocalBindings state) of

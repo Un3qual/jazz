@@ -24,6 +24,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directCallExpectedPrograms,
     directRecursionExpectedPrograms,
     directRecursionExpectedLoweredPrograms,
+    closureRecursionExpectedPrograms,
+    closureRecursionExpectedLoweredPrograms,
     closedCallableExpectedPrograms,
     directCallExpectedLoweredPrograms,
     closedCallableExpectedLoweredPrograms,
@@ -155,7 +157,11 @@ acceptedFixtures =
     sourceFixtureNoExports "capturing-function" capturingFunctionSource,
     sourceFixtureNoExports "partial-direct-call" partialDirectCallSource,
     sourceFixtureNoExports "self-recursive-function" selfRecursiveFunctionSource,
-    sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource
+    sourceFixtureNoExports "mutually-recursive-functions" mutuallyRecursiveFunctionsSource,
+    sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
+    sourceFixtureNoExports "closure-value-self-recursion" closureValueSelfRecursionSource,
+    sourceFixtureNoExports "capturing-self-recursion" capturingSelfRecursionSource,
+    sourceFixtureNoExports "capturing-mutual-recursion" capturingMutualRecursionSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -176,8 +182,8 @@ rejectedFixtures =
     sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
-    sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
-    sourceFixtureNoExports "closure-value-self-recursion" closureValueSelfRecursionSource,
+    sourceFixtureNoExports "later-capture-mutual-recursion" laterCaptureMutualRecursionSource,
+    sourceFixtureNoExports "interleaved-rebound-capture-mutual-recursion" interleavedReboundCaptureMutualRecursionSource,
     sourceFixtureNoExports "polymorphic-or-evidence-function" polymorphicFunctionSource,
     (sourceFixture "imported-direct-call" importedDirectCallSource)
       { fixtureInputs =
@@ -1246,6 +1252,199 @@ directRecursionExpectedPrograms =
     ("mutually-recursive-functions", mutuallyRecursiveExpectedProgram)
   ]
 
+closureRecursionExpectedPrograms :: [(Text, TypedProgram)]
+closureRecursionExpectedPrograms =
+  [ ("closure-value-mutual-recursion", closureValueMutualRecursiveExpectedProgram),
+    ("closure-value-self-recursion", closureValueSelfRecursiveExpectedProgram),
+    ("capturing-self-recursion", capturingSelfRecursiveExpectedProgram),
+    ("capturing-mutual-recursion", capturingMutualRecursiveExpectedProgram)
+  ]
+
+closureValueMutualRecursiveExpectedProgram :: TypedProgram
+closureValueMutualRecursiveExpectedProgram =
+  expectedFunctionProgramWithLineOffsetAndRecursiveGroups
+    1
+    [["left", "right"]]
+    []
+    [applyFunction, closurePassingLeftFunction, closurePassingRightFunction]
+    (directCall "left" [boolInfo] boolInfo [boolExpr False])
+
+closureValueSelfRecursiveExpectedProgram :: TypedProgram
+closureValueSelfRecursiveExpectedProgram =
+  expectedFunctionProgramWithLineOffsetAndRecursiveGroups
+    1
+    [["loop"]]
+    []
+    [applyFunction, closurePassingLoopFunction]
+    (directCall "loop" [boolInfo] boolInfo [boolExpr False])
+
+capturingSelfRecursiveExpectedProgram :: TypedProgram
+capturingSelfRecursiveExpectedProgram =
+  expectedCapturedRecursiveProgram
+    [["loop"]]
+    [capturingLoopFunction]
+    (directCall "loop" [intInfo] intInfo [intExpr 1])
+
+capturingMutualRecursiveExpectedProgram :: TypedProgram
+capturingMutualRecursiveExpectedProgram =
+  expectedCapturedRecursiveProgram
+    [["left", "right"]]
+    [capturingLeftFunction, capturingRightFunction]
+    (directCall "left" [intInfo] intInfo [intExpr 1])
+
+expectedCapturedRecursiveProgram :: [[Text]] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
+expectedCapturedRecursiveProgram groupNames functions terminalExpression =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        recursiveGroups
+        statements
+        (typedExpressionInfo boundTerminalExpression)
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    functionOwners =
+      Map.fromList
+        [ ( resolvedName (expectedFunctionName function),
+            TypedBinderId (modulePath, [functionOffset * 2 + 2], resolvedName (expectedFunctionName function))
+          )
+        | (functionOffset, function) <- zip [0 ..] functions
+        ]
+    bindings = Map.insert seedName seedBinder functionOwners
+    functionStatements =
+      concat
+        [ map
+            (bindExpectedStatementVariables bindings)
+            (expectedFunctionStatementsAtLineOffset 1 signatureIndex bindingIndex function)
+        | (functionOffset, function) <- zip [0 ..] functions,
+          let signatureIndex = functionOffset * 2 + 1,
+          let bindingIndex = signatureIndex + 1
+        ]
+    recursiveGroups =
+      [ TypedRecursiveGroup [functionOwners Map.! resolvedName name | name <- names]
+      | names <- groupNames
+      ]
+    boundTerminalExpression = bindExpectedExpressionVariables bindings terminalExpression
+    statements =
+      TypedLetStatement seedBinder seedName (TypedSpan 2 1) seedScheme (intExpr 1)
+        : functionStatements
+        <> [TypedExpressionStatement (TypedSpan (length functionStatements + 3) 1) boundTerminalExpression]
+
+closureRecursionExpectedLoweredPrograms ::
+  [(Text, TypedProgram, LoweredProgram)]
+closureRecursionExpectedLoweredPrograms =
+  [ ( "closure-value-mutual-recursion",
+      closureValueMutualRecursiveExpectedProgram,
+      expectedClosureCallableLoweredProgram
+        [recursiveGroupLayout]
+        [ expectedBoolApplyFunction,
+          expectedRecursivePassingFunction "left" "right" recursiveGroupLayoutId,
+          expectedRecursivePassingFunction "right" "left" recursiveGroupLayoutId
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 recursiveGroupLayoutId,
+          expectedClosureWithEnvironmentInstruction 2 "left" recursiveGroupLayoutId (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
+          expectedClosureWithEnvironmentInstruction 3 "right" recursiveGroupLayoutId (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
+          expectedClosureCallInstruction 4 LoweredBoolRepresentation (loweredTemporary 2 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate False)]
+        ]
+        (loweredTemporary 4 LoweredBoolRepresentation)
+    ),
+    ( "closure-value-self-recursion",
+      closureValueSelfRecursiveExpectedProgram,
+      expectedClosureCallableLoweredProgram
+        [recursiveGroupLayout]
+        [ expectedBoolApplyFunction,
+          expectedRecursivePassingFunction "loop" "loop" recursiveGroupLayoutId
+        ]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 recursiveGroupLayoutId,
+          expectedClosureWithEnvironmentInstruction 2 "loop" recursiveGroupLayoutId (loweredTemporary 1 recursiveGroupEnvironmentRepresentation),
+          expectedClosureCallInstruction 3 LoweredBoolRepresentation (loweredTemporary 2 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate False)]
+        ]
+        (loweredTemporary 3 LoweredBoolRepresentation)
+    ),
+    ( "capturing-self-recursion",
+      capturingSelfRecursiveExpectedProgram,
+      expectedCapturedRecursiveLoweredProgram
+        [expectedCapturedRecursiveFunction "loop" "loop" capturingRecursiveLayoutId]
+        ["loop"]
+    ),
+    ( "capturing-mutual-recursion",
+      capturingMutualRecursiveExpectedProgram,
+      expectedCapturedRecursiveLoweredProgram
+        [ expectedCapturedRecursiveFunction "left" "right" capturingRecursiveLayoutId,
+          expectedCapturedRecursiveFunction "right" "left" capturingRecursiveLayoutId
+        ]
+        ["left", "right"]
+    )
+  ]
+
+capturingRecursiveLayoutId :: LoweredLayoutId
+capturingRecursiveLayoutId = LoweredLayoutId "$jz1$recursive-env$m2$3:App$4:Main$p1$2$n5:group"
+
+capturingRecursiveLayout :: LoweredLayout
+capturingRecursiveLayout = LoweredLayout capturingRecursiveLayoutId (LoweredClosureEnvironmentLayout [int64Representation])
+
+expectedCapturedRecursiveLoweredProgram :: [LoweredFunction] -> [Text] -> LoweredProgram
+expectedCapturedRecursiveLoweredProgram recursiveFunctions functionNames =
+  expectedClosureCallableLoweredProgram
+    [capturingRecursiveLayout]
+    recursiveFunctions
+    int64Representation
+    ( [ expectedEnvironmentInstruction 1 capturingRecursiveLayoutId [loweredInt64 1]
+      ]
+        <> zipWith
+          (\index functionName ->
+             expectedClosureWithEnvironmentInstructionFor
+               index
+               functionName
+               intClosureRepresentation
+               (loweredTemporary 1 (LoweredManagedReferenceRepresentation capturingRecursiveLayoutId))
+          )
+          [2 ..]
+          functionNames
+        <> [ expectedClosureCallInstruction
+               (length recursiveFunctions + 2)
+               int64Representation
+               (loweredTemporary 2 intClosureRepresentation)
+               [loweredInt64 1]
+           ]
+    )
+    (loweredTemporary (length recursiveFunctions + 2) int64Representation)
+
+expectedCapturedRecursiveFunction :: Text -> Text -> LoweredLayoutId -> LoweredFunction
+expectedCapturedRecursiveFunction functionName peerName layoutId =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> functionName))
+    (Just (LoweredParameter (LoweredParameterId "environment") environmentRepresentation))
+    [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+    int64Representation
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ LoweredInstruction
+            (LoweredTemporaryId "t1")
+            int64Representation
+            (LoweredProjectField layoutId 0 environmentOperand),
+          expectedClosureWithEnvironmentInstructionFor 2 peerName intClosureRepresentation environmentOperand,
+          expectedPrimitiveInstruction 3 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredParameter 1 int64Representation, loweredTemporary 1 int64Representation],
+          expectedClosureCallInstruction 4 int64Representation (loweredTemporary 2 intClosureRepresentation) [loweredTemporary 3 int64Representation]
+        ]
+        (Just (LoweredReturn (loweredTemporary 4 int64Representation)))
+    ]
+    (LoweredBlockId "entry")
+  where
+    environmentRepresentation = LoweredManagedReferenceRepresentation layoutId
+    environmentOperand = LoweredFunctionParameterOperand (LoweredParameterId "environment") environmentRepresentation
+
 directRecursionExpectedLoweredPrograms ::
   [(Text, TypedProgram, LoweredProgram)]
 directRecursionExpectedLoweredPrograms =
@@ -1747,8 +1946,79 @@ independentClosureExpectedLoweredPrograms =
         LoweredBoolRepresentation
         []
         (loweredImmediate (LoweredBoolImmediate True))
+    ),
+    ( "closure-shaped-self-recursive-function",
+      expectedClosureCallableLoweredProgram
+        [recursiveGroupLayoutAt1]
+        [expectedRecursiveCallingFunction "loop" "loop" recursiveGroupLayoutIdAt1]
+        LoweredBoolRepresentation
+        [ expectedEmptyEnvironmentInstruction 1 recursiveGroupLayoutIdAt1,
+          expectedClosureWithEnvironmentInstructionFor 2 "loop" intClosureRepresentation (loweredTemporary 1 recursiveGroupEnvironmentRepresentationAt1)
+        ]
+        (loweredImmediate (LoweredBoolImmediate True))
     )
   ]
+
+recursiveGroupLayoutId, recursiveGroupLayoutIdAt1 :: LoweredLayoutId
+recursiveGroupLayoutId = LoweredLayoutId "$jz1$recursive-env$m2$3:App$4:Main$p1$3$n5:group"
+recursiveGroupLayoutIdAt1 = LoweredLayoutId "$jz1$recursive-env$m2$3:App$4:Main$p1$1$n5:group"
+
+recursiveGroupLayout, recursiveGroupLayoutAt1 :: LoweredLayout
+recursiveGroupLayout = LoweredLayout recursiveGroupLayoutId (LoweredClosureEnvironmentLayout [])
+recursiveGroupLayoutAt1 = LoweredLayout recursiveGroupLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
+
+recursiveGroupEnvironmentRepresentation, recursiveGroupEnvironmentRepresentationAt1 :: LoweredRepresentation
+recursiveGroupEnvironmentRepresentation = LoweredManagedReferenceRepresentation recursiveGroupLayoutId
+recursiveGroupEnvironmentRepresentationAt1 = LoweredManagedReferenceRepresentation recursiveGroupLayoutIdAt1
+
+expectedRecursivePassingFunction :: Text -> Text -> LoweredLayoutId -> LoweredFunction
+expectedRecursivePassingFunction functionName peerName layoutId =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> functionName))
+    (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+    [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+    LoweredBoolRepresentation
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ expectedClosureWithEnvironmentInstruction 1 peerName layoutId environmentOperand,
+          expectedDirectCallInstruction 2 LoweredBoolRepresentation "apply" [loweredTemporary 1 boolClosureRepresentation]
+        ]
+        (Just (LoweredReturn (loweredTemporary 2 LoweredBoolRepresentation)))
+    ]
+    (LoweredBlockId "entry")
+  where
+    environmentOperand =
+      LoweredFunctionParameterOperand
+        (LoweredParameterId "environment")
+        (LoweredManagedReferenceRepresentation layoutId)
+
+expectedRecursiveCallingFunction :: Text -> Text -> LoweredLayoutId -> LoweredFunction
+expectedRecursiveCallingFunction functionName peerName layoutId =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> functionName))
+    (Just (LoweredParameter (LoweredParameterId "environment") (LoweredManagedReferenceRepresentation layoutId)))
+    [LoweredParameter (LoweredParameterId "arg1") int64Representation]
+    int64Representation
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ expectedClosureWithEnvironmentInstructionFor 1 peerName intClosureRepresentation environmentOperand,
+          expectedClosureCallInstruction 2 int64Representation (loweredTemporary 1 intClosureRepresentation) [loweredParameter 1 int64Representation]
+        ]
+        (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
+    ]
+    (LoweredBlockId "entry")
+  where
+    environmentOperand =
+      LoweredFunctionParameterOperand
+        (LoweredParameterId "environment")
+        (LoweredManagedReferenceRepresentation layoutId)
+
+intClosureRepresentation :: LoweredRepresentation
+intClosureRepresentation =
+  LoweredClosureRepresentation
+    (LoweredCallSignature [int64Representation] int64Representation)
 
 identityLayoutAt1, identityLayoutAt3, identityLayoutAt5 :: LoweredLayout
 identityLayoutAt1 = LoweredLayout identityLayoutIdAt1 (LoweredClosureEnvironmentLayout [])
@@ -1939,10 +2209,14 @@ expectedBoolCombineFunction =
 
 expectedEmptyEnvironmentInstruction :: Int -> LoweredLayoutId -> LoweredInstruction
 expectedEmptyEnvironmentInstruction index layoutId =
+  expectedEnvironmentInstruction index layoutId []
+
+expectedEnvironmentInstruction :: Int -> LoweredLayoutId -> [LoweredOperand] -> LoweredInstruction
+expectedEnvironmentInstruction index layoutId fields =
   LoweredInstruction
     (LoweredTemporaryId ("t" <> Text.pack (show index)))
     (LoweredManagedReferenceRepresentation layoutId)
-    (LoweredConstructProduct layoutId [])
+    (LoweredConstructProduct layoutId fields)
 
 expectedClosureInstruction :: Int -> Text -> LoweredLayoutId -> LoweredInstruction
 expectedClosureInstruction index functionName layoutId =
@@ -1953,6 +2227,17 @@ expectedClosureInstruction index functionName layoutId =
         (LoweredFunctionId ("App::Main::" <> functionName))
         (loweredTemporary (index - 1) (LoweredManagedReferenceRepresentation layoutId))
     )
+
+expectedClosureWithEnvironmentInstruction :: Int -> Text -> LoweredLayoutId -> LoweredOperand -> LoweredInstruction
+expectedClosureWithEnvironmentInstruction index functionName _ environmentOperand =
+  expectedClosureWithEnvironmentInstructionFor index functionName boolClosureRepresentation environmentOperand
+
+expectedClosureWithEnvironmentInstructionFor :: Int -> Text -> LoweredRepresentation -> LoweredOperand -> LoweredInstruction
+expectedClosureWithEnvironmentInstructionFor index functionName closureRepresentation environmentOperand =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    closureRepresentation
+    (LoweredConstructClosure (LoweredFunctionId ("App::Main::" <> functionName)) environmentOperand)
 
 expectedClosureCallInstruction :: Int -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> LoweredInstruction
 expectedClosureCallInstruction index representation functionOperand operands =
@@ -2037,8 +2322,6 @@ lowererBoundaryPrograms =
     ("duplicate-function-identity", duplicateFunctionLowererProgram),
     ("capturing-function", capturingLowererProgram),
     ("closure-shaped-self-recursive-function", closureShapedSelfRecursiveLowererProgram),
-    ("closure-value-mutual-recursion", closureValueMutualRecursiveLowererProgram),
-    ("closure-value-self-recursion", closureValueSelfRecursiveLowererProgram),
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
@@ -2050,6 +2333,9 @@ validIndependentLowererPrograms =
   ]
     <> [ (name, programValue)
        | (name, programValue, _) <- directRecursionExpectedLoweredPrograms
+       ]
+    <> [ (name, programValue)
+       | (name, programValue, _) <- closureRecursionExpectedLoweredPrograms
        ]
     <> lowererBoundaryPrograms
     <> lowererStructuralBoundaryPrograms
@@ -2612,22 +2898,6 @@ closureShapedSelfRecursiveLowererProgram =
         TypedClosureCallableShape
         (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
     ]
-    (boolExpr True)
-
-closureValueSelfRecursiveLowererProgram :: TypedProgram
-closureValueSelfRecursiveLowererProgram =
-  expectedFunctionProgramWithRecursiveGroups
-    [["loop"]]
-    []
-    [applyFunction, closurePassingLoopFunction]
-    (boolExpr True)
-
-closureValueMutualRecursiveLowererProgram :: TypedProgram
-closureValueMutualRecursiveLowererProgram =
-  expectedFunctionProgramWithRecursiveGroups
-    [["left", "right"]]
-    []
-    [applyFunction, closurePassingLeftFunction, closurePassingRightFunction]
     (boolExpr True)
 
 directShapedClosureValueSelfRecursiveLowererProgram :: TypedProgram
@@ -4243,6 +4513,49 @@ closureValueMutualRecursionSource =
       "left False."
     ]
 
+capturingSelfRecursionSource :: Text
+capturingSelfRecursionSource =
+  Text.unlines
+    [ "seed = 1.",
+      "loop :: Int -> Int.",
+      "loop = \\(item) -> loop (item + seed).",
+      "loop 1."
+    ]
+
+capturingMutualRecursionSource :: Text
+capturingMutualRecursionSource =
+  Text.unlines
+    [ "seed = 1.",
+      "left :: Int -> Int.",
+      "left = \\(item) -> right (item + seed).",
+      "right :: Int -> Int.",
+      "right = \\(item) -> left (item + seed).",
+      "left 1."
+    ]
+
+laterCaptureMutualRecursionSource :: Text
+laterCaptureMutualRecursionSource =
+  Text.unlines
+    [ "left :: Int -> Int.",
+      "left = \\(item) -> right item.",
+      "seed = 1.",
+      "right :: Int -> Int.",
+      "right = \\(item) -> left (item + seed).",
+      "left 1."
+    ]
+
+interleavedReboundCaptureMutualRecursionSource :: Text
+interleavedReboundCaptureMutualRecursionSource =
+  Text.unlines
+    [ "seed = 1.",
+      "left :: Int -> Int.",
+      "left = \\(item) -> right (item + seed).",
+      "seed = 2.",
+      "right :: Int -> Int.",
+      "right = \\(item) -> left (item + seed).",
+      "left 1."
+    ]
+
 polymorphicFunctionSource :: Text
 polymorphicFunctionSource =
   Text.unlines
@@ -4535,6 +4848,29 @@ closurePassingRightFunction =
     boolInfo
     TypedClosureCallableShape
     (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "left" boolCallableInfo])
+
+capturingLoopFunction :: ExpectedFunction
+capturingLoopFunction = capturingRecursiveFunction "loop" "loop"
+
+capturingLeftFunction :: ExpectedFunction
+capturingLeftFunction = capturingRecursiveFunction "left" "right"
+
+capturingRightFunction :: ExpectedFunction
+capturingRightFunction = capturingRecursiveFunction "right" "left"
+
+capturingRecursiveFunction :: Text -> Text -> ExpectedFunction
+capturingRecursiveFunction functionName peerName =
+  ExpectedFunction
+    functionName
+    [("item", intInfo)]
+    intInfo
+    TypedClosureCallableShape
+    ( directCall
+        peerName
+        [intInfo]
+        intInfo
+        [binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo)]
+    )
 
 chooseFunction :: ExpectedFunction
 chooseFunction =
