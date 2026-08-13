@@ -6,7 +6,7 @@ import {
   createSearchRequestTracker,
   normalizePagefindResults,
   replaceSearchResults,
-  shouldShowNoMatches,
+  searchStatusMessage,
   shouldOpenSearch,
   type PagefindSearchResponse,
   type SearchResultRow,
@@ -45,6 +45,12 @@ export default function SearchBar() {
     revision: 0,
   });
   const {rows: results, activeIndex} = resultState;
+  const statusMessage = searchStatusMessage({
+    status,
+    query,
+    resultCount: results.length,
+    pending: searchPending,
+  });
 
   const closeSearch = useCallback(() => {
     searchRequestsRef.current.invalidate();
@@ -226,14 +232,13 @@ export default function SearchBar() {
           <kbd className={styles.escapeHint}>Esc</kbd>
         </div>
         <p className={styles.keyboardHint}>↑↓ to select · Enter to open · Esc to close</p>
-        {status === 'loading' && <p className={styles.state}>Loading search index…</p>}
-        {status === 'unavailable' && <p className={styles.state}>Search is unavailable in this preview.</p>}
-        {shouldShowNoMatches({
-          status,
-          query,
-          resultCount: results.length,
-          pending: searchPending,
-        }) && <p className={styles.state}>No documentation matches.</p>}
+        <p
+          className={styles.state}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true">
+          {statusMessage}
+        </p>
         {status === 'ready' && results.length > 0 && (
           <ol
             id="documentation-search-results"

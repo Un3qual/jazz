@@ -565,6 +565,7 @@ test('documentation search is a keyboard-first navbar dialog', async () => {
   const navbarItems = siteConfig.themeConfig.navbar.items;
   const searchIndex = navbarItems.findIndex(({type}) => type === 'search');
   const searchBar = read('website/src/theme/SearchBar/index.tsx');
+  const searchModel = read('website/scripts/pagefind-search-model.mjs');
 
   assert.equal(searchIndex, navbarItems.findIndex(({label}) => label === 'GitHub') - 1);
   assert.deepEqual(navbarItems[searchIndex], {type: 'search', position: 'right'});
@@ -573,9 +574,9 @@ test('documentation search is a keyboard-first navbar dialog', async () => {
   assert.match(searchBar, /onCancel=\{\(event\) => \{\s*event\.preventDefault\(\);\s*closeSearch\(\);\s*\}\}/s);
   assert.match(searchBar, /if \(!open\) \{\s*dialogRef\.current\?\.close\(\);\s*return;\s*\}/s);
   assert.match(searchBar, /activeResultRef\.current\?\.scrollIntoView\(\{block: 'nearest'\}\)/);
-  assert.match(searchBar, /Loading search index/);
-  assert.match(searchBar, /No documentation matches/);
-  assert.match(searchBar, /Search is unavailable in this preview/);
+  assert.match(searchModel, /Loading search index/);
+  assert.match(searchModel, /No documentation matches/);
+  assert.match(searchModel, /Search is unavailable in this preview/);
 });
 
 test('documentation search clears stale rows before accepting a new query', () => {
@@ -591,9 +592,60 @@ test('documentation search exposes keyboard selection to assistive technology', 
   const searchBar = read('website/src/theme/SearchBar/index.tsx');
 
   assert.match(searchBar, /aria-activedescendant=/);
+  assert.match(searchBar, /role="status"/);
+  assert.match(searchBar, /aria-live="polite"/);
+  assert.match(searchBar, /aria-atomic="true"/);
   assert.match(searchBar, /role="listbox"/);
   assert.match(searchBar, /role="option"/);
   assert.match(searchBar, /aria-selected=/);
+});
+
+test('published combined standard-library routes redirect to canonical module pages', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+
+  assert.deepEqual(siteConfig.plugins, [[
+    '@docusaurus/plugin-client-redirects',
+    {
+      redirects: [
+        {
+          from: '/docs/standard-library/maybe-result-nonempty',
+          to: '/docs/standard-library/maybe',
+        },
+        {
+          from: '/docs/standard-library/map-and-set',
+          to: '/docs/standard-library/map',
+        },
+        {
+          from: '/docs/standard-library/char-and-text',
+          to: '/docs/standard-library/char',
+        },
+      ],
+    },
+  ]]);
+});
+
+test('public docs retain non-obvious numeric, complexity, and module-root contracts', () => {
+  const operators = read('docs/language/operators.md');
+  const operatorSection = operators.split('## Executable built-ins', 2)[1];
+  assert.match(operatorSection, /same numeric type/i);
+  assert.match(operatorSection, /integral[^\n]+(?:`Float`|`Float64`)/i);
+  assert.match(operatorSection, /explicit conversion/i);
+
+  const overview = read('docs/standard-library/overview.md');
+  assert.match(overview, /--module-root[^\n]+--module-root/s);
+  assert.match(overview, /jazz\/stdlib/);
+
+  const queue = read('docs/standard-library/queue.md');
+  const queueIntroduction = queue.split('## Type', 1)[0];
+  assert.match(queueIntroduction, /`queueEmpty` and `queueSingleton`[\s\S]+`O\(1\)`/);
+
+  const text = read('docs/standard-library/text.md');
+  const repeatSection = text.split('### `textRepeat`', 2)[1].split('\n### ', 1)[0];
+  assert.match(repeatSection, /non-positive[\s\S]+`O\(1\)`/i);
+  assert.match(repeatSection, /positive[\s\S]+repetition count plus the output size/i);
 });
 
 test('documentation search styles satisfy the configured keyword casing', () => {

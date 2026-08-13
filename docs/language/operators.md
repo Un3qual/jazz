@@ -26,9 +26,12 @@ OR. `True | False` is rejected with `E2003`.
 
 ## Executable built-ins
 
-Arithmetic operators preserve their numeric operand type. Ordering and
-equality produce `Bool`. Their supported types and numeric promotion rules are
-described in [Runtime values](../reference/runtime-values.md).
+Arithmetic on operands of the same numeric type returns that type. Built-in
+arithmetic also accepts one integral operand with `Float` or `Float64`; the
+integral operand is converted and the result has the float operand's type.
+Other width changes require explicit conversion. Ordering and equality produce
+`Bool`. See [Runtime values](../reference/runtime-values.md) for the supported
+numeric domains.
 
 ## Operator values and sections
 

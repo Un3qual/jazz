@@ -39,6 +39,27 @@ const config: Config = {
       } satisfies Preset.Options,
     ],
   ],
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          {
+            from: '/docs/standard-library/maybe-result-nonempty',
+            to: '/docs/standard-library/maybe',
+          },
+          {
+            from: '/docs/standard-library/map-and-set',
+            to: '/docs/standard-library/map',
+          },
+          {
+            from: '/docs/standard-library/char-and-text',
+            to: '/docs/standard-library/char',
+          },
+        ],
+      },
+    ],
+  ],
   themeConfig: {
     image: 'img/social-card.png',
     metadata: [

@@ -6,8 +6,8 @@ sidebar_position: 6
 
 Import `Queue` for a persistent FIFO collection. Enqueueing adds values at the
 rear; observation and removal use the oldest value. The representation and
-constructor are private. Construction, size, emptiness, and enqueue are
-`O(1)`.
+constructor are private. `queueEmpty` and `queueSingleton` construction, size,
+emptiness, and enqueue are `O(1)`.
 
 ## Type
 

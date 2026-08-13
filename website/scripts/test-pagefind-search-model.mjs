@@ -6,6 +6,7 @@ import {
   createSearchRequestTracker,
   normalizePagefindResults,
   replaceSearchResults,
+  searchStatusMessage,
   shouldOpenSearch,
   withBaseUrl,
 } from './pagefind-search-model.mjs';
@@ -72,6 +73,30 @@ test('empty-result feedback waits for the current Pagefind request', async () =>
     resultCount: 1,
     pending: false,
   }), false);
+});
+
+test('search status messages cover asynchronous index and query states', () => {
+  assert.equal(searchStatusMessage({status: 'loading'}), 'Loading search index…');
+  assert.equal(searchStatusMessage({status: 'unavailable'}), 'Search is unavailable in this preview.');
+  assert.equal(searchStatusMessage({
+    status: 'ready',
+    query: 'maybe',
+    resultCount: 0,
+    pending: true,
+  }), 'Searching…');
+  assert.equal(searchStatusMessage({
+    status: 'ready',
+    query: 'maybe',
+    resultCount: 0,
+    pending: false,
+  }), 'No documentation matches.');
+  assert.equal(searchStatusMessage({
+    status: 'ready',
+    query: 'maybe',
+    resultCount: 2,
+    pending: false,
+  }), '2 search results.');
+  assert.equal(searchStatusMessage({status: 'ready', query: '', resultCount: 0}), '');
 });
 
 test('search categories follow public documentation routes', () => {

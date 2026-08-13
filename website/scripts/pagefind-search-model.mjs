@@ -31,6 +31,30 @@ export function shouldShowNoMatches({status, query, resultCount, pending}) {
     && !pending;
 }
 
+export function searchStatusMessage({
+  status,
+  query = '',
+  resultCount = 0,
+  pending = false,
+}) {
+  if (status === 'loading') {
+    return 'Loading search index…';
+  }
+  if (status === 'unavailable') {
+    return 'Search is unavailable in this preview.';
+  }
+  if (status !== 'ready' || query.trim().length === 0) {
+    return '';
+  }
+  if (pending) {
+    return 'Searching…';
+  }
+  if (shouldShowNoMatches({status, query, resultCount, pending})) {
+    return 'No documentation matches.';
+  }
+  return `${resultCount} search ${resultCount === 1 ? 'result' : 'results'}.`;
+}
+
 export function isEditableTarget(target) {
   if (!target) {
     return false;

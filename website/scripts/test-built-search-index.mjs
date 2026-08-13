@@ -41,17 +41,21 @@ test('production Pagefind index includes document content and excludes Docusauru
   const modulePath = path.join(fixture, 'pagefind.mjs');
   copyFileSync(path.join(buildRoot, 'pagefind', 'pagefind.js'), modulePath);
   const {server, origin} = await serveBuild(buildRoot);
+  let index;
   try {
     const pagefind = await import(`${pathToFileURL(modulePath).href}?scope-test`);
-    const index = pagefind.createInstance({basePath: `${origin}/pagefind/`});
+    index = pagefind.createInstance({basePath: `${origin}/pagefind/`});
     const documentResults = await index.search('maybeMap');
     const shellResults = await index.search('Skip to main content');
 
     assert.ok(documentResults.results.length > 0, 'document content was not indexed');
     assert.equal(shellResults.results.length, 0, 'shell text was indexed');
-    await index.destroy();
   } finally {
-    await closeServer(server);
-    rmSync(fixture, {recursive: true, force: true});
+    try {
+      await index?.destroy();
+    } finally {
+      await closeServer(server);
+      rmSync(fixture, {recursive: true, force: true});
+    }
   }
 });

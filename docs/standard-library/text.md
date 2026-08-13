@@ -113,8 +113,9 @@ Constructs text from scalars in list order in `O(n)`.
 textRepeat :: Int -> Text -> Text.
 ```
 
-Repeats text `count` times. Non-positive counts return `textEmpty`. Time and
-temporary space are linear in the repetition count plus the output size.
+Repeats text `count` times. Non-positive counts return `textEmpty` in `O(1)`
+time and temporary space. For positive counts, time and temporary space are
+linear in the repetition count plus the output size.
 
 ### `textConcat`
 

@@ -52,6 +52,9 @@ export function replaceSearchResults<T>(
   rows: T[],
 ): SearchResultState<T>;
 export function shouldShowNoMatches(state: EmptySearchState): boolean;
+export function searchStatusMessage(state: Partial<EmptySearchState> & {
+  status: EmptySearchState['status'];
+}): string;
 export function shouldOpenSearch(event: SearchShortcutEvent): boolean;
 export function withBaseUrl(url: string, baseUrl?: string): string;
 export function categoryForUrl(url: string): string;

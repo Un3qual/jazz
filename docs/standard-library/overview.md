@@ -8,6 +8,14 @@ The bundled [Prelude](prelude.md) loads automatically unless the CLI uses
 `--no-prelude`. Other library modules require an explicit import. Collection
 updates return new values, so older values remain usable.
 
+When a module graph imports one of these modules, include both the application
+root and the standard-library root. From the repository checkout:
+
+```bash
+cabal run jazz -- --run --entry-module App::Main \
+  --module-root path/to/app --module-root jazz/stdlib
+```
+
 Complexity statements describe logical Jazz operations. Callback cost is
 excluded unless a page states otherwise.
 
