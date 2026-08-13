@@ -11,4 +11,5 @@ pnpm --dir "$ROOT/website" run test:signatures
 pnpm --dir "$ROOT/website" run test:experience
 pnpm --dir "$ROOT/website" run typecheck
 pnpm --dir "$ROOT/website" run build
+pnpm --dir "$ROOT/website" run test:search:production
 python3 "$ROOT/scripts/check-website-boundary.py" --build-directory "$ROOT/website/build"

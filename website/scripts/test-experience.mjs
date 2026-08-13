@@ -218,6 +218,20 @@ test('homepage introduces Jazz and provides direct documentation routes', () => 
   assert.doesNotMatch(source, /\b(?:fetch|useEffect|useState)\s*\(/);
 });
 
+test('documentation directory owns its component styles', () => {
+  const component = read('website/src/components/DocumentationDirectory.tsx');
+  const pageStyles = read('website/src/pages/index.module.css');
+  const componentStyles = read(
+    'website/src/components/DocumentationDirectory.module.css',
+  );
+
+  assert.match(component, /from '\.\/DocumentationDirectory\.module\.css'/);
+  assert.match(componentStyles, /\.directory\b/);
+  assert.match(componentStyles, /\.directoryGrid\b/);
+  assert.match(componentStyles, /\.directorySection\b/);
+  assert.doesNotMatch(pageStyles, /\.directory(?:Heading|Grid|Section)?\b/);
+});
+
 test('homepage styling is compact, responsive, and accessible', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
@@ -590,10 +604,23 @@ test('documentation search styles satisfy the configured keyword casing', () => 
 });
 
 test('website search tests include the generated index contract', () => {
+  const scripts = JSON.parse(read('website/package.json')).scripts;
+  const websiteGate = read('scripts/check-website.sh');
+  const checkerTests = read('website/scripts/test-check-built-search.mjs');
+
   assert.equal(
-    JSON.parse(read('website/package.json')).scripts['test:search'],
+    scripts['test:search'],
     'node --test scripts/test-pagefind-search-model.mjs scripts/test-check-built-search.mjs',
   );
+  assert.equal(
+    scripts['test:search:production'],
+    'node --test scripts/test-built-search-index.mjs',
+  );
+  assert.match(
+    websiteGate,
+    /run build[\s\S]*run test:search:production/,
+  );
+  assert.doesNotMatch(checkerTests, /execFileSync\('pnpm', \['run', 'build'\]/);
 });
 
 test('standard library navigation exposes one page per module', async () => {

@@ -33,7 +33,9 @@ the surrogate range return `Nothing`. This is logically `O(1)`.
 charIsAlpha :: Char -> Bool.
 ```
 
-Uses the Unicode Alphabetic property.
+Returns `True` for Unicode characters in the `UppercaseLetter`,
+`LowercaseLetter`, `TitlecaseLetter`, `ModifierLetter`, or `OtherLetter`
+general category.
 
 ### `charIsAlphaNum`
 
@@ -41,7 +43,8 @@ Uses the Unicode Alphabetic property.
 charIsAlphaNum :: Char -> Bool.
 ```
 
-Uses Unicode alphabetic and numeric properties.
+Returns `True` for any category accepted by `charIsAlpha`, plus
+`DecimalNumber`, `LetterNumber`, and `OtherNumber`.
 
 ### `charIsDigit`
 
@@ -73,7 +76,7 @@ Recognizes only ASCII `0`–`9`, `a`–`f`, and `A`–`F`.
 charIsLower :: Char -> Bool.
 ```
 
-Uses the Unicode Lowercase property.
+Returns `True` only for the Unicode `LowercaseLetter` general category.
 
 ### `charIsUpper`
 
@@ -81,7 +84,7 @@ Uses the Unicode Lowercase property.
 charIsUpper :: Char -> Bool.
 ```
 
-Uses the Unicode Uppercase property.
+Returns `True` only for the Unicode `UppercaseLetter` general category.
 
 ### `charIsNewline`
 

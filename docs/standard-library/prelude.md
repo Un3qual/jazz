@@ -70,8 +70,9 @@ compare :: a -> a -> Ordering.
 class Num(a) { }.
 ```
 
-Marks numeric types accepted by arithmetic and explicit numeric conversions.
-Built-in integer and floating types implement it.
+Supplies evidence for arithmetic and conversions over Jazz's primitive numeric
+types. Implementing `Num` for another type does not extend the set of types
+accepted by numeric expressions.
 
 ### `Integral`
 
