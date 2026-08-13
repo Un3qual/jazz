@@ -398,6 +398,7 @@ data TypedCoreValidationKind
   | TypedDataRecipeMismatch
   | TypedCallableRecipeMismatch
   | TypedCallableShapeMismatch
+  | TypedRecursiveGroupMismatch
   | TypedBinderReferenceMismatch
   | TypedModuleInterfaceMismatch
   deriving (Bounded, Enum, Eq, Ord, Show)

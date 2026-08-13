@@ -264,6 +264,7 @@ module TypedCoreTypes {
     | TypedDataRecipeMismatch
     | TypedCallableRecipeMismatch
     | TypedCallableShapeMismatch
+    | TypedRecursiveGroupMismatch
     | TypedBinderReferenceMismatch
     | TypedModuleInterfaceMismatch.
 

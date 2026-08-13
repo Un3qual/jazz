@@ -214,7 +214,7 @@ moduleOrderFailures moduleTable = go Set.empty
         <> go (Set.insert modulePath precedingPaths) remainingModules
 
 validateModule :: Map [Text] TypedModule -> Maybe TypedModule -> Bool -> TypedModule -> [TypedCoreValidationFailure]
-validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ _ statements moduleInfo) =
+validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ recursiveGroups statements moduleInfo) =
   validateModulePath modulePath
     <> validateSourcePath modulePath sourcePath
     <> validateResolvedImports moduleTable modulePath imports
@@ -222,6 +222,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     <> validateModuleInterface moduleTable moduleValue
     <> duplicateDeclarationFailures context (zip (map pure [0 ..]) statements)
     <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
+    <> recursiveGroupFailures
     <> statementFailures
     <> moduleInfoFailures
     <> validateModuleResult (null statementFailures && null moduleInfoFailures) modulePath statements moduleInfo
@@ -321,7 +322,11 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     baseContext = withBlockDeclarations moduleMetadataStatements externalContext
     context = withBlockDeclarations statements externalContext
     statementFailures =
-      validateStatementsInOrder baseContext (zip (map pure [0 ..]) statements)
+      validateStatementsInOrder rootGroupsByStatement baseContext (zip (map pure [0 ..]) statements)
+    recursiveGroupFailures =
+      rootRecursiveGroupFailures modulePath statements recursiveGroups
+    rootGroupsByStatement =
+      rootRecursiveGroupsByStatement statements recursiveGroups
     moduleInfoFailures =
       validateModuleInfo context moduleValidationPath statements moduleInfo
 
@@ -1341,26 +1346,31 @@ withBlockDeclarations statements context =
             localSchemeEntries
         )
 
-validateStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrder initialContext locatedStatements =
+validateStatementsInOrder :: Map Int [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrder recursiveGroups initialContext locatedStatements =
   validateStatementsInOrderWith
     (\_ _ _ -> Nothing)
     (forwardSignedFunctionDeclarations (map snd locatedStatements))
+    recursiveGroups
     initialContext
     locatedStatements
 
 validateBlockStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateBlockStatementsInOrder =
-  validateStatementsInOrderWith blockStatementScopeFailure []
-
-validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialContext locatedStatements =
-  validateFrom initialContext 0 locatedStatements
+validateBlockStatementsInOrder initialContext locatedStatements =
+  validateStatementsInOrderWith
+    blockStatementScopeFailure
+    []
+    (recursiveGroupFacts (recursiveGroupDependencies initialContext statements) statements)
+    initialContext
+    locatedStatements
   where
     statements = map snd locatedStatements
+
+validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> [TypedStatement] -> Map Int [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrderWith rejectedStatement forwardSignedFunctions recursiveGroups initialContext locatedStatements =
+  validateFrom initialContext 0 locatedStatements
+  where
     forwardContext = prepareForwardSignedFunctionContext initialContext forwardSignedFunctions
-    dependencies = recursiveGroupDependencies initialContext statements
-    recursiveGroups = recursiveGroupFacts dependencies statements
     validateFrom _ _ [] = []
     validateFrom visibleContext blockIndex ((statementLocation, statement) : rest) =
       case rejectedStatement initialContext statementLocation statement of
@@ -1506,6 +1516,198 @@ blockStatementScopeFailure context statementLocation statement =
             TypedBlockResultMismatch
             (TypedTextDetail declarationKind)
         )
+
+rootRecursiveGroupFailures :: [Text] -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedCoreValidationFailure]
+rootRecursiveGroupFailures modulePath statements declaredGroups
+  | not (null basicFailures) = basicFailures
+  | not (null orderingFailures) = orderingFailures
+  | otherwise = maybeToList reachabilityFailure
+  where
+    callableDeclarations = rootCallableDeclarations statements
+    callableByBinder =
+      Map.fromList
+        [(binderId, (statementIndex, statement)) | (statementIndex, binderId, statement, _) <- callableDeclarations]
+    (_, basicFailures) =
+      foldl' validateBasicGroup (Set.empty, []) (zip [0 :: Int ..] declaredGroups)
+    validateBasicGroup (seen, failures) (groupIndex, TypedRecursiveGroup members)
+      | null members =
+          ( seen,
+            failures
+              <> [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)]
+          )
+      | otherwise = foldl' validateBasicMember (seen, failures) members
+    validateBasicMember (seen, failures) binderId =
+      case Map.lookup binderId callableByBinder of
+        Nothing ->
+          ( seen,
+            failures
+              <> [failure (TypedModulePath modulePath) TypedUnknownBinder (TypedBinderDetail binderId)]
+          )
+        Just (statementIndex, _)
+          | Set.member binderId seen ->
+              ( seen,
+                failures
+                  <> [ failure
+                         (TypedStatementPath modulePath [statementIndex])
+                         TypedDuplicateBinder
+                         (TypedBinderDetail binderId)
+                     ]
+              )
+          | otherwise -> (Set.insert binderId seen, failures)
+    orderingFailures = memberOrderingFailures <> groupOrderingFailures
+    memberOrderingFailures =
+      [ failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)
+      | (groupIndex, TypedRecursiveGroup members) <- zip [0 :: Int ..] declaredGroups,
+        let memberIndices = map (fst . (callableByBinder Map.!)) members,
+        memberIndices /= sort memberIndices
+      ]
+    groupOrderingFailures = snd (foldl' validateGroupOrder (Nothing, []) indexedFirstMembers)
+    indexedFirstMembers =
+      [ (groupIndex, statementIndex)
+      | (groupIndex, TypedRecursiveGroup (member : _)) <- zip [0 :: Int ..] declaredGroups,
+        let statementIndex = fst (callableByBinder Map.! member)
+      ]
+    validateGroupOrder (previousIndex, failures) (groupIndex, statementIndex) =
+      case previousIndex of
+        Just previous
+          | statementIndex <= previous ->
+              ( Just statementIndex,
+                failures
+                  <> [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)]
+              )
+        _ -> (Just statementIndex, failures)
+    declaredBinderGroups = [members | TypedRecursiveGroup members <- declaredGroups]
+    actualBinderGroups = rootCyclicBinderGroups callableDeclarations
+    reachabilityFailure = firstGroupMismatch declaredBinderGroups actualBinderGroups
+    firstGroupMismatch declared actual =
+      case (declared, actual) of
+        ([], []) -> Nothing
+        (declaredGroup@(declaredMember : _) : restDeclared, actualGroup : restActual)
+          | declaredGroup == actualGroup -> firstGroupMismatch restDeclared restActual
+          | otherwise -> mismatchFor declaredMember
+        ((declaredMember : _) : _, []) -> mismatchFor declaredMember
+        ([], (actualMember : _) : _) -> mismatchFor actualMember
+        _ -> Nothing
+    mismatchFor binderId =
+      case Map.lookup binderId callableByBinder of
+        Just (statementIndex, _) ->
+          Just
+            ( failure
+                (TypedStatementPath modulePath [statementIndex])
+                TypedRecursiveGroupMismatch
+                (TypedBinderDetail binderId)
+            )
+        Nothing -> Nothing
+
+rootRecursiveGroupsByStatement :: [TypedStatement] -> [TypedRecursiveGroup] -> Map Int [TypedStatement]
+rootRecursiveGroupsByStatement statements =
+  foldl' addGroup Map.empty
+  where
+    indexedStatements = zip [0 :: Int ..] statements
+    addGroup groups (TypedRecursiveGroup members) =
+      let memberSet = Set.fromList members
+          declarations =
+            [ statement
+            | (_, statement@(TypedLetStatement binderId _ _ _ _)) <- indexedStatements,
+              Set.member binderId memberSet
+            ]
+          memberIndices =
+            [ statementIndex
+            | (statementIndex, TypedLetStatement binderId _ _ _ _) <- indexedStatements,
+              Set.member binderId memberSet
+            ]
+       in foldl' (\result statementIndex -> Map.insert statementIndex declarations result) groups memberIndices
+
+rootCallableBinderDependencies :: Set TypedBinderId -> TypedExpr -> Set TypedBinderId
+rootCallableBinderDependencies callableBinders expression =
+  case expression of
+    TypedLiteralExpr {} -> Set.empty
+    TypedVariableExpr _ _ maybeBinder ->
+      case maybeBinder of
+        Just binderId
+          | Set.member binderId callableBinders -> Set.singleton binderId
+        _ -> Set.empty
+    TypedLambdaExpr _ _ _ body -> dependencies body
+    TypedOperatorValueExpr {} -> Set.empty
+    TypedListExpr _ elements -> Set.unions (map dependencies elements)
+    TypedTupleExpr _ elements -> Set.unions (map dependencies elements)
+    TypedApplyExpr _ function argument -> Set.union (dependencies function) (dependencies argument)
+    TypedTypeApplicationExpr _ function _ _ -> dependencies function
+    TypedIfExpr _ condition thenExpression elseExpression ->
+      Set.unions (map dependencies [condition, thenExpression, elseExpression])
+    TypedPatternCaseExpr _ scrutinee arms ->
+      Set.unions (dependencies scrutinee : map caseArmDependencies arms)
+    TypedBinaryExpr _ _ left right -> Set.union (dependencies left) (dependencies right)
+    TypedLeftSectionExpr _ left _ -> dependencies left
+    TypedRightSectionExpr _ _ right -> dependencies right
+    TypedBlockExpr _ blockStatements -> Set.unions (map statementDependencies blockStatements)
+  where
+    dependencies = rootCallableBinderDependencies callableBinders
+    caseArmDependencies (TypedCaseArm _ maybeGuard result) =
+      Set.union (maybe Set.empty dependencies maybeGuard) (dependencies result)
+    statementDependencies statement =
+      case statement of
+        TypedLetStatement _ _ _ _ value -> dependencies value
+        TypedExpressionStatement _ value -> dependencies value
+        TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+          Set.unions [dependencies body | TypedMethodDefinition _ _ _ _ body <- methods]
+        _ -> Set.empty
+
+rootCallableDeclarations :: [TypedStatement] -> [(Int, TypedBinderId, TypedStatement, TypedExpr)]
+rootCallableDeclarations statements =
+  [ (statementIndex, binderId, statement, expression)
+  | (statementIndex, statement@(TypedLetStatement binderId _ _ scheme expression)) <- zip [0 :: Int ..] statements,
+    typedSchemeIsCallable scheme
+  ]
+  where
+    typedSchemeIsCallable (TypedScheme _ _ _ _ _ _ callableShape) =
+      case callableShape of
+        Just _ -> True
+        Nothing -> False
+
+rootCyclicBinderGroups :: [(Int, TypedBinderId, TypedStatement, TypedExpr)] -> [[TypedBinderId]]
+rootCyclicBinderGroups declarations = collectGroups Set.empty sourceBinders
+  where
+    sourceBinders = [binderId | (_, binderId, _, _) <- declarations]
+    callableBinders = Set.fromList sourceBinders
+    directDependencies =
+      Map.fromList
+        [ (binderId, rootCallableBinderDependencies callableBinders expression)
+        | (_, binderId, _, expression) <- declarations
+        ]
+    graphNodes =
+      [ (binderId, binderId, Set.toList (Map.findWithDefault Set.empty binderId directDependencies))
+      | binderId <- sourceBinders
+      ]
+    cyclicComponents =
+      [ (componentIndex, Set.fromList members)
+      | (componentIndex, component) <- zip [0 :: Int ..] (stronglyConnComp graphNodes),
+        members <- maybeToList (cyclicMembers component)
+      ]
+    cyclicMembers component =
+      case component of
+        AcyclicSCC binderId
+          | Set.member binderId (Map.findWithDefault Set.empty binderId directDependencies) -> Just [binderId]
+        CyclicSCC members -> Just members
+        _ -> Nothing
+    componentByBinder =
+      Map.fromList
+        [ (binderId, componentIndex)
+        | (componentIndex, members) <- cyclicComponents,
+          binderId <- Set.toList members
+        ]
+    collectGroups _ [] = []
+    collectGroups seenComponents (binderId : remainingBinders) =
+      case Map.lookup binderId componentByBinder of
+        Nothing -> collectGroups seenComponents remainingBinders
+        Just componentIndex
+          | Set.member componentIndex seenComponents -> collectGroups seenComponents remainingBinders
+          | otherwise ->
+              [ candidate
+              | candidate <- sourceBinders,
+                Map.lookup candidate componentByBinder == Just componentIndex
+              ]
+                : collectGroups (Set.insert componentIndex seenComponents) remainingBinders
 
 recursiveGroupFacts :: Map Int (Set Int) -> [TypedStatement] -> Map Int [TypedStatement]
 recursiveGroupFacts dependencies statements =

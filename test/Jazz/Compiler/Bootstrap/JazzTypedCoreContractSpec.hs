@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Exception (evaluate)
-import Data.List (nub)
+import Data.List (nub, zip5)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
@@ -278,7 +278,7 @@ testJazzValidationParity = do
         VList
           [ VTuple
               [ canonicalTypedProgramRuntimeValue program,
-                canonicalTypedValidationFailuresRuntimeValue (validateTypedProgram program)
+                canonicalTypedValidationFailuresRuntimeValue (expectedContractFailures program)
               ]
           | program <- programs
           ]
@@ -289,6 +289,21 @@ testJazzValidationParity = do
   assertJazzStructure "Jazz validation first run" expected first
   assertJazzStructure "Jazz validation second run" expected second
   assertEqual "Jazz validation deterministic structure" (checkedRunStructure first) (checkedRunStructure second)
+
+expectedContractFailures :: TypedProgram -> [TypedCoreValidationFailure]
+expectedContractFailures program =
+  case [failures | (_, candidate, failures) <- recursiveGroupContractCases, candidate == program] of
+    failures : _ -> failures
+    [] -> validateTypedProgram program
+
+testRecursiveGroupContracts :: IO ()
+testRecursiveGroupContracts =
+  mapM_
+    ( \(fixture, program, failures) -> do
+        assertEqual (fixture <> " Haskell validation first run") failures (validateTypedProgram program)
+        assertEqual (fixture <> " Haskell validation second run") failures (validateTypedProgram program)
+    )
+    recursiveGroupContractCases
 
 testNestedBlockValidationRegressions :: IO ()
 testNestedBlockValidationRegressions = do
@@ -367,6 +382,7 @@ reviewRegressionGroups =
     (("rejects colliding imported class identifiers", testImportedClassCollision), [importedClassCollisionProgram]),
     (("preserves block statement scope order", testForwardBlockReference), [forwardBlockReferenceProgram]),
     (("preserves proven recursive block peers", testRecursiveBlockPeers), [recursiveBlockPeerProgram, sourceOrderedRecursiveVisibilityProgram]),
+    (("validates declared root recursive groups exactly twice", testRecursiveGroupContracts), [program | (_, program, _) <- recursiveGroupContractCases]),
     (("rejects malformed generalized literal bounds", testMalformedLiteralConstraintBounds), [malformedLiteralConstraintBoundsProgram]),
     (("preserves instantiated evidence order", testEvidenceSelectionOrder), [evidenceSelectionOrderProgram]),
     (("keeps private capability metadata out of source visibility", testPrivateCapabilityMetadataVisibility), [privateCapabilityMetadataVisibilityProgram]),
@@ -4931,8 +4947,16 @@ testQualifiedMethodTypeApplication =
 testFinalReviewRegressions :: IO ()
 testFinalReviewRegressions = do
   assertEqual
-    "alias-shaped self references are visible in their own binding"
-    []
+    "alias-shaped root self references require callable recursive metadata"
+    [ TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-alias-shaped-self-recursion") [0] [0, 1])
+        TypedInvisibleName
+        (TypedNameDetail (fixtureValueName "item")),
+      TypedCoreValidationFailure
+        (TypedExpressionPath (fixtureModulePath "review-alias-shaped-self-recursion") [0] [0, 1])
+        TypedBinderReferenceMismatch
+        (TypedBinderDetail (recursiveGroupOwnerAt "review-alias-shaped-self-recursion" 0 "item"))
+    ]
     (validateTypedProgram aliasShapedSelfRecursionProgram)
   assertEqual
     "qualified method values match their selected class method contract"
@@ -8683,6 +8707,250 @@ recursiveBlockPeerProgram =
           expressionStatement 3 (fixtureBoundVariableExpr leftOwner boolToBoolInfo leftName)
         ]
 
+recursiveGroupContractCases :: [(Text, TypedProgram, [TypedCoreValidationFailure])]
+recursiveGroupContractCases =
+  [ ( "review-recursive-group-direct-self",
+      recursiveGroupDirectSelfProgram,
+      []
+    ),
+    ( "review-recursive-group-direct-mutual",
+      recursiveGroupDirectMutualProgram,
+      []
+    ),
+    ( "review-recursive-group-empty",
+      recursiveGroupEmptyProgram,
+      [moduleFailure "review-recursive-group-empty" TypedRecursiveGroupMismatch (TypedIndexDetail 0)]
+    ),
+    ( "review-recursive-group-unknown-member",
+      recursiveGroupUnknownMemberProgram,
+      [ moduleFailure
+          "review-recursive-group-unknown-member"
+          TypedUnknownBinder
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-unknown-member" 9))
+      ]
+    ),
+    ( "review-recursive-group-duplicate-member",
+      recursiveGroupDuplicateMemberProgram,
+      [ statementFailure
+          "review-recursive-group-duplicate-member"
+          0
+          TypedDuplicateBinder
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-duplicate-member" 0))
+      ]
+    ),
+    ( "review-recursive-group-multiple-membership",
+      recursiveGroupMultipleMembershipProgram,
+      [ statementFailure
+          "review-recursive-group-multiple-membership"
+          0
+          TypedDuplicateBinder
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-multiple-membership" 0))
+      ]
+    ),
+    ( "review-recursive-group-member-order",
+      recursiveGroupMemberOrderProgram,
+      [moduleFailure "review-recursive-group-member-order" TypedRecursiveGroupMismatch (TypedIndexDetail 0)]
+    ),
+    ( "review-recursive-group-order",
+      recursiveGroupOrderProgram,
+      [moduleFailure "review-recursive-group-order" TypedRecursiveGroupMismatch (TypedIndexDetail 1)]
+    ),
+    ( "review-recursive-group-missing-cycle",
+      recursiveGroupMissingCycleProgram,
+      [ statementFailure
+          "review-recursive-group-missing-cycle"
+          1
+          TypedRecursiveGroupMismatch
+          (TypedBinderDetail (recursiveGroupOwnerAt "review-recursive-group-missing-cycle" 1 "first"))
+      ]
+    ),
+    ( "review-recursive-group-spurious-cycle",
+      recursiveGroupSpuriousCycleProgram,
+      [ statementFailure
+          "review-recursive-group-spurious-cycle"
+          0
+          TypedRecursiveGroupMismatch
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-spurious-cycle" 0))
+      ]
+    ),
+    ( "review-recursive-group-mixed-shapes",
+      recursiveGroupMixedShapesProgram,
+      [ statementFailure
+          "review-recursive-group-mixed-shapes"
+          0
+          TypedRecursiveGroupMismatch
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-mixed-shapes" 0))
+      ]
+    )
+  ]
+
+recursiveGroupDirectSelfProgram :: TypedProgram
+recursiveGroupDirectSelfProgram =
+  recursiveGroupProgram
+    "review-recursive-group-direct-self"
+    [TypedDirectCallableShape]
+    [Just 0]
+    [[0]]
+
+recursiveGroupDirectMutualProgram :: TypedProgram
+recursiveGroupDirectMutualProgram =
+  recursiveGroupProgram
+    "review-recursive-group-direct-mutual"
+    [TypedDirectCallableShape, TypedDirectCallableShape]
+    [Just 1, Just 0]
+    [[0, 1]]
+
+recursiveGroupEmptyProgram :: TypedProgram
+recursiveGroupEmptyProgram =
+  recursiveGroupProgram
+    "review-recursive-group-empty"
+    [TypedDirectCallableShape]
+    [Nothing]
+    [[]]
+
+recursiveGroupUnknownMemberProgram :: TypedProgram
+recursiveGroupUnknownMemberProgram =
+  recursiveGroupProgram
+    "review-recursive-group-unknown-member"
+    [TypedDirectCallableShape]
+    [Nothing]
+    [[9]]
+
+recursiveGroupDuplicateMemberProgram :: TypedProgram
+recursiveGroupDuplicateMemberProgram =
+  recursiveGroupProgram
+    "review-recursive-group-duplicate-member"
+    [TypedDirectCallableShape]
+    [Just 0]
+    [[0, 0]]
+
+recursiveGroupMultipleMembershipProgram :: TypedProgram
+recursiveGroupMultipleMembershipProgram =
+  recursiveGroupProgram
+    "review-recursive-group-multiple-membership"
+    [TypedDirectCallableShape]
+    [Just 0]
+    [[0], [0]]
+
+recursiveGroupMemberOrderProgram :: TypedProgram
+recursiveGroupMemberOrderProgram =
+  recursiveGroupProgram
+    "review-recursive-group-member-order"
+    [TypedDirectCallableShape, TypedDirectCallableShape]
+    [Just 1, Just 0]
+    [[1, 0]]
+
+recursiveGroupOrderProgram :: TypedProgram
+recursiveGroupOrderProgram =
+  recursiveGroupProgram
+    "review-recursive-group-order"
+    [TypedDirectCallableShape, TypedDirectCallableShape]
+    [Just 0, Just 1]
+    [[1], [0]]
+
+recursiveGroupMissingCycleProgram :: TypedProgram
+recursiveGroupMissingCycleProgram =
+  TypedProgram Nothing [moduleValue] modulePath
+  where
+    fixture = "review-recursive-group-missing-cycle"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    secondName = fixtureValueName "second"
+    firstSignatureOwner = recursiveGroupOwnerAt fixture 0 "first"
+    firstOwner = recursiveGroupOwnerAt fixture 1 "first"
+    secondSignatureOwner = recursiveGroupOwnerAt fixture 2 "second"
+    secondOwner = recursiveGroupOwnerAt fixture 3 "second"
+    firstSignatureScheme = recursiveGroupScheme firstSignatureOwner TypedDirectCallableShape
+    firstScheme = recursiveGroupScheme firstOwner TypedDirectCallableShape
+    secondSignatureScheme = recursiveGroupScheme secondSignatureOwner TypedDirectCallableShape
+    secondScheme = recursiveGroupScheme secondOwner TypedDirectCallableShape
+    statements =
+      [ TypedSignatureStatement firstSignatureOwner firstName span1 firstSignatureScheme,
+        recursiveGroupCallable modulePath 1 firstOwner firstName firstScheme secondOwner secondName,
+        TypedSignatureStatement secondSignatureOwner secondName span1 secondSignatureScheme,
+        recursiveGroupCallable modulePath 3 secondOwner secondName secondScheme firstOwner firstName
+      ]
+    moduleValue =
+      TypedModule modulePath relativeSource [] [] emptyInterface [] statements unitInfo
+
+recursiveGroupSpuriousCycleProgram :: TypedProgram
+recursiveGroupSpuriousCycleProgram =
+  recursiveGroupProgram
+    "review-recursive-group-spurious-cycle"
+    [TypedDirectCallableShape]
+    [Nothing]
+    [[0]]
+
+recursiveGroupMixedShapesProgram :: TypedProgram
+recursiveGroupMixedShapesProgram =
+  recursiveGroupProgram
+    "review-recursive-group-mixed-shapes"
+    [TypedDirectCallableShape, TypedClosureCallableShape]
+    [Just 0, Just 1]
+    [[0, 1]]
+
+recursiveGroupProgram :: Text -> [TypedCallableShape] -> [Maybe Int] -> [[Int]] -> TypedProgram
+recursiveGroupProgram fixture shapes dependencies groupIndices =
+  TypedProgram Nothing [moduleValue] modulePath
+  where
+    modulePath = fixtureModulePath fixture
+    names = [fixtureValueName ("function" <> Text.pack (show index)) | index <- [0 .. length shapes - 1]]
+    owners = [binder modulePath [index] name | (index, name) <- zip [0 ..] names]
+    schemes = zipWith recursiveGroupScheme owners shapes
+    statements =
+      [ case dependency of
+          Nothing -> recursiveGroupIdentityCallable modulePath index owner name scheme
+          Just dependencyIndex ->
+            recursiveGroupCallable modulePath index owner name scheme (owners !! dependencyIndex) (names !! dependencyIndex)
+      | (index, owner, name, scheme, dependency) <- zip5 [0 ..] owners names schemes dependencies
+      ]
+    recursiveGroups =
+      [TypedRecursiveGroup [recursiveGroupOwner fixture index | index <- indices] | indices <- groupIndices]
+    moduleValue =
+      TypedModule modulePath relativeSource [] [] emptyInterface recursiveGroups statements unitInfo
+
+recursiveGroupScheme :: TypedBinderId -> TypedCallableShape -> TypedScheme
+recursiveGroupScheme owner shape =
+  TypedScheme owner [] [] [] boolToBoolType boolToBoolRecipe (Just shape)
+
+recursiveGroupCallable :: [Text] -> Int -> TypedBinderId -> TypedCoreName -> TypedScheme -> TypedBinderId -> TypedCoreName -> TypedStatement
+recursiveGroupCallable modulePath statementIndex owner name scheme dependencyOwner dependencyName =
+  TypedLetStatement owner name span1 scheme expression
+  where
+    argumentName = fixtureValueName ("argument" <> Text.pack (show statementIndex))
+    argumentOwner = binder modulePath [statementIndex, 0] argumentName
+    expression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        argumentOwner
+        argumentName
+        ( TypedApplyExpr
+            boolInfo
+            (fixtureBoundVariableExpr dependencyOwner boolToBoolInfo dependencyName)
+            (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+        )
+
+recursiveGroupIdentityCallable :: [Text] -> Int -> TypedBinderId -> TypedCoreName -> TypedScheme -> TypedStatement
+recursiveGroupIdentityCallable modulePath statementIndex owner name scheme =
+  TypedLetStatement owner name span1 scheme expression
+  where
+    argumentName = fixtureValueName ("argument" <> Text.pack (show statementIndex))
+    argumentOwner = binder modulePath [statementIndex, 0] argumentName
+    expression =
+      TypedLambdaExpr
+        boolToBoolInfo
+        argumentOwner
+        argumentName
+        (fixtureBoundVariableExpr argumentOwner boolInfo argumentName)
+
+recursiveGroupOwner :: Text -> Int -> TypedBinderId
+recursiveGroupOwner fixture statementIndex =
+  recursiveGroupOwnerAt fixture statementIndex ("function" <> Text.pack (show statementIndex))
+
+recursiveGroupOwnerAt :: Text -> Int -> Text -> TypedBinderId
+recursiveGroupOwnerAt fixture statementIndex name =
+  binder (fixtureModulePath fixture) [statementIndex] (fixtureValueName name)
+
 malformedLiteralConstraintBoundsProgram :: TypedProgram
 malformedLiteralConstraintBoundsProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface unitInfo modulePath
@@ -9297,7 +9565,7 @@ nearestPriorBindingDependencyProgram =
 
 sourceOrderedRecursiveVisibilityProgram :: TypedProgram
 sourceOrderedRecursiveVisibilityProgram =
-  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  TypedProgram Nothing [moduleValue] modulePath
   where
     fixture = "review-source-ordered-recursive-visibility"
     modulePath = fixtureModulePath fixture
@@ -9309,6 +9577,16 @@ sourceOrderedRecursiveVisibilityProgram =
     bridgeOwner = binder modulePath [2] bridgeName
     middleOwner = binder modulePath [4] middleName
     tailOwner = binder modulePath [6] tailName
+    moduleValue =
+      TypedModule
+        modulePath
+        relativeSource
+        []
+        []
+        emptyInterface
+        [TypedRecursiveGroup [firstOwner, bridgeOwner, middleOwner, tailOwner]]
+        statements
+        boolInfo
     recursiveBinding statementIndex owner name peerOwner peerName =
       let argumentName = fixtureValueName ("argument" <> Text.pack (show statementIndex))
           argumentOwner = binder modulePath [statementIndex, 0] argumentName

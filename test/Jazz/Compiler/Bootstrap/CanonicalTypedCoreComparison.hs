@@ -661,6 +661,7 @@ validationKindName kind =
     TypedDataRecipeMismatch -> "TypedDataRecipeMismatch"
     TypedCallableRecipeMismatch -> "TypedCallableRecipeMismatch"
     TypedCallableShapeMismatch -> "TypedCallableShapeMismatch"
+    TypedRecursiveGroupMismatch -> "TypedRecursiveGroupMismatch"
     TypedBinderReferenceMismatch -> "TypedBinderReferenceMismatch"
     TypedModuleInterfaceMismatch -> "TypedModuleInterfaceMismatch"
 

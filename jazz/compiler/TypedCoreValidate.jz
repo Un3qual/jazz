@@ -12,6 +12,11 @@ module TypedCoreValidate (
 
   data StatementDependencies = StatementDependencies Int [Int] [Int].
 
+  data RootCallable = RootCallable Int TypedBinderId TypedStatement TypedExpr.
+
+  data RootBinderDependencies
+    = RootBinderDependencies TypedBinderId [TypedBinderId] [TypedBinderId].
+
   data ModuleReachability = ModuleReachability [Text] [[Text]].
 
   data NameEntry
@@ -5198,6 +5203,342 @@ module TypedCoreValidate (
     if listLength members > 1 then members else if listContains statementIndex directDependencies then members else [].
   }.
 
+  binderIdListEqual :: [TypedBinderId] -> [TypedBinderId] -> Bool.
+  binderIdListEqual = \(left, right) -> case (left, right) {
+    | ([], []) -> True
+    | ([leftFirst | leftRest], [rightFirst | rightRest]) ->
+      if binderIdEqual leftFirst rightFirst then binderIdListEqual leftRest rightRest else False
+    | other -> False
+  }.
+
+  appendUniqueBinders :: [TypedBinderId] -> [TypedBinderId] -> [TypedBinderId].
+  appendUniqueBinders = \(existing, additions) -> case additions {
+    | [] -> existing
+    | [first | rest] -> appendUniqueBinders (if binderIdMember first existing then existing else listAppend existing [first]) rest
+  }.
+
+  rootCaseArmBinderDependencies :: [TypedBinderId] -> TypedCaseArm -> [TypedBinderId].
+  rootCaseArmBinderDependencies = \(callableBinders, arm) -> case arm {
+    | TypedCaseArm pattern maybeGuard result -> case maybeGuard {
+      | Nothing -> rootCallableBinderDependencies callableBinders result
+      | Just guard -> appendUniqueBinders
+        (rootCallableBinderDependencies callableBinders guard)
+        (rootCallableBinderDependencies callableBinders result)
+    }
+  }.
+
+  rootCaseArmsBinderDependencies :: [TypedBinderId] -> [TypedCaseArm] -> [TypedBinderId].
+  rootCaseArmsBinderDependencies = \(callableBinders, arms) -> case arms {
+    | [] -> []
+    | [first | rest] -> appendUniqueBinders
+      (rootCaseArmBinderDependencies callableBinders first)
+      (rootCaseArmsBinderDependencies callableBinders rest)
+  }.
+
+  rootMethodBinderDependencies :: [TypedBinderId] -> [TypedMethodDefinition] -> [TypedBinderId].
+  rootMethodBinderDependencies = \(callableBinders, methods) -> case methods {
+    | [] -> []
+    | [TypedMethodDefinition methodId binder name span body | rest] -> appendUniqueBinders
+      (rootCallableBinderDependencies callableBinders body)
+      (rootMethodBinderDependencies callableBinders rest)
+  }.
+
+  rootStatementBinderDependencies :: [TypedBinderId] -> TypedStatement -> [TypedBinderId].
+  rootStatementBinderDependencies = \(callableBinders, statement) -> case statement {
+    | TypedLetStatement binder name span scheme expression -> rootCallableBinderDependencies callableBinders expression
+    | TypedExpressionStatement span expression -> rootCallableBinderDependencies callableBinders expression
+    | TypedImplStatement declaration -> case declaration {
+      | TypedImplDeclaration span implId methods -> rootMethodBinderDependencies callableBinders methods
+    }
+    | other -> []
+  }.
+
+  rootStatementsBinderDependencies :: [TypedBinderId] -> [TypedStatement] -> [TypedBinderId].
+  rootStatementsBinderDependencies = \(callableBinders, statements) -> case statements {
+    | [] -> []
+    | [first | rest] -> appendUniqueBinders
+      (rootStatementBinderDependencies callableBinders first)
+      (rootStatementsBinderDependencies callableBinders rest)
+  }.
+
+  rootExpressionsBinderDependencies :: [TypedBinderId] -> [TypedExpr] -> [TypedBinderId].
+  rootExpressionsBinderDependencies = \(callableBinders, expressions) -> case expressions {
+    | [] -> []
+    | [first | rest] -> appendUniqueBinders
+      (rootCallableBinderDependencies callableBinders first)
+      (rootExpressionsBinderDependencies callableBinders rest)
+  }.
+
+  rootCallableBinderDependencies :: [TypedBinderId] -> TypedExpr -> [TypedBinderId].
+  rootCallableBinderDependencies = \(callableBinders, expression) -> case expression {
+    | TypedLiteralExpr info literal -> []
+    | TypedVariableExpr info name maybeBinder -> case maybeBinder {
+      | Just binder -> if binderIdMember binder callableBinders then [binder] else []
+      | Nothing -> []
+    }
+    | TypedLambdaExpr info binder name body -> rootCallableBinderDependencies callableBinders body
+    | TypedOperatorValueExpr info operator -> []
+    | TypedListExpr info elements -> rootExpressionsBinderDependencies callableBinders elements
+    | TypedTupleExpr info elements -> rootExpressionsBinderDependencies callableBinders elements
+    | TypedApplyExpr info function argument -> appendUniqueBinders
+      (rootCallableBinderDependencies callableBinders function)
+      (rootCallableBinderDependencies callableBinders argument)
+    | TypedTypeApplicationExpr info function span typeArgument -> rootCallableBinderDependencies callableBinders function
+    | TypedIfExpr info condition thenExpression elseExpression -> rootExpressionsBinderDependencies callableBinders [condition, thenExpression, elseExpression]
+    | TypedPatternCaseExpr info scrutinee arms -> appendUniqueBinders
+      (rootCallableBinderDependencies callableBinders scrutinee)
+      (rootCaseArmsBinderDependencies callableBinders arms)
+    | TypedBinaryExpr info operator left right -> appendUniqueBinders
+      (rootCallableBinderDependencies callableBinders left)
+      (rootCallableBinderDependencies callableBinders right)
+    | TypedLeftSectionExpr info left operator -> rootCallableBinderDependencies callableBinders left
+    | TypedRightSectionExpr info operator right -> rootCallableBinderDependencies callableBinders right
+    | TypedBlockExpr info statements -> rootStatementsBinderDependencies callableBinders statements
+  }.
+
+  rootCallablesFrom :: [(Int, TypedStatement)] -> [RootCallable].
+  rootCallablesFrom = \(indexedStatements) -> case indexedStatements {
+    | [] -> []
+    | [(statementIndex, statement) | rest] -> case statement {
+      | TypedLetStatement binder name span scheme expression -> case scheme {
+        | TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape -> case callableShape {
+          | Just shape -> listPrepend (RootCallable statementIndex binder statement expression) (rootCallablesFrom rest)
+          | Nothing -> rootCallablesFrom rest
+        }
+      }
+      | other -> rootCallablesFrom rest
+    }
+  }.
+
+  rootCallableBinders :: [RootCallable] -> [TypedBinderId].
+  rootCallableBinders = \(callables) -> case callables {
+    | [] -> []
+    | [RootCallable statementIndex binder statement expression | rest] -> listPrepend binder (rootCallableBinders rest)
+  }.
+
+  rootCallableForBinder :: TypedBinderId -> [RootCallable] -> Maybe(RootCallable).
+  rootCallableForBinder = \(candidate, callables) -> case callables {
+    | [] -> Nothing
+    | [first | rest] -> case first {
+      | RootCallable statementIndex binder statement expression ->
+        if binderIdEqual candidate binder then Just first else rootCallableForBinder candidate rest
+    }
+  }.
+
+  rootBasicMemberFailures :: [Text] -> [RootCallable] -> [TypedBinderId] -> [TypedBinderId] -> ([TypedBinderId], [TypedCoreValidationFailure]).
+  rootBasicMemberFailures = \(modulePath, callables, members, seen) -> case members {
+    | [] -> (seen, [])
+    | [member | rest] -> case rootCallableForBinder member callables {
+      | Nothing -> case rootBasicMemberFailures modulePath callables rest seen {
+        | (laterSeen, laterFailures) -> (laterSeen, listPrepend (failure (TypedModulePath modulePath) TypedUnknownBinder (TypedBinderDetail member)) laterFailures)
+      }
+      | Just callable -> case callable {
+        | RootCallable statementIndex binder statement expression ->
+          if binderIdMember member seen then case rootBasicMemberFailures modulePath callables rest seen {
+            | (laterSeen, laterFailures) ->
+              (laterSeen, listPrepend (failure (TypedStatementPath modulePath [statementIndex]) TypedDuplicateBinder (TypedBinderDetail member)) laterFailures)
+          } else rootBasicMemberFailures modulePath callables rest (listAppend seen [member])
+      }
+    }
+  }.
+
+  rootBasicGroupFailuresFrom :: [Text] -> [RootCallable] -> [TypedRecursiveGroup] -> Int -> [TypedBinderId] -> ([TypedBinderId], [TypedCoreValidationFailure]).
+  rootBasicGroupFailuresFrom = \(modulePath, callables, groups, groupIndex, seen) -> case groups {
+    | [] -> (seen, [])
+    | [TypedRecursiveGroup members | rest] -> case rootBasicMemberFailures modulePath callables members seen {
+      | (currentSeen, memberFailures) -> case rootBasicGroupFailuresFrom modulePath callables rest (groupIndex + 1) currentSeen {
+        | (laterSeen, laterFailures) ->
+          ( laterSeen,
+            listConcat
+              [ if listLength members == 0 then [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)] else [],
+                memberFailures,
+                laterFailures
+              ]
+          )
+      }
+    }
+  }.
+
+  rootGroupMemberIndices :: [RootCallable] -> [TypedBinderId] -> [Int].
+  rootGroupMemberIndices = \(callables, members) -> case members {
+    | [] -> []
+    | [first | rest] -> case rootCallableForBinder first callables {
+      | Just callable -> case callable {
+        | RootCallable statementIndex binder statement expression -> listPrepend statementIndex (rootGroupMemberIndices callables rest)
+      }
+      | Nothing -> rootGroupMemberIndices callables rest
+    }
+  }.
+
+  rootMemberOrderingFailures :: [Text] -> [RootCallable] -> [TypedRecursiveGroup] -> Int -> [TypedCoreValidationFailure].
+  rootMemberOrderingFailures = \(modulePath, callables, groups, groupIndex) -> case groups {
+    | [] -> []
+    | [TypedRecursiveGroup members | rest] -> {
+      memberIndices = rootGroupMemberIndices callables members.
+      listAppend
+        (if intListEqual memberIndices (listSort memberIndices) then [] else [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)])
+        (rootMemberOrderingFailures modulePath callables rest (groupIndex + 1)).
+    }
+  }.
+
+  rootGroupOrderingFailuresFrom :: [Text] -> [RootCallable] -> [TypedRecursiveGroup] -> Int -> Maybe(Int) -> [TypedCoreValidationFailure].
+  rootGroupOrderingFailuresFrom = \(modulePath, callables, groups, groupIndex, previousIndex) -> case groups {
+    | [] -> []
+    | [TypedRecursiveGroup members | rest] -> case rootGroupMemberIndices callables members {
+      | [] -> rootGroupOrderingFailuresFrom modulePath callables rest (groupIndex + 1) previousIndex
+      | [statementIndex | otherIndices] -> listAppend
+        (case previousIndex {
+          | Just previous -> if statementIndex <= previous then [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)] else []
+          | Nothing -> []
+        })
+        (rootGroupOrderingFailuresFrom modulePath callables rest (groupIndex + 1) (Just statementIndex))
+    }
+  }.
+
+  rootDirectDependencies :: [TypedBinderId] -> [RootCallable] -> [RootBinderDependencies].
+  rootDirectDependencies = \(callableBinders, callables) -> case callables {
+    | [] -> []
+    | [RootCallable statementIndex binder statement expression | rest] -> listPrepend
+      (RootBinderDependencies binder (rootCallableBinderDependencies callableBinders expression) [])
+      (rootDirectDependencies callableBinders rest)
+  }.
+
+  rootDirectDependenciesFor :: TypedBinderId -> [RootBinderDependencies] -> [TypedBinderId].
+  rootDirectDependenciesFor = \(candidate, dependencies) -> case dependencies {
+    | [] -> []
+    | [RootBinderDependencies binder direct reachable | rest] ->
+      if binderIdEqual candidate binder then direct else rootDirectDependenciesFor candidate rest
+  }.
+
+  rootReachableBinders :: [RootBinderDependencies] -> [TypedBinderId] -> [TypedBinderId] -> [TypedBinderId].
+  rootReachableBinders = \(dependencies, seen, pending) -> case pending {
+    | [] -> seen
+    | [current | rest] ->
+      if binderIdMember current seen then rootReachableBinders dependencies seen rest else
+        rootReachableBinders dependencies (listAppend seen [current]) (listAppend (rootDirectDependenciesFor current dependencies) rest)
+  }.
+
+  rootReachabilityFrom :: [RootBinderDependencies] -> [RootBinderDependencies] -> [RootBinderDependencies].
+  rootReachabilityFrom = \(allDependencies, remaining) -> case remaining {
+    | [] -> []
+    | [RootBinderDependencies binder direct reachable | rest] -> listPrepend
+      (RootBinderDependencies binder direct (rootReachableBinders allDependencies [] direct))
+      (rootReachabilityFrom allDependencies rest)
+  }.
+
+  rootReachabilityFor :: TypedBinderId -> [RootBinderDependencies] -> [TypedBinderId].
+  rootReachabilityFor = \(candidate, dependencies) -> case dependencies {
+    | [] -> []
+    | [RootBinderDependencies binder direct reachable | rest] ->
+      if binderIdEqual candidate binder then reachable else rootReachabilityFor candidate rest
+  }.
+
+  rootCyclicGroupMembers :: [TypedBinderId] -> [RootBinderDependencies] -> TypedBinderId -> [TypedBinderId].
+  rootCyclicGroupMembers = \(sourceBinders, dependencies, binder) ->
+    listFilter
+      (\(candidate) ->
+        if binderIdMember candidate (rootReachabilityFor binder dependencies)
+        then binderIdMember binder (rootReachabilityFor candidate dependencies)
+        else False)
+      sourceBinders.
+
+  rootCyclicGroupsFrom :: [TypedBinderId] -> [RootBinderDependencies] -> [TypedBinderId] -> [TypedBinderId] -> [[TypedBinderId]].
+  rootCyclicGroupsFrom = \(sourceBinders, dependencies, remaining, seen) -> case remaining {
+    | [] -> []
+    | [first | rest] ->
+      if binderIdMember first seen then rootCyclicGroupsFrom sourceBinders dependencies rest seen else {
+        members = rootCyclicGroupMembers sourceBinders dependencies first.
+        if listLength members == 0 then rootCyclicGroupsFrom sourceBinders dependencies rest seen else
+          listPrepend members (rootCyclicGroupsFrom sourceBinders dependencies rest (listAppend seen members)).
+      }
+  }.
+
+  rootCyclicBinderGroups :: [RootCallable] -> [[TypedBinderId]].
+  rootCyclicBinderGroups = \(callables) -> {
+    sourceBinders = rootCallableBinders callables.
+    directDependencies = rootDirectDependencies sourceBinders callables.
+    dependencies = rootReachabilityFrom directDependencies directDependencies.
+    rootCyclicGroupsFrom sourceBinders dependencies sourceBinders [].
+  }.
+
+  declaredRecursiveBinderGroups :: [TypedRecursiveGroup] -> [[TypedBinderId]].
+  declaredRecursiveBinderGroups = \(groups) -> case groups {
+    | [] -> []
+    | [TypedRecursiveGroup members | rest] -> listPrepend members (declaredRecursiveBinderGroups rest)
+  }.
+
+  rootGroupMismatchFailure :: [Text] -> [RootCallable] -> TypedBinderId -> Maybe(TypedCoreValidationFailure).
+  rootGroupMismatchFailure = \(modulePath, callables, binder) -> case rootCallableForBinder binder callables {
+    | Nothing -> Nothing
+    | Just callable -> case callable {
+      | RootCallable statementIndex owner statement expression -> Just
+        (failure (TypedStatementPath modulePath [statementIndex]) TypedRecursiveGroupMismatch (TypedBinderDetail binder))
+    }
+  }.
+
+  firstRootGroupMismatch :: [Text] -> [RootCallable] -> [[TypedBinderId]] -> [[TypedBinderId]] -> [TypedCoreValidationFailure].
+  firstRootGroupMismatch = \(modulePath, callables, declared, actual) -> case (declared, actual) {
+    | ([], []) -> []
+    | ([declaredGroup | restDeclared], [actualGroup | restActual]) ->
+      if binderIdListEqual declaredGroup actualGroup then firstRootGroupMismatch modulePath callables restDeclared restActual else case declaredGroup {
+        | [first | rest] -> case rootGroupMismatchFailure modulePath callables first { | Just mismatch -> [mismatch] | Nothing -> [] }
+        | [] -> []
+      }
+    | ([declaredGroup | restDeclared], []) -> case declaredGroup {
+      | [first | rest] -> case rootGroupMismatchFailure modulePath callables first { | Just mismatch -> [mismatch] | Nothing -> [] }
+      | [] -> []
+    }
+    | ([], [actualGroup | restActual]) -> case actualGroup {
+      | [first | rest] -> case rootGroupMismatchFailure modulePath callables first { | Just mismatch -> [mismatch] | Nothing -> [] }
+      | [] -> []
+    }
+  }.
+
+  rootRecursiveGroupFailures :: [Text] -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedCoreValidationFailure].
+  rootRecursiveGroupFailures = \(modulePath, statements, declaredGroups) -> {
+    callables = rootCallablesFrom (listIndexed statements).
+    basicFailures = case rootBasicGroupFailuresFrom modulePath callables declaredGroups 0 [] {
+      | (seen, failures) -> failures
+    }.
+    memberOrderingFailures = rootMemberOrderingFailures modulePath callables declaredGroups 0.
+    groupOrderingFailures = rootGroupOrderingFailuresFrom modulePath callables declaredGroups 0 Nothing.
+    orderingFailures = listAppend memberOrderingFailures groupOrderingFailures.
+    if listLength basicFailures > 0 then basicFailures else
+      if listLength orderingFailures > 0 then orderingFailures else
+        firstRootGroupMismatch
+          modulePath
+          callables
+          (declaredRecursiveBinderGroups declaredGroups)
+          (rootCyclicBinderGroups callables).
+  }.
+
+  rootGroupStatementsForMembers :: [RootCallable] -> [TypedBinderId] -> [TypedStatement].
+  rootGroupStatementsForMembers = \(callables, members) -> case callables {
+    | [] -> []
+    | [RootCallable statementIndex binder statement expression | rest] ->
+      if binderIdMember binder members then listPrepend statement (rootGroupStatementsForMembers rest members) else
+        rootGroupStatementsForMembers rest members
+  }.
+
+  rootRecursiveGroupForBinder :: TypedBinderId -> [TypedRecursiveGroup] -> Maybe([TypedBinderId]).
+  rootRecursiveGroupForBinder = \(binder, groups) -> case groups {
+    | [] -> Nothing
+    | [TypedRecursiveGroup members | rest] ->
+      if binderIdMember binder members then Just members else rootRecursiveGroupForBinder binder rest
+  }.
+
+  rootRecursiveGroupStatements :: [TypedStatement] -> [TypedRecursiveGroup] -> Int -> [TypedStatement].
+  rootRecursiveGroupStatements = \(statements, groups, statementIndex) -> case statementAtIndexFrom statements statementIndex 0 {
+    | Nothing -> []
+    | Just statement -> case statement {
+      | TypedLetStatement binder name span scheme expression -> case rootRecursiveGroupForBinder binder groups {
+        | Nothing -> []
+        | Just members -> rootGroupStatementsForMembers (rootCallablesFrom (listIndexed statements)) members
+      }
+      | other -> []
+    }
+  }.
+
   contextModulePath :: ModuleContext -> [Text].
   contextModulePath = \(context) -> case context {
     | ModuleContext modulePath visibleModules schemes visibleNames visibleImpls dataEntries typeScope -> modulePath
@@ -6188,8 +6529,8 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [TypedStatement] -> [StatementDependencies] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, forwardSignedFunctions, allStatements, dependencies, remainingStatements, statementIndex) -> case remainingStatements {
+  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, forwardSignedFunctions, allStatements, recursiveGroups, remainingStatements, statementIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
       statementLocation = [statementIndex].
@@ -6197,7 +6538,7 @@ module TypedCoreValidate (
         if isForwardSignedFunctionDeclaration forwardSignedFunctions statement
         then withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
         else visibleContext.
-      recursiveGroup = blockRecursiveGroupStatements dependencies allStatements statementIndex.
+      recursiveGroup = rootRecursiveGroupStatements allStatements recursiveGroups statementIndex.
       statementContext = case statement {
         | TypedLetStatement binder name span scheme expression ->
           if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
@@ -6208,16 +6549,15 @@ module TypedCoreValidate (
       listConcat
         [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) statementLocation) statement rest (listLength statementFailures == 0),
           statementFailures,
-          validateModuleStatementsInOrderFrom initialContext nextContext forwardSignedFunctions allStatements dependencies rest (statementIndex + 1)
+          validateModuleStatementsInOrderFrom initialContext nextContext forwardSignedFunctions allStatements recursiveGroups rest (statementIndex + 1)
         ].
     }
   }.
 
-  validateModuleStatementsInOrder :: ModuleContext -> [TypedStatement] -> [TypedCoreValidationFailure].
-  validateModuleStatementsInOrder = \(context, statements) -> {
-    dependencies = statementDependencies context statements.
+  validateModuleStatementsInOrder :: ModuleContext -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrder = \(context, statements, recursiveGroups) -> {
     forwardSignedFunctions = forwardSignedFunctionDeclarations statements.
-    validateModuleStatementsInOrderFrom context context forwardSignedFunctions statements dependencies statements 0.
+    validateModuleStatementsInOrderFrom context context forwardSignedFunctions statements recursiveGroups statements 0.
   }.
 
   activeDeclaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.
@@ -7675,7 +8015,8 @@ module TypedCoreValidate (
       baseContext = withBlockDeclarations (moduleMetadataStatements statements) externalContext.
       context = withBlockDeclarations statements externalContext.
       moduleValidationPath = if isPrelude then TypedPreludePath else TypedModulePath modulePath.
-      statementFailures = validateModuleStatementsInOrder baseContext statements.
+      statementFailures = validateModuleStatementsInOrder baseContext statements recursiveGroups.
+      recursiveGroupFailures = rootRecursiveGroupFailures modulePath statements recursiveGroups.
       moduleInfoFailures = validateModuleInfo context moduleValidationPath statements moduleInfo.
       listConcat
         [ validateModulePath modulePath,
@@ -7685,6 +8026,7 @@ module TypedCoreValidate (
           validateModuleInterface modulePath externalClasses dataEntries visibleImpls interface statements exports,
           duplicateModuleDeclarationFailures context statements,
           duplicateModuleBinderFailures context statements,
+          recursiveGroupFailures,
           statementFailures,
           moduleInfoFailures,
           validateModuleResult (if listLength statementFailures == 0 then listLength moduleInfoFailures == 0 else False) modulePath statements moduleInfo
