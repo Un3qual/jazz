@@ -38,6 +38,11 @@ CSS_RESOURCE_RE = re.compile(
 SCRIPT_RESOURCE_RE = re.compile(
     r"(?i)\b(?:fetch|import)\(\s*(['\"])(.*?)\1"
 )
+STYLE_ELEMENT_RE = re.compile(r"(?is)<style\b[^>]*>(.*?)</style\b[^>]*>")
+SCRIPT_ELEMENT_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script\b[^>]*>")
+STYLE_ATTRIBUTE_RE = re.compile(
+    r'''(?is)\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))'''
+)
 PRODUCTION_PREFIXES = (
     "https://un3qual.github.io/jazz/",
     "//un3qual.github.io/jazz/",
@@ -55,14 +60,42 @@ def allowed_remote_url(url: str) -> bool:
     return cleaned.startswith(PRODUCTION_PREFIXES)
 
 
-def resource_targets(source: str) -> list[str]:
-    targets = [match.group(2) for match in RESOURCE_ATTRIBUTE_RE.finditer(source)]
-    targets.extend(match.group(2) for match in LINK_RESOURCE_RE.finditer(source))
+def html_css_sources(source: str) -> list[str]:
+    markup = SCRIPT_ELEMENT_RE.sub("", source)
+    targets = [match.group(1) for match in STYLE_ELEMENT_RE.finditer(markup)]
     targets.extend(
-        match.group(1) or match.group(3)
-        for match in CSS_RESOURCE_RE.finditer(source)
+        next(group for group in match.groups() if group is not None)
+        for match in STYLE_ATTRIBUTE_RE.finditer(markup)
     )
-    targets.extend(match.group(2) for match in SCRIPT_RESOURCE_RE.finditer(source))
+    return targets
+
+
+def html_script_sources(source: str) -> list[str]:
+    return [match.group(1) for match in SCRIPT_ELEMENT_RE.finditer(source)]
+
+
+def resource_targets(source: str, suffix: str) -> list[str]:
+    targets: list[str] = []
+    if suffix in {".html", ".svg"}:
+        targets.extend(
+            match.group(2) for match in RESOURCE_ATTRIBUTE_RE.finditer(source)
+        )
+        targets.extend(match.group(2) for match in LINK_RESOURCE_RE.finditer(source))
+    css_sources = [source] if suffix == ".css" else []
+    if suffix in {".html", ".svg"}:
+        css_sources.extend(html_css_sources(source))
+    for css_source in css_sources:
+        targets.extend(
+            match.group(1) or match.group(3)
+            for match in CSS_RESOURCE_RE.finditer(css_source)
+        )
+    script_sources = [source] if suffix == ".js" else []
+    if suffix in {".html", ".svg"}:
+        script_sources.extend(html_script_sources(source))
+    for script_source in script_sources:
+        targets.extend(
+            match.group(2) for match in SCRIPT_RESOURCE_RE.finditer(script_source)
+        )
     return targets
 
 
@@ -84,7 +117,7 @@ def check_output_tree(build: Path, label_root: Path, violations: list[str]) -> N
                 violations.append(
                     f"{relative}: generated output contains internal-only material: {term}"
                 )
-        for target in resource_targets(source):
+        for target in resource_targets(source, path.suffix.casefold()):
             if target.lstrip(" \t\r\n\"'").casefold().startswith("data:"):
                 continue
             for url in REMOTE_URL_RE.findall(target):

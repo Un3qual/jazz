@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
+from markdown_fence_metadata import has_metadata_token
+
 
 ALLOWED_DOCS_ENTRIES = {
     "compiler",
@@ -59,12 +61,17 @@ REQUIRED_PAGES = (
     "standard-library/overview.md",
     "standard-library/prelude.md",
     "standard-library/list.md",
-    "standard-library/maybe-result-nonempty.md",
+    "standard-library/maybe.md",
+    "standard-library/result.md",
+    "standard-library/nonempty.md",
     "standard-library/dictionary.md",
     "standard-library/queue.md",
-    "standard-library/map-and-set.md",
-    "standard-library/char-and-text.md",
+    "standard-library/map.md",
+    "standard-library/set.md",
+    "standard-library/char.md",
+    "standard-library/text.md",
     "standard-library/io.md",
+    "standard-library/io-error.md",
     "reference/lexical-grammar.md",
     "reference/expression-grammar.md",
     "reference/module-resolution.md",
@@ -94,6 +101,15 @@ EXAMPLE_BINDING_RE = re.compile(
     r"<!--\s*jazz-example:\s*"
     r"(?:(?P<fragment>fragment)|executable\s+path=(?P<path>[^\s]+))\s*-->"
     r"\s*^```jazz(?:[ \t].*)?\r?\n(?P<source>.*?)\r?\n```[ \t]*\r?$",
+    re.MULTILINE | re.DOTALL | re.IGNORECASE,
+)
+LEGACY_SIGNATURE_MARKER_RE = re.compile(
+    r"<!--\s*jazz-signature\s*-->", re.IGNORECASE
+)
+SIGNATURE_FENCE_RE = re.compile(
+    r"^[ ]{0,3}(?P<fence_char>`|~)(?P<fence_tail>(?P=fence_char){2,})jazz"
+    r"(?P<metadata>(?:[ \t][^\r\n]*)?)\r?\n"
+    r".*?\r?\n[ ]{0,3}(?P=fence_char)(?P=fence_tail)(?P=fence_char)*[ \t]*\r?$",
     re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
 OUTPUT_MARKER_RE = re.compile(r"<!--\s*jazz-example-output:.*?-->", re.DOTALL)
@@ -345,11 +361,24 @@ def check_example_sync(
     for label, source in sorted(texts.items()):
         bindings = list(EXAMPLE_BINDING_RE.finditer(source))
         markers = list(EXAMPLE_MARKER_RE.finditer(source))
-        if len(bindings) != len(markers) or len(bindings) != len(
-            JAZZ_FENCE_RE.findall(source)
+        signature_bindings = [
+            match
+            for match in SIGNATURE_FENCE_RE.finditer(source)
+            if has_metadata_token(match.group("metadata"), "jazz-signature")
+        ]
+        if LEGACY_SIGNATURE_MARKER_RE.search(source):
+            violations.append(
+                f"{label}: legacy jazz-signature comment is not allowed; "
+                "put jazz-signature in fence metadata"
+            )
+        if (
+            len(bindings) != len(markers)
+            or len(bindings) + len(signature_bindings)
+            != len(JAZZ_FENCE_RE.findall(source))
         ):
             violations.append(
-                f"{label}: Jazz fence must have an adjacent jazz-example marker"
+                f"{label}: Jazz fence must have an adjacent jazz-example marker "
+                "or jazz-signature fence metadata"
             )
 
         document_sources: set[str] = set()

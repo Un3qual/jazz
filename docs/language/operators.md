@@ -6,7 +6,9 @@ sidebar_position: 8
 
 ## Built-in precedence
 
-The parser's built-in fixity order, from tightest to loosest, is:
+Precedence determines how an unparenthesized expression is grouped. Function
+application binds more tightly than every infix operator. The built-in order,
+from tightest to loosest, is:
 
 | Operators                        | Associativity |
 | -------------------------------- | ------------- |
@@ -16,29 +18,27 @@ The parser's built-in fixity order, from tightest to loosest, is:
 | `==`, `!=`, `<`, `<=`, `>=`, `>` | left          |
 | `$`                              | right         |
 
-Function application binds tighter than every infix operator. `$` is ordinary
-low-precedence application. This table is parser metadata: recognizing and
-grouping an operator does not by itself give that operator executable
-semantics.
+`$` applies the function on its left to the value on its right. Its low
+precedence makes it useful for avoiding parentheses around the argument.
 
-`|` is parser/fixity metadata only. It has no executable built-in type rule;
-`True | False` is rejected with `E2003`. The pipe token also separates pattern
-alternatives and cons-list components where those grammars expect it.
+`|` participates in pattern alternatives and list patterns; it is not Boolean
+OR. `True | False` is rejected with `E2003`.
 
 ## Executable built-ins
 
-The executable built-in operators are arithmetic `+`, `-`, `*`, `/`; ordering
-`<`, `<=`, `>`, `>=`; equality `==`, `!=`; and application `$`. The arithmetic
-operators return their numeric operand type, ordering and equality return
-`Bool`, and `$` applies its left function to its right argument.
+Arithmetic on operands of the same numeric type returns that type. Built-in
+arithmetic also accepts one integral operand with `Float` or `Float64`; the
+integral operand is converted and the result has the float operand's type.
+Other width changes require explicit conversion. Ordering and equality produce
+`Bool`. See [Runtime values](../reference/runtime-values.md) for the supported
+numeric domains.
 
 ## Operator values and sections
 
-The executable built-ins can be parenthesized as callable values. Built-in
-sections are supported only for arithmetic `+`, `-`, `*`, `/`; ordering `<`,
-`<=`, `>`, `>=`; and equality `==`, `!=`. `$` is callable as `($)`, but it is
-not sectionable. `|` is neither a callable built-in value nor a sectionable
-built-in.
+An executable built-in can be used as a callable value. Sections are available
+for arithmetic `+`, `-`, `*`, `/`; ordering `<`, `<=`, `>`, `>=`; and equality
+`==`, `!=`. A section captures one operand and returns a function. `$` is
+callable but not sectionable.
 
 Left and right sections capture one operand. Their argument order is exact:
 
@@ -50,12 +50,12 @@ For subtraction, `(10 -) 3` evaluates as `10 - 3`, while `(- 10) 3`
 evaluates as `3 - 10`. A right section is therefore different from ordinary
 partial application: `((-) 10) 3` evaluates as `10 - 3`.
 
-A source-local declared operator becomes a callable value, infix function, and
-section target after its ordinary function binding is in scope.
+A declared operator becomes a callable value, an infix function, and a section
+target after its binding is in scope.
 
 ## Source-local declarations
 
-Source units may declare a new operator before use:
+Programs can give a locally defined function infix notation and a precedence:
 
 Fragment:
 
@@ -68,9 +68,8 @@ operator %% tier 2.
 1 %% 2.
 ```
 
-Tiers range from 1 to 5, or a declaration may use `precedence 1` through
-`precedence 99`. Optional associativity is `left`, `right`, or `nonassoc`;
-without an explicit associativity, tiers 1 through 4 default left and tier 5
-defaults right, matching their built-in tiers. Custom precedence defaults
-left. Operator declarations and bindings are source-local and not allowed in
-nested expression blocks. See the exact [expression grammar](../reference/expression-grammar.md).
+The declaration affects only the current source unit and must precede use.
+Associativity controls how adjacent operators at the same precedence group;
+`nonassoc` requires explicit parentheses. Operator declarations are not allowed
+inside expression blocks. See the [expression grammar](../reference/expression-grammar.md)
+for tiers, numeric precedence, defaults, and valid symbols.

@@ -16,7 +16,7 @@ characters may also contain Unicode alphanumerics, `_`, `'`, and `!`. The `!`
 suffix has [purity meaning](../language/purity.md), but is lexically part of the
 identifier.
 
-Reserved lexer words are `module`, `import`, `as`, `data`, `value`, `if`,
+Reserved words are `module`, `import`, `as`, `data`, `value`, `if`,
 `then`, `else`, and `case`. `True` and `False` are literal names. Declaration
 words such as `class`, `impl`, and `operator` are contextual identifiers and
 are recognized only in their declaration shapes.
@@ -37,7 +37,7 @@ literals are `E0001` errors.
 
 ## Symbols
 
-Structural tokens are `::`, `:`, `@`, `=`, `->`, `.`, braces, parentheses,
+Structural symbols are `::`, `:`, `@`, `=`, `->`, `.`, braces, parentheses,
 brackets, comma, and backslash. Operator runs use characters from
 `!%&*+-/<>?^|~`; `$` is also built in. Arrow and several comment-like symbols
 are reserved from user-defined operators.

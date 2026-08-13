@@ -110,7 +110,7 @@ if missing_contract_output="$(cd "$missing_contract_root" && bash "$CHECKER" 2>&
   printf 'FAIL: clarification checker accepted a weakened public contract\n' >&2
   exit 1
 fi
-if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$missing_contract_output" >/dev/null; then
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is not Boolean OR and is rejected with E2003' <<<"$missing_contract_output" >/dev/null; then
   printf 'FAIL: clarification checker did not identify the weakened public contract\n' >&2
   printf '%s\n' "$missing_contract_output" >&2
   exit 1
@@ -120,13 +120,13 @@ hidden_contract_root="$fixture_root/hidden-contract"
 copy_complete_fixture "$hidden_contract_root"
 replace_literal \
   "$hidden_contract_root/docs/language/operators.md" \
-  $'`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.' \
-  $'<!--\n`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.\n-->\n`|` executes as a built-in Boolean operator.'
+  $'`|` participates in pattern alternatives and list patterns; it is not Boolean\nOR. `True | False` is rejected with `E2003`.' \
+  $'<!--\n`|` participates in pattern alternatives and list patterns; it is not Boolean\nOR. `True | False` is rejected with `E2003`.\n-->\n`|` executes as a built-in Boolean operator.'
 if hidden_contract_output="$(cd "$hidden_contract_root" && bash "$CHECKER" 2>&1)"; then
   printf 'FAIL: clarification checker accepted a public contract hidden in Markdown\n' >&2
   exit 1
 fi
-if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$hidden_contract_output" >/dev/null; then
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is not Boolean OR and is rejected with E2003' <<<"$hidden_contract_output" >/dev/null; then
   printf 'FAIL: clarification checker did not identify a public contract hidden in Markdown\n' >&2
   printf '%s\n' "$hidden_contract_output" >&2
   exit 1
@@ -136,13 +136,13 @@ indented_contract_root="$fixture_root/indented-contract"
 copy_complete_fixture "$indented_contract_root"
 replace_literal \
   "$indented_contract_root/docs/language/operators.md" \
-  $'`|` is parser/fixity metadata only. It has no executable built-in type rule;\n`True | False` is rejected with `E2003`.' \
-  $'`|` executes as a built-in Boolean operator.\n\n    `|` is parser/fixity metadata only. It has no executable built-in type rule;\n    `True | False` is rejected with `E2003`.'
+  $'`|` participates in pattern alternatives and list patterns; it is not Boolean\nOR. `True | False` is rejected with `E2003`.' \
+  $'`|` executes as a built-in Boolean operator.\n\n    `|` participates in pattern alternatives and list patterns; it is not Boolean\n    OR. `True | False` is rejected with `E2003`.'
 if indented_contract_output="$(cd "$indented_contract_root" && bash "$CHECKER" 2>&1)"; then
   printf 'FAIL: clarification checker accepted a public contract only present in indented code\n' >&2
   exit 1
 fi
-if ! rg -F 'docs/language/operators.md missing required contract: pipe is fixity-only and rejected with E2003' <<<"$indented_contract_output" >/dev/null; then
+if ! rg -F 'docs/language/operators.md missing required contract: pipe is not Boolean OR and is rejected with E2003' <<<"$indented_contract_output" >/dev/null; then
   printf 'FAIL: clarification checker did not identify a public contract only present in indented code\n' >&2
   printf '%s\n' "$indented_contract_output" >&2
   exit 1

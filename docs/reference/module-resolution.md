@@ -8,12 +8,12 @@ sidebar_position: 3
 lexically normalized and deduplicated while preserving root order. Zero
 matches produce `E4001`; more than one distinct match produces `E4002`.
 
-Resolution performs deterministic depth-first traversal. Imports are
-deduplicated and visited in lexical rendered-name order, independent of source
-order. Completed modules are reused. Encountering a module already on the
-active stack produces `E4003` with the minimal cycle. Source parse failure is
-`E4004`; multiple module declarations and declaration/path mismatch are
-`E4005` and `E4006`. The final graph is dependency-first.
+Resolution performs a deterministic depth-first traversal. Imports are
+deduplicated and visited by rendered name, independent of source order.
+Completed modules are reused. A module already on the active stack produces
+`E4003` with the minimal cycle. Source parse failure is `E4004`; multiple module
+declarations and declaration/path mismatch are `E4005` and `E4006`. The final
+graph is dependency-first.
 
 An omitted module declaration is accepted and takes the resolved path as its
 identity. A declaration, when present, must be the first top-level form and
@@ -39,7 +39,7 @@ shorthand for all owned same-text entries. Omitted lists export all owned
 declarations and `()` exports none. Imported declarations are not eligible for
 re-export.
 
-The loader compiles every module against explicit dependency interfaces.
-During execution, dependency bindings establish exports but dependency
-expression statements are skipped; only entry-module expressions produce the
+Each module is checked against explicit dependency interfaces. During
+execution, dependencies establish their exported bindings without evaluating
+top-level expression statements; only entry-module expressions produce the
 program result. See the [module guide](../language/modules.md) for usage.

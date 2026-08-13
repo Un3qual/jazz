@@ -4,13 +4,10 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
-Implementation snapshot: `becf38a2d474d97bcb23c7e2f69153d1ec03de0a`
-
-Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
-implementation snapshot above; documentation-only commits do not alter that
-semantic baseline.
+Jazz is experimental and pre-1.0. This matrix separates implemented behavior
+from partial areas and planned work.
 
 | Area                                                                  | Status      | Evidence                                                              |
 | --------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------- |
@@ -30,23 +27,11 @@ semantic baseline.
 | Native code generation, linking, and runtime                          | Planned     | [Roadmap](roadmap.md)                                                 |
 | Stable releases, package ecosystem, and language server               | Planned     | [Roadmap](roadmap.md)                                                 |
 
-Only `Implemented`, `Partial`, and `Planned` are used as status labels. A
-partial area has working, tested behavior but retains a stated boundary.
-
-The opt-in typed-core and backend-neutral lowering profile includes closed
-named functions as values, recursively represented unary closure parameters
-and results, explicit empty environments, unary higher-order closure calls,
-anonymous and nested unary closures, and binder-resolved scalar or
-closure-valued lexical capture. Capture fields use deterministic first-occurrence
-order in immutable environments with stable lifted identities. Concrete scalar
-bindings are evaluated once in source order and reused by exact binder identity
-in later entry expressions. Scalar bindings currently require an entry module
-with an explicitly empty export list because scalar value interfaces are not
-produced. Curried source applications now retain unary staging across named
-functions, callable parameters, and inline lambdas. Partial application returns
-the remaining closure, and callable oversaturation evaluates each next argument
-only after the preceding call returns another callable value. Ordered
-recursive-group metadata now admits capture-free, non-escaping direct self and
-mutual recursion and lowers recursive references through existing direct calls.
-Ordinary compile and run remain on canonical core and the reference interpreter.
-Closure-shaped recursive groups remain outside the opt-in profile.
+`Partial` means that working, tested behavior has an explicit boundary. The
+typed-core and backend-neutral lowering path currently covers scalar bindings,
+direct calls, function values, unary closures, lexical capture, higher-order
+calls, partial application, ordered application of additional arguments, and
+capture-free, non-escaping direct self and mutual recursion. It excludes
+closure-shaped recursion, full control flow, scalar exports, and complete
+multi-module integration. Ordinary compile and run modes remain on canonical
+core and the interpreter.

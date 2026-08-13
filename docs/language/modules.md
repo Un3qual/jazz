@@ -4,10 +4,11 @@ description: Organize Jazz code with module paths, imports, exports, and determi
 sidebar_position: 7
 ---
 
-Module names use `::`, and their source paths mirror the name below a module
-root. `Example::Main` resolves as `Example/Main.jz`.
+Modules give declarations a stable namespace and make dependencies explicit.
+Each module is compiled after its dependencies, while only the entry module's
+top-level expressions are evaluated.
 
-The checked module example consists of these two files:
+`Example::Main` imports a value owned by `Example::Greeting`:
 
 <!-- jazz-example: executable path=examples/modules/src/Example/Greeting.jz -->
 
@@ -42,12 +43,12 @@ Expected output:
 "Hello from a Jazz module"
 ```
 
-Imports may load all public names, select names with `import A::B (x, y).`, or
-bind a qualifier with `import A::B as B.`. Symbol lists and aliases cannot be
-combined. Explicit module export lists can select `value`, `type`,
-`constructor`, and `class` namespaces. Omitted lists export owned declarations;
-`()` exports none. Imported declarations cannot be re-exported.
+An import can expose all public names, select particular names, or introduce a
+qualifier. Export lists distinguish values, types, constructors, and
+capabilities. A module can export declarations it owns, but cannot re-export an
+imported declaration.
 
-Resolution is deterministic, rejects ambiguity and cycles, compiles
-dependencies before importers, and evaluates only the entry module's expression
-statements. See [module resolution](../reference/module-resolution.md).
+Module names map to paths beneath ordered module roots. Resolution rejects an
+ambiguous match or dependency cycle rather than choosing one implicitly. See
+[module resolution](../reference/module-resolution.md) for exact path, import,
+export, and Prelude rules.

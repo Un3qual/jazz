@@ -1,0 +1,113 @@
+.directory {
+  margin: 0 auto;
+  max-width: 92rem;
+  padding-block: clamp(3rem, 6vw, 5rem);
+  padding-inline: var(--home-gutter);
+}
+
+.directoryHeading {
+  align-items: end;
+  border-bottom: 1px solid var(--jazz-rule);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 1rem;
+}
+
+.directoryHeading h2 {
+  color: inherit;
+  font-size: clamp(1.75rem, 3vw, 2.6rem);
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+.directoryGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.directorySection {
+  border-bottom: 1px solid var(--jazz-rule);
+  min-height: 15rem;
+  padding: 1.4rem clamp(1.2rem, 3vw, 2.5rem) 1.5rem 0;
+}
+
+.directorySection h3 {
+  color: inherit;
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.directorySection p {
+  color: var(--jazz-ink-muted);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin: 0.65rem 0 0.85rem;
+  max-width: 24rem;
+}
+
+.directorySection ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.directorySection li + li {
+  border-top: 1px solid color-mix(in srgb, var(--jazz-rule) 65%, transparent);
+}
+
+.textLink {
+  align-items: center;
+  color: var(--jazz-primary-accessible);
+  display: inline-flex;
+  font-size: 0.9rem;
+  font-weight: 710;
+  min-height: 36px;
+  min-width: 44px;
+  padding: 0.4rem 0;
+  text-decoration: none;
+  transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+}
+
+.textLink:hover {
+  color: var(--jazz-primary-accessible);
+  text-decoration: underline;
+  text-underline-offset: 0.25rem;
+}
+
+.textLink:focus-visible {
+  outline: 3px solid var(--jazz-focus);
+  outline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  .directoryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .directoryGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .directoryHeading {
+    align-items: start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .directorySection {
+    min-height: 0;
+    padding-right: 0;
+  }
+
+  .textLink {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .textLink {
+    transition: none;
+  }
+}

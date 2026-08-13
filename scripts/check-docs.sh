@@ -31,6 +31,12 @@ fi
 if ! python3 scripts/test-check-public-docs.py; then
   fail "scripts/test-check-public-docs.py reported public documentation checker regressions"
 fi
+if ! python3 scripts/check-stdlib-api-docs.py "$ROOT"; then
+  fail "scripts/check-stdlib-api-docs.py reported standard-library API reference violations"
+fi
+if ! python3 scripts/test-check-stdlib-api-docs.py; then
+  fail "scripts/test-check-stdlib-api-docs.py reported standard-library API checker regressions"
+fi
 if ! python3 scripts/test-markdown-visibility.py; then
   fail "scripts/test-markdown-visibility.py reported rendered Markdown visibility regressions"
 fi
@@ -70,8 +76,7 @@ done
 require_file "docs/project/status.md"
 require_file "docs/project/governance.md"
 require_file ".codex/execution/blocker-contracts.md"
-require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-08-12$'
-require_pattern "docs/project/status.md" "implementation snapshot" '^Implementation snapshot: `becf38a2d474d97bcb23c7e2f69153d1ec03de0a`$'
+require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-08-13$'
 require_pattern ".codex/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
 
 removed_paths=(

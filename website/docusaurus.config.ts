@@ -39,6 +39,27 @@ const config: Config = {
       } satisfies Preset.Options,
     ],
   ],
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          {
+            from: '/docs/standard-library/maybe-result-nonempty',
+            to: '/docs/standard-library/maybe',
+          },
+          {
+            from: '/docs/standard-library/map-and-set',
+            to: '/docs/standard-library/map',
+          },
+          {
+            from: '/docs/standard-library/char-and-text',
+            to: '/docs/standard-library/char',
+          },
+        ],
+      },
+    ],
+  ],
   themeConfig: {
     image: 'img/social-card.png',
     metadata: [
@@ -63,8 +84,8 @@ const config: Config = {
       items: [
         {
           type: 'docSidebar',
-          sidebarId: 'jazzSidebar',
-          label: 'Docs',
+          sidebarId: 'learnSidebar',
+          label: 'Learn',
           position: 'left',
         },
         {
@@ -73,14 +94,20 @@ const config: Config = {
           position: 'left',
         },
         {
-          to: '/docs/standard-library/overview',
+          type: 'docSidebar',
+          sidebarId: 'standardLibrarySidebar',
           label: 'Standard Library',
           position: 'left',
         },
         {
-          to: '/docs/project/status',
-          label: 'Status',
+          type: 'docSidebar',
+          sidebarId: 'referenceSidebar',
+          label: 'Reference',
           position: 'left',
+        },
+        {
+          type: 'search',
+          position: 'right',
         },
         {
           href: 'https://github.com/un3qual/jazz',

@@ -112,8 +112,7 @@ presented as runnable language syntax.
   preparation without implying publication.
 - [Issue tracker](https://github.com/un3qual/jazz/issues) — report defects and
   discuss focused improvements.
-- [Website (available after merge and Pages enablement)](https://un3qual.github.io/jazz/)
-  — enabling GitHub Pages for GitHub Actions is a post-merge follow-up.
+- [Documentation website](https://un3qual.github.io/jazz/)
 
 ## Contributing
 
