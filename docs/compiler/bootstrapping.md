@@ -37,8 +37,11 @@ expressions in entry modules with explicitly empty export lists. Scalar value
 interfaces are not produced yet. The profile also preserves unary curried
 staging for named functions, callable parameters, and inline lambdas; partial
 application returns an ordinary closure, and oversaturation proceeds only while
-each intermediate result remains callable. Recursion is still excluded, and
-the profile does not replace the canonical-core and reference-interpreter
+each intermediate result remains callable. The profile now transports ordered
+recursive-group binder identities for capture-free, non-escaping direct self
+and mutual recursion and lowers their recursive references through the existing
+direct-call representation. Closure-shaped recursive groups remain excluded,
+and the profile does not replace the canonical-core and reference-interpreter
 compile/run path.
 
 Promotion requires the remaining typed-core and closure boundaries, a complete

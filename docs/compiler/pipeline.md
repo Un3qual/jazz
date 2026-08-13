@@ -48,9 +48,12 @@ yet. Curried applications retain one unary closure stage per source
 application. Partial application therefore produces the remaining closure
 directly, while additional arguments are evaluated and applied in order only
 when the preceding result is callable. Proven complete direct declaration
-calls keep their coalesced direct-call lowering.
+calls keep their coalesced direct-call lowering. Capture-free, non-escaping
+direct self and mutual recursion transports ordered recursive groups by exact
+binder identity, validates that metadata in Haskell and hosted Jazz, and reuses
+the same direct-call representation during lowering.
 
 This path does not participate in ordinary compile or run, which remain on
-canonical core and the reference interpreter. Recursion, full control flow,
-multi-module integration, native emission, linking, and a native runtime remain
-promotion gates. See the current [status](../project/status.md).
+canonical core and the reference interpreter. Closure-shaped recursion, full
+control flow, multi-module integration, native emission, linking, and a native
+runtime remain promotion gates. See the current [status](../project/status.md).
