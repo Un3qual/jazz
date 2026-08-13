@@ -3859,6 +3859,19 @@ producerEdgeFixtures =
                  ]
              )
          ),
+         ( "earlier-caller-transitive-recursive-capture",
+           sourceFixtureNoExports
+             "earlier-caller-transitive-recursive-capture"
+             ( Text.unlines
+                 [ "caller :: Int -> Int.",
+                   "caller = \\(item) -> loop item.",
+                   "seed = 1.",
+                   "loop :: Int -> Int.",
+                   "loop = \\(item) -> loop seed.",
+                   "caller 1."
+                 ]
+             )
+         ),
          ( "unused-user-defined-operator",
            sourceFixtureNoExports
              "unused-user-defined-operator"

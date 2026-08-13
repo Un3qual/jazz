@@ -7,7 +7,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Statement (..))
+import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (NumericUInt8), Statement (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
@@ -34,7 +34,8 @@ import Jazz.Compiler.TypeInference.Elaboration
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
-    ExpressionType (TBoolType, TFunctionType),
+    ExpressionType (TBoolType, TFunctionType, TIntegerLiteralType, TNumericType),
+    IntegerLiteralRange (..),
     ScopeCapabilityFacts (..),
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
@@ -87,6 +88,8 @@ tests =
     ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
     ("specializes terminal binary operands to their unified numeric type", testNarrowRootBinaryDirectCall),
     ("normalizes equivalent scalar aliases to the expected type", testEquivalentScalarAliasSpecialization),
+    ("rejects inherited recursive captures unavailable at an earlier caller", testEarlierCallerTransitiveCaptureAvailability),
+    ("specializes every use of a captured numeric scalar", testCapturedNumericScalarReferenceSpecialization),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("retains nested data-block child failures in structural order", testNestedDataFailureAccumulation),
@@ -1242,6 +1245,87 @@ testEquivalentScalarAliasSpecialization =
   assertCompleteProduction
     "equivalent scalar alias specialization"
     (producerEdgeFixture "equivalent-scalar-alias-specialization")
+
+testEarlierCallerTransitiveCaptureAvailability :: IO ()
+testEarlierCallerTransitiveCaptureAvailability = do
+  let fixture = producerEdgeFixture "earlier-caller-transitive-recursive-capture"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "caller")
+          ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "earlier caller transitive capture repeatability" firstRun secondRun
+  assertEqual "earlier caller transitive capture rejection" expected (typedCoreProductionStatus firstRun)
+
+testCapturedNumericScalarReferenceSpecialization :: IO ()
+testCapturedNumericScalarReferenceSpecialization = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [1])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalScalarBinding
+              2
+              "copy"
+              spanValue
+              literalType
+              (ProvisionalVariableExpression "seed" literalType),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalLiteralExpression (LInt 1) uint8Type)
+              )
+          ]
+      status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  case status of
+    TypedCoreProductionSucceeded programValue -> do
+      assertEqual "captured numeric scalar typed-core validation" [] (validateTypedProgram programValue)
+      case lowerTypedCoreExpressionDirectCall programValue of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual "captured numeric scalar lowered-IR validation" [] (validateLoweredProgram loweredProgram)
+        other -> failTest ("captured numeric scalar did not lower: " <> Text.pack (show other))
+    other -> failTest ("captured numeric scalar did not produce typed core: " <> Text.pack (show other))
 
 testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do
