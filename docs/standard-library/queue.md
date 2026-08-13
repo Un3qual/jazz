@@ -108,10 +108,11 @@ Adds values at the rear in list order. Enqueueing `m` values is `O(m)`.
 queuePeek :: Queue(a) -> Maybe(a).
 ```
 
-Returns the oldest value as `Just`, or `Nothing` for an empty queue. It is
-`O(1)` when the front is populated and `O(n)` when the rear must be reversed.
-Because the normalized queue is not returned, repeated peeks of the same
-front-empty queue repeat that `O(n)` work.
+Returns the oldest value as `Just`, or `Nothing` for an empty queue.
+`queuePeek` is `O(1)` when the front is populated and `O(n)` when it must
+reverse a non-empty rear to find the oldest value. Because `queuePeek` does not
+return the normalized queue, repeated peeks of the same front-empty value repeat
+that `O(n)` work.
 
 ### `queueDequeue`
 
@@ -122,9 +123,8 @@ queueDequeue :: Queue(a) -> Maybe((a, Queue(a))).
 ```
 
 Returns the oldest value and the remaining queue, or `Nothing` when empty. A
-single call may spend `O(n)` normalizing the rear. A dequeue sequence is
-amortized `O(1)` per call only when each call uses the queue returned by the
-previous call.
+single call may spend `O(n)` normalizing the rear. `queueDequeue` is amortized
+`O(1)` only across a dequeue sequence that keeps using each returned queue.
 
 ## Transforming and folding
 

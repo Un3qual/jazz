@@ -165,7 +165,7 @@ Returns the value supplied by the active `Default(a)` implementation.
 map :: (a -> b) -> [a] -> [b].
 ```
 
-Transforms every list value and preserves order. Prefer
+Applies a function to every item and preserves order. Prefer
 [`listMap`](list.md#listmap) in library-oriented code.
 
 ### `filter`
@@ -176,7 +176,7 @@ Transforms every list value and preserves order. Prefer
 filter :: (a -> Bool) -> [a] -> [a].
 ```
 
-Keeps values whose predicate returns `True`, preserving order. Prefer
+Keeps the items whose predicate is `True`, preserving order. Prefer
 [`listFilter`](list.md#listfilter) in library-oriented code.
 
 ### `hd`
@@ -201,6 +201,9 @@ tl :: [a] -> [a].
 Returns every value after the first. This function is partial: `tl []` fails
 fatally with `E3010`. Prefer [`listTail`](list.md#listtail) when emptiness is
 possible.
+
+`hd` and `tl` are partial: an empty list fails fatally with `E3009` or `E3010`,
+respectively.
 
 ## Effectful compatibility value
 
