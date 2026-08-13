@@ -85,6 +85,10 @@ const config: Config = {
           position: 'left',
         },
         {
+          type: 'search',
+          position: 'right',
+        },
+        {
           href: 'https://github.com/un3qual/jazz',
           label: 'GitHub',
           position: 'right',

@@ -12,6 +12,7 @@
     "clear": "docusaurus clear",
     "render:brand": "node scripts/render-social-card.mjs",
     "test:brand": "node --test scripts/test-brand-assets.mjs",
+    "test:search": "node --test scripts/test-pagefind-search-model.mjs",
     "test:experience": "node --test scripts/test-experience.mjs",
     "check": "pnpm run typecheck && pnpm run build"
   },

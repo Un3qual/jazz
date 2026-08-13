@@ -327,7 +327,7 @@ test('primary navigation separates learning, library, and reference contexts', a
 
   assert.deepEqual(
     navbarItems.map(({label}) => label),
-    ['Learn', 'Language', 'Standard Library', 'Reference', 'GitHub'],
+    ['Learn', 'Language', 'Standard Library', 'Reference', undefined, 'GitHub'],
   );
   assert.deepEqual(
     navbarItems
@@ -340,6 +340,27 @@ test('primary navigation separates learning, library, and reference contexts', a
     'standardLibrarySidebar',
     'referenceSidebar',
   ]);
+});
+
+test('documentation search is a keyboard-first navbar dialog', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+  const navbarItems = siteConfig.themeConfig.navbar.items;
+  const searchIndex = navbarItems.findIndex(({type}) => type === 'search');
+  const searchBar = read('website/src/theme/SearchBar/index.tsx');
+
+  assert.equal(searchIndex, navbarItems.findIndex(({label}) => label === 'GitHub') - 1);
+  assert.deepEqual(navbarItems[searchIndex], {type: 'search', position: 'right'});
+  assert.match(searchBar, /<dialog\b/);
+  assert.match(searchBar, /aria-label="Search documentation"/);
+  assert.match(searchBar, /onCancel=\{\(event\) => \{\s*event\.preventDefault\(\);\s*closeSearch\(\);\s*\}\}/s);
+  assert.match(searchBar, /if \(!open\) \{\s*dialogRef\.current\?\.close\(\);\s*return;\s*\}/s);
+  assert.match(searchBar, /activeResultRef\.current\?\.scrollIntoView\(\{block: 'nearest'\}\)/);
+  assert.match(searchBar, /Loading search index/);
+  assert.match(searchBar, /No documentation matches/);
+  assert.match(searchBar, /Search is unavailable in this preview/);
 });
 
 test('standard library navigation exposes one page per module', async () => {
