@@ -182,32 +182,24 @@ Each blocked item should answer these questions:
   Capture-free, non-escaping self and mutual recursion use the existing direct
   callable representation. Normal compile/run remains canonical-core/interpreter
   based.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001` from accepted RFC 0009 using
-  `.codex/plans/2026-08-13-jazz-typed-core-closure-recursion.md`.
-- Decision needed: none for the semantic boundary. RFC 0009 fixes closure
-  recursion as the sixth ordered child after direct recursion.
-- Recommended default: execute the promoted plan through G5 and queue closeout.
-  Keep normal compile/run on canonical core and the reference interpreter.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001`.
-- Target paths: `src/Jazz/Compiler/RecursiveBindings.hs`;
-  `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`;
-  `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
-  `src/Jazz/Compiler/LoweredIR/Lower.hs`;
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`;
-  `test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`;
-  `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`;
-  `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`;
-  `test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`.
-- Conditional target paths: typed-core mirrors only if group invariants change;
-  `jazz.cabal` only for registration.
-- Verification: `cabal test recursive-bindings-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001` completed on
+  `2026-08-13`. The opt-in producer promotes closure-shaped recursive groups
+  together, requires every external capture before the first member, and the
+  lowerer constructs one immutable shared environment for member closures and
+  self/peer reconstruction. Later or interleaved captures fail closed. This
+  completes RFC 0009 without changing normal compile/run.
+- Smallest unblocker: none currently. All accepted RFC 0009 children are
+  complete, and no later hosted semantic-compiler child is source-backed.
+- Decision needed: define a new concrete semantic-compiler boundary before
+  extending the opt-in profile.
+- Recommended default: keep the umbrella blocked and normal compile/run on
+  canonical core and the reference interpreter.
+- Candidate child: none currently.
+- Target paths: not set until a new semantic-compiler contract is accepted.
+- Verification: `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting the completed closure-call, scalar-binding,
-  lexical-capture, curried-application, or direct-recursion children;
-  implementing closure recursion during curation; control flow; patterns;
-  multi-module or import integration;
+  lexical-capture, curried-application, direct-recursion, or closure-recursion
+  children; control flow; patterns; multi-module or import integration;
   non-closure managed values; runtime services; tail calls; LLVM emission;
   object generation; linking; native-runtime or ABI implementation; a public
   compiler embedding API; bytecode or a VM; or revival of removed legacy

@@ -51,9 +51,15 @@ when the preceding result is callable. Proven complete direct declaration
 calls keep their coalesced direct-call lowering. Capture-free, non-escaping
 direct self and mutual recursion transports ordered recursive groups by exact
 binder identity, validates that metadata in Haskell and hosted Jazz, and reuses
-the same direct-call representation during lowering.
+the same direct-call representation during lowering. If any recursive member
+escapes or captures a supported prior binder, the whole group is closure-shaped
+and shares one immutable environment containing the ordered union of external
+captures. The environment is constructed once; member closures reuse it, and
+self/peer references reconstruct the corresponding closure from the current
+environment. Captures introduced or rebound at or after the first member fail
+the bounded producer profile.
 
 This path does not participate in ordinary compile or run, which remain on
-canonical core and the reference interpreter. Closure-shaped recursion, full
-control flow, multi-module integration, native emission, linking, and a native
+canonical core and the reference interpreter. Full control flow, multi-module
+integration, tail-call guarantees, native emission, linking, and a native
 runtime remain promotion gates. See the current [status](../project/status.md).

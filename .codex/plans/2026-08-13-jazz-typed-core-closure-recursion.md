@@ -1,13 +1,14 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 2"
+plan_section: "Full closeout"
 target_paths:
+  - jazz.cabal
   - src/Jazz/Compiler/RecursiveBindings.hs
   - test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs
   - src/Jazz/Compiler/TypeInference/Elaboration.hs
@@ -96,14 +97,14 @@ IR v1, Nix
   execution of this plan.
 - Do not alter accepted RFC semantics or pre-seed a post-RFC child.
 
-- [ ] **Step 1: Validate live ownership.** Confirm each required and
+- [x] **Step 1: Validate live ownership.** Confirm each required and
       conditional G5 path still exists and no current schema change requires a
       typed-core mirror owner.
 
-- [ ] **Step 2: Promote the queue row.** Add this plan to `Ready Now`, empty
+- [x] **Step 2: Promote the queue row.** Add this plan to `Ready Now`, empty
       `Next Curation Target`, and update the current executor and blocker text.
 
-- [ ] **Step 3: Validate metadata.** Run:
+- [x] **Step 3: Validate metadata.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -113,7 +114,7 @@ IR v1, Nix
 
   Expected: all three commands exit zero.
 
-- [ ] **Step 4: Commit the curation milestone.** Run:
+- [x] **Step 4: Commit the curation milestone.** Run:
 
   ```bash
   git add .codex/plans/2026-08-13-jazz-typed-core-closure-recursion.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
@@ -147,7 +148,7 @@ IR v1, Nix
   accepted prior-capture self/mutual sources plus literal rejected later and
   interleaved capture sources.
 
-- [ ] **Step 1: Write producer RED fixtures.** Add accepted fixtures equivalent
+- [x] **Step 1: Write producer RED fixtures.** Add accepted fixtures equivalent
       to:
 
   ```jazz
@@ -161,11 +162,11 @@ IR v1, Nix
   capture control where the captured binder is declared after the first member
   and an interleaved control where it is rebound between members.
 
-- [ ] **Step 2: Add literal typed expectations.** Assert exact member binder
+- [x] **Step 2: Add literal typed expectations.** Assert exact member binder
       order, closure callable shapes, binder-resolved self/peer references,
       existing nested unary closure recipes, and source-order failure paths.
 
-- [ ] **Step 3: Run G5 and verify RED.** Run:
+- [x] **Step 3: Run G5 and verify RED.** Run:
 
   ```bash
   cabal test recursive-bindings-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -175,17 +176,17 @@ IR v1, Nix
   `TypedCoreRecursiveFunctionUnsupported`; new visibility controls fail their
   expected artifact/failure assertions.
 
-- [ ] **Step 4: Implement group-wide shape and visibility admission.** Reuse
+- [x] **Step 4: Implement group-wide shape and visibility admission.** Reuse
       transported group membership and declaration-order scalar binder state.
       Admit a complete closure group only when every required external binder
       is visible before the group's first statement. Retain existing owning
       failures and descendant ordering.
 
-- [ ] **Step 5: Run G5 twice and verify GREEN.** Expected: repeated typed
+- [x] **Step 5: Run G5 twice and verify GREEN.** Expected: repeated typed
       artifacts are equal; Haskell and hosted-Jazz validation agree; all prior
       direct-recursion fixtures remain unchanged.
 
-- [ ] **Step 6: Commit the producer milestone.** Run:
+- [x] **Step 6: Commit the producer milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/RecursiveBindings.hs test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
@@ -226,12 +227,12 @@ IR v1, Nix
 - During member-body lowering, project shared external captures and reconstruct
   referenced self/peer closures from the environment parameter.
 
-- [ ] **Step 1: Write exact lowered RED fixtures.** Assert one shared layout,
+- [x] **Step 1: Write exact lowered RED fixtures.** Assert one shared layout,
       one environment construction, source-order member closure construction,
       self/peer reconstruction inside bodies, ordered capture projections, and
       unchanged direct recursive artifacts.
 
-- [ ] **Step 2: Run the expression suite and verify RED.** Run:
+- [x] **Step 2: Run the expression suite and verify RED.** Run:
 
   ```bash
   cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -240,25 +241,25 @@ IR v1, Nix
   Expected: valid closure-shaped groups report the existing ordered
   `LoweredIRRecursiveFunctionUnsupported` failures.
 
-- [ ] **Step 3: Build deterministic group shapes.** Fold validated transported
+- [x] **Step 3: Build deterministic group shapes.** Fold validated transported
       groups in source order, compute member-source-order capture unions, and
       reject invalid or unavailable captures before instruction emission.
 
-- [ ] **Step 4: Reuse the shared environment.** Extend lowering state with the
+- [x] **Step 4: Reuse the shared environment.** Extend lowering state with the
       constructed group environment operand, specialize closure construction
       for group members, and reconstruct member closures from the current
       environment parameter inside a group body.
 
-- [ ] **Step 5: Preserve validator parity.** Add only fixture pressure needed
+- [x] **Step 5: Preserve validator parity.** Add only fixture pressure needed
       to prove existing Lowered IR constructors validate identical shared
       layout/product/closure artifacts in Haskell and Jazz; do not change the
       schema or version.
 
-- [ ] **Step 6: Run G5 twice and verify GREEN.** Expected: byte-for-byte stable
+- [x] **Step 6: Run G5 twice and verify GREEN.** Expected: byte-for-byte stable
       Lowered Programs and no prior closure, capture, currying, or direct
       recursion regression.
 
-- [ ] **Step 7: Commit the lowering milestone.** Run:
+- [x] **Step 7: Commit the lowering milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs
@@ -288,10 +289,10 @@ IR v1, Nix
 - Document shared immutable closure recursion only in the opt-in profile and
   retain normal compile/run, tail-call, native, and multi-module exclusions.
 
-- [ ] **Step 1: Run fresh G5.** Run the Task 2 Step 3 command and read the full
+- [x] **Step 1: Run fresh G5.** Run the Task 2 Step 3 command and read the full
       exit status.
 
-- [ ] **Step 2: Run the full serialized compiler suite.** Run:
+- [x] **Step 2: Run the full serialized compiler suite.** Run:
 
   ```bash
   cabal test all --test-show-details=direct --jobs=1
@@ -299,15 +300,15 @@ IR v1, Nix
 
   Expected: every registered suite passes.
 
-- [ ] **Step 3: Update public compiler boundaries.** Describe escaping and
+- [x] **Step 3: Update public compiler boundaries.** Describe escaping and
       capturing self/mutual recursion through one immutable shared environment;
       keep ordinary compile/run unchanged.
 
-- [ ] **Step 4: Synchronize durable state.** Check all plan boxes, set
-      `status: complete`, `autonomous_ready: no`, and `plan_section: "Full
-      closeout"`; remove the ready row and record no named successor.
+- [x] **Step 4: Synchronize durable state.** Check all plan boxes, mark the
+      frontmatter complete and non-autonomous with the full-closeout section,
+      remove the ready row, and record no named successor.
 
-- [ ] **Step 5: Run closeout checks.** Run:
+- [x] **Step 5: Run closeout checks.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -315,12 +316,12 @@ IR v1, Nix
   git diff --check
   ```
 
-- [ ] **Step 6: Perform an anti-slop review.** Enumerate each new helper, map,
+- [x] **Step 6: Perform an anti-slop review.** Enumerate each new helper, map,
       state field, failure branch, and fixture. Remove anything without a
       concrete group-classification, shared-layout, capture-order, environment
       reuse, peer-reconstruction, validation, or fixture responsibility.
 
-- [ ] **Step 7: Commit closeout.** Run:
+- [x] **Step 7: Commit closeout.** Run:
 
   ```bash
   git add .codex/plans/2026-08-13-jazz-typed-core-closure-recursion.md .codex/execution/queue.md .codex/execution/blocker-contracts.md docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0009-typed-core-closure-and-recursion.md scripts/check-docs.sh

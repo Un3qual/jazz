@@ -4,9 +4,9 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-12
+Updated: 2026-08-13
 
-Implementation snapshot: `becf38a2d474d97bcb23c7e2f69153d1ec03de0a`
+Implementation snapshot: `8c220f254b88819641370b6307a6546d81843216`
 
 Jazz is experimental and pre-1.0. This matrix describes the unchanged compiler
 implementation snapshot above; documentation-only commits do not alter that
@@ -48,5 +48,11 @@ the remaining closure, and callable oversaturation evaluates each next argument
 only after the preceding call returns another callable value. Ordered
 recursive-group metadata now admits capture-free, non-escaping direct self and
 mutual recursion and lowers recursive references through existing direct calls.
-Ordinary compile and run remain on canonical core and the reference interpreter.
-Closure-shaped recursive groups remain outside the opt-in profile.
+Escaping or capturing self and mutual recursion is also admitted when every
+external capture is visible before the first group member. Such groups use one
+deterministic immutable shared environment containing only ordered external
+captures; member closures reuse it and reconstruct self or peers without cyclic
+initialization. Later or interleaved external captures remain rejected. Ordinary
+compile and run remain on canonical core and the reference interpreter, and the
+opt-in profile does not provide tail-call guarantees or multi-module/native
+backend integration.
