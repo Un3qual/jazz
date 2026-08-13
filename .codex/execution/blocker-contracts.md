@@ -175,15 +175,15 @@ Each blocked item should answer these questions:
   proceed only through callable intermediate results. Source non-callable
   oversaturation remains an ordinary diagnostic, and malformed typed artifacts
   fail validation. Normal compile/run remains canonical-core/interpreter-based.
-- Smallest unblocker: curate
+- Smallest unblocker: execute the validated Ready Now row
   `JN-BOOTSTRAP-TYPED-CORE-DIRECT-RECURSION-001` from accepted RFC 0009.
 - Decision needed: none for the semantic boundary. RFC 0009 fixes direct
   recursion as the fifth ordered child after curried application.
-- Recommended default: validate the live ownership matrix and create one
-  matching direct-recursion implementation plan before promotion. Keep closure
-  recursion unpromoted and normal compile/run on canonical core and the
-  reference interpreter.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-DIRECT-RECURSION-001`.
+- Recommended default: execute
+  `.codex/plans/2026-08-12-jazz-typed-core-direct-recursion.md` through its
+  focused and full serialized gates. Keep closure recursion unpromoted and
+  normal compile/run on canonical core and the reference interpreter.
+- Active child: `JN-BOOTSTRAP-TYPED-CORE-DIRECT-RECURSION-001`.
 - Target paths: `src/Jazz/Compiler/RecursiveBindings.hs`;
   `test/Jazz/Compiler/Semantics/RecursiveBindingsSpec.hs`;
   `src/Jazz/Compiler/TypeInference/Elaboration.hs`;
@@ -191,11 +191,13 @@ Each blocked item should answer these questions:
   `src/Jazz/Compiler/TypedCore/Validate.hs`;
   `jazz/compiler/TypedCoreTypes.jz`;
   `jazz/compiler/TypedCoreValidate.jz`;
+  `src/Jazz/Compiler/Force.hs`;
   `src/Jazz/Compiler/LoweredIR/Lower.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`;
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`;
   `test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`;
-  `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`.
+  `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`;
+  `test/Jazz/Compiler/ProfilingSpec.hs`.
 - Verification: `cabal test recursive-bindings-spec jazz-typed-core-contract-spec jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
 - Not in scope: re-promoting the completed closure-call, scalar-binding,
