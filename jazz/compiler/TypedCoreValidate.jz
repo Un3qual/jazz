@@ -5539,16 +5539,13 @@ module TypedCoreValidate (
       if binderIdMember binder members then Just members else rootRecursiveGroupForBinder binder rest
   }.
 
-  rootRecursiveGroupStatements :: [TypedStatement] -> [TypedRecursiveGroup] -> Int -> [TypedStatement].
-  rootRecursiveGroupStatements = \(statements, groups, statementIndex) -> case statementAtIndexFrom statements statementIndex 0 {
-    | Nothing -> []
-    | Just statement -> case statement {
-      | TypedLetStatement binder name span scheme expression -> case rootRecursiveGroupForBinder binder groups {
-        | Nothing -> []
-        | Just members -> rootGroupStatementsForMembers (rootCallablesFrom (listIndexed statements)) members
-      }
-      | other -> []
+  rootRecursiveGroupStatements :: [RootCallable] -> [TypedRecursiveGroup] -> TypedStatement -> [TypedStatement].
+  rootRecursiveGroupStatements = \(callables, groups, statement) -> case statement {
+    | TypedLetStatement binder name span scheme expression -> case rootRecursiveGroupForBinder binder groups {
+      | Nothing -> []
+      | Just members -> rootGroupStatementsForMembers callables members
     }
+    | other -> []
   }.
 
   contextModulePath :: ModuleContext -> [Text].
@@ -6541,8 +6538,8 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
-  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, forwardSignedFunctions, allStatements, recursiveGroups, remainingStatements, statementIndex) -> case remainingStatements {
+  validateModuleStatementsInOrderFrom :: ModuleContext -> ModuleContext -> [TypedStatement] -> [RootCallable] -> [TypedRecursiveGroup] -> [TypedStatement] -> Int -> [TypedCoreValidationFailure].
+  validateModuleStatementsInOrderFrom = \(initialContext, visibleContext, forwardSignedFunctions, callables, recursiveGroups, remainingStatements, statementIndex) -> case remainingStatements {
     | [] -> []
     | [statement | rest] -> {
       statementLocation = [statementIndex].
@@ -6550,7 +6547,7 @@ module TypedCoreValidate (
         if isForwardSignedFunctionDeclaration forwardSignedFunctions statement
         then withForwardSignedFunctionDeclarations forwardSignedFunctions visibleContext
         else visibleContext.
-      recursiveGroup = rootRecursiveGroupStatements allStatements recursiveGroups statementIndex.
+      recursiveGroup = rootRecursiveGroupStatements callables recursiveGroups statement.
       statementContext = case statement {
         | TypedLetStatement binder name span scheme expression ->
           if listLength recursiveGroup == 0 then statementBaseContext else withBlockDeclarations recursiveGroup statementBaseContext
@@ -6561,7 +6558,7 @@ module TypedCoreValidate (
       listConcat
         [ validateAttachedSignature (TypedStatementPath (contextModulePath initialContext) statementLocation) statement rest (listLength statementFailures == 0),
           statementFailures,
-          validateModuleStatementsInOrderFrom initialContext nextContext forwardSignedFunctions allStatements recursiveGroups rest (statementIndex + 1)
+          validateModuleStatementsInOrderFrom initialContext nextContext forwardSignedFunctions callables recursiveGroups rest (statementIndex + 1)
         ].
     }
   }.
@@ -6569,7 +6566,8 @@ module TypedCoreValidate (
   validateModuleStatementsInOrder :: ModuleContext -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedCoreValidationFailure].
   validateModuleStatementsInOrder = \(context, statements, recursiveGroups) -> {
     forwardSignedFunctions = forwardSignedFunctionDeclarations statements.
-    validateModuleStatementsInOrderFrom context context forwardSignedFunctions statements recursiveGroups statements 0.
+    callables = rootCallablesFrom (listIndexed statements).
+    validateModuleStatementsInOrderFrom context context forwardSignedFunctions callables recursiveGroups statements 0.
   }.
 
   activeDeclaredValueMatches :: TypedCoreName -> TypedScheme -> [TypedStatement] -> Bool.

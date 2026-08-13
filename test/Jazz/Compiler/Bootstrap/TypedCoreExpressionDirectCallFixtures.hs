@@ -2961,6 +2961,18 @@ producerEdgeFixtures =
                  ]
              )
          ),
+         ( "nested-lambda-direct-recursion",
+           sourceFixtureNoExports
+             "nested-lambda-direct-recursion"
+             ( Text.unlines
+                 [ "apply :: (Bool -> Bool) -> Bool.",
+                   "apply = \\(function) -> function True.",
+                   "loop :: Bool -> Bool.",
+                   "loop = \\(item) -> apply (\\(nested) -> loop nested).",
+                   "loop False."
+                 ]
+             )
+         ),
          ( "nearest-rebinding-mutual-control",
            sourceFixtureNoExports
              "nearest-rebinding-mutual-control"

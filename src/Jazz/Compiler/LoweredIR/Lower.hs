@@ -1207,30 +1207,31 @@ recursiveGroupProfileFailures modulePath functions declarations =
       all directSourceFunction members
         && not
           ( any
-              (closureShapeReferencesGroup members)
+              (closureShapeReferencesGroup memberSet memberStatementIndexes)
               (Map.elems (indexedFunctionShapes functions))
           )
-    directSourceFunction binder =
-      case Map.lookup binder (indexedFunctionShapes functions) of
-        Just function ->
-          functionShapeSourceBinding function
-            && functionShapeCallableShape function == TypedDirectCallableShape
-        Nothing -> False
-    closureShapeReferencesGroup members function =
-      not (functionShapeSourceBinding function)
-        && Set.member
-          (functionShapeStatementIndex function)
-          memberStatementIndexes
-        && expressionReferencesAnyBinder
-          (Set.fromList members)
-          (functionShapeBody function)
       where
+        memberSet = Set.fromList members
         memberStatementIndexes =
           Set.fromList
             [ functionShapeStatementIndex member
             | binder <- members,
               Just member <- [Map.lookup binder (indexedFunctionShapes functions)]
             ]
+    directSourceFunction binder =
+      case Map.lookup binder (indexedFunctionShapes functions) of
+        Just function ->
+          functionShapeSourceBinding function
+            && functionShapeCallableShape function == TypedDirectCallableShape
+        Nothing -> False
+    closureShapeReferencesGroup memberSet memberStatementIndexes function =
+      not (functionShapeSourceBinding function)
+        && Set.member
+          (functionShapeStatementIndex function)
+          memberStatementIndexes
+        && expressionReferencesAnyBinder
+          memberSet
+          (functionShapeBody function)
 
 expressionReferencesAnyBinder :: Set.Set TypedBinderId -> TypedExpr -> Bool
 expressionReferencesAnyBinder binders expression =

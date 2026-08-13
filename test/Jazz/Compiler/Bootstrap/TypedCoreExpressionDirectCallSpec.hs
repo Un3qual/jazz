@@ -118,6 +118,7 @@ tests =
     ("resolves a nested alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-alias-mutual-recursion"),
     ("resolves a nested conditional alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-conditional-alias-mutual-recursion"),
     ("keeps a nested self-recursive lambda local to its block", testNestedSelfRecursiveLambdaOwnership),
+    ("rejects direct recursion that escapes through a nested lambda", testNestedLambdaRecursiveAdmission),
     ("classifies an accepted then rejected callable rebinding", testRejectedCallableRebinding "accepted-then-rejected-callable-rebinding"),
     ("orders rejected callable recursion before rebinding and descendants", testRejectedCallableRebinding "rejected-recursive-callable-rebinding-order"),
     ("classifies a rejected then accepted callable rebinding", testRejectedCallableRebinding "rejected-then-accepted-callable-rebinding"),
@@ -2334,6 +2335,30 @@ testNestedSelfRecursiveLambdaOwnership = do
     )
   assertEqual "nested self-recursive lambda repeatability" firstRun secondRun
   assertEqual "nested self-recursive lambda exact local ownership" expected (typedCoreProductionStatus firstRun)
+
+testNestedLambdaRecursiveAdmission :: IO ()
+testNestedLambdaRecursiveAdmission = do
+  let fixture = producerEdgeFixture "nested-lambda-direct-recursion"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 3)
+              TypedCoreRecursiveFunctionUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "nested-lambda direct recursion ordinary diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+  assertEqual
+    "nested-lambda direct recursion inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "nested-lambda direct recursion repeatability" firstRun secondRun
+  assertEqual "nested-lambda direct recursion producer rejection" expected (typedCoreProductionStatus firstRun)
 
 testRejectedCallableRebinding :: Text -> IO ()
 testRejectedCallableRebinding requestedName =
