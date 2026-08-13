@@ -56,7 +56,11 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Data',
       collapsed: false,
-      items: ['standard-library/maybe-result-nonempty'],
+      items: [
+        'standard-library/maybe',
+        'standard-library/result',
+        'standard-library/nonempty',
+      ],
     },
     {
       type: 'category',
@@ -66,20 +70,21 @@ const sidebars: SidebarsConfig = {
         'standard-library/list',
         'standard-library/dictionary',
         'standard-library/queue',
-        'standard-library/map-and-set',
+        'standard-library/map',
+        'standard-library/set',
       ],
     },
     {
       type: 'category',
       label: 'Text',
       collapsed: false,
-      items: ['standard-library/char-and-text'],
+      items: ['standard-library/char', 'standard-library/text'],
     },
     {
       type: 'category',
       label: 'System',
       collapsed: false,
-      items: ['standard-library/io'],
+      items: ['standard-library/io', 'standard-library/io-error'],
     },
   ],
   referenceSidebar: [

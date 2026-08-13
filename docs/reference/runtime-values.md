@@ -64,4 +64,5 @@ equality. Callable equality is rejected.
 Pattern matching is structural and ordered. Primitive misuse that escapes
 compile-time checks produces a stable fatal runtime diagnostic. Host I/O is
 routed through a replaceable runtime host so tests remain deterministic; the
-public API is described in [IO and errors](../standard-library/io.md).
+public API is described in [IO](../standard-library/io.md) and
+[IOError](../standard-library/io-error.md).

@@ -278,6 +278,34 @@ test('primary navigation separates learning, library, and reference contexts', a
   ]);
 });
 
+test('standard library navigation exposes one page per module', async () => {
+  const {loadSidebarsFile} = await import(
+    '../node_modules/@docusaurus/plugin-content-docs/lib/sidebars/index.js'
+  );
+  const sidebars = await loadSidebarsFile(path.join(websiteRoot, 'sidebars.ts'));
+  const documentIds = (items) =>
+    items.flatMap((item) =>
+      typeof item === 'string' ? [item] : documentIds(item.items ?? []),
+    );
+
+  assert.deepEqual(documentIds(sidebars.standardLibrarySidebar), [
+    'standard-library/overview',
+    'standard-library/prelude',
+    'standard-library/maybe',
+    'standard-library/result',
+    'standard-library/nonempty',
+    'standard-library/list',
+    'standard-library/dictionary',
+    'standard-library/queue',
+    'standard-library/map',
+    'standard-library/set',
+    'standard-library/char',
+    'standard-library/text',
+    'standard-library/io',
+    'standard-library/io-error',
+  ]);
+});
+
 test('documentation navigation is compact on desktop and touchable on mobile', () => {
   const source = read('website/src/css/custom.css');
   const rules = [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)];

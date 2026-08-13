@@ -8,6 +8,8 @@ Import `List` for the full `[a]` API. Empty or out-of-range queries use
 `Maybe`; negative counts clamp to zero; `listAny []` is `False`; and
 `listAll []` is `True`. Transformations preserve input order.
 
+## Operations
+
 | Family        | Public values                                                                  | Complexity and behavior                                                                                                                                                                           |
 | ------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Shape         | `listPrepend`, `listReverse`, `listLength`, `listIsEmpty`                      | Prepend and empty check `O(1)`; reverse and length `O(n)`                                                                                                                                         |
@@ -26,7 +28,7 @@ Import `List` for the full `[a]` API. Empty or out-of-range queries use
 values, not every equal value. `listSort` and `listSortBy` are stable merge
 sorts.
 
-Fragment:
+## Example
 
 <!-- jazz-example: fragment -->
 
@@ -35,4 +37,4 @@ import List.
 listMap (\(item) -> item * 2) [1, 2, 3].
 ```
 
-Use [Maybe and Result](maybe-result-nonempty.md) to handle total queries.
+Use [Maybe](maybe.md) to handle queries that may not return a value.

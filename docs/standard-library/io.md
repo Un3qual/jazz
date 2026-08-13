@@ -1,15 +1,9 @@
 ---
-title: IO and errors
-description: Perform strict UTF-8 host I/O through stable Jazz error values.
-sidebar_position: 9
+title: IO
+description: Perform strict UTF-8 file, stream, argument, and process operations.
 ---
 
-`IOErrorCategory` publishes `NotFound`, `PermissionDenied`, `AlreadyExists`,
-`InvalidData`, `ResourceExhausted`, `Interrupted`, `Unsupported`, and `Other`.
-`IOError` publishes `IOError category maybePath message`. These values hide
-platform exception types and OS error numbers.
-
-The `IO` module exports:
+Import `IO` for effectful host operations. The module exports:
 
 - `readText! :: Text -> Result(IOError, Text)`;
 - `writeText! :: Text -> Text -> Result(IOError, ())`;
@@ -19,7 +13,7 @@ The `IO` module exports:
 - `arguments! :: () -> [Text]`; and
 - `exit! :: Int -> ()`.
 
-Files and streams use strict UTF-8. Recoverable operations return `Result`;
+Files and streams use strict UTF-8. Recoverable operations return [Result](result.md);
 file errors attach a path and stream errors do not. Arguments preserve process
 order. `exit!` accepts statuses from `0` through `255`; an out-of-range status
 fails with fatal diagnostic `E3030` before the host is called. Valid statuses
@@ -27,4 +21,4 @@ delegate to the installed runtime host. Cost depends on the host and payload
 and has no collection-style complexity promise.
 
 The `!` suffix participates in Jazz's current [purity contract](../language/purity.md).
-Use [Result](maybe-result-nonempty.md) to handle recoverable failures.
+Error categories and values are documented by [IOError](io-error.md).
