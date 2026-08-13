@@ -3,27 +3,200 @@ title: Set
 description: Use a persistent ordered set with logarithmic membership and update.
 ---
 
-Import `Set` to use `Set(a)`, a persistent ordered set whose values require
-`Ord(a)`. Duplicate insertions do not change its size, and list views and folds
-use ascending order. The representation is private.
+Import `Set` for unique, ordered values. Values require `Ord(a)`, and views
+traverse them in ascending order. The representation and constructor are
+private.
 
-## Construction and querying
+## Type
 
-Use `setEmpty`, `setSingleton`, `setFromList`, and `setToList` for construction
-and materialization. `setSize`, `setIsEmpty`, and `setContains` inspect a set.
+### `Set`
+
+`Set(a)` stores at most one occurrence of each value of type `a`.
+
+## Construction
+
+### `setEmpty`
+
+<!-- jazz-signature -->
+
+```jazz
+setEmpty :: Set(a).
+```
+
+The empty set. Construction is `O(1)`.
+
+### `setSingleton`
+
+<!-- jazz-signature -->
+
+```jazz
+setSingleton :: a -> Set(a).
+```
+
+Constructs a one-value set in `O(1)`.
+
+### `setFromList`
+
+<!-- jazz-signature -->
+
+```jazz
+setFromList :: @{Ord(a)}: [a] -> Set(a).
+```
+
+Inserts values from left to right and removes duplicates. This is
+`O(n log n)`.
+
+### `setToList`
+
+<!-- jazz-signature -->
+
+```jazz
+setToList :: Set(a) -> [a].
+```
+
+Returns values in ascending order in `O(n)`.
+
+## Querying
+
+### `setSize`
+
+<!-- jazz-signature -->
+
+```jazz
+setSize :: Set(a) -> Int.
+```
+
+Returns the number of distinct values in `O(1)`.
+
+### `setIsEmpty`
+
+<!-- jazz-signature -->
+
+```jazz
+setIsEmpty :: Set(a) -> Bool.
+```
+
+Returns `True` when the set contains no values. This is `O(1)`.
+
+### `setContains`
+
+<!-- jazz-signature -->
+
+```jazz
+setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
+```
+
+Tests membership in `O(log n)`.
 
 ## Updating and combining
 
-`setInsert` and `setRemove` return new sets. `setUnion`, `setIntersection`, and
-`setDifference` combine two sets, while `setIsSubset` tests containment.
+### `setInsert`
 
-## Transforming and traversing
+<!-- jazz-signature -->
 
-`setFilter`, `setMap`, `setFoldLeft`, and `setFoldRight` traverse values in
-ascending order. A value-changing map rebuilds ordering for the output type.
+```jazz
+setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
+```
 
-Empty and singleton construction, size, and empty checks are `O(1)`. Contains,
-insert, and remove are `O(log n)`. From-list, map, and filter are `O(n log n)`;
-materialization and folds are `O(n)`. Union is `O(m log(n + m))`, subset is
-`O(n log m)`, and intersection and difference are
-`O(n * (log n + log m))` worst case.
+Adds a value and returns a new set. Inserting a duplicate does not change the
+size. This is `O(log n)`.
+
+### `setRemove`
+
+<!-- jazz-signature -->
+
+```jazz
+setRemove :: @{Ord(a)}: Set(a) -> a -> Set(a).
+```
+
+Removes a value when present. An absent value returns an equivalent set. This
+is `O(log n)`.
+
+### `setUnion`
+
+<!-- jazz-signature -->
+
+```jazz
+setUnion :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+```
+
+Returns every value present in either set. The implementation is
+`O(m log(n + m))` for inputs of sizes `n` and `m`.
+
+### `setIntersection`
+
+<!-- jazz-signature -->
+
+```jazz
+setIntersection :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+```
+
+Returns values present in both sets. This is `O(n × (log n + log m))` worst
+case.
+
+### `setDifference`
+
+<!-- jazz-signature -->
+
+```jazz
+setDifference :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
+```
+
+Returns values from the first set that are absent from the second. This is
+`O(n × (log n + log m))` worst case.
+
+### `setIsSubset`
+
+<!-- jazz-signature -->
+
+```jazz
+setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
+```
+
+Returns whether every value in the first set occurs in the second. The search
+short-circuits and is `O(n log m)` worst case.
+
+## Transforming and traversal
+
+### `setFilter`
+
+<!-- jazz-signature -->
+
+```jazz
+setFilter :: @{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a).
+```
+
+Keeps values whose predicate returns `True`. Callbacks run in ascending order;
+rebuilding the result is `O(n log n)` worst case.
+
+### `setMap`
+
+<!-- jazz-signature -->
+
+```jazz
+setMap :: @{Ord(b)}: Set(a) -> (a -> b) -> Set(b).
+```
+
+Transforms values in ascending input order and rebuilds ordering for `b`.
+Duplicate outputs collapse to one value. This is `O(n log n)` plus callback
+work.
+
+### `setFoldLeft`
+
+<!-- jazz-signature -->
+
+```jazz
+setFoldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
+```
+
+Folds values from least to greatest in `O(n)` plus callback work.
+
+### `setFoldRight`
+
+<!-- jazz-signature -->
+
+```jazz
+setFoldRight :: Set(a) -> b -> (a -> b -> b) -> b.
+```
+
+Folds values from greatest to least in `O(n)` plus callback work.
