@@ -664,7 +664,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           (Map.insert parameterName parameterBinder parameters)
                           (FunctionBindingExpression callableShape (max 0 (remainingDirectArity - 1)))
                           body
-                      failures = duplicateParameterFailures <> bodyFailures
+                      failures = lambdaConstructionFailures parameterName body <> duplicateParameterFailures <> bodyFailures
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
             _ ->
               case callableInfo TypedClosureCallableShape (1 :: Int) statementIndex childPath expressionType of
@@ -683,7 +683,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           (Map.insert parameterName parameterBinder parameters)
                           ScalarExpression
                           body
-                   in (bodyFailures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
+                      failures = lambdaConstructionFailures parameterName body <> bodyFailures
+                   in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
         ProvisionalApplyExpression _ _ _ ->
           finalizeApplicationSpine scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters expression
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
@@ -691,6 +692,16 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalRetainedFailures failures ->
           (map (qualifyInferredFailure statementIndex childPath) failures, Nothing)
       where
+        lambdaConstructionFailures parameterName body =
+          case expressionEvaluation of
+            EagerExpression ->
+              [ failureAt statementIndex childPath TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))
+              | name <- Set.toAscList (Set.delete parameterName (provisionalFreeNames body)),
+                Just captureStatement <- [Map.lookup name eagerClosureCaptureStatements],
+                captureStatement >= statementIndex
+              ]
+            DeferredExpression -> []
+
         finalizeNamedFunctionReference name callableShape function =
           case (expressionEvaluation, Map.lookup name eagerClosureCaptureStatements) of
             (EagerExpression, Just captureStatement)

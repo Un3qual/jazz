@@ -93,6 +93,7 @@ tests =
     ("specializes enclosing expressions that reuse captured numeric scalars", testCapturedCompositeScalarSpecialization),
     ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
     ("rejects eager recursive closure calls before their captures exist", testEagerRecursiveClosureCaptureAvailability),
+    ("rejects eager nested closure construction before transitive captures exist", testEagerNestedClosureCaptureAvailability),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("retains nested data-block child failures in structural order", testNestedDataFailureAccumulation),
@@ -1501,6 +1502,109 @@ testEagerRecursiveClosureCaptureAvailability = do
           )
   assertEqual "eager recursive closure capture repeatability" firstRun secondRun
   assertEqual "eager recursive closure capture rejection" expected firstRun
+
+testEagerNestedClosureCaptureAvailability :: IO ()
+testEagerNestedClosureCaptureAvailability = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      uint8Type = TNumericType NumericUInt8
+      callbackType = TFunctionType uint8Type uint8Type
+      invokeType = TFunctionType callbackType uint8Type
+      invokeDeclaration =
+        ProvisionalCallableDeclaration
+          0
+          "invoke"
+          spanValue
+          invokeType
+          (Just (PlainTypeBinding invokeType))
+          Nothing
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          4
+          "loop"
+          spanValue
+          callbackType
+          (Just (PlainTypeBinding callbackType))
+          (Just [4])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalFunctionBinding
+              invokeDeclaration
+              ( ProvisionalLambdaExpression
+                  "callback"
+                  invokeType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "callback" callbackType)
+                      (ProvisionalLiteralExpression (LInt 1) uint8Type)
+                  )
+              ),
+            ProvisionalScalarBinding
+              1
+              "result"
+              spanValue
+              uint8Type
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "invoke" invokeType)
+                  ( ProvisionalLambdaExpression
+                      "item"
+                      callbackType
+                      ( ProvisionalApplyExpression
+                          uint8Type
+                          (ProvisionalVariableExpression "loop" callbackType)
+                          (ProvisionalVariableExpression "item" uint8Type)
+                      )
+                  )
+              ),
+            ProvisionalScalarBinding
+              2
+              "seed"
+              spanValue
+              uint8Type
+              (ProvisionalLiteralExpression (LInt 1) uint8Type),
+            ProvisionalSignature 3 "loop" spanValue callbackType,
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  callbackType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" callbackType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              5
+              spanValue
+              ProvisionalUnitExpression
+          ]
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
+      firstRun =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+      secondRun =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  assertEqual "eager nested closure capture repeatability" firstRun secondRun
+  assertEqual "eager nested closure capture rejection" expected firstRun
 
 assertProvisionalProductionCompletes :: Text -> ProvisionalTypedExpr -> IO ()
 assertProvisionalProductionCompletes label provisionalScope = do
