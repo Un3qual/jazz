@@ -135,7 +135,7 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page = self.root / "docs/standard-library/maybe.md"
         page.write_text(
             page.read_text(encoding="utf-8")
-            + "\n```jazz jazz-signature\n"
+            + '\n```jazz title="API \\"quoted jazz-signature\\" sample" jazz-signature\n'
             + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
@@ -159,6 +159,30 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page.write_text(
             page.read_text(encoding="utf-8")
             + "\n```jazz not-jazz-signature\n"
+            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "Jazz fence must have an adjacent jazz-example marker or jazz-signature fence metadata"
+        )
+
+    def test_signature_metadata_ignores_marker_text_inside_quoted_values(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + '\n```jazz title="ordinary jazz-signature sample"\n'
+            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "Jazz fence must have an adjacent jazz-example marker or jazz-signature fence metadata"
+        )
+
+    def test_signature_metadata_requires_the_lowercase_marker_spelling(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n```jazz JAZZ-SIGNATURE\n"
             + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )

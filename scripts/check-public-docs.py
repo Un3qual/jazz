@@ -16,6 +16,8 @@ import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 
+from markdown_fence_metadata import has_metadata_token
+
 
 ALLOWED_DOCS_ENTRIES = {
     "compiler",
@@ -104,9 +106,9 @@ EXAMPLE_BINDING_RE = re.compile(
 LEGACY_SIGNATURE_MARKER_RE = re.compile(
     r"<!--\s*jazz-signature\s*-->", re.IGNORECASE
 )
-SIGNATURE_BINDING_RE = re.compile(
-    r"^[ ]{0,3}(?:`{3,}|~{3,})jazz"
-    r"(?=[ \t])(?=[^\r\n]*(?<!\S)jazz-signature(?!\S))[^\r\n]*\r?\n"
+SIGNATURE_FENCE_RE = re.compile(
+    r"^[ ]{0,3}(?P<fence>`{3,}|~{3,})jazz"
+    r"(?P<metadata>(?:[ \t][^\r\n]*)?)\r?\n"
     r".*?\r?\n[ ]{0,3}(?:`{3,}|~{3,})[ \t]*\r?$",
     re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
@@ -359,7 +361,11 @@ def check_example_sync(
     for label, source in sorted(texts.items()):
         bindings = list(EXAMPLE_BINDING_RE.finditer(source))
         markers = list(EXAMPLE_MARKER_RE.finditer(source))
-        signature_bindings = list(SIGNATURE_BINDING_RE.finditer(source))
+        signature_bindings = [
+            match
+            for match in SIGNATURE_FENCE_RE.finditer(source)
+            if has_metadata_token(match.group("metadata"), "jazz-signature")
+        ]
         if LEGACY_SIGNATURE_MARKER_RE.search(source):
             violations.append(
                 f"{label}: legacy jazz-signature comment is not allowed; "

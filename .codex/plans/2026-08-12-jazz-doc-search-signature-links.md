@@ -285,7 +285,7 @@
 
 **Verification receipts (2026-08-12):**
 
-- Architecture decision: after the three failed HTML-marker propagation hypotheses documented in the Task 4 report, the user approved native fence metadata. All 225 standard-library signatures now use ```` ```jazz jazz-signature ````; the obsolete remark marker plugin and adjacent HTML markers were removed, while ordinary `jazz-example` fences remain unchanged.
+- Architecture decision: after the three failed HTML-marker propagation hypotheses documented in the Task 4 report, the user approved native fence metadata. All 225 standard-library signatures now use ` ```jazz jazz-signature `; the obsolete remark marker plugin and adjacent HTML markers were removed, while ordinary `jazz-example` fences remain unchanged.
 - RED: the public-doc checker rejected the new native fence and incorrectly accepted the legacy marker; the focused signature suite failed because the native metadata helper did not exist; the production build reached the linked-type checker and failed because no signature metadata reached rendered HTML.
 - GREEN: the native fence parser regression proves the exact `jazz-signature` metastring reaches `metadata.jazzSignature`, while near matches and ordinary Jazz fences remain false. Public documentation tests pass 17/17 and standard-library API tests pass 9/9.
 - Rendering: signature-only token splitting preserves TextMate content, color, and font-style bits; linked output uses Docusaurus base-URL resolution and retains copyable source text. Generated HTML contains 225 signature blocks and 683 links, with representative module, built-in, capability, nested, list, tuple, and unit targets present; 15 ordinary examples remain link-free.

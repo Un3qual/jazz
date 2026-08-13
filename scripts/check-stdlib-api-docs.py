@@ -8,6 +8,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from markdown_fence_metadata import has_metadata_token
+
 
 MODULE_DOCUMENTS = {
     "Maybe.jz": "maybe.md",
@@ -94,10 +96,13 @@ def exact_signature_present(document: str, name: str, signature: str) -> bool:
     expected = re.escape(f"{name} :: {signature}.")
     pattern = re.compile(
         rf"(?m)^(?P<fence>`{{3,}}|~{{3,}})jazz"
-        rf"(?=[ \t])(?=[^\r\n]*(?<!\S)jazz-signature(?!\S))[^\r\n]*\r?\n"
+        rf"(?P<metadata>(?:[ \t][^\r\n]*)?)\r?\n"
         rf"{expected}\r?\n(?P=fence)[ \t]*$"
     )
-    return pattern.search(document) is not None
+    return any(
+        has_metadata_token(match.group("metadata"), "jazz-signature")
+        for match in pattern.finditer(document)
+    )
 
 
 def data_constructors(source: str) -> dict[str, tuple[str, ...]]:

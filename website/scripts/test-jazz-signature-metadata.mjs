@@ -39,3 +39,32 @@ test('signature metadata is an exact standalone fence token', () => {
     true,
   );
 });
+
+test('signature metadata ignores marker text inside quoted values', () => {
+  for (const metastring of [
+    'title="ordinary jazz-signature sample"',
+    "title='ordinary jazz-signature sample'",
+    'title="ordinary \\"quoted jazz-signature\\" sample"',
+  ]) {
+    assert.equal(
+      withJazzSignatureMetadata({}, metastring).jazzSignature,
+      false,
+      metastring,
+    );
+  }
+
+  assert.equal(
+    withJazzSignatureMetadata(
+      {},
+      'title="ordinary \\"quoted sample\\"" jazz-signature',
+    ).jazzSignature,
+    true,
+  );
+});
+
+test('signature metadata requires the lowercase marker spelling', () => {
+  assert.equal(
+    withJazzSignatureMetadata({}, 'JAZZ-SIGNATURE').jazzSignature,
+    false,
+  );
+});

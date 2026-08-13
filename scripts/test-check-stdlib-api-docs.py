@@ -48,7 +48,7 @@ class StandardLibraryApiDocsTests(unittest.TestCase):
 
 ## `sampleMap`
 
-```jazz jazz-signature
+```jazz title="API \\"quoted jazz-signature\\" sample" jazz-signature
 sampleMap :: (a -> b) -> Sample(a) -> Sample(b).
 ```
 
@@ -187,6 +187,42 @@ sampleMap :: a -> a.
 ## `sampleMap`
 
 ```jazz not-jazz-signature
+sampleMap :: a -> a.
+```
+""",
+        )
+        self.assertIn("missing exact signature for `sampleMap`", violations[0])
+
+    def test_rejects_signature_marker_text_inside_a_quoted_value(self) -> None:
+        violations = self.check(
+            """module Sample (value sampleMap) {
+  sampleMap :: a -> a.
+  sampleMap = value.
+}
+""",
+            '''# Sample
+
+## `sampleMap`
+
+```jazz title="ordinary jazz-signature sample"
+sampleMap :: a -> a.
+```
+''',
+        )
+        self.assertIn("missing exact signature for `sampleMap`", "\n".join(violations))
+
+    def test_rejects_uppercase_signature_marker(self) -> None:
+        violations = self.check(
+            """module Sample (value sampleMap) {
+  sampleMap :: a -> a.
+  sampleMap = value.
+}
+""",
+            """# Sample
+
+## `sampleMap`
+
+```jazz JAZZ-SIGNATURE
 sampleMap :: a -> a.
 ```
 """,
