@@ -202,10 +202,12 @@ module TypedCoreTypes {
     = TypedModuleInterface
       [TypedValueInterface] [TypedDataInterface] [TypedClassInterface] [TypedImplInterface].
 
+  data TypedRecursiveGroup = TypedRecursiveGroup [TypedBinderId].
+
   data TypedModule
     = TypedModule
       [Text] TypedSourcePath [TypedResolvedImport] [TypedModuleExport] TypedModuleInterface
-      [TypedStatement] TypedNodeInfo.
+      [TypedRecursiveGroup] [TypedStatement] TypedNodeInfo.
 
   data TypedProgram = TypedProgram Maybe(TypedModule) [TypedModule] [Text].
 

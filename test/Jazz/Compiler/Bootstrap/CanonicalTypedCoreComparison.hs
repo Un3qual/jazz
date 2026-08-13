@@ -103,7 +103,7 @@ decodeCanonicalTypedValidationFailuresRuntimeValue value =
   decodeList "typed-core validation failures" decodeValidationFailure value
 
 moduleValue :: TypedModule -> RuntimeValue
-moduleValue (TypedModule path sourcePath imports exports interface statements info) =
+moduleValue (TypedModule path sourcePath imports exports interface recursiveGroups statements info) =
   constructor
     "TypedModule"
     [ textListValue path,
@@ -111,6 +111,7 @@ moduleValue (TypedModule path sourcePath imports exports interface statements in
       listValue resolvedImportValue imports,
       listValue moduleExportValue exports,
       moduleInterfaceValue interface,
+      listValue recursiveGroupValue recursiveGroups,
       listValue statementValue statements,
       nodeInfoValue info
     ]
@@ -131,6 +132,10 @@ resolvedImportValue (TypedResolvedImport spanValue modulePath alias names) =
 moduleExportValue :: TypedModuleExport -> RuntimeValue
 moduleExportValue (TypedModuleExport namespace name) =
   constructor "TypedModuleExport" [nameNamespaceValue namespace, VText name]
+
+recursiveGroupValue :: TypedRecursiveGroup -> RuntimeValue
+recursiveGroupValue (TypedRecursiveGroup members) =
+  constructor "TypedRecursiveGroup" [listValue binderIdValue members]
 
 moduleInterfaceValue :: TypedModuleInterface -> RuntimeValue
 moduleInterfaceValue (TypedModuleInterface values datas classes impls) =

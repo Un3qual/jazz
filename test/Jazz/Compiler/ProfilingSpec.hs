@@ -463,6 +463,7 @@ testDeepTypedProgramForcing =
             []
             []
             (Typed.TypedModuleInterface [] [] [] [])
+            []
             [Typed.TypedExpressionStatement (Typed.TypedSpan 1 1) expression]
             boolInfo
         ]

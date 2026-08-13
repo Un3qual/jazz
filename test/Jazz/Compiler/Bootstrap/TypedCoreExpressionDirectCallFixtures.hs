@@ -1167,7 +1167,7 @@ expectedRootProgram :: [TypedStatement] -> TypedNodeInfo -> TypedProgram
 expectedRootProgram statements moduleInfo =
   TypedProgram
     Nothing
-    [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) statements moduleInfo]
+    [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) [] statements moduleInfo]
     modulePath
 
 scalarScheme :: TypedBinderId -> TypedNodeInfo -> TypedScheme
@@ -1698,6 +1698,7 @@ rfcClosureEnvironmentIdentityProgram = (typedProgram, loweredProgram)
             []
             []
             (TypedModuleInterface [] [] [] [])
+            []
             [ TypedLetStatement
                 functionBinder
                 functionName
@@ -2029,6 +2030,7 @@ exportedScalarLiftedLambdaNameCollisionProgram =
         []
         [TypedModuleExport TypedValueNamespace "item"]
         (TypedModuleInterface [TypedValueInterface itemName itemScheme] [] [] [])
+        []
         [ TypedLetStatement itemBinder itemName (TypedSpan 1 1) itemScheme (intExpr 1),
           TypedExpressionStatement
             (TypedSpan 2 1)
@@ -2120,6 +2122,7 @@ nonConcreteClosureRepresentationLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (polymorphicScheme signatureBinder),
           TypedLetStatement
             bindingBinder
@@ -2197,7 +2200,7 @@ callableShapeBodyDisagreementLowererProgram =
         []
     rewriteChooserShape programValue =
       case programValue of
-        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+        TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
           TypedProgram
             prelude
             [ TypedModule
@@ -2206,6 +2209,7 @@ callableShapeBodyDisagreementLowererProgram =
                 imports
                 exports
                 interface
+                recursiveGroups
                 (map rewriteStatement statements)
                 moduleInfo
             ]
@@ -2241,10 +2245,10 @@ closureShapeFlattenedRecipeLowererProgram =
     flattenedInfo = functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo
     rewriteRootRecipe programValue =
       case programValue of
-        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+        TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
           TypedProgram
             prelude
-            [TypedModule path source imports exports interface (map rewriteStatement statements) moduleInfo]
+            [TypedModule path source imports exports interface recursiveGroups (map rewriteStatement statements) moduleInfo]
             entryPath
         _ -> error "closure flattened-recipe lowerer fixture changed shape"
     rewriteStatement statement =
@@ -2275,10 +2279,10 @@ directShapeStagedRecipeLowererProgram =
         []
     rewriteRootRecipe programValue =
       case programValue of
-        TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+        TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
           TypedProgram
             prelude
-            [TypedModule path source imports exports interface (map rewriteStatement statements) moduleInfo]
+            [TypedModule path source imports exports interface recursiveGroups (map rewriteStatement statements) moduleInfo]
             entryPath
         _ -> error "direct staged-recipe lowerer fixture changed shape"
     rewriteStatement statement =
@@ -2299,10 +2303,10 @@ directShapeStagedRecipeLowererProgram =
 variableBinderReferenceMismatchLowererProgram :: TypedProgram
 variableBinderReferenceMismatchLowererProgram =
   case expectedFunctionProgram [] [boolIdentityFunction] (variableExpr "identity" boolCallableInfo) of
-    TypedProgram prelude [TypedModule path source imports exports interface statements moduleInfo] entryPath ->
+    TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
       TypedProgram
         prelude
-        [TypedModule path source imports exports interface (map corruptTerminal statements) moduleInfo]
+        [TypedModule path source imports exports interface recursiveGroups (map corruptTerminal statements) moduleInfo]
         entryPath
     _ -> error "variable binder-reference lowerer fixture changed shape"
   where
@@ -2373,6 +2377,7 @@ invalidScalarBindingRhsProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedLetStatement
             seedBinder
             seedName
@@ -2399,6 +2404,7 @@ combinedStatementFailureOrderLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedLetStatement
             seedBinder
             seedName
@@ -2434,6 +2440,7 @@ recursionDescendantFailureOrderLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         ( scalarStatement
             <> map
               (bindExpectedStatementVariables bindings)
@@ -2478,6 +2485,7 @@ capturingLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         ( scalarStatement
             <> map
               (bindExpectedStatementVariables bindings)
@@ -2600,6 +2608,7 @@ shapeRejectedCycleLowererProgram functions =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         (concatMap functionStatements indexedFunctions <> [TypedExpressionStatement (TypedSpan (length functions * 2 + 1) 1) (boolExpr True)])
         boolInfo
     ]
@@ -2659,6 +2668,7 @@ shapeRejectedBinderShadowControlLowererProgram =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [ TypedSignatureStatement signatureBinder functionName (TypedSpan 1 1) (functionScheme 0 function),
           TypedLetStatement
             bindingBinder
@@ -2735,6 +2745,7 @@ importedDirectCallLowererProgram =
         []
         [TypedModuleExport TypedValueNamespace "foreign"]
         (TypedModuleInterface [TypedValueInterface providerName providerScheme] [] [] [])
+        []
         [ TypedLetStatement
             providerOwner
             providerName
@@ -2760,6 +2771,7 @@ importedDirectCallLowererProgram =
         [TypedResolvedImport (TypedSpan 1 1) providerPath Nothing (Just ["foreign"])]
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [TypedExpressionStatement (TypedSpan 1 1) callExpression]
         intInfo
 
@@ -4270,6 +4282,7 @@ entryModule =
     []
     []
     (TypedModuleInterface [] [] [] [])
+    []
     [TypedExpressionStatement (TypedSpan 1 1) (TypedTupleExpr unitInfo [])]
     unitInfo
 
@@ -4311,7 +4324,7 @@ binaryExpr resultInfo operator left right = TypedBinaryExpr resultInfo (TypedBui
 
 expectedScalarProgram :: TypedNodeInfo -> TypedExpr -> TypedProgram
 expectedScalarProgram moduleInfo expression =
-  TypedProgram Nothing [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) [TypedExpressionStatement (TypedSpan 1 1) expression] moduleInfo] modulePath
+  TypedProgram Nothing [TypedModule modulePath validSourcePath [] [] (TypedModuleInterface [] [] [] []) [] [TypedExpressionStatement (TypedSpan 1 1) expression] moduleInfo] modulePath
 
 expectedScalarStatements :: [TypedExpr] -> TypedProgram
 expectedScalarStatements expressions =
@@ -4323,6 +4336,7 @@ expectedScalarStatements expressions =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         (zipWith (\line expression -> TypedExpressionStatement (TypedSpan line 1) expression) [1 ..] expressions)
         (typedExpressionInfo (last expressions))
     ]
@@ -4534,12 +4548,29 @@ explicitNumericFunctions =
             TypedDirectCallableShape
             (TypedLiteralExpr resultInfo literal)
 
+typedRecursiveGroupSchemaSentinel :: TypedRecursiveGroup
+typedRecursiveGroupSchemaSentinel =
+  TypedRecursiveGroup
+    [TypedBinderId (modulePath, [1], resolvedName "loop")]
+
 expectedFunctionProgram :: [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
-expectedFunctionProgram = expectedFunctionProgramWithLineOffset 0
+expectedFunctionProgram = expectedFunctionProgramWithRecursiveGroups []
+
+expectedFunctionProgramWithRecursiveGroups ::
+  [[Text]] ->
+  [Text] ->
+  [ExpectedFunction] ->
+  TypedExpr ->
+  TypedProgram
+expectedFunctionProgramWithRecursiveGroups = expectedFunctionProgramWithLineOffsetAndRecursiveGroups 0
 
 expectedFunctionProgramWithLineOffset :: Int -> [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
-expectedFunctionProgramWithLineOffset lineOffset exportedNames functions terminalExpression =
-  TypedProgram
+expectedFunctionProgramWithLineOffset lineOffset = expectedFunctionProgramWithLineOffsetAndRecursiveGroups lineOffset []
+
+expectedFunctionProgramWithLineOffsetAndRecursiveGroups :: Int -> [[Text]] -> [Text] -> [ExpectedFunction] -> TypedExpr -> TypedProgram
+expectedFunctionProgramWithLineOffsetAndRecursiveGroups lineOffset recursiveGroupNames exportedNames functions terminalExpression =
+  typedRecursiveGroupSchemaSentinel `seq`
+    TypedProgram
     Nothing
     [ TypedModule
         modulePath
@@ -4547,6 +4578,7 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         []
         [TypedModuleExport TypedValueNamespace name | name <- exportedNames]
         typedInterface
+        recursiveGroups
         statements
         (typedExpressionInfo boundTerminalExpression)
     ]
@@ -4570,6 +4602,13 @@ expectedFunctionProgramWithLineOffset lineOffset exportedNames functions termina
         ]
     terminalIndex = length functionStatements
     boundTerminalExpression = bindExpectedExpressionVariables functionOwners terminalExpression
+    recursiveGroups =
+      [ TypedRecursiveGroup
+          [ functionOwners Map.! resolvedName name
+          | name <- names
+          ]
+      | names <- recursiveGroupNames
+      ]
     statements =
       functionStatements
         <> [TypedExpressionStatement (TypedSpan (lineOffset + terminalIndex + 1) 1) boundTerminalExpression]

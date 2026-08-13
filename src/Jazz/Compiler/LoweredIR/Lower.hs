@@ -162,10 +162,10 @@ lowerValidatedProgram (TypedProgram maybePrelude modules entryModulePath) =
               LoweredIRUnsupportedProgram
               LoweredIRNoFailureDetail
           ]
-    typedModulePath (TypedModule modulePath _ _ _ _ _ _) = modulePath
+    typedModulePath (TypedModule modulePath _ _ _ _ _ _ _) = modulePath
 
 lowerValidatedModule :: TypedModule -> Either [LoweredIRLoweringFailure] LoweredProgram
-lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface statements moduleInfo) =
+lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface _ statements moduleInfo) =
   case allFailures of
     failures@(_ : _) -> Left failures
     [] ->

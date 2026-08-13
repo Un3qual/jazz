@@ -352,6 +352,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             []
             (typedExports typedInterface)
             typedInterface
+            []
             typedStatements
             moduleInfo
         ]

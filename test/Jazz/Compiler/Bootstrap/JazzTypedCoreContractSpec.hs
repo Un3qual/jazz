@@ -6576,7 +6576,7 @@ retainedCapabilityExportProgram =
       TypedProgram prelude (map addCapabilityExport modules) entryPath
   where
     facadePath = (fixtureLibraryPath "RetainedCapabilityFacade")
-    addCapabilityExport moduleValue@(TypedModule modulePath sourcePath imports exports interface statements moduleInfo)
+    addCapabilityExport moduleValue@(TypedModule modulePath sourcePath imports exports interface recursiveGroups statements moduleInfo)
       | modulePath == facadePath =
           TypedModule
             modulePath
@@ -6584,6 +6584,7 @@ retainedCapabilityExportProgram =
             imports
             (TypedModuleExport TypedCapabilityNamespace "ForeignEq" : exports)
             interface
+            recursiveGroups
             statements
             moduleInfo
       | otherwise = moduleValue
@@ -7075,13 +7076,14 @@ invalidDeclarationSpansProgram =
   where
     invalidPrelude =
       case fixturePrelude of
-        TypedModule modulePath sourcePath imports exports interface statements moduleInfo ->
+        TypedModule modulePath sourcePath imports exports interface recursiveGroups statements moduleInfo ->
           TypedModule
             modulePath
             sourcePath
             imports
             exports
             (invalidateInterface interface)
+            recursiveGroups
             (map invalidateStatement statements)
             moduleInfo
     invalidateInterface (TypedModuleInterface values datas classes impls) =
@@ -8246,7 +8248,7 @@ qualifiedTypeApplicationInstantiationProgram =
   case qualifiedMethodTypeApplicationProgram of
     TypedProgram
       prelude
-      [TypedModule _ sourcePath imports exports interface [TypedExpressionStatement expressionSpan originalExpression] _]
+      [TypedModule _ sourcePath imports exports interface _ [TypedExpressionStatement expressionSpan originalExpression] _]
       _ ->
         case originalExpression of
           TypedTypeApplicationExpr (TypedNodeInfo resultType resultRecipe [] evidence) function explicitSpan typeArgument ->
@@ -8271,6 +8273,7 @@ qualifiedTypeApplicationInstantiationProgram =
                     imports
                     exports
                     interface
+                    []
                     [ TypedLetStatement
                         qualifiedTypeApplicationInstantiationOwner
                         ordinaryName
@@ -11053,6 +11056,7 @@ missingModuleResultProgram =
         []
         []
         emptyInterface
+        []
         [TypedLetStatement owner name span1 (monoScheme owner) trueExpr]
         boolInfo
     ]
@@ -15666,6 +15670,7 @@ typedModule modulePath sourcePath imports exports interface statements moduleInf
     imports
     exports
     interface
+    []
     statements
     (if hasTerminalExpression statements then moduleInfo else unitInfo)
 

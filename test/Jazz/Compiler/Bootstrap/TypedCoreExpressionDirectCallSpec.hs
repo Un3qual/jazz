@@ -629,7 +629,7 @@ testLexicalCaptureFixtureMatrix = do
     typedLambdaBinders (TypedProgram _ modules _) =
       concat
         [ concatMap statementLambdaBinders statements
-        | TypedModule _ _ _ _ _ statements _ <- modules
+        | TypedModule _ _ _ _ _ _ statements _ <- modules
         ]
     statementLambdaBinders statement =
       case statement of
@@ -1225,7 +1225,7 @@ testClosureShapeClassificationCollapse = do
   secondRun <- produceFixture fixture
   assertEqual "mixed callable-use classification repeatability" firstRun secondRun
   case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded (TypedProgram _ [TypedModule _ _ _ _ _ statements _] _) ->
+    TypedCoreProductionSucceeded (TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _) ->
       assertEqual "mixed callable-use scheme classifications" expectedShapes (callableSchemeShapes statements)
     status -> failTest ("mixed callable-use fixture did not produce typed core: " <> Text.pack (show status))
   where

@@ -6790,7 +6790,7 @@ module TypedCoreValidate (
 
   typedModulePath :: TypedModule -> [Text].
   typedModulePath = \(moduleValue) -> case moduleValue {
-    | TypedModule modulePath sourcePath imports exports interface statements info -> modulePath
+    | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> modulePath
   }.
 
   modulePaths :: [TypedModule] -> [[Text]].
@@ -6813,7 +6813,7 @@ module TypedCoreValidate (
 
   typedModuleImports :: TypedModule -> [TypedResolvedImport].
   typedModuleImports = \(moduleValue) -> case moduleValue {
-    | TypedModule modulePath sourcePath imports exports interface statements info -> imports
+    | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> imports
   }.
 
   reachableModulePathsFrom :: [TypedModule] -> [[Text]] -> [[Text]] -> [[Text]].
@@ -6926,7 +6926,7 @@ module TypedCoreValidate (
 
   selectedImportNamePresent :: Text -> TypedModule -> Bool.
   selectedImportNamePresent = \(selectedName, moduleValue) -> case moduleValue {
-    | TypedModule modulePath sourcePath imports exports interface statements info -> selectedImportNamePresentInExports selectedName interface exports
+    | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> selectedImportNamePresentInExports selectedName interface exports
   }.
 
   validateSelectedImportNames :: [Text] -> TypedModule -> [Text] -> [TypedCoreValidationFailure].
@@ -7051,7 +7051,7 @@ module TypedCoreValidate (
   interfaceSchemeEntries :: VisibleModule -> [SchemeEntry].
   interfaceSchemeEntries = \(visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
-      | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
+      | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> listAppend (valueInterfaceSchemeEntries modulePath selectedNames exports values) (classInterfaceSchemeEntries modulePath selectedNames exports classes)
       }
     }
@@ -7171,7 +7171,7 @@ module TypedCoreValidate (
   interfaceNameEntries :: VisibleModule -> [NameEntry].
   interfaceNameEntries = \(visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
-      | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
+      | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
           requiredCapabilities = schemeEntryCapabilityNameEntries modulePath (interfaceSchemeEntries visibleModule).
           classInterfaceNameEntries modulePath selectedNames exports requiredCapabilities classes
@@ -7337,7 +7337,7 @@ module TypedCoreValidate (
   interfaceImplIds :: VisibleModule -> [TypedImplId].
   interfaceImplIds = \(visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
-      | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
+      | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
           requiredCapabilities = schemeEntryCapabilityNameEntries modulePath (interfaceSchemeEntries visibleModule).
           interfaceImplIdsFrom modulePath selectedNames exports requiredCapabilities classes impls statements.
@@ -7435,7 +7435,7 @@ module TypedCoreValidate (
   findDataMetadataDeclaration :: NameEntry -> [TypedModule] -> Maybe(DataMetadataDeclaration).
   findDataMetadataDeclaration = \(expected, modules) -> case (expected, modules) {
     | (NameEntry expectedPath TypedTypeNamespace expectedIdentifier, []) -> Nothing
-    | (NameEntry expectedPath TypedTypeNamespace expectedIdentifier, [TypedModule modulePath sourcePath imports exports interface statements info | rest]) ->
+    | (NameEntry expectedPath TypedTypeNamespace expectedIdentifier, [TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info | rest]) ->
       if textListEqual expectedPath modulePath then case interface {
         | TypedModuleInterface values datas classes impls -> findDataMetadataInInterfaces modulePath expectedIdentifier datas
       } else findDataMetadataDeclaration expected rest
@@ -7523,7 +7523,7 @@ module TypedCoreValidate (
   interfaceClassDeclarations :: VisibleModule -> [TypedClassDeclaration].
   interfaceClassDeclarations = \(visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
-      | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
+      | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
           requiredCapabilities =
             schemeEntryCapabilityNameEntries modulePath (interfaceSchemeEntries visibleModule).
@@ -7536,7 +7536,7 @@ module TypedCoreValidate (
   interfaceDataEntries :: [TypedModule] -> VisibleModule -> [DataEntry].
   interfaceDataEntries = \(completeModules, visibleModule) -> case visibleModule {
     | VisibleModule selectedNames moduleValue -> case moduleValue {
-      | TypedModule modulePath sourcePath imports exports interface statements info -> case interface {
+      | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements info -> case interface {
         | TypedModuleInterface values datas classes impls -> {
           selectedSchemeEntries = interfaceSchemeEntries visibleModule.
           requiredCapabilities = schemeEntryCapabilityNameEntries modulePath selectedSchemeEntries.
@@ -7660,7 +7660,7 @@ module TypedCoreValidate (
 
   validateModule :: [TypedModule] -> Maybe(TypedModule) -> Bool -> TypedModule -> [TypedCoreValidationFailure].
   validateModule = \(completeModules, prelude, isPrelude, moduleValue) -> case moduleValue {
-    | TypedModule modulePath sourcePath imports exports interface statements moduleInfo -> {
+    | TypedModule modulePath sourcePath imports exports interface recursiveGroups statements moduleInfo -> {
       externalModules = visibleModulesFor isPrelude prelude imports completeModules.
       visibleModules = listAppend [modulePath, ["Prelude"]] (resolvedImportPaths imports).
       schemes = visibleModuleSchemeEntries externalModules.
