@@ -884,6 +884,43 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             TFunctionType argumentType resultType -> argumentType : argumentTypes resultType
             _ -> []
 
+    specializeProvisionalNamedApplications functions expression =
+      case expression of
+        ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
+          ProvisionalBinaryExpression
+            operatorSymbol
+            expressionType
+            operandType
+            (specializeProvisionalNamedApplications functions left)
+            (specializeProvisionalNamedApplications functions right)
+        ProvisionalLambdaExpression parameterName expressionType body ->
+          ProvisionalLambdaExpression
+            parameterName
+            expressionType
+            (specializeProvisionalNamedApplications functions body)
+        ProvisionalApplyExpression {} ->
+          let (callee, arguments, resultTypes) = applicationSpine expression
+              specializedCallee = specializeProvisionalNamedApplications functions callee
+              specializedArguments =
+                [ (argumentPath, specializeProvisionalNamedApplications functions argument)
+                | (argumentPath, argument) <- arguments
+                ]
+              (selectedArguments, selectedResultTypes) =
+                case callee of
+                  ProvisionalVariableExpression name _
+                    | Just function <- Map.lookup name functions ->
+                        ( applicationArguments (functionType function) specializedArguments,
+                          applicationResultTypes (functionType function) resultTypes
+                        )
+                  _ -> (specializedArguments, resultTypes)
+           in foldl'
+                ( \functionExpression (resultType, (_, argument)) ->
+                    ProvisionalApplyExpression resultType functionExpression argument
+                )
+                specializedCallee
+                (zip selectedResultTypes selectedArguments)
+        _ -> expression
+
     callableOversaturationSupported directArity resultTypes =
       all isCallableResult intermediateOversaturationResults
       where
@@ -1318,36 +1355,75 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           | nextCaptureTypes == captureTypes = captureTypes
           | otherwise = propagateScalarCaptureTypes nextCaptureTypes
           where
-            nextCaptureTypes = foldl' propagateStatementCaptureTypes captureTypes statements
-        propagateStatementCaptureTypes captureTypes statement =
+            nextCaptureTypes = foldl' (propagateStatementCaptureTypes specializedFunctions) captureTypes statements
+            specializedFunctions = specializeFunctionProfiles captureTypes statements functions
+        propagateStatementCaptureTypes specializedFunctions captureTypes statement =
           case statement of
             ProvisionalScalarBinding statementIndex name _ _ expression ->
               let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements
                   owner = binderAt statementIndex [] (resolvedValueName name)
+                  namedApplicationCaptureTypes =
+                    propagateNamedApplicationCaptureTypes
+                      specializedFunctions
+                      captureTypes
+                      scalarBindings
+                      (Just owner)
+                      expression
                   selectedCaptureType =
-                    Map.lookup owner captureTypes
-                      <|> scalarCaptureExpectedType captureTypes scalarBindings expression
-               in propagateExpressionCaptureTypes captureTypes selectedCaptureType scalarBindings (Just owner) expression
+                    Map.lookup owner namedApplicationCaptureTypes
+                      <|> scalarCaptureExpectedType namedApplicationCaptureTypes scalarBindings expression
+               in propagateExpressionCaptureTypes namedApplicationCaptureTypes selectedCaptureType scalarBindings (Just owner) expression
             ProvisionalFunctionBinding declaration expression ->
               let statementIndex = provisionalCallableStatementIndex declaration
                   scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements
-                  selectedCaptureType = scalarCaptureExpectedType captureTypes scalarBindings expression
+                  namedApplicationCaptureTypes =
+                    propagateNamedApplicationCaptureTypes
+                      specializedFunctions
+                      captureTypes
+                      scalarBindings
+                      Nothing
+                      expression
+                  selectedCaptureType = scalarCaptureExpectedType namedApplicationCaptureTypes scalarBindings expression
                in case selectedCaptureType of
                     Just captureType ->
                       foldl'
                         addCaptureType
-                        captureTypes
+                        namedApplicationCaptureTypes
                         ( provisionalRecoloredScalarReferenceTypes
                             scalarBindings
                             expression
                             (specializeProvisionalCallableCapture state captureType expression)
                         )
-                    Nothing -> captureTypes
+                    Nothing -> namedApplicationCaptureTypes
             ProvisionalTerminalExpression statementIndex _ expression ->
               let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements
-                  selectedCaptureType = scalarCaptureExpectedType captureTypes scalarBindings expression
-               in propagateExpressionCaptureTypes captureTypes selectedCaptureType scalarBindings Nothing expression
+                  namedApplicationCaptureTypes =
+                    propagateNamedApplicationCaptureTypes
+                      specializedFunctions
+                      captureTypes
+                      scalarBindings
+                      Nothing
+                      expression
+                  selectedCaptureType = scalarCaptureExpectedType namedApplicationCaptureTypes scalarBindings expression
+               in propagateExpressionCaptureTypes namedApplicationCaptureTypes selectedCaptureType scalarBindings Nothing expression
             _ -> captureTypes
+        propagateNamedApplicationCaptureTypes specializedFunctions captureTypes scalarBindings maybeOwner expression =
+          foldl'
+            addCaptureType
+            captureTypes
+            ( ownerSpecialization
+                <> provisionalRecoloredScalarReferenceTypes scalarBindings expression specializedExpression
+            )
+          where
+            specializedExpression = specializeProvisionalNamedApplications specializedFunctions expression
+            ownerSpecialization =
+              [ (owner, concreteType)
+              | owner <- maybe [] (: []) maybeOwner,
+                Just originalType <- [provisionalExpressionType state expression],
+                Just specializedType <- [provisionalExpressionType state specializedExpression],
+                resolveType state originalType /= resolveType state specializedType,
+                Just concreteType <- [concreteIntegralType (resolveType state specializedType)]
+              ]
         propagateExpressionCaptureTypes captureTypes maybeCaptureType scalarBindings maybeOwner expression =
           case maybeCaptureType of
             Just captureType ->
