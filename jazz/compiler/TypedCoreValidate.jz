@@ -5316,6 +5316,17 @@ module TypedCoreValidate (
     | [RootCallable statementIndex binder statement expression | rest] -> listPrepend binder (rootCallableBinders rest)
   }.
 
+  rootCallableBinderIdentityAmbiguousFrom :: [RootCallable] -> [TypedBinderId] -> Bool.
+  rootCallableBinderIdentityAmbiguousFrom = \(callables, seen) -> case callables {
+    | [] -> False
+    | [RootCallable statementIndex binder statement expression | rest] ->
+      if binderIdMember binder seen then True else
+        rootCallableBinderIdentityAmbiguousFrom rest (listAppend seen [binder])
+  }.
+
+  rootCallableBinderIdentityAmbiguous :: [RootCallable] -> Bool.
+  rootCallableBinderIdentityAmbiguous = \(callables) -> rootCallableBinderIdentityAmbiguousFrom callables [].
+
   rootCallableForBinder :: TypedBinderId -> [RootCallable] -> Maybe(RootCallable).
   rootCallableForBinder = \(candidate, callables) -> case callables {
     | [] -> Nothing
@@ -5505,11 +5516,12 @@ module TypedCoreValidate (
     orderingFailures = listAppend memberOrderingFailures groupOrderingFailures.
     if listLength basicFailures > 0 then basicFailures else
       if listLength orderingFailures > 0 then orderingFailures else
-        firstRootGroupMismatch
-          modulePath
-          callables
-          (declaredRecursiveBinderGroups declaredGroups)
-          (rootCyclicBinderGroups callables).
+        if rootCallableBinderIdentityAmbiguous callables then [] else
+          firstRootGroupMismatch
+            modulePath
+            callables
+            (declaredRecursiveBinderGroups declaredGroups)
+            (rootCyclicBinderGroups callables).
   }.
 
   rootGroupStatementsForMembers :: [RootCallable] -> [TypedBinderId] -> [TypedStatement].

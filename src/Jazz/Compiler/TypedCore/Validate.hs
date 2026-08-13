@@ -1521,12 +1521,19 @@ rootRecursiveGroupFailures :: [Text] -> [TypedStatement] -> [TypedRecursiveGroup
 rootRecursiveGroupFailures modulePath statements declaredGroups
   | not (null basicFailures) = basicFailures
   | not (null orderingFailures) = orderingFailures
+  | callableBinderIdentityAmbiguous = []
   | otherwise = maybeToList reachabilityFailure
   where
     callableDeclarations = rootCallableDeclarations statements
     callableByBinder =
-      Map.fromList
+      Map.fromListWith
+        (\_ existing -> existing)
         [(binderId, (statementIndex, statement)) | (statementIndex, binderId, statement, _) <- callableDeclarations]
+    callableBinderIdentityAmbiguous =
+      snd (foldl' collectCallableBinder (Set.empty, False) callableDeclarations)
+    collectCallableBinder (seen, ambiguous) (_, binderId, _, _)
+      | Set.member binderId seen = (seen, True)
+      | otherwise = (Set.insert binderId seen, ambiguous)
     (_, basicFailures) =
       foldl' validateBasicGroup (Set.empty, []) (zip [0 :: Int ..] declaredGroups)
     validateBasicGroup (seen, failures) (groupIndex, TypedRecursiveGroup members)

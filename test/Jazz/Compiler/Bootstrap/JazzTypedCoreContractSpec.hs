@@ -8849,6 +8849,15 @@ recursiveGroupFixCases =
           TypedDuplicateBinder
           (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-first-overlap-visibility" 0))
       ]
+    ),
+    ( "review-recursive-group-duplicate-callable-identity",
+      recursiveGroupDuplicateCallableIdentityProgram,
+      [ statementFailure
+          "review-recursive-group-duplicate-callable-identity"
+          1
+          TypedDuplicateBinder
+          (TypedBinderDetail (recursiveGroupOwner "review-recursive-group-duplicate-callable-identity" 0))
+      ]
     )
   ]
 
@@ -8901,6 +8910,37 @@ recursiveGroupFirstOverlapVisibilityProgram =
     [TypedDirectCallableShape, TypedDirectCallableShape, TypedDirectCallableShape]
     [Just 1, Nothing, Nothing]
     [[0, 1], [0, 2]]
+
+recursiveGroupDuplicateCallableIdentityProgram :: TypedProgram
+recursiveGroupDuplicateCallableIdentityProgram =
+  TypedProgram Nothing [moduleValue] modulePath
+  where
+    fixture = "review-recursive-group-duplicate-callable-identity"
+    modulePath = fixtureModulePath fixture
+    functionName = fixtureValueName "function0"
+    functionOwner = recursiveGroupOwner fixture 0
+    functionScheme = recursiveGroupScheme functionOwner TypedDirectCallableShape
+    firstStatement =
+      recursiveGroupCallable
+        modulePath
+        0
+        functionOwner
+        functionName
+        functionScheme
+        functionOwner
+        functionName
+    secondStatement =
+      recursiveGroupIdentityCallable modulePath 1 functionOwner functionName functionScheme
+    moduleValue =
+      TypedModule
+        modulePath
+        relativeSource
+        []
+        []
+        emptyInterface
+        [TypedRecursiveGroup [functionOwner]]
+        [firstStatement, secondStatement]
+        unitInfo
 
 recursiveGroupDirectSelfProgram :: TypedProgram
 recursiveGroupDirectSelfProgram =
