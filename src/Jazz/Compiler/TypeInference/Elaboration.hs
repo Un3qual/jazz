@@ -646,30 +646,23 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       actualArity = length arguments
                       arityFailures =
                         [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
-                        | actualArity /= expectedArity
+                        | actualArity > expectedArity,
+                          not (callableOversaturationSupported expectedArity resultTypes)
                         ]
                       (calleeFailures, maybeCallee) =
-                        finalizeExpression functions callableShapes statementIndex childPath parameters CalleeExpression callee
+                        finalizeExpression functions callableShapes statementIndex (childPath <> replicate actualArity 0) parameters CalleeExpression callee
                       childFailures = calleeFailures <> argumentFailures
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
-                          case (resultTypes, finalizedArguments) of
-                            ([resultType], [(_, maybeArgument)]) ->
-                              let (resultInfoFailures, maybeResultInfo) =
-                                    case scalarOrCallableInfo statementIndex childPath resultType of
-                                      Left failure -> ([failure], Nothing)
-                                      Right info -> ([], Just info)
-                                  failures = childFailures <> resultInfoFailures
-                                  typedApplication = TypedApplyExpr <$> maybeResultInfo <*> maybeCallee <*> maybeArgument
-                               in (failures, if null failures then typedApplication else Nothing)
-                            _ -> ([], Nothing)
+                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
               | Just function <- Map.lookup name functions ->
                   let expectedArity = functionArity function
                       actualArity = length arguments
                       arityFailures =
                         [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
-                        | actualArity /= expectedArity
+                        | actualArity > expectedArity,
+                          not (callableOversaturationSupported expectedArity resultTypes)
                         ]
                       (calleeFailures, maybeCallee) =
                         finalizeExpression functions callableShapes statementIndex childPath parameters CalleeExpression callee
@@ -677,25 +670,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
-                          let (resultInfoFailures, resultInfos) =
-                                partitionEithers
-                                  ( zipWith
-                                      (scalarOrCallableInfo statementIndex)
-                                      [childPath <> replicate remainingApplications 0 | remainingApplications <- reverse [0 .. actualArity - 1]]
-                                      resultTypes
-                                  )
-                              failures = childFailures <> resultInfoFailures
-                              maybeArguments = traverse snd finalizedArguments
-                              typedApplication = do
-                                typedCallee <- maybeCallee
-                                typedArguments <- maybeArguments
-                                pure
-                                  ( foldl'
-                                      (\typedFunction (info, argument) -> TypedApplyExpr info typedFunction argument)
-                                      typedCallee
-                                      (zip resultInfos typedArguments)
-                                  )
-                           in (failures, if null failures then typedApplication else Nothing)
+                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
             ProvisionalVariableExpression name _ ->
               ( failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))
                   : argumentFailures,
@@ -705,7 +680,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               let actualArity = length arguments
                   arityFailures =
                     [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail 1 actualArity)
-                    | actualArity /= 1
+                    | actualArity > 1,
+                      not (callableOversaturationSupported 1 resultTypes)
                     ]
                   (calleeFailures, maybeCallee) =
                     finalizeExpression
@@ -719,15 +695,27 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   childFailures = calleeFailures <> argumentFailures
                in case (arityFailures, resultTypes, finalizedArguments) of
                     (_ : _, _, _) -> (arityFailures <> childFailures, Nothing)
-                    ([], [resultType], [(_, maybeArgument)]) ->
-                      let (resultInfoFailures, maybeResultInfo) =
-                            case scalarOrCallableInfo statementIndex childPath resultType of
-                              Left failure -> ([failure], Nothing)
-                              Right info -> ([], Just info)
-                          failures = childFailures <> resultInfoFailures
-                          typedApplication = TypedApplyExpr <$> maybeResultInfo <*> maybeCallee <*> maybeArgument
-                       in (failures, if null failures then typedApplication else Nothing)
-                    _ -> (childFailures, Nothing)
+                    ([], _, _) -> finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
+
+    finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes =
+      let (resultInfoFailures, resultInfos) =
+            partitionEithers
+              ( zipWith
+                  (scalarOrCallableInfo statementIndex)
+                  [childPath <> replicate remainingApplications 0 | remainingApplications <- reverse [0 .. length resultTypes - 1]]
+                  resultTypes
+              )
+          failures = childFailures <> resultInfoFailures
+          typedApplication = do
+            typedCallee <- maybeCallee
+            typedArguments <- traverse snd finalizedArguments
+            pure
+              ( foldl'
+                  (\typedFunction (info, argument) -> TypedApplyExpr info typedFunction argument)
+                  typedCallee
+                  (zip resultInfos typedArguments)
+              )
+       in (failures, if null failures then typedApplication else Nothing)
 
     applicationSpine = go [] [] []
       where
@@ -740,6 +728,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 (resultType : resultTypes)
                 function
             _ -> (expression, arguments, resultTypes)
+
+    callableOversaturationSupported directArity resultTypes =
+      all isCallableResult intermediateOversaturationResults
+      where
+        intermediateOversaturationResults =
+          take
+            (max 0 (length resultTypes - directArity))
+            (drop (max 0 (directArity - 1)) resultTypes)
+        isCallableResult expressionType =
+          case defaultScalarLiterals (resolveType state expressionType) of
+            TFunctionType {} -> True
+            _ -> False
 
     statementFailure statementIndex kind detail =
       TypedCoreProductionFailure (TypedCoreProductionStatementPath modulePath statementIndex) kind detail
@@ -975,7 +975,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   ProvisionalVariableExpression name _
                     | Set.notMember name lexicalNames,
                       Just function <- Map.lookup name functions,
-                      length arguments == functionArity function ->
+                      length arguments >= functionArity function ->
                         callableShapes
                   _ -> collectExpressionCallableUses functions lexicalNames callableShapes callee
            in foldl'

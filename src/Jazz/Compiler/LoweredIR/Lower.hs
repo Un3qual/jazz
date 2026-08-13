@@ -1091,9 +1091,10 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
           case findFunctionShape binderReference functions of
             Just target
               | functionShapeCallableShape target == TypedClosureCallableShape,
-                actualArity == 1 ->
+                actualArity >= 1 ->
                   []
-              | expectedArity == actualArity ->
+              | functionShapeCallableShape target == TypedDirectCallableShape,
+                actualArity >= expectedArity ->
                   []
               | otherwise ->
                   [ LoweredIRLoweringFailure
@@ -1105,7 +1106,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                 expectedArity = length (functionShapeParameters target)
             Nothing
               | Just _ <- findParameterShape binderReference parameters,
-                actualArity == 1 ->
+                actualArity >= 1 ->
                   []
               | Just _ <- findParameterShape binderReference parameters ->
                   [ LoweredIRLoweringFailure
@@ -1115,7 +1116,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                   ]
             Nothing
               | Just (CaptureShape _ LoweredClosureRepresentation {}) <- findCaptureShape binderReference captures,
-                actualArity == 1 ->
+                actualArity >= 1 ->
                   []
               | Just (CaptureShape _ LoweredClosureRepresentation {}) <- findCaptureShape binderReference captures ->
                   [ LoweredIRLoweringFailure
@@ -1132,24 +1133,17 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                   LoweredIRNonLocalCallUnsupported
                   (LoweredIRNameFailureDetail name)
               ]
-        _
-          | actualArity == 1 ->
-              inspectExpression
-                modulePath
-                statementPath
-                calleePath
-                functions
-                localValueNames
-                allowEntryLocals
-                parameters
-                captures
-                callee
-          | otherwise ->
-              [ LoweredIRLoweringFailure
-                  path
-                  LoweredIRCallableValueUnsupported
-                  LoweredIRNoFailureDetail
-              ]
+        _ ->
+          inspectExpression
+            modulePath
+            statementPath
+            calleePath
+            functions
+            localValueNames
+            allowEntryLocals
+            parameters
+            captures
+            callee
 
     actualArity = length arguments
 
@@ -1665,6 +1659,8 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
           case findFunctionShape binderReference functions of
             Just target
               | functionShapeCallableShape target == TypedClosureCallableShape ->
+                  lowerClosureApplication
+              | length arguments > length (functionShapeParameters target) ->
                   lowerClosureApplication
               | length arguments == length (functionShapeParameters target) ->
                   case resultRepresentationFailures <> argumentFailures of

@@ -71,7 +71,7 @@ tests =
     ("rejects wrong validation field categories", testCheckedValidationAdapterWrongFieldCategory),
     ("rejects malformed nested validation values", testCheckedValidationAdapterMalformedNestedValue),
     ("validates the minimal contract through real Jazz modules", testJazzMinimalValidation),
-    ("matches Haskell validation for all 45 Jazz fixtures twice", testJazzValidationParity),
+    ("matches Haskell validation for all 47 Jazz fixtures twice", testJazzValidationParity),
     ("matches Haskell validation for every hardening regression twice", testJazzHardeningParity)
   ]
 
@@ -298,7 +298,7 @@ testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
   assertEqual "invalid fixture count" 31 (length invalidFixtures)
-  assertEqual "complete fixture count" 45 (length validFixtures + length invalidFixtures)
+  assertEqual "complete fixture count" 47 (length validFixtures + length invalidFixtures)
 
 testFixtureManifestIntegrity :: IO ()
 testFixtureManifestIntegrity = do
@@ -517,7 +517,7 @@ testCompleteFailureOrder =
 testValidFixtureManifest :: IO ()
 testValidFixtureManifest = do
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 14 (length validFixtures)
+  assertEqual "valid fixture count" 16 (length validFixtures)
 
 testValidContractRendering :: IO ()
 testValidContractRendering = do
@@ -761,6 +761,8 @@ expectedValidFixtureNames =
     "typed-core-named-function-value",
     "typed-core-higher-order-call",
     "typed-core-closure-result",
+    "typed-core-curried-partial-application",
+    "typed-core-curried-callable-oversaturation",
     "typed-core-lexical-capture"
   ]
 
