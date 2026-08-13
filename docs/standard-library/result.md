@@ -3,28 +3,142 @@ title: Result
 description: Represent a successful value or a recoverable error.
 ---
 
-Import `Result` to use `Result(e, a)`. `Err e` carries a recoverable error and
-`Ok a` carries a successful value.
+Import `Result` for operations with an explicit success or error branch.
 
-## Transforming values
+## Type and constructors
 
-- `resultMap` transforms the value inside `Ok`.
-- `resultMapError` transforms the error inside `Err`.
-- `resultAndThen` sequences an operation that can return another `Result`.
-- `resultRecover` maps an error into a replacement result.
+### `Result`
+
+<!-- jazz-signature -->
+
+```jazz
+data Result e a = Err e | Ok a.
+```
+
+`Result(e, a)` contains an error of type `e` or a successful value of type `a`.
+
+### `Err`
+
+Constructs an error result from a value of type `e`.
+
+### `Ok`
+
+Constructs a successful result from a value of type `a`. Both constructors are
+public and may be used in
+[patterns](../language/algebraic-data-types-and-patterns.md).
+
+## Transforming
+
+### `resultMap`
+
+<!-- jazz-signature -->
+
+```jazz
+resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
+```
+
+Transforms the value inside `Ok` and preserves `Err` unchanged. Example:
+`resultMap (\(value) -> value + 1) (Ok 2)` produces `Ok 3`.
+
+### `resultMapError`
+
+<!-- jazz-signature -->
+
+```jazz
+resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
+```
+
+Transforms the value inside `Err` and preserves `Ok` unchanged. Example:
+`resultMapError show (Err 4)` produces `Err "4"`.
+
+### `resultAndThen`
+
+<!-- jazz-signature -->
+
+```jazz
+resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
+```
+
+Calls the function for `Ok` and returns its result without nesting. `Err` skips
+the function and passes through.
+
+### `resultRecover`
+
+<!-- jazz-signature -->
+
+```jazz
+resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
+```
+
+Calls the recovery function for `Err`. `Ok` skips recovery and keeps its value.
+This can also change the error type. Example: `resultRecover (\(_) -> Ok 0)
+(Err "missing")` produces `Ok 0`.
+
+All transformation operations are `O(1)` apart from the callback.
 
 ## Defaults and inspection
 
-`resultWithDefault` selects an `Ok` value or a supplied default.
-`resultIsOk` and `resultIsErr` inspect the active constructor.
+### `resultWithDefault`
 
-## Conversions
+<!-- jazz-signature -->
 
-`resultToMaybe` keeps an `Ok` value and discards an error.
-`resultErrorToMaybe` keeps an `Err` value and discards a success.
-`resultFromMaybe` supplies an error for `Nothing` and converts `Just` to `Ok`.
+```jazz
+resultWithDefault :: a -> Result(e, a) -> a.
+```
 
-These operations are `O(1)` apart from invoked callbacks. A transformation
-preserves the branch it does not target. The constructors are public and can be
-used in [patterns](../language/algebraic-data-types-and-patterns.md). See
-[Maybe](maybe.md) when absence does not need an error value.
+Returns the value inside `Ok`, or the first argument for `Err`.
+
+### `resultIsOk`
+
+<!-- jazz-signature -->
+
+```jazz
+resultIsOk :: Result(e, a) -> Bool.
+```
+
+Returns `True` for `Ok` and `False` for `Err`. This is `O(1)`.
+
+### `resultIsErr`
+
+<!-- jazz-signature -->
+
+```jazz
+resultIsErr :: Result(e, a) -> Bool.
+```
+
+Returns `True` for `Err` and `False` for `Ok`. This is `O(1)`.
+
+## Conversion
+
+### `resultToMaybe`
+
+<!-- jazz-signature -->
+
+```jazz
+resultToMaybe :: Result(e, a) -> Maybe(a).
+```
+
+Converts `Ok value` to `Just value` and discards an error as `Nothing`.
+
+### `resultErrorToMaybe`
+
+<!-- jazz-signature -->
+
+```jazz
+resultErrorToMaybe :: Result(e, a) -> Maybe(e).
+```
+
+Converts `Err error` to `Just error` and discards a success as `Nothing`.
+
+### `resultFromMaybe`
+
+<!-- jazz-signature -->
+
+```jazz
+resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
+```
+
+Converts `Just value` to `Ok value`. `Nothing` becomes `Err` containing the
+error supplied first.
+
+Conversions are `O(1)`. Use [Maybe](maybe.md) when absence needs no error value.

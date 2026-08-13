@@ -131,6 +131,17 @@ class PublicDocsCheckerTests(unittest.TestCase):
         )
         self.assert_violation("Jazz fence must have an adjacent jazz-example marker")
 
+    def test_signature_fences_are_documentation_contracts_not_examples(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n<!-- jazz-signature -->\n\n"
+            + "```jazz\nmaybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_every_docusaurus_jazz_fence_shape_is_synchronized(self) -> None:
         for opener, closer in (("~~~jazz", "~~~"), ("   ```jazz", "   ```")):
             with self.subTest(opener=opener):

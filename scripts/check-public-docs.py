@@ -101,6 +101,12 @@ EXAMPLE_BINDING_RE = re.compile(
     r"\s*^```jazz(?:[ \t].*)?\r?\n(?P<source>.*?)\r?\n```[ \t]*\r?$",
     re.MULTILINE | re.DOTALL | re.IGNORECASE,
 )
+SIGNATURE_MARKER_RE = re.compile(r"<!--\s*jazz-signature\s*-->", re.IGNORECASE)
+SIGNATURE_BINDING_RE = re.compile(
+    r"<!--\s*jazz-signature\s*-->"
+    r"\s*^```jazz(?:[ \t].*)?\r?\n.*?\r?\n```[ \t]*\r?$",
+    re.MULTILINE | re.DOTALL | re.IGNORECASE,
+)
 OUTPUT_MARKER_RE = re.compile(r"<!--\s*jazz-example-output:.*?-->", re.DOTALL)
 OUTPUT_BINDING_RE = re.compile(
     r"<!--\s*jazz-example-output:\s*case=(?P<case>[A-Za-z0-9][A-Za-z0-9_-]*)\s*-->"
@@ -350,11 +356,16 @@ def check_example_sync(
     for label, source in sorted(texts.items()):
         bindings = list(EXAMPLE_BINDING_RE.finditer(source))
         markers = list(EXAMPLE_MARKER_RE.finditer(source))
-        if len(bindings) != len(markers) or len(bindings) != len(
-            JAZZ_FENCE_RE.findall(source)
+        signature_bindings = list(SIGNATURE_BINDING_RE.finditer(source))
+        signature_markers = list(SIGNATURE_MARKER_RE.finditer(source))
+        if (
+            len(bindings) != len(markers)
+            or len(signature_bindings) != len(signature_markers)
+            or len(bindings) + len(signature_bindings)
+            != len(JAZZ_FENCE_RE.findall(source))
         ):
             violations.append(
-                f"{label}: Jazz fence must have an adjacent jazz-example marker"
+                f"{label}: Jazz fence must have an adjacent jazz-example marker or jazz-signature marker"
             )
 
         document_sources: set[str] = set()
