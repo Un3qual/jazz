@@ -4,13 +4,11 @@ description: Compile and run a first Jazz program.
 sidebar_position: 1
 ---
 
-The Jazz executable can compile a source file, execute it with the interpreter,
-or resolve and execute a module graph. Compilation is diagnostic-only: a clean
-compile writes no program output. Run mode renders the final value followed by
-a newline.
+Jazz can check a source file without running it or evaluate the program and
+print its final value. It can also start from a named module and resolve that
+module's dependencies.
 
-After [installing the development toolchain](installation.md), try the smallest
-program:
+After [installing Jazz](installation.md), run a program whose value is text:
 
 <!-- jazz-example: executable path=examples/hello.jz -->
 
@@ -22,7 +20,8 @@ program:
 cabal run jazz -- --run examples/hello.jz
 ```
 
-Expected output:
+The interpreter prints the value, including the quotes that identify it as
+text:
 
 <!-- jazz-example-output: case=hello -->
 
@@ -30,5 +29,5 @@ Expected output:
 "Hello, Jazz"
 ```
 
-Continue with the [first-program walkthrough](first-program.md), then read the
-[language overview](../language/overview.md).
+Continue with the [first-program walkthrough](first-program.md) to define and
+call a function, then read the [language overview](../language/overview.md).

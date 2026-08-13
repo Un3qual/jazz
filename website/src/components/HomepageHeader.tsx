@@ -10,7 +10,6 @@ export default function HomepageHeader(): ReactNode {
     <header className={styles.intro} aria-labelledby="jazz-home-title">
       <div className={styles.introInner}>
         <div className={styles.introCopy}>
-          <p className={styles.eyebrow}>Jazz programming language</p>
           <div className={styles.titleLockup}>
             <BrandMark />
             <h1 className={styles.introTitle} id="jazz-home-title">
@@ -18,11 +17,13 @@ export default function HomepageHeader(): ReactNode {
             </h1>
           </div>
           <p className={styles.introSummary}>
-            A statically typed functional language with practical syntax.
+            A statically typed functional language for building programs from
+            expressions and immutable values.
           </p>
           <p className={styles.introDetail}>
-            Jazz programs use expressions, type inference, algebraic data types,
-            pattern matching, modules, and explicit capability constraints.
+            Type inference keeps local code concise. Algebraic data types,
+            pattern matching, modules, and capability constraints make program
+            structure explicit.
           </p>
           <div className={styles.introActions}>
             <Link

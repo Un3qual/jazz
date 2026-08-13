@@ -4,28 +4,28 @@ description: Learn the Jazz language, command-line tools, standard library, and 
 sidebar_position: 1
 ---
 
-Jazz is an experimental, statically typed functional language with practical
-syntax. The current toolchain includes a parser, analyzer, type checker,
-interpreter, module loader, standard library, diagnostics, and command-line
-interface.
+Jazz is an experimental, statically typed functional language. Programs are
+expressions built from immutable values and functions. Algebraic data types and
+pattern matching describe data and its alternatives; modules define namespace
+boundaries; capabilities express the operations required by polymorphic code.
 
 Start with the [getting-started overview](getting-started/overview.md), then use
-the [language guide](language/overview.md) for concepts and the
-[reference](reference/expression-grammar.md) for exact accepted forms.
+the [language guide](language/overview.md) to understand how Jazz behaves. Use
+the [reference](reference/expression-grammar.md) when you need an exact rule.
 
 ## Choose a path
 
-- **New to Jazz:** install the toolchain and run the
+- **Run Jazz:** install the toolchain and work through the
   [first program](getting-started/first-program.md).
-- **Writing programs:** read about [functions](language/bindings-and-functions.md),
-  [patterns](language/algebraic-data-types-and-patterns.md), and
+- **Learn the language:** start with [functions](language/bindings-and-functions.md),
+  then continue to [patterns](language/algebraic-data-types-and-patterns.md) and
   [modules](language/modules.md).
-- **Using library modules:** browse the
-  [standard-library overview](standard-library/overview.md).
-- **Working on the compiler:** begin with the
-  [architecture](compiler/architecture.md) and [pipeline](compiler/pipeline.md).
-- **Following the project:** see the current [status](project/status.md) and
-  undated [roadmap](project/roadmap.md).
+- **Look up an API:** browse the
+  [standard-library modules](standard-library/overview.md).
+- **Understand compilation:** follow the [architecture](compiler/architecture.md)
+  and [pipeline](compiler/pipeline.md).
+- **Follow development:** check the current [status](project/status.md) and
+  [roadmap](project/roadmap.md).
 
-Jazz is pre-1.0. Public pages distinguish implemented behavior from partial
-and planned work; planned syntax is never presented as executable.
+Jazz is pre-1.0. The [project status](project/status.md) distinguishes current
+behavior from partial and planned work.

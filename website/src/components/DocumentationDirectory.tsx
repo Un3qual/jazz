@@ -6,7 +6,7 @@ import styles from '../pages/index.module.css';
 const sections = [
   {
     title: 'Learn',
-    description: 'Install Jazz, run a program, and learn the language in order.',
+    description: 'Run a program, then learn how Jazz evaluates and organizes code.',
     links: [
       {label: 'Getting started', to: '/docs/getting-started/overview'},
       {label: 'First program', to: '/docs/getting-started/first-program'},
@@ -15,7 +15,7 @@ const sections = [
   },
   {
     title: 'Standard Library',
-    description: 'Browse Prelude and the bundled data, collection, text, and I/O modules.',
+    description: 'Look up types and functions in Prelude and the bundled modules.',
     links: [
       {label: 'Module index', to: '/docs/standard-library/overview'},
       {label: 'Prelude', to: '/docs/standard-library/prelude'},
@@ -24,7 +24,7 @@ const sections = [
   },
   {
     title: 'Reference',
-    description: 'Look up exact grammar, command-line behavior, diagnostics, and values.',
+    description: 'Check exact language, runtime, command-line, and diagnostic rules.',
     links: [
       {label: 'Expression grammar', to: '/docs/reference/expression-grammar'},
       {label: 'CLI reference', to: '/docs/reference/cli'},
@@ -33,7 +33,7 @@ const sections = [
   },
   {
     title: 'Compiler',
-    description: 'Follow source through analysis, interpretation, and backend preparation.',
+    description: 'See how a program moves from source to analysis and execution.',
     links: [
       {label: 'Architecture', to: '/docs/compiler/architecture'},
       {label: 'Pipeline', to: '/docs/compiler/pipeline'},
@@ -42,7 +42,7 @@ const sections = [
   },
   {
     title: 'Project',
-    description: 'See what is implemented and how the language is developed.',
+    description: 'Check current capabilities, planned work, and contribution guidance.',
     links: [
       {label: 'Current status', to: '/docs/project/status'},
       {label: 'Roadmap', to: '/docs/project/roadmap'},
@@ -55,8 +55,7 @@ export default function DocumentationDirectory(): ReactNode {
   return (
     <section className={styles.directory} aria-labelledby="documentation-heading">
       <div className={styles.directoryHeading}>
-        <p className={styles.eyebrow}>Documentation</p>
-        <h2 id="documentation-heading">Find what you need</h2>
+        <h2 id="documentation-heading">Documentation</h2>
       </div>
       <div className={styles.directoryGrid}>
         {sections.map(({title, description, links}) => (
