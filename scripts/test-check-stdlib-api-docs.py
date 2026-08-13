@@ -48,7 +48,7 @@ class StandardLibraryApiDocsTests(unittest.TestCase):
 
 ## `sampleMap`
 
-```jazz
+```jazz jazz-signature
 sampleMap :: (a -> b) -> Sample(a) -> Sample(b).
 ```
 
@@ -66,7 +66,7 @@ Transforms the contained value.
 """,
             """# Sample
 
-```jazz
+```jazz jazz-signature
 sampleMap :: a -> a.
 ```
 """,
@@ -100,7 +100,7 @@ Transforms a value.
 
 ## `sampleMap`
 
-```jazz
+```jazz jazz-signature
 sampleMap :: a -> Bool.
 ```
 """,
@@ -150,12 +150,48 @@ sampleMap :: a -> Bool.
 
 ## `publicValue`
 
-```jazz
+```jazz jazz-signature
 publicValue :: a -> a.
 ```
 """,
         )
         self.assertEqual(violations, [])
+
+    def test_rejects_exact_signature_in_an_ordinary_jazz_fence(self) -> None:
+        violations = self.check(
+            """module Sample (value sampleMap) {
+  sampleMap :: a -> a.
+  sampleMap = value.
+}
+""",
+            """# Sample
+
+## `sampleMap`
+
+```jazz
+sampleMap :: a -> a.
+```
+""",
+        )
+        self.assertIn("missing exact signature for `sampleMap`", violations[0])
+
+    def test_rejects_near_match_signature_metadata(self) -> None:
+        violations = self.check(
+            """module Sample (value sampleMap) {
+  sampleMap :: a -> a.
+  sampleMap = value.
+}
+""",
+            """# Sample
+
+## `sampleMap`
+
+```jazz not-jazz-signature
+sampleMap :: a -> a.
+```
+""",
+        )
+        self.assertIn("missing exact signature for `sampleMap`", violations[0])
 
 
 if __name__ == "__main__":

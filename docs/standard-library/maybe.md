@@ -11,9 +11,7 @@ optional branch.
 
 ### `Maybe`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 data Maybe a = Nothing | Just a.
 ```
 
@@ -32,9 +30,7 @@ and may be used in [patterns](../language/algebraic-data-types-and-patterns.md).
 
 ### `maybeMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).
 ```
 
@@ -45,9 +41,7 @@ Example: `maybeMap (\(value) -> value * 2) (Just 3)` produces `Just 6`.
 
 ### `maybeAndThen`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeAndThen :: (a -> Maybe(b)) -> Maybe(a) -> Maybe(b).
 ```
 
@@ -57,9 +51,7 @@ function call.
 
 ### `maybeFilter`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeFilter :: (a -> Bool) -> Maybe(a) -> Maybe(a).
 ```
 
@@ -72,9 +64,7 @@ Example: `maybeFilter (\(value) -> value > 0) (Just -2)` produces `Nothing`.
 
 ### `maybeWithDefault`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeWithDefault :: a -> Maybe(a) -> a.
 ```
 
@@ -83,9 +73,7 @@ Returns the value inside `Just`, or the first argument when the value is
 
 ### `maybeOrElse`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeOrElse :: Maybe(a) -> Maybe(a) -> Maybe(a).
 ```
 
@@ -96,9 +84,7 @@ passed first. Example: `maybeOrElse (Just 4) Nothing` produces `Just 4`.
 
 ### `maybeIsJust`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeIsJust :: Maybe(a) -> Bool.
 ```
 
@@ -106,9 +92,7 @@ Returns `True` for `Just` and `False` for `Nothing`. This is `O(1)`.
 
 ### `maybeIsNothing`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeIsNothing :: Maybe(a) -> Bool.
 ```
 
@@ -118,9 +102,7 @@ Returns `True` for `Nothing` and `False` for `Just`. This is `O(1)`.
 
 ### `maybeToList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeToList :: Maybe(a) -> [a].
 ```
 
@@ -128,9 +110,7 @@ Converts `Nothing` to `[]` and `Just value` to `[value]`. This is `O(1)`.
 
 ### `maybeFromList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 maybeFromList :: [a] -> Maybe(a).
 ```
 

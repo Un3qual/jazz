@@ -19,6 +19,77 @@ Rendered values use stable Jazz-like syntax:
 - saturated constructors render as `Name` or `Name(arguments)`; and
 - callable values render as `<function>`.
 
+## Built-in values
+
+### `Bool`
+
+`Bool` has exactly the values `True` and `False`.
+
+### `Int`
+
+`Int` is the default-width signed integer alias for `Int64`.
+
+### `Int8`
+
+`Int8` is a signed 8-bit integer from `-128` through `127`.
+
+### `Int16`
+
+`Int16` is a signed 16-bit integer from `-32,768` through `32,767`.
+
+### `Int32`
+
+`Int32` is a signed 32-bit integer from `-2,147,483,648` through
+`2,147,483,647`.
+
+### `Int64`
+
+`Int64` is a signed 64-bit integer from `-9,223,372,036,854,775,808` through
+`9,223,372,036,854,775,807`.
+
+### `UInt8`
+
+`UInt8` is an unsigned 8-bit integer from `0` through `255`.
+
+### `UInt16`
+
+`UInt16` is an unsigned 16-bit integer from `0` through `65,535`.
+
+### `UInt32`
+
+`UInt32` is an unsigned 32-bit integer from `0` through `4,294,967,295`.
+
+### `UInt64`
+
+`UInt64` is an unsigned 64-bit integer from `0` through
+`18,446,744,073,709,551,615`.
+
+### `Float`
+
+`Float` is the default-width floating alias for IEEE binary64 `Float64`.
+
+### `Float16`
+
+`Float16` uses IEEE binary16 storage and deterministic target rounding.
+
+### `Float32`
+
+`Float32` uses IEEE binary32 storage and deterministic target rounding.
+
+### `Float64`
+
+`Float64` uses IEEE binary64 storage and deterministic target rounding.
+
+### Tuples
+
+Tuples are fixed-size ordered products written `(a, b)`; equality and rendering
+proceed element by element.
+
+### Unit
+
+Unit is the zero-element tuple `()`. It carries no information and renders as
+the same `()` spelling.
+
 ## Numeric values, promotion, and conversion
 
 Integers use arbitrary-size runtime storage until a concrete numeric target

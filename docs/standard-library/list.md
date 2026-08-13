@@ -11,9 +11,7 @@ preserve input order and return new lists without modifying their inputs.
 
 ### `listPrepend`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listPrepend :: a -> [a] -> [a].
 ```
 
@@ -21,9 +19,7 @@ Adds a value to the front of a list in `O(1)`.
 
 ### `listReverse`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listReverse :: [a] -> [a].
 ```
 
@@ -31,9 +27,7 @@ Returns the values in reverse order in `O(n)`.
 
 ### `listLength`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listLength :: [a] -> Int.
 ```
 
@@ -41,9 +35,7 @@ Counts the values in `O(n)`.
 
 ### `listIsEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listIsEmpty :: [a] -> Bool.
 ```
 
@@ -53,9 +45,7 @@ Returns `True` only for `[]`. This is `O(1)`.
 
 ### `listHead`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listHead :: [a] -> Maybe(a).
 ```
 
@@ -64,9 +54,7 @@ Returns `Just` containing the first value, or `Nothing` for `[]`. This is
 
 ### `listTail`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listTail :: [a] -> Maybe([a]).
 ```
 
@@ -74,9 +62,7 @@ Returns every value after the head, or `Nothing` for `[]`. This is `O(1)`.
 
 ### `listLast`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listLast :: [a] -> Maybe(a).
 ```
 
@@ -84,9 +70,7 @@ Returns the final value, or `Nothing` for `[]`, in `O(n)`.
 
 ### `listInit`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listInit :: [a] -> Maybe([a]).
 ```
 
@@ -94,9 +78,7 @@ Returns every value except the last, or `Nothing` for `[]`, in `O(n)`.
 
 ### `listAt`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listAt :: Int -> [a] -> Maybe(a).
 ```
 
@@ -109,9 +91,7 @@ Example: `listAt 1 [10, 20, 30]` produces `Just 20`.
 
 ### `listTake`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listTake :: Int -> [a] -> [a].
 ```
 
@@ -120,9 +100,7 @@ cost is linear in the returned prefix.
 
 ### `listDrop`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listDrop :: Int -> [a] -> [a].
 ```
 
@@ -131,9 +109,7 @@ cost is linear in the skipped prefix.
 
 ### `listSplitAt`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listSplitAt :: Int -> [a] -> ([a], [a]).
 ```
 
@@ -144,9 +120,7 @@ an empty prefix and the original list as the suffix.
 
 ### `listAppend`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listAppend :: [a] -> [a] -> [a].
 ```
 
@@ -155,9 +129,7 @@ left list.
 
 ### `listConcat`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listConcat :: [[a]] -> [a].
 ```
 
@@ -166,9 +138,7 @@ the total number of produced values.
 
 ### `listRepeat`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listRepeat :: Int -> a -> [a].
 ```
 
@@ -177,9 +147,7 @@ linear in the output length.
 
 ### `listIntersperse`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listIntersperse :: a -> [a] -> [a].
 ```
 
@@ -188,9 +156,7 @@ the last. This is linear in the output length.
 
 ### `listIntercalate`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listIntercalate :: [a] -> [[a]] -> [a].
 ```
 
@@ -201,9 +167,7 @@ result. Work is linear in fragments plus produced values.
 
 ### `listMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listMap :: (a -> b) -> [a] -> [b].
 ```
 
@@ -212,9 +176,7 @@ plus callback work.
 
 ### `listFilter`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listFilter :: (a -> Bool) -> [a] -> [a].
 ```
 
@@ -223,9 +185,7 @@ Keeps values whose predicate returns `True`, preserving their order. This is
 
 ### `listFilterMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listFilterMap :: (a -> Maybe(b)) -> [a] -> [b].
 ```
 
@@ -234,9 +194,7 @@ Calls the transform for each value, keeping values inside `Just` and discarding
 
 ### `listPartition`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listPartition :: (a -> Bool) -> [a] -> ([a], [a]).
 ```
 
@@ -247,9 +205,7 @@ input order. This is `O(n)` plus callback work.
 
 ### `listFoldLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listFoldLeft :: (b -> a -> b) -> b -> [a] -> b.
 ```
 
@@ -258,9 +214,7 @@ This is `O(n)` plus callback work.
 
 ### `listFoldRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listFoldRight :: (a -> b -> b) -> b -> [a] -> b.
 ```
 
@@ -269,9 +223,7 @@ This is `O(n)` plus callback work.
 
 ### `listScanLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listScanLeft :: (b -> a -> b) -> b -> [a] -> [b].
 ```
 
@@ -285,9 +237,7 @@ Example: `listScanLeft (\(sum, value) -> sum + value) 0 [1, 2, 3]` produces
 
 ### `listAny`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listAny :: (a -> Bool) -> [a] -> Bool.
 ```
 
@@ -296,9 +246,7 @@ Returns `True` at the first matching value and short-circuits. It returns
 
 ### `listAll`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listAll :: (a -> Bool) -> [a] -> Bool.
 ```
 
@@ -307,9 +255,7 @@ Returns `False` at the first rejected value and short-circuits. It returns
 
 ### `listContains`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listContains :: @{Eq(a)}: a -> [a] -> Bool.
 ```
 
@@ -318,9 +264,7 @@ first match. This is `O(n)` worst case and requires `Eq(a)`.
 
 ### `listFind`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listFind :: (a -> Bool) -> [a] -> Maybe(a).
 ```
 
@@ -329,9 +273,7 @@ The search short-circuits and is `O(n)` worst case.
 
 ### `listFindIndex`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listFindIndex :: (a -> Bool) -> [a] -> Maybe(Int).
 ```
 
@@ -342,9 +284,7 @@ short-circuits and is `O(n)` worst case.
 
 ### `listZip`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listZip :: [a] -> [b] -> [(a, b)].
 ```
 
@@ -353,9 +293,7 @@ Pairs corresponding values and stops when either input ends. Example:
 
 ### `listUnzip`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listUnzip :: [(a, b)] -> ([a], [b]).
 ```
 
@@ -364,9 +302,7 @@ Separates pairs into left and right lists while preserving pair order. This is
 
 ### `listIndexed`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listIndexed :: [a] -> [(Int, a)].
 ```
 
@@ -376,9 +312,7 @@ Pairs values with zero-based indices in input order. This is `O(n)`.
 
 ### `listDistinct`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listDistinct :: @{Eq(a)}: [a] -> [a].
 ```
 
@@ -387,9 +321,7 @@ This requires `Eq(a)` and is `O(n²)` worst case.
 
 ### `listGroup`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listGroup :: @{Eq(a)}: [a] -> [[a]].
 ```
 
@@ -398,9 +330,7 @@ in different groups. This is `O(n)` plus equality work.
 
 ### `listGroupBy`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listGroupBy :: (a -> a -> Bool) -> [a] -> [[a]].
 ```
 
@@ -411,9 +341,7 @@ the predicate returns `False`. This is `O(n)` plus callback work.
 
 ### `listMinimum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listMinimum :: @{Ord(a)}: [a] -> Maybe(a).
 ```
 
@@ -421,9 +349,7 @@ Returns the least value, or `Nothing` for `[]`, in `O(n)`.
 
 ### `listMaximum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listMaximum :: @{Ord(a)}: [a] -> Maybe(a).
 ```
 
@@ -431,9 +357,7 @@ Returns the greatest value, or `Nothing` for `[]`, in `O(n)`.
 
 ### `listSort`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listSort :: @{Ord(a)}: [a] -> [a].
 ```
 
@@ -442,9 +366,7 @@ Returns a stable ascending merge sort using `Ord(a)`. The cost is
 
 ### `listSortBy`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 listSortBy :: (a -> a -> Ordering) -> [a] -> [a].
 ```
 

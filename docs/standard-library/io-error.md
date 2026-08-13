@@ -11,9 +11,7 @@ numbers.
 
 ### `IOErrorCategory`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 data IOErrorCategory = NotFound | PermissionDenied | AlreadyExists | InvalidData | ResourceExhausted | Interrupted | Unsupported | Other.
 ```
 
@@ -59,9 +57,7 @@ A recoverable host failure that does not fit another stable category.
 
 ### `IOError`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 data IOError = IOError IOErrorCategory Maybe(Text) Text.
 ```
 

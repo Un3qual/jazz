@@ -19,9 +19,7 @@ preserves the insertion position of each key.
 
 ### `dictionaryEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryEmpty :: Dictionary(k, v).
 ```
 
@@ -29,9 +27,7 @@ The empty dictionary. Construction is `O(1)`.
 
 ### `dictionarySingleton`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionarySingleton :: k -> v -> Dictionary(k, v).
 ```
 
@@ -39,9 +35,7 @@ Constructs a dictionary with one key-value pair in `O(1)`.
 
 ### `dictionaryFromList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryFromList :: @{Eq(k)}: [(k, v)] -> Dictionary(k, v).
 ```
 
@@ -50,9 +44,7 @@ its last value. Construction is `O(n²)` worst case.
 
 ### `dictionaryToList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryToList :: Dictionary(k, v) -> [(k, v)].
 ```
 
@@ -62,9 +54,7 @@ Returns key-value pairs in insertion order. This is `O(1)` at the API boundary.
 
 ### `dictionarySize`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionarySize :: Dictionary(k, v) -> Int.
 ```
 
@@ -72,9 +62,7 @@ Returns the number of distinct keys in `O(1)`.
 
 ### `dictionaryIsEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryIsEmpty :: Dictionary(k, v) -> Bool.
 ```
 
@@ -82,9 +70,7 @@ Returns `True` when the dictionary has no keys. This is `O(1)`.
 
 ### `dictionaryLookup`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryLookup :: @{Eq(k)}: Dictionary(k, v) -> k -> Maybe(v).
 ```
 
@@ -93,9 +79,7 @@ Lookup is `O(n)` worst case.
 
 ### `dictionaryGetOr`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryGetOr :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> v.
 ```
 
@@ -104,9 +88,7 @@ absent. Lookup is `O(n)` worst case.
 
 ### `dictionaryContainsKey`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryContainsKey :: @{Eq(k)}: Dictionary(k, v) -> k -> Bool.
 ```
 
@@ -116,9 +98,7 @@ Returns whether the key is present in `O(n)` worst case.
 
 ### `dictionaryInsert`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryInsert :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Dictionary(k, v).
 ```
 
@@ -127,9 +107,7 @@ The update is `O(n)`.
 
 ### `dictionaryReplace`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryReplace :: @{Eq(k)}: Dictionary(k, v) -> k -> v -> Maybe(Dictionary(k, v)).
 ```
 
@@ -138,9 +116,7 @@ key is absent. The update is `O(n)`.
 
 ### `dictionaryRemove`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryRemove :: @{Eq(k)}: Dictionary(k, v) -> k -> Dictionary(k, v).
 ```
 
@@ -149,9 +125,7 @@ Remaining keys retain their order. The update is `O(n)`.
 
 ### `dictionaryUpdate`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryUpdate :: @{Eq(k)}: Dictionary(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Dictionary(k, v).
 ```
 
@@ -163,9 +137,7 @@ appends a new key. The update is `O(n)` plus callback work.
 
 ### `dictionaryKeys`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryKeys :: Dictionary(k, v) -> [k].
 ```
 
@@ -173,9 +145,7 @@ Returns keys in insertion order in `O(n)`.
 
 ### `dictionaryValues`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryValues :: Dictionary(k, v) -> [v].
 ```
 
@@ -183,9 +153,7 @@ Returns values in their keys' insertion order in `O(n)`.
 
 ### `dictionaryMapValues`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryMapValues :: Dictionary(k, v) -> (v -> w) -> Dictionary(k, w).
 ```
 
@@ -194,9 +162,7 @@ positions. This is `O(n)` plus callback work.
 
 ### `dictionaryFilter`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryFilter :: Dictionary(k, v) -> (k -> v -> Bool) -> Dictionary(k, v).
 ```
 
@@ -205,9 +171,7 @@ order. This is `O(n)` plus callback work.
 
 ### `dictionaryFoldLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryFoldLeft :: Dictionary(k, v) -> a -> (a -> k -> v -> a) -> a.
 ```
 
@@ -216,9 +180,7 @@ accumulator. This is `O(n)` plus callback work.
 
 ### `dictionaryFoldRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 dictionaryFoldRight :: Dictionary(k, v) -> a -> (k -> v -> a -> a) -> a.
 ```
 

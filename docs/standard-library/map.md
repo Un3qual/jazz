@@ -17,9 +17,7 @@ constructor are private.
 
 ### `mapEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapEmpty :: Map(k, v).
 ```
 
@@ -27,9 +25,7 @@ The empty map. Construction is `O(1)`.
 
 ### `mapSingleton`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapSingleton :: k -> v -> Map(k, v).
 ```
 
@@ -37,9 +33,7 @@ Constructs a map with one pair in `O(1)`.
 
 ### `mapFromList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapFromList :: @{Ord(k)}: [(k, v)] -> Map(k, v).
 ```
 
@@ -48,9 +42,7 @@ Construction is `O(n log n)`.
 
 ### `mapToList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapToList :: Map(k, v) -> [(k, v)].
 ```
 
@@ -60,9 +52,7 @@ Returns pairs in ascending key order in `O(n)`.
 
 ### `mapSize`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapSize :: Map(k, v) -> Int.
 ```
 
@@ -70,9 +60,7 @@ Returns the number of keys in `O(1)`.
 
 ### `mapIsEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapIsEmpty :: Map(k, v) -> Bool.
 ```
 
@@ -80,9 +68,7 @@ Returns `True` when the map contains no keys. This is `O(1)`.
 
 ### `mapLookup`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapLookup :: @{Ord(k)}: Map(k, v) -> k -> Maybe(v).
 ```
 
@@ -91,9 +77,7 @@ Returns the associated value as `Just`, or `Nothing` when absent. Lookup is
 
 ### `mapGetOr`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapGetOr :: @{Ord(k)}: Map(k, v) -> k -> v -> v.
 ```
 
@@ -102,9 +86,7 @@ Lookup is `O(log n)`.
 
 ### `mapContainsKey`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapContainsKey :: @{Ord(k)}: Map(k, v) -> k -> Bool.
 ```
 
@@ -114,9 +96,7 @@ Returns whether the key is present in `O(log n)`.
 
 ### `mapInsert`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapInsert :: @{Ord(k)}: Map(k, v) -> k -> v -> Map(k, v).
 ```
 
@@ -124,9 +104,7 @@ Adds a key or replaces its value, returning a new balanced map in `O(log n)`.
 
 ### `mapReplace`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapReplace :: @{Ord(k)}: Map(k, v) -> k -> v -> Maybe(Map(k, v)).
 ```
 
@@ -135,9 +113,7 @@ returns `Nothing`. This is `O(log n)`.
 
 ### `mapRemove`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapRemove :: @{Ord(k)}: Map(k, v) -> k -> Map(k, v).
 ```
 
@@ -146,9 +122,7 @@ Removes a key when present. An absent key returns an equivalent map. This is
 
 ### `mapUpdate`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapUpdate :: @{Ord(k)}: Map(k, v) -> k -> (Maybe(v) -> Maybe(v)) -> Map(k, v).
 ```
 
@@ -160,9 +134,7 @@ is `O(log n)` plus callback work.
 
 ### `mapMinimum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapMinimum :: Map(k, v) -> Maybe((k, v)).
 ```
 
@@ -171,9 +143,7 @@ Returns the least key and its value, or `Nothing` for an empty map. This is
 
 ### `mapMaximum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapMaximum :: Map(k, v) -> Maybe((k, v)).
 ```
 
@@ -182,9 +152,7 @@ Returns the greatest key and its value, or `Nothing` for an empty map. This is
 
 ### `mapPopMinimum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapPopMinimum :: Map(k, v) -> Maybe(((k, v), Map(k, v))).
 ```
 
@@ -193,9 +161,7 @@ Returns the least pair and a map without it, or `Nothing` when empty. This is
 
 ### `mapPopMaximum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapPopMaximum :: Map(k, v) -> Maybe(((k, v), Map(k, v))).
 ```
 
@@ -206,9 +172,7 @@ is `O(log n)`.
 
 ### `mapKeys`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapKeys :: Map(k, v) -> [k].
 ```
 
@@ -216,9 +180,7 @@ Returns keys in ascending order in `O(n)`.
 
 ### `mapValues`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapValues :: Map(k, v) -> [v].
 ```
 
@@ -226,9 +188,7 @@ Returns values in ascending key order in `O(n)`.
 
 ### `mapMapValues`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapMapValues :: Map(k, v) -> (v -> w) -> Map(k, w).
 ```
 
@@ -237,9 +197,7 @@ This is `O(n)` plus callback work.
 
 ### `mapFilter`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapFilter :: @{Ord(k)}: Map(k, v) -> (k -> v -> Bool) -> Map(k, v).
 ```
 
@@ -248,9 +206,7 @@ order. Rebuilding the result is `O(n log n)` worst case.
 
 ### `mapFoldLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapFoldLeft :: Map(k, v) -> a -> (a -> k -> v -> a) -> a.
 ```
 
@@ -258,9 +214,7 @@ Folds pairs from least to greatest key in `O(n)` plus callback work.
 
 ### `mapFoldRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 mapFoldRight :: Map(k, v) -> a -> (k -> v -> a -> a) -> a.
 ```
 

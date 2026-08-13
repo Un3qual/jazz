@@ -10,9 +10,7 @@ operations do not normalize text or apply locale-sensitive rules.
 
 ### `charToUInt32`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charToUInt32 :: Char -> UInt32.
 ```
 
@@ -20,9 +18,7 @@ Returns the scalar's numeric Unicode value. This is logically `O(1)`.
 
 ### `charFromUInt32`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charFromUInt32 :: UInt32 -> Maybe(Char).
 ```
 
@@ -33,9 +29,7 @@ the surrogate range return `Nothing`. This is logically `O(1)`.
 
 ### `charIsAlpha`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsAlpha :: Char -> Bool.
 ```
 
@@ -43,9 +37,7 @@ Returns whether the scalar has a Unicode alphabetic property.
 
 ### `charIsAlphaNum`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsAlphaNum :: Char -> Bool.
 ```
 
@@ -53,9 +45,7 @@ Returns whether the scalar is alphabetic or numeric under Unicode properties.
 
 ### `charIsDigit`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsDigit :: Char -> Bool.
 ```
 
@@ -63,9 +53,7 @@ Returns whether the scalar is a Unicode digit.
 
 ### `charIsSpace`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsSpace :: Char -> Bool.
 ```
 
@@ -73,9 +61,7 @@ Returns whether the scalar is Unicode whitespace.
 
 ### `charIsHexDigit`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsHexDigit :: Char -> Bool.
 ```
 
@@ -84,9 +70,7 @@ Returns whether the scalar is an ASCII hexadecimal digit: `0`-`9`, `a`-`f`, or
 
 ### `charIsLower`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsLower :: Char -> Bool.
 ```
 
@@ -94,9 +78,7 @@ Returns whether the scalar has a Unicode lowercase property.
 
 ### `charIsUpper`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsUpper :: Char -> Bool.
 ```
 
@@ -104,9 +86,7 @@ Returns whether the scalar has a Unicode uppercase property.
 
 ### `charIsNewline`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charIsNewline :: Char -> Bool.
 ```
 
@@ -119,9 +99,7 @@ Classification functions are logically `O(1)`.
 
 ### `charToLower`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charToLower :: Char -> Char.
 ```
 
@@ -130,9 +108,7 @@ and never expands a character into multiple values.
 
 ### `charToUpper`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 charToUpper :: Char -> Char.
 ```
 

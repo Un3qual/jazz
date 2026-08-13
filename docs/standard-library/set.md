@@ -17,9 +17,7 @@ private.
 
 ### `setEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setEmpty :: Set(a).
 ```
 
@@ -27,9 +25,7 @@ The empty set. Construction is `O(1)`.
 
 ### `setSingleton`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setSingleton :: a -> Set(a).
 ```
 
@@ -37,9 +33,7 @@ Constructs a one-value set in `O(1)`.
 
 ### `setFromList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setFromList :: @{Ord(a)}: [a] -> Set(a).
 ```
 
@@ -48,9 +42,7 @@ Inserts values from left to right and removes duplicates. This is
 
 ### `setToList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setToList :: Set(a) -> [a].
 ```
 
@@ -60,9 +52,7 @@ Returns values in ascending order in `O(n)`.
 
 ### `setSize`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setSize :: Set(a) -> Int.
 ```
 
@@ -70,9 +60,7 @@ Returns the number of distinct values in `O(1)`.
 
 ### `setIsEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setIsEmpty :: Set(a) -> Bool.
 ```
 
@@ -80,9 +68,7 @@ Returns `True` when the set contains no values. This is `O(1)`.
 
 ### `setContains`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setContains :: @{Ord(a)}: Set(a) -> a -> Bool.
 ```
 
@@ -92,9 +78,7 @@ Tests membership in `O(log n)`.
 
 ### `setInsert`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setInsert :: @{Ord(a)}: Set(a) -> a -> Set(a).
 ```
 
@@ -103,9 +87,7 @@ size. This is `O(log n)`.
 
 ### `setRemove`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setRemove :: @{Ord(a)}: Set(a) -> a -> Set(a).
 ```
 
@@ -114,9 +96,7 @@ is `O(log n)`.
 
 ### `setUnion`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setUnion :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
 ```
 
@@ -125,9 +105,7 @@ Returns every value present in either set. The implementation is
 
 ### `setIntersection`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setIntersection :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
 ```
 
@@ -136,9 +114,7 @@ case.
 
 ### `setDifference`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setDifference :: @{Ord(a)}: Set(a) -> Set(a) -> Set(a).
 ```
 
@@ -147,9 +123,7 @@ Returns values from the first set that are absent from the second. This is
 
 ### `setIsSubset`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setIsSubset :: @{Ord(a)}: Set(a) -> Set(a) -> Bool.
 ```
 
@@ -160,9 +134,7 @@ short-circuits and is `O(n log m)` worst case.
 
 ### `setFilter`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setFilter :: @{Ord(a)}: Set(a) -> (a -> Bool) -> Set(a).
 ```
 
@@ -171,9 +143,7 @@ rebuilding the result is `O(n log n)` worst case.
 
 ### `setMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setMap :: @{Ord(b)}: Set(a) -> (a -> b) -> Set(b).
 ```
 
@@ -183,9 +153,7 @@ work.
 
 ### `setFoldLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setFoldLeft :: Set(a) -> b -> (b -> a -> b) -> b.
 ```
 
@@ -193,9 +161,7 @@ Folds values from least to greatest in `O(n)` plus callback work.
 
 ### `setFoldRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 setFoldRight :: Set(a) -> b -> (a -> b -> b) -> b.
 ```
 

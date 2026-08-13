@@ -9,18 +9,16 @@ import {
 import type {Props} from '@theme/CodeBlock/Content/String';
 import CodeBlockLayout from '@theme/CodeBlock/Layout';
 
+import {withJazzSignatureMetadata} from '../../../../../scripts/jazz-signature-metadata.mjs';
+
 export interface JazzCodeBlockMetadata extends CodeBlockMetadata {
   jazzSignature: boolean;
 }
 
-function hasJazzSignature(metastring: string | undefined): boolean {
-  return metastring?.split(/\s+/).includes('jazz-signature') ?? false;
-}
-
 function useCodeBlockMetadata(props: Props): JazzCodeBlockMetadata {
   const {prism} = useThemeConfig();
-  return {
-    ...createCodeBlockMetadata({
+  return withJazzSignatureMetadata(
+    createCodeBlockMetadata({
       code: props.children,
       className: props.className,
       metastring: props.metastring,
@@ -30,8 +28,8 @@ function useCodeBlockMetadata(props: Props): JazzCodeBlockMetadata {
       title: props.title,
       showLineNumbers: props.showLineNumbers,
     }),
-    jazzSignature: hasJazzSignature(props.metastring),
-  };
+    props.metastring,
+  );
 }
 
 export default function CodeBlockString(props: Props): ReactNode {

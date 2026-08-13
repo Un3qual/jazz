@@ -10,9 +10,7 @@ Import `IO` for effectful host operations. Recoverable operations return
 
 ### `readText!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 readText! :: Text -> Result(IOError, Text).
 ```
 
@@ -22,9 +20,7 @@ available.
 
 ### `writeText!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 writeText! :: Text -> Text -> Result(IOError, ()).
 ```
 
@@ -35,9 +31,7 @@ Success returns `Ok ()`; failure returns an error with the path when available.
 
 ### `readStdin!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 readStdin! :: () -> Result(IOError, Text).
 ```
 
@@ -46,9 +40,7 @@ Reads standard input as strict UTF-8. Stream errors do not attach a path. Pass
 
 ### `writeStdout!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 writeStdout! :: Text -> Result(IOError, ()).
 ```
 
@@ -57,9 +49,7 @@ attach a path.
 
 ### `writeStderr!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 writeStderr! :: Text -> Result(IOError, ()).
 ```
 
@@ -70,9 +60,7 @@ attach a path.
 
 ### `arguments!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 arguments! :: () -> List(Text).
 ```
 
@@ -80,9 +68,7 @@ Returns process arguments in host-provided order. Pass `()` to retrieve them.
 
 ### `exit!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 exit! :: Int -> ().
 ```
 

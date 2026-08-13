@@ -11,9 +11,7 @@ implicitly normalize text or apply locale-sensitive rules.
 
 ### `textEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textEmpty :: Text.
 ```
 
@@ -21,9 +19,7 @@ The empty text value, equivalent to `""`.
 
 ### `textLength`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textLength :: Text -> Int.
 ```
 
@@ -31,9 +27,7 @@ Returns the number of Unicode scalars in `O(n)`.
 
 ### `textIsEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textIsEmpty :: Text -> Bool.
 ```
 
@@ -41,9 +35,7 @@ Returns `True` only for empty text. This is constant-time at the API boundary.
 
 ### `textUncons`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textUncons :: Text -> Maybe((Char, Text)).
 ```
 
@@ -54,9 +46,7 @@ text. This is constant-time at the API boundary.
 
 ### `textAt`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textAt :: Int -> Text -> Maybe(Char).
 ```
 
@@ -67,9 +57,7 @@ Example: `textAt 1 "Jazz"` produces `Just 'a'`.
 
 ### `textTake`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textTake :: Int -> Text -> Text.
 ```
 
@@ -78,9 +66,7 @@ cost is linear in the returned prefix.
 
 ### `textDrop`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textDrop :: Int -> Text -> Text.
 ```
 
@@ -89,9 +75,7 @@ cost is linear in the skipped prefix.
 
 ### `textSlice`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textSlice :: Int -> Int -> Text -> Text.
 ```
 
@@ -102,9 +86,7 @@ clamp to zero. The cost is linear in the traversed prefix and output.
 
 ### `textAppend`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textAppend :: Text -> Text -> Text.
 ```
 
@@ -113,9 +95,7 @@ resulting text size.
 
 ### `textAppendChar`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textAppendChar :: Text -> Char -> Text.
 ```
 
@@ -123,9 +103,7 @@ Appends one scalar to the end of the text.
 
 ### `textFromChars`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textFromChars :: [Char] -> Text.
 ```
 
@@ -133,9 +111,7 @@ Constructs text from scalars in list order in `O(n)`.
 
 ### `textRepeat`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textRepeat :: Int -> Text -> Text.
 ```
 
@@ -144,9 +120,7 @@ linear in the output size.
 
 ### `textConcat`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textConcat :: [Text] -> Text.
 ```
 
@@ -155,9 +129,7 @@ The cost is linear in fragment count and total output.
 
 ### `textJoin`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textJoin :: Text -> [Text] -> Text.
 ```
 
@@ -168,9 +140,7 @@ delimiter appears before the first or after the last fragment.
 
 ### `textToChars`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textToChars :: Text -> [Char].
 ```
 
@@ -178,9 +148,7 @@ Returns the Unicode scalars in source order in `O(n)`.
 
 ### `textReverse`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textReverse :: Text -> Text.
 ```
 
@@ -190,9 +158,7 @@ Reverses by Unicode scalar, not by grapheme cluster, in `O(n)`.
 
 ### `textStartsWith`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textStartsWith :: Text -> Text -> Bool.
 ```
 
@@ -201,9 +167,7 @@ empty prefix always matches. The cost is `O(m)` in the prefix length.
 
 ### `textEndsWith`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textEndsWith :: Text -> Text -> Bool.
 ```
 
@@ -213,9 +177,7 @@ suffix boundary.
 
 ### `textContains`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textContains :: Text -> Text -> Bool.
 ```
 
@@ -224,9 +186,7 @@ needle matches. Naive search is `O(n × m)` worst case.
 
 ### `textFind`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textFind :: Text -> Text -> Maybe(Int).
 ```
 
@@ -237,9 +197,7 @@ empty needle returns `Just 0`. Naive search is `O(n × m)` worst case.
 
 ### `textSplit`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textSplit :: Text -> Text -> [Text].
 ```
 
@@ -250,9 +208,7 @@ Example: `textSplit "" "ab"` produces `["a", "b"]`.
 
 ### `textLines`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textLines :: Text -> [Text].
 ```
 
@@ -261,9 +217,7 @@ returns `[]`, and a trailing terminator does not add a final empty line.
 
 ### `textWords`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textWords :: Text -> [Text].
 ```
 
@@ -274,9 +228,7 @@ Splits at runs of Unicode whitespace and omits empty words. Traversal is
 
 ### `textReplaceAll`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textReplaceAll :: Text -> Text -> Text -> Text.
 ```
 
@@ -286,9 +238,7 @@ unchanged. Naive replacement is `O(n × m)` plus output work.
 
 ### `textTrim`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textTrim :: Text -> Text.
 ```
 
@@ -296,9 +246,7 @@ Removes Unicode whitespace from both ends in `O(n)`.
 
 ### `textTrimStart`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textTrimStart :: Text -> Text.
 ```
 
@@ -307,9 +255,7 @@ unchanged.
 
 ### `textTrimEnd`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textTrimEnd :: Text -> Text.
 ```
 
@@ -320,9 +266,7 @@ unchanged.
 
 ### `textPadLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textPadLeft :: Int -> Char -> Text -> Text.
 ```
 
@@ -333,9 +277,7 @@ Example: `textPadLeft 4 '0' "12"` produces `"0012"`.
 
 ### `textPadRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 textPadRight :: Int -> Char -> Text -> Text.
 ```
 

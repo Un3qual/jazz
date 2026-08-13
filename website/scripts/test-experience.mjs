@@ -1,15 +1,84 @@
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
-import {existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import {unified} from 'unified';
+import remarkParse from 'remark-parse';
 
 const websiteRoot = path.resolve(import.meta.dirname, '..');
 const repositoryRoot = path.resolve(websiteRoot, '..');
 
 function read(relativePath) {
   return readFileSync(path.join(repositoryRoot, relativePath), 'utf8');
+}
+
+function writeBuildFile(buildRoot, relativePath, contents) {
+  const file = path.join(buildRoot, relativePath);
+  mkdirSync(path.dirname(file), {recursive: true});
+  writeFileSync(file, contents);
+}
+
+function writeTypeLinkBuildFixture(buildRoot, {baseUrl = '/jazz/', intFragment = 'int'} = {}) {
+  const href = (route) => `${baseUrl}${route.replace(/^\//, '')}`;
+  const link = (text, route) =>
+    `<a data-jazz-type-link="true" href="${href(route)}">${text}</a>`;
+
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/list.html',
+    [
+      '<main>',
+      '<pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>',
+      `nested :: ${link('Maybe', '/docs/standard-library/maybe')}(${link('[', '/docs/standard-library/list')}a${link(']', '/docs/standard-library/list')})`,
+      ` -&gt; ${link('Int', `/docs/reference/runtime-values#${intFragment}`)}.`,
+      '</code></pre>',
+      '<pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>',
+      `split :: ${link('(', '/docs/reference/runtime-values#tuples')}a, b${link(')', '/docs/reference/runtime-values#tuples')}.`,
+      '</code></pre>',
+      '</main>',
+    ].join(''),
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/io.html',
+    `<pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>read! :: ${link('()', '/docs/reference/runtime-values#unit')}.</code></pre>`,
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/prelude.html',
+    `<h3 id="num">Num</h3><pre data-jazz-highlighter="textmate" data-jazz-signature="true"><code>convert :: @{${link('Num', '/docs/standard-library/prelude#num')}(a)}: a.</code></pre>`,
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/standard-library/maybe.html',
+    '<h1 id="maybe">Maybe</h1>',
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/reference/runtime-values.html',
+    '<h3 id="int">Int</h3><h3 id="tuples">Tuples</h3><h3 id="unit">Unit</h3>',
+  );
+  writeBuildFile(
+    buildRoot,
+    'docs/language/types-and-signatures.html',
+    '<pre data-jazz-highlighter="textmate"><code><span>ordinary :: Maybe(a).</span></code></pre>',
+  );
+}
+
+function markdownText(node) {
+  if (typeof node.value === 'string') {
+    return node.value;
+  }
+  return (node.children ?? []).map(markdownText).join('');
 }
 
 function tokenScopes(tokens) {
@@ -272,6 +341,89 @@ test('homepage introduction keeps invariant high-contrast colors in both themes'
   assert.match(pageCss, /\.primaryAction\s*\{[^}]*color:\s*var\(--jazz-brand-ink\)/s);
 });
 
+test('Runtime values exposes every stable built-in type destination', () => {
+  const tree = unified()
+    .use(remarkParse)
+    .parse(read('docs/reference/runtime-values.md'));
+  const headings = new Set(
+    tree.children
+      .filter((node) => node.type === 'heading')
+      .map((node) => markdownText(node)),
+  );
+
+  for (const destination of [
+    'Bool',
+    'Int',
+    'Int8',
+    'Int16',
+    'Int32',
+    'Int64',
+    'UInt8',
+    'UInt16',
+    'UInt32',
+    'UInt64',
+    'Float',
+    'Float16',
+    'Float32',
+    'Float64',
+    'Tuples',
+    'Unit',
+  ]) {
+    assert.ok(headings.has(destination), `missing Runtime values heading: ${destination}`);
+  }
+});
+
+test('built type-link checker accepts valid signature links and ordinary Jazz', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-valid-'));
+  try {
+    writeTypeLinkBuildFixture(fixture);
+    const output = execFileSync(
+      process.execPath,
+      [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+      {encoding: 'utf8'},
+    );
+    assert.match(output, /Jazz type-link check passed/);
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
+test('built type-link checker rejects links outside the configured base URL', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-base-url-'));
+  try {
+    writeTypeLinkBuildFixture(fixture, {baseUrl: '/'});
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+          {encoding: 'utf8', stdio: 'pipe'},
+        ),
+      (error) => error.status !== 0 && /base URL/.test(error.stderr),
+    );
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
+test('built type-link checker rejects a missing destination fragment', () => {
+  const fixture = mkdtempSync(path.join(tmpdir(), 'jazz-type-links-fragment-'));
+  try {
+    writeTypeLinkBuildFixture(fixture, {intFragment: 'missing'});
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [path.join(websiteRoot, 'scripts/check-built-type-links.mjs'), fixture],
+          {encoding: 'utf8', stdio: 'pipe'},
+        ),
+      (error) => error.status !== 0 && /fragment/.test(error.stderr),
+    );
+  } finally {
+    rmSync(fixture, {recursive: true, force: true});
+  }
+});
+
 test('Docusaurus renders Jazz with TextMate and delegates other languages', () => {
   const renderer = read('website/src/theme/CodeBlock/Content/index.tsx');
   const packageJson = JSON.parse(read('website/package.json'));
@@ -285,7 +437,7 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   assert.equal(packageJson.devDependencies.pagefind, '1.5.2');
   assert.equal(
     packageJson.scripts.build,
-    'node scripts/sync-factorial.mjs && docusaurus build && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs',
+    'node scripts/sync-factorial.mjs && docusaurus build && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
   );
 
   for (const relativePath of [

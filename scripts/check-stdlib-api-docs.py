@@ -91,8 +91,13 @@ def heading_count(document: str, name: str) -> int:
 
 
 def exact_signature_present(document: str, name: str, signature: str) -> bool:
-    fence = f"```jazz\n{name} :: {signature}.\n```"
-    return fence in document.replace("\r\n", "\n")
+    expected = re.escape(f"{name} :: {signature}.")
+    pattern = re.compile(
+        rf"(?m)^(?P<fence>`{{3,}}|~{{3,}})jazz"
+        rf"(?=[ \t])(?=[^\r\n]*(?<!\S)jazz-signature(?!\S))[^\r\n]*\r?\n"
+        rf"{expected}\r?\n(?P=fence)[ \t]*$"
+    )
+    return pattern.search(document) is not None
 
 
 def data_constructors(source: str) -> dict[str, tuple[str, ...]]:

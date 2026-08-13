@@ -135,12 +135,36 @@ class PublicDocsCheckerTests(unittest.TestCase):
         page = self.root / "docs/standard-library/maybe.md"
         page.write_text(
             page.read_text(encoding="utf-8")
-            + "\n<!-- jazz-signature -->\n\n"
-            + "```jazz\nmaybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            + "\n```jazz jazz-signature\n"
+            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
             encoding="utf-8",
         )
         result = self.run_checker()
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_legacy_signature_comment_is_not_a_durable_contract(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n<!-- jazz-signature -->\n\n"
+            + "```jazz\nmaybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "legacy jazz-signature comment is not allowed"
+        )
+
+    def test_signature_metadata_must_be_an_exact_fence_token(self) -> None:
+        page = self.root / "docs/standard-library/maybe.md"
+        page.write_text(
+            page.read_text(encoding="utf-8")
+            + "\n```jazz not-jazz-signature\n"
+            + "maybeMap :: (a -> b) -> Maybe(a) -> Maybe(b).\n```\n",
+            encoding="utf-8",
+        )
+        self.assert_violation(
+            "Jazz fence must have an adjacent jazz-example marker or jazz-signature fence metadata"
+        )
 
     def test_every_docusaurus_jazz_fence_shape_is_synchronized(self) -> None:
         for opener, closer in (("~~~jazz", "~~~"), ("   ```jazz", "   ```")):

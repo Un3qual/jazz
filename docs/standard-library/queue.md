@@ -19,9 +19,7 @@ leaves older queue values valid.
 
 ### `queueEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueEmpty :: Queue(a).
 ```
 
@@ -29,9 +27,7 @@ The empty queue. Construction is `O(1)`.
 
 ### `queueSingleton`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueSingleton :: a -> Queue(a).
 ```
 
@@ -39,9 +35,7 @@ Constructs a queue containing one value in `O(1)`.
 
 ### `queueFromList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueFromList :: [a] -> Queue(a).
 ```
 
@@ -50,9 +44,7 @@ the API boundary.
 
 ### `queueToList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueToList :: Queue(a) -> [a].
 ```
 
@@ -60,9 +52,7 @@ Returns values from oldest to newest in `O(n)`.
 
 ### `queueSize`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueSize :: Queue(a) -> Int.
 ```
 
@@ -70,9 +60,7 @@ Returns the number of values in `O(1)`.
 
 ### `queueIsEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueIsEmpty :: Queue(a) -> Bool.
 ```
 
@@ -82,9 +70,7 @@ Returns `True` when the queue has no values. This is `O(1)`.
 
 ### `queueEnqueue`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueEnqueue :: Queue(a) -> a -> Queue(a).
 ```
 
@@ -92,9 +78,7 @@ Adds a value at the rear and returns the updated queue in `O(1)`.
 
 ### `queueEnqueueAll`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueEnqueueAll :: Queue(a) -> [a] -> Queue(a).
 ```
 
@@ -102,9 +86,7 @@ Adds values at the rear in list order. Enqueueing `m` values is `O(m)`.
 
 ### `queuePeek`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queuePeek :: Queue(a) -> Maybe(a).
 ```
 
@@ -116,9 +98,7 @@ that `O(n)` work.
 
 ### `queueDequeue`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueDequeue :: Queue(a) -> Maybe((a, Queue(a))).
 ```
 
@@ -130,9 +110,7 @@ single call may spend `O(n)` normalizing the rear. `queueDequeue` is amortized
 
 ### `queueMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueMap :: Queue(a) -> (a -> b) -> Queue(b).
 ```
 
@@ -141,9 +119,7 @@ Transforms values from oldest to newest and preserves FIFO order. This is
 
 ### `queueFoldLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueFoldLeft :: Queue(a) -> b -> (b -> a -> b) -> b.
 ```
 
@@ -152,9 +128,7 @@ Folds from oldest to newest, beginning with the supplied accumulator. This is
 
 ### `queueFoldRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 queueFoldRight :: Queue(a) -> b -> (a -> b -> b) -> b.
 ```
 

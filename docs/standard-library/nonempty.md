@@ -9,9 +9,7 @@ Import `NonEmpty` when a sequence must contain at least one value.
 
 ### `NonEmpty`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 data NonEmpty a = NonEmpty a [a].
 ```
 
@@ -27,9 +25,7 @@ in [patterns](../language/algebraic-data-types-and-patterns.md).
 
 ### `nonEmptySingleton`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptySingleton :: a -> NonEmpty(a).
 ```
 
@@ -37,9 +33,7 @@ Constructs a one-value sequence. This is `O(1)`.
 
 ### `nonEmptyFromList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyFromList :: [a] -> Maybe(NonEmpty(a)).
 ```
 
@@ -48,9 +42,7 @@ traversing them. This is `O(1)`.
 
 ### `nonEmptyToList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyToList :: NonEmpty(a) -> [a].
 ```
 
@@ -58,9 +50,7 @@ Returns the head followed by the tail. This is `O(1)`.
 
 ### `nonEmptyPrepend`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyPrepend :: a -> NonEmpty(a) -> NonEmpty(a).
 ```
 
@@ -69,9 +59,7 @@ Adds a new first value and preserves the existing sequence after it. This is
 
 ### `nonEmptyAppendList`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyAppendList :: NonEmpty(a) -> [a] -> NonEmpty(a).
 ```
 
@@ -82,9 +70,7 @@ original sequence tail.
 
 ### `nonEmptyHead`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyHead :: NonEmpty(a) -> a.
 ```
 
@@ -92,9 +78,7 @@ Returns the guaranteed first value. The function is total and `O(1)`.
 
 ### `nonEmptyTail`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyTail :: NonEmpty(a) -> [a].
 ```
 
@@ -102,9 +86,7 @@ Returns every value after the head. The result may be empty. This is `O(1)`.
 
 ### `nonEmptyLast`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyLast :: NonEmpty(a) -> a.
 ```
 
@@ -112,9 +94,7 @@ Returns the final value. The function is total and `O(n)`.
 
 ### `nonEmptyLength`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyLength :: NonEmpty(a) -> Int.
 ```
 
@@ -124,9 +104,7 @@ Returns the number of values, which is always at least one. This is `O(n)`.
 
 ### `nonEmptyMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyMap :: (a -> b) -> NonEmpty(a) -> NonEmpty(b).
 ```
 
@@ -135,9 +113,7 @@ plus callback work.
 
 ### `nonEmptyFoldLeft`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyFoldLeft :: (b -> a -> b) -> b -> NonEmpty(a) -> b.
 ```
 
@@ -146,9 +122,7 @@ This is `O(n)` plus callback work.
 
 ### `nonEmptyFoldRight`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 nonEmptyFoldRight :: (a -> b -> b) -> b -> NonEmpty(a) -> b.
 ```
 

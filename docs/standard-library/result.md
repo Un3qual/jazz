@@ -9,9 +9,7 @@ Import `Result` for operations with an explicit success or error branch.
 
 ### `Result`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 data Result e a = Err e | Ok a.
 ```
 
@@ -31,9 +29,7 @@ public and may be used in
 
 ### `resultMap`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultMap :: (a -> b) -> Result(e, a) -> Result(e, b).
 ```
 
@@ -42,9 +38,7 @@ Transforms the value inside `Ok` and preserves `Err` unchanged. Example:
 
 ### `resultMapError`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultMapError :: (e -> f) -> Result(e, a) -> Result(f, a).
 ```
 
@@ -53,9 +47,7 @@ Transforms the value inside `Err` and preserves `Ok` unchanged. Example:
 
 ### `resultAndThen`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultAndThen :: (a -> Result(e, b)) -> Result(e, a) -> Result(e, b).
 ```
 
@@ -64,9 +56,7 @@ the function and passes through.
 
 ### `resultRecover`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultRecover :: (e -> Result(f, a)) -> Result(e, a) -> Result(f, a).
 ```
 
@@ -80,9 +70,7 @@ All transformation operations are `O(1)` apart from the callback.
 
 ### `resultWithDefault`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultWithDefault :: a -> Result(e, a) -> a.
 ```
 
@@ -90,9 +78,7 @@ Returns the value inside `Ok`, or the first argument for `Err`.
 
 ### `resultIsOk`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultIsOk :: Result(e, a) -> Bool.
 ```
 
@@ -100,9 +86,7 @@ Returns `True` for `Ok` and `False` for `Err`. This is `O(1)`.
 
 ### `resultIsErr`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultIsErr :: Result(e, a) -> Bool.
 ```
 
@@ -112,9 +96,7 @@ Returns `True` for `Err` and `False` for `Ok`. This is `O(1)`.
 
 ### `resultToMaybe`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultToMaybe :: Result(e, a) -> Maybe(a).
 ```
 
@@ -122,9 +104,7 @@ Converts `Ok value` to `Just value` and discards an error as `Nothing`.
 
 ### `resultErrorToMaybe`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultErrorToMaybe :: Result(e, a) -> Maybe(e).
 ```
 
@@ -132,9 +112,7 @@ Converts `Err error` to `Just error` and discards a success as `Nothing`.
 
 ### `resultFromMaybe`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 resultFromMaybe :: e -> Maybe(a) -> Result(e, a).
 ```
 

@@ -243,9 +243,9 @@
 - Consumes: Shiki `ThemedToken[][]`, raw source offsets, `metadata.jazzSignature`, and the type-link spans from Task 3.
 - Produces: ordinary token spans or internal `<a data-jazz-type-link>` elements inside `<pre data-jazz-signature>` while preserving copyable source text and code-line layout.
 
-- [ ] **Step 1: Add failing renderer/build contracts.** Require signature `<pre>` elements to expose `data-jazz-signature`, linked tokens to expose `data-jazz-type-link`, ordinary Jazz blocks to expose neither, and all links to pass through Docusaurus base-URL handling. Add a built-output checker that scans standard-library HTML for mapped links, confirms their route/fragment targets exist, and confirms at least one ordinary Jazz example has no type links.
+- [x] **Step 1: Add failing renderer/build contracts.** Require signature `<pre>` elements to expose `data-jazz-signature`, linked tokens to expose `data-jazz-type-link`, ordinary Jazz blocks to expose neither, and all links to pass through Docusaurus base-URL handling. Add a built-output checker that scans standard-library HTML for mapped links, confirms their route/fragment targets exist, and confirms at least one ordinary Jazz example has no type links.
 
-- [ ] **Step 2: Run focused checks and verify RED.** Run:
+- [x] **Step 2: Run focused checks and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command pnpm --dir website run test:experience
@@ -254,17 +254,17 @@
 
   Expected: failure because no rendered type links or built-in anchors exist.
 
-- [ ] **Step 3: Split highlighted tokens at semantic boundaries.** For signature blocks only, walk TextMate tokens in source order, preserve every character and style bit, and split tokens where a type-link span begins or ends. Add the canonical destination to the resulting `JazzToken`; leave the existing code path unchanged for ordinary Jazz blocks.
+- [x] **Step 3: Split highlighted tokens at semantic boundaries.** For signature blocks only, walk TextMate tokens in source order, preserve every character and style bit, and split tokens where a type-link span begins or ends. Add the canonical destination to the resulting `JazzToken`; leave the existing code path unchanged for ordinary Jazz blocks.
 
-- [ ] **Step 4: Swizzle token output for internal links.** Keep the default `<span>` for every token without a destination. For linked tokens, render a Docusaurus internal link whose URL is produced by the base-URL utility. Preserve inherited token color and code semantics, and do not interfere with line numbering, wrapping, selection, or the copy button.
+- [x] **Step 4: Swizzle token output for internal links.** Keep the default `<span>` for every token without a destination. For linked tokens, render a Docusaurus internal link whose URL is produced by the base-URL utility. Preserve inherited token color and code semantics, and do not interfere with line numbering, wrapping, selection, or the copy button.
 
-- [ ] **Step 5: Style links as syntax first.** Set `color: inherit` and `text-decoration: none` for every link state, including visited, hover, active, and focus-visible. Use a small-radius background shift on hover and a visible offset outline/background on focus. Add no inline icon and no layout-changing font treatment.
+- [x] **Step 5: Style links as syntax first.** Set `color: inherit` and `text-decoration: none` for every link state, including visited, hover, active, and focus-visible. Use a small-radius background shift on hover and a visible offset outline/background on focus. Add no inline icon and no layout-changing font treatment.
 
-- [ ] **Step 6: Add stable Runtime values destinations.** Expand `runtime-values.md` with concise, individually headed entries for `Bool`, `Int`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float`, `Float16`, `Float32`, `Float64`, tuples, and unit. Keep the page dense, avoid tables, and preserve the existing numeric promotion, equality, rendering, and runtime-failure contracts.
+- [x] **Step 6: Add stable Runtime values destinations.** Expand `runtime-values.md` with concise, individually headed entries for `Bool`, `Int`, `Int8`, `Int16`, `Int32`, `Int64`, `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Float`, `Float16`, `Float32`, `Float64`, tuples, and unit. Keep the page dense, avoid tables, and preserve the existing numeric promotion, equality, rendering, and runtime-failure contracts.
 
-- [ ] **Step 7: Wire and run built-output verification.** Add `check-built-type-links.mjs` after the existing highlighting/search checks in the build script. It must verify representative links for module types, built-ins, capabilities, nested signatures, list syntax, tuple/unit syntax, and every destination fragment, while proving an ordinary marked example remains link-free.
+- [x] **Step 7: Wire and run built-output verification.** Add `check-built-type-links.mjs` after the existing highlighting/search checks in the build script. It must verify representative links for module types, built-ins, capabilities, nested signatures, list syntax, tuple/unit syntax, and every destination fragment, while proving an ordinary marked example remains link-free.
 
-- [ ] **Step 8: Run documentation and website checks.** Run:
+- [x] **Step 8: Run documentation and website checks.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
@@ -282,6 +282,14 @@
   git add website/src/theme/CodeBlock/Content/index.tsx website/src/theme/CodeBlock/Content/styles.module.css website/src/theme/CodeBlock/Line/Token website/scripts/check-built-type-links.mjs website/scripts/test-experience.mjs website/package.json docs/reference/runtime-values.md
   git commit -m "feat(docs): link types in API signatures"
   ```
+
+**Verification receipts (2026-08-12):**
+
+- Architecture decision: after the three failed HTML-marker propagation hypotheses documented in the Task 4 report, the user approved native fence metadata. All 225 standard-library signatures now use ```` ```jazz jazz-signature ````; the obsolete remark marker plugin and adjacent HTML markers were removed, while ordinary `jazz-example` fences remain unchanged.
+- RED: the public-doc checker rejected the new native fence and incorrectly accepted the legacy marker; the focused signature suite failed because the native metadata helper did not exist; the production build reached the linked-type checker and failed because no signature metadata reached rendered HTML.
+- GREEN: the native fence parser regression proves the exact `jazz-signature` metastring reaches `metadata.jazzSignature`, while near matches and ordinary Jazz fences remain false. Public documentation tests pass 17/17 and standard-library API tests pass 9/9.
+- Rendering: signature-only token splitting preserves TextMate content, color, and font-style bits; linked output uses Docusaurus base-URL resolution and retains copyable source text. Generated HTML contains 225 signature blocks and 683 links, with representative module, built-in, capability, nested, list, tuple, and unit targets present; 15 ordinary examples remain link-free.
+- GREEN: `scripts/check-docs.sh`, `pnpm --dir website run test:signatures` (7/7), `pnpm --dir website run test:experience` (25/25), `pnpm --dir website run typecheck`, and `pnpm --dir website run build` all pass. The pre-existing SearchBar dynamic-dependency webpack warning remains unchanged.
 
 ### Task 5: Integrated production and visual closeout
 

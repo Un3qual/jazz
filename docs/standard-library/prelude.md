@@ -12,9 +12,7 @@ import is required.
 
 ### `Ordering`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 data Ordering = LT | EQ | GT.
 ```
 
@@ -36,9 +34,7 @@ Indicates that the left value sorts after the right value.
 
 ### `Eq`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Eq(a) { equals :: a -> a -> Bool. }.
 ```
 
@@ -47,9 +43,7 @@ and numeric types.
 
 ### `equals`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 equals :: a -> a -> Bool.
 ```
 
@@ -57,9 +51,7 @@ Returns whether two values are equal through the active `Eq(a)` implementation.
 
 ### `Ord`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Ord(a) { compare :: a -> a -> Ordering. }.
 ```
 
@@ -68,9 +60,7 @@ use their ordinary order. `Text` compares lexicographically by Unicode scalar.
 
 ### `compare`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 compare :: a -> a -> Ordering.
 ```
 
@@ -80,9 +70,7 @@ Returns `LT`, `EQ`, or `GT` through the active `Ord(a)` implementation.
 
 ### `Num`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Num(a) { }.
 ```
 
@@ -91,9 +79,7 @@ Built-in integer and floating types implement it.
 
 ### `Integral`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Integral(a) { }.
 ```
 
@@ -102,9 +88,7 @@ implement it.
 
 ### `Fractional`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Fractional(a) { }.
 ```
 
@@ -114,9 +98,7 @@ Marks fractional numeric types. Built-in floating types implement it.
 
 ### `Showable`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Showable(a) { show :: a -> Text. }.
 ```
 
@@ -125,9 +107,7 @@ types implement it.
 
 ### `show`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 show :: a -> Text.
 ```
 
@@ -136,9 +116,7 @@ value syntax.
 
 ### `Default`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 class Default(a) { defaultValue :: a. }.
 ```
 
@@ -147,9 +125,7 @@ uses `False`, `Char` uses `'\0'`, and `Text` uses `""`.
 
 ### `defaultValue`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 defaultValue :: a.
 ```
 
@@ -159,9 +135,7 @@ Returns the value supplied by the active `Default(a)` implementation.
 
 ### `map`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 map :: (a -> b) -> [a] -> [b].
 ```
 
@@ -170,9 +144,7 @@ Applies a function to every item and preserves order. Prefer
 
 ### `filter`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 filter :: (a -> Bool) -> [a] -> [a].
 ```
 
@@ -181,9 +153,7 @@ Keeps the items whose predicate is `True`, preserving order. Prefer
 
 ### `hd`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 hd :: [a] -> a.
 ```
 
@@ -192,9 +162,7 @@ Returns the first value. This function is partial: `hd []` fails fatally with
 
 ### `tl`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 tl :: [a] -> [a].
 ```
 
@@ -209,9 +177,7 @@ respectively.
 
 ### `print!`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 print! :: a -> a.
 ```
 
@@ -227,9 +193,7 @@ non-finite or overflowing conversions fail with a runtime diagnostic.
 
 ### `toInt8`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toInt8 :: @{Num(a)}: a -> Int8.
 ```
 
@@ -238,9 +202,7 @@ Converts to an 8-bit signed integer and rejects values outside `-128` through
 
 ### `toInt16`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toInt16 :: @{Num(a)}: a -> Int16.
 ```
 
@@ -248,9 +210,7 @@ Converts to a 16-bit signed integer with range checking.
 
 ### `toInt32`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toInt32 :: @{Num(a)}: a -> Int32.
 ```
 
@@ -258,9 +218,7 @@ Converts to a 32-bit signed integer with range checking.
 
 ### `toInt64`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toInt64 :: @{Num(a)}: a -> Int64.
 ```
 
@@ -268,9 +226,7 @@ Converts to a 64-bit signed integer with range checking.
 
 ### `toUInt8`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toUInt8 :: @{Num(a)}: a -> UInt8.
 ```
 
@@ -279,9 +235,7 @@ Converts to an 8-bit unsigned integer and rejects values outside `0` through
 
 ### `toUInt16`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toUInt16 :: @{Num(a)}: a -> UInt16.
 ```
 
@@ -289,9 +243,7 @@ Converts to a 16-bit unsigned integer with range checking.
 
 ### `toUInt32`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toUInt32 :: @{Num(a)}: a -> UInt32.
 ```
 
@@ -299,9 +251,7 @@ Converts to a 32-bit unsigned integer with range checking.
 
 ### `toUInt64`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toUInt64 :: @{Num(a)}: a -> UInt64.
 ```
 
@@ -309,9 +259,7 @@ Converts to a 64-bit unsigned integer with range checking.
 
 ### `toFloat16`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toFloat16 :: @{Num(a)}: a -> Float16.
 ```
 
@@ -319,9 +267,7 @@ Converts to IEEE binary16 with deterministic rounding and overflow checks.
 
 ### `toFloat32`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toFloat32 :: @{Num(a)}: a -> Float32.
 ```
 
@@ -329,9 +275,7 @@ Converts to IEEE binary32 with deterministic rounding and overflow checks.
 
 ### `toFloat64`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toFloat64 :: @{Num(a)}: a -> Float64.
 ```
 
@@ -339,9 +283,7 @@ Converts to IEEE binary64 with deterministic rounding and overflow checks.
 
 ### `toInt`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toInt :: @{Num(a)}: a -> Int64.
 ```
 
@@ -349,9 +291,7 @@ An alias of `toInt64` with the same range and integral-input requirements.
 
 ### `toFloat`
 
-<!-- jazz-signature -->
-
-```jazz
+```jazz jazz-signature
 toFloat :: @{Num(a)}: a -> Float64.
 ```
 
