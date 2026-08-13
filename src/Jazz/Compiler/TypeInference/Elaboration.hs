@@ -1255,8 +1255,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               foldl'
                 addCaptureType
                 captureTypes
-                ( [ (binder, captureType)
-                  | binder <- maybe [] (: []) maybeOwner
+                ( [ (owner, captureType)
+                  | owner <- maybe [] (: []) maybeOwner,
+                    Just expressionType <- [provisionalExpressionType state expression],
+                    specializeExpressionType state captureType expressionType == resolveType state captureType
                   ]
                     <> provisionalScalarSpecializationTypes scalarBindings (Just captureType) expression
                 )
