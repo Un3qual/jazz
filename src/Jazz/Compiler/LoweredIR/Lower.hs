@@ -1310,21 +1310,18 @@ recursiveGroupProfileFailures modulePath functions unsharedFunctions declaration
     memberCapturesAvailableAtGroupStart members memberBinder =
       case (members, Map.lookup memberBinder unsharedFunctionsByBinder) of
         (firstMember : _, Just member) ->
-          case Map.lookup firstMember unsharedFunctionsByBinder of
-            Just firstFunction ->
-              all
-                (captureAvailableBefore (functionShapeStatementIndex firstFunction))
-                ( collectCaptureShapes
-                    unsharedFunctionsByBinder
-                    (Set.fromList members)
-                    (Set.fromList (map functionParameterBinder (functionShapeParameters member)))
-                    (functionShapeBody member)
-                )
-            Nothing -> False
+          all
+            (captureAvailableBefore firstMember)
+            ( collectCaptureShapes
+                unsharedFunctionsByBinder
+                (Set.fromList members)
+                (Set.fromList (map functionParameterBinder (functionShapeParameters member)))
+                (functionShapeBody member)
+            )
         _ -> False
-    captureAvailableBefore firstStatement capture =
-      case captureShapeBinder capture of
-        TypedBinderId (_, statementIndex : _, _) -> statementIndex < firstStatement
+    captureAvailableBefore firstMember capture =
+      case (captureShapeBinder capture, firstMember) of
+        (TypedBinderId (_, captureStatement : _, _), TypedBinderId (_, firstStatement : _, _)) -> captureStatement < firstStatement
         _ -> False
     closureShapeReferencesGroup memberSet memberStatementIndexes function =
       not (functionShapeSourceBinding function)
@@ -1687,23 +1684,23 @@ lowerClosureValue path parameters function state =
           constructClosure environmentOperand state
     Just layoutId
       | Just environmentFields <- captureOperands ->
-      let environmentIndex = loweringNextTemporary state
-          environmentTemporaryId = temporaryId environmentIndex
-          environmentRepresentation = LoweredManagedReferenceRepresentation layoutId
-          environmentInstruction =
-            LoweredInstruction
-              environmentTemporaryId
-              environmentRepresentation
-              (LoweredConstructProduct layoutId environmentFields)
-          environmentState =
-            state
-              { loweringNextTemporary = environmentIndex + 1,
-                loweringInstructions =
-                  environmentInstruction : loweringInstructions state
-              }
-       in constructClosure
-            (LoweredTemporaryOperand environmentTemporaryId environmentRepresentation)
-            environmentState
+          let environmentIndex = loweringNextTemporary state
+              environmentTemporaryId = temporaryId environmentIndex
+              environmentRepresentation = LoweredManagedReferenceRepresentation layoutId
+              environmentInstruction =
+                LoweredInstruction
+                  environmentTemporaryId
+                  environmentRepresentation
+                  (LoweredConstructProduct layoutId environmentFields)
+              environmentState =
+                state
+                  { loweringNextTemporary = environmentIndex + 1,
+                    loweringInstructions =
+                      environmentInstruction : loweringInstructions state
+                  }
+           in constructClosure
+                (LoweredTemporaryOperand environmentTemporaryId environmentRepresentation)
+                environmentState
     _ -> unsupportedExpression path state
   where
     constructClosure environmentOperand currentState =

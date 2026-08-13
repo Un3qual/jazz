@@ -91,6 +91,7 @@ tests =
     ("rejects inherited recursive captures unavailable at an earlier caller", testEarlierCallerTransitiveCaptureAvailability),
     ("specializes every use of a captured numeric scalar", testCapturedNumericScalarReferenceSpecialization),
     ("specializes enclosing expressions that reuse captured numeric scalars", testCapturedCompositeScalarSpecialization),
+    ("specializes independent scalar binders recolored with recursive captures", testCapturedCompositeScalarBinderSpecialization),
     ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
     ("specializes recursive scalar alias captures across omitted source statements", testRecordedScalarStatementIndices),
     ("rejects eager recursive closure calls before their captures exist", testEagerRecursiveClosureCaptureAvailability),
@@ -1362,6 +1363,59 @@ testCapturedCompositeScalarSpecialization = do
           ]
   assertProvisionalProductionCompletes "captured composite scalar specialization" provisionalScope
 
+testCapturedCompositeScalarBinderSpecialization :: IO ()
+testCapturedCompositeScalarBinderSpecialization = do
+  let spanValue = SourceSpan 1 1
+      seedType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [2])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              seedType
+              (ProvisionalLiteralExpression (LInt 1) seedType),
+            ProvisionalScalarBinding
+              1
+              "other"
+              spanValue
+              otherType
+              (ProvisionalLiteralExpression (LInt 2) otherType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalBinaryExpression
+                  "+"
+                  seedType
+                  seedType
+                  (ProvisionalVariableExpression "seed" seedType)
+                  (ProvisionalVariableExpression "other" otherType)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured composite scalar binder specialization" provisionalScope
+
 testCapturedScalarAliasSourceSpecialization :: IO ()
 testCapturedScalarAliasSourceSpecialization = do
   let spanValue = SourceSpan 1 1
@@ -1414,7 +1468,6 @@ testCapturedScalarAliasSourceSpecialization = do
 
 testRecordedScalarStatementIndices :: IO ()
 testRecordedScalarStatementIndices = do
-  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let spanValue = SourceSpan 1 1
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
@@ -1461,18 +1514,7 @@ testRecordedScalarStatementIndices = do
                   (ProvisionalLiteralExpression (LInt 1) uint8Type)
               )
           ]
-      status =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
-  case status of
-    TypedCoreProductionSucceeded programValue ->
-      assertEqual "recorded scalar statement index typed-core validation" [] (validateTypedProgram programValue)
-    other -> failTest ("recorded scalar statement indices did not produce typed core: " <> Text.pack (show other))
+  assertProvisionalProductionCompletes "recorded scalar statement indices" provisionalScope
 
 testEagerRecursiveClosureCaptureAvailability :: IO ()
 testEagerRecursiveClosureCaptureAvailability = do

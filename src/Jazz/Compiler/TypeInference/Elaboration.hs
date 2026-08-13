@@ -1202,10 +1202,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     supportedRecursiveProfile functions callableShapes reboundFunctions statements typedRecursiveGroups =
       ( Set.fromList (map fst supportedMemberCaptures),
-        foldl'
-          addCaptureType
-          Map.empty
-          (concatMap expandScalarAliasCapture (concatMap snd supportedMemberCaptures)),
+        propagatedScalarCaptureTypes,
         unavailableClosureCaptureBinders,
         eagerClosureCaptureStatements
       )
@@ -1227,6 +1224,43 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             binder
             expressionType
             captureTypes
+        initialScalarCaptureTypes =
+          foldl'
+            addCaptureType
+            Map.empty
+            (concatMap expandScalarAliasCapture (concatMap snd supportedMemberCaptures))
+        propagatedScalarCaptureTypes = propagateScalarCaptureTypes initialScalarCaptureTypes
+        propagateScalarCaptureTypes captureTypes
+          | nextCaptureTypes == captureTypes = captureTypes
+          | otherwise = propagateScalarCaptureTypes nextCaptureTypes
+          where
+            nextCaptureTypes = foldl' propagateStatementCaptureTypes captureTypes statements
+        propagateStatementCaptureTypes captureTypes statement =
+          case statement of
+            ProvisionalScalarBinding statementIndex name _ _ expression ->
+              let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements
+                  owner = binderAt statementIndex [] (resolvedValueName name)
+                  selectedCaptureType =
+                    Map.lookup owner captureTypes
+                      <|> scalarCaptureExpectedType captureTypes scalarBindings expression
+               in propagateExpressionCaptureTypes captureTypes selectedCaptureType scalarBindings (Just owner) expression
+            ProvisionalTerminalExpression statementIndex _ expression ->
+              let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements
+                  selectedCaptureType = scalarCaptureExpectedType captureTypes scalarBindings expression
+               in propagateExpressionCaptureTypes captureTypes selectedCaptureType scalarBindings Nothing expression
+            _ -> captureTypes
+        propagateExpressionCaptureTypes captureTypes maybeCaptureType scalarBindings maybeOwner expression =
+          case maybeCaptureType of
+            Just captureType ->
+              foldl'
+                addCaptureType
+                captureTypes
+                ( [ (binder, captureType)
+                  | binder <- maybe [] (: []) maybeOwner
+                  ]
+                    <> provisionalScalarSpecializationTypes scalarBindings (Just captureType) expression
+                )
+            Nothing -> captureTypes
         scalarBindingsBeforeStatements =
           snd (foldl' collectScalarBinding (Map.empty, Map.empty) statements)
         collectScalarBinding (visibleBindings, snapshots) statement =
@@ -1440,6 +1474,46 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ProvisionalTerminalExpression _ _ expression ->
               go boundNames expression <> scope boundNames rest
             _ -> scope boundNames rest
+
+    provisionalScalarSpecializationTypes scalarBindings = go Set.empty
+      where
+        go boundNames maybeExpected expression =
+          case expression of
+            ProvisionalUnitExpression -> []
+            ProvisionalLiteralExpression {} -> []
+            ProvisionalBinaryExpression _ expressionType operandType left right ->
+              let resultType = specializedType maybeExpected expressionType
+                  resolvedOperandType = resolveType state operandType
+                  operandExpected = concreteIntegralType resultType <|> concreteIntegralType resolvedOperandType
+               in child operandExpected left <> child operandExpected right
+            ProvisionalVariableExpression name expressionType
+              | Set.notMember name boundNames,
+                Just binder <- Map.lookup name scalarBindings,
+                Just expectedType <- maybeExpected ->
+                  [(binder, specializeExpressionType state expectedType expressionType)]
+              | otherwise -> []
+            ProvisionalLambdaExpression parameterName expressionType body ->
+              let specializedFunctionType = specializedType maybeExpected expressionType
+                  bodyExpected =
+                    case specializedFunctionType of
+                      TFunctionType _ resultType -> Just resultType
+                      _ -> Nothing
+               in go (Set.insert parameterName boundNames) bodyExpected body
+            ProvisionalApplyExpression _ function argument ->
+              let argumentExpected =
+                    case provisionalExpressionType state function of
+                      Just (TFunctionType parameterType _) -> Just parameterType
+                      _ -> Nothing
+               in child Nothing function <> child argumentExpected argument
+            ProvisionalScopeStatements {} -> []
+            ProvisionalUnsupportedExpression {} -> []
+            ProvisionalRetainedFailures {} -> []
+          where
+            child = go boundNames
+            specializedType expected expressionType =
+              case expected of
+                Just expectedType -> specializeExpressionType state expectedType expressionType
+                Nothing -> resolveType state expressionType
 
     nestedLambdaReferencesAnyBinder leadingLambdaCount binders = skipLeading leadingLambdaCount
       where
