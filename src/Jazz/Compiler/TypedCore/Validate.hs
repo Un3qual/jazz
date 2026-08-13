@@ -153,7 +153,7 @@ importCycleFailures moduleTable modules =
       (TypedModulePath modulePath)
       TypedModuleInterfaceMismatch
       (TypedTextDetail (renderModulePath importPath))
-  | TypedModule modulePath _ imports _ _ _ _ <- modules,
+  | TypedModule modulePath _ imports _ _ _ _ _ <- modules,
     importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
     pathsShareCyclicComponent modulePath importPath
   ]
@@ -167,7 +167,7 @@ importCycleFailures moduleTable modules =
         ]
     graphNodes =
       [ (modulePath, modulePath, knownImports imports)
-      | TypedModule modulePath _ imports _ _ _ _ <- Map.elems moduleTable
+      | TypedModule modulePath _ imports _ _ _ _ _ <- Map.elems moduleTable
       ]
     knownImports imports =
       nub
@@ -193,7 +193,7 @@ modulePathReachable moduleTable initialSeen currentPath targetPath =
               nextPaths =
                 case Map.lookup candidatePath moduleTable of
                   Nothing -> []
-                  Just (TypedModule _ _ imports _ _ _ _) ->
+                  Just (TypedModule _ _ imports _ _ _ _ _) ->
                     [nextPath | TypedResolvedImport _ nextPath _ _ <- imports]
            in go nextSeen (nextPaths <> pendingPaths)
 
@@ -201,7 +201,7 @@ moduleOrderFailures :: Map [Text] TypedModule -> [TypedModule] -> [TypedCoreVali
 moduleOrderFailures moduleTable = go Set.empty
   where
     go _ [] = []
-    go precedingPaths (TypedModule modulePath _ imports _ _ _ _ : remainingModules) =
+    go precedingPaths (TypedModule modulePath _ imports _ _ _ _ _ : remainingModules) =
       [ failure
           (TypedModulePath modulePath)
           TypedModuleInterfaceMismatch
@@ -214,7 +214,7 @@ moduleOrderFailures moduleTable = go Set.empty
         <> go (Set.insert modulePath precedingPaths) remainingModules
 
 validateModule :: Map [Text] TypedModule -> Maybe TypedModule -> Bool -> TypedModule -> [TypedCoreValidationFailure]
-validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ statements moduleInfo) =
+validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath sourcePath imports _ _ recursiveGroups statements moduleInfo) =
   validateModulePath modulePath
     <> validateSourcePath modulePath sourcePath
     <> validateResolvedImports moduleTable modulePath imports
@@ -222,6 +222,7 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     <> validateModuleInterface moduleTable moduleValue
     <> duplicateDeclarationFailures context (zip (map pure [0 ..]) statements)
     <> duplicateBinderFailures context (zip (map pure [0 ..]) statements)
+    <> recursiveGroupFailures
     <> statementFailures
     <> moduleInfoFailures
     <> validateModuleResult (null statementFailures && null moduleInfoFailures) modulePath statements moduleInfo
@@ -321,7 +322,11 @@ validateModule moduleTable prelude isPrelude moduleValue@(TypedModule modulePath
     baseContext = withBlockDeclarations moduleMetadataStatements externalContext
     context = withBlockDeclarations statements externalContext
     statementFailures =
-      validateStatementsInOrder baseContext (zip (map pure [0 ..]) statements)
+      validateStatementsInOrder rootGroupsByStatement baseContext (zip (map pure [0 ..]) statements)
+    recursiveGroupFailures =
+      rootRecursiveGroupFailures modulePath statements recursiveGroups
+    rootGroupsByStatement =
+      rootRecursiveGroupsByStatement statements recursiveGroups
     moduleInfoFailures =
       validateModuleInfo context moduleValidationPath statements moduleInfo
 
@@ -465,7 +470,7 @@ importBindingCollisionFailures moduleTable modulePath imports =
         _ -> Nothing
 
 moduleExportsImportSelectorName :: Text -> TypedModule -> Bool
-moduleExportsImportSelectorName expected (TypedModule _ _ _ exports interface _ _) =
+moduleExportsImportSelectorName expected (TypedModule _ _ _ exports interface _ _ _) =
   any matchesExport exports
   where
     matchesExport export@(TypedModuleExport namespace exportedName) =
@@ -723,7 +728,7 @@ statementSchemes statement =
     _ -> []
 
 interfaceSchemeEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedBinderId, TypedScheme)]
-interfaceSchemeEntries (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface values _ classes _) _ _) =
+interfaceSchemeEntries (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface values _ classes _) _ _ _) =
   [ (binderId, qualifyExternalScheme modulePath scheme)
   | TypedValueInterface name scheme@(TypedScheme binderId _ _ _ _ _ _) <- values,
     importAllows selectedNames name,
@@ -876,14 +881,14 @@ statementImplEntries statement =
     _ -> []
 
 interfaceVisibleImplIds :: ([Text], Maybe [Text], TypedModule) -> [TypedImplId]
-interfaceVisibleImplIds visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) _ _) =
+interfaceVisibleImplIds visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) _ _ _) =
   [ qualifyExternalImplId modulePath implId
   | TypedImplInterface implId <- impls,
     implImportAllowed visibleModule implId
   ]
 
 interfaceImplMethodEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedImplId, Set Text)]
-interfaceImplMethodEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) statements _) =
+interfaceImplMethodEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ _ impls) _ statements _) =
   [ ( qualifyExternalImplId modulePath implId,
       Set.fromList [methodKey | TypedMethodDefinition (TypedMethodId _ methodKey) _ _ _ _ <- methods]
     )
@@ -894,7 +899,7 @@ interfaceImplMethodEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (Ty
   ]
 
 implImportAllowed :: ([Text], Maybe [Text], TypedModule) -> TypedImplId -> Bool
-implImportAllowed visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) (TypedImplId _ capability _) =
+implImportAllowed visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _ _) (TypedImplId _ capability _) =
   any capabilityIncluded classes
   where
     capabilityIncluded (TypedClassInterface (TypedClassDeclaration _ name _ methods)) =
@@ -916,7 +921,7 @@ interfaceDataMetadataDeclarations moduleTable visibleModules =
     catalog =
       Map.fromList
         [ (key, (modulePath, declaration))
-        | (modulePath, TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _) <-
+        | (modulePath, TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _ _) <-
             Map.toList moduleTable,
           TypedDataInterface declaration@(TypedDataDeclaration _ name _ _) <- datas,
           key <- maybeToList (definitionNameKey modulePath name)
@@ -926,7 +931,7 @@ interfaceDataMetadataDeclarations moduleTable visibleModules =
         ( concatMap sourceVisibleDataKeys visibleModules
             <> concatMap selectedSchemeDataKeys visibleModules
         )
-    sourceVisibleDataKeys (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _) =
+    sourceVisibleDataKeys (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _ _) =
       [ key
       | TypedDataInterface (TypedDataDeclaration _ name _ constructors) <- datas,
         sourceVisibleDataIncluded selectedNames exports name constructors,
@@ -977,7 +982,7 @@ closeDataMetadataKeys catalog roots = go roots roots
            in go (Set.union seen unseen) (Set.union rest unseen)
 
 interfaceCapabilitySchemes :: ([Text], Maybe [Text], TypedModule) -> [TypedScheme]
-interfaceCapabilitySchemes visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) =
+interfaceCapabilitySchemes visibleModule@(_, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _ _) =
   [ scheme
   | TypedClassInterface (TypedClassDeclaration _ name _ methods) <- classes,
     interfaceCapabilityIncluded visibleModule name methods,
@@ -1011,7 +1016,7 @@ typeDataKeys modulePath typeValue =
     _ -> []
 
 interfaceNameKeys :: ([Text], Maybe [Text], TypedModule) -> [ResolvedNameKey]
-interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface values datas classes _) _ _) =
+interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface values datas classes _) _ _ _) =
   concat
     [ [ key
       | TypedValueInterface name _ <- values,
@@ -1093,7 +1098,7 @@ statementConstructorEntries modulePath statement =
     _ -> []
 
 interfaceConstructorEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, ConstructorContract)]
-interfaceConstructorEntries (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _) =
+interfaceConstructorEntries (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _ _) =
   [ (constructorKey, ConstructorContract binderId dataKey parameters (map (qualifyExternalType modulePath) fields))
   | TypedDataInterface (TypedDataDeclaration _ dataName parameters constructors) <- datas,
     dataKey <- maybeToList (definitionNameKey modulePath dataName),
@@ -1110,7 +1115,7 @@ statementCapabilityEntries modulePath statement =
     _ -> []
 
 interfaceCapabilityEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, CapabilityContract)]
-interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) =
+interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _ _) =
   [ entry
   | TypedClassInterface declaration@(TypedClassDeclaration _ name _ methods) <- classes,
     interfaceCapabilityIncluded visibleModule name methods,
@@ -1118,7 +1123,7 @@ interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (Ty
   ]
 
 interfaceClassDeclarations :: ([Text], Maybe [Text], TypedModule) -> [TypedClassDeclaration]
-interfaceClassDeclarations visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _) =
+interfaceClassDeclarations visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _ _) =
   [ qualifyExternalClassDeclaration modulePath declaration
   | TypedClassInterface declaration@(TypedClassDeclaration _ name _ methods) <- classes,
     interfaceCapabilityIncluded visibleModule name methods
@@ -1157,7 +1162,7 @@ interfaceCapabilityIncluded visibleModule@(modulePath, _, _) name methods =
       (resolvedNameKey modulePath name)
 
 interfaceCapabilityNameIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> [TypedMethodSignature] -> Bool
-interfaceCapabilityNameIncluded visibleModule@(modulePath, selectedNames, TypedModule _ _ _ exports _ _ _) name methods =
+interfaceCapabilityNameIncluded visibleModule@(modulePath, selectedNames, TypedModule _ _ _ exports _ _ _ _) name methods =
   interfaceCapabilityNameDirectlyIncluded visibleModule name
     || (moduleOwnedCapabilityName modulePath name && any methodImported methods)
   where
@@ -1165,7 +1170,7 @@ interfaceCapabilityNameIncluded visibleModule@(modulePath, selectedNames, TypedM
       importAllows selectedNames methodName && moduleExportsName TypedValueNamespace methodName exports
 
 interfaceCapabilityNameDirectlyIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> Bool
-interfaceCapabilityNameDirectlyIncluded (modulePath, selectedNames, TypedModule _ _ _ exports _ _ _) name =
+interfaceCapabilityNameDirectlyIncluded (modulePath, selectedNames, TypedModule _ _ _ exports _ _ _ _) name =
   moduleOwnedCapabilityName modulePath name
     && importAllows selectedNames name
     && moduleExportsName TypedCapabilityNamespace name exports
@@ -1341,26 +1346,31 @@ withBlockDeclarations statements context =
             localSchemeEntries
         )
 
-validateStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrder initialContext locatedStatements =
+validateStatementsInOrder :: Map Int [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrder recursiveGroups initialContext locatedStatements =
   validateStatementsInOrderWith
     (\_ _ _ -> Nothing)
     (forwardSignedFunctionDeclarations (map snd locatedStatements))
+    recursiveGroups
     initialContext
     locatedStatements
 
 validateBlockStatementsInOrder :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateBlockStatementsInOrder =
-  validateStatementsInOrderWith blockStatementScopeFailure []
-
-validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-validateStatementsInOrderWith rejectedStatement forwardSignedFunctions initialContext locatedStatements =
-  validateFrom initialContext 0 locatedStatements
+validateBlockStatementsInOrder initialContext locatedStatements =
+  validateStatementsInOrderWith
+    blockStatementScopeFailure
+    []
+    (recursiveGroupFacts (recursiveGroupDependencies initialContext statements) statements)
+    initialContext
+    locatedStatements
   where
     statements = map snd locatedStatements
+
+validateStatementsInOrderWith :: (ModuleContext -> [Int] -> TypedStatement -> Maybe TypedCoreValidationFailure) -> [TypedStatement] -> Map Int [TypedStatement] -> ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
+validateStatementsInOrderWith rejectedStatement forwardSignedFunctions recursiveGroups initialContext locatedStatements =
+  validateFrom initialContext 0 locatedStatements
+  where
     forwardContext = prepareForwardSignedFunctionContext initialContext forwardSignedFunctions
-    dependencies = recursiveGroupDependencies initialContext statements
-    recursiveGroups = recursiveGroupFacts dependencies statements
     validateFrom _ _ [] = []
     validateFrom visibleContext blockIndex ((statementLocation, statement) : rest) =
       case rejectedStatement initialContext statementLocation statement of
@@ -1506,6 +1516,212 @@ blockStatementScopeFailure context statementLocation statement =
             TypedBlockResultMismatch
             (TypedTextDetail declarationKind)
         )
+
+rootRecursiveGroupFailures :: [Text] -> [TypedStatement] -> [TypedRecursiveGroup] -> [TypedCoreValidationFailure]
+rootRecursiveGroupFailures modulePath statements declaredGroups
+  | not (null basicFailures) = basicFailures
+  | not (null orderingFailures) = orderingFailures
+  | callableBinderIdentityAmbiguous = []
+  | otherwise = maybeToList reachabilityFailure
+  where
+    callableDeclarations = rootCallableDeclarations statements
+    callableByBinder =
+      Map.fromListWith
+        (\_ existing -> existing)
+        [(binderId, (statementIndex, statement)) | (statementIndex, binderId, statement, _) <- callableDeclarations]
+    callableBinderIdentityAmbiguous =
+      snd (foldl' collectCallableBinder (Set.empty, False) callableDeclarations)
+    collectCallableBinder (seen, ambiguous) (_, binderId, _, _)
+      | Set.member binderId seen = (seen, True)
+      | otherwise = (Set.insert binderId seen, ambiguous)
+    (_, basicFailures) =
+      foldl' validateBasicGroup (Set.empty, []) (zip [0 :: Int ..] declaredGroups)
+    validateBasicGroup (seen, failures) (groupIndex, TypedRecursiveGroup members)
+      | null members =
+          ( seen,
+            failures
+              <> [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)]
+          )
+      | otherwise = foldl' validateBasicMember (seen, failures) members
+    validateBasicMember (seen, failures) binderId =
+      case Map.lookup binderId callableByBinder of
+        Nothing ->
+          ( seen,
+            failures
+              <> [failure (TypedModulePath modulePath) TypedUnknownBinder (TypedBinderDetail binderId)]
+          )
+        Just (statementIndex, _)
+          | Set.member binderId seen ->
+              ( seen,
+                failures
+                  <> [ failure
+                         (TypedStatementPath modulePath [statementIndex])
+                         TypedDuplicateBinder
+                         (TypedBinderDetail binderId)
+                     ]
+              )
+          | otherwise -> (Set.insert binderId seen, failures)
+    orderingFailures = memberOrderingFailures <> groupOrderingFailures
+    memberOrderingFailures =
+      [ failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)
+      | (groupIndex, TypedRecursiveGroup members) <- zip [0 :: Int ..] declaredGroups,
+        let memberIndices = map (fst . (callableByBinder Map.!)) members,
+        memberIndices /= sort memberIndices
+      ]
+    groupOrderingFailures = snd (foldl' validateGroupOrder (Nothing, []) indexedFirstMembers)
+    indexedFirstMembers =
+      [ (groupIndex, earliestMemberIndex member members)
+      | (groupIndex, TypedRecursiveGroup (member : members)) <- zip [0 :: Int ..] declaredGroups
+      ]
+    earliestMemberIndex member members =
+      foldl'
+        min
+        (fst (callableByBinder Map.! member))
+        [fst (callableByBinder Map.! candidate) | candidate <- members]
+    validateGroupOrder (previousIndex, failures) (groupIndex, statementIndex) =
+      case previousIndex of
+        Just previous
+          | statementIndex <= previous ->
+              ( Just statementIndex,
+                failures
+                  <> [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)]
+              )
+        _ -> (Just statementIndex, failures)
+    declaredBinderGroups = [members | TypedRecursiveGroup members <- declaredGroups]
+    actualBinderGroups = rootCyclicBinderGroups callableDeclarations
+    reachabilityFailure = firstGroupMismatch declaredBinderGroups actualBinderGroups
+    firstGroupMismatch declared actual =
+      case (declared, actual) of
+        ([], []) -> Nothing
+        (declaredGroup@(declaredMember : _) : restDeclared, actualGroup : restActual)
+          | declaredGroup == actualGroup -> firstGroupMismatch restDeclared restActual
+          | otherwise -> mismatchFor declaredMember
+        ((declaredMember : _) : _, []) -> mismatchFor declaredMember
+        ([], (actualMember : _) : _) -> mismatchFor actualMember
+        _ -> Nothing
+    mismatchFor binderId =
+      case Map.lookup binderId callableByBinder of
+        Just (statementIndex, _) ->
+          Just
+            ( failure
+                (TypedStatementPath modulePath [statementIndex])
+                TypedRecursiveGroupMismatch
+                (TypedBinderDetail binderId)
+            )
+        Nothing -> Nothing
+
+rootRecursiveGroupsByStatement :: [TypedStatement] -> [TypedRecursiveGroup] -> Map Int [TypedStatement]
+rootRecursiveGroupsByStatement statements =
+  foldl' addGroup Map.empty
+  where
+    callableDeclarations = rootCallableDeclarations statements
+    addGroup groups (TypedRecursiveGroup members) =
+      let memberSet = Set.fromList members
+          declarations =
+            [ statement
+            | (_, binderId, statement, _) <- callableDeclarations,
+              Set.member binderId memberSet
+            ]
+          memberIndices =
+            [ statementIndex
+            | (statementIndex, binderId, _, _) <- callableDeclarations,
+              Set.member binderId memberSet
+            ]
+       in foldl'
+            (\result statementIndex -> Map.insertWith (\_ existing -> existing) statementIndex declarations result)
+            groups
+            memberIndices
+
+rootCallableBinderDependencies :: Set TypedBinderId -> TypedExpr -> Set TypedBinderId
+rootCallableBinderDependencies callableBinders expression =
+  case expression of
+    TypedLiteralExpr {} -> Set.empty
+    TypedVariableExpr _ _ maybeBinder ->
+      case maybeBinder of
+        Just binderId
+          | Set.member binderId callableBinders -> Set.singleton binderId
+        _ -> Set.empty
+    TypedLambdaExpr _ _ _ body -> dependencies body
+    TypedOperatorValueExpr {} -> Set.empty
+    TypedListExpr _ elements -> Set.unions (map dependencies elements)
+    TypedTupleExpr _ elements -> Set.unions (map dependencies elements)
+    TypedApplyExpr _ function argument -> Set.union (dependencies function) (dependencies argument)
+    TypedTypeApplicationExpr _ function _ _ -> dependencies function
+    TypedIfExpr _ condition thenExpression elseExpression ->
+      Set.unions (map dependencies [condition, thenExpression, elseExpression])
+    TypedPatternCaseExpr _ scrutinee arms ->
+      Set.unions (dependencies scrutinee : map caseArmDependencies arms)
+    TypedBinaryExpr _ _ left right -> Set.union (dependencies left) (dependencies right)
+    TypedLeftSectionExpr _ left _ -> dependencies left
+    TypedRightSectionExpr _ _ right -> dependencies right
+    TypedBlockExpr _ blockStatements -> Set.unions (map statementDependencies blockStatements)
+  where
+    dependencies = rootCallableBinderDependencies callableBinders
+    caseArmDependencies (TypedCaseArm _ maybeGuard result) =
+      Set.union (maybe Set.empty dependencies maybeGuard) (dependencies result)
+    statementDependencies statement =
+      case statement of
+        TypedLetStatement _ _ _ _ value -> dependencies value
+        TypedExpressionStatement _ value -> dependencies value
+        TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+          Set.unions [dependencies body | TypedMethodDefinition _ _ _ _ body <- methods]
+        _ -> Set.empty
+
+rootCallableDeclarations :: [TypedStatement] -> [(Int, TypedBinderId, TypedStatement, TypedExpr)]
+rootCallableDeclarations statements =
+  [ (statementIndex, binderId, statement, expression)
+  | (statementIndex, statement@(TypedLetStatement binderId _ _ scheme expression)) <- zip [0 :: Int ..] statements,
+    typedSchemeIsCallable scheme
+  ]
+  where
+    typedSchemeIsCallable (TypedScheme _ _ _ _ _ _ callableShape) =
+      case callableShape of
+        Just _ -> True
+        Nothing -> False
+
+rootCyclicBinderGroups :: [(Int, TypedBinderId, TypedStatement, TypedExpr)] -> [[TypedBinderId]]
+rootCyclicBinderGroups declarations = collectGroups Set.empty sourceBinders
+  where
+    sourceBinders = [binderId | (_, binderId, _, _) <- declarations]
+    callableBinders = Set.fromList sourceBinders
+    directDependencies =
+      Map.fromList
+        [ (binderId, rootCallableBinderDependencies callableBinders expression)
+        | (_, binderId, _, expression) <- declarations
+        ]
+    graphNodes =
+      [ (binderId, binderId, Set.toList (Map.findWithDefault Set.empty binderId directDependencies))
+      | binderId <- sourceBinders
+      ]
+    cyclicComponents =
+      [ (componentIndex, Set.fromList members)
+      | (componentIndex, component) <- zip [0 :: Int ..] (stronglyConnComp graphNodes),
+        members <- maybeToList (cyclicMembers component)
+      ]
+    cyclicMembers component =
+      case component of
+        AcyclicSCC binderId
+          | Set.member binderId (Map.findWithDefault Set.empty binderId directDependencies) -> Just [binderId]
+        CyclicSCC members -> Just members
+        _ -> Nothing
+    componentByBinder =
+      Map.fromList
+        [ (binderId, componentIndex)
+        | (componentIndex, members) <- cyclicComponents,
+          binderId <- Set.toList members
+        ]
+    collectGroups _ [] = []
+    collectGroups seenComponents (binderId : remainingBinders) =
+      case Map.lookup binderId componentByBinder of
+        Nothing -> collectGroups seenComponents remainingBinders
+        Just componentIndex
+          | Set.member componentIndex seenComponents -> collectGroups seenComponents remainingBinders
+          | otherwise ->
+              [ candidate
+              | candidate <- sourceBinders,
+                Map.lookup candidate componentByBinder == Just componentIndex
+              ]
+                : collectGroups (Set.insert componentIndex seenComponents) remainingBinders
 
 recursiveGroupFacts :: Map Int (Set Int) -> [TypedStatement] -> Map Int [TypedStatement]
 recursiveGroupFacts dependencies statements =
@@ -5154,7 +5370,7 @@ validateRetainedCapabilityName context path name =
           _ -> [failure path TypedInvisibleName (TypedNameDetail name)]
 
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
-validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) statements _) =
+validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) _ statements _) =
   duplicateExportFailures
     <> duplicateInterfaceFailures
     <> concatMap validateValueInterface values
@@ -5425,7 +5641,7 @@ patternInfo patternValue =
     TypedOrPattern info _ -> info
 
 typedModulePath :: TypedModule -> [Text]
-typedModulePath (TypedModule modulePath _ _ _ _ _ _) = modulePath
+typedModulePath (TypedModule modulePath _ _ _ _ _ _ _) = modulePath
 
 implModulePath :: TypedImplId -> [Text]
 implModulePath (TypedImplId modulePath _ _) = modulePath

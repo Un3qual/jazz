@@ -30,7 +30,8 @@ from partial areas and planned work.
 `Partial` means that working, tested behavior has an explicit boundary. The
 typed-core and backend-neutral lowering path currently covers scalar bindings,
 direct calls, function values, unary closures, lexical capture, higher-order
-calls, partial application, and ordered application of additional arguments.
-It excludes recursion, full control flow, scalar exports, and complete
+calls, partial application, ordered application of additional arguments, and
+capture-free, non-escaping direct self and mutual recursion. It excludes
+closure-shaped recursion, full control flow, scalar exports, and complete
 multi-module integration. Ordinary compile and run modes remain on canonical
 core and the interpreter.

@@ -23,8 +23,12 @@ structured failures, not only success counts.
 
 Hosted front-end parity is implemented, but ordinary compilation still uses
 the stage-0 parsing and semantic pipeline. Typed core and lowered IR cover a
-bounded opt-in profile rather than the full language, and ordinary run mode
-continues to evaluate canonical core with the interpreter.
+bounded opt-in profile rather than the full language. It supports scalar
+bindings, direct calls, function values, unary closures, lexical capture,
+higher-order calls, curried application, and capture-free, non-escaping direct
+self and mutual recursion. Closure-shaped recursion, full control flow, scalar
+exports, and complete multi-module integration remain outside that profile.
+Ordinary run mode continues to evaluate canonical core with the interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in

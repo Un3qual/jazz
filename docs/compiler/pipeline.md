@@ -47,3 +47,9 @@ Ordinary compile and run modes do not enter this path. Its current coverage and
 remaining promotion gates are listed in [Project status](../project/status.md);
 [Compiler architecture](architecture.md) explains the responsibility of each
 representation.
+
+The supported subset includes scalar bindings, direct calls, function values,
+unary closures, lexical capture, higher-order calls, curried application, and
+capture-free, non-escaping direct self and mutual recursion. Closure-shaped
+recursion, full control flow, scalar exports, complete multi-module integration,
+native emission, linking, and a native runtime remain outside this path.

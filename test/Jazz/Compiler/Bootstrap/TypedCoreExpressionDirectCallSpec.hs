@@ -23,10 +23,18 @@ import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
 import Jazz.Compiler.TypeInference
-import Jazz.Compiler.TypeInference.Elaboration (expressionDependencyNames)
+import Jazz.Compiler.TypeInference.Elaboration
+  ( ProvisionalCallableDeclaration (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    expressionDependencyNames,
+    finalizeValidatedTypedCoreExpressionDirectCall,
+    typedCoreProductionOutcomeStatus,
+  )
+import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
-    ExpressionType (TBoolType),
+    ExpressionType (TBoolType, TFunctionType),
     ScopeCapabilityFacts (..),
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
@@ -100,6 +108,7 @@ tests =
     ("retains unsupported compound child failures in structural order", testCompoundFailureAccumulation),
     ("retains every unsupported composite child failure in structural order", testUnsupportedCompositeFailureAccumulation),
     ("rejects ambiguous producer binder identities twice", testProducerIdentityBoundary),
+    ("rejects incomplete transported recursive group ownership", testIncompleteRecursiveGroupOwnership),
     ("orders same-statement recursion before rebinding and descendants", testSameStatementFailureKindOrder),
     ("binds a later callable rebinding to the nearest prior declaration", testCanonicalCallableRebindingDependencies "later-callable-rebinding-calls-nearest-prior"),
     ("trusts canonical ownership across an intervening scalar declaration", testInterveningScalarCanonicalOwnership "intervening-scalar-canonical-ownership"),
@@ -109,6 +118,7 @@ tests =
     ("resolves a nested alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-alias-mutual-recursion"),
     ("resolves a nested conditional alias to its nearest prior outer declaration", testNestedPriorOuterAliasOwnership "nested-prior-outer-conditional-alias-mutual-recursion"),
     ("keeps a nested self-recursive lambda local to its block", testNestedSelfRecursiveLambdaOwnership),
+    ("rejects direct recursion that escapes through a nested lambda", testNestedLambdaRecursiveAdmission),
     ("classifies an accepted then rejected callable rebinding", testRejectedCallableRebinding "accepted-then-rejected-callable-rebinding"),
     ("orders rejected callable recursion before rebinding and descendants", testRejectedCallableRebinding "rejected-recursive-callable-rebinding-order"),
     ("classifies a rejected then accepted callable rebinding", testRejectedCallableRebinding "rejected-then-accepted-callable-rebinding"),
@@ -171,7 +181,9 @@ testFixtureManifest = do
           "mixed-direct-and-value-use",
           "callable-parameter-value-shadows-enclosing-function",
           "capturing-function",
-          "partial-direct-call"
+          "partial-direct-call",
+          "self-recursive-function",
+          "mutually-recursive-functions"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -186,8 +198,6 @@ testFixtureManifest = do
           "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
-          "self-recursive-function",
-          "mutually-recursive-functions",
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "polymorphic-or-evidence-function",
@@ -197,8 +207,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 26 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 19 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 28 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 45 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -234,6 +244,8 @@ testIndependentLowererManifest = do
         [ "scalar-binding-literal",
           "scalar-binding-ordered-reuse",
           "scalar-binding-direct-call-result",
+          "self-recursive-function",
+          "mutually-recursive-functions",
           "scalar-binding-unsupported-rhs",
           "combined-statement-failure-order",
           "recursion-descendant-failure-order",
@@ -248,9 +260,7 @@ testIndependentLowererManifest = do
           "self-recursive-duplicate-parameter-function",
           "duplicate-function-identity",
           "capturing-function",
-          "self-recursive-function",
           "closure-shaped-self-recursive-function",
-          "mutually-recursive-functions",
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "nested-lambda-closure-value-self-recursion",
@@ -318,12 +328,14 @@ testAcceptedManifestPipeline =
       [("unit-entry", expectedUnitProgram)]
         <> scalarExpectedPrograms
         <> directCallExpectedPrograms
+        <> directRecursionExpectedPrograms
         <> closedCallableExpectedPrograms
         <> lexicalCaptureExpectedPrograms
         <> curriedApplicationExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
+        <> [(name, lowered) | (name, _, lowered) <- directRecursionExpectedLoweredPrograms]
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
@@ -629,7 +641,7 @@ testLexicalCaptureFixtureMatrix = do
     typedLambdaBinders (TypedProgram _ modules _) =
       concat
         [ concatMap statementLambdaBinders statements
-        | TypedModule _ _ _ _ _ statements _ <- modules
+        | TypedModule _ _ _ _ _ _ statements _ <- modules
         ]
     statementLambdaBinders statement =
       case statement of
@@ -796,11 +808,7 @@ testLowererCallableBoundary =
           ]
         ),
         ( "recursion-descendant-failure-order",
-          [ statementFailure
-              2
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop")),
-            expressionFailure
+          [ expressionFailure
               2
               [0, 0, 1]
               LoweredIRCaptureUnsupported
@@ -841,29 +849,11 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "identity"))
           ]
         ),
-        ( "self-recursive-function",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop"))
-          ]
-        ),
         ( "closure-shaped-self-recursive-function",
           [ statementFailure
               1
               LoweredIRRecursiveFunctionUnsupported
               (LoweredIRNameFailureDetail (currentName "loop"))
-          ]
-        ),
-        ( "mutually-recursive-functions",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "left")),
-            statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "right"))
           ]
         ),
         ( "closure-value-mutual-recursion",
@@ -1225,7 +1215,7 @@ testClosureShapeClassificationCollapse = do
   secondRun <- produceFixture fixture
   assertEqual "mixed callable-use classification repeatability" firstRun secondRun
   case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded (TypedProgram _ [TypedModule _ _ _ _ _ statements _] _) ->
+    TypedCoreProductionSucceeded (TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _) ->
       assertEqual "mixed callable-use scheme classifications" expectedShapes (callableSchemeShapes statements)
     status -> failTest ("mixed callable-use fixture did not produce typed core: " <> Text.pack (show status))
   where
@@ -1666,8 +1656,6 @@ callableExpectedStatuses =
 callableRejectionNames :: [Text]
 callableRejectionNames =
   [ "oversaturated-direct-call",
-    "self-recursive-function",
-    "mutually-recursive-functions",
     "closure-value-mutual-recursion",
     "closure-value-self-recursion",
     "polymorphic-or-evidence-function",
@@ -1707,13 +1695,6 @@ rejectedManifestExpectedStatuses =
     ( "oversaturated-direct-call",
       unsupported
         [expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
-    ),
-    ("self-recursive-function", unsupported [statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]),
-    ( "mutually-recursive-functions",
-      unsupported
-        [ statementFailure 1 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
-          statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
-        ]
     ),
     ( "closure-value-mutual-recursion",
       unsupported
@@ -2137,16 +2118,58 @@ testProducerIdentityBoundary =
         (TypedCoreProductionUnsupported expectedFailures)
         (typedCoreProductionStatus firstRun)
 
+testIncompleteRecursiveGroupOwnership :: IO ()
+testIncompleteRecursiveGroupOwnership = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      functionType = TFunctionType TBoolType TBoolType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [1, 3])
+      loopExpression =
+        ProvisionalLambdaExpression
+          "item"
+          functionType
+          ( ProvisionalApplyExpression
+              TBoolType
+              (ProvisionalVariableExpression "loop" functionType)
+              (ProvisionalVariableExpression "item" TBoolType)
+          )
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalFunctionBinding loopDeclaration loopExpression,
+            ProvisionalTerminalExpression 2 spanValue (ProvisionalLiteralExpression (LBool True) TBoolType)
+          ]
+      status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  assertEqual
+    "missing recursive declaration owner rejects the complete group"
+    ( TypedCoreProductionUnsupported
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 1)
+            TypedCoreRecursiveFunctionUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
+    )
+    status
+
 testSameStatementFailureKindOrder :: IO ()
 testSameStatementFailureKindOrder = do
   let fixture = producerEdgeFixture "self-recursive-function-rebinding"
       expected =
         TypedCoreProductionUnsupported
           [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail "loop"),
-            TypedCoreProductionFailure
               (TypedCoreProductionStatementPath ["App", "Main"] 3)
               TypedCoreFunctionRebindingUnsupported
               (TypedCoreNameDetail "loop"),
@@ -2214,10 +2237,10 @@ testCanonicalRecursionTransportControls :: IO ()
 testCanonicalRecursionTransportControls =
   mapM_
     assertOwners
-    [ ("self-recursive-function-rebinding", [(1, "loop")]),
+    [ ("self-recursive-function-rebinding", []),
       ("three-same-name-nearest-prior-mutual-recursion", [(5, "identity"), (7, "peer")]),
-      ("canonical-self-recursion-no-prior", [(1, "loop")]),
-      ("canonical-mutual-recursion-peers", [(1, "left"), (3, "right")]),
+      ("canonical-self-recursion-no-prior", []),
+      ("canonical-mutual-recursion-peers", []),
       ("rejected-self-alias-recursion", [(1, "loop")]),
       ("rejected-mutual-alias-recursion", [(1, "left"), (3, "right")]),
       ("rejected-alias-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
@@ -2313,6 +2336,30 @@ testNestedSelfRecursiveLambdaOwnership = do
   assertEqual "nested self-recursive lambda repeatability" firstRun secondRun
   assertEqual "nested self-recursive lambda exact local ownership" expected (typedCoreProductionStatus firstRun)
 
+testNestedLambdaRecursiveAdmission :: IO ()
+testNestedLambdaRecursiveAdmission = do
+  let fixture = producerEdgeFixture "nested-lambda-direct-recursion"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 3)
+              TypedCoreRecursiveFunctionUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
+  ordinary <- inferFixture fixture
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual
+    "nested-lambda direct recursion ordinary diagnostics"
+    []
+    (filter isErrorDiagnostic (inferredDiagnostics ordinary))
+  assertEqual
+    "nested-lambda direct recursion inference compatibility"
+    ordinary
+    (typedCoreProductionInferenceResult firstRun)
+  assertEqual "nested-lambda direct recursion repeatability" firstRun secondRun
+  assertEqual "nested-lambda direct recursion producer rejection" expected (typedCoreProductionStatus firstRun)
+
 testRejectedCallableRebinding :: Text -> IO ()
 testRejectedCallableRebinding requestedName =
   case lookup requestedName expectedResults of
@@ -2407,10 +2454,17 @@ testRejectedCallableRebinding requestedName =
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =
-  case lookup requestedName expectedResults of
-    Just expectedFailures -> assertExact requestedName expectedFailures
-    Nothing -> error "canonical callable rebinding fixture has no expected result"
+  case lookup requestedName acceptedGroups of
+    Just groups -> assertAccepted requestedName groups
+    Nothing ->
+      case lookup requestedName expectedResults of
+        Just expectedFailures -> assertExact requestedName expectedFailures
+        Nothing -> error "canonical callable rebinding fixture has no expected result"
   where
+    acceptedGroups =
+      [ ("canonical-self-recursion-no-prior", [[(1, "loop")]]),
+        ("canonical-mutual-recursion-peers", [[(1, "left"), (3, "right")]])
+      ]
     expectedResults =
       [ ( "later-callable-rebinding-calls-nearest-prior",
           [rebindingFailure 3 "identity"]
@@ -2420,14 +2474,6 @@ testCanonicalCallableRebindingDependencies requestedName =
             recursionFailure 5 "identity",
             rebindingFailure 5 "identity",
             recursionFailure 7 "peer"
-          ]
-        ),
-        ( "canonical-self-recursion-no-prior",
-          [recursionFailure 1 "loop"]
-        ),
-        ( "canonical-mutual-recursion-peers",
-          [ recursionFailure 1 "left",
-            recursionFailure 3 "right"
           ]
         ),
         ( "nearest-rebinding-mutual-control",
@@ -2458,6 +2504,29 @@ testCanonicalCallableRebindingDependencies requestedName =
         (name <> " exact canonical owners, order, and multiplicity")
         (TypedCoreProductionUnsupported expectedFailures)
         (typedCoreProductionStatus firstRun)
+    assertAccepted name expectedGroups = do
+      let fixture = producerEdgeFixture name
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual
+        (name <> " ordinary diagnostics")
+        []
+        (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
+      assertEqual (name <> " repeatability") firstRun secondRun
+      case typedCoreProductionStatus firstRun of
+        TypedCoreProductionSucceeded program -> do
+          assertEqual (name <> " accepted recursive validation") [] (validateTypedProgram program)
+          assertEqual (name <> " exact typed recursive groups") expectedGroups (typedRecursiveGroupOwners program)
+        status -> failTest (name <> " did not produce typed recursion: " <> Text.pack (show status))
+    typedRecursiveGroupOwners program =
+      case program of
+        TypedProgram _ [TypedModule _ _ _ _ _ groups _ _] _ ->
+          [ [ (statementIndex, name)
+            | TypedBinderId (_, statementIndex : _, TypedResolvedName _ _ name) <- members
+            ]
+          | TypedRecursiveGroup members <- groups
+          ]
+        _ -> error "canonical direct recursion expected one typed module"
     recursionFailure statementIndex name =
       TypedCoreProductionFailure
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)

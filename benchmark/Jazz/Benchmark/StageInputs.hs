@@ -636,6 +636,7 @@ typedValidationBenchmarkProgram expressionCount =
         []
         []
         (TypedModuleInterface [] [] [] [])
+        []
         [TypedExpressionStatement (TypedSpan 1 1) expression]
         intInfo
     ]
@@ -708,6 +709,7 @@ typedRecursiveStatementGraphProgram statementCount
             []
             []
             (TypedModuleInterface [] [] [] [])
+            recursiveGroups
             (bindings <> [TypedExpressionStatement spanValue terminalExpression])
             boolInfo
         ]
@@ -715,6 +717,7 @@ typedRecursiveStatementGraphProgram statementCount
   where
     graphGroupWidth = 8
     groupCount = statementCount `div` graphGroupWidth
+    recursiveGroups = map recursiveGroup [0 .. groupCount - 1]
     bindings = concatMap graphGroup [0 .. groupCount - 1]
     modulePath = ["TypedRecursiveStatementGraph"]
     spanValue = TypedSpan 1 1
@@ -729,29 +732,62 @@ typedRecursiveStatementGraphProgram statementCount
         (prefix <> Text.justifyRight 4 '0' (Text.pack (show groupIndex)))
     graphOwner statementIndex name =
       TypedBinderId (modulePath, [statementIndex], name)
-    boundVariable owner name = TypedVariableExpr boolInfo name (Just owner)
-    binding owner name expression =
+    lambdaOwner statementIndex name =
+      TypedBinderId (modulePath, [statementIndex, 0], name)
+    variable info owner name = TypedVariableExpr info name (Just owner)
+    boundVariable = variable boolInfo
+    scalarBinding owner name expression =
       TypedLetStatement
         owner
         name
         spanValue
         (TypedScheme owner [] [] [] TypedBoolType TypedBoolRecipe Nothing)
         expression
+    functionType = TypedFunctionType TypedBoolType TypedBoolType
+    functionRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
+    functionInfo = TypedNodeInfo functionType functionRecipe [] []
+    functionBinding owner name argumentOwner argumentName body =
+      TypedLetStatement
+        owner
+        name
+        spanValue
+        (TypedScheme owner [] [] [] functionType functionRecipe (Just TypedDirectCallableShape))
+        (TypedLambdaExpr functionInfo argumentOwner argumentName body)
+    recursiveGroup groupIndex =
+      TypedRecursiveGroup [mutualLeftOwner groupIndex, mutualRightOwner groupIndex]
     graphGroup groupIndex =
-      [ binding firstHistoryOwner historyName firstHistoryExpression,
-        binding chainOneOwner chainOneName (boundVariable firstHistoryOwner historyName),
-        binding secondHistoryOwner historyName (boundVariable chainOneOwner chainOneName),
-        binding chainTwoOwner chainTwoName (boundVariable secondHistoryOwner historyName),
-        binding mutualLeftOwner mutualLeftName (boundVariable mutualRightOwner mutualRightName),
-        binding chainThreeOwner chainThreeName (boundVariable chainTwoOwner chainTwoName),
-        binding mutualRightOwner mutualRightName (boundVariable mutualLeftOwner mutualLeftName),
-        binding
+      [ scalarBinding firstHistoryOwner historyName firstHistoryExpression,
+        scalarBinding chainOneOwner chainOneName (boundVariable firstHistoryOwner historyName),
+        scalarBinding secondHistoryOwner historyName (boundVariable chainOneOwner chainOneName),
+        scalarBinding chainTwoOwner chainTwoName (boundVariable secondHistoryOwner historyName),
+        functionBinding
+          leftOwner
+          leftName
+          leftArgumentOwner
+          leftArgumentName
+          ( TypedApplyExpr
+              boolInfo
+              (variable functionInfo rightOwner rightName)
+              (boundVariable leftArgumentOwner leftArgumentName)
+          ),
+        scalarBinding chainThreeOwner chainThreeName (boundVariable chainTwoOwner chainTwoName),
+        functionBinding
+          rightOwner
+          rightName
+          rightArgumentOwner
+          rightArgumentName
+          ( TypedApplyExpr
+              boolInfo
+              (variable functionInfo leftOwner leftName)
+              (boundVariable rightArgumentOwner rightArgumentName)
+          ),
+        scalarBinding
           tailOwner
           tailName
           ( TypedIfExpr
               boolInfo
               (boundVariable chainThreeOwner chainThreeName)
-              (boundVariable mutualRightOwner mutualRightName)
+              (TypedApplyExpr boolInfo (variable functionInfo rightOwner rightName) trueExpression)
               (boundVariable chainThreeOwner chainThreeName)
           )
       ]
@@ -760,16 +796,20 @@ typedRecursiveStatementGraphProgram statementCount
         chainOneName = graphName "chainOne" groupIndex
         chainTwoName = graphName "chainTwo" groupIndex
         chainThreeName = graphName "chainThree" groupIndex
-        mutualLeftName = graphName "mutualLeft" groupIndex
-        mutualRightName = graphName "mutualRight" groupIndex
+        leftName = mutualLeftName groupIndex
+        rightName = mutualRightName groupIndex
+        leftArgumentName = graphName "leftArgument" groupIndex
+        rightArgumentName = graphName "rightArgument" groupIndex
         tailName = graphName "tail" groupIndex
         firstHistoryOwner = graphOwner baseIndex historyName
         chainOneOwner = graphOwner (baseIndex + 1) chainOneName
         secondHistoryOwner = graphOwner (baseIndex + 2) historyName
         chainTwoOwner = graphOwner (baseIndex + 3) chainTwoName
-        mutualLeftOwner = graphOwner (baseIndex + 4) mutualLeftName
+        leftOwner = mutualLeftOwner groupIndex
+        leftArgumentOwner = lambdaOwner (baseIndex + 4) leftArgumentName
         chainThreeOwner = graphOwner (baseIndex + 5) chainThreeName
-        mutualRightOwner = graphOwner (baseIndex + 6) mutualRightName
+        rightOwner = mutualRightOwner groupIndex
+        rightArgumentOwner = lambdaOwner (baseIndex + 6) rightArgumentName
         tailOwner = graphOwner (baseIndex + 7) tailName
         firstHistoryExpression
           | groupIndex == 0 = trueExpression
@@ -777,6 +817,12 @@ typedRecursiveStatementGraphProgram statementCount
               let previousTailName = graphName "tail" (groupIndex - 1)
                   previousTailOwner = graphOwner (baseIndex - 1) previousTailName
                in boundVariable previousTailOwner previousTailName
+    mutualLeftName = graphName "mutualLeft"
+    mutualRightName = graphName "mutualRight"
+    mutualLeftOwner groupIndex =
+      graphOwner (groupIndex * graphGroupWidth + 4) (mutualLeftName groupIndex)
+    mutualRightOwner groupIndex =
+      graphOwner (groupIndex * graphGroupWidth + 6) (mutualRightName groupIndex)
     terminalName = graphName "tail" (groupCount - 1)
     terminalOwner = graphOwner (statementCount - 1) terminalName
     terminalExpression = boundVariable terminalOwner terminalName
@@ -793,6 +839,7 @@ typedWideExportProvidersProgram providerCount
             []
             exports
             (TypedModuleInterface interfaces [] [] [])
+            []
             (bindings <> [TypedExpressionStatement spanValue trueExpression])
             boolInfo
         ]
@@ -847,6 +894,7 @@ typedForwardSignedFunctionsProgram functionCount
             []
             []
             (TypedModuleInterface [] [] [] [])
+            []
             (concatMap functionPair [0 .. functionCount - 1] <> [terminalStatement])
             boolInfo
         ]

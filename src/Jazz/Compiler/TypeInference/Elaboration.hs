@@ -312,9 +312,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           declarations = callableDeclarations provisionalStatements
           callableShapes = callableShapeTable functions provisionalStatements
           reboundFunctions = reboundFunctionStatements provisionalStatements
+          typedRecursiveGroups = orderedTypedRecursiveGroups declarations
           recursiveBinders = recursiveDeclarationBinders declarations
+          acceptedRecursiveBinders =
+            allDirectRecursiveBinders
+              functions
+              callableShapes
+              reboundFunctions
+              provisionalStatements
+              typedRecursiveGroups
+          unsupportedRecursiveBinders = recursiveBinders Set.\\ acceptedRecursiveBinders
           (statementFailures, typedStatements) =
-            finalizeStatements functions callableShapes reboundFunctions recursiveBinders provisionalStatements
+            finalizeStatements functions callableShapes reboundFunctions unsupportedRecursiveBinders provisionalStatements
           exportResult = finalizeExports functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
@@ -330,6 +339,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   let programValue =
                         typedProgram
                           (snd exportResult)
+                          typedRecursiveGroups
                           typedStatements
                           (typedExpressionInfo terminalExpression)
                    in case validateTypedProgramOnce programValue of
@@ -343,7 +353,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
   where
     modulePath = resolvedModulePath resolvedModule
 
-    typedProgram typedInterface typedStatements moduleInfo =
+    typedProgram typedInterface typedRecursiveGroups typedStatements moduleInfo =
       TypedProgram
         Nothing
         [ TypedModule
@@ -352,6 +362,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             []
             (typedExports typedInterface)
             typedInterface
+            typedRecursiveGroups
             typedStatements
             moduleInfo
         ]
@@ -1047,6 +1058,147 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         | declaration <- declarations,
           Just _ <- [provisionalCallableRecursiveGroupMembers declaration]
         ]
+
+    orderedTypedRecursiveGroups ::
+      [ProvisionalCallableDeclaration] ->
+      [TypedRecursiveGroup]
+    orderedTypedRecursiveGroups declarations =
+      snd (foldl' collect (Set.empty, []) declarations)
+      where
+        declarationBindersByStatement =
+          Map.fromList
+            [ ( provisionalCallableStatementIndex declaration,
+                binderAt
+                  (provisionalCallableStatementIndex declaration)
+                  []
+                  (resolvedValueName (provisionalCallableName declaration))
+              )
+            | declaration <- declarations
+            ]
+        collect (seenGroups, groups) declaration =
+          case provisionalCallableRecursiveGroupMembers declaration of
+            Just memberStatements
+              | Set.notMember memberStatements seenGroups ->
+                  case traverse (`Map.lookup` declarationBindersByStatement) memberStatements of
+                    Just memberBinders ->
+                      ( Set.insert memberStatements seenGroups,
+                        groups <> [TypedRecursiveGroup memberBinders]
+                      )
+                    Nothing -> (Set.insert memberStatements seenGroups, groups)
+            _ -> (seenGroups, groups)
+
+    allDirectRecursiveBinders functions callableShapes reboundFunctions statements typedRecursiveGroups =
+      Set.fromList
+        [ member
+        | TypedRecursiveGroup members <- typedRecursiveGroups,
+          let memberSet = Set.fromList members,
+          all (supportedMember memberSet) members,
+          member <- members
+        ]
+      where
+        supportedMembers =
+          Map.fromList
+            [ (owner, (directArity, typedExpression))
+            | ProvisionalFunctionBinding declaration expression <- statements,
+              let statementIndex = provisionalCallableStatementIndex declaration,
+              let name = provisionalCallableName declaration,
+              let owner = binderAt statementIndex [] (resolvedValueName name),
+              ProvisionalLambdaExpression {} <- [expression],
+              shapeFor callableShapes name == TypedDirectCallableShape,
+              Map.notMember statementIndex reboundFunctions,
+              not (generatedOperatorName name),
+              Just PlainTypeBinding {} <- [provisionalCallableBinding declaration],
+              let directArity = maybe 0 functionArity (Map.lookup name functions),
+              Right _ <- [callableInfo TypedDirectCallableShape directArity statementIndex [] (provisionalCallableType declaration)],
+              let (expressionFailures, maybeTypedExpression) =
+                    finalizeExpression
+                      functions
+                      callableShapes
+                      statementIndex
+                      [0]
+                      Map.empty
+                      (FunctionBindingExpression TypedDirectCallableShape directArity)
+                      expression,
+              null expressionFailures,
+              Just typedExpression <- [maybeTypedExpression]
+            ]
+        supportedMember memberSet member =
+          case Map.lookup member supportedMembers of
+            Just (directArity, typedExpression) ->
+              not (nestedLambdaReferencesAnyBinder directArity memberSet typedExpression)
+            Nothing -> False
+        generatedOperatorName name =
+          case name of
+            GeneratedName (OperatorBinding _) -> True
+            _ -> False
+
+    nestedLambdaReferencesAnyBinder leadingLambdaCount binders = skipLeading leadingLambdaCount
+      where
+        skipLeading remaining (TypedLambdaExpr _ _ _ body)
+          | remaining > 0 = skipLeading (remaining - 1) body
+        skipLeading _ expression = nestedReference expression
+
+        nestedReference expression =
+          case expression of
+            TypedLiteralExpr {} -> False
+            TypedVariableExpr {} -> False
+            TypedLambdaExpr _ _ _ body -> expressionReferencesAnyBinder binders body
+            TypedOperatorValueExpr {} -> False
+            TypedListExpr _ elements -> any nestedReference elements
+            TypedTupleExpr _ elements -> any nestedReference elements
+            TypedApplyExpr _ function argument -> nestedReference function || nestedReference argument
+            TypedTypeApplicationExpr _ function _ _ -> nestedReference function
+            TypedIfExpr _ condition thenExpression elseExpression ->
+              any nestedReference [condition, thenExpression, elseExpression]
+            TypedPatternCaseExpr _ scrutinee arms ->
+              nestedReference scrutinee || any armHasNestedReference arms
+            TypedBinaryExpr _ _ left right -> nestedReference left || nestedReference right
+            TypedLeftSectionExpr _ left _ -> nestedReference left
+            TypedRightSectionExpr _ _ right -> nestedReference right
+            TypedBlockExpr _ blockStatements -> any statementHasNestedReference blockStatements
+
+        armHasNestedReference (TypedCaseArm _ maybeGuard result) =
+          maybe False nestedReference maybeGuard || nestedReference result
+        statementHasNestedReference statement =
+          case statement of
+            TypedLetStatement _ _ _ _ initializer -> nestedReference initializer
+            TypedExpressionStatement _ result -> nestedReference result
+            TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+              any methodHasNestedReference methods
+            _ -> False
+        methodHasNestedReference (TypedMethodDefinition _ _ _ _ body) = nestedReference body
+
+    expressionReferencesAnyBinder binders expression =
+      case expression of
+        TypedLiteralExpr {} -> False
+        TypedVariableExpr _ _ binderReference ->
+          maybe False (`Set.member` binders) binderReference
+        TypedLambdaExpr _ _ _ body -> child body
+        TypedOperatorValueExpr {} -> False
+        TypedListExpr _ elements -> any child elements
+        TypedTupleExpr _ elements -> any child elements
+        TypedApplyExpr _ function argument -> child function || child argument
+        TypedTypeApplicationExpr _ function _ _ -> child function
+        TypedIfExpr _ condition thenExpression elseExpression ->
+          any child [condition, thenExpression, elseExpression]
+        TypedPatternCaseExpr _ scrutinee arms ->
+          child scrutinee || any armReferencesBinder arms
+        TypedBinaryExpr _ _ left right -> child left || child right
+        TypedLeftSectionExpr _ left _ -> child left
+        TypedRightSectionExpr _ _ right -> child right
+        TypedBlockExpr _ blockStatements -> any statementReferencesBinder blockStatements
+      where
+        child = expressionReferencesAnyBinder binders
+        armReferencesBinder (TypedCaseArm _ maybeGuard result) =
+          maybe False child maybeGuard || child result
+        statementReferencesBinder statement =
+          case statement of
+            TypedLetStatement _ _ _ _ initializer -> child initializer
+            TypedExpressionStatement _ result -> child result
+            TypedImplStatement (TypedImplDeclaration _ _ methods) ->
+              any methodReferencesBinder methods
+            _ -> False
+        methodReferencesBinder (TypedMethodDefinition _ _ _ _ body) = child body
 
     finalizeExports functions callableShapes =
       foldl'
