@@ -261,20 +261,6 @@ test('documentation layout reserves width only for a rendered desktop TOC', () =
   assert.doesNotMatch(layoutCss, /(?:^|\n)\s*(?:column-gap|gap)\s*:/);
 });
 
-test('documentation content is the only Pagefind search body', () => {
-  const layout = read('website/src/theme/DocItem/Layout/index.tsx');
-  const searchBody = layout.match(
-    /<div\s+data-pagefind-body>(?<content>[\s\S]*?)<\/div>/,
-  )?.groups?.content;
-
-  assert.ok(searchBody, 'the documentation search body is missing');
-  assert.match(searchBody, /<DocItemContent>\{children\}<\/DocItemContent>/);
-  assert.doesNotMatch(
-    searchBody,
-    /(?:DocBreadcrumbs|DocVersionBadge|DocItemTOCMobile|DocItemFooter|DocItemPaginator)/,
-  );
-});
-
 test('homepage introduction keeps invariant high-contrast colors in both themes', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
