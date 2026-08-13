@@ -93,6 +93,7 @@ tests =
     ("specializes enclosing expressions that reuse captured numeric scalars", testCapturedCompositeScalarSpecialization),
     ("specializes independent scalar binders recolored with recursive captures", testCapturedCompositeScalarBinderSpecialization),
     ("preserves non-integral results derived from specialized captures", testCapturedComparisonResultSpecialization),
+    ("specializes enclosing function expressions that reuse captured numeric scalars", testCapturedFunctionBodySpecialization),
     ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
     ("specializes recursive scalar alias captures across omitted source statements", testRecordedScalarStatementIndices),
     ("rejects eager recursive closure calls before their captures exist", testEagerRecursiveClosureCaptureAvailability),
@@ -1469,6 +1470,72 @@ testCapturedComparisonResultSpecialization = do
               (ProvisionalVariableExpression "flag" TBoolType)
           ]
   assertProvisionalProductionCompletes "captured comparison result specialization" provisionalScope
+
+testCapturedFunctionBodySpecialization :: IO ()
+testCapturedFunctionBodySpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalLiteralExpression (LInt 1) literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured function body specialization" provisionalScope
 
 testCapturedScalarAliasSourceSpecialization :: IO ()
 testCapturedScalarAliasSourceSpecialization = do

@@ -312,19 +312,20 @@ finalizeValidatedTypedCoreExpressionDirectCall ::
 finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
-      let functions = functionTable provisionalStatements
+      let baseFunctions = functionTable provisionalStatements
           declarations = callableDeclarations provisionalStatements
-          callableShapes = callableShapeTable functions provisionalStatements
+          callableShapes = callableShapeTable baseFunctions provisionalStatements
           reboundFunctions = reboundFunctionStatements provisionalStatements
           typedRecursiveGroups = orderedTypedRecursiveGroups declarations
           recursiveBinders = recursiveDeclarationBinders declarations
           (acceptedRecursiveBinders, recursiveScalarCaptureTypes, unavailableClosureCaptureBinders, eagerClosureCaptureStatements) =
             supportedRecursiveProfile
-              functions
+              baseFunctions
               callableShapes
               reboundFunctions
               provisionalStatements
               typedRecursiveGroups
+          functions = specializeFunctionProfiles recursiveScalarCaptureTypes provisionalStatements baseFunctions
           unsupportedRecursiveBinders = recursiveBinders Set.\\ acceptedRecursiveBinders
           (statementFailures, typedStatements) =
             finalizeStatements
@@ -435,6 +436,21 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           let typedName = resolvedValueName name
               owner = binderAt statementIndex [] typedName
               callableShape = shapeFor callableShapes name
+              selectedCaptureType =
+                case Map.lookup name functions of
+                  Just function
+                    | functionStatementIndex function == statementIndex ->
+                        scalarCaptureExpectedType recursiveScalarCaptureTypes scalarBindings expression
+                  _ -> Nothing
+              selectedExpressionType =
+                case Map.lookup name functions of
+                  Just function
+                    | functionStatementIndex function == statementIndex -> functionType function
+                  _ -> expressionType
+              selectedExpression =
+                case selectedCaptureType of
+                  Just captureType -> specializeProvisionalCallableCapture state captureType expression
+                  Nothing -> expression
               generatedOperatorFailures =
                 case name of
                   GeneratedName (OperatorBinding _) ->
@@ -462,8 +478,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   _ -> [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
               directArity = maybe 0 functionArity (Map.lookup name functions)
               (expressionFailures, maybeExpression) =
-                finalizeExpression recursiveScalarCaptureTypes eagerClosureCaptureStatements DeferredExpression functions callableShapes statementIndex [0] scalarBindings (FunctionBindingExpression callableShape directArity) expression
-              infoResult = callableInfo callableShape directArity statementIndex [] expressionType
+                finalizeExpression recursiveScalarCaptureTypes eagerClosureCaptureStatements DeferredExpression functions callableShapes statementIndex [0] scalarBindings (FunctionBindingExpression callableShape directArity) selectedExpression
+              infoResult = callableInfo callableShape directArity statementIndex [] selectedExpressionType
               infoFailures = either (: []) (const []) infoResult
               owningStatementFailures =
                 shapeFailures
@@ -759,10 +775,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               | Just function <- Map.lookup name functions ->
                   let expectedArity = functionArity function
                       actualArity = length arguments
+                      selectedResultTypes = applicationResultTypes (functionType function) resultTypes
                       arityFailures =
                         [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
                         | actualArity > expectedArity,
-                          not (callableOversaturationSupported expectedArity resultTypes)
+                          not (callableOversaturationSupported expectedArity selectedResultTypes)
                         ]
                       (calleeFailures, maybeCallee) =
                         finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters CalleeExpression callee
@@ -770,7 +787,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
-                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
+                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments selectedResultTypes
             ProvisionalVariableExpression name _ ->
               ( failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))
                   : argumentFailures,
@@ -831,6 +848,20 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 (resultType : resultTypes)
                 function
             _ -> (expression, arguments, resultTypes)
+
+    applicationResultTypes expressionType provisionalResultTypes =
+      zipWith selectResultType selectedResultTypes provisionalResultTypes
+        <> drop (length selectedResultTypes) provisionalResultTypes
+      where
+        selectedResultTypes = take (length provisionalResultTypes) (resultTypes expressionType)
+        selectResultType selectedType provisionalType =
+          case (resolveType state provisionalType, concreteIntegralType (resolveType state selectedType)) of
+            (TIntegerLiteralType {}, Just concreteType) -> specializeExpressionType state concreteType provisionalType
+            _ -> provisionalType
+        resultTypes selectedType =
+          case resolveType state selectedType of
+            TFunctionType _ resultType -> resultType : resultTypes resultType
+            _ -> []
 
     callableOversaturationSupported directArity resultTypes =
       all isCallableResult intermediateOversaturationResults
@@ -952,6 +983,31 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 name = provisionalCallableName declaration
                 expressionType = provisionalCallableType declaration
             _ -> functions
+
+    specializeFunctionProfiles scalarCaptureTypes statements initialFunctions =
+      fst (foldl' collect (initialFunctions, Map.empty) statements)
+      where
+        collect (functions, scalarBindings) statement =
+          case statement of
+            ProvisionalFunctionBinding declaration expression ->
+              let statementIndex = provisionalCallableStatementIndex declaration
+                  name = provisionalCallableName declaration
+                  selectedType =
+                    case scalarCaptureExpectedType scalarCaptureTypes scalarBindings expression of
+                      Just captureType -> specializeCallableCaptureType state captureType (provisionalCallableType declaration)
+                      Nothing -> provisionalCallableType declaration
+                  nextFunctions =
+                    case Map.lookup name functions of
+                      Just function
+                        | functionStatementIndex function == statementIndex ->
+                            Map.insert name function {functionType = selectedType} functions
+                      _ -> functions
+               in (nextFunctions, scalarBindings)
+            ProvisionalScalarBinding statementIndex name _ _ _ ->
+              ( functions,
+                Map.insert name (binderAt statementIndex [] (resolvedValueName name)) scalarBindings
+              )
+            _ -> (functions, scalarBindings)
 
     callableDeclarations statements =
       [ declaration
@@ -1804,6 +1860,23 @@ specializeProvisionalExpression state maybeExpected expression =
       case maybeExpected of
         Just expectedType -> specializeExpressionType state expectedType expressionType
         Nothing -> resolveType state expressionType
+
+specializeProvisionalCallableCapture :: InferState -> ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
+specializeProvisionalCallableCapture state captureType expression =
+  case expression of
+    ProvisionalLambdaExpression parameterName expressionType body ->
+      ProvisionalLambdaExpression
+        parameterName
+        (specializeCallableCaptureType state captureType expressionType)
+        (specializeProvisionalCallableCapture state captureType body)
+    _ -> specializeProvisionalExpression state (Just captureType) expression
+
+specializeCallableCaptureType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+specializeCallableCaptureType state captureType expressionType =
+  case resolveType state expressionType of
+    TFunctionType parameterType resultType ->
+      TFunctionType parameterType (specializeCallableCaptureType state captureType resultType)
+    resultType -> specializeExpressionType state captureType resultType
 
 provisionalExpressionType :: InferState -> ProvisionalTypedExpr -> Maybe ExpressionType
 provisionalExpressionType state expression =
