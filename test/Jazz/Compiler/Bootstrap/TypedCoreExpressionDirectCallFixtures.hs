@@ -183,6 +183,7 @@ rejectedFixtures =
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
     sourceFixtureNoExports "later-capture-mutual-recursion" laterCaptureMutualRecursionSource,
+    sourceFixtureNoExports "transitive-later-capture-mutual-recursion" transitiveLaterCaptureMutualRecursionSource,
     sourceFixtureNoExports "interleaved-rebound-capture-mutual-recursion" interleavedReboundCaptureMutualRecursionSource,
     sourceFixtureNoExports "polymorphic-or-evidence-function" polymorphicFunctionSource,
     (sourceFixture "imported-direct-call" importedDirectCallSource)
@@ -2310,6 +2311,7 @@ lowererBoundaryPrograms =
   [ ("scalar-binding-unsupported-rhs", invalidScalarBindingRhsProgram),
     ("combined-statement-failure-order", combinedStatementFailureOrderLowererProgram),
     ("recursion-descendant-failure-order", recursionDescendantFailureOrderLowererProgram),
+    ("interleaved-capture-mutual-recursion", interleavedCaptureMutualRecursiveLowererProgram),
     ("closure-valued-parameter", closureValuedParameterLowererProgram),
     ("closure-valued-result", closureValuedResultLowererProgram),
     ("closure-shaped-named-function", closureShapeLowererProgram),
@@ -2844,6 +2846,66 @@ recursionDescendantFailureOrderLowererProgram =
             "+"
             (directCall "loop" [intInfo] intInfo [variableExpr "item" intInfo])
             (variableExpr "seed" intInfo)
+        )
+
+interleavedCaptureMutualRecursiveLowererProgram :: TypedProgram
+interleavedCaptureMutualRecursiveLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        [TypedRecursiveGroup [leftBinder, rightBinder]]
+        ( map
+            (bindExpectedStatementVariables bindings)
+            (expectedFunctionStatements 0 1 leftFunction)
+            <> [TypedLetStatement seedBinder seedName (TypedSpan 3 1) seedScheme (intExpr 1)]
+            <> map
+              (bindExpectedStatementVariables bindings)
+              (expectedFunctionStatements 3 4 rightFunction)
+            <> [ TypedExpressionStatement
+                   (TypedSpan 6 1)
+                   (bindExpectedExpressionVariables bindings (directCall "left" [intInfo] intInfo [intExpr 1]))
+               ]
+        )
+        intInfo
+    ]
+    modulePath
+  where
+    leftName = resolvedName "left"
+    leftBinder = TypedBinderId (modulePath, [1], leftName)
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [2], seedName)
+    rightName = resolvedName "right"
+    rightBinder = TypedBinderId (modulePath, [4], rightName)
+    bindings =
+      Map.fromList
+        [ (leftName, leftBinder),
+          (seedName, seedBinder),
+          (rightName, rightBinder)
+        ]
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    leftFunction =
+      ExpectedFunction
+        "left"
+        [("item", intInfo)]
+        intInfo
+        TypedClosureCallableShape
+        (directCall "right" [intInfo] intInfo [variableExpr "item" intInfo])
+    rightFunction =
+      ExpectedFunction
+        "right"
+        [("item", intInfo)]
+        intInfo
+        TypedClosureCallableShape
+        ( directCall
+            "left"
+            [intInfo]
+            intInfo
+            [binaryExpr intInfo "+" (variableExpr "item" intInfo) (variableExpr "seed" intInfo)]
         )
 
 capturingLowererProgram :: TypedProgram
@@ -4541,6 +4603,19 @@ laterCaptureMutualRecursionSource =
       "seed = 1.",
       "right :: Int -> Int.",
       "right = \\(item) -> left (item + seed).",
+      "left 1."
+    ]
+
+transitiveLaterCaptureMutualRecursionSource :: Text
+transitiveLaterCaptureMutualRecursionSource =
+  Text.unlines
+    [ "left :: Int -> Int.",
+      "left = \\(item) -> right item.",
+      "seed = 1.",
+      "helper :: Int -> Int.",
+      "helper = \\(item) -> item + seed.",
+      "right :: Int -> Int.",
+      "right = \\(item) -> left (helper item).",
       "left 1."
     ]
 

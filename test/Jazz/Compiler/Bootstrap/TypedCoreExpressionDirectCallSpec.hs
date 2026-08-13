@@ -203,6 +203,7 @@ testFixtureManifest = do
           "local-block-binding",
           "oversaturated-direct-call",
           "later-capture-mutual-recursion",
+          "transitive-later-capture-mutual-recursion",
           "interleaved-rebound-capture-mutual-recursion",
           "polymorphic-or-evidence-function",
           "imported-direct-call",
@@ -212,8 +213,8 @@ testFixtureManifest = do
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
     >> assertEqual "accepted fixture count" 32 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 49 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "rejected fixture count" 18 (length rejectedFixtureNames)
+    >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
     >> assertEqual "prior scalar/direct-call inventory count" 36 (Set.size priorSet)
@@ -257,6 +258,7 @@ testIndependentLowererManifest = do
           "scalar-binding-unsupported-rhs",
           "combined-statement-failure-order",
           "recursion-descendant-failure-order",
+          "interleaved-capture-mutual-recursion",
           "closure-valued-parameter",
           "closure-valued-result",
           "closure-shaped-named-function",
@@ -821,6 +823,13 @@ testLowererCallableBoundary =
               [0, 0, 1]
               LoweredIRCaptureUnsupported
               (LoweredIRNameFailureDetail (currentName "seed"))
+          ]
+        ),
+        ( "interleaved-capture-mutual-recursion",
+          [ statementFailure
+              4
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "right"))
           ]
         ),
         ( "non-concrete-closure-representation",
@@ -1679,6 +1688,10 @@ rejectedManifestExpectedStatuses =
     ( "later-capture-mutual-recursion",
       unsupported
         [statementFailure 4 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
+    ),
+    ( "transitive-later-capture-mutual-recursion",
+      unsupported
+        [statementFailure 6 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
     ),
     ( "interleaved-rebound-capture-mutual-recursion",
       unsupported

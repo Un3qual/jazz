@@ -1160,7 +1160,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ]
         supportedMembers =
           Map.fromList
-            [ (owner, (callableShape, directArity, typedExpression, scalarCaptureTypes, capturesAfterGroupStart))
+            [ (owner, (name, callableShape, directArity, typedExpression, scalarCaptureTypes, closureDependencies))
             | ProvisionalFunctionBinding declaration expression <- statements,
               let statementIndex = provisionalCallableStatementIndex declaration,
               let name = provisionalCallableName declaration,
@@ -1185,24 +1185,25 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               null expressionFailures,
               Just typedExpression <- [maybeTypedExpression],
               let scalarCaptureTypes = provisionalScalarReferenceTypes scalarBindings expression,
-              let capturesAfterGroupStart firstStatement =
-                    any
-                      (>= firstStatement)
-                      [ scalarStatement
-                      | (binder, _) <- scalarCaptureTypes,
-                        Just scalarStatement <- [Map.lookup binder scalarBinderStatements]
-                      ]
+              let closureDependencies =
+                    Set.toAscList
+                      (Set.intersection (Map.keysSet functions) (provisionalFreeNames expression))
+            ]
+        supportedMemberOwnersByName =
+          Map.fromList
+            [ (name, owner)
+            | (owner, (name, _, _, _, _, _)) <- Map.toList supportedMembers
             ]
         supportedGroupMembers memberSet members =
           case traverse (`Map.lookup` supportedMembers) members of
-            Just supported@((groupShape, _, _, _, _) : _)
+            Just supported@((_, groupShape, _, _, _, _) : _)
               | all ((== groupShape) . memberShape) supported ->
                   case groupShape of
                     TypedDirectCallableShape ->
                       [ (member, [])
                       | all
-                          (\(_, directArity, typedExpression, _, _) ->
-                             not (nestedLambdaReferencesAnyBinder directArity memberSet typedExpression)
+                          ( \(_, _, directArity, typedExpression, _, _) ->
+                              not (nestedLambdaReferencesAnyBinder directArity memberSet typedExpression)
                           )
                           supported,
                         member <- members
@@ -1213,13 +1214,45 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           case binderStatementIndex firstMember of
                             Just firstStatement ->
                               [ (member, scalarCaptureTypes)
-                              | (member, (_, _, _, scalarCaptureTypes, capturesAfterGroupStart)) <- zip members supported,
-                                not (capturesAfterGroupStart firstStatement)
+                              | member <- members,
+                                let scalarCaptureTypes = transitiveScalarCaptureTypes memberSet member,
+                                not (capturesAfterGroupStart firstStatement scalarCaptureTypes)
                               ]
                             Nothing -> []
                         [] -> []
             _ -> []
-        memberShape (shape, _, _, _, _) = shape
+        memberShape (_, shape, _, _, _, _) = shape
+        transitiveScalarCaptureTypes memberSet = stableCaptureTypes . expandCaptures Set.empty
+          where
+            expandCaptures expandedFunctions member
+              | Set.member member expandedFunctions = []
+              | otherwise =
+                  case Map.lookup member supportedMembers of
+                    Just (_, _, _, _, scalarCaptureTypes, dependencies) ->
+                      scalarCaptureTypes
+                        <> concat
+                          [ expandCaptures nextExpandedFunctions dependency
+                          | dependencyName <- dependencies,
+                            shapeFor callableShapes dependencyName == TypedClosureCallableShape,
+                            Just dependency <- [Map.lookup dependencyName supportedMemberOwnersByName],
+                            Set.notMember dependency memberSet
+                          ]
+                      where
+                        nextExpandedFunctions = Set.insert member expandedFunctions
+                    Nothing -> []
+        stableCaptureTypes = reverse . snd . foldl' collectCapture (Set.empty, [])
+          where
+            collectCapture (seenCaptures, reversedCaptures) capture@(binder, _)
+              | Set.member binder seenCaptures = (seenCaptures, reversedCaptures)
+              | otherwise =
+                  (Set.insert binder seenCaptures, capture : reversedCaptures)
+        capturesAfterGroupStart firstStatement scalarCaptureTypes =
+          any
+            (>= firstStatement)
+            [ scalarStatement
+            | (binder, _) <- scalarCaptureTypes,
+              Just scalarStatement <- [Map.lookup binder scalarBinderStatements]
+            ]
         binderStatementIndex (TypedBinderId (_, statementIndex : _, _)) = Just statementIndex
         binderStatementIndex _ = Nothing
         generatedOperatorName name =

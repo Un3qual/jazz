@@ -218,7 +218,11 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
     profileFailures =
       validateStatementProfiles modulePath functionIndex (Set.fromList localValueNames) statements
     recursiveFailures =
-      recursiveGroupProfileFailures modulePath functionIndex functionDeclarations
+      recursiveGroupProfileFailures
+        modulePath
+        functionIndex
+        collectedFunctionShapes
+        functionDeclarations
     statementFailures =
       orderedStatementFailures
         (length statements)
@@ -1259,9 +1263,10 @@ functionEnvironmentParameter function = do
 recursiveGroupProfileFailures ::
   [Text] ->
   FunctionIndex ->
+  [FunctionShape] ->
   [FunctionDeclaration] ->
   [LoweredIRLoweringFailure]
-recursiveGroupProfileFailures modulePath functions declarations =
+recursiveGroupProfileFailures modulePath functions unsharedFunctions declarations =
   [ LoweredIRLoweringFailure
       (TypedStatementPath modulePath [functionDeclarationStatementIndex declaration])
       LoweredIRRecursiveFunctionUnsupported
@@ -1272,14 +1277,20 @@ recursiveGroupProfileFailures modulePath functions declarations =
           (functionDeclarationBinder declaration)
           (indexedRecursiveGroupMembers functions)
       ],
-    not (supportedGroup groupMembers)
+    not (supportedMember declaration groupMembers)
   ]
   where
-    supportedGroup members =
+    unsharedFunctionsByBinder =
+      Map.fromList
+        [ (functionShapeBinder function, function)
+        | function <- unsharedFunctions
+        ]
+    supportedMember declaration members =
       case traverse (`Map.lookup` indexedFunctionShapes functions) members of
         Just memberFunctions
           | all functionShapeSourceBinding memberFunctions,
-            all ((== TypedClosureCallableShape) . functionShapeCallableShape) memberFunctions -> True
+            all ((== TypedClosureCallableShape) . functionShapeCallableShape) memberFunctions ->
+              memberCapturesAvailableAtGroupStart members (functionDeclarationBinder declaration)
           | all functionShapeSourceBinding memberFunctions,
             all ((== TypedDirectCallableShape) . functionShapeCallableShape) memberFunctions ->
               not
@@ -1296,6 +1307,25 @@ recursiveGroupProfileFailures modulePath functions declarations =
             | binder <- members,
               Just member <- [Map.lookup binder (indexedFunctionShapes functions)]
             ]
+    memberCapturesAvailableAtGroupStart members memberBinder =
+      case (members, Map.lookup memberBinder unsharedFunctionsByBinder) of
+        (firstMember : _, Just member) ->
+          case Map.lookup firstMember unsharedFunctionsByBinder of
+            Just firstFunction ->
+              all
+                (captureAvailableBefore (functionShapeStatementIndex firstFunction))
+                ( collectCaptureShapes
+                    unsharedFunctionsByBinder
+                    (Set.fromList members)
+                    (Set.fromList (map functionParameterBinder (functionShapeParameters member)))
+                    (functionShapeBody member)
+                )
+            Nothing -> False
+        _ -> False
+    captureAvailableBefore firstStatement capture =
+      case captureShapeBinder capture of
+        TypedBinderId (_, statementIndex : _, _) -> statementIndex < firstStatement
+        _ -> False
     closureShapeReferencesGroup memberSet memberStatementIndexes function =
       not (functionShapeSourceBinding function)
         && Set.member
