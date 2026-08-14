@@ -54,6 +54,7 @@ tests =
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
+    ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
     ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
@@ -298,7 +299,16 @@ testIndependentLowererManifest = do
           "nested-lambda-closure-value-self-recursion",
           "imported-direct-call",
           "managed-scalar-entry",
-          "conditional-entry"
+          "conditional-entry",
+          "pattern-case-constructor-lowerer",
+          "pattern-case-list-lowerer",
+          "pattern-case-tuple-lowerer",
+          "pattern-case-as-lowerer",
+          "pattern-case-or-lowerer",
+          "pattern-case-final-literal-lowerer",
+          "pattern-case-final-guarded-catch-all-lowerer",
+          "pattern-case-unguarded-non-final-wildcard-lowerer",
+          "pattern-case-unguarded-non-final-variable-lowerer"
         ]
       expectedInvalidNames =
         [ "closure-shape-flattened-recipe",
@@ -368,22 +378,14 @@ testAcceptedManifestPipeline =
         <> curriedApplicationExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
+        <> [(name, lowered) | (name, _, lowered) <- scalarPatternCaseExpectedLoweredPrograms]
         <> directCallExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- directRecursionExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- closureRecursionExpectedLoweredPrograms]
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
-    expectedLoweringFailures =
-      [ ( "pattern-case",
-          LoweredIRUnsupported
-            [ LoweredIRLoweringFailure
-                (TypedExpressionPath ["App", "Main"] [0] [0])
-                LoweredIRUnsupportedExpression
-                LoweredIRNoFailureDetail
-            ]
-        )
-      ]
+    expectedLoweringFailures = []
 
     assertAccepted name =
       case lookup name expectedTypedPrograms of
@@ -450,16 +452,71 @@ testScalarPatternCaseProduction =
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstProduction)
       assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
-      assertEqual
-        (name <> " retained lowerer boundary")
-        ( LoweredIRUnsupported
-            [ LoweredIRLoweringFailure
-                (TypedExpressionPath ["App", "Main"] [0] [0])
-                LoweredIRUnsupportedExpression
-                LoweredIRNoFailureDetail
-            ]
-        )
-        (lowerTypedCoreExpressionDirectCall expectedProgram)
+      case lookup name expectedLowerings of
+        Just expectedLowering ->
+          assertEqual
+            (name <> " exact scalar pattern-case lowering")
+            (LoweredIRSucceeded expectedLowering)
+            (lowerTypedCoreExpressionDirectCall expectedProgram)
+        Nothing ->
+          case lowerTypedCoreExpressionDirectCall expectedProgram of
+            LoweredIRSucceeded loweredProgram ->
+              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+            lowering ->
+              failTest (name <> " did not lower: " <> Text.pack (show lowering))
+    expectedLowerings =
+      [(name, lowered) | (name, _, lowered) <- scalarPatternCaseExpectedLoweredPrograms]
+
+testScalarPatternCaseLowererBoundary :: IO ()
+testScalarPatternCaseLowererBoundary =
+  mapM_ assertBoundary expectedResults
+  where
+    assertBoundary (name, expectedFailures) =
+      case lookup name scalarPatternCaseLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " pattern-case lowerer boundary program is missing")
+        Just programValue -> do
+          let firstLowering = lowerTypedCoreExpressionDirectCall programValue
+              secondLowering = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable lowerer rejection") firstLowering secondLowering
+          assertEqual
+            (name <> " exact lowerer rejection")
+            (LoweredIRUnsupported expectedFailures)
+            firstLowering
+
+    expectedResults =
+      [ ( "pattern-case-constructor-lowerer",
+          [ LoweredIRLoweringFailure
+              (TypedStatementPath ["App", "Main"] [0])
+              LoweredIRUnsupportedStatement
+              LoweredIRNoFailureDetail,
+            patternFailure [1] [0, 0]
+          ]
+        ),
+        unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
+        unsupportedPattern "pattern-case-tuple-lowerer" [0] [0, 0],
+        unsupportedPattern "pattern-case-as-lowerer" [0] [0, 0],
+        unsupportedPattern "pattern-case-or-lowerer" [0] [0, 0],
+        incompleteCase "pattern-case-final-literal-lowerer",
+        incompleteCase "pattern-case-final-guarded-catch-all-lowerer",
+        incompleteCase "pattern-case-unguarded-non-final-wildcard-lowerer",
+        incompleteCase "pattern-case-unguarded-non-final-variable-lowerer"
+      ]
+    unsupportedPattern name statementPath patternPath =
+      (name, [patternFailure statementPath patternPath])
+    patternFailure statementPath patternPath =
+      LoweredIRLoweringFailure
+        (TypedPatternPath ["App", "Main"] statementPath patternPath)
+        LoweredIRUnsupportedPattern
+        LoweredIRNoFailureDetail
+    incompleteCase name =
+      ( name,
+        [ LoweredIRLoweringFailure
+            (TypedExpressionPath ["App", "Main"] [0] [0])
+            LoweredIRIncompletePatternCase
+            LoweredIRNoFailureDetail
+        ]
+      )
 
 testScalarPatternCaseProducerBoundaries :: IO ()
 testScalarPatternCaseProducerBoundaries = do

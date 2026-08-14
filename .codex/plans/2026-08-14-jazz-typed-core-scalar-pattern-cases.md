@@ -396,20 +396,20 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 - Every body jumps to one result join. The final catch-all has no unmatched
   successor.
 
-- [ ] **Step 1: Make the root scalar fixture expect exact Lowered IR.** Add an
+- [x] **Step 1: Make the root scalar fixture expect exact Lowered IR.** Add an
       entry block that computes the scrutinee once, a literal-test branch, one
       body block per arm, and one result join returning its block parameter.
       Assert exact block IDs, parameter IDs, instruction order, edge arguments,
       and terminators.
 
-- [ ] **Step 2: Add arbitrary Typed Core boundary fixtures.** Pass validated
+- [x] **Step 2: Add arbitrary Typed Core boundary fixtures.** Pass validated
       hand-built cases directly to the lowerer and require
       `LoweredIRUnsupportedPattern` for constructor/list/tuple/as/or patterns
       and `LoweredIRIncompletePatternCase` for every final-catch-all violation.
       Include literal/scrutinee representation disagreement even though the
       producer cannot emit it.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Run:
+- [x] **Step 3: Run the focused suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -419,28 +419,28 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   `LoweredIRUnsupportedExpression`; direct boundary fixtures do not yet receive
   the pattern-specific failures.
 
-- [ ] **Step 4: Validate the lowerer profile before emitting blocks.** Inspect
+- [x] **Step 4: Validate the lowerer profile before emitting blocks.** Inspect
       every arm in source order, require an immediate scalar scrutinee, exact
       literal representation equality, guarded earlier catch-alls, and an
       unguarded final catch-all. Return one structured failure and no partial
       program when any check fails.
 
-- [ ] **Step 5: Implement the no-ambient arm chain.** Reuse `lowerLiteral` for
+- [x] **Step 5: Implement the no-ambient arm chain.** Reuse `lowerLiteral` for
       literal operands, the existing primitive call form for strict equality,
       and the RFC 0010 CFG builder for branch/jump/join blocks. Lower the
       scrutinee once before the first test. Preserve repeated literals and reset
       block-local temporary numbering according to existing conventions.
 
-- [ ] **Step 6: Implement variable and guard scopes.** Extend
+- [x] **Step 6: Implement variable and guard scopes.** Extend
       `LexicalRepresentations` and the active local operand map for exactly one
       arm. Remove that extension before starting the continuation or join. On a
       false guard, transport the original scrutinee—not an arm-local alias—to
       the next arm.
 
-- [ ] **Step 7: Run the focused suite twice and verify GREEN.** Confirm exact
+- [x] **Step 7: Run the focused suite twice and verify GREEN.** Confirm exact
       CFG identity on both runs and successful `validateLoweredProgram` output.
 
-- [ ] **Step 8: Commit the CFG milestone.** Run:
+- [x] **Step 8: Commit the CFG milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs

@@ -16,7 +16,9 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     scalarPatternCaseExpectedPrograms,
+    scalarPatternCaseExpectedLoweredPrograms,
     scalarPatternCaseAnalysisExpectedPrograms,
+    scalarPatternCaseLowererBoundaryPrograms,
     scalarBindingExpectedPrograms,
     scalarBindingExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
@@ -577,6 +579,74 @@ scalarPatternCaseVariableGuardsProgram =
     fallbackName = resolvedName "fallback"
     fallbackBinder = TypedBinderId (modulePath, [0, 1], fallbackName)
 
+scalarPatternCaseExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+scalarPatternCaseExpectedLoweredPrograms =
+  [ ("pattern-case", scalarPatternCaseExpectedProgram, scalarPatternCaseExpectedLoweredProgram),
+    ("scalar-pattern-case", scalarPatternCaseExpectedProgram, scalarPatternCaseExpectedLoweredProgram)
+  ]
+
+scalarPatternCaseExpectedLoweredProgram :: LoweredProgram
+scalarPatternCaseExpectedLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    []
+    []
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ expectedPrimitiveInstruction
+                1
+                LoweredBoolRepresentation
+                (LoweredComparisonPrimitive LoweredEqual)
+                [ loweredImmediate (LoweredBoolImmediate True),
+                  loweredImmediate (LoweredBoolImmediate True)
+                ]
+            ]
+            ( Just
+                ( LoweredBranch
+                    (loweredTemporary 1 LoweredBoolRepresentation)
+                    firstBodyBlockId
+                    []
+                    finalBodyBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            firstBodyBlockId
+            []
+            []
+            (Just (LoweredJump joinBlockId [loweredInt64 1])),
+          LoweredBlock
+            finalBodyBlockId
+            []
+            []
+            (Just (LoweredJump joinBlockId [loweredInt64 2])),
+          LoweredBlock
+            joinBlockId
+            [LoweredParameter (LoweredParameterId "result") int64Representation]
+            []
+            ( Just
+                ( LoweredReturn
+                    ( LoweredBlockParameterOperand
+                        (LoweredParameterId "result")
+                        int64Representation
+                    )
+                )
+            )
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+  where
+    firstBodyBlockId = LoweredBlockId "case$s1$0$e1$0$a0$body"
+    finalBodyBlockId = LoweredBlockId "case$s1$0$e1$0$a1$body"
+    joinBlockId = LoweredBlockId "case$s1$0$e1$0$join"
+
 scalarPatternCaseRepeatedLiteralGuardsProgram :: TypedProgram
 scalarPatternCaseRepeatedLiteralGuardsProgram =
   expectedRootProgram
@@ -607,6 +677,157 @@ scalarPatternCaseAnalysisExpectedPrograms =
   [ ("scalar-pattern-case-capture", scalarPatternCaseCaptureProgram),
     ("scalar-pattern-case-closure-result", scalarPatternCaseClosureResultProgram)
   ]
+
+scalarPatternCaseLowererBoundaryPrograms :: [(Text, TypedProgram)]
+scalarPatternCaseLowererBoundaryPrograms =
+  [ ("pattern-case-constructor-lowerer", constructorPatternCaseLowererProgram),
+    ("pattern-case-list-lowerer", unsupportedPatternCaseProgram listScrutinee listPattern),
+    ("pattern-case-tuple-lowerer", unsupportedPatternCaseProgram tupleScrutinee tuplePattern),
+    ("pattern-case-as-lowerer", unsupportedPatternCaseProgram (boolExpr True) asPattern),
+    ("pattern-case-or-lowerer", unsupportedPatternCaseProgram (boolExpr True) orPattern),
+    ("pattern-case-final-literal-lowerer", incompletePatternCaseProgram [literalArm]),
+    ("pattern-case-final-guarded-catch-all-lowerer", incompletePatternCaseProgram [guardedWildcardArm]),
+    ( "pattern-case-unguarded-non-final-wildcard-lowerer",
+      incompletePatternCaseProgram [unguardedWildcardArm, finalWildcardArm]
+    ),
+    ( "pattern-case-unguarded-non-final-variable-lowerer",
+      incompletePatternCaseProgram [unguardedVariableArm, finalWildcardArm]
+    )
+  ]
+  where
+    listInfo =
+      TypedNodeInfo
+        (TypedListType TypedBoolType)
+        (TypedManagedListRecipe TypedBoolRecipe)
+        []
+        []
+    listScrutinee = TypedListExpr listInfo []
+    listPattern = TypedListPattern listInfo []
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedBoolType, TypedBoolType])
+        (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
+        []
+        []
+    tupleScrutinee = TypedTupleExpr tupleInfo [boolExpr True, boolExpr False]
+    tuplePattern =
+      TypedTuplePattern
+        tupleInfo
+        [TypedWildcardPattern boolInfo, TypedWildcardPattern boolInfo]
+    asName = resolvedName "whole"
+    asBinder = TypedBinderId (modulePath, [0, 0, 0], asName)
+    asPattern = TypedAsPattern boolInfo asBinder asName (TypedWildcardPattern boolInfo)
+    orPattern =
+      TypedOrPattern
+        boolInfo
+        [ TypedLiteralPattern boolInfo (TypedBooleanLiteral True),
+          TypedLiteralPattern boolInfo (TypedBooleanLiteral False)
+        ]
+    literalArm =
+      TypedCaseArm
+        (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+        Nothing
+        (intExpr 1)
+    guardedWildcardArm =
+      TypedCaseArm
+        (TypedWildcardPattern boolInfo)
+        (Just (boolExpr True))
+        (intExpr 1)
+    unguardedWildcardArm =
+      TypedCaseArm
+        (TypedWildcardPattern boolInfo)
+        Nothing
+        (intExpr 1)
+    variableName = resolvedName "matched"
+    variableBinder = TypedBinderId (modulePath, [0, 0, 0], variableName)
+    unguardedVariableArm =
+      TypedCaseArm
+        (TypedVariablePattern boolInfo variableBinder variableName)
+        Nothing
+        (intExpr 1)
+    finalWildcardArm =
+      TypedCaseArm
+        (TypedWildcardPattern boolInfo)
+        Nothing
+        (intExpr 2)
+
+unsupportedPatternCaseProgram :: TypedExpr -> TypedPattern -> TypedProgram
+unsupportedPatternCaseProgram scrutinee patternValue =
+  expectedScalarProgram
+    intInfo
+    ( TypedPatternCaseExpr
+        intInfo
+        scrutinee
+        [ TypedCaseArm patternValue Nothing (intExpr 1),
+          TypedCaseArm
+            (TypedWildcardPattern (typedExpressionInfo scrutinee))
+            Nothing
+            (intExpr 2)
+        ]
+    )
+
+incompletePatternCaseProgram :: [TypedCaseArm] -> TypedProgram
+incompletePatternCaseProgram arms =
+  expectedScalarProgram
+    intInfo
+    (TypedPatternCaseExpr intInfo (boolExpr True) arms)
+
+constructorPatternCaseLowererProgram :: TypedProgram
+constructorPatternCaseLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        []
+        [ TypedDataStatement declaration,
+          TypedExpressionStatement
+            (TypedSpan 2 1)
+            ( TypedPatternCaseExpr
+                intInfo
+                scrutinee
+                [ TypedCaseArm
+                    (TypedConstructorPattern dataInfo constructorName [])
+                    Nothing
+                    (intExpr 1),
+                  TypedCaseArm
+                    (TypedWildcardPattern dataInfo)
+                    Nothing
+                    (intExpr 2)
+                ]
+            )
+        ]
+        intInfo
+    ]
+    modulePath
+  where
+    dataName =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedTypeNamespace
+        "Choice"
+    constructorName =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedConstructorNamespace
+        "Chosen"
+    constructorBinder = TypedBinderId (modulePath, [0, 0], constructorName)
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 1 1)
+        dataName
+        []
+        [TypedConstructorDeclaration constructorBinder constructorName [] []]
+    dataInfo =
+      TypedNodeInfo
+        (TypedDataType dataName [])
+        (TypedManagedVariantRecipe dataName [])
+        []
+        []
+    scrutinee = TypedVariableExpr dataInfo constructorName (Just constructorBinder)
 
 scalarPatternCaseCaptureProgram :: TypedProgram
 scalarPatternCaseCaptureProgram =
@@ -2664,6 +2885,7 @@ validIndependentLowererPrograms =
        ]
     <> lowererBoundaryPrograms
     <> lowererStructuralBoundaryPrograms
+    <> scalarPatternCaseLowererBoundaryPrograms
 
 invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
