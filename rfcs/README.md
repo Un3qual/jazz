@@ -29,6 +29,7 @@ only `docs/` and does not publish this directory.
 | [0007](accepted/0007-runtime-host-boundary.md)                 | Runtime host boundary                 |
 | [0008](accepted/0008-parser-scale-and-performance-tiers.md)    | Parser scale and performance tiers    |
 | [0009](accepted/0009-typed-core-closure-and-recursion.md)      | Typed-core closures and recursion     |
+| [0010](accepted/0010-typed-core-conditional-control-flow.md)   | Typed-core conditional control flow   |
 
 ## Process
 

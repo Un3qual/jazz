@@ -54,6 +54,10 @@ capture-free, non-escaping direct self and mutual recursion. Closure-shaped
 self and mutual recursion is also supported when every external capture is
 available before the first group member. These groups share one immutable
 environment containing ordered external captures, and reconstruct self or peer
-closures from it without cyclic initialization. Later or interleaved external
-captures, full control flow, scalar exports, complete multi-module integration,
-native emission, linking, and a native runtime remain outside this path.
+closures from it without cyclic initialization. Bounded value-producing
+conditionals may nest within all of these expressions. Lowering evaluates each
+condition once, selects one branch, and resumes through a result join while
+transporting block-local ambient and in-flight values as explicit edge
+arguments. Later or interleaved external captures, pattern cases and guards,
+scalar exports, complete multi-module integration, native emission, linking,
+and a native runtime remain outside this path.

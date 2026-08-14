@@ -736,11 +736,31 @@ inferExprTypeDetailed builtinMode env state expr =
               elseResult
               stateAfterElse
           failures =
-            InferredProductionFailure [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-              : childFailures 0 conditionResult
-                <> childFailures 1 thenResult
-                <> childFailures 2 elseResult
-       in (InferredExpr expressionType (Just (ProvisionalRetainedFailures failures)) failures, finalState)
+            childFailures 0 conditionResult
+              <> childFailures 1 thenResult
+              <> childFailures 2 elseResult
+          provisionalExpr = do
+            case failures of
+              _ : _ -> pure (ProvisionalRetainedFailures failures)
+              [] -> do
+                resultType <- expressionType
+                condition <-
+                  inferredProvisionalExpr
+                    (specializeInferredExpression finalState TBoolType conditionResult)
+                thenExpression <-
+                  inferredProvisionalExpr
+                    (specializeInferredExpression finalState resultType thenResult)
+                elseExpression <-
+                  inferredProvisionalExpr
+                    (specializeInferredExpression finalState resultType elseResult)
+                pure
+                  ( ProvisionalIfExpression
+                      resultType
+                      condition
+                      thenExpression
+                      elseExpression
+                  )
+       in (InferredExpr expressionType provisionalExpr failures, finalState)
     EPatternCase {} ->
       inferUnsupportedWithProduction
         TypedCorePatternCaseUnsupported

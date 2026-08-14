@@ -145,6 +145,9 @@ Each blocked item should answer these questions:
   fixes callable-shape and binder-reference transport, unary closure staging,
   empty environments, deterministic capture identity, and the six-child
   delivery order without changing normal compile/run.
+- Accepted decision: [RFC 0010: Typed-core conditional control flow](../../rfcs/accepted/0010-typed-core-conditional-control-flow.md)
+  authorizes bounded value-producing `if` production plus deterministic
+  then/else/join lowering with explicit transport of block-local ambient values.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -188,21 +191,28 @@ Each blocked item should answer these questions:
   lowerer constructs one immutable shared environment for member closures and
   self/peer reconstruction. Later or interleaved captures fail closed. This
   completes RFC 0009 without changing normal compile/run.
-- Smallest unblocker: none currently. All accepted RFC 0009 children are
-  complete, and no later hosted semantic-compiler child is source-backed.
-- Decision needed: define a new concrete semantic-compiler boundary before
-  extending the opt-in profile.
-- Recommended default: keep the umbrella blocked and normal compile/run on
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001`
+  completed on `2026-08-13`. The opt-in producer now retains value-producing
+  conditionals throughout the scalar, closure, capture, currying, and recursion
+  profile. The lowerer emits deterministic nested then/else/join CFGs and
+  transports local bindings, shared environments, and in-flight evaluation
+  operands explicitly across every edge. Normal compile/run remains on
   canonical core and the reference interpreter.
+- Smallest unblocker: none currently. RFC 0010 is complete and no later hosted
+  semantic-compiler child has an accepted source contract.
+- Decision needed: define and accept the next bounded semantic-compiler delta
+  before another child is promoted.
+- Recommended default: keep the completed opt-in boundary and leave the queue
+  empty until a durable contract names one independently verifiable successor.
 - Candidate child: none currently.
-- Target paths: not set until a new semantic-compiler contract is accepted.
-- Verification: `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
+- Target paths: not set until a new accepted child exists.
+- Verification: `bash scripts/check-execution-queue.sh` and
+  `bash scripts/check-docs.sh` for the terminal-empty dispatcher state.
 - Not in scope: re-promoting the completed closure-call, scalar-binding,
   lexical-capture, curried-application, direct-recursion, or closure-recursion
-  children; control flow; patterns; multi-module or import integration;
-  non-closure managed values; runtime services; tail calls; LLVM emission;
-  object generation; linking; native-runtime or ABI implementation; a public
-  compiler embedding API; bytecode or a VM; or revival of removed legacy
+  or conditional-control-flow children; inventing a pattern, managed-value,
+  module, runtime-service, tail-call, native, embedding, bytecode, or VM child
+  without a new accepted contract; or revival of removed legacy
   implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001

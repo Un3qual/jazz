@@ -204,6 +204,7 @@ data ProvisionalTypedExpr
   | ProvisionalVariableExpression Name ExpressionType
   | ProvisionalLambdaExpression Name ExpressionType ProvisionalTypedExpr
   | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
+  | ProvisionalIfExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr ProvisionalTypedExpr
   | ProvisionalScopeStatements [ProvisionalTypedStatement]
   | ProvisionalUnsupportedExpression TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
   | ProvisionalRetainedFailures [InferredProductionFailure]
@@ -717,6 +718,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
         ProvisionalApplyExpression _ _ _ ->
           finalizeApplicationSpine scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex childPath parameters expression
+        ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
+          let infoResult = valueInfo statementIndex childPath expressionType
+              infoFailures = either (: []) (const []) infoResult
+              (conditionFailures, maybeCondition) =
+                finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [0]) parameters ScalarExpression condition
+              (thenFailures, maybeThenExpression) =
+                finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [1]) parameters ScalarExpression thenExpression
+              (elseFailures, maybeElseExpression) =
+                finalizeExpression scalarCaptureTypes eagerClosureCaptureStatements expressionEvaluation functions callableShapes statementIndex (childPath <> [2]) parameters ScalarExpression elseExpression
+              failures = infoFailures <> conditionFailures <> thenFailures <> elseFailures
+              typedExpression = TypedIfExpr <$> either (const Nothing) Just infoResult <*> maybeCondition <*> maybeThenExpression <*> maybeElseExpression
+           in (failures, if null failures then typedExpression else Nothing)
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
         ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
         ProvisionalRetainedFailures failures ->
@@ -948,6 +961,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     )
                     specializedCallee
                     (zip selectedResultTypes selectedArguments)
+            ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
+              ProvisionalIfExpression
+                expressionType
+                (go lexicalNames condition)
+                (go lexicalNames thenExpression)
+                (go lexicalNames elseExpression)
             _ -> expression
 
     specializeProvisionalCallableProfile functions = go Set.empty
@@ -1036,6 +1055,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 (\accumulated (_, argument) -> collectExpressionCallProfiles referenceFunctions lexicalNames accumulated argument)
                 childSpecializedFunctions
                 specializedArguments
+        ProvisionalIfExpression _ condition thenExpression elseExpression ->
+          foldl'
+            (collectExpressionCallProfiles referenceFunctions lexicalNames)
+            functions
+            [condition, thenExpression, elseExpression]
         _ -> functions
       where
         specializeHigherOrderArguments functionTypeValue arguments =
@@ -1333,6 +1357,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               freeNames boundNames function <> freeNames boundNames argument
             ProvisionalBinaryExpression _ _ _ left right ->
               freeNames boundNames left <> freeNames boundNames right
+            ProvisionalIfExpression _ condition thenExpression elseExpression ->
+              freeNames boundNames condition
+                <> freeNames boundNames thenExpression
+                <> freeNames boundNames elseExpression
             ProvisionalScopeStatements nestedStatements -> scopeFreeNames boundNames nestedStatements
             _ -> Set.empty
 
@@ -1388,6 +1416,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             lexicalNames
             (collectExpressionCallableUses functions lexicalNames callableShapes left)
             right
+        ProvisionalIfExpression _ condition thenExpression elseExpression ->
+          foldl'
+            (collectExpressionCallableUses functions lexicalNames)
+            callableShapes
+            [condition, thenExpression, elseExpression]
         ProvisionalScopeStatements nestedStatements ->
           collectScopeCallableUses functions lexicalNames callableShapes nestedStatements
         _ -> callableShapes
@@ -1788,6 +1821,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ProvisionalLambdaExpression parameterName _ body ->
               go (Set.insert parameterName boundNames) body
             ProvisionalApplyExpression _ function argument -> child function <> child argument
+            ProvisionalIfExpression _ condition thenExpression elseExpression ->
+              child condition <> child thenExpression <> child elseExpression
             ProvisionalScopeStatements nestedStatements -> scope boundNames nestedStatements
             ProvisionalUnsupportedExpression {} -> []
             ProvisionalRetainedFailures {} -> []
@@ -1850,6 +1885,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       Just (TFunctionType parameterType _) -> Just parameterType
                       _ -> Nothing
                in child Nothing function <> child argumentExpected argument
+            ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
+              let resultType = specializedType maybeExpected expressionType
+               in child (Just TBoolType) condition
+                    <> child (Just resultType) thenExpression
+                    <> child (Just resultType) elseExpression
             ProvisionalScopeStatements {} -> []
             ProvisionalUnsupportedExpression {} -> []
             ProvisionalRetainedFailures {} -> []
@@ -2142,6 +2182,13 @@ specializeProvisionalExpression state maybeExpected expression =
             resultType
             (specializeProvisionalExpression state Nothing function)
             (specializeProvisionalExpression state argumentExpected argument)
+    ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
+      let resultType = specializedType expressionType
+       in ProvisionalIfExpression
+            resultType
+            (specializeProvisionalExpression state (Just TBoolType) condition)
+            (specializeProvisionalExpression state (Just resultType) thenExpression)
+            (specializeProvisionalExpression state (Just resultType) elseExpression)
     ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
     ProvisionalUnsupportedExpression kind detail -> ProvisionalUnsupportedExpression kind detail
     ProvisionalRetainedFailures failures -> ProvisionalRetainedFailures failures
@@ -2177,6 +2224,12 @@ specializeProvisionalParameterReferences state parameterName selectedType = expr
             (expressionReferences (shadowed || nestedParameterName == parameterName) body)
         ProvisionalApplyExpression expressionType function argument ->
           ProvisionalApplyExpression expressionType (child function) (child argument)
+        ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
+          ProvisionalIfExpression
+            expressionType
+            (child condition)
+            (child thenExpression)
+            (child elseExpression)
         ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
         ProvisionalUnsupportedExpression {} -> expression
         ProvisionalRetainedFailures {} -> expression
@@ -2254,6 +2307,8 @@ provisionalParameterApplicationTypes state captureType parameterName = expressio
                   _ : _ -> concatMap child arguments
                   [] -> child callee <> concatMap child arguments
            in applicationType <> childTypes
+        ProvisionalIfExpression _ condition thenExpression elseExpression ->
+          child condition <> child thenExpression <> child elseExpression
         ProvisionalScopeStatements statements -> scopeApplicationTypes shadowed statements
         ProvisionalUnsupportedExpression {} -> []
         ProvisionalRetainedFailures {} -> []
@@ -2299,6 +2354,8 @@ provisionalParameterReferenceTypes parameterName = expressionReferenceTypes Fals
         ProvisionalLambdaExpression nestedParameterName _ body ->
           expressionReferenceTypes (shadowed || nestedParameterName == parameterName) body
         ProvisionalApplyExpression _ function argument -> child function <> child argument
+        ProvisionalIfExpression _ condition thenExpression elseExpression ->
+          child condition <> child thenExpression <> child elseExpression
         ProvisionalScopeStatements statements -> scopeReferenceTypes shadowed statements
         ProvisionalUnsupportedExpression {} -> []
         ProvisionalRetainedFailures {} -> []
@@ -2335,6 +2392,7 @@ provisionalExpressionType state expression =
     ProvisionalVariableExpression _ expressionType -> Just expressionType
     ProvisionalLambdaExpression _ expressionType _ -> Just expressionType
     ProvisionalApplyExpression expressionType _ _ -> Just expressionType
+    ProvisionalIfExpression expressionType _ _ _ -> Just expressionType
     ProvisionalScopeStatements {} -> Nothing
     ProvisionalUnsupportedExpression {} -> Nothing
     ProvisionalRetainedFailures {} -> Nothing

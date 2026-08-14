@@ -53,6 +53,7 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
@@ -185,6 +186,7 @@ testFixtureManifest = do
           "arithmetic-operators",
           "ordering-operators",
           "equality-operators",
+          "conditional",
           "scalar-parameter-return",
           "single-argument-direct-call",
           "curried-multi-argument-direct-call",
@@ -218,7 +220,6 @@ testFixtureManifest = do
           "list-value",
           "non-unit-tuple",
           "data-value",
-          "conditional",
           "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
@@ -232,8 +233,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 32 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 18 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 33 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -412,6 +413,342 @@ testAcceptedManifestPipeline =
                 (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testConditionalProfileCoverage :: IO ()
+testConditionalProfileCoverage =
+  mapM_ assertConditionalProfile names
+  where
+    names =
+      [ "conditional-function-parameter",
+        "conditional-captured-scalar",
+        "conditional-closure-result-application",
+        "nested-conditionals"
+      ]
+    assertConditionalProfile name = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      case typedCoreProductionStatus firstProduction of
+        TypedCoreProductionSucceeded typedProgram -> do
+          assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
+          let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
+              secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
+          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+          case firstLowering of
+            LoweredIRSucceeded loweredProgram -> do
+              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+              case lookup name expectedConditionalControlFlows of
+                Just expectedControlFlow ->
+                  assertEqual
+                    (name <> " exact conditional control flow")
+                    expectedControlFlow
+                    (conditionalControlFlow loweredProgram)
+                Nothing -> failTest (name <> " is missing a conditional control-flow expectation")
+            other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+
+conditionalControlFlow :: LoweredProgram -> [(LoweredFunctionId, [LoweredBlock])]
+conditionalControlFlow (LoweredProgram _ _ _ functions _) =
+  [ (functionId, blocks)
+  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+    any containsBranch blocks
+  ]
+  where
+    containsBranch (LoweredBlock _ _ _ (Just (LoweredBranch _ _ _ _ _))) = True
+    containsBranch _ = False
+
+expectedConditionalControlFlows :: [(Text, [(LoweredFunctionId, [LoweredBlock])])]
+expectedConditionalControlFlows =
+  [ ( "conditional-function-parameter",
+      [ ( functionId "choose",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              ( Just
+                  ( LoweredBranch
+                      (functionParameter "arg1" LoweredBoolRepresentation)
+                      parameterThenBlockId
+                      []
+                      parameterElseBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              parameterThenBlockId
+              []
+              []
+              (Just (LoweredJump parameterJoinBlockId [functionParameter "arg2" intRepresentation])),
+            LoweredBlock
+              parameterElseBlockId
+              []
+              []
+              (Just (LoweredJump parameterJoinBlockId [intImmediate 0])),
+            LoweredBlock
+              parameterJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "conditional-captured-scalar",
+      [ ( functionId "choose",
+          [ LoweredBlock
+              entryBlockId
+              []
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  intRepresentation
+                  ( LoweredProjectField
+                      capturedSeedLayoutId
+                      0
+                      (functionParameter "environment" (LoweredManagedReferenceRepresentation capturedSeedLayoutId))
+                  )
+              ]
+              ( Just
+                  ( LoweredBranch
+                      (functionParameter "arg1" LoweredBoolRepresentation)
+                      capturedThenBlockId
+                      [temporary 1 intRepresentation]
+                      capturedElseBlockId
+                      [temporary 1 intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              capturedThenBlockId
+              [parameter "live1" intRepresentation]
+              []
+              ( Just
+                  ( LoweredJump
+                      capturedJoinBlockId
+                      [blockParameter "live1" intRepresentation, blockParameter "live1" intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              capturedElseBlockId
+              [parameter "live1" intRepresentation]
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  intRepresentation
+                  ( LoweredPrimitiveOperation
+                      (LoweredArithmeticPrimitive LoweredAdd)
+                      [blockParameter "live1" intRepresentation, intImmediate 2]
+                  )
+              ]
+              ( Just
+                  ( LoweredJump
+                      capturedJoinBlockId
+                      [blockParameter "live1" intRepresentation, temporary 1 intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              capturedJoinBlockId
+              [parameter "live1" intRepresentation, parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "conditional-closure-result-application",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              ( Just
+                  ( LoweredBranch
+                      (boolImmediate True)
+                      closureThenBlockId
+                      []
+                      closureElseBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              closureThenBlockId
+              []
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  (LoweredManagedReferenceRepresentation identityLayoutId)
+                  (LoweredConstructProduct identityLayoutId []),
+                LoweredInstruction
+                  (LoweredTemporaryId "t2")
+                  boolClosureRepresentation
+                  ( LoweredConstructClosure
+                      (functionId "identity")
+                      (temporary 1 (LoweredManagedReferenceRepresentation identityLayoutId))
+                  )
+              ]
+              (Just (LoweredJump closureJoinBlockId [temporary 2 boolClosureRepresentation])),
+            LoweredBlock
+              closureElseBlockId
+              []
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  (LoweredManagedReferenceRepresentation alwaysFalseLayoutId)
+                  (LoweredConstructProduct alwaysFalseLayoutId []),
+                LoweredInstruction
+                  (LoweredTemporaryId "t2")
+                  boolClosureRepresentation
+                  ( LoweredConstructClosure
+                      (functionId "alwaysFalse")
+                      (temporary 1 (LoweredManagedReferenceRepresentation alwaysFalseLayoutId))
+                  )
+              ]
+              (Just (LoweredJump closureJoinBlockId [temporary 2 boolClosureRepresentation])),
+            LoweredBlock
+              closureJoinBlockId
+              [parameter "result" boolClosureRepresentation]
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  LoweredBoolRepresentation
+                  ( LoweredClosureCall
+                      (blockParameter "result" boolClosureRepresentation)
+                      [boolImmediate True]
+                  )
+              ]
+              (Just (LoweredReturn (temporary 1 LoweredBoolRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "nested-conditionals",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate True) nestedConditionThenBlockId [] nestedConditionElseBlockId [])),
+            LoweredBlock
+              nestedConditionThenBlockId
+              []
+              []
+              (Just (LoweredJump nestedConditionJoinBlockId [boolImmediate False])),
+            LoweredBlock
+              nestedConditionElseBlockId
+              []
+              []
+              (Just (LoweredJump nestedConditionJoinBlockId [boolImmediate True])),
+            LoweredBlock
+              nestedConditionJoinBlockId
+              [parameter "result" LoweredBoolRepresentation]
+              []
+              ( Just
+                  ( LoweredBranch
+                      (blockParameter "result" LoweredBoolRepresentation)
+                      nestedOuterThenBlockId
+                      []
+                      nestedOuterElseBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              nestedOuterThenBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate True) nestedThenThenBlockId [] nestedThenElseBlockId [])),
+            LoweredBlock
+              nestedThenThenBlockId
+              []
+              []
+              (Just (LoweredJump nestedThenJoinBlockId [intImmediate 1])),
+            LoweredBlock
+              nestedThenElseBlockId
+              []
+              []
+              (Just (LoweredJump nestedThenJoinBlockId [intImmediate 2])),
+            LoweredBlock
+              nestedThenJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredJump nestedOuterJoinBlockId [blockParameter "result" intRepresentation])),
+            LoweredBlock
+              nestedOuterElseBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate False) nestedElseThenBlockId [] nestedElseElseBlockId [])),
+            LoweredBlock
+              nestedElseThenBlockId
+              []
+              []
+              (Just (LoweredJump nestedElseJoinBlockId [intImmediate 3])),
+            LoweredBlock
+              nestedElseElseBlockId
+              []
+              []
+              (Just (LoweredJump nestedElseJoinBlockId [intImmediate 4])),
+            LoweredBlock
+              nestedElseJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredJump nestedOuterJoinBlockId [blockParameter "result" intRepresentation])),
+            LoweredBlock
+              nestedOuterJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    )
+  ]
+  where
+    functionId :: Text -> LoweredFunctionId
+    functionId name = LoweredFunctionId ("App::Main::" <> name)
+    blockId :: Text -> LoweredBlockId
+    blockId = LoweredBlockId
+    parameter :: Text -> LoweredRepresentation -> LoweredParameter
+    parameter name representation = LoweredParameter (LoweredParameterId name) representation
+    functionParameter :: Text -> LoweredRepresentation -> LoweredOperand
+    functionParameter name representation = LoweredFunctionParameterOperand (LoweredParameterId name) representation
+    blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
+    blockParameter name representation = LoweredBlockParameterOperand (LoweredParameterId name) representation
+    temporary :: Int -> LoweredRepresentation -> LoweredOperand
+    temporary index representation = LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index))) representation
+    boolImmediate :: Bool -> LoweredOperand
+    boolImmediate = LoweredImmediateOperand . LoweredBoolImmediate
+    intImmediate :: Integer -> LoweredOperand
+    intImmediate = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+    intRepresentation :: LoweredRepresentation
+    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    boolClosureRepresentation :: LoweredRepresentation
+    boolClosureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    entryBlockId = blockId "entry"
+    parameterThenBlockId = blockId "if$s1$1$e3$0,0,0$then"
+    parameterElseBlockId = blockId "if$s1$1$e3$0,0,0$else"
+    parameterJoinBlockId = blockId "if$s1$1$e3$0,0,0$join"
+    capturedSeedLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n6:choose"
+    capturedThenBlockId = blockId "if$s1$3$e2$0,0$then"
+    capturedElseBlockId = blockId "if$s1$3$e2$0,0$else"
+    capturedJoinBlockId = blockId "if$s1$3$e2$0,0$join"
+    identityLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
+    alwaysFalseLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n11:alwaysFalse"
+    closureThenBlockId = blockId "if$s1$4$e2$0,0$then"
+    closureElseBlockId = blockId "if$s1$4$e2$0,0$else"
+    closureJoinBlockId = blockId "if$s1$4$e2$0,0$join"
+    nestedConditionThenBlockId = blockId "if$s1$0$e2$0,0$then"
+    nestedConditionElseBlockId = blockId "if$s1$0$e2$0,0$else"
+    nestedConditionJoinBlockId = blockId "if$s1$0$e2$0,0$join"
+    nestedOuterThenBlockId = blockId "if$s1$0$e1$0$then"
+    nestedOuterElseBlockId = blockId "if$s1$0$e1$0$else"
+    nestedOuterJoinBlockId = blockId "if$s1$0$e1$0$join"
+    nestedThenThenBlockId = blockId "if$s1$0$e2$0,1$then"
+    nestedThenElseBlockId = blockId "if$s1$0$e2$0,1$else"
+    nestedThenJoinBlockId = blockId "if$s1$0$e2$0,1$join"
+    nestedElseThenBlockId = blockId "if$s1$0$e2$0,2$then"
+    nestedElseElseBlockId = blockId "if$s1$0$e2$0,2$else"
+    nestedElseJoinBlockId = blockId "if$s1$0$e2$0,2$join"
 
 testScalarBindingProduction :: IO ()
 testScalarBindingProduction = do
@@ -717,22 +1054,15 @@ testLiftedLambdaFailurePreorder :: IO ()
 testLiftedLambdaFailurePreorder =
   case lookup "lifted-lambda-failure-preorder" reviewLowererBoundaryPrograms of
     Just programValue -> do
-      assertEqual "lifted failure-order fixture is valid typed core" [] (validateTypedProgram programValue)
-      assertEqual
-        "lifted lambda failures follow canonical expression preorder"
-        ( LoweredIRUnsupported
-            [ expressionFailure [0, 0, 0],
-              expressionFailure [0, 1]
-            ]
-        )
-        (lowerTypedCoreExpressionDirectCall programValue)
-    Nothing -> failTest "lifted failure-order regression fixture is missing"
-  where
-    expressionFailure expressionPath =
-      LoweredIRLoweringFailure
-        (TypedExpressionPath ["App", "Main"] [0] expressionPath)
-        LoweredIRUnsupportedExpression
-        LoweredIRNoFailureDetail
+      let firstRun = lowerTypedCoreExpressionDirectCall programValue
+          secondRun = lowerTypedCoreExpressionDirectCall programValue
+      assertEqual "lifted conditional fixture is valid typed core" [] (validateTypedProgram programValue)
+      assertEqual "lifted conditional lowering is repeatable" firstRun secondRun
+      case firstRun of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual "lifted conditional lowered validation" [] (validateLoweredProgram loweredProgram)
+        other -> failTest ("lifted conditional did not lower: " <> Text.pack (show other))
+    Nothing -> failTest "lifted conditional regression fixture is missing"
 
 testLiftedLambdaMetadataAlias :: IO ()
 testLiftedLambdaMetadataAlias =
@@ -812,21 +1142,8 @@ testLowererCallableBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "scalar-binding-unsupported-rhs",
-          [ expressionFailure
-              0
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "combined-statement-failure-order",
-          [ expressionFailure
-              0
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail,
-            statementFailure
+      [ ( "combined-statement-failure-order",
+          [ statementFailure
               1
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "message")),
@@ -1049,13 +1366,6 @@ testLowererStructuralBoundary =
               (TypedExpressionPath ["App", "Main"] [0] [0])
               LoweredIRUnsupportedRepresentation
               (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
-          ]
-        ),
-        ( "conditional-entry",
-          [ LoweredIRLoweringFailure
-              (TypedExpressionPath ["App", "Main"] [0] [0])
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
           ]
         )
       ]
@@ -3029,7 +3339,6 @@ rejectedManifestExpectedStatuses =
           expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
         ]
     ),
-    ("conditional", unsupported [expressionFailure 0 [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
     ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
     ( "oversaturated-direct-call",
@@ -3332,8 +3641,7 @@ testCompoundFailureAccumulation = do
   let fixture = producerEdgeFixture "nested-unsupported-children"
       expected =
         TypedCoreProductionUnsupported
-          [ expressionFailure [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
-            expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+          [ expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
           ]
   firstRun <- produceFixture fixture
@@ -3368,26 +3676,19 @@ testUnsupportedCompositeFailureAccumulation =
         ( "guarded-pattern-case-unsupported-children",
           [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
             expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
             expressionFailure 0 [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
           ]
         ),
         ( "unsupported-binary-child",
           [ statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 2 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
-            expressionFailure 2 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+            expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
           ]
         ),
         ( "left-section-unsupported-child",
-          [ expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 0 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-          ]
+          [expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
         ),
         ( "right-section-unsupported-child",
-          [ expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 0 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-          ]
+          [expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
         ),
         ( "type-application-composite",
           [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
@@ -3515,11 +3816,7 @@ testSameStatementFailureKindOrder = do
           [ TypedCoreProductionFailure
               (TypedCoreProductionStatementPath ["App", "Main"] 3)
               TypedCoreFunctionRebindingUnsupported
-              (TypedCoreNameDetail "loop"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
-              TypedCoreControlFlowUnsupported
-              TypedCoreConditionalDetail
+              (TypedCoreNameDetail "loop")
           ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -3588,7 +3885,7 @@ testCanonicalRecursionTransportControls =
       ("rejected-mutual-alias-recursion", [(1, "left"), (3, "right")]),
       ("rejected-alias-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
       ("rejected-operator-alias-self-recursion", [(1, "$operator:%25%25")]),
-      ("rejected-conditional-self-recursion", [(1, "loop")]),
+      ("rejected-conditional-self-recursion", []),
       ("rejected-block-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
       ("rejected-block-later-shadow-control", [(1, "loop")]),
       ("rejected-block-initializer-self-recursion", [(1, "loop")]),
@@ -3712,47 +4009,38 @@ testRejectedCallableRebinding requestedName =
     expectedResults =
       [ ( "accepted-then-rejected-callable-rebinding",
           [ rebindingFailure 3,
-            rootFailure 3,
-            conditionalFailure 3
+            rootFailure 3
           ]
         ),
         ( "rejected-recursive-callable-rebinding-order",
           [ recursionFailure 3 "f",
             rebindingFailure 3,
             rootFailure 3,
-            conditionalFailure 3,
             recursionFailure 5 "g"
           ]
         ),
         ( "rejected-then-accepted-callable-rebinding",
           [ rootFailure 1,
-            conditionalFailure 1,
             rebindingFailure 3
           ]
         ),
         ( "repeated-rejected-callable-rebinding",
           [ rootFailure 1,
-            conditionalFailure 1,
             rebindingFailure 3,
-            rootFailure 3,
-            conditionalFailure 3
+            rootFailure 3
           ]
         ),
         ( "scalar-then-rejected-callable-control",
-          [ rootFailure 2,
-            conditionalFailure 2
-          ]
+          [rootFailure 2]
         ),
         ( "accepted-scalar-rejected-callable-rebinding",
           [ rootFailure 2,
             rebindingFailure 4,
-            rootFailure 4,
-            conditionalFailure 4
+            rootFailure 4
           ]
         ),
         ( "rejected-scalar-accepted-callable-rebinding",
           [ rootFailure 1,
-            conditionalFailure 1,
             rootFailure 2,
             rebindingFailure 4
           ]
@@ -3789,11 +4077,6 @@ testRejectedCallableRebinding requestedName =
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
-    conditionalFailure statementIndex =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex [0])
-        TypedCoreControlFlowUnsupported
-        TypedCoreConditionalDetail
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =
@@ -3909,8 +4192,7 @@ testRejectedCallableDeclarationTransport requestedName =
           [ recursionFailure 1 "left",
             rootFailure 1,
             recursionFailure 3 "right",
-            rootFailure 3,
-            expressionFailure 3 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+            rootFailure 3
           ]
         ),
         ( "rejected-operator-alias-self-recursion",
@@ -3921,7 +4203,6 @@ testRejectedCallableDeclarationTransport requestedName =
         ),
         ( "rejected-eager-operator-conditional-control",
           [ rootFailure 1,
-            expressionFailure 1 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
             expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
             expressionFailure 1 [0, 1] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
             expressionFailure 1 [0, 2] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
@@ -3983,16 +4264,10 @@ testRejectedProducerDependencyTransport :: IO ()
 testRejectedProducerDependencyTransport =
   mapM_
     assertExact
-    [ ( "rejected-conditional-self-recursion",
-        [ statementFailure 1 "loop",
-          expressionFailure 1 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-        ]
-      ),
-      ( "rejected-block-conditional-mutual-recursion",
+    [ ( "rejected-block-conditional-mutual-recursion",
         [ statementFailure 1 "left",
           expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
-          statementFailure 3 "right",
-          expressionFailure 3 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+          statementFailure 3 "right"
         ]
       ),
       ( "rejected-block-parameter-shadow-control",
