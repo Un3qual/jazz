@@ -68,3 +68,14 @@ large enough to be meaningful while remaining independently reviewable.
   valid artifacts.
 - Pattern cases, guards, pattern lambdas, managed data, tail calls, modules,
   native work, and normal compile/run cutover require separate contracts.
+
+## Implementation closure
+
+`JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001` completed on
+2026-08-13. Exact source and arbitrary-valid-Typed-Core fixtures cover scalar
+results, parameter use, captured scalars, closure-valued branch results,
+conditionals inside closure applications, and conditionals nested in the
+condition, then, and else positions. The resulting Lowered IR validates with
+deterministic counted block identities and explicit transport of named ambient
+values plus in-flight evaluation operands. Ordinary compile and run remain on
+canonical core and the reference interpreter.

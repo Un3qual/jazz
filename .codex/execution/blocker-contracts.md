@@ -191,33 +191,29 @@ Each blocked item should answer these questions:
   lowerer constructs one immutable shared environment for member closures and
   self/peer reconstruction. Later or interleaved captures fail closed. This
   completes RFC 0009 without changing normal compile/run.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001` from the validated
-  [implementation plan](../plans/2026-08-13-jazz-typed-core-conditional-control-flow.md).
-- Decision needed: none. RFC 0010 fixes the conditional-only boundary, CFG
-  identity, ambient edge transport, ordering, and exclusions.
-- Recommended default: execute the ready child while keeping normal compile/run
-  on canonical core and the reference interpreter.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`,
-  `docs/compiler/bootstrapping.md`, `docs/compiler/pipeline.md`,
-  `docs/project/status.md`,
-  `rfcs/accepted/0010-typed-core-conditional-control-flow.md`, and this blocker
-  contract.
-- Verification: focused serialized typed-core producer, typed-core contract,
-  and Lowered IR contract suites; full serialized suite; execution-queue and
-  docs checks; repository audit; `git diff --check`.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001`
+  completed on `2026-08-13`. The opt-in producer now retains value-producing
+  conditionals throughout the scalar, closure, capture, currying, and recursion
+  profile. The lowerer emits deterministic nested then/else/join CFGs and
+  transports local bindings, shared environments, and in-flight evaluation
+  operands explicitly across every edge. Normal compile/run remains on
+  canonical core and the reference interpreter.
+- Smallest unblocker: none currently. RFC 0010 is complete and no later hosted
+  semantic-compiler child has an accepted source contract.
+- Decision needed: define and accept the next bounded semantic-compiler delta
+  before another child is promoted.
+- Recommended default: keep the completed opt-in boundary and leave the queue
+  empty until a durable contract names one independently verifiable successor.
+- Candidate child: none currently.
+- Target paths: not set until a new accepted child exists.
+- Verification: `bash scripts/check-execution-queue.sh` and
+  `bash scripts/check-docs.sh` for the terminal-empty dispatcher state.
 - Not in scope: re-promoting the completed closure-call, scalar-binding,
   lexical-capture, curried-application, direct-recursion, or closure-recursion
-  children; pattern cases, guards, pattern lambdas, managed values, local
-  blocks, multi-module or import integration, runtime services, tail calls,
-  LLVM emission, object generation, linking, native-runtime or ABI
-  implementation, a public compiler embedding API, bytecode or a VM, or
-  revival of removed legacy implementations.
+  or conditional-control-flow children; inventing a pattern, managed-value,
+  module, runtime-service, tail-call, native, embedding, bytecode, or VM child
+  without a new accepted contract; or revival of removed legacy
+  implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

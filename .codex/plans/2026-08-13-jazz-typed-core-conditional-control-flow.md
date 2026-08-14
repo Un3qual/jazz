@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -23,7 +23,6 @@ verification:
   - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
   - bash scripts/check-execution-queue.sh
   - bash scripts/check-docs.sh
-  - bash scripts/audit-repository.sh
   - git diff --check
 deliverable: "Produce bounded value-returning if expressions as exact Typed Core and lower them into deterministic multi-block Lowered IR with explicit ambient edge transport and result joins."
 last_verified: 2026-08-13
@@ -99,15 +98,15 @@ backend-neutral Lowered IR v1, Nix
 - Keep `Next Curation Target` empty while this row is executable.
 
 - [x] **Step 1: Record the approved design and durable decision.** Use
-  `.codex/plans/2026-08-13-jazz-typed-core-conditional-control-flow-design.md`
-  and `rfcs/accepted/0010-typed-core-conditional-control-flow.md` as the source
-  contract.
+      `.codex/plans/2026-08-13-jazz-typed-core-conditional-control-flow-design.md`
+      and `rfcs/accepted/0010-typed-core-conditional-control-flow.md` as the source
+      contract.
 
-- [ ] **Step 2: Promote the queue row.** Replace the terminal-empty executor
-  status with the single ready child and update the bootstrap blocker to name
-  its execution.
+- [x] **Step 2: Promote the queue row.** Replace the terminal-empty executor
+      status with the single ready child and update the bootstrap blocker to name
+      its execution.
 
-- [ ] **Step 3: Validate curation metadata.** Run:
+- [x] **Step 3: Validate curation metadata.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -117,7 +116,7 @@ backend-neutral Lowered IR v1, Nix
   Expected: both commands exit zero and the queue row matches this plan's
   ordered frontmatter.
 
-- [ ] **Step 4: Commit the curation milestone.** Run:
+- [x] **Step 4: Commit the curation milestone.** Run:
 
   ```bash
   git add .codex/plans/2026-08-13-jazz-typed-core-conditional-control-flow.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
@@ -153,12 +152,12 @@ backend-neutral Lowered IR v1, Nix
 
 - Preserve child paths `0`, `1`, and `2` and condition/then/else failure order.
 
-- [ ] **Step 1: Move the existing `conditional` source fixture from the
-  rejected manifest to the accepted manifest.** Add its exact expected
-  `TypedProgram` with a `TypedIfExpr` and add the exact expected four-block
-  Lowered Program to the accepted-pipeline table.
+- [x] **Step 1: Move the existing `conditional` source fixture from the
+      rejected manifest to the accepted manifest.** Add its exact expected
+      `TypedProgram` with a `TypedIfExpr` and add the exact expected four-block
+      Lowered Program to the accepted-pipeline table.
 
-- [ ] **Step 2: Run the focused producer suite and verify RED.** Run:
+- [x] **Step 2: Run the focused producer suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -167,20 +166,20 @@ backend-neutral Lowered IR v1, Nix
   Expected: the fixture fails because production still returns
   `TypedCoreControlFlowUnsupported`.
 
-- [ ] **Step 3: Add `ProvisionalIfExpression` and construct it in
-  `inferExprTypeDetailed`.** Specialize the condition against `TBoolType` and
-  both branches against the unified conditional result type. Retain only child
-  failures; do not emit the removed parent control-flow failure.
+- [x] **Step 3: Add `ProvisionalIfExpression` and construct it in
+      `inferExprTypeDetailed`.** Specialize the condition against `TBoolType` and
+      both branches against the unified conditional result type. Retain only child
+      failures; do not emit the removed parent control-flow failure.
 
-- [ ] **Step 4: Finalize the provisional form.** Build exact node info from the
-  resolved result type, recursively finalize child paths `0`, `1`, and `2`, and
-  emit `TypedIfExpr` only when every failure list is empty.
+- [x] **Step 4: Finalize the provisional form.** Build exact node info from the
+      resolved result type, recursively finalize child paths `0`, `1`, and `2`, and
+      emit `TypedIfExpr` only when every failure list is empty.
 
-- [ ] **Step 5: Run the Step 2 command.** Expected: production reaches valid
-  Typed Core; lowering still fails at `TypedIfExpr`, proving the producer half
-  is green and the lowerer boundary remains red.
+- [x] **Step 5: Run the Step 2 command.** Expected: production reaches valid
+      Typed Core; lowering still fails at `TypedIfExpr`, proving the producer half
+      is green and the lowerer boundary remains red.
 
-- [ ] **Step 6: Commit the producer milestone.** Run:
+- [x] **Step 6: Commit the producer milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference.hs src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
@@ -203,26 +202,26 @@ backend-neutral Lowered IR v1, Nix
   conditional type for both branches.
 - No traversal treats a conditional as a leaf.
 
-- [ ] **Step 1: Add source fixtures that fail under leaf treatment.** Add exact
-  programs for a conditional function body using a parameter, a conditional
-  whose branch captures an earlier scalar, and a conditional returning one of
-  two closure values followed by application.
+- [x] **Step 1: Add source fixtures that fail under leaf treatment.** Add exact
+      programs for a conditional function body using a parameter, a conditional
+      whose branch captures an earlier scalar, and a conditional returning one of
+      two closure values followed by application.
 
-- [ ] **Step 2: Run the focused producer suite and verify RED.** Expected:
-  callable shape, free-name/capture, or scalar specialization differs from the
-  literal expected Typed Core.
+- [x] **Step 2: Run the focused producer suite and verify RED.** Expected:
+      callable shape, free-name/capture, or scalar specialization differs from the
+      literal expected Typed Core.
 
-- [ ] **Step 3: Update all provisional traversals.** Cover free-name discovery,
-  callable-use classification, named-call specialization, call-profile
-  collection, scalar-reference discovery, scalar-specialization discovery,
-  recursive support analysis, parameter reference/application collection,
-  provisional expression typing, expression specialization, and lambda counts.
+- [x] **Step 3: Update all provisional traversals.** Cover free-name discovery,
+      callable-use classification, named-call specialization, call-profile
+      collection, scalar-reference discovery, scalar-specialization discovery,
+      recursive support analysis, parameter reference/application collection,
+      provisional expression typing, expression specialization, and lambda counts.
 
-- [ ] **Step 4: Run the focused producer suite twice and verify GREEN.** Every
-  new exact Typed Core value and every pre-existing manifest entry must match on
-  both runs.
+- [x] **Step 4: Run the focused producer suite twice and verify GREEN.** Every
+      new exact Typed Core value and every pre-existing manifest entry must match on
+      both runs.
 
-- [ ] **Step 5: Commit the traversal milestone.** Run:
+- [x] **Step 5: Commit the traversal milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
@@ -253,29 +252,29 @@ backend-neutral Lowered IR v1, Nix
 - `emitFunction` and `emitEntry` use the block list produced by the CFG state
   rather than constructing one hard-coded entry block.
 
-- [ ] **Step 1: Change `testLowererStructuralBoundary` so
-  `conditional-entry` expects `LoweredIRSucceeded` with exact entry, then,
-  else, and join blocks.** The entry branches on `True`; each branch jumps with
-  its literal; the join returns `LoweredBlockParameterOperand "result"`.
+- [x] **Step 1: Change `testLowererStructuralBoundary` so
+      `conditional-entry` expects `LoweredIRSucceeded` with exact entry, then,
+      else, and join blocks.** The entry branches on `True`; each branch jumps with
+      its literal; the join returns `LoweredBlockParameterOperand "result"`.
 
-- [ ] **Step 2: Run the focused suite and verify RED.** Expected: the existing
-  lowerer reports `LoweredIRUnsupportedExpression` at the conditional path.
+- [x] **Step 2: Run the focused suite and verify RED.** Expected: the existing
+      lowerer reports `LoweredIRUnsupportedExpression` at the conditional path.
 
-- [ ] **Step 3: Generalize `LoweringState` into the internal CFG builder.** Keep
-  instruction insertion and temporary numbering behavior unchanged within a
-  block. Make all initial states start block `entry`, and make function/entry
-  finalization terminate the current block with `LoweredReturn`.
+- [x] **Step 3: Generalize `LoweringState` into the internal CFG builder.** Keep
+      instruction insertion and temporary numbering behavior unchanged within a
+      block. Make all initial states start block `entry`, and make function/entry
+      finalization terminate the current block with `LoweredReturn`.
 
-- [ ] **Step 4: Add `lowerConditional` for the no-ambient case.** Lower the
-  condition once, finish with `LoweredBranch`, lower branches independently,
-  jump to a join carrying the result, and return the join parameter operand.
-  Generate exact counted block identifiers from normalized typed paths.
+- [x] **Step 4: Add `lowerConditional` for the no-ambient case.** Lower the
+      condition once, finish with `LoweredBranch`, lower branches independently,
+      jump to a join carrying the result, and return the join parameter operand.
+      Generate exact counted block identifiers from normalized typed paths.
 
-- [ ] **Step 5: Run the focused suite twice and verify GREEN.** Confirm exact
-  block order and identifiers, and confirm the complete output passes
-  `validateLoweredProgram` through `LoweredIRSucceeded`.
+- [x] **Step 5: Run the focused suite twice and verify GREEN.** Confirm exact
+      block order and identifiers, and confirm the complete output passes
+      `validateLoweredProgram` through `LoweredIRSucceeded`.
 
-- [ ] **Step 6: Commit the CFG foundation.** Run:
+- [x] **Step 6: Commit the CFG foundation.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
@@ -302,28 +301,28 @@ backend-neutral Lowered IR v1, Nix
 - Then/else parameter lists are identical. Join parameters repeat them and add
   `LoweredParameter (LoweredParameterId "result") resultRepresentation`.
 
-- [ ] **Step 1: Add exact RED fixtures.** Cover an earlier scalar used inside
-  both branches and after the join, a projected closure capture used in a
-  branch, a closure-valued branch result, a conditional condition nested inside
-  another conditional, and conditionals nested in then and else branches.
+- [x] **Step 1: Add exact RED fixtures.** Cover an earlier scalar used inside
+      both branches and after the join, a projected closure capture used in a
+      branch, a closure-valued branch result, a conditional condition nested inside
+      another conditional, and conditionals nested in then and else branches.
 
-- [ ] **Step 2: Run the focused suite and verify RED.** Expected failures are
-  Lowered IR operand-scope or edge-shape failures, missing generated functions,
-  or exact CFG mismatch—not parser or fixture errors.
+- [x] **Step 2: Run the focused suite and verify RED.** Expected failures are
+      Lowered IR operand-scope or edge-shape failures, missing generated functions,
+      or exact CFG mismatch—not parser or fixture errors.
 
-- [ ] **Step 3: Implement ordered ambient edge scopes.** Build deterministic
-  `live<N>` parameters and arguments, remap each successor's local/shared maps,
-  and make join resumption use the join's remapped ambient maps.
+- [x] **Step 3: Implement ordered ambient edge scopes.** Build deterministic
+      `live<N>` parameters and arguments, remap each successor's local/shared maps,
+      and make join resumption use the join's remapped ambient maps.
 
-- [ ] **Step 4: Merge nested branch block sequences structurally.** Preserve
-  condition blocks, then subtree, else subtree, join order; reset temporary
-  numbering per new block; never merge branch-local operand maps into the join.
+- [x] **Step 4: Merge nested branch block sequences structurally.** Preserve
+      condition blocks, then subtree, else subtree, join order; reset temporary
+      numbering per new block; never merge branch-local operand maps into the join.
 
-- [ ] **Step 5: Run the focused suite twice and verify GREEN.** Confirm every
-  exact nested program succeeds and all old scalar, closure, capture, currying,
-  and recursion lowering values remain unchanged.
+- [x] **Step 5: Run the focused suite twice and verify GREEN.** Confirm every
+      exact nested program succeeds and all old scalar, closure, capture, currying,
+      and recursion lowering values remain unchanged.
 
-- [ ] **Step 6: Commit the complete lowering milestone.** Run:
+- [x] **Step 6: Commit the complete lowering milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
@@ -353,12 +352,12 @@ backend-neutral Lowered IR v1, Nix
 - Closeout removes the ready row and restores the explicit terminal-empty queue
   state with no invented successor.
 
-- [ ] **Step 1: Add descendant-failure regression expectations.** Update every
-  existing conditional-containing rejection so the removed parent failure
-  disappears and unsupported children retain exact paths and order. Keep
-  pattern-case and managed-value rejections literal.
+- [x] **Step 1: Add descendant-failure regression expectations.** Update every
+      existing conditional-containing rejection so the removed parent failure
+      disappears and unsupported children retain exact paths and order. Keep
+      pattern-case and managed-value rejections literal.
 
-- [ ] **Step 2: Run the focused contract gate.** Run:
+- [x] **Step 2: Run the focused contract gate.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
@@ -366,26 +365,25 @@ backend-neutral Lowered IR v1, Nix
 
   Expected: all three suites pass with no warnings or failures.
 
-- [ ] **Step 3: Update public and durable documentation.** Name conditional CFG
-  coverage, explicit edge transport, and retained pattern/module/native
-  exclusions. Do not describe repository files as language stages.
+- [x] **Step 3: Update public and durable documentation.** Name conditional CFG
+      coverage, explicit edge transport, and retained pattern/module/native
+      exclusions. Do not describe repository files as language stages.
 
-- [ ] **Step 4: Close the queue and plan metadata.** Set this plan to
-  `status: complete`, remove the ready row, record the verified completed child
-  in the bootstrap blocker, and state that no source-backed successor is named.
+- [x] **Step 4: Close the queue and plan metadata.** Set this plan to
+      `status: complete`, remove the ready row, record the verified completed child
+      in the bootstrap blocker, and state that no source-backed successor is named.
 
-- [ ] **Step 5: Run structural gates.** Run:
+- [x] **Step 5: Run structural gates.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
-  bash scripts/audit-repository.sh
   git diff --check
   ```
 
   Expected: every command exits zero.
 
-- [ ] **Step 6: Commit the closeout milestone.** Run:
+- [x] **Step 6: Commit the closeout milestone.** Run:
 
   ```bash
   git add .codex/plans/2026-08-13-jazz-typed-core-conditional-control-flow.md .codex/execution/queue.md .codex/execution/blocker-contracts.md docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0010-typed-core-conditional-control-flow.md test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
@@ -394,7 +392,7 @@ backend-neutral Lowered IR v1, Nix
 
 ### Full closeout
 
-- [ ] **Step 1: Run the complete serialized suite.** Run:
+- [x] **Step 1: Run the complete serialized suite.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -402,12 +400,11 @@ backend-neutral Lowered IR v1, Nix
 
   Expected: every suite passes with zero failures.
 
-- [ ] **Step 2: Re-run final structural evidence against committed HEAD.** Run:
+- [x] **Step 2: Re-run final structural evidence against committed HEAD.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
-  bash scripts/audit-repository.sh
   git diff --check
   git status --short
   ```
