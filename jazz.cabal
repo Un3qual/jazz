@@ -128,6 +128,7 @@ library jazz-internal
       Jazz.Compiler.Parser.TokenParser
       Jazz.Compiler.Parser.TokenStream
       Jazz.Compiler.Pattern
+      Jazz.Compiler.PatternCoverage
       Jazz.Compiler.PreludeContract
       Jazz.Compiler.Prelude
       Jazz.Compiler.Profiling
@@ -796,6 +797,11 @@ test-suite pattern-semantics-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Semantics/PatternSemanticsSpec.hs
+
+test-suite pattern-coverage-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: Jazz/Compiler/Semantics/PatternCoverageSpec.hs
 
 test-suite purity-semantics-spec
   import: test-common

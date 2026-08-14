@@ -78,11 +78,18 @@ The usefulness algorithm answers two questions with the same machinery:
    rows?
 2. Is a wildcard useful against all unguarded rows after the final arm?
 
-The second query also returns one deterministic witness. Constructor order comes
-from the declared type, `Bool` orders `False` before `True`, list order is `[]`
-before cons, tuple fields remain left-to-right, and open scalar domains use `_`
-when no more specific missing witness is stable. Witness rendering uses Jazz
-pattern syntax and replaces unconstrained fields with `_`.
+The second query also returns one deterministic witness. Visible ADT
+constructors use stable qualified-name order, `Bool` orders `False` before
+`True`, list order is `[]` before cons, tuple fields remain left-to-right, and
+open scalar domains use `_` when no more specific missing witness is stable.
+Witness rendering uses Jazz pattern syntax and replaces unconstrained fields
+with `_`.
+
+The inference state retains ADT constructor counts and payloads separately from
+lexically visible constructor bindings. Coverage combines both: an ADT is closed
+only when the match site can see the declared number of constructors. A type
+imported without every constructor is treated conservatively as open and must
+use an irrefutable fallback; coverage never exposes a hidden constructor name.
 
 ## Inference integration
 

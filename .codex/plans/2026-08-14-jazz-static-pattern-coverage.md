@@ -149,8 +149,11 @@ data PatternCoverageFailure
   = NonExhaustivePattern Pattern
   | UnreachablePatternArm Int
 
+constructorInventoryFromBindings ::
+  Map Text DataTypeBinding -> TypeEnv -> ConstructorInventory
+
 analyzePatternCoverage ::
-  Map Text DataTypeBinding ->
+  ConstructorInventory ->
   ExpressionType ->
   [CaseArm] ->
   [PatternCoverageFailure]
@@ -158,7 +161,7 @@ analyzePatternCoverage ::
 renderCoveragePattern :: Pattern -> Text
 ```
 
-- [ ] **Step 1: Add the failing scalar and closed-domain tests.** Register a
+- [x] **Step 1: Add the failing scalar and closed-domain tests.** Register a
       `pattern-coverage-spec` stanza in `jazz.cabal` and add exact assertions:
 
 ```haskell
@@ -172,7 +175,7 @@ tests =
   ]
 ```
 
-- [ ] **Step 2: Run the new suite and prove the engine is absent.**
+- [x] **Step 2: Run the new suite and prove the engine is absent.**
 
 Run:
 
@@ -183,7 +186,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command cabal t
 Expected: FAIL because `Jazz.Compiler.PatternCoverage` or its exported
 functions do not exist.
 
-- [ ] **Step 3: Add the public pure contract and internal normalized model.**
+- [x] **Step 3: Add the public pure contract and internal normalized model.**
       Define the exported failure type and functions above. Keep these internal:
 
 ```haskell
@@ -211,7 +214,7 @@ Normalize variables/wildcards to `CoverageWildcard`, unwrap `PAs`, expand
 `POr`, rewrite exact lists to cons/nil, preserve tuple arity, and preserve ADT
 constructor identity.
 
-- [ ] **Step 4: Implement usefulness and witness search.** Use one recursive
+- [x] **Step 4: Implement usefulness and witness search.** Use one recursive
       matrix algorithm:
 
 ```haskell
@@ -235,11 +238,11 @@ is useless. Add expanded rows only for an unguarded arm. For exhaustiveness,
 query one wildcard after all arms and convert the returned witness vector back
 to one Jazz `Pattern`.
 
-- [ ] **Step 5: Run scalar tests to green.** Run the Task 2 Step 2 command.
+- [x] **Step 5: Run scalar tests to green.** Run the Task 2 Step 2 command.
 
 Expected: PASS.
 
-- [ ] **Step 6: Add failing structural tests.** Cover exact expected failures
+- [x] **Step 6: Add failing structural tests.** Cover exact expected failures
       for unit, tuple products, empty/cons/exact lists, generic and recursive
       ADTs, as-patterns, whole and partial or-pattern redundancy, and guards:
 
@@ -259,14 +262,17 @@ assertCoverage (TListType TIntType)
   []
 ```
 
-- [ ] **Step 7: Implement constructor inventories and deterministic rendering.**
-      Instantiate ADT field types from `DataTypeBinding` parameter names and
-      resolved type arguments. Preserve declaration order. Render witnesses as
+- [x] **Step 7: Implement constructor inventories and deterministic rendering.**
+      Combine `DataTypeBinding` constructor counts with the lexical `TypeEnv`.
+      Treat an ADT as closed only when all constructor bindings are visible;
+      otherwise require an irrefutable fallback. Instantiate visible field types
+      from the constructor bindings and resolved type arguments. Preserve stable
+      qualified-name order. Render witnesses as
       valid Jazz pattern syntax: `_`, `False`, `True`, `()`, `[]`,
       `[head | tail]`, `(left, right)`, and `Constructor field` with parentheses
       only where nesting requires them.
 
-- [ ] **Step 8: Run the full pure suite and commit.**
+- [x] **Step 8: Run the full pure suite and commit.**
 
 Run:
 
