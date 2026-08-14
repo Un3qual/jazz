@@ -202,33 +202,30 @@ Each blocked item should answer these questions:
   transports local bindings, shared environments, and in-flight evaluation
   operands explicitly across every edge. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-SCALAR-PATTERN-CASES-001` from the active plan. The
-  producer must retain structured arms and exact binder identities; the lowerer
-  must emit the ordered scalar comparison/guard CFG and independently enforce
-  the final-catch-all boundary.
-- Decision needed: none. The maintainer approved the bounded design and the
-  final unguarded wildcard-or-variable catch-all on `2026-08-14`; RFC 0011 is
-  accepted.
-- Recommended default: implement the exact immediate-scalar profile. Evaluate
-  the scrutinee once, preserve source order, scope variable binders to one
-  arm's guard/body, reuse RFC 0010 edge transport, and join successful bodies
-  through one result block.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-PATTERN-CASES-001` is active
-  in `.codex/plans/2026-08-14-jazz-typed-core-scalar-pattern-cases.md`.
-- Target paths: `src/Jazz/Compiler/TypeInference.hs`,
-  `src/Jazz/Compiler/TypeInference/Pattern.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`, and
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`, followed
-  by the named compiler-boundary docs and RFC closeout.
-- Verification:
-  `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1`;
-  `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`;
-  `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`.
-- Not in scope: managed constructor, list, tuple, or text patterns; as- or
-  or-patterns; pattern lambdas; exhaustiveness or unreachable-arm analysis;
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-PATTERN-CASES-001`
+  completed on `2026-08-14`. The opt-in producer now retains ordered immediate
+  scalar literal, wildcard, and variable cases throughout the established
+  expression profile. Guards fall through in source order, binders remain
+  arm-local, and the lowerer independently enforces the final unguarded
+  catch-all while transporting nested, ambient, captured, and in-flight values
+  through deterministic branch and join edges. Normal compile/run remains on
+  canonical core and the reference interpreter.
+- Smallest unblocker: none currently. No further hosted semantic-compiler child
+  is accepted or source-backed after scalar pattern cases.
+- Decision needed: a new durable contract before another child is promoted.
+- Recommended default: preserve the landed immediate-scalar boundary. Managed
+  patterns require managed-value production, stable layouts, tags, field
+  projection, and ownership. Pattern lambdas require invocation-time mismatch
+  semantics integrated with closure construction, currying, recursion, and
+  callable identity. Exhaustiveness and unreachable-arm analysis require
+  separate coverage reasoning and diagnostic policy.
+- Candidate child: none currently.
+- Target paths: none until a separate accepted contract exists.
+- Verification: the scalar-pattern-case plan owns the focused contract gate,
+  complete serialized suite, queue/RFC checks, documentation check, and clean
+  committed-worktree evidence.
+- Still not in scope: managed constructor, list, tuple, or text patterns; as-
+  or or-patterns; pattern lambdas; exhaustiveness or unreachable-arm analysis;
   backend `E3022`; runtime failure/trap services; normal compile/run cutover;
   tail calls; modules; native, embedding, bytecode, or VM work; or revival of
   removed legacy implementations.

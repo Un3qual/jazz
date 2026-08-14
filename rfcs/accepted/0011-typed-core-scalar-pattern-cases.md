@@ -44,6 +44,16 @@ case outside this bounded profile returns a structured producer-profile
 failure while ordinary compile and run continue to use canonical core and the
 reference interpreter.
 
+## Implementation status
+
+The bounded child was implemented on 2026-08-14. The opt-in producer now emits
+these cases throughout the existing scalar, closure, capture, currying,
+recursion, and conditional expression profile. The lowerer independently
+rechecks the pattern and final-catch-all boundaries, preserves source order,
+and transports ambient, captured, nested, and in-flight values through exact
+branch and join edges. Normal compile and run remain on canonical core and the
+reference interpreter.
+
 ## Context
 
 RFC 0010 established deterministic multi-block lowering for value-producing

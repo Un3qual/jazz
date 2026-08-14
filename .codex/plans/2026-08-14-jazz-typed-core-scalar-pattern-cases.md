@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-SCALAR-PATTERN-CASES-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -19,6 +19,7 @@ target_paths:
   - docs/project/status.md
   - rfcs/accepted/0011-typed-core-scalar-pattern-cases.md
   - .codex/execution/blocker-contracts.md
+  - scripts/check-docs.sh
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
   - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -538,12 +539,12 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 - Closeout removes the ready row and restores an explicit terminal-empty queue
   state unless another independently accepted successor exists at that time.
 
-- [ ] **Step 1: Complete manifest and descendant-failure coverage.** Remove the
+- [x] **Step 1: Complete manifest and descendant-failure coverage.** Remove the
       obsolete parent `TypedCorePatternCaseUnsupported` expectations only for
       in-profile cases. Preserve exact failures for managed patterns, pattern
       lambdas, missing syntactic catch-alls, and unsupported descendants.
 
-- [ ] **Step 2: Run the focused contract gate.** Run:
+- [x] **Step 2: Run the focused contract gate.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
@@ -551,19 +552,19 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 
   Expected: all three suites pass with no warnings or failures.
 
-- [ ] **Step 3: Update public and durable documentation.** Explain the shipped
+- [x] **Step 3: Update public and durable documentation.** Explain the shipped
       compiler stage in language terms: ordered scalar selection, arm-local
       binding, guard fallthrough, explicit CFG transport, and result joining.
       State that the final catch-all is an opt-in profile boundary, not static
       exhaustiveness analysis. Do not document repository files as compiler
       stages.
 
-- [ ] **Step 4: Close the queue and plan metadata.** Set this plan to
+- [x] **Step 4: Close the queue and plan metadata.** Set this plan to
       `status: complete`, remove its ready row, record the completed child in
       the bootstrap blocker, and name no successor unless a separate accepted
       contract exists.
 
-- [ ] **Step 5: Run structural gates.** Run:
+- [x] **Step 5: Run structural gates.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -574,7 +575,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 
   Expected: every command exits zero.
 
-- [ ] **Step 6: Commit the closeout milestone.** Run:
+- [x] **Step 6: Commit the closeout milestone.** Run:
 
   ```bash
   git add .codex/plans/2026-08-14-jazz-typed-core-scalar-pattern-cases.md .codex/execution/queue.md .codex/execution/blocker-contracts.md docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0011-typed-core-scalar-pattern-cases.md test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs

@@ -32,10 +32,23 @@ groups share one immutable environment containing ordered external captures;
 members reuse it and reconstruct self or peer closures without cyclic
 initialization. Value-producing conditionals may nest anywhere in this profile;
 they lower to deterministic then, else, and join blocks with every block-local
-value transported explicitly. Later or interleaved external captures, pattern
-cases and guards, scalar exports, and complete multi-module integration remain
-outside that profile. Ordinary run mode continues to evaluate canonical core
-with the interpreter.
+value transported explicitly. Bounded scalar pattern cases may nest in the same
+expressions. They evaluate the scrutinee once, try literal, wildcard, and
+variable arms in source order, fall through false guards, keep variable binders
+inside one arm, and resume through one explicitly transported result join. The
+required final unguarded catch-all makes this opt-in lowering profile total; it
+is not static exhaustiveness analysis.
+
+Managed constructor, list, tuple, and text patterns remain deferred because
+their lowering first needs managed-value production, stable layout identity,
+tag and field projection, and ownership rules. Pattern lambdas remain deferred
+because a parameter mismatch happens at invocation time and therefore needs a
+match-failure contract integrated with closures, currying, recursion, and
+callable parameter identity. Exhaustiveness and unreachable-arm analysis remain
+deferred because they require separate coverage reasoning and diagnostic
+policy. Later or interleaved external captures, scalar exports, and complete
+multi-module integration also remain outside the profile. Ordinary run mode
+continues to evaluate canonical core with the interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in
