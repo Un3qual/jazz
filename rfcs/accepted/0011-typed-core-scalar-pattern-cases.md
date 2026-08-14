@@ -1,6 +1,6 @@
 # RFC 0011: Typed-core scalar pattern cases
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-14
 Supersedes: None.
 

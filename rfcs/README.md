@@ -30,6 +30,7 @@ only `docs/` and does not publish this directory.
 | [0008](accepted/0008-parser-scale-and-performance-tiers.md)    | Parser scale and performance tiers    |
 | [0009](accepted/0009-typed-core-closure-and-recursion.md)      | Typed-core closures and recursion     |
 | [0010](accepted/0010-typed-core-conditional-control-flow.md)   | Typed-core conditional control flow   |
+| [0011](accepted/0011-typed-core-scalar-pattern-cases.md)       | Typed-core scalar pattern cases       |
 
 ## Process
 

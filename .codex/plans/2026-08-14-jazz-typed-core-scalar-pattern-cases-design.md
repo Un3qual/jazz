@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-14
 
-**Status:** Approved for RFC proposal
+**Status:** Approved for implementation
 
 ## Purpose
 
@@ -13,8 +13,7 @@ arm-local scalar binding, guard fallthrough, and result joining on top of RFC
 pattern-callable semantics, exhaustiveness analysis, or a runtime failure ABI.
 
 Ordinary `compile` and `run` behavior remains on canonical core and the
-reference interpreter. Proposed RFC 0011 must be accepted before an
-implementation child is promoted.
+reference interpreter. Accepted RFC 0011 owns the implementation boundary.
 
 ## Approved boundary
 
@@ -47,7 +46,7 @@ when the ordinary interpreter supports them.
 
 ## Durable contract
 
-Proposed RFC 0011 owns the target boundary. Existing Typed Core already
+Accepted RFC 0011 owns the target boundary. Existing Typed Core already
 represents the required semantics:
 
 ```text
