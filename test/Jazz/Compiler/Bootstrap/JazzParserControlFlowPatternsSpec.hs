@@ -206,6 +206,7 @@ lookupSource expression sourcePath =
                   componentPath = CanonicalSourcePath "fixtures/parser/control-flow-patterns.jz".
                   expressionTokens = \\(source) -> case lexSource componentPath source {
                     | CanonicalLexSuccess path tokens -> tokens
+                    | CanonicalLexFailure path failure -> []
                   }.
                   parseComponentPattern = \\(source) -> tokenRunComplete parseCasePattern (expressionTokens source).
                   parseComponentArmPattern = \\(source) -> tokenRunComplete parseCaseArmPattern (expressionTokens source).

@@ -19,7 +19,8 @@ module Sieve (value primeSummary) {
         sieve $ listFilter (\(candidate) -> remainder candidate prime != 0) rest.
 
   lastItem =
-    \|([item]) -> item
+    \|([]) -> 0
+     |([item]) -> item
      |([_ | rest]) -> lastItem rest.
 
   sumItems = listFoldLeft (+) 0.

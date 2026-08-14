@@ -67,3 +67,14 @@ expressions and keeps runtime ordering unchanged.
 - Runtime `E3022`, backend pattern lowering, managed-value representation,
   pattern synonyms, guard folding, partial or-pattern redundancy, and selection
   optimization require no change under this decision.
+
+## Implementation status
+
+Implemented on 2026-08-14 by `JN-PATTERN-COVERAGE-ANALYSIS-001`.
+
+The active compiler records match sites during inference, resolves their types
+once, and runs one usefulness-matrix analysis across cases and canonicalized
+pattern lambdas. `E2018` and `E2019`, guarded-arm behavior, deterministic
+witnesses, hidden-constructor conservatism, nested diagnostic ordering, and
+source-error suppression are covered by focused tests. Runtime selection and
+defensive `E3022` are unchanged.

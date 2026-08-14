@@ -42,10 +42,13 @@ module MergeSort (value mergeSort, value mergeSortSummary) {
       else
         listPrepend (nextItem index) $ generateFrom (index + 1) upper.
 
-  firstItem = \([item | _]) -> item.
+  firstItem =
+    \|([]) -> 0
+     |([item | _]) -> item.
 
   lastItem =
-    \|([item]) -> item
+    \|([]) -> 0
+     |([item]) -> item
      |([_ | rest]) -> lastItem rest.
 
   weightedChecksumFrom =

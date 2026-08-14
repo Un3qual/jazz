@@ -152,6 +152,10 @@ Each blocked item should answer these questions:
   authorizes ordered immediate-scalar literal, wildcard, and variable patterns,
   guarded fallthrough, arm-local binders, one result join, and a required final
   unguarded catch-all without a runtime failure service or exhaustiveness claim.
+- Accepted decision: [RFC 0012: Static pattern coverage](../../rfcs/accepted/0012-static-pattern-coverage.md)
+  requires strict post-inference exhaustiveness and unreachable-arm analysis
+  across the complete active pattern surface while retaining runtime `E3022` as
+  a defensive boundary.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -210,26 +214,21 @@ Each blocked item should answer these questions:
   catch-all while transporting nested, ambient, captured, and in-flight values
   through deterministic branch and join edges. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: execute active child
-  `JN-PATTERN-COVERAGE-ANALYSIS-001` as one resolved-type pattern coverage pass
-  for ordinary cases and canonicalized pattern lambdas.
-- Decision needed: accepted on `2026-08-14`. Non-exhaustive matches and wholly
-  unreachable arms are hard compile errors. Guards never contribute coverage.
-- Recommended default: keep coverage independent of unification and runtime
-  selection. Record match observations during inference, resolve them once
-  after final substitution, and use one pure usefulness-matrix engine for the
-  complete active pattern surface.
-- Candidate child: `JN-PATTERN-COVERAGE-ANALYSIS-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference.hs`,
-  `src/Jazz/Compiler/TypeInference/State.hs`,
-  `src/Jazz/Compiler/PatternCoverage.hs`,
-  `src/Jazz/Compiler/DiagnosticCatalog.hs`, and
-  `test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs`.
-- Verification: `cabal test pattern-coverage-spec pattern-semantics-spec
-  adt-pattern-type-spec adt-pattern-runtime-spec diagnostic-catalog-spec
-  --test-show-details=direct --jobs=1`; `cabal test all
-  --test-show-details=direct --jobs=1`; `bash scripts/check-docs.sh`;
-  `bash scripts/check-execution-queue.sh`; `git diff --check`.
+- Completed child: `JN-PATTERN-COVERAGE-ANALYSIS-001` completed on
+  `2026-08-14`. One resolved-type usefulness analysis now rejects incomplete
+  cases and pattern lambdas with `E2018`, rejects wholly unreachable arms with
+  `E2019`, treats guards as non-covering, and preserves runtime `E3022` as a
+  defensive boundary.
+- Smallest unblocker: none currently. No later source-backed bootstrap child is
+  accepted or named after static pattern coverage.
+- Decision needed: none currently. Managed pattern lowering and
+  pattern-callable backend semantics require separate accepted contracts.
+- Recommended default: preserve the completed coverage boundary independently
+  of unification, runtime selection, and backend lowering.
+- Candidate child: none currently.
+- Target paths: not set; no later bootstrap implementation child is open.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`.
 - Still not in scope: constant-folding guards, partial redundancy inside a
   useful or-pattern, new pattern syntax, managed-value Typed Core production,
   managed pattern lowering, pattern-lambda backend lowering, runtime `E3022`

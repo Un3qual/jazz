@@ -982,7 +982,8 @@ testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
       Map.fromList
         [ ("src/App/Main.jz", """
         import Lib::Maybe.
-        choose = \\(Just item | Also item) -> item + 1.
+        choose = \\|(Just item | Also item) -> item + 1
+                  |(Nothing) -> 0.
         choose (Also 41).
         """),
           ("src/Lib/Maybe.jz", """

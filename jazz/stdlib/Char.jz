@@ -20,7 +20,7 @@ module Char (
   charFromUInt32 :: UInt32 -> Maybe(Char).
   charFromUInt32 = \(scalar) -> case __kernel_charFromUInt32Raw scalar {
     | [] -> Nothing
-    | [item] -> Just item
+    | [item | _] -> Just item
   }.
 
   charIsAlpha :: Char -> Bool.

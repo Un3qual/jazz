@@ -1,6 +1,6 @@
 ---
 id: JN-PATTERN-COVERAGE-ANALYSIS-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -15,18 +15,31 @@ target_paths:
   - src/Jazz/Compiler/DiagnosticCatalog.hs
   - src/Jazz/Compiler/BundledPrelude.hs
   - jazz/stdlib/Prelude.jz
+  - jazz/stdlib/Text.jz
+  - jazz/stdlib/Char.jz
+  - jazz/compiler/ParserSignature.jz
+  - jazz/compiler/ParserExpression.jz
+  - jazz/compiler/ParserDeclaration.jz
+  - programs/merge-sort/MergeSort.jz
+  - programs/prime-sieve/Sieve.jz
   - jazz.cabal
   - test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs
   - test/Jazz/Compiler/Semantics/AdtPatternTypeSpec.hs
   - test/Jazz/Compiler/Semantics/AdtPatternRuntimeSpec.hs
   - test/Jazz/Compiler/Semantics/LambdaSemanticsSpec.hs
+  - test/Jazz/Compiler/Semantics/Runtime/RecursionTests.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzParserComponentSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzParserControlFlowPatternsSpec.hs
+  - test/Jazz/Compiler/Bootstrap/JazzParserTypesDeclarationsModulesSpec.hs
+  - test/Jazz/Compiler/Modules/Loader/VisibilityTests.hs
   - test/Jazz/Compiler/Diagnostics/DiagnosticCatalogSpec.hs
   - docs/language/control-flow.md
   - docs/language/algebraic-data-types-and-patterns.md
   - docs/reference/diagnostics.md
   - docs/project/status.md
+  - rfcs/README.md
   - rfcs/accepted/0012-static-pattern-coverage.md
   - .codex/execution/queue.md
   - .codex/execution/blocker-contracts.md
@@ -518,6 +531,7 @@ git commit -m "feat: reject incomplete pattern matches"
 - Modify: `docs/language/algebraic-data-types-and-patterns.md`
 - Modify: `docs/reference/diagnostics.md`
 - Modify: `docs/project/status.md`
+- Modify: `rfcs/README.md`
 - Modify: `rfcs/accepted/0012-static-pattern-coverage.md`
 - Modify: `.codex/plans/2026-08-14-jazz-static-pattern-coverage.md`
 - Modify: `.codex/execution/queue.md`
@@ -529,18 +543,18 @@ git commit -m "feat: reject incomplete pattern matches"
 - Produce: public truth for strict coverage, RFC implementation closure, a
   `complete` plan, and a terminal queue with no invented next child.
 
-- [ ] **Step 1: Update public semantics.** State that cases and pattern lambdas
+- [x] **Step 1: Update public semantics.** State that cases and pattern lambdas
       must be statically exhaustive, guarded arms do not count, wholly
       unreachable arms are rejected, and runtime `E3022` remains defensive.
       Update the status row from `Planned` to `Implemented`.
 
-- [ ] **Step 2: Update diagnostic documentation.** Extend the type range to
+- [x] **Step 2: Update diagnostic documentation.** Extend the type range to
       `E2001`–`E2019` and document `E2018`/`E2019` concisely.
 
-- [ ] **Step 3: Record RFC closure.** Add an `Implementation status` section to
+- [x] **Step 3: Record RFC closure.** Add an `Implementation status` section to
       RFC 0012 naming the completed child and verified semantics.
 
-- [ ] **Step 4: Run focused verification before closeout.**
+- [x] **Step 4: Run focused verification before closeout.**
 
 Run:
 
@@ -551,7 +565,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command cabal b
 
 Expected: all named suites and build targets pass.
 
-- [ ] **Step 5: Run the full serialized suite and repository gates.**
+- [x] **Step 5: Run the full serialized suite and repository gates.**
 
 Run:
 
@@ -566,12 +580,12 @@ Expected: all Cabal suites, queue/docs checks, and diff checks pass. If the
 outer shell lacks `lychee`, rerun `bash scripts/check-docs.sh` inside the Nix
 development shell and record that exact successful command.
 
-- [ ] **Step 6: Close the dispatcher.** Remove the completed `Ready Now` row,
+- [x] **Step 6: Close the dispatcher.** Remove the completed `Ready Now` row,
       keep `Done` empty, update the bootstrap blocker with completion evidence,
       and explicitly record that no later source-backed candidate is named.
       Set this plan's `status: complete` and `plan_section: "Full closeout"`.
 
-- [ ] **Step 7: Commit the verified closeout.**
+- [x] **Step 7: Commit the verified closeout.**
 
 ```bash
 git add docs/language/control-flow.md docs/language/algebraic-data-types-and-patterns.md docs/reference/diagnostics.md docs/project/status.md rfcs/accepted/0012-static-pattern-coverage.md .codex/plans/2026-08-14-jazz-static-pattern-coverage.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
@@ -580,12 +594,12 @@ git commit -m "docs: close static pattern coverage"
 
 ## Full closeout
 
-- [ ] Every active pattern form is normalized by one pure coverage engine.
-- [ ] Every canonical `EPatternCase` is observed exactly once after inference.
-- [ ] `E2018` rejects incomplete cases and pattern lambdas with a stable witness.
-- [ ] `E2019` rejects wholly unreachable arms with a stable one-based index.
-- [ ] Guarded arms never contribute coverage or shadow later arms.
-- [ ] Existing analyzer/type errors suppress coverage cascades.
-- [ ] Exhaustive programs preserve runtime selection and defensive `E3022`.
-- [ ] Focused suites, build, full serialized tests, docs/queue checks, and
+- [x] Every active pattern form is normalized by one pure coverage engine.
+- [x] Every canonical `EPatternCase` is observed exactly once after inference.
+- [x] `E2018` rejects incomplete cases and pattern lambdas with a stable witness.
+- [x] `E2019` rejects wholly unreachable arms with a stable one-based index.
+- [x] Guarded arms never contribute coverage or shadow later arms.
+- [x] Existing analyzer/type errors suppress coverage cascades.
+- [x] Exhaustive programs preserve runtime selection and defensive `E3022`.
+- [x] Focused suites, build, full serialized tests, docs/queue checks, and
       `git diff --check` pass from committed state.

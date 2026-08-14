@@ -13,7 +13,7 @@ from partial areas and planned work.
 | --------------------------------------------------------------------- | ----------- | --------------------------------------------------------------------- |
 | Source, literals, bindings, lambdas, blocks, and operators            | Implemented | [Language overview](../language/overview.md)                          |
 | ADTs, typed patterns, ordered cases, and guards                       | Implemented | [ADTs and patterns](../language/algebraic-data-types-and-patterns.md) |
-| Static exhaustiveness and unreachable-arm analysis                    | Planned     | [Control flow](../language/control-flow.md)                           |
+| Static exhaustiveness and unreachable-arm analysis                    | Implemented | [Control flow](../language/control-flow.md)                           |
 | Type inference, signatures, generic named types, and numeric widths   | Implemented | [Types and signatures](../language/types-and-signatures.md)           |
 | Modules, import visibility, explicit exports, and cycle diagnostics   | Implemented | [Module resolution](../reference/module-resolution.md)                |
 | Interpreter, stable rendering, runtime hosts, and observations        | Implemented | [Runtime values](../reference/runtime-values.md)                      |
@@ -42,13 +42,13 @@ there too: the scrutinee runs once; literal, wildcard, and variable arms retain
 source order; false guards fall through; variable binders stay arm-local; and
 selected scalar or closure results meet at one transported join. The opt-in
 profile requires a final unguarded wildcard or variable, which makes its
-lowering total without claiming static exhaustiveness.
+lowering total independently of the general source coverage analysis.
 
-Managed patterns remain deferred pending managed-value production, layout,
-projection, and ownership contracts. Pattern lambdas remain deferred pending
-an invocation-time mismatch contract integrated with closures, currying,
-recursion, and callable identity. Exhaustiveness and unreachable-arm analysis
-remain planned because they require coverage reasoning and a diagnostic policy.
-The path also excludes later or interleaved external captures, scalar exports,
-and complete multi-module integration. Ordinary compile and run modes remain on
-canonical core and the interpreter.
+Managed patterns remain deferred in Typed Core pending managed-value
+production, layout, projection, and ownership contracts. Pattern-lambda
+backend lowering remains deferred pending an invocation contract integrated
+with closures, currying, recursion, and callable identity. Ordinary source
+cases and pattern lambdas now share strict post-inference exhaustiveness and
+unreachable-arm analysis. The backend path also excludes later or interleaved
+external captures, scalar exports, and complete multi-module integration.
+Ordinary compile and run modes remain on canonical core and the interpreter.
