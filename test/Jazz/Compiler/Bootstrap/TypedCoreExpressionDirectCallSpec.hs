@@ -1611,7 +1611,11 @@ testCapturedFunctionParameterSpecialization = do
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
-  assertProvisionalProductionCompletes "captured function parameter specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured function parameter specialization"
+    [("helper", typedUInt8UnaryType)]
+    Nothing
+    provisionalScope
 
 testCapturedCallableParameterApplicationSpecialization :: IO ()
 testCapturedCallableParameterApplicationSpecialization = do
@@ -1678,7 +1682,11 @@ testCapturedCallableParameterApplicationSpecialization = do
               spanValue
               (ProvisionalVariableExpression "helper" helperFunctionType)
           ]
-  assertProvisionalProductionCompletes "captured callable parameter application specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured callable parameter application specialization"
+    [("helper", typedUInt8HigherOrderType)]
+    (Just typedUInt8HigherOrderType)
+    provisionalScope
 
 testCapturedFunctionScalarBinderSpecialization :: IO ()
 testCapturedFunctionScalarBinderSpecialization = do
@@ -1750,7 +1758,11 @@ testCapturedFunctionScalarBinderSpecialization = do
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
-  assertProvisionalProductionCompletes "captured function scalar binder specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured function scalar binder specialization"
+    [("other", typedUInt8Type), ("helper", typedIntToUInt8Type)]
+    Nothing
+    provisionalScope
 
 testCapturedFunctionArgumentScalarBinderSpecialization :: IO ()
 testCapturedFunctionArgumentScalarBinderSpecialization = do
@@ -1823,7 +1835,11 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
                   (ProvisionalVariableExpression "other" otherType)
               )
           ]
-  assertProvisionalProductionCompletes "captured function argument scalar binder specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured function argument scalar binder specialization"
+    [("other", typedUInt8Type), ("helper", typedUInt8UnaryType)]
+    Nothing
+    provisionalScope
 
 testCapturedFunctionResultScalarBinderSpecialization :: IO ()
 testCapturedFunctionResultScalarBinderSpecialization = do
@@ -1895,7 +1911,11 @@ testCapturedFunctionResultScalarBinderSpecialization = do
               spanValue
               (ProvisionalVariableExpression "result" literalType)
           ]
-  assertProvisionalProductionCompletes "captured function result scalar binder specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured function result scalar binder specialization"
+    [("helper", typedUInt8UnaryType), ("result", typedUInt8Type)]
+    Nothing
+    provisionalScope
 
 testCapturedHigherOrderCallableArgumentSpecialization :: IO ()
 testCapturedHigherOrderCallableArgumentSpecialization = do
@@ -1981,7 +2001,11 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
                   (ProvisionalVariableExpression "helper" helperFunctionType)
               )
           ]
-  assertProvisionalProductionCompletes "captured higher-order callable argument specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured higher-order callable argument specialization"
+    [("helper", typedUInt8UnaryType), ("apply", typedUInt8HigherOrderType)]
+    Nothing
+    provisionalScope
 
 testCapturedForwardedHigherOrderCallableArgumentSpecialization :: IO ()
 testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
@@ -2087,7 +2111,14 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
                   (ProvisionalVariableExpression "helper" helperFunctionType)
               )
           ]
-  assertProvisionalProductionCompletes "captured forwarded higher-order callable argument specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured forwarded higher-order callable argument specialization"
+    [ ("helper", typedUInt8UnaryType),
+      ("apply", typedUInt8HigherOrderType),
+      ("forward", typedUInt8HigherOrderType)
+    ]
+    Nothing
+    provisionalScope
 
 testCapturedTerminalAnonymousCallableSpecialization :: IO ()
 testCapturedTerminalAnonymousCallableSpecialization = do
@@ -2138,7 +2169,11 @@ testCapturedTerminalAnonymousCallableSpecialization = do
                   )
               )
           ]
-  assertProvisionalProductionCompletes "captured terminal anonymous callable specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured terminal anonymous callable specialization"
+    []
+    (Just typedUInt8UnaryType)
+    provisionalScope
 
 testCapturedNamedCallerSpecialization :: IO ()
 testCapturedNamedCallerSpecialization = do
@@ -2224,7 +2259,11 @@ testCapturedNamedCallerSpecialization = do
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
-  assertProvisionalProductionCompletes "captured named caller specialization" provisionalScope
+  assertProvisionalProductionTypes
+    "captured named caller specialization"
+    [("helper", typedUInt8UnaryType), ("consumer", typedUInt8UnaryType)]
+    Nothing
+    provisionalScope
 
 testCapturedScalarAliasSourceSpecialization :: IO ()
 testCapturedScalarAliasSourceSpecialization = do
@@ -2488,7 +2527,11 @@ testEagerNestedClosureCaptureAvailability = do
   assertEqual "eager nested closure capture rejection" expected status
 
 assertProvisionalProductionCompletes :: Text -> ProvisionalTypedExpr -> IO ()
-assertProvisionalProductionCompletes label provisionalScope = do
+assertProvisionalProductionCompletes label =
+  assertProvisionalProductionTypes label [] Nothing
+
+assertProvisionalProductionTypes :: Text -> [(Text, TypedType)] -> Maybe TypedType -> ProvisionalTypedExpr -> IO ()
+assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType provisionalScope = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let status =
         typedCoreProductionOutcomeStatus
@@ -2501,11 +2544,55 @@ assertProvisionalProductionCompletes label provisionalScope = do
   case status of
     TypedCoreProductionSucceeded programValue -> do
       assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
+      case programValue of
+        TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _ -> do
+          let bindingTypes =
+                Map.fromList
+                  [ (identifier, typeValue)
+                  | TypedLetStatement
+                      _
+                      (TypedResolvedName TypedCurrentModule TypedValueNamespace identifier)
+                      _
+                      (TypedScheme _ _ _ _ typeValue _ _)
+                      _ <-
+                      statements
+                  ]
+              selectedBindingTypes =
+                [ (identifier, Map.lookup identifier bindingTypes)
+                | (identifier, _) <- expectedBindingTypes
+                ]
+          assertEqual
+            (label <> " specialized binding types")
+            [(identifier, Just typeValue) | (identifier, typeValue) <- expectedBindingTypes]
+            selectedBindingTypes
+          case expectedTerminalType of
+            Just expectedType ->
+              case reverse statements of
+                TypedExpressionStatement _ expression : _ ->
+                  assertEqual
+                    (label <> " specialized terminal type")
+                    expectedType
+                    (typedNodeType (typedExpressionInfo expression))
+                _ -> failTest (label <> " typed program has no terminal expression")
+            Nothing -> pure ()
+        _ -> failTest (label <> " typed program has an unexpected module shape")
       case lowerTypedCoreExpressionDirectCall programValue of
         LoweredIRSucceeded loweredProgram ->
           assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
         other -> failTest (label <> " did not lower: " <> Text.pack (show other))
     other -> failTest (label <> " did not produce typed core: " <> Text.pack (show other))
+
+typedUInt8Type :: TypedType
+typedUInt8Type = TypedNumericType TypedUInt8Type
+
+typedUInt8UnaryType :: TypedType
+typedUInt8UnaryType = TypedFunctionType typedUInt8Type typedUInt8Type
+
+typedIntToUInt8Type :: TypedType
+typedIntToUInt8Type = TypedFunctionType TypedIntType typedUInt8Type
+
+typedUInt8HigherOrderType :: TypedType
+typedUInt8HigherOrderType = TypedFunctionType typedUInt8UnaryType typedUInt8Type
 
 testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do

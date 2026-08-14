@@ -1035,7 +1035,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
            in foldl'
                 (\accumulated (_, argument) -> collectExpressionCallProfiles referenceFunctions lexicalNames accumulated argument)
                 childSpecializedFunctions
-                arguments
+                specializedArguments
         _ -> functions
       where
         specializeHigherOrderArguments functionTypeValue arguments =
