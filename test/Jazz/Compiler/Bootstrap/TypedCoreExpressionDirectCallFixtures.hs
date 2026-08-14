@@ -139,6 +139,7 @@ acceptedFixtures =
     sourceFixture "arithmetic-operators" arithmeticOperatorsSource,
     sourceFixture "ordering-operators" orderingOperatorsSource,
     sourceFixture "equality-operators" equalityOperatorsSource,
+    sourceFixtureNoExports "conditional" conditionalSource,
     sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
     sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
     sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
@@ -178,7 +179,6 @@ rejectedFixtures =
     sourceFixtureNoExports "list-value" listValueSource,
     sourceFixtureNoExports "non-unit-tuple" nonUnitTupleSource,
     sourceFixtureNoExports "data-value" dataValueSource,
-    sourceFixtureNoExports "conditional" conditionalSource,
     sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
@@ -221,6 +221,7 @@ scalarExpectedLoweredPrograms =
     ("char-entry", expectedLoweredProgram LoweredCharRepresentation [] (loweredImmediate (LoweredCharImmediate 'j'))),
     ("default-int-entry", expectedLoweredProgram int64Representation [] (loweredInt64 7)),
     ("default-float-entry", expectedLoweredProgram float64Representation [] (loweredImmediate (LoweredFloatImmediate LoweredFloatWidth64 "1.05"))),
+    ("conditional", expectedConditionalLoweredProgram),
     ( "arithmetic-operators",
       expectedLoweredProgram
         int64Representation
@@ -250,6 +251,61 @@ scalarExpectedLoweredPrograms =
         (loweredTemporary 2 LoweredBoolRepresentation)
     )
   ]
+
+expectedConditionalLoweredProgram :: LoweredProgram
+expectedConditionalLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    []
+    []
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            ( Just
+                ( LoweredBranch
+                    (loweredImmediate (LoweredBoolImmediate True))
+                    conditionalThenBlockId
+                    []
+                    conditionalElseBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            conditionalThenBlockId
+            []
+            []
+            (Just (LoweredJump conditionalJoinBlockId [loweredInt64 1])),
+          LoweredBlock
+            conditionalElseBlockId
+            []
+            []
+            (Just (LoweredJump conditionalJoinBlockId [loweredInt64 2])),
+          LoweredBlock
+            conditionalJoinBlockId
+            [LoweredParameter (LoweredParameterId "result") int64Representation]
+            []
+            ( Just
+                ( LoweredReturn
+                    ( LoweredBlockParameterOperand
+                        (LoweredParameterId "result")
+                        int64Representation
+                    )
+                )
+            )
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+  where
+    conditionalThenBlockId = LoweredBlockId "if$s1$0$e1$0$then"
+    conditionalElseBlockId = LoweredBlockId "if$s1$0$e1$0$else"
+    conditionalJoinBlockId = LoweredBlockId "if$s1$0$e1$0$join"
 
 explicitNumericScalarLoweringPrograms :: [(Text, TypedProgram, LoweredProgram)]
 explicitNumericScalarLoweringPrograms =
@@ -421,6 +477,24 @@ scalarExpectedPrograms =
         [ binaryExpr boolInfo "==" (intExpr 1) (intExpr 1),
           binaryExpr boolInfo "!=" (intExpr 1) (intExpr 2)
         ]
+    ),
+    ( "conditional",
+      TypedProgram
+        Nothing
+        [ TypedModule
+            modulePath
+            validSourcePath
+            []
+            []
+            (TypedModuleInterface [] [] [] [])
+            []
+            [ TypedExpressionStatement
+                (TypedSpan 2 1)
+                (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2))
+            ]
+            intInfo
+        ]
+        modulePath
     )
   ]
 
@@ -3170,12 +3244,16 @@ importedDirectCallLowererProgram =
         intInfo
 
 rejectedScalarFixtures :: [Fixture]
-rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "conditional", "pattern-case", "local-block-binding"]
+rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "pattern-case", "local-block-binding"]
 
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   scalarBindingProducerFixtures
-    <> [ ("empty-module", sourceFixtureNoExports "empty-module" ""),
+    <> [ ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
+         ("conditional-captured-scalar", sourceFixtureNoExports "conditional-captured-scalar" conditionalCapturedScalarSource),
+         ("conditional-closure-result-application", sourceFixtureNoExports "conditional-closure-result-application" conditionalClosureResultApplicationSource),
+         ("nested-conditionals", sourceFixtureNoExports "nested-conditionals" nestedConditionalsSource),
+         ("empty-module", sourceFixtureNoExports "empty-module" ""),
          ( "default-exported-polymorphic-callable",
            sourceFixture
              "default-exported-polymorphic-callable"
@@ -4742,6 +4820,34 @@ dataValueSource = Text.unlines ["data Box = Box.", "Box."]
 conditionalSource = "if True then 1 else 2."
 patternCaseSource = "case True { | _ -> 1 }."
 localBlockBindingSource = "{ item = 1. item. }."
+
+conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
+conditionalFunctionParameterSource =
+  Text.unlines
+    [ "choose :: Bool -> Int -> Int.",
+      "choose = \\(flag, item) -> if flag then item else 0.",
+      "choose True 7."
+    ]
+conditionalCapturedScalarSource =
+  Text.unlines
+    [ "seed :: Int.",
+      "seed = 40.",
+      "choose :: Bool -> Int.",
+      "choose = \\(flag) -> if flag then seed else seed + 2.",
+      "apply :: (Bool -> Int) -> Int.",
+      "apply = \\(function) -> function True.",
+      "apply choose."
+    ]
+conditionalClosureResultApplicationSource =
+  Text.unlines
+    [ "identity :: Bool -> Bool.",
+      "identity = \\(item) -> item.",
+      "alwaysFalse :: Bool -> Bool.",
+      "alwaysFalse = \\(item) -> False.",
+      "(if True then identity else alwaysFalse) True."
+    ]
+nestedConditionalsSource =
+  "if (if True then False else True) then (if True then 1 else 2) else (if False then 3 else 4)."
 
 resolvedImportSource :: Text
 resolvedImportSource = Text.unlines ["import Library::Value.", "()."]

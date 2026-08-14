@@ -70,10 +70,20 @@ data LoweredIRLoweringResult
 
 data LoweringState = LoweringState
   { loweringNextTemporary :: Int,
+    loweringNextCarrier :: Int,
     loweringInstructions :: [LoweredInstruction],
+    loweringCompletedBlocks :: [LoweredBlock],
+    loweringCurrentBlockId :: LoweredBlockId,
+    loweringCurrentBlockParameters :: [LoweredParameter],
     loweringLocalBindings :: Map.Map TypedBinderId LoweredOperand,
-    loweringSharedEnvironments :: Map.Map LoweredLayoutId LoweredOperand
+    loweringSharedEnvironments :: Map.Map LoweredLayoutId LoweredOperand,
+    loweringCarriedOperands :: Map.Map Int LoweredOperand
   }
+
+data AmbientSlot
+  = AmbientLocalSlot TypedBinderId LoweredRepresentation
+  | AmbientSharedEnvironmentSlot LoweredLayoutId LoweredRepresentation
+  | AmbientCarriedOperandSlot Int LoweredRepresentation
 
 data FunctionParameterShape = FunctionParameterShape
   { functionParameterBinder :: TypedBinderId,
@@ -248,12 +258,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
                            Nothing
                            []
                            resultRepresentation
-                           [ LoweredBlock
-                               entryBlockId
-                               []
-                               (reverse (loweringInstructions finalState))
-                               (Just (LoweredReturn resultOperand))
-                           ]
+                           (finishFunctionBlocks resultOperand finalState)
                            entryBlockId
                        ]
                 )
@@ -1068,6 +1073,13 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
           child 0 left,
           child 1 right
         ]
+    TypedIfExpr info condition thenExpression elseExpression ->
+      combineExpressionChecks
+        [ representationCheck info,
+          child 0 condition,
+          child 1 thenExpression,
+          child 2 elseExpression
+        ]
     TypedApplyExpr {} ->
       inspectApplication
         modulePath
@@ -1365,6 +1377,144 @@ expressionReferencesAnyBinder binders expression =
         _ -> False
     methodReferencesBinder (TypedMethodDefinition _ _ _ _ body) = child body
 
+finishCurrentBlock :: LoweredTerminator -> LoweringState -> LoweringState
+finishCurrentBlock terminator state =
+  state
+    { loweringInstructions = [],
+      loweringCompletedBlocks =
+        LoweredBlock
+          (loweringCurrentBlockId state)
+          (loweringCurrentBlockParameters state)
+          (reverse (loweringInstructions state))
+          (Just terminator)
+          : loweringCompletedBlocks state
+    }
+
+startBlock :: LoweredBlockId -> [LoweredParameter] -> LoweringState -> LoweringState
+startBlock blockId parameters state =
+  state
+    { loweringNextTemporary = 1,
+      loweringInstructions = [],
+      loweringCurrentBlockId = blockId,
+      loweringCurrentBlockParameters = parameters
+    }
+
+finishFunctionBlocks :: LoweredOperand -> LoweringState -> [LoweredBlock]
+finishFunctionBlocks resultOperand =
+  reverse
+    . loweringCompletedBlocks
+    . finishCurrentBlock (LoweredReturn resultOperand)
+
+conditionalBlockId :: [Int] -> [Int] -> Text -> LoweredBlockId
+conditionalBlockId statementPath reversedExpressionPath role =
+  LoweredBlockId
+    ( "if$s"
+        <> count statementPath
+        <> "$"
+        <> indexes statementPath
+        <> "$e"
+        <> count expressionPath
+        <> "$"
+        <> indexes expressionPath
+        <> "$"
+        <> role
+    )
+  where
+    expressionPath = reverse reversedExpressionPath
+    count = Text.pack . show . length
+    indexes = Text.intercalate "," . map (Text.pack . show)
+
+ambientSlots :: LoweringState -> [AmbientSlot]
+ambientSlots state =
+  [ AmbientLocalSlot binder (loweredOperandRepresentation operand)
+  | (binder, operand) <- Map.toAscList (loweringLocalBindings state),
+    blockLocalOperand operand
+  ]
+    <> [ AmbientSharedEnvironmentSlot layoutId (loweredOperandRepresentation operand)
+       | (layoutId, operand) <- Map.toAscList (loweringSharedEnvironments state),
+         blockLocalOperand operand
+       ]
+    <> [ AmbientCarriedOperandSlot carrier (loweredOperandRepresentation operand)
+       | (carrier, operand) <- Map.toAscList (loweringCarriedOperands state),
+         blockLocalOperand operand
+       ]
+
+ambientParameters :: [AmbientSlot] -> [LoweredParameter]
+ambientParameters slots =
+  [ LoweredParameter
+      (LoweredParameterId ("live" <> Text.pack (show index)))
+      (ambientSlotRepresentation slot)
+  | (index, slot) <- zip [1 :: Int ..] slots
+  ]
+
+ambientArguments :: [AmbientSlot] -> LoweringState -> Maybe [LoweredOperand]
+ambientArguments slots state = traverse lookupSlot slots
+  where
+    lookupSlot slot =
+      case slot of
+        AmbientLocalSlot binder _ -> Map.lookup binder (loweringLocalBindings state)
+        AmbientSharedEnvironmentSlot layoutId _ ->
+          Map.lookup layoutId (loweringSharedEnvironments state)
+        AmbientCarriedOperandSlot carrier _ ->
+          Map.lookup carrier (loweringCarriedOperands state)
+
+remapAmbient :: [AmbientSlot] -> [LoweredParameter] -> LoweringState -> LoweringState
+remapAmbient slots parameters state =
+  foldl' remapSlot state (zip slots parameters)
+  where
+    remapSlot currentState (slot, LoweredParameter parameterId representation) =
+      let operand = LoweredBlockParameterOperand parameterId representation
+       in case slot of
+            AmbientLocalSlot binder _ ->
+              currentState
+                { loweringLocalBindings =
+                    Map.insert binder operand (loweringLocalBindings currentState)
+                }
+            AmbientSharedEnvironmentSlot layoutId _ ->
+              currentState
+                { loweringSharedEnvironments =
+                    Map.insert layoutId operand (loweringSharedEnvironments currentState)
+                }
+            AmbientCarriedOperandSlot carrier _ ->
+              currentState
+                { loweringCarriedOperands =
+                    Map.insert carrier operand (loweringCarriedOperands currentState)
+                }
+
+ambientSlotRepresentation :: AmbientSlot -> LoweredRepresentation
+ambientSlotRepresentation slot =
+  case slot of
+    AmbientLocalSlot _ representation -> representation
+    AmbientSharedEnvironmentSlot _ representation -> representation
+    AmbientCarriedOperandSlot _ representation -> representation
+
+blockLocalOperand :: LoweredOperand -> Bool
+blockLocalOperand operand =
+  case operand of
+    LoweredTemporaryOperand {} -> True
+    LoweredBlockParameterOperand {} -> True
+    _ -> False
+
+carryOperand :: LoweredOperand -> LoweringState -> (Int, LoweringState)
+carryOperand operand state =
+  let carrier = loweringNextCarrier state
+   in ( carrier,
+        state
+          { loweringNextCarrier = carrier + 1,
+            loweringCarriedOperands =
+              Map.insert carrier operand (loweringCarriedOperands state)
+          }
+      )
+
+releaseCarriedOperands :: [Int] -> LoweringState -> (Maybe [LoweredOperand], LoweringState)
+releaseCarriedOperands carriers state =
+  ( traverse (`Map.lookup` loweringCarriedOperands state) carriers,
+    state
+      { loweringCarriedOperands =
+          foldl' (flip Map.delete) (loweringCarriedOperands state) carriers
+      }
+  )
+
 emitFunction ::
   [Text] ->
   FunctionIndex ->
@@ -1386,12 +1536,7 @@ emitFunction modulePath functions function =
             (functionEnvironmentParameter function)
             (map functionParameter (functionShapeParameters function))
             (functionShapeResultRepresentation function)
-            [ LoweredBlock
-                (LoweredBlockId "entry")
-                []
-                (reverse (loweringInstructions finalState))
-                (Just (LoweredReturn resultOperand))
-            ]
+            (finishFunctionBlocks resultOperand finalState)
             (LoweredBlockId "entry")
         )
     (failures@(_ : _), _, _) -> Left failures
@@ -1427,9 +1572,14 @@ initializeFunctionState function =
     emptyState =
       LoweringState
         { loweringNextTemporary = 1,
+          loweringNextCarrier = 1,
           loweringInstructions = [],
+          loweringCompletedBlocks = [],
+          loweringCurrentBlockId = LoweredBlockId "entry",
+          loweringCurrentBlockParameters = [],
           loweringLocalBindings = Map.empty,
-          loweringSharedEnvironments = Map.empty
+          loweringSharedEnvironments = Map.empty,
+          loweringCarriedOperands = Map.empty
         }
     projectCapture layoutId state (fieldIndex, capture) =
       let temporaryIndex = loweringNextTemporary state
@@ -1463,9 +1613,14 @@ emitEntry modulePath functions =
     initialState =
       LoweringState
         { loweringNextTemporary = 1,
+          loweringNextCarrier = 1,
           loweringInstructions = [],
+          loweringCompletedBlocks = [],
+          loweringCurrentBlockId = LoweredBlockId "entry",
+          loweringCurrentBlockParameters = [],
           loweringLocalBindings = Map.empty,
-          loweringSharedEnvironments = Map.empty
+          loweringSharedEnvironments = Map.empty,
+          loweringCarriedOperands = Map.empty
         }
     go _ (Just resultOperand) state [] = Right (resultOperand, state)
     go _ Nothing _ [] =
@@ -1644,6 +1799,19 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
         TypedUnitRecipe ->
           ([], Just (LoweredImmediateOperand LoweredUnitImmediate), state)
         recipe -> unsupportedRepresentation path recipe state
+    TypedIfExpr info condition thenExpression elseExpression ->
+      lowerConditional
+        modulePath
+        statementPath
+        expressionPath
+        path
+        info
+        condition
+        thenExpression
+        elseExpression
+        functions
+        parameters
+        state
     TypedBinaryExpr info operator left right ->
       lowerBinary
         modulePath
@@ -1670,6 +1838,136 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
     _ -> unsupportedExpression path state
   where
     path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
+
+lowerConditional ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  TypedNodeInfo ->
+  TypedExpr ->
+  TypedExpr ->
+  TypedExpr ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerConditional modulePath statementPath expressionPath path info condition thenExpression elseExpression functions parameters state =
+  case resultRepresentationFailures <> conditionFailures of
+    failures@(_ : _) -> (failures, Nothing, conditionState)
+    [] ->
+      case (maybeResultRepresentation, maybeConditionOperand, ambientArguments slots conditionState) of
+        (Just resultRepresentation, Just conditionOperand, Just branchArguments)
+          | loweredOperandRepresentation conditionOperand == LoweredBoolRepresentation ->
+              lowerBranches resultRepresentation conditionOperand branchArguments
+        _ -> unsupportedExpression path conditionState
+  where
+    (resultRepresentationFailures, maybeResultRepresentation) =
+      representationAtPath path (typedNodeRecipe info)
+    (conditionFailures, maybeConditionOperand, conditionState) =
+      lowerExpression
+        modulePath
+        statementPath
+        (0 : expressionPath)
+        functions
+        parameters
+        state
+        condition
+    slots = ambientSlots conditionState
+    branchParameters = ambientParameters slots
+    thenBlockId = conditionalBlockId statementPath expressionPath "then"
+    elseBlockId = conditionalBlockId statementPath expressionPath "else"
+    joinBlockId = conditionalBlockId statementPath expressionPath "join"
+
+    lowerBranches resultRepresentation conditionOperand branchArguments =
+      case thenFailures of
+        failures@(_ : _) -> (failures, Nothing, thenState)
+        [] ->
+          case (maybeThenOperand, ambientArguments slots thenState) of
+            (Just thenOperand, Just thenAmbientArguments)
+              | loweredOperandRepresentation thenOperand == resultRepresentation ->
+                  lowerElse resultRepresentation thenAmbientArguments thenOperand
+            _ -> unsupportedExpression path thenState
+      where
+        conditionFinished =
+          finishCurrentBlock
+            ( LoweredBranch
+                conditionOperand
+                thenBlockId
+                branchArguments
+                elseBlockId
+                branchArguments
+            )
+            conditionState
+        thenInitial =
+          remapAmbient
+            slots
+            branchParameters
+            (startBlock thenBlockId branchParameters conditionFinished)
+        (thenFailures, maybeThenOperand, thenState) =
+          lowerExpression
+            modulePath
+            statementPath
+            (1 : expressionPath)
+            functions
+            parameters
+            thenInitial
+            thenExpression
+
+        lowerElse currentResultRepresentation thenAmbientArguments thenOperand =
+          case elseFailures of
+            failures@(_ : _) -> (failures, Nothing, elseState)
+            [] ->
+              case (maybeElseOperand, ambientArguments slots elseState) of
+                (Just elseOperand, Just elseAmbientArguments)
+                  | loweredOperandRepresentation elseOperand == currentResultRepresentation ->
+                      let elseFinished =
+                            finishCurrentBlock
+                              (LoweredJump joinBlockId (elseAmbientArguments <> [elseOperand]))
+                              elseState
+                          resultParameter =
+                            LoweredParameter
+                              (LoweredParameterId "result")
+                              currentResultRepresentation
+                          joinParameters = branchParameters <> [resultParameter]
+                          joinBase =
+                            conditionState
+                              { loweringCompletedBlocks = loweringCompletedBlocks elseFinished
+                              }
+                          joinState =
+                            remapAmbient
+                              slots
+                              branchParameters
+                              (startBlock joinBlockId joinParameters joinBase)
+                          resultOperand =
+                            LoweredBlockParameterOperand
+                              (LoweredParameterId "result")
+                              currentResultRepresentation
+                       in ([], Just resultOperand, joinState)
+                _ -> unsupportedExpression path elseState
+          where
+            thenFinished =
+              finishCurrentBlock
+                (LoweredJump joinBlockId (thenAmbientArguments <> [thenOperand]))
+                thenState
+            elseBase =
+              conditionState
+                { loweringCompletedBlocks = loweringCompletedBlocks thenFinished
+                }
+            elseInitial =
+              remapAmbient
+                slots
+                branchParameters
+                (startBlock elseBlockId branchParameters elseBase)
+            (elseFailures, maybeElseOperand, elseState) =
+              lowerExpression
+                modulePath
+                statementPath
+                (2 : expressionPath)
+                functions
+                parameters
+                elseInitial
+                elseExpression
 
 lowerClosureValue ::
   TypedCoreValidationPath ->
@@ -1780,7 +2078,7 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
   case operatorFailures <> resultRepresentationFailures <> leftFailures <> rightFailures of
     failures@(_ : _) -> (failures, Nothing, rightState)
     [] ->
-      case (maybePrimitive, maybeResultRepresentation, maybeLeftOperand, maybeRightOperand) of
+      case (maybePrimitive, maybeResultRepresentation, maybeTransportedLeftOperand, maybeRightOperand) of
         (Just primitive, Just resultRepresentation, Just leftOperand, Just rightOperand) ->
           let temporaryIndex = loweringNextTemporary rightState
               temporaryId = LoweredTemporaryId ("t" <> Text.pack (show temporaryIndex))
@@ -1819,15 +2117,28 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
         parameters
         state
         left
-    (rightFailures, maybeRightOperand, rightState) =
+    (maybeLeftCarrier, rightInitialState) =
+      case maybeLeftOperand of
+        Just leftOperand ->
+          let (carrier, carriedState) = carryOperand leftOperand leftState
+           in (Just carrier, carriedState)
+        Nothing -> (Nothing, leftState)
+    (rightFailures, maybeRightOperand, carriedRightState) =
       lowerExpression
         modulePath
         statementPath
         (1 : expressionPath)
         functions
         parameters
-        leftState
+        rightInitialState
         right
+    (maybeTransportedLeftOperand, rightState) =
+      case maybeLeftCarrier of
+        Just carrier ->
+          case releaseCarriedOperands [carrier] carriedRightState of
+            (Just [leftOperand], releasedState) -> (Just leftOperand, releasedState)
+            (_, releasedState) -> (Nothing, releasedState)
+        Nothing -> (Nothing, carriedRightState)
 
 lowerApplication ::
   [Text] ->
@@ -1857,7 +2168,7 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
                   case resultRepresentationFailures <> argumentFailures of
                     failures@(_ : _) -> (failures, Nothing, argumentState)
                     [] ->
-                      case (maybeResultRepresentation, sequence argumentOperands) of
+                      case (maybeResultRepresentation, argumentOperands) of
                         (Just resultRepresentation, Just operands) ->
                           let temporaryIndex = loweringNextTemporary argumentState
                               temporaryId =
@@ -1924,14 +2235,17 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
     (callee, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
       representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
-    (reversedArgumentFailureChunks, reversedArgumentOperands, argumentState) =
+    (reversedArgumentFailureChunks, reversedArgumentCarriers, carriedArgumentState) =
       foldl'
         lowerArgument
         ([], [], state)
         arguments
     argumentFailures = concat (reverse reversedArgumentFailureChunks)
-    argumentOperands = reverse reversedArgumentOperands
-    lowerArgument (reversedFailureChunks, reversedOperands, currentState) (argumentPath, argument) =
+    (argumentOperands, argumentState) =
+      case sequence (reverse reversedArgumentCarriers) of
+        Just carriers -> releaseCarriedOperands carriers carriedArgumentState
+        Nothing -> (Nothing, carriedArgumentState)
+    lowerArgument (reversedFailureChunks, reversedCarriers, currentState) (argumentPath, argument) =
       let (nextFailures, maybeOperand, nextState) =
             lowerExpression
               modulePath
@@ -1941,7 +2255,13 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
               parameters
               currentState
               argument
-       in (nextFailures : reversedFailureChunks, maybeOperand : reversedOperands, nextState)
+          (maybeCarrier, carriedState) =
+            case maybeOperand of
+              Just operand ->
+                let (carrier, operandState) = carryOperand operand nextState
+                 in (Just carrier, operandState)
+              Nothing -> (Nothing, nextState)
+       in (nextFailures : reversedFailureChunks, maybeCarrier : reversedCarriers, carriedState)
 
 lowerUnaryClosureApplication ::
   [Text] ->
@@ -1959,7 +2279,7 @@ lowerUnaryClosureApplication modulePath statementPath expressionPath path functi
       case resultRepresentationFailures <> functionFailures <> argumentFailures of
         failures@(_ : _) -> (failures, Nothing, argumentState)
         [] ->
-          case (maybeResultRepresentation, maybeFunctionOperand, maybeArgumentOperand) of
+          case (maybeResultRepresentation, maybeTransportedFunctionOperand, maybeArgumentOperand) of
             ( Just resultRepresentation,
               Just functionOperand,
               Just argumentOperand
@@ -1993,15 +2313,28 @@ lowerUnaryClosureApplication modulePath statementPath expressionPath path functi
             parameters
             state
             function
-        (argumentFailures, maybeArgumentOperand, argumentState) =
+        (maybeFunctionCarrier, argumentInitialState) =
+          case maybeFunctionOperand of
+            Just functionOperand ->
+              let (carrier, carriedState) = carryOperand functionOperand functionState
+               in (Just carrier, carriedState)
+            Nothing -> (Nothing, functionState)
+        (argumentFailures, maybeArgumentOperand, carriedArgumentState) =
           lowerExpression
             modulePath
             statementPath
             (1 : expressionPath)
             functions
             parameters
-            functionState
+            argumentInitialState
             argument
+        (maybeTransportedFunctionOperand, argumentState) =
+          case maybeFunctionCarrier of
+            Just carrier ->
+              case releaseCarriedOperands [carrier] carriedArgumentState of
+                (Just [functionOperand], releasedState) -> (Just functionOperand, releasedState)
+                (_, releasedState) -> (Nothing, releasedState)
+            Nothing -> (Nothing, carriedArgumentState)
     _ -> unsupportedExpression path state
 
 loweredPrimitive :: TypedOperatorRef -> Maybe LoweredPrimitive

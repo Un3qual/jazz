@@ -53,6 +53,7 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
@@ -185,6 +186,7 @@ testFixtureManifest = do
           "arithmetic-operators",
           "ordering-operators",
           "equality-operators",
+          "conditional",
           "scalar-parameter-return",
           "single-argument-direct-call",
           "curried-multi-argument-direct-call",
@@ -218,7 +220,6 @@ testFixtureManifest = do
           "list-value",
           "non-unit-tuple",
           "data-value",
-          "conditional",
           "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
@@ -232,8 +233,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 32 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 18 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 33 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -412,6 +413,35 @@ testAcceptedManifestPipeline =
                 (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testConditionalProfileCoverage :: IO ()
+testConditionalProfileCoverage =
+  mapM_ assertConditionalProfile names
+  where
+    names =
+      [ "conditional-function-parameter",
+        "conditional-captured-scalar",
+        "conditional-closure-result-application",
+        "nested-conditionals"
+      ]
+    assertConditionalProfile name = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      case typedCoreProductionStatus firstProduction of
+        TypedCoreProductionSucceeded typedProgram -> do
+          assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
+          let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
+              secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
+          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+          case firstLowering of
+            LoweredIRSucceeded loweredProgram ->
+              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+            other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
 
 testScalarBindingProduction :: IO ()
 testScalarBindingProduction = do
@@ -717,22 +747,15 @@ testLiftedLambdaFailurePreorder :: IO ()
 testLiftedLambdaFailurePreorder =
   case lookup "lifted-lambda-failure-preorder" reviewLowererBoundaryPrograms of
     Just programValue -> do
-      assertEqual "lifted failure-order fixture is valid typed core" [] (validateTypedProgram programValue)
-      assertEqual
-        "lifted lambda failures follow canonical expression preorder"
-        ( LoweredIRUnsupported
-            [ expressionFailure [0, 0, 0],
-              expressionFailure [0, 1]
-            ]
-        )
-        (lowerTypedCoreExpressionDirectCall programValue)
-    Nothing -> failTest "lifted failure-order regression fixture is missing"
-  where
-    expressionFailure expressionPath =
-      LoweredIRLoweringFailure
-        (TypedExpressionPath ["App", "Main"] [0] expressionPath)
-        LoweredIRUnsupportedExpression
-        LoweredIRNoFailureDetail
+      let firstRun = lowerTypedCoreExpressionDirectCall programValue
+          secondRun = lowerTypedCoreExpressionDirectCall programValue
+      assertEqual "lifted conditional fixture is valid typed core" [] (validateTypedProgram programValue)
+      assertEqual "lifted conditional lowering is repeatable" firstRun secondRun
+      case firstRun of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual "lifted conditional lowered validation" [] (validateLoweredProgram loweredProgram)
+        other -> failTest ("lifted conditional did not lower: " <> Text.pack (show other))
+    Nothing -> failTest "lifted conditional regression fixture is missing"
 
 testLiftedLambdaMetadataAlias :: IO ()
 testLiftedLambdaMetadataAlias =
@@ -812,21 +835,8 @@ testLowererCallableBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "scalar-binding-unsupported-rhs",
-          [ expressionFailure
-              0
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
-          ]
-        ),
-        ( "combined-statement-failure-order",
-          [ expressionFailure
-              0
-              [0]
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail,
-            statementFailure
+      [ ( "combined-statement-failure-order",
+          [ statementFailure
               1
               LoweredIRInvalidFunctionShape
               (LoweredIRNameFailureDetail (currentName "message")),
@@ -1049,13 +1059,6 @@ testLowererStructuralBoundary =
               (TypedExpressionPath ["App", "Main"] [0] [0])
               LoweredIRUnsupportedRepresentation
               (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
-          ]
-        ),
-        ( "conditional-entry",
-          [ LoweredIRLoweringFailure
-              (TypedExpressionPath ["App", "Main"] [0] [0])
-              LoweredIRUnsupportedExpression
-              LoweredIRNoFailureDetail
           ]
         )
       ]
@@ -3029,7 +3032,6 @@ rejectedManifestExpectedStatuses =
           expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
         ]
     ),
-    ("conditional", unsupported [expressionFailure 0 [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail]),
     ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
     ( "oversaturated-direct-call",
@@ -3332,8 +3334,7 @@ testCompoundFailureAccumulation = do
   let fixture = producerEdgeFixture "nested-unsupported-children"
       expected =
         TypedCoreProductionUnsupported
-          [ expressionFailure [] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
-            expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+          [ expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
           ]
   firstRun <- produceFixture fixture
@@ -3368,26 +3369,19 @@ testUnsupportedCompositeFailureAccumulation =
         ( "guarded-pattern-case-unsupported-children",
           [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
             expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
             expressionFailure 0 [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
           ]
         ),
         ( "unsupported-binary-child",
           [ statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 2 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
-            expressionFailure 2 [1] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+            expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
           ]
         ),
         ( "left-section-unsupported-child",
-          [ expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 0 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-          ]
+          [expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
         ),
         ( "right-section-unsupported-child",
-          [ expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-            expressionFailure 0 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-          ]
+          [expressionFailure 0 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
         ),
         ( "type-application-composite",
           [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
@@ -3515,11 +3509,7 @@ testSameStatementFailureKindOrder = do
           [ TypedCoreProductionFailure
               (TypedCoreProductionStatementPath ["App", "Main"] 3)
               TypedCoreFunctionRebindingUnsupported
-              (TypedCoreNameDetail "loop"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0, 0, 1])
-              TypedCoreControlFlowUnsupported
-              TypedCoreConditionalDetail
+              (TypedCoreNameDetail "loop")
           ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -3588,7 +3578,7 @@ testCanonicalRecursionTransportControls =
       ("rejected-mutual-alias-recursion", [(1, "left"), (3, "right")]),
       ("rejected-alias-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
       ("rejected-operator-alias-self-recursion", [(1, "$operator:%25%25")]),
-      ("rejected-conditional-self-recursion", [(1, "loop")]),
+      ("rejected-conditional-self-recursion", []),
       ("rejected-block-conditional-mutual-recursion", [(1, "left"), (3, "right")]),
       ("rejected-block-later-shadow-control", [(1, "loop")]),
       ("rejected-block-initializer-self-recursion", [(1, "loop")]),
@@ -3712,47 +3702,38 @@ testRejectedCallableRebinding requestedName =
     expectedResults =
       [ ( "accepted-then-rejected-callable-rebinding",
           [ rebindingFailure 3,
-            rootFailure 3,
-            conditionalFailure 3
+            rootFailure 3
           ]
         ),
         ( "rejected-recursive-callable-rebinding-order",
           [ recursionFailure 3 "f",
             rebindingFailure 3,
             rootFailure 3,
-            conditionalFailure 3,
             recursionFailure 5 "g"
           ]
         ),
         ( "rejected-then-accepted-callable-rebinding",
           [ rootFailure 1,
-            conditionalFailure 1,
             rebindingFailure 3
           ]
         ),
         ( "repeated-rejected-callable-rebinding",
           [ rootFailure 1,
-            conditionalFailure 1,
             rebindingFailure 3,
-            rootFailure 3,
-            conditionalFailure 3
+            rootFailure 3
           ]
         ),
         ( "scalar-then-rejected-callable-control",
-          [ rootFailure 2,
-            conditionalFailure 2
-          ]
+          [rootFailure 2]
         ),
         ( "accepted-scalar-rejected-callable-rebinding",
           [ rootFailure 2,
             rebindingFailure 4,
-            rootFailure 4,
-            conditionalFailure 4
+            rootFailure 4
           ]
         ),
         ( "rejected-scalar-accepted-callable-rebinding",
           [ rootFailure 1,
-            conditionalFailure 1,
             rootFailure 2,
             rebindingFailure 4
           ]
@@ -3789,11 +3770,6 @@ testRejectedCallableRebinding requestedName =
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
-    conditionalFailure statementIndex =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex [0])
-        TypedCoreControlFlowUnsupported
-        TypedCoreConditionalDetail
 
 testCanonicalCallableRebindingDependencies :: Text -> IO ()
 testCanonicalCallableRebindingDependencies requestedName =
@@ -3909,8 +3885,7 @@ testRejectedCallableDeclarationTransport requestedName =
           [ recursionFailure 1 "left",
             rootFailure 1,
             recursionFailure 3 "right",
-            rootFailure 3,
-            expressionFailure 3 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+            rootFailure 3
           ]
         ),
         ( "rejected-operator-alias-self-recursion",
@@ -3921,7 +3896,6 @@ testRejectedCallableDeclarationTransport requestedName =
         ),
         ( "rejected-eager-operator-conditional-control",
           [ rootFailure 1,
-            expressionFailure 1 [0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail,
             expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
             expressionFailure 1 [0, 1] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
             expressionFailure 1 [0, 2] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
@@ -3983,16 +3957,10 @@ testRejectedProducerDependencyTransport :: IO ()
 testRejectedProducerDependencyTransport =
   mapM_
     assertExact
-    [ ( "rejected-conditional-self-recursion",
-        [ statementFailure 1 "loop",
-          expressionFailure 1 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
-        ]
-      ),
-      ( "rejected-block-conditional-mutual-recursion",
+    [ ( "rejected-block-conditional-mutual-recursion",
         [ statementFailure 1 "left",
           expressionFailure 1 [0, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
-          statementFailure 3 "right",
-          expressionFailure 3 [0, 0] TypedCoreControlFlowUnsupported TypedCoreConditionalDetail
+          statementFailure 3 "right"
         ]
       ),
       ( "rejected-block-parameter-shadow-control",
