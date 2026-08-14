@@ -438,10 +438,317 @@ testConditionalProfileCoverage =
               secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
           assertEqual (name <> " repeatable lowering") firstLowering secondLowering
           case firstLowering of
-            LoweredIRSucceeded loweredProgram ->
+            LoweredIRSucceeded loweredProgram -> do
               assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+              case lookup name expectedConditionalControlFlows of
+                Just expectedControlFlow ->
+                  assertEqual
+                    (name <> " exact conditional control flow")
+                    expectedControlFlow
+                    (conditionalControlFlow loweredProgram)
+                Nothing -> failTest (name <> " is missing a conditional control-flow expectation")
             other -> failTest (name <> " did not lower: " <> Text.pack (show other))
         other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+
+conditionalControlFlow :: LoweredProgram -> [(LoweredFunctionId, [LoweredBlock])]
+conditionalControlFlow (LoweredProgram _ _ _ functions _) =
+  [ (functionId, blocks)
+  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+    any containsBranch blocks
+  ]
+  where
+    containsBranch (LoweredBlock _ _ _ (Just (LoweredBranch _ _ _ _ _))) = True
+    containsBranch _ = False
+
+expectedConditionalControlFlows :: [(Text, [(LoweredFunctionId, [LoweredBlock])])]
+expectedConditionalControlFlows =
+  [ ( "conditional-function-parameter",
+      [ ( functionId "choose",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              ( Just
+                  ( LoweredBranch
+                      (functionParameter "arg1" LoweredBoolRepresentation)
+                      parameterThenBlockId
+                      []
+                      parameterElseBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              parameterThenBlockId
+              []
+              []
+              (Just (LoweredJump parameterJoinBlockId [functionParameter "arg2" intRepresentation])),
+            LoweredBlock
+              parameterElseBlockId
+              []
+              []
+              (Just (LoweredJump parameterJoinBlockId [intImmediate 0])),
+            LoweredBlock
+              parameterJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "conditional-captured-scalar",
+      [ ( functionId "choose",
+          [ LoweredBlock
+              entryBlockId
+              []
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  intRepresentation
+                  ( LoweredProjectField
+                      capturedSeedLayoutId
+                      0
+                      (functionParameter "environment" (LoweredManagedReferenceRepresentation capturedSeedLayoutId))
+                  )
+              ]
+              ( Just
+                  ( LoweredBranch
+                      (functionParameter "arg1" LoweredBoolRepresentation)
+                      capturedThenBlockId
+                      [temporary 1 intRepresentation]
+                      capturedElseBlockId
+                      [temporary 1 intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              capturedThenBlockId
+              [parameter "live1" intRepresentation]
+              []
+              ( Just
+                  ( LoweredJump
+                      capturedJoinBlockId
+                      [blockParameter "live1" intRepresentation, blockParameter "live1" intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              capturedElseBlockId
+              [parameter "live1" intRepresentation]
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  intRepresentation
+                  ( LoweredPrimitiveOperation
+                      (LoweredArithmeticPrimitive LoweredAdd)
+                      [blockParameter "live1" intRepresentation, intImmediate 2]
+                  )
+              ]
+              ( Just
+                  ( LoweredJump
+                      capturedJoinBlockId
+                      [blockParameter "live1" intRepresentation, temporary 1 intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              capturedJoinBlockId
+              [parameter "live1" intRepresentation, parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "conditional-closure-result-application",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              ( Just
+                  ( LoweredBranch
+                      (boolImmediate True)
+                      closureThenBlockId
+                      []
+                      closureElseBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              closureThenBlockId
+              []
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  (LoweredManagedReferenceRepresentation identityLayoutId)
+                  (LoweredConstructProduct identityLayoutId []),
+                LoweredInstruction
+                  (LoweredTemporaryId "t2")
+                  boolClosureRepresentation
+                  ( LoweredConstructClosure
+                      (functionId "identity")
+                      (temporary 1 (LoweredManagedReferenceRepresentation identityLayoutId))
+                  )
+              ]
+              (Just (LoweredJump closureJoinBlockId [temporary 2 boolClosureRepresentation])),
+            LoweredBlock
+              closureElseBlockId
+              []
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  (LoweredManagedReferenceRepresentation alwaysFalseLayoutId)
+                  (LoweredConstructProduct alwaysFalseLayoutId []),
+                LoweredInstruction
+                  (LoweredTemporaryId "t2")
+                  boolClosureRepresentation
+                  ( LoweredConstructClosure
+                      (functionId "alwaysFalse")
+                      (temporary 1 (LoweredManagedReferenceRepresentation alwaysFalseLayoutId))
+                  )
+              ]
+              (Just (LoweredJump closureJoinBlockId [temporary 2 boolClosureRepresentation])),
+            LoweredBlock
+              closureJoinBlockId
+              [parameter "result" boolClosureRepresentation]
+              [ LoweredInstruction
+                  (LoweredTemporaryId "t1")
+                  LoweredBoolRepresentation
+                  ( LoweredClosureCall
+                      (blockParameter "result" boolClosureRepresentation)
+                      [boolImmediate True]
+                  )
+              ]
+              (Just (LoweredReturn (temporary 1 LoweredBoolRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "nested-conditionals",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate True) nestedConditionThenBlockId [] nestedConditionElseBlockId [])),
+            LoweredBlock
+              nestedConditionThenBlockId
+              []
+              []
+              (Just (LoweredJump nestedConditionJoinBlockId [boolImmediate False])),
+            LoweredBlock
+              nestedConditionElseBlockId
+              []
+              []
+              (Just (LoweredJump nestedConditionJoinBlockId [boolImmediate True])),
+            LoweredBlock
+              nestedConditionJoinBlockId
+              [parameter "result" LoweredBoolRepresentation]
+              []
+              ( Just
+                  ( LoweredBranch
+                      (blockParameter "result" LoweredBoolRepresentation)
+                      nestedOuterThenBlockId
+                      []
+                      nestedOuterElseBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              nestedOuterThenBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate True) nestedThenThenBlockId [] nestedThenElseBlockId [])),
+            LoweredBlock
+              nestedThenThenBlockId
+              []
+              []
+              (Just (LoweredJump nestedThenJoinBlockId [intImmediate 1])),
+            LoweredBlock
+              nestedThenElseBlockId
+              []
+              []
+              (Just (LoweredJump nestedThenJoinBlockId [intImmediate 2])),
+            LoweredBlock
+              nestedThenJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredJump nestedOuterJoinBlockId [blockParameter "result" intRepresentation])),
+            LoweredBlock
+              nestedOuterElseBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate False) nestedElseThenBlockId [] nestedElseElseBlockId [])),
+            LoweredBlock
+              nestedElseThenBlockId
+              []
+              []
+              (Just (LoweredJump nestedElseJoinBlockId [intImmediate 3])),
+            LoweredBlock
+              nestedElseElseBlockId
+              []
+              []
+              (Just (LoweredJump nestedElseJoinBlockId [intImmediate 4])),
+            LoweredBlock
+              nestedElseJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredJump nestedOuterJoinBlockId [blockParameter "result" intRepresentation])),
+            LoweredBlock
+              nestedOuterJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    )
+  ]
+  where
+    functionId :: Text -> LoweredFunctionId
+    functionId name = LoweredFunctionId ("App::Main::" <> name)
+    blockId :: Text -> LoweredBlockId
+    blockId = LoweredBlockId
+    parameter :: Text -> LoweredRepresentation -> LoweredParameter
+    parameter name representation = LoweredParameter (LoweredParameterId name) representation
+    functionParameter :: Text -> LoweredRepresentation -> LoweredOperand
+    functionParameter name representation = LoweredFunctionParameterOperand (LoweredParameterId name) representation
+    blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
+    blockParameter name representation = LoweredBlockParameterOperand (LoweredParameterId name) representation
+    temporary :: Int -> LoweredRepresentation -> LoweredOperand
+    temporary index representation = LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index))) representation
+    boolImmediate :: Bool -> LoweredOperand
+    boolImmediate = LoweredImmediateOperand . LoweredBoolImmediate
+    intImmediate :: Integer -> LoweredOperand
+    intImmediate = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+    intRepresentation :: LoweredRepresentation
+    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    boolClosureRepresentation :: LoweredRepresentation
+    boolClosureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+    entryBlockId = blockId "entry"
+    parameterThenBlockId = blockId "if$s1$1$e3$0,0,0$then"
+    parameterElseBlockId = blockId "if$s1$1$e3$0,0,0$else"
+    parameterJoinBlockId = blockId "if$s1$1$e3$0,0,0$join"
+    capturedSeedLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n6:choose"
+    capturedThenBlockId = blockId "if$s1$3$e2$0,0$then"
+    capturedElseBlockId = blockId "if$s1$3$e2$0,0$else"
+    capturedJoinBlockId = blockId "if$s1$3$e2$0,0$join"
+    identityLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
+    alwaysFalseLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n11:alwaysFalse"
+    closureThenBlockId = blockId "if$s1$4$e2$0,0$then"
+    closureElseBlockId = blockId "if$s1$4$e2$0,0$else"
+    closureJoinBlockId = blockId "if$s1$4$e2$0,0$join"
+    nestedConditionThenBlockId = blockId "if$s1$0$e2$0,0$then"
+    nestedConditionElseBlockId = blockId "if$s1$0$e2$0,0$else"
+    nestedConditionJoinBlockId = blockId "if$s1$0$e2$0,0$join"
+    nestedOuterThenBlockId = blockId "if$s1$0$e1$0$then"
+    nestedOuterElseBlockId = blockId "if$s1$0$e1$0$else"
+    nestedOuterJoinBlockId = blockId "if$s1$0$e1$0$join"
+    nestedThenThenBlockId = blockId "if$s1$0$e2$0,1$then"
+    nestedThenElseBlockId = blockId "if$s1$0$e2$0,1$else"
+    nestedThenJoinBlockId = blockId "if$s1$0$e2$0,1$join"
+    nestedElseThenBlockId = blockId "if$s1$0$e2$0,2$then"
+    nestedElseElseBlockId = blockId "if$s1$0$e2$0,2$else"
+    nestedElseJoinBlockId = blockId "if$s1$0$e2$0,2$join"
 
 testScalarBindingProduction :: IO ()
 testScalarBindingProduction = do
