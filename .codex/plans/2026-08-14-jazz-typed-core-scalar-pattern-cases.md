@@ -468,37 +468,37 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   next-arm subtree, then result join, with nested conditional/case blocks kept
   in their own structural order.
 
-- [ ] **Step 1: Add exact nested CFG fixtures.** Cover a case in a conditional
+- [x] **Step 1: Add exact nested CFG fixtures.** Cover a case in a conditional
       branch, a conditional in a case guard, a case in a case body, and a case
       as the scrutinee of another case. Exact expectations must prove each
       scrutinee executes once and each join resumes with remapped operands.
 
-- [ ] **Step 2: Add ambient transport fixtures.** Cover an earlier scalar used
+- [x] **Step 2: Add ambient transport fixtures.** Cover an earlier scalar used
       in a guard and after the join, a captured scalar used from a closure body,
       a closure-valued case result followed by application, and an in-flight
       call operand whose argument is a case expression.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Expected failures are
+- [x] **Step 3: Run the focused suite and verify RED.** Expected failures are
       operand-scope, edge-shape, missing generated-function, or exact CFG
       mismatches—not parsing or type inference failures.
 
-- [ ] **Step 4: Thread case edges through the shared ambient helpers.** Build
+- [x] **Step 4: Thread case edges through the shared ambient helpers.** Build
       identical parameter/argument shapes for both successors of each literal
       or guard branch. Remap locals and shared environments on entry to every
       successor. Use `carryOperand` for the scrutinee and result rather than
       inserting them into unordered maps.
 
-- [ ] **Step 5: Merge nested block sequences without leaking arm scope.** Use
+- [x] **Step 5: Merge nested block sequences without leaking arm scope.** Use
       the current CFG state APIs to finish/start blocks. Restore only the
       remapped outer maps at continuation and join blocks; never merge an arm's
       variable binder map into them.
 
-- [ ] **Step 6: Lock ordered failure behavior.** For source cases containing
+- [x] **Step 6: Lock ordered failure behavior.** For source cases containing
       unsupported descendants, verify scrutinee failures precede arm failures,
       and within each arm the pattern/profile failure precedes guard then body
       descendant failures. Keep results deterministic on two runs.
 
-- [ ] **Step 7: Run the focused contract gate twice.** Run:
+- [x] **Step 7: Run the focused contract gate twice.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
@@ -506,7 +506,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 
   Expected: all three suites pass twice with identical exact artifact values.
 
-- [ ] **Step 8: Commit the transport/boundary milestone.** Run:
+- [x] **Step 8: Commit the transport/boundary milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs

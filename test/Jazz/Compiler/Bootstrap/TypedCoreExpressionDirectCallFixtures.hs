@@ -3754,6 +3754,53 @@ producerEdgeFixtures =
                  ]
              )
          ),
+         ( "pattern-case-in-conditional-branch",
+           sourceFixtureNoExports
+             "pattern-case-in-conditional-branch"
+             "if True then case 1 { | 1 -> 10 | _ -> 20 } else 30."
+         ),
+         ( "conditional-in-pattern-case-guard",
+           sourceFixtureNoExports
+             "conditional-in-pattern-case-guard"
+             "case 1 { | 1 if if True then False else True -> 10 | _ -> 20 }."
+         ),
+         ( "pattern-case-in-pattern-case-body",
+           sourceFixtureNoExports
+             "pattern-case-in-pattern-case-body"
+             "case True { | True -> case 1 { | 1 -> 10 | _ -> 20 } | _ -> 30 }."
+         ),
+         ( "pattern-case-scrutinee-pattern-case",
+           sourceFixtureNoExports
+             "pattern-case-scrutinee-pattern-case"
+             "case (case True { | True -> 1 | _ -> 2 }) { | 1 -> 10 | _ -> 20 }."
+         ),
+         ( "pattern-case-ambient-scalar",
+           sourceFixtureNoExports
+             "pattern-case-ambient-scalar"
+             ( Text.unlines
+                 [ "identity :: Int -> Int.",
+                   "identity = \\(item) -> item.",
+                   "seed = identity 1.",
+                   "chosen = case seed { | item if item == seed -> item | _ -> 0 }.",
+                   "chosen + seed."
+                 ]
+             )
+         ),
+         ( "pattern-case-captured-scalar",
+           sourceFixtureNoExports
+             "pattern-case-captured-scalar"
+             ( Text.unlines
+                 [ "seed = 1.",
+                   "choose = \\(item) -> case item { | current if current == seed -> current | _ -> seed }.",
+                   "choose seed."
+                 ]
+             )
+         ),
+         ( "pattern-case-call-argument",
+           sourceFixtureNoExports
+             "pattern-case-call-argument"
+             "(\\(item) -> item) (case 1 { | 1 -> 2 | _ -> 3 })."
+         ),
          ( "pattern-case-final-guarded-catch-all",
            sourceFixtureNoExports
              "pattern-case-final-guarded-catch-all"
@@ -4702,7 +4749,7 @@ producerEdgeFixtures =
          ( "guarded-pattern-case-unsupported-children",
            sourceFixtureNoExports
              "guarded-pattern-case-unsupported-children"
-             "case [1] { | _ if if True then True else False -> [2] }."
+             "case [1] { | _ if { ignored = [2]. True. } -> [3] }."
          ),
          ( "nested-block-unsupported-child",
            sourceFixtureNoExports
