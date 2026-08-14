@@ -584,7 +584,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 
 ### Full closeout
 
-- [ ] **Step 1: Run the complete serialized suite.** Run:
+- [x] **Step 1: Run the complete serialized suite.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -592,7 +592,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
 
   Expected: every suite passes with zero failures.
 
-- [ ] **Step 2: Re-run final structural evidence against committed HEAD.** Run:
+- [x] **Step 2: Re-run final structural evidence against committed HEAD.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
