@@ -55,6 +55,7 @@ tests =
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
+    ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
@@ -567,6 +568,21 @@ testScalarPatternCaseProducerBoundaries = do
         (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         kind
         detail
+
+testScalarPatternCaseAnalysisProduction :: IO ()
+testScalarPatternCaseAnalysisProduction =
+  mapM_ assertProduced scalarPatternCaseAnalysisExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      assertEqual
+        (name <> " exact analysis-preserving production")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstProduction)
+      assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
 
 testConditionalProfileCoverage :: IO ()
 testConditionalProfileCoverage =

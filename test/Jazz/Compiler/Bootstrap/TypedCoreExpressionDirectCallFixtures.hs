@@ -16,6 +16,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarFixtures,
     scalarExpectedPrograms,
     scalarPatternCaseExpectedPrograms,
+    scalarPatternCaseAnalysisExpectedPrograms,
     scalarBindingExpectedPrograms,
     scalarBindingExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
@@ -502,7 +503,9 @@ scalarExpectedPrograms =
 scalarPatternCaseExpectedPrograms :: [(Text, TypedProgram)]
 scalarPatternCaseExpectedPrograms =
   [ ("pattern-case", scalarPatternCaseExpectedProgram),
-    ("scalar-pattern-case", scalarPatternCaseExpectedProgram)
+    ("scalar-pattern-case", scalarPatternCaseExpectedProgram),
+    ("scalar-pattern-case-variable-guards", scalarPatternCaseVariableGuardsProgram),
+    ("scalar-pattern-case-repeated-literal-guards", scalarPatternCaseRepeatedLiteralGuardsProgram)
   ]
 
 scalarPatternCaseExpectedProgram :: TypedProgram
@@ -535,6 +538,214 @@ scalarPatternCaseExpectedProgram =
         intInfo
     ]
     modulePath
+
+scalarPatternCaseVariableGuardsProgram :: TypedProgram
+scalarPatternCaseVariableGuardsProgram =
+  expectedRootProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (intExpr 2)
+            [ TypedCaseArm
+                (TypedVariablePattern intInfo itemBinder itemName)
+                ( Just
+                    ( binaryExpr
+                        boolInfo
+                        ">"
+                        (boundVariableExpr itemName intInfo itemBinder)
+                        (intExpr 2)
+                    )
+                )
+                (boundVariableExpr itemName intInfo itemBinder),
+              TypedCaseArm
+                (TypedVariablePattern intInfo fallbackBinder fallbackName)
+                Nothing
+                ( binaryExpr
+                    intInfo
+                    "+"
+                    (boundVariableExpr fallbackName intInfo fallbackBinder)
+                    (intExpr 1)
+                )
+            ]
+        )
+    ]
+    intInfo
+  where
+    itemName = resolvedName "item"
+    itemBinder = TypedBinderId (modulePath, [0, 0], itemName)
+    fallbackName = resolvedName "fallback"
+    fallbackBinder = TypedBinderId (modulePath, [0, 1], fallbackName)
+
+scalarPatternCaseRepeatedLiteralGuardsProgram :: TypedProgram
+scalarPatternCaseRepeatedLiteralGuardsProgram =
+  expectedRootProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (intExpr 2)
+            [ TypedCaseArm
+                (TypedLiteralPattern intInfo (TypedIntegerLiteral "2"))
+                (Just (boolExpr False))
+                (intExpr 10),
+              TypedCaseArm
+                (TypedLiteralPattern intInfo (TypedIntegerLiteral "2"))
+                (Just (boolExpr True))
+                (intExpr 20),
+              TypedCaseArm
+                (TypedWildcardPattern intInfo)
+                Nothing
+                (intExpr 30)
+            ]
+        )
+    ]
+    intInfo
+
+scalarPatternCaseAnalysisExpectedPrograms :: [(Text, TypedProgram)]
+scalarPatternCaseAnalysisExpectedPrograms =
+  [ ("scalar-pattern-case-capture", scalarPatternCaseCaptureProgram),
+    ("scalar-pattern-case-closure-result", scalarPatternCaseClosureResultProgram)
+  ]
+
+scalarPatternCaseCaptureProgram :: TypedProgram
+scalarPatternCaseCaptureProgram =
+  expectedRootProgram
+    [ TypedLetStatement
+        seedBinder
+        seedName
+        (TypedSpan 2 1)
+        (scalarScheme seedBinder inferredIntInfo)
+        (inferredIntExpr 40),
+      TypedLetStatement
+        chooseBinder
+        chooseName
+        (TypedSpan 3 1)
+        (patternCaseCallableScheme chooseBinder TypedClosureCallableShape chooseInfo)
+        ( TypedLambdaExpr
+            chooseInfo
+            itemBinder
+            itemName
+            ( TypedPatternCaseExpr
+                inferredIntInfo
+                (boundVariableExpr itemName inferredIntInfo itemBinder)
+                [ TypedCaseArm
+                    (TypedVariablePattern inferredIntInfo currentBinder currentName)
+                    ( Just
+                        ( binaryExpr
+                            boolInfo
+                            ">"
+                            (boundVariableExpr currentName inferredIntInfo currentBinder)
+                            (inferredIntExpr 0)
+                        )
+                    )
+                    ( binaryExpr
+                        inferredIntInfo
+                        "+"
+                        (boundVariableExpr currentName inferredIntInfo currentBinder)
+                        (boundVariableExpr seedName inferredIntInfo seedBinder)
+                    ),
+                  TypedCaseArm
+                    (TypedWildcardPattern inferredIntInfo)
+                    Nothing
+                    (boundVariableExpr seedName inferredIntInfo seedBinder)
+                ]
+            )
+        ),
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( TypedApplyExpr
+            inferredIntInfo
+            (boundVariableExpr chooseName chooseInfo chooseBinder)
+            (inferredIntExpr 2)
+        )
+    ]
+    inferredIntInfo
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    chooseName = resolvedName "choose"
+    chooseBinder = TypedBinderId (modulePath, [1], chooseName)
+    itemName = resolvedName "item"
+    itemBinder = TypedBinderId (modulePath, [1, 0], itemName)
+    currentName = resolvedName "current"
+    currentBinder = TypedBinderId (modulePath, [1, 0, 0, 0], currentName)
+    chooseInfo = stagedFunctionInfo [("item", inferredIntInfo)] inferredIntInfo
+    inferredIntExpr :: Integer -> TypedExpr
+    inferredIntExpr value =
+      TypedLiteralExpr inferredIntInfo (TypedIntegerLiteral (Text.pack (show value)))
+
+scalarPatternCaseClosureResultProgram :: TypedProgram
+scalarPatternCaseClosureResultProgram =
+  expectedRootProgram
+    [ TypedLetStatement
+        chooseBinder
+        chooseName
+        (TypedSpan 2 1)
+        (patternCaseCallableScheme chooseBinder TypedDirectCallableShape chooseInfo)
+        ( TypedLambdaExpr
+            chooseInfo
+            flagBinder
+            flagName
+            ( TypedPatternCaseExpr
+                remainingInfo
+                (boundVariableExpr flagName boolInfo flagBinder)
+                [ TypedCaseArm
+                    (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+                    Nothing
+                    ( TypedLambdaExpr
+                        remainingInfo
+                        trueItemBinder
+                        itemName
+                        (boundVariableExpr itemName intInfo trueItemBinder)
+                    ),
+                  TypedCaseArm
+                    (TypedWildcardPattern boolInfo)
+                    Nothing
+                    ( TypedLambdaExpr
+                        remainingInfo
+                        falseItemBinder
+                        itemName
+                        (intExpr 0)
+                    )
+                ]
+            )
+        ),
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedApplyExpr
+            inferredIntInfo
+            ( TypedApplyExpr
+                remainingInferredInfo
+                (boundVariableExpr chooseName chooseInfo chooseBinder)
+                (boolExpr True)
+            )
+            (TypedLiteralExpr inferredIntInfo (TypedIntegerLiteral "7"))
+        )
+    ]
+    inferredIntInfo
+  where
+    chooseName = resolvedName "choose"
+    chooseBinder = TypedBinderId (modulePath, [0], chooseName)
+    flagName = resolvedName "flag"
+    flagBinder = TypedBinderId (modulePath, [0, 0], flagName)
+    itemName = resolvedName "item"
+    trueItemBinder = TypedBinderId (modulePath, [0, 0, 0, 1, 1], itemName)
+    falseItemBinder = TypedBinderId (modulePath, [0, 0, 0, 2, 1], itemName)
+    remainingInfo = stagedFunctionInfo [("item", intInfo)] intInfo
+    remainingInferredInfo = stagedFunctionInfo [("item", inferredIntInfo)] inferredIntInfo
+    chooseInfo = functionInfo [("flag", boolInfo)] remainingInfo
+
+patternCaseCallableScheme :: TypedBinderId -> TypedCallableShape -> TypedNodeInfo -> TypedScheme
+patternCaseCallableScheme owner callableShape info =
+  TypedScheme
+    owner
+    []
+    []
+    []
+    (typedExpressionType info)
+    (typedExpressionRecipe info)
+    (Just callableShape)
 
 scalarBindingProducerFixtures :: [(Text, Fixture)]
 scalarBindingProducerFixtures =
@@ -3291,6 +3502,35 @@ producerEdgeFixtures =
            sourceFixtureNoExports
              "scalar-pattern-case"
              "case True { | True -> 1 | _ -> 2 }."
+         ),
+         ( "scalar-pattern-case-variable-guards",
+           sourceFixtureNoExports
+             "scalar-pattern-case-variable-guards"
+             "case 2 { | item if item > 2 -> item | fallback -> fallback + 1 }."
+         ),
+         ( "scalar-pattern-case-repeated-literal-guards",
+           sourceFixtureNoExports
+             "scalar-pattern-case-repeated-literal-guards"
+             "case 2 { | 2 if False -> 10 | 2 if True -> 20 | _ -> 30 }."
+         ),
+         ( "scalar-pattern-case-capture",
+           sourceFixtureNoExports
+             "scalar-pattern-case-capture"
+             ( Text.unlines
+                 [ "seed = 40.",
+                   "choose = \\(item) -> case item { | current if current > 0 -> current + seed | _ -> seed }.",
+                   "choose 2."
+                 ]
+             )
+         ),
+         ( "scalar-pattern-case-closure-result",
+           sourceFixtureNoExports
+             "scalar-pattern-case-closure-result"
+             ( Text.unlines
+                 [ "choose = \\(flag) -> case flag { | True -> \\(item) -> item | _ -> \\(item) -> 0 }.",
+                   "(choose True) 7."
+                 ]
+             )
          ),
          ( "pattern-case-final-guarded-catch-all",
            sourceFixtureNoExports

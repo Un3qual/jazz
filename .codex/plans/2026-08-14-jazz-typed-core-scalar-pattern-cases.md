@@ -278,7 +278,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   callable-use classification, parameter-use analysis, scalar specialization,
   recursive support checks, lambda counts, and finalization.
 
-- [ ] **Step 1: Add a guarded variable/catch-all fixture.** Lock the exact
+- [x] **Step 1: Add a guarded variable/catch-all fixture.** Lock the exact
       `TypedBinderId`, guard reference, body reference, and unified result:
 
   ```jazz
@@ -288,7 +288,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   }.
   ```
 
-- [ ] **Step 2: Add ordered guard fallthrough coverage.** Use repeated literal
+- [x] **Step 2: Add ordered guard fallthrough coverage.** Use repeated literal
       arms to prove source order is semantic:
 
   ```jazz
@@ -299,7 +299,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   }.
   ```
 
-- [ ] **Step 3: Add capture and callable-shape fixtures.** Add exact Typed Core
+- [x] **Step 3: Add capture and callable-shape fixtures.** Add exact Typed Core
       for both programs:
 
   ```jazz
@@ -322,26 +322,26 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   These fixtures must fail if the case is treated as a leaf, if an arm binder
   is counted as a capture, or if branch closure shape is discarded.
 
-- [ ] **Step 4: Run the focused suite and verify RED.** Expected failures are
+- [x] **Step 4: Run the focused suite and verify RED.** Expected failures are
       exact binder identity, capture layout, callable shape, or child-path
       mismatches—not parser failures.
 
-- [ ] **Step 5: Update every provisional traversal.** Add explicit
+- [x] **Step 5: Update every provisional traversal.** Add explicit
       `ProvisionalPatternCaseExpression` cases beside the existing
       `ProvisionalIfExpression` cases. Fold arms in source order and enter the
       arm-local binder scope only for that arm's guard and body. Do not place
       the binder in capture sets or recursive-group external dependencies.
 
-- [ ] **Step 6: Add the scalar case profile audit helper.** Return ordered
+- [x] **Step 6: Add the scalar case profile audit helper.** Return ordered
       `scalarPatternCaseProfileFailures` for the syntactic totality rule,
       immediate representation checks, and unsupported pattern forms. Combine
       those with existing descendant failures without masking earlier paths.
 
-- [ ] **Step 7: Run the focused suite twice and verify GREEN.** Every new exact
+- [x] **Step 7: Run the focused suite twice and verify GREEN.** Every new exact
       Typed Core value and all pre-existing scalar, closure, capture, currying,
       recursion, and conditional fixtures must match identically on both runs.
 
-- [ ] **Step 8: Commit the analysis milestone.** Run:
+- [x] **Step 8: Commit the analysis milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
