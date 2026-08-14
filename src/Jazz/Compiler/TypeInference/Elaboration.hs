@@ -519,7 +519,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               selectedExpression =
                 specializeProvisionalExpression
                   state
-                  (Just selectedExpressionType)
+                  (selectedCaptureType <|> Just selectedExpressionType)
                   expression
               callableNameCollisionFailures =
                 [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail | Map.member name functions]
@@ -990,7 +990,16 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     collectStatementCallProfiles referenceFunctions functions statement =
       case statement of
-        ProvisionalFunctionBinding _ expression -> collectExpressionCallProfiles referenceFunctions Set.empty functions expression
+        ProvisionalFunctionBinding declaration expression ->
+          let statementIndex = provisionalCallableStatementIndex declaration
+              name = provisionalCallableName declaration
+              selectedExpression =
+                case Map.lookup name referenceFunctions of
+                  Just function
+                    | functionStatementIndex function == statementIndex ->
+                        specializeProvisionalCallableProfile referenceFunctions (functionType function) expression
+                  _ -> expression
+           in collectExpressionCallProfiles referenceFunctions Set.empty functions selectedExpression
         ProvisionalScalarBinding _ _ _ _ expression -> collectExpressionCallProfiles referenceFunctions Set.empty functions expression
         ProvisionalTerminalExpression _ _ expression -> collectExpressionCallProfiles referenceFunctions Set.empty functions expression
         _ -> functions
@@ -1817,7 +1826,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ProvisionalBinaryExpression _ expressionType operandType left right ->
               let resultType = specializedType maybeExpected expressionType
                   resolvedOperandType = resolveType state operandType
-                  operandExpected = concreteIntegralType resultType <|> concreteIntegralType resolvedOperandType
+                  operandExpected =
+                    concreteIntegralType resultType
+                      <|> concreteIntegralType resolvedOperandType
+                      <|> (maybeExpected >>= concreteIntegralType . resolveType state)
                in child operandExpected left <> child operandExpected right
             ProvisionalVariableExpression name expressionType
               | Set.notMember name boundNames,
@@ -2097,7 +2109,10 @@ specializeProvisionalExpression state maybeExpected expression =
     ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
       let resultType = specializedType expressionType
           resolvedOperandType = resolveType state operandType
-          operandExpected = concreteIntegralType resultType <|> concreteIntegralType resolvedOperandType
+          operandExpected =
+            concreteIntegralType resultType
+              <|> concreteIntegralType resolvedOperandType
+              <|> (maybeExpected >>= concreteIntegralType . resolveType state)
           specializedOperandType = maybe resolvedOperandType id operandExpected
        in ProvisionalBinaryExpression
             operatorSymbol
@@ -2186,16 +2201,87 @@ specializeProvisionalCallableCapture state captureType expression =
           specializedFunctionType =
             case fallbackFunctionType of
               TFunctionType parameterType resultType ->
-                TFunctionType
-                  ( foldl'
-                      (\selectedType referenceType -> specializeExpressionType state referenceType selectedType)
-                      parameterType
-                      (provisionalParameterReferenceTypes parameterName specializedBody)
-                  )
-                  (maybe resultType id (provisionalExpressionType state specializedBody))
+                let selectedParameterType =
+                      foldl'
+                        (\selectedType referenceType -> specializeCompatibleType state referenceType selectedType)
+                        parameterType
+                        ( provisionalParameterApplicationTypes state captureType parameterName specializedBody
+                            <> provisionalParameterReferenceTypes parameterName specializedBody
+                        )
+                    parameterSpecializedBody =
+                      specializeProvisionalParameterReferences state parameterName selectedParameterType specializedBody
+                 in TFunctionType
+                      selectedParameterType
+                      (maybe resultType id (provisionalExpressionType state parameterSpecializedBody))
               _ -> fallbackFunctionType
-       in ProvisionalLambdaExpression parameterName specializedFunctionType specializedBody
+          selectedBody =
+            case specializedFunctionType of
+              TFunctionType parameterType _ ->
+                specializeProvisionalParameterReferences state parameterName parameterType specializedBody
+              _ -> specializedBody
+       in ProvisionalLambdaExpression parameterName specializedFunctionType selectedBody
     _ -> specializeProvisionalExpression state (Just captureType) expression
+
+provisionalParameterApplicationTypes :: InferState -> ExpressionType -> Name -> ProvisionalTypedExpr -> [ExpressionType]
+provisionalParameterApplicationTypes state captureType parameterName = expressionApplicationTypes False
+  where
+    expressionApplicationTypes shadowed expression =
+      case expression of
+        ProvisionalUnitExpression -> []
+        ProvisionalLiteralExpression {} -> []
+        ProvisionalBinaryExpression _ _ _ left right -> child left <> child right
+        ProvisionalVariableExpression {} -> []
+        ProvisionalLambdaExpression nestedParameterName _ body ->
+          expressionApplicationTypes (shadowed || nestedParameterName == parameterName) body
+        ProvisionalApplyExpression {} ->
+          let (callee, arguments, resultType) = applicationProfile expression
+              argumentTypes =
+                [ specializeCompatibleType state captureType argumentType
+                | argument <- arguments,
+                  Just argumentType <- [provisionalExpressionType state argument]
+                ]
+              selectedResultType = specializeCompatibleType state captureType resultType
+              selectedApplicationType = foldr TFunctionType selectedResultType argumentTypes
+              applicationType =
+                case callee of
+                  ProvisionalVariableExpression name _
+                    | not shadowed,
+                      name == parameterName ->
+                        [selectedApplicationType]
+                  _ -> []
+              childTypes =
+                case applicationType of
+                  _ : _ -> concatMap child arguments
+                  [] -> child callee <> concatMap child arguments
+           in applicationType <> childTypes
+        ProvisionalScopeStatements statements -> scopeApplicationTypes shadowed statements
+        ProvisionalUnsupportedExpression {} -> []
+        ProvisionalRetainedFailures {} -> []
+      where
+        child = expressionApplicationTypes shadowed
+
+    applicationProfile expression =
+      let selectedResultType =
+            maybe captureType id (provisionalExpressionType state expression)
+       in go [] selectedResultType expression
+      where
+        go arguments resultType (ProvisionalApplyExpression _ function argument) =
+          go (argument : arguments) resultType function
+        go arguments resultType callee = (callee, arguments, resultType)
+
+    scopeApplicationTypes _ [] = []
+    scopeApplicationTypes shadowed (statement : rest) =
+      case statement of
+        ProvisionalFunctionBinding declaration nestedExpression ->
+          let name = provisionalCallableName declaration
+              nextShadowed = shadowed || name == parameterName
+           in expressionApplicationTypes nextShadowed nestedExpression <> scopeApplicationTypes nextShadowed rest
+        ProvisionalScalarBinding _ name _ _ nestedExpression ->
+          expressionApplicationTypes shadowed nestedExpression
+            <> scopeApplicationTypes (shadowed || name == parameterName) rest
+        ProvisionalTerminalExpression _ _ nestedExpression ->
+          expressionApplicationTypes shadowed nestedExpression <> scopeApplicationTypes shadowed rest
+        _ -> scopeApplicationTypes shadowed rest
 
 provisionalParameterReferenceTypes :: Name -> ProvisionalTypedExpr -> [ExpressionType]
 provisionalParameterReferenceTypes parameterName = expressionReferenceTypes False

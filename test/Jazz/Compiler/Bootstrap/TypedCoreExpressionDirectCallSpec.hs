@@ -92,13 +92,15 @@ tests =
     ("specializes every use of a captured numeric scalar", testCapturedNumericScalarReferenceSpecialization),
     ("specializes enclosing expressions that reuse captured numeric scalars", testCapturedCompositeScalarSpecialization),
     ("specializes independent scalar binders recolored with recursive captures", testCapturedCompositeScalarBinderSpecialization),
-    ("preserves non-integral results derived from specialized captures", testCapturedComparisonResultSpecialization),
+    ("preserves capture expectations for non-integral comparison operands", testCapturedComparisonResultSpecialization),
     ("specializes enclosing function expressions that reuse captured numeric scalars", testCapturedFunctionBodySpecialization),
     ("specializes callable parameters recolored with captured numeric scalars", testCapturedFunctionParameterSpecialization),
+    ("specializes callable parameters invoked with captured numeric scalars", testCapturedCallableParameterApplicationSpecialization),
     ("specializes scalar binders recolored inside callable bodies", testCapturedFunctionScalarBinderSpecialization),
     ("specializes scalar binders recolored as callable arguments", testCapturedFunctionArgumentScalarBinderSpecialization),
     ("specializes scalar binders initialized from callable results", testCapturedFunctionResultScalarBinderSpecialization),
     ("specializes higher-order profiles from callable arguments", testCapturedHigherOrderCallableArgumentSpecialization),
+    ("specializes forwarded higher-order profiles from callable arguments", testCapturedForwardedHigherOrderCallableArgumentSpecialization),
     ("specializes terminal anonymous callable bodies", testCapturedTerminalAnonymousCallableSpecialization),
     ("respecializes callers of specialized named functions", testCapturedNamedCallerSpecialization),
     ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
@@ -1430,6 +1432,7 @@ testCapturedComparisonResultSpecialization = do
   let spanValue = SourceSpan 1 1
       seedType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      comparisonOperandType = TIntegerLiteralType (IntegerLiteralRange 1 2)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration =
@@ -1467,7 +1470,7 @@ testCapturedComparisonResultSpecialization = do
               ( ProvisionalBinaryExpression
                   "<"
                   TBoolType
-                  uint8Type
+                  comparisonOperandType
                   (ProvisionalVariableExpression "seed" seedType)
                   (ProvisionalLiteralExpression (LInt 2) otherType)
               ),
@@ -1609,6 +1612,73 @@ testCapturedFunctionParameterSpecialization = do
               )
           ]
   assertProvisionalProductionCompletes "captured function parameter specialization" provisionalScope
+
+testCapturedCallableParameterApplicationSpecialization :: IO ()
+testCapturedCallableParameterApplicationSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      callbackFunctionType = TFunctionType literalType literalType
+      helperFunctionType = TFunctionType callbackFunctionType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      ( ProvisionalApplyExpression
+                          literalType
+                          (ProvisionalVariableExpression "function" callbackFunctionType)
+                          (ProvisionalVariableExpression "seed" literalType)
+                      )
+                      (ProvisionalVariableExpression "seed" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              (ProvisionalVariableExpression "helper" helperFunctionType)
+          ]
+  assertProvisionalProductionCompletes "captured callable parameter application specialization" provisionalScope
 
 testCapturedFunctionScalarBinderSpecialization :: IO ()
 testCapturedFunctionScalarBinderSpecialization = do
@@ -1912,6 +1982,112 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
               )
           ]
   assertProvisionalProductionCompletes "captured higher-order callable argument specialization" provisionalScope
+
+testCapturedForwardedHigherOrderCallableArgumentSpecialization :: IO ()
+testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      applyFunctionType = TFunctionType helperFunctionType literalType
+      forwardFunctionType = TFunctionType helperFunctionType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      applyDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "apply"
+          spanValue
+          applyFunctionType
+          (Just (PlainTypeBinding applyFunctionType))
+          Nothing
+      forwardDeclaration =
+        ProvisionalCallableDeclaration
+          4
+          "forward"
+          spanValue
+          forwardFunctionType
+          (Just (PlainTypeBinding forwardFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              applyDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  applyFunctionType
+                  ( ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "function" helperFunctionType)
+                      (ProvisionalLiteralExpression (LInt 1) literalType)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              forwardDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  forwardFunctionType
+                  ( ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "apply" applyFunctionType)
+                      (ProvisionalVariableExpression "function" helperFunctionType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              5
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "forward" forwardFunctionType)
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured forwarded higher-order callable argument specialization" provisionalScope
 
 testCapturedTerminalAnonymousCallableSpecialization :: IO ()
 testCapturedTerminalAnonymousCallableSpecialization = do
