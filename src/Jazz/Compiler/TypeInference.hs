@@ -782,9 +782,9 @@ inferExprTypeDetailed builtinMode env state expr =
               stateWithScrutineeType
               caseArms
           failures =
-            scalarPatternCaseProfileFailures finalState scrutineeType caseArms
-              <> childFailures 0 scrutineeResult
+            childFailures 0 scrutineeResult
               <> concat (zipWith patternCaseArmFailures [0 ..] armResults)
+              <> scalarPatternCaseProfileFailures finalState scrutineeType caseArms
           provisionalExpr = do
             case failures of
               _ : _ -> pure (ProvisionalRetainedFailures failures)
@@ -918,9 +918,9 @@ inferExprTypeDetailed builtinMode env state expr =
       | InferredProductionFailure childPath kind detail <- inferredProductionFailures result
       ]
 
-    patternCaseArmFailures armIndex (InferredPatternCaseArm _ maybeGuardResult bodyResult) =
+    patternCaseArmFailures armIndex (InferredPatternCaseArm _ maybeGuardResult maybeBodyResult) =
       maybe [] (prefixFailures [armIndex + 1, 0]) maybeGuardResult
-        <> prefixFailures [armIndex + 1, 1] bodyResult
+        <> maybe [] (prefixFailures [armIndex + 1, 1]) maybeBodyResult
 
     scalarPatternCaseProfileFailures finalState scrutineeType caseArms
       | supportedScalarScrutinee finalState scrutineeType
@@ -974,11 +974,12 @@ inferExprTypeDetailed builtinMode env state expr =
         Just _ -> True
         Nothing -> False
 
-    provisionalPatternCaseArm finalState resultType (InferredPatternCaseArm pattern maybeGuardResult bodyResult) = do
+    provisionalPatternCaseArm finalState resultType (InferredPatternCaseArm pattern maybeGuardResult maybeBodyResult) = do
       guardExpression <-
         traverse
           (inferredProvisionalExpr . specializeInferredExpression finalState TBoolType)
           maybeGuardResult
+      bodyResult <- maybeBodyResult
       bodyExpression <-
         inferredProvisionalExpr
           (specializeInferredExpression finalState resultType bodyResult)

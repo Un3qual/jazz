@@ -10,7 +10,6 @@ module Jazz.Compiler.TypeInference.Pattern
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
@@ -38,7 +37,7 @@ import Jazz.Compiler.TypeInference.Types
 data InferredPatternCaseArm = InferredPatternCaseArm
   Pattern
   (Maybe InferredExpr)
-  InferredExpr
+  (Maybe InferredExpr)
   deriving (Eq, Show)
 
 data PatternCaseArmResult result = PatternCaseArmResult
@@ -90,10 +89,10 @@ inferPatternCaseTypeWithResults inferExpression builtinMode env scrutineeType in
           scrutineeType
           initialState
           caseArms
-   in (expressionType, finalState, mapMaybe retainArm armResults)
+   in (expressionType, finalState, map retainArm armResults)
   where
     retainArm (PatternCaseArmResult pattern maybeGuardResult maybeBodyResult) =
-      InferredPatternCaseArm pattern maybeGuardResult <$> maybeBodyResult
+      InferredPatternCaseArm pattern maybeGuardResult maybeBodyResult
 
 inferPatternCaseTypeInternal ::
   (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (Maybe ExpressionType, InferState, Maybe result)) ->

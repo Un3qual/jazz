@@ -7,8 +7,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (NumericUInt8), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), Literal (..), NumericType (NumericUInt8), Pattern (..), Statement (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -24,13 +25,15 @@ import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), R
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypeInference.Elaboration
-  ( ProvisionalCallableDeclaration (..),
+  ( InferredExpr (..),
+    ProvisionalCallableDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     expressionDependencyNames,
     finalizeValidatedTypedCoreExpressionDirectCall,
     typedCoreProductionOutcomeStatus,
   )
+import Jazz.Compiler.TypeInference.Pattern (InferredPatternCaseArm (..), inferPatternCaseTypeWithResults)
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
@@ -56,6 +59,7 @@ tests =
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
+    ("retains scalar pattern-case arm positions after pattern typing failures", testScalarPatternCaseArmResultPositions),
     ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
     ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
@@ -537,13 +541,13 @@ testScalarPatternCaseProducerBoundaries = do
           ]
         ),
         ( "pattern-case-list-pattern",
-          [ profileFailure 0,
-            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            profileFailure 0
           ]
         ),
         ( "pattern-case-tuple-pattern",
-          [ profileFailure 0,
-            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail,
+            profileFailure 0
           ]
         ),
         ("pattern-case-as-pattern", [profileFailure 0]),
@@ -627,6 +631,27 @@ testScalarPatternCaseProducerBoundaries = do
         kind
         detail
 
+testScalarPatternCaseArmResultPositions :: IO ()
+testScalarPatternCaseArmResultPositions =
+  assertEqual
+    "pattern inference retains one result slot per authored arm"
+    [PLiteral (LInt 1), PWildcard]
+    (map inferredArmPattern armResults)
+  where
+    (_, _, armResults) =
+      inferPatternCaseTypeWithResults
+        inferChild
+        ResolveKernelOnly
+        Map.empty
+        TBoolType
+        initialInferState
+        [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool False)),
+          CaseArm PWildcard Nothing (ELit (LBool True))
+        ]
+    inferChild _ _ state _ =
+      (InferredExpr (Just TBoolType) Nothing [], state)
+    inferredArmPattern (InferredPatternCaseArm pattern _ _) = pattern
+
 testScalarPatternCaseAnalysisProduction :: IO ()
 testScalarPatternCaseAnalysisProduction =
   mapM_ assertProduced scalarPatternCaseAnalysisExpectedPrograms
@@ -643,9 +668,21 @@ testScalarPatternCaseAnalysisProduction =
       assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
 
 testScalarPatternCaseTransportLowering :: IO ()
-testScalarPatternCaseTransportLowering =
+testScalarPatternCaseTransportLowering = do
+  mapM_
+    assertExpectationKeys
+    [ ("control flow", map fst expectedPatternCaseControlFlows),
+      ("transport shape", map fst expectedPatternCaseTransportShapes),
+      ("join operations", map fst expectedPatternCaseJoinOperations),
+      ("closure call count", map fst expectedClosureCallCounts)
+    ]
   mapM_ assertTransported names
   where
+    assertExpectationKeys (label, keys) =
+      assertEqual
+        (label <> " expectation keys are exercised")
+        []
+        [key | key <- keys, key `notElem` names]
     names =
       [ "pattern-case-in-conditional-branch",
         "conditional-in-pattern-case-guard",
@@ -4398,9 +4435,9 @@ testUnsupportedCompositeFailureAccumulation =
   where
     expectedResults =
       [ ( "pattern-case-unsupported-children",
-          [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
-            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
           ]
         ),
         ( "nested-block-unsupported-child",
@@ -4410,11 +4447,11 @@ testUnsupportedCompositeFailureAccumulation =
           ]
         ),
         ( "guarded-pattern-case-unsupported-children",
-          [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
-            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             expressionFailure 0 [1, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
             expressionFailure 0 [1, 0, 0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
           ]
         ),
         ( "unsupported-binary-child",
