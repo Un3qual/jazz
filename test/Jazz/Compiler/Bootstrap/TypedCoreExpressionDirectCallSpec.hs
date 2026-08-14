@@ -7,8 +7,9 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (NumericUInt8), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), Literal (..), NumericType (NumericUInt8), Pattern (..), Statement (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -24,13 +25,15 @@ import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), R
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypeInference.Elaboration
-  ( ProvisionalCallableDeclaration (..),
+  ( InferredExpr (..),
+    ProvisionalCallableDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     expressionDependencyNames,
     finalizeValidatedTypedCoreExpressionDirectCall,
     typedCoreProductionOutcomeStatus,
   )
+import Jazz.Compiler.TypeInference.Pattern (InferredPatternCaseArm (..), inferPatternCaseTypeWithResults)
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
@@ -53,6 +56,12 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
+    ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
+    ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
+    ("retains scalar pattern-case arm positions after pattern typing failures", testScalarPatternCaseArmResultPositions),
+    ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
+    ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
@@ -187,6 +196,7 @@ testFixtureManifest = do
           "ordering-operators",
           "equality-operators",
           "conditional",
+          "pattern-case",
           "scalar-parameter-return",
           "single-argument-direct-call",
           "curried-multi-argument-direct-call",
@@ -220,7 +230,6 @@ testFixtureManifest = do
           "list-value",
           "non-unit-tuple",
           "data-value",
-          "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
           "later-capture-mutual-recursion",
@@ -233,8 +242,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 33 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 34 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 16 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -295,7 +304,16 @@ testIndependentLowererManifest = do
           "nested-lambda-closure-value-self-recursion",
           "imported-direct-call",
           "managed-scalar-entry",
-          "conditional-entry"
+          "conditional-entry",
+          "pattern-case-constructor-lowerer",
+          "pattern-case-list-lowerer",
+          "pattern-case-tuple-lowerer",
+          "pattern-case-as-lowerer",
+          "pattern-case-or-lowerer",
+          "pattern-case-final-literal-lowerer",
+          "pattern-case-final-guarded-catch-all-lowerer",
+          "pattern-case-unguarded-non-final-wildcard-lowerer",
+          "pattern-case-unguarded-non-final-variable-lowerer"
         ]
       expectedInvalidNames =
         [ "closure-shape-flattened-recipe",
@@ -356,6 +374,7 @@ testAcceptedManifestPipeline =
     expectedTypedPrograms =
       [("unit-entry", expectedUnitProgram)]
         <> scalarExpectedPrograms
+        <> scalarPatternCaseExpectedPrograms
         <> directCallExpectedPrograms
         <> directRecursionExpectedPrograms
         <> closureRecursionExpectedPrograms
@@ -364,12 +383,14 @@ testAcceptedManifestPipeline =
         <> curriedApplicationExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
+        <> [(name, lowered) | (name, _, lowered) <- scalarPatternCaseExpectedLoweredPrograms]
         <> directCallExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- directRecursionExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- closureRecursionExpectedLoweredPrograms]
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
+    expectedLoweringFailures = []
 
     assertAccepted name =
       case lookup name expectedTypedPrograms of
@@ -396,8 +417,8 @@ testAcceptedManifestPipeline =
           case typedCoreProductionStatus firstProduction of
             TypedCoreProductionSucceeded typedProgram -> do
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
-              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms) of
-                (Just validatedProgram, Just expectedLoweredProgram) -> do
+              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms, lookup name expectedLoweringFailures) of
+                (Just validatedProgram, Just expectedLoweredProgram, Nothing) -> do
                   let lowering = lowerTypedCoreExpressionDirectCall typedProgram
                       trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
                   assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
@@ -409,10 +430,763 @@ testAcceptedManifestPipeline =
                     LoweredIRSucceeded loweredProgram ->
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
-                (Nothing, _) -> failTest (name <> " did not retain its validation proof")
-                (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
+                (Just validatedProgram, Nothing, Just expectedLoweringFailure) -> do
+                  let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+                      trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
+                  assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
+                  assertEqual (name <> " retained lowering boundary") expectedLoweringFailure lowering
+                (Nothing, _, _) -> failTest (name <> " did not retain its validation proof")
+                (_, _, _) -> failTest (name <> " has ambiguous or missing lowering expectations")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testScalarPatternCaseProduction :: IO ()
+testScalarPatternCaseProduction =
+  mapM_ assertProduced scalarPatternCaseExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture =
+            if name == "pattern-case"
+              then fixtureByName name
+              else producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      assertEqual
+        (name <> " exact typed production")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstProduction)
+      assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
+      case lookup name expectedLowerings of
+        Just expectedLowering ->
+          assertEqual
+            (name <> " exact scalar pattern-case lowering")
+            (LoweredIRSucceeded expectedLowering)
+            (lowerTypedCoreExpressionDirectCall expectedProgram)
+        Nothing ->
+          case lowerTypedCoreExpressionDirectCall expectedProgram of
+            LoweredIRSucceeded loweredProgram ->
+              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+            lowering ->
+              failTest (name <> " did not lower: " <> Text.pack (show lowering))
+    expectedLowerings =
+      [(name, lowered) | (name, _, lowered) <- scalarPatternCaseExpectedLoweredPrograms]
+
+testScalarPatternCaseLowererBoundary :: IO ()
+testScalarPatternCaseLowererBoundary =
+  mapM_ assertBoundary expectedResults
+  where
+    assertBoundary (name, expectedFailures) =
+      case lookup name scalarPatternCaseLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " pattern-case lowerer boundary program is missing")
+        Just programValue -> do
+          let firstLowering = lowerTypedCoreExpressionDirectCall programValue
+              secondLowering = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable lowerer rejection") firstLowering secondLowering
+          assertEqual
+            (name <> " exact lowerer rejection")
+            (LoweredIRUnsupported expectedFailures)
+            firstLowering
+
+    expectedResults =
+      [ ( "pattern-case-constructor-lowerer",
+          [ LoweredIRLoweringFailure
+              (TypedStatementPath ["App", "Main"] [0])
+              LoweredIRUnsupportedStatement
+              LoweredIRNoFailureDetail,
+            patternFailure [1] [0, 0]
+          ]
+        ),
+        unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
+        unsupportedPattern "pattern-case-tuple-lowerer" [0] [0, 0],
+        unsupportedPattern "pattern-case-as-lowerer" [0] [0, 0],
+        unsupportedPattern "pattern-case-or-lowerer" [0] [0, 0],
+        incompleteCase "pattern-case-final-literal-lowerer",
+        incompleteCase "pattern-case-final-guarded-catch-all-lowerer",
+        incompleteCase "pattern-case-unguarded-non-final-wildcard-lowerer",
+        incompleteCase "pattern-case-unguarded-non-final-variable-lowerer"
+      ]
+    unsupportedPattern name statementPath patternPath =
+      (name, [patternFailure statementPath patternPath])
+    patternFailure statementPath patternPath =
+      LoweredIRLoweringFailure
+        (TypedPatternPath ["App", "Main"] statementPath patternPath)
+        LoweredIRUnsupportedPattern
+        LoweredIRNoFailureDetail
+    incompleteCase name =
+      ( name,
+        [ LoweredIRLoweringFailure
+            (TypedExpressionPath ["App", "Main"] [0] [0])
+            LoweredIRIncompletePatternCase
+            LoweredIRNoFailureDetail
+        ]
+      )
+
+testScalarPatternCaseProducerBoundaries :: IO ()
+testScalarPatternCaseProducerBoundaries = do
+  mapM_ assertSourceBoundary expectedSourceFailures
+  mapM_ assertDiagnosticBoundary expectedDiagnosticFailures
+  assertEmptyArmBoundary
+  where
+    expectedSourceFailures =
+      [ ("pattern-case-final-guarded-catch-all", [profileFailure 0]),
+        ("pattern-case-missing-final-catch-all", [profileFailure 0]),
+        ("pattern-case-unguarded-non-final-wildcard", [profileFailure 0]),
+        ("pattern-case-unguarded-non-final-variable", [profileFailure 0]),
+        ("pattern-case-managed-scrutinee", [profileFailure 0]),
+        ( "pattern-case-constructor-pattern",
+          [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+            profileFailure 1
+          ]
+        ),
+        ( "pattern-case-list-pattern",
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            profileFailure 0
+          ]
+        ),
+        ( "pattern-case-tuple-pattern",
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail,
+            profileFailure 0
+          ]
+        ),
+        ("pattern-case-as-pattern", [profileFailure 0]),
+        ("pattern-case-or-pattern", [profileFailure 0])
+      ]
+    expectedDiagnosticFailures =
+      [ ("pattern-case-non-bool-guard", "E2001"),
+        ("pattern-case-incompatible-arm-results", "E2012")
+      ]
+
+    assertSourceBoundary (name, expectedFailures) = do
+      let fixture = producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable rejection") firstProduction secondProduction
+      assertEqual
+        (name <> " exact producer-profile rejection")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstProduction)
+
+    assertDiagnosticBoundary (name, expectedDiagnosticCode) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
+      assertEqual (name <> " repeatable diagnostic block") firstProduction secondProduction
+      assertEqual
+        (name <> " remains owned by inference diagnostics")
+        TypedCoreProductionBlockedByDiagnostics
+        (typedCoreProductionStatus firstProduction)
+      assertEqual
+        (name <> " exact inference diagnostic")
+        [expectedDiagnosticCode]
+        [ diagnosticCodeText (diagnosticCode diagnostic)
+        | diagnostic <- inferredDiagnostics ordinary,
+          isErrorDiagnostic diagnostic
+        ]
+
+    assertEmptyArmBoundary = do
+      let fixture = fixtureByName "unit-entry"
+      resolvedModule <- resolveFixtureModule fixture
+      let emptyCaseModule =
+            resolvedModule
+              { resolvedModuleCore =
+                  replaceTerminalExpression
+                    (EPatternCase (ELit (LBool True)) [])
+                    (resolvedModuleCore resolvedModule)
+              }
+      firstProduction <- produceResolvedFixture fixture emptyCaseModule
+      secondProduction <- produceResolvedFixture fixture emptyCaseModule
+      assertEqual "empty pattern-case repeatable rejection" firstProduction secondProduction
+      assertEqual
+        "empty pattern-case exact producer-profile rejection"
+        (TypedCoreProductionUnsupported [profileFailure 0])
+        (typedCoreProductionStatus firstProduction)
+
+    replaceTerminalExpression replacement coreModule =
+      case coreModuleExpr coreModule of
+        EBlock [SExpr spanValue _] ->
+          coreModule {coreModuleExpr = EBlock [SExpr spanValue replacement]}
+        other ->
+          error ("unexpected unit fixture core shape: " <> show other)
+
+    profileFailure statementIndex =
+      expressionFailure
+        statementIndex
+        []
+        TypedCorePatternCaseUnsupported
+        TypedCorePatternCaseDetail
+
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+
+    statementFailure statementIndex kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        kind
+        detail
+
+testScalarPatternCaseArmResultPositions :: IO ()
+testScalarPatternCaseArmResultPositions =
+  assertEqual
+    "pattern inference retains one result slot per authored arm"
+    [PLiteral (LInt 1), PWildcard]
+    (map inferredArmPattern armResults)
+  where
+    (_, _, armResults) =
+      inferPatternCaseTypeWithResults
+        inferChild
+        ResolveKernelOnly
+        Map.empty
+        TBoolType
+        initialInferState
+        [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool False)),
+          CaseArm PWildcard Nothing (ELit (LBool True))
+        ]
+    inferChild _ _ state _ =
+      (InferredExpr (Just TBoolType) Nothing [], state)
+    inferredArmPattern (InferredPatternCaseArm pattern _ _) = pattern
+
+testScalarPatternCaseAnalysisProduction :: IO ()
+testScalarPatternCaseAnalysisProduction =
+  mapM_ assertProduced scalarPatternCaseAnalysisExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      assertEqual
+        (name <> " exact analysis-preserving production")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstProduction)
+      assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
+
+testScalarPatternCaseTransportLowering :: IO ()
+testScalarPatternCaseTransportLowering = do
+  mapM_
+    assertExpectationKeys
+    [ ("control flow", map fst expectedPatternCaseControlFlows),
+      ("transport shape", map fst expectedPatternCaseTransportShapes),
+      ("join operations", map fst expectedPatternCaseJoinOperations),
+      ("closure call count", map fst expectedClosureCallCounts)
+    ]
+  mapM_ assertTransported names
+  where
+    assertExpectationKeys (label, keys) =
+      assertEqual
+        (label <> " expectation keys are exercised")
+        []
+        [key | key <- keys, key `notElem` names]
+    names =
+      [ "pattern-case-in-conditional-branch",
+        "conditional-in-pattern-case-guard",
+        "pattern-case-in-pattern-case-body",
+        "pattern-case-scrutinee-pattern-case",
+        "pattern-case-ambient-scalar",
+        "pattern-case-captured-scalar",
+        "scalar-pattern-case-closure-result",
+        "pattern-case-call-argument"
+      ]
+    assertTransported name = do
+      let fixture = producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      case typedCoreProductionStatus firstProduction of
+        TypedCoreProductionSucceeded typedProgram -> do
+          assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
+          let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
+              secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
+          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
+          case firstLowering of
+            LoweredIRSucceeded loweredProgram -> do
+              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+              case lookup name expectedPatternCaseControlFlows of
+                Just expectedControlFlow ->
+                  assertEqual
+                    (name <> " exact pattern-case control flow")
+                    expectedControlFlow
+                    (patternCaseControlFlow loweredProgram)
+                Nothing -> pure ()
+              case lookup name expectedPatternCaseTransportShapes of
+                Just expectedTransportShape ->
+                  assertEqual
+                    (name <> " exact pattern-case transport shape")
+                    expectedTransportShape
+                    (patternCaseTransportShape loweredProgram)
+                Nothing -> pure ()
+              case lookup name expectedPatternCaseJoinOperations of
+                Just (joinBlockId, expectedOperations) ->
+                  assertEqual
+                    (name <> " exact post-join operations")
+                    [expectedOperations]
+                    (blockOperations loweredProgram joinBlockId)
+                Nothing -> pure ()
+              case lookup name expectedClosureCallCounts of
+                Just expectedCount ->
+                  assertEqual
+                    (name <> " closure application count")
+                    expectedCount
+                    (closureCallCount loweredProgram)
+                Nothing -> pure ()
+            other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+
+patternCaseControlFlow :: LoweredProgram -> [(LoweredFunctionId, [LoweredBlock])]
+patternCaseControlFlow (LoweredProgram _ _ _ functions _) =
+  [ (functionId, blocks)
+  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+    any isPatternCaseBlock blocks
+  ]
+  where
+    isPatternCaseBlock (LoweredBlock (LoweredBlockId blockId) _ _ _) =
+      "case$" `Text.isPrefixOf` blockId
+
+patternCaseTransportShape :: LoweredProgram -> [(LoweredFunctionId, [(LoweredBlockId, [LoweredRepresentation], [(LoweredBlockId, [LoweredRepresentation])])])]
+patternCaseTransportShape (LoweredProgram _ _ _ functions _) =
+  [ (functionId, map blockShape caseBlocks)
+  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+    let caseBlocks = filter isPatternCaseBlock blocks,
+    not (null caseBlocks)
+  ]
+  where
+    isPatternCaseBlock (LoweredBlock (LoweredBlockId blockId) _ _ _) =
+      "case$" `Text.isPrefixOf` blockId
+    blockShape (LoweredBlock blockId parameters _ terminator) =
+      (blockId, map parameterRepresentation parameters, maybe [] successorShapes terminator)
+    parameterRepresentation (LoweredParameter _ representation) = representation
+    successorShapes terminator =
+      case terminator of
+        LoweredJump target arguments -> [(target, map operandRepresentation arguments)]
+        LoweredBranch _ trueTarget trueArguments falseTarget falseArguments ->
+          [ (trueTarget, map operandRepresentation trueArguments),
+            (falseTarget, map operandRepresentation falseArguments)
+          ]
+        _ -> []
+    operandRepresentation operand =
+      case operand of
+        LoweredFunctionParameterOperand _ representation -> representation
+        LoweredBlockParameterOperand _ representation -> representation
+        LoweredTemporaryOperand _ representation -> representation
+        LoweredImmediateOperand immediate ->
+          case immediate of
+            LoweredUnitImmediate -> LoweredUnitRepresentation
+            LoweredBoolImmediate {} -> LoweredBoolRepresentation
+            LoweredSignedIntegerImmediate width _ -> LoweredSignedIntegerRepresentation width
+            LoweredUnsignedIntegerImmediate width _ -> LoweredUnsignedIntegerRepresentation width
+            LoweredFloatImmediate width _ -> LoweredFloatRepresentation width
+            LoweredCharImmediate {} -> LoweredCharRepresentation
+
+blockOperations :: LoweredProgram -> LoweredBlockId -> [[LoweredOperation]]
+blockOperations (LoweredProgram _ _ _ functions _) targetBlockId =
+  [ operations
+  | LoweredFunction _ _ _ _ blocks _ <- functions,
+    LoweredBlock blockId _ instructions _ <- blocks,
+    blockId == targetBlockId,
+    let operations = [operation | LoweredInstruction _ _ operation <- instructions]
+  ]
+
+closureCallCount :: LoweredProgram -> Int
+closureCallCount (LoweredProgram _ _ _ functions _) =
+  length
+    [ ()
+    | LoweredFunction _ _ _ _ blocks _ <- functions,
+      LoweredBlock _ _ instructions _ <- blocks,
+      LoweredInstruction _ _ LoweredClosureCall {} <- instructions
+    ]
+
+expectedPatternCaseJoinOperations :: [(Text, (LoweredBlockId, [LoweredOperation]))]
+expectedPatternCaseJoinOperations =
+  [ ( "pattern-case-ambient-scalar",
+      ( LoweredBlockId "case$s1$3$e1$0$join",
+        [ LoweredPrimitiveOperation
+            (LoweredArithmeticPrimitive LoweredAdd)
+            [ LoweredBlockParameterOperand (LoweredParameterId "result") intRepresentation,
+              LoweredBlockParameterOperand (LoweredParameterId "live1") intRepresentation
+            ]
+        ]
+      )
+    ),
+    ( "pattern-case-call-argument",
+      ( LoweredBlockId "case$s1$0$e2$0,1$join",
+        [ LoweredClosureCall
+            (LoweredBlockParameterOperand (LoweredParameterId "live1") closureRepresentation)
+            [LoweredBlockParameterOperand (LoweredParameterId "result") intRepresentation]
+        ]
+      )
+    )
+  ]
+  where
+    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    closureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [intRepresentation] intRepresentation)
+
+expectedClosureCallCounts :: [(Text, Int)]
+expectedClosureCallCounts =
+  [ ("pattern-case-captured-scalar", 1),
+    ("scalar-pattern-case-closure-result", 1),
+    ("pattern-case-call-argument", 1)
+  ]
+
+expectedPatternCaseTransportShapes :: [(Text, [(LoweredFunctionId, [(LoweredBlockId, [LoweredRepresentation], [(LoweredBlockId, [LoweredRepresentation])])])])]
+expectedPatternCaseTransportShapes =
+  [ ( "pattern-case-ambient-scalar",
+      [ ( entryFunction,
+          [ shape ambientPrefix "$a0$guard" intPair [("$a0$body", intPair), ("$a1$body", intPair)],
+            shape ambientPrefix "$a0$body" intPair [("$join", intPair)],
+            shape ambientPrefix "$a1$body" intPair [("$join", intPair)],
+            shape ambientPrefix "$join" intPair []
+          ]
+        )
+      ]
+    ),
+    ( "pattern-case-captured-scalar",
+      [ ( LoweredFunctionId "App::Main::choose",
+          [ shape capturedPrefix "$a0$guard" intSingle [("$a0$body", intSingle), ("$a1$body", intSingle)],
+            shape capturedPrefix "$a0$body" intSingle [("$join", intPair)],
+            shape capturedPrefix "$a1$body" intSingle [("$join", intPair)],
+            shape capturedPrefix "$join" intPair []
+          ]
+        )
+      ]
+    ),
+    ( "scalar-pattern-case-closure-result",
+      [ ( LoweredFunctionId "App::Main::choose",
+          [ shape closureResultPrefix "$a0$body" [] [("$join", closureSingle)],
+            shape closureResultPrefix "$a1$body" [] [("$join", closureSingle)],
+            shape closureResultPrefix "$join" closureSingle []
+          ]
+        )
+      ]
+    ),
+    ( "pattern-case-call-argument",
+      [ ( entryFunction,
+          [ shape callArgumentPrefix "$a0$body" closureSingle [("$join", closureAndInt)],
+            shape callArgumentPrefix "$a1$body" closureSingle [("$join", closureAndInt)],
+            shape callArgumentPrefix "$join" closureAndInt []
+          ]
+        )
+      ]
+    )
+  ]
+  where
+    entryFunction = LoweredFunctionId "App::Main::$entry"
+    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    intSingle = [intRepresentation]
+    intPair = [intRepresentation, intRepresentation]
+    closureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [intRepresentation] intRepresentation)
+    closureSingle = [closureRepresentation]
+    closureAndInt = [closureRepresentation, intRepresentation]
+    ambientPrefix = "case$s1$3$e1$0"
+    capturedPrefix = "case$s1$1$e2$0,0"
+    closureResultPrefix = "case$s1$0$e2$0,0"
+    callArgumentPrefix = "case$s1$0$e2$0,1"
+    shape prefix suffix parameters successors =
+      ( LoweredBlockId (prefix <> suffix),
+        parameters,
+        [(LoweredBlockId (prefix <> targetSuffix), arguments) | (targetSuffix, arguments) <- successors]
+      )
+
+expectedPatternCaseControlFlows :: [(Text, [(LoweredFunctionId, [LoweredBlock])])]
+expectedPatternCaseControlFlows =
+  [ ( "pattern-case-in-conditional-branch",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate True) outerThenBlockId [] outerElseBlockId [])),
+            LoweredBlock
+              outerThenBlockId
+              []
+              [comparisonInstruction 1 (intImmediate 1) (intImmediate 1)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      nestedFirstBodyBlockId
+                      []
+                      nestedFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              nestedFirstBodyBlockId
+              []
+              []
+              (Just (LoweredJump nestedJoinBlockId [intImmediate 10])),
+            LoweredBlock
+              nestedFinalBodyBlockId
+              []
+              []
+              (Just (LoweredJump nestedJoinBlockId [intImmediate 20])),
+            LoweredBlock
+              nestedJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredJump outerJoinBlockId [blockParameter "result" intRepresentation])),
+            LoweredBlock
+              outerElseBlockId
+              []
+              []
+              (Just (LoweredJump outerJoinBlockId [intImmediate 30])),
+            LoweredBlock
+              outerJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "conditional-in-pattern-case-guard",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              [comparisonInstruction 1 (intImmediate 1) (intImmediate 1)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      guardedArmGuardBlockId
+                      []
+                      guardedFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              guardedArmGuardBlockId
+              []
+              []
+              (Just (LoweredBranch (boolImmediate True) guardThenBlockId [] guardElseBlockId [])),
+            LoweredBlock
+              guardThenBlockId
+              []
+              []
+              (Just (LoweredJump guardJoinBlockId [boolImmediate False])),
+            LoweredBlock
+              guardElseBlockId
+              []
+              []
+              (Just (LoweredJump guardJoinBlockId [boolImmediate True])),
+            LoweredBlock
+              guardJoinBlockId
+              [parameter "result" LoweredBoolRepresentation]
+              []
+              ( Just
+                  ( LoweredBranch
+                      (blockParameter "result" LoweredBoolRepresentation)
+                      guardedArmBodyBlockId
+                      []
+                      guardedFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              guardedArmBodyBlockId
+              []
+              []
+              (Just (LoweredJump guardedJoinBlockId [intImmediate 10])),
+            LoweredBlock
+              guardedFinalBodyBlockId
+              []
+              []
+              (Just (LoweredJump guardedJoinBlockId [intImmediate 20])),
+            LoweredBlock
+              guardedJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "pattern-case-in-pattern-case-body",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              [comparisonInstruction 1 (boolImmediate True) (boolImmediate True)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      outerCaseFirstBodyBlockId
+                      []
+                      outerCaseFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              outerCaseFirstBodyBlockId
+              []
+              [comparisonInstruction 1 (intImmediate 1) (intImmediate 1)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      bodyCaseFirstBodyBlockId
+                      []
+                      bodyCaseFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              bodyCaseFirstBodyBlockId
+              []
+              []
+              (Just (LoweredJump bodyCaseJoinBlockId [intImmediate 10])),
+            LoweredBlock
+              bodyCaseFinalBodyBlockId
+              []
+              []
+              (Just (LoweredJump bodyCaseJoinBlockId [intImmediate 20])),
+            LoweredBlock
+              bodyCaseJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredJump outerCaseJoinBlockId [blockParameter "result" intRepresentation])),
+            LoweredBlock
+              outerCaseFinalBodyBlockId
+              []
+              []
+              (Just (LoweredJump outerCaseJoinBlockId [intImmediate 30])),
+            LoweredBlock
+              outerCaseJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "pattern-case-scrutinee-pattern-case",
+      [ ( functionId "$entry",
+          [ LoweredBlock
+              entryBlockId
+              []
+              [comparisonInstruction 1 (boolImmediate True) (boolImmediate True)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      scrutineeCaseFirstBodyBlockId
+                      []
+                      scrutineeCaseFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              scrutineeCaseFirstBodyBlockId
+              []
+              []
+              (Just (LoweredJump scrutineeCaseJoinBlockId [intImmediate 1])),
+            LoweredBlock
+              scrutineeCaseFinalBodyBlockId
+              []
+              []
+              (Just (LoweredJump scrutineeCaseJoinBlockId [intImmediate 2])),
+            LoweredBlock
+              scrutineeCaseJoinBlockId
+              [parameter "result" intRepresentation]
+              [ comparisonInstruction
+                  1
+                  (blockParameter "result" intRepresentation)
+                  (intImmediate 1)
+              ]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      scrutineeOuterFirstBodyBlockId
+                      [blockParameter "result" intRepresentation]
+                      scrutineeOuterFinalBodyBlockId
+                      [blockParameter "result" intRepresentation]
+                  )
+              ),
+            LoweredBlock
+              scrutineeOuterFirstBodyBlockId
+              [parameter "live1" intRepresentation]
+              []
+              (Just (LoweredJump scrutineeOuterJoinBlockId [intImmediate 10])),
+            LoweredBlock
+              scrutineeOuterFinalBodyBlockId
+              [parameter "live1" intRepresentation]
+              []
+              (Just (LoweredJump scrutineeOuterJoinBlockId [intImmediate 20])),
+            LoweredBlock
+              scrutineeOuterJoinBlockId
+              [parameter "result" intRepresentation]
+              []
+              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+          ]
+        )
+      ]
+    )
+  ]
+  where
+    functionId :: Text -> LoweredFunctionId
+    functionId name = LoweredFunctionId ("App::Main::" <> name)
+    blockId :: Text -> LoweredBlockId
+    blockId = LoweredBlockId
+    parameter :: Text -> LoweredRepresentation -> LoweredParameter
+    parameter name representation =
+      LoweredParameter (LoweredParameterId name) representation
+    blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
+    blockParameter name representation =
+      LoweredBlockParameterOperand (LoweredParameterId name) representation
+    temporary :: Int -> LoweredRepresentation -> LoweredOperand
+    temporary index representation =
+      LoweredTemporaryOperand
+        (LoweredTemporaryId ("t" <> Text.pack (show index)))
+        representation
+    boolImmediate :: Bool -> LoweredOperand
+    boolImmediate = LoweredImmediateOperand . LoweredBoolImmediate
+    intImmediate :: Integer -> LoweredOperand
+    intImmediate =
+      LoweredImmediateOperand
+        . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+    comparisonInstruction :: Int -> LoweredOperand -> LoweredOperand -> LoweredInstruction
+    comparisonInstruction index left right =
+      LoweredInstruction
+        (LoweredTemporaryId ("t" <> Text.pack (show index)))
+        LoweredBoolRepresentation
+        ( LoweredPrimitiveOperation
+            (LoweredComparisonPrimitive LoweredEqual)
+            [left, right]
+        )
+    intRepresentation =
+      LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    entryBlockId = blockId "entry"
+    outerThenBlockId = blockId "if$s1$0$e1$0$then"
+    outerElseBlockId = blockId "if$s1$0$e1$0$else"
+    outerJoinBlockId = blockId "if$s1$0$e1$0$join"
+    nestedFirstBodyBlockId = blockId "case$s1$0$e2$0,1$a0$body"
+    nestedFinalBodyBlockId = blockId "case$s1$0$e2$0,1$a1$body"
+    nestedJoinBlockId = blockId "case$s1$0$e2$0,1$join"
+    guardedArmGuardBlockId = blockId "case$s1$0$e1$0$a0$guard"
+    guardedArmBodyBlockId = blockId "case$s1$0$e1$0$a0$body"
+    guardedFinalBodyBlockId = blockId "case$s1$0$e1$0$a1$body"
+    guardedJoinBlockId = blockId "case$s1$0$e1$0$join"
+    guardThenBlockId = blockId "if$s1$0$e3$0,1,0$then"
+    guardElseBlockId = blockId "if$s1$0$e3$0,1,0$else"
+    guardJoinBlockId = blockId "if$s1$0$e3$0,1,0$join"
+    outerCaseFirstBodyBlockId = blockId "case$s1$0$e1$0$a0$body"
+    outerCaseFinalBodyBlockId = blockId "case$s1$0$e1$0$a1$body"
+    outerCaseJoinBlockId = blockId "case$s1$0$e1$0$join"
+    bodyCaseFirstBodyBlockId = blockId "case$s1$0$e3$0,1,1$a0$body"
+    bodyCaseFinalBodyBlockId = blockId "case$s1$0$e3$0,1,1$a1$body"
+    bodyCaseJoinBlockId = blockId "case$s1$0$e3$0,1,1$join"
+    scrutineeCaseFirstBodyBlockId = blockId "case$s1$0$e2$0,0$a0$body"
+    scrutineeCaseFinalBodyBlockId = blockId "case$s1$0$e2$0,0$a1$body"
+    scrutineeCaseJoinBlockId = blockId "case$s1$0$e2$0,0$join"
+    scrutineeOuterFirstBodyBlockId = blockId "case$s1$0$e1$0$a0$body"
+    scrutineeOuterFinalBodyBlockId = blockId "case$s1$0$e1$0$a1$body"
+    scrutineeOuterJoinBlockId = blockId "case$s1$0$e1$0$join"
 
 testConditionalProfileCoverage :: IO ()
 testConditionalProfileCoverage =
@@ -3339,7 +4113,6 @@ rejectedManifestExpectedStatuses =
           expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
         ]
     ),
-    ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
     ( "oversaturated-direct-call",
       unsupported
@@ -3662,9 +4435,9 @@ testUnsupportedCompositeFailureAccumulation =
   where
     expectedResults =
       [ ( "pattern-case-unsupported-children",
-          [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
-            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
           ]
         ),
         ( "nested-block-unsupported-child",
@@ -3674,9 +4447,11 @@ testUnsupportedCompositeFailureAccumulation =
           ]
         ),
         ( "guarded-pattern-case-unsupported-children",
-          [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
-            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
+            expressionFailure 0 [1, 0, 0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
           ]
         ),
         ( "unsupported-binary-child",

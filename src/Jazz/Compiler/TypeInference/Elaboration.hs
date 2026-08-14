@@ -14,6 +14,7 @@ module Jazz.Compiler.TypeInference.Elaboration
     InferredProductionFailure (..),
     InferredExpr (..),
     ProvisionalCallableDeclaration (..),
+    ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
@@ -55,6 +56,7 @@ import Jazz.Compiler.Name
     operatorBindingName,
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
+import Jazz.Compiler.Pattern (patternBinderNames)
 import Jazz.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
     resolveType,
@@ -205,9 +207,17 @@ data ProvisionalTypedExpr
   | ProvisionalLambdaExpression Name ExpressionType ProvisionalTypedExpr
   | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
   | ProvisionalIfExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr ProvisionalTypedExpr
+  | ProvisionalPatternCaseExpression ExpressionType ProvisionalTypedExpr [ProvisionalPatternCaseArm]
   | ProvisionalScopeStatements [ProvisionalTypedStatement]
   | ProvisionalUnsupportedExpression TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
   | ProvisionalRetainedFailures [InferredProductionFailure]
+  deriving (Eq, Show)
+
+data ProvisionalPatternCaseArm
+  = ProvisionalPatternCaseArm
+      Pattern
+      (Maybe ProvisionalTypedExpr)
+      ProvisionalTypedExpr
   deriving (Eq, Show)
 
 data ProvisionalTypedStatement
@@ -730,11 +740,119 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               failures = infoFailures <> conditionFailures <> thenFailures <> elseFailures
               typedExpression = TypedIfExpr <$> either (const Nothing) Just infoResult <*> maybeCondition <*> maybeThenExpression <*> maybeElseExpression
            in (failures, if null failures then typedExpression else Nothing)
+        ProvisionalPatternCaseExpression expressionType scrutinee arms ->
+          let infoResult = valueInfo statementIndex childPath expressionType
+              infoFailures = either (: []) (const []) infoResult
+              (scrutineeFailures, maybeScrutinee) =
+                finalizeExpression
+                  scalarCaptureTypes
+                  eagerClosureCaptureStatements
+                  expressionEvaluation
+                  functions
+                  callableShapes
+                  statementIndex
+                  (childPath <> [0])
+                  parameters
+                  ScalarExpression
+                  scrutinee
+              (armFailures, maybeArms) =
+                case maybeScrutinee of
+                  Just typedScrutinee ->
+                    finalizePatternCaseArms
+                      (defaultScalarLiterals <$> provisionalExpressionType state scrutinee)
+                      (typedExpressionInfo typedScrutinee)
+                      arms
+                  Nothing -> ([], Nothing)
+              failures =
+                infoFailures
+                  <> scrutineeFailures
+                  <> armFailures
+              typedExpression =
+                TypedPatternCaseExpr
+                  <$> either (const Nothing) Just infoResult
+                  <*> maybeScrutinee
+                  <*> maybeArms
+           in (failures, if null failures then typedExpression else Nothing)
         ProvisionalScopeStatements _ -> ([failureAt statementIndex childPath TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail], Nothing)
         ProvisionalUnsupportedExpression kind detail -> ([failureAt statementIndex childPath kind detail], Nothing)
         ProvisionalRetainedFailures failures ->
           (map (qualifyInferredFailure statementIndex childPath) failures, Nothing)
       where
+        finalizePatternCaseArms maybeScrutineeType scrutineeInfo arms' =
+          let finalized = zipWith (finalizePatternCaseArm maybeScrutineeType scrutineeInfo) [0 ..] arms'
+              failures = concatMap fst finalized
+              maybeArms = traverse snd finalized
+           in (failures, maybeArms)
+
+        finalizePatternCaseArm maybeScrutineeType scrutineeInfo armIndex (ProvisionalPatternCaseArm pattern maybeGuard body) =
+          let patternPath = childPath <> [armIndex]
+              (patternFailures, maybePattern, armParameters) =
+                case pattern of
+                  PWildcard -> ([], Just (TypedWildcardPattern scrutineeInfo), parameters)
+                  PVariable name ->
+                    let typedName = resolvedValueName name
+                        owner = binderAt statementIndex patternPath typedName
+                     in ( [],
+                          Just (TypedVariablePattern scrutineeInfo owner typedName),
+                          Map.insert name owner parameters
+                        )
+                  PLiteral literal ->
+                    case typedLiteral statementIndex patternPath literal scrutineeInfo of
+                      Left failure -> ([failure], Nothing, parameters)
+                      Right literalValue ->
+                        ([], Just (TypedLiteralPattern scrutineeInfo literalValue), parameters)
+                  _ ->
+                    ( [ failureAt
+                          statementIndex
+                          patternPath
+                          TypedCorePatternCaseUnsupported
+                          TypedCorePatternCaseDetail
+                      ],
+                      Nothing,
+                      parameters
+                    )
+              specializeArmExpression armExpression =
+                case (pattern, maybeScrutineeType) of
+                  (PVariable name, Just scrutineeType) ->
+                    specializeProvisionalParameterReferences
+                      state
+                      name
+                      scrutineeType
+                      armExpression
+                  _ -> armExpression
+              (guardFailures, maybeTypedGuard) =
+                case maybeGuard of
+                  Nothing -> ([], Just Nothing)
+                  Just guardExpression ->
+                    let (childGuardFailures, typedGuard) =
+                          finalizeExpression
+                            scalarCaptureTypes
+                            eagerClosureCaptureStatements
+                            expressionEvaluation
+                            functions
+                            callableShapes
+                            statementIndex
+                            (childPath <> [armIndex + 1, 0])
+                            armParameters
+                            ScalarExpression
+                            (specializeArmExpression guardExpression)
+                     in (childGuardFailures, Just <$> typedGuard)
+              (bodyFailures, maybeTypedBody) =
+                finalizeExpression
+                  scalarCaptureTypes
+                  eagerClosureCaptureStatements
+                  expressionEvaluation
+                  functions
+                  callableShapes
+                  statementIndex
+                  (childPath <> [armIndex + 1, 1])
+                  armParameters
+                  ScalarExpression
+                  (specializeArmExpression body)
+              failures = patternFailures <> guardFailures <> bodyFailures
+              typedArm = TypedCaseArm <$> maybePattern <*> maybeTypedGuard <*> maybeTypedBody
+           in (failures, if null failures then typedArm else Nothing)
+
         lambdaConstructionFailures parameterName body =
           case expressionEvaluation of
             EagerExpression ->
@@ -967,6 +1085,17 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 (go lexicalNames condition)
                 (go lexicalNames thenExpression)
                 (go lexicalNames elseExpression)
+            ProvisionalPatternCaseExpression expressionType scrutinee arms ->
+              ProvisionalPatternCaseExpression
+                expressionType
+                (go lexicalNames scrutinee)
+                [ let armLexicalNames = lexicalNames <> patternBinderNames pattern
+                   in ProvisionalPatternCaseArm
+                        pattern
+                        (go armLexicalNames <$> maybeGuard)
+                        (go armLexicalNames body)
+                | ProvisionalPatternCaseArm pattern maybeGuard body <- arms
+                ]
             _ -> expression
 
     specializeProvisionalCallableProfile functions = go Set.empty
@@ -1060,8 +1189,22 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             (collectExpressionCallProfiles referenceFunctions lexicalNames)
             functions
             [condition, thenExpression, elseExpression]
+        ProvisionalPatternCaseExpression _ scrutinee arms ->
+          foldl'
+            collectArm
+            (collectExpressionCallProfiles referenceFunctions lexicalNames functions scrutinee)
+            arms
         _ -> functions
       where
+        collectArm functionsAcc (ProvisionalPatternCaseArm pattern maybeGuard body) =
+          let armLexicalNames = lexicalNames <> patternBinderNames pattern
+              functionsAfterGuard =
+                maybe
+                  functionsAcc
+                  (collectExpressionCallProfiles referenceFunctions armLexicalNames functionsAcc)
+                  maybeGuard
+           in collectExpressionCallProfiles referenceFunctions armLexicalNames functionsAfterGuard body
+
         specializeHigherOrderArguments functionTypeValue arguments =
           foldl'
             specializeArgument
@@ -1361,8 +1504,16 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               freeNames boundNames condition
                 <> freeNames boundNames thenExpression
                 <> freeNames boundNames elseExpression
+            ProvisionalPatternCaseExpression _ scrutinee arms ->
+              freeNames boundNames scrutinee
+                <> foldMap (armFreeNames boundNames) arms
             ProvisionalScopeStatements nestedStatements -> scopeFreeNames boundNames nestedStatements
             _ -> Set.empty
+
+        armFreeNames boundNames (ProvisionalPatternCaseArm pattern maybeGuard body) =
+          let armBoundNames = boundNames <> patternBinderNames pattern
+           in maybe Set.empty (freeNames armBoundNames) maybeGuard
+                <> freeNames armBoundNames body
 
         scopeFreeNames _ [] = Set.empty
         scopeFreeNames boundNames (statement : rest) =
@@ -1421,9 +1572,23 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             (collectExpressionCallableUses functions lexicalNames)
             callableShapes
             [condition, thenExpression, elseExpression]
+        ProvisionalPatternCaseExpression _ scrutinee arms ->
+          foldl'
+            collectArm
+            (collectExpressionCallableUses functions lexicalNames callableShapes scrutinee)
+            arms
         ProvisionalScopeStatements nestedStatements ->
           collectScopeCallableUses functions lexicalNames callableShapes nestedStatements
         _ -> callableShapes
+      where
+        collectArm shapes (ProvisionalPatternCaseArm pattern maybeGuard body) =
+          let armLexicalNames = lexicalNames <> patternBinderNames pattern
+              shapesAfterGuard =
+                maybe
+                  shapes
+                  (collectExpressionCallableUses functions armLexicalNames shapes)
+                  maybeGuard
+           in collectExpressionCallableUses functions armLexicalNames shapesAfterGuard body
 
     markClosure name = Map.insert name TypedClosureCallableShape
 
@@ -1823,11 +1988,16 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ProvisionalApplyExpression _ function argument -> child function <> child argument
             ProvisionalIfExpression _ condition thenExpression elseExpression ->
               child condition <> child thenExpression <> child elseExpression
+            ProvisionalPatternCaseExpression _ scrutinee arms ->
+              child scrutinee <> foldMap armChildren arms
             ProvisionalScopeStatements nestedStatements -> scope boundNames nestedStatements
             ProvisionalUnsupportedExpression {} -> []
             ProvisionalRetainedFailures {} -> []
           where
             child = go boundNames
+            armChildren (ProvisionalPatternCaseArm pattern maybeGuard body) =
+              let armChild = go (boundNames <> patternBinderNames pattern)
+               in maybe [] armChild maybeGuard <> armChild body
 
         scope _ [] = []
         scope boundNames (statement : rest) =
@@ -1865,6 +2035,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     concreteIntegralType resultType
                       <|> concreteIntegralType resolvedOperandType
                       <|> (maybeExpected >>= concreteIntegralType . resolveType state)
+                      <|> (provisionalExpressionType state left >>= concreteIntegralType . resolveType state)
+                      <|> (provisionalExpressionType state right >>= concreteIntegralType . resolveType state)
                in child operandExpected left <> child operandExpected right
             ProvisionalVariableExpression name expressionType
               | Set.notMember name boundNames,
@@ -1890,11 +2062,19 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                in child (Just TBoolType) condition
                     <> child (Just resultType) thenExpression
                     <> child (Just resultType) elseExpression
+            ProvisionalPatternCaseExpression expressionType scrutinee arms ->
+              let resultType = specializedType maybeExpected expressionType
+               in child Nothing scrutinee
+                    <> foldMap (armChildren resultType) arms
             ProvisionalScopeStatements {} -> []
             ProvisionalUnsupportedExpression {} -> []
             ProvisionalRetainedFailures {} -> []
           where
             child = go boundNames
+            armChildren resultType (ProvisionalPatternCaseArm pattern maybeGuard body) =
+              let armChild = go (boundNames <> patternBinderNames pattern)
+               in maybe [] (armChild (Just TBoolType)) maybeGuard
+                    <> armChild (Just resultType) body
             specializedType expected expressionType =
               case expected of
                 Just expectedType -> specializeExpressionType state expectedType expressionType
@@ -2153,6 +2333,8 @@ specializeProvisionalExpression state maybeExpected expression =
             concreteIntegralType resultType
               <|> concreteIntegralType resolvedOperandType
               <|> (maybeExpected >>= concreteIntegralType . resolveType state)
+              <|> (provisionalExpressionType state left >>= concreteIntegralType . resolveType state)
+              <|> (provisionalExpressionType state right >>= concreteIntegralType . resolveType state)
           specializedOperandType = maybe resolvedOperandType id operandExpected
        in ProvisionalBinaryExpression
             operatorSymbol
@@ -2189,10 +2371,49 @@ specializeProvisionalExpression state maybeExpected expression =
             (specializeProvisionalExpression state (Just TBoolType) condition)
             (specializeProvisionalExpression state (Just resultType) thenExpression)
             (specializeProvisionalExpression state (Just resultType) elseExpression)
+    ProvisionalPatternCaseExpression expressionType scrutinee arms ->
+      let resultType = specializedType expressionType
+          initiallySpecializedArms =
+            [ ProvisionalPatternCaseArm
+                pattern
+                (specializeProvisionalExpression state (Just TBoolType) <$> maybeGuard)
+                (specializeProvisionalExpression state (Just resultType) body)
+            | ProvisionalPatternCaseArm pattern maybeGuard body <- arms
+            ]
+          initialScrutineeType =
+            case provisionalExpressionType state scrutinee of
+              Just scrutineeType -> scrutineeType
+              Nothing -> TTupleType []
+          selectedScrutineeType =
+            foldl' selectArmScrutineeType initialScrutineeType initiallySpecializedArms
+       in ProvisionalPatternCaseExpression
+            resultType
+            (specializeProvisionalExpression state (Just selectedScrutineeType) scrutinee)
+            (map (specializeArmBinder selectedScrutineeType) initiallySpecializedArms)
     ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
     ProvisionalUnsupportedExpression kind detail -> ProvisionalUnsupportedExpression kind detail
     ProvisionalRetainedFailures failures -> ProvisionalRetainedFailures failures
   where
+    selectArmScrutineeType selectedType (ProvisionalPatternCaseArm pattern maybeGuard body) =
+      case pattern of
+        PVariable name ->
+          foldl'
+            (\nextType referenceType -> specializeCompatibleType state referenceType nextType)
+            selectedType
+            ( maybe [] (provisionalParameterReferenceTypes name) maybeGuard
+                <> provisionalParameterReferenceTypes name body
+            )
+        _ -> selectedType
+
+    specializeArmBinder selectedType (ProvisionalPatternCaseArm pattern maybeGuard body) =
+      case pattern of
+        PVariable name ->
+          ProvisionalPatternCaseArm
+            pattern
+            (specializeProvisionalParameterReferences state name selectedType <$> maybeGuard)
+            (specializeProvisionalParameterReferences state name selectedType body)
+        _ -> ProvisionalPatternCaseArm pattern maybeGuard body
+
     specializedType expressionType =
       case maybeExpected of
         Just expectedType -> specializeExpressionType state expectedType expressionType
@@ -2230,6 +2451,18 @@ specializeProvisionalParameterReferences state parameterName selectedType = expr
             (child condition)
             (child thenExpression)
             (child elseExpression)
+        ProvisionalPatternCaseExpression expressionType scrutinee arms ->
+          ProvisionalPatternCaseExpression
+            expressionType
+            (child scrutinee)
+            [ let armShadowed =
+                    shadowed || Set.member parameterName (patternBinderNames pattern)
+               in ProvisionalPatternCaseArm
+                    pattern
+                    (expressionReferences armShadowed <$> maybeGuard)
+                    (expressionReferences armShadowed body)
+            | ProvisionalPatternCaseArm pattern maybeGuard body <- arms
+            ]
         ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
         ProvisionalUnsupportedExpression {} -> expression
         ProvisionalRetainedFailures {} -> expression
@@ -2309,11 +2542,18 @@ provisionalParameterApplicationTypes state captureType parameterName = expressio
            in applicationType <> childTypes
         ProvisionalIfExpression _ condition thenExpression elseExpression ->
           child condition <> child thenExpression <> child elseExpression
+        ProvisionalPatternCaseExpression _ scrutinee arms ->
+          child scrutinee <> foldMap armChildren arms
         ProvisionalScopeStatements statements -> scopeApplicationTypes shadowed statements
         ProvisionalUnsupportedExpression {} -> []
         ProvisionalRetainedFailures {} -> []
       where
         child = expressionApplicationTypes shadowed
+        armChildren (ProvisionalPatternCaseArm pattern maybeGuard body) =
+          let armShadowed =
+                shadowed || Set.member parameterName (patternBinderNames pattern)
+              armChild = expressionApplicationTypes armShadowed
+           in maybe [] armChild maybeGuard <> armChild body
 
     applicationProfile expression =
       let selectedResultType =
@@ -2356,11 +2596,18 @@ provisionalParameterReferenceTypes parameterName = expressionReferenceTypes Fals
         ProvisionalApplyExpression _ function argument -> child function <> child argument
         ProvisionalIfExpression _ condition thenExpression elseExpression ->
           child condition <> child thenExpression <> child elseExpression
+        ProvisionalPatternCaseExpression _ scrutinee arms ->
+          child scrutinee <> foldMap armChildren arms
         ProvisionalScopeStatements statements -> scopeReferenceTypes shadowed statements
         ProvisionalUnsupportedExpression {} -> []
         ProvisionalRetainedFailures {} -> []
       where
         child = expressionReferenceTypes shadowed
+        armChildren (ProvisionalPatternCaseArm pattern maybeGuard body) =
+          let armShadowed =
+                shadowed || Set.member parameterName (patternBinderNames pattern)
+              armChild = expressionReferenceTypes armShadowed
+           in maybe [] armChild maybeGuard <> armChild body
 
     scopeReferenceTypes _ [] = []
     scopeReferenceTypes shadowed (statement : rest) =
@@ -2393,6 +2640,7 @@ provisionalExpressionType state expression =
     ProvisionalLambdaExpression _ expressionType _ -> Just expressionType
     ProvisionalApplyExpression expressionType _ _ -> Just expressionType
     ProvisionalIfExpression expressionType _ _ _ -> Just expressionType
+    ProvisionalPatternCaseExpression expressionType _ _ -> Just expressionType
     ProvisionalScopeStatements {} -> Nothing
     ProvisionalUnsupportedExpression {} -> Nothing
     ProvisionalRetainedFailures {} -> Nothing

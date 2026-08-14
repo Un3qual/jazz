@@ -58,6 +58,19 @@ closures from it without cyclic initialization. Bounded value-producing
 conditionals may nest within all of these expressions. Lowering evaluates each
 condition once, selects one branch, and resumes through a result join while
 transporting block-local ambient and in-flight values as explicit edge
-arguments. Later or interleaved external captures, pattern cases and guards,
-scalar exports, complete multi-module integration, native emission, linking,
-and a native runtime remain outside this path.
+arguments. Bounded scalar pattern cases may nest there too. Lowering evaluates
+their scrutinee once, tries scalar literal, wildcard, and variable arms in
+source order, continues after false guards, scopes variable binders to one arm,
+and transports the selected result through one join. A final unguarded
+wildcard or variable is required by this opt-in backend profile; that syntactic
+gate is not a public exhaustiveness result.
+
+Managed patterns remain outside the path until managed values have stable
+layouts, tags, projections, and ownership during production and lowering.
+Pattern lambdas remain outside it because invocation-time mismatch must be
+defined across closure construction, currying, recursion, and callable
+identity. Exhaustiveness and unreachable-arm diagnostics remain separate
+because they need coverage reasoning and a language-level diagnostic policy.
+Later or interleaved external captures, scalar exports, complete multi-module
+integration, native emission, linking, and a native runtime also remain outside
+this path.

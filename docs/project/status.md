@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-13
+Updated: 2026-08-14
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -37,7 +37,18 @@ the first group member. These groups reuse one immutable shared environment
 containing ordered external captures and reconstruct self or peer closures
 without cyclic initialization. Bounded value-producing conditionals can nest
 throughout that profile and lower to deterministic multi-block control flow
-with explicit branch and join transport. It excludes later or interleaved
-external captures, pattern cases and guards, scalar exports, and complete
-multi-module integration. Ordinary compile and run modes remain on canonical
-core and the interpreter.
+with explicit branch and join transport. Bounded scalar pattern cases can nest
+there too: the scrutinee runs once; literal, wildcard, and variable arms retain
+source order; false guards fall through; variable binders stay arm-local; and
+selected scalar or closure results meet at one transported join. The opt-in
+profile requires a final unguarded wildcard or variable, which makes its
+lowering total without claiming static exhaustiveness.
+
+Managed patterns remain deferred pending managed-value production, layout,
+projection, and ownership contracts. Pattern lambdas remain deferred pending
+an invocation-time mismatch contract integrated with closures, currying,
+recursion, and callable identity. Exhaustiveness and unreachable-arm analysis
+remain planned because they require coverage reasoning and a diagnostic policy.
+The path also excludes later or interleaved external captures, scalar exports,
+and complete multi-module integration. Ordinary compile and run modes remain on
+canonical core and the interpreter.

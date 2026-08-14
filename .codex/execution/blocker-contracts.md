@@ -148,6 +148,10 @@ Each blocked item should answer these questions:
 - Accepted decision: [RFC 0010: Typed-core conditional control flow](../../rfcs/accepted/0010-typed-core-conditional-control-flow.md)
   authorizes bounded value-producing `if` production plus deterministic
   then/else/join lowering with explicit transport of block-local ambient values.
+- Accepted decision: [RFC 0011: Typed-core scalar pattern cases](../../rfcs/accepted/0011-typed-core-scalar-pattern-cases.md)
+  authorizes ordered immediate-scalar literal, wildcard, and variable patterns,
+  guarded fallthrough, arm-local binders, one result join, and a required final
+  unguarded catch-all without a runtime failure service or exhaustiveness claim.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -198,22 +202,33 @@ Each blocked item should answer these questions:
   transports local bindings, shared environments, and in-flight evaluation
   operands explicitly across every edge. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: none currently. RFC 0010 is complete and no later hosted
-  semantic-compiler child has an accepted source contract.
-- Decision needed: define and accept the next bounded semantic-compiler delta
-  before another child is promoted.
-- Recommended default: keep the completed opt-in boundary and leave the queue
-  empty until a durable contract names one independently verifiable successor.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-PATTERN-CASES-001`
+  completed on `2026-08-14`. The opt-in producer now retains ordered immediate
+  scalar literal, wildcard, and variable cases throughout the established
+  expression profile. Guards fall through in source order, binders remain
+  arm-local, and the lowerer independently enforces the final unguarded
+  catch-all while transporting nested, ambient, captured, and in-flight values
+  through deterministic branch and join edges. Normal compile/run remains on
+  canonical core and the reference interpreter.
+- Smallest unblocker: none currently. No further hosted semantic-compiler child
+  is accepted or source-backed after scalar pattern cases.
+- Decision needed: a new durable contract before another child is promoted.
+- Recommended default: preserve the landed immediate-scalar boundary. Managed
+  patterns require managed-value production, stable layouts, tags, field
+  projection, and ownership. Pattern lambdas require invocation-time mismatch
+  semantics integrated with closure construction, currying, recursion, and
+  callable identity. Exhaustiveness and unreachable-arm analysis require
+  separate coverage reasoning and diagnostic policy.
 - Candidate child: none currently.
-- Target paths: not set until a new accepted child exists.
-- Verification: `bash scripts/check-execution-queue.sh` and
-  `bash scripts/check-docs.sh` for the terminal-empty dispatcher state.
-- Not in scope: re-promoting the completed closure-call, scalar-binding,
-  lexical-capture, curried-application, direct-recursion, or closure-recursion
-  or conditional-control-flow children; inventing a pattern, managed-value,
-  module, runtime-service, tail-call, native, embedding, bytecode, or VM child
-  without a new accepted contract; or revival of removed legacy
-  implementations.
+- Target paths: none until a separate accepted contract exists.
+- Verification: the scalar-pattern-case plan owns the focused contract gate,
+  complete serialized suite, queue/RFC checks, documentation check, and clean
+  committed-worktree evidence.
+- Still not in scope: managed constructor, list, tuple, or text patterns; as-
+  or or-patterns; pattern lambdas; exhaustiveness or unreachable-arm analysis;
+  backend `E3022`; runtime failure/trap services; normal compile/run cutover;
+  tail calls; modules; native, embedding, bytecode, or VM work; or revival of
+  removed legacy implementations.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

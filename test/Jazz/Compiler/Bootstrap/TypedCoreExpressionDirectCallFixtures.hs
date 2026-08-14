@@ -15,6 +15,10 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     expectedNestedScalarLoweredProgram,
     scalarFixtures,
     scalarExpectedPrograms,
+    scalarPatternCaseExpectedPrograms,
+    scalarPatternCaseExpectedLoweredPrograms,
+    scalarPatternCaseAnalysisExpectedPrograms,
+    scalarPatternCaseLowererBoundaryPrograms,
     scalarBindingExpectedPrograms,
     scalarBindingExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
@@ -140,6 +144,7 @@ acceptedFixtures =
     sourceFixture "ordering-operators" orderingOperatorsSource,
     sourceFixture "equality-operators" equalityOperatorsSource,
     sourceFixtureNoExports "conditional" conditionalSource,
+    sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
     sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
     sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
@@ -179,7 +184,6 @@ rejectedFixtures =
     sourceFixtureNoExports "list-value" listValueSource,
     sourceFixtureNoExports "non-unit-tuple" nonUnitTupleSource,
     sourceFixtureNoExports "data-value" dataValueSource,
-    sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
     sourceFixtureNoExports "later-capture-mutual-recursion" laterCaptureMutualRecursionSource,
@@ -497,6 +501,472 @@ scalarExpectedPrograms =
         modulePath
     )
   ]
+
+scalarPatternCaseExpectedPrograms :: [(Text, TypedProgram)]
+scalarPatternCaseExpectedPrograms =
+  [ ("pattern-case", scalarPatternCaseExpectedProgram),
+    ("scalar-pattern-case", scalarPatternCaseExpectedProgram),
+    ("scalar-pattern-case-variable-guards", scalarPatternCaseVariableGuardsProgram),
+    ("scalar-pattern-case-repeated-literal-guards", scalarPatternCaseRepeatedLiteralGuardsProgram)
+  ]
+
+scalarPatternCaseExpectedProgram :: TypedProgram
+scalarPatternCaseExpectedProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        []
+        [ TypedExpressionStatement
+            (TypedSpan 2 1)
+            ( TypedPatternCaseExpr
+                intInfo
+                (boolExpr True)
+                [ TypedCaseArm
+                    (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+                    Nothing
+                    (intExpr 1),
+                  TypedCaseArm
+                    (TypedWildcardPattern boolInfo)
+                    Nothing
+                    (intExpr 2)
+                ]
+            )
+        ]
+        intInfo
+    ]
+    modulePath
+
+scalarPatternCaseVariableGuardsProgram :: TypedProgram
+scalarPatternCaseVariableGuardsProgram =
+  expectedRootProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (intExpr 2)
+            [ TypedCaseArm
+                (TypedVariablePattern intInfo itemBinder itemName)
+                ( Just
+                    ( binaryExpr
+                        boolInfo
+                        ">"
+                        (boundVariableExpr itemName intInfo itemBinder)
+                        (intExpr 2)
+                    )
+                )
+                (boundVariableExpr itemName intInfo itemBinder),
+              TypedCaseArm
+                (TypedVariablePattern intInfo fallbackBinder fallbackName)
+                Nothing
+                ( binaryExpr
+                    intInfo
+                    "+"
+                    (boundVariableExpr fallbackName intInfo fallbackBinder)
+                    (intExpr 1)
+                )
+            ]
+        )
+    ]
+    intInfo
+  where
+    itemName = resolvedName "item"
+    itemBinder = TypedBinderId (modulePath, [0, 0], itemName)
+    fallbackName = resolvedName "fallback"
+    fallbackBinder = TypedBinderId (modulePath, [0, 1], fallbackName)
+
+scalarPatternCaseExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+scalarPatternCaseExpectedLoweredPrograms =
+  [ ("pattern-case", scalarPatternCaseExpectedProgram, scalarPatternCaseExpectedLoweredProgram),
+    ("scalar-pattern-case", scalarPatternCaseExpectedProgram, scalarPatternCaseExpectedLoweredProgram)
+  ]
+
+scalarPatternCaseExpectedLoweredProgram :: LoweredProgram
+scalarPatternCaseExpectedLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    []
+    []
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ expectedPrimitiveInstruction
+                1
+                LoweredBoolRepresentation
+                (LoweredComparisonPrimitive LoweredEqual)
+                [ loweredImmediate (LoweredBoolImmediate True),
+                  loweredImmediate (LoweredBoolImmediate True)
+                ]
+            ]
+            ( Just
+                ( LoweredBranch
+                    (loweredTemporary 1 LoweredBoolRepresentation)
+                    firstBodyBlockId
+                    []
+                    finalBodyBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            firstBodyBlockId
+            []
+            []
+            (Just (LoweredJump joinBlockId [loweredInt64 1])),
+          LoweredBlock
+            finalBodyBlockId
+            []
+            []
+            (Just (LoweredJump joinBlockId [loweredInt64 2])),
+          LoweredBlock
+            joinBlockId
+            [LoweredParameter (LoweredParameterId "result") int64Representation]
+            []
+            ( Just
+                ( LoweredReturn
+                    ( LoweredBlockParameterOperand
+                        (LoweredParameterId "result")
+                        int64Representation
+                    )
+                )
+            )
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+  where
+    firstBodyBlockId = LoweredBlockId "case$s1$0$e1$0$a0$body"
+    finalBodyBlockId = LoweredBlockId "case$s1$0$e1$0$a1$body"
+    joinBlockId = LoweredBlockId "case$s1$0$e1$0$join"
+
+scalarPatternCaseRepeatedLiteralGuardsProgram :: TypedProgram
+scalarPatternCaseRepeatedLiteralGuardsProgram =
+  expectedRootProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (intExpr 2)
+            [ TypedCaseArm
+                (TypedLiteralPattern intInfo (TypedIntegerLiteral "2"))
+                (Just (boolExpr False))
+                (intExpr 10),
+              TypedCaseArm
+                (TypedLiteralPattern intInfo (TypedIntegerLiteral "2"))
+                (Just (boolExpr True))
+                (intExpr 20),
+              TypedCaseArm
+                (TypedWildcardPattern intInfo)
+                Nothing
+                (intExpr 30)
+            ]
+        )
+    ]
+    intInfo
+
+scalarPatternCaseAnalysisExpectedPrograms :: [(Text, TypedProgram)]
+scalarPatternCaseAnalysisExpectedPrograms =
+  [ ("scalar-pattern-case-capture", scalarPatternCaseCaptureProgram),
+    ("scalar-pattern-case-closure-result", scalarPatternCaseClosureResultProgram)
+  ]
+
+scalarPatternCaseLowererBoundaryPrograms :: [(Text, TypedProgram)]
+scalarPatternCaseLowererBoundaryPrograms =
+  [ ("pattern-case-constructor-lowerer", constructorPatternCaseLowererProgram),
+    ("pattern-case-list-lowerer", unsupportedPatternCaseProgram listScrutinee listPattern),
+    ("pattern-case-tuple-lowerer", unsupportedPatternCaseProgram tupleScrutinee tuplePattern),
+    ("pattern-case-as-lowerer", unsupportedPatternCaseProgram (boolExpr True) asPattern),
+    ("pattern-case-or-lowerer", unsupportedPatternCaseProgram (boolExpr True) orPattern),
+    ("pattern-case-final-literal-lowerer", incompletePatternCaseProgram [literalArm]),
+    ("pattern-case-final-guarded-catch-all-lowerer", incompletePatternCaseProgram [guardedWildcardArm]),
+    ( "pattern-case-unguarded-non-final-wildcard-lowerer",
+      incompletePatternCaseProgram [unguardedWildcardArm, finalWildcardArm]
+    ),
+    ( "pattern-case-unguarded-non-final-variable-lowerer",
+      incompletePatternCaseProgram [unguardedVariableArm, finalWildcardArm]
+    )
+  ]
+  where
+    listInfo =
+      TypedNodeInfo
+        (TypedListType TypedBoolType)
+        (TypedManagedListRecipe TypedBoolRecipe)
+        []
+        []
+    listScrutinee = TypedListExpr listInfo []
+    listPattern = TypedListPattern listInfo []
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedBoolType, TypedBoolType])
+        (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
+        []
+        []
+    tupleScrutinee = TypedTupleExpr tupleInfo [boolExpr True, boolExpr False]
+    tuplePattern =
+      TypedTuplePattern
+        tupleInfo
+        [TypedWildcardPattern boolInfo, TypedWildcardPattern boolInfo]
+    asName = resolvedName "whole"
+    asBinder = TypedBinderId (modulePath, [0, 0, 0], asName)
+    asPattern = TypedAsPattern boolInfo asBinder asName (TypedWildcardPattern boolInfo)
+    orPattern =
+      TypedOrPattern
+        boolInfo
+        [ TypedLiteralPattern boolInfo (TypedBooleanLiteral True),
+          TypedLiteralPattern boolInfo (TypedBooleanLiteral False)
+        ]
+    literalArm =
+      TypedCaseArm
+        (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+        Nothing
+        (intExpr 1)
+    guardedWildcardArm =
+      TypedCaseArm
+        (TypedWildcardPattern boolInfo)
+        (Just (boolExpr True))
+        (intExpr 1)
+    unguardedWildcardArm =
+      TypedCaseArm
+        (TypedWildcardPattern boolInfo)
+        Nothing
+        (intExpr 1)
+    variableName = resolvedName "matched"
+    variableBinder = TypedBinderId (modulePath, [0, 0, 0], variableName)
+    unguardedVariableArm =
+      TypedCaseArm
+        (TypedVariablePattern boolInfo variableBinder variableName)
+        Nothing
+        (intExpr 1)
+    finalWildcardArm =
+      TypedCaseArm
+        (TypedWildcardPattern boolInfo)
+        Nothing
+        (intExpr 2)
+
+unsupportedPatternCaseProgram :: TypedExpr -> TypedPattern -> TypedProgram
+unsupportedPatternCaseProgram scrutinee patternValue =
+  expectedScalarProgram
+    intInfo
+    ( TypedPatternCaseExpr
+        intInfo
+        scrutinee
+        [ TypedCaseArm patternValue Nothing (intExpr 1),
+          TypedCaseArm
+            (TypedWildcardPattern (typedExpressionInfo scrutinee))
+            Nothing
+            (intExpr 2)
+        ]
+    )
+
+incompletePatternCaseProgram :: [TypedCaseArm] -> TypedProgram
+incompletePatternCaseProgram arms =
+  expectedScalarProgram
+    intInfo
+    (TypedPatternCaseExpr intInfo (boolExpr True) arms)
+
+constructorPatternCaseLowererProgram :: TypedProgram
+constructorPatternCaseLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        []
+        [ TypedDataStatement declaration,
+          TypedExpressionStatement
+            (TypedSpan 2 1)
+            ( TypedPatternCaseExpr
+                intInfo
+                scrutinee
+                [ TypedCaseArm
+                    (TypedConstructorPattern dataInfo constructorName [])
+                    Nothing
+                    (intExpr 1),
+                  TypedCaseArm
+                    (TypedWildcardPattern dataInfo)
+                    Nothing
+                    (intExpr 2)
+                ]
+            )
+        ]
+        intInfo
+    ]
+    modulePath
+  where
+    dataName =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedTypeNamespace
+        "Choice"
+    constructorName =
+      TypedResolvedName
+        TypedCurrentModule
+        TypedConstructorNamespace
+        "Chosen"
+    constructorBinder = TypedBinderId (modulePath, [0, 0], constructorName)
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 1 1)
+        dataName
+        []
+        [TypedConstructorDeclaration constructorBinder constructorName [] []]
+    dataInfo =
+      TypedNodeInfo
+        (TypedDataType dataName [])
+        (TypedManagedVariantRecipe dataName [])
+        []
+        []
+    scrutinee = TypedVariableExpr dataInfo constructorName (Just constructorBinder)
+
+scalarPatternCaseCaptureProgram :: TypedProgram
+scalarPatternCaseCaptureProgram =
+  expectedRootProgram
+    [ TypedLetStatement
+        seedBinder
+        seedName
+        (TypedSpan 2 1)
+        (scalarScheme seedBinder inferredIntInfo)
+        (inferredIntExpr 40),
+      TypedLetStatement
+        chooseBinder
+        chooseName
+        (TypedSpan 3 1)
+        (patternCaseCallableScheme chooseBinder TypedClosureCallableShape chooseInfo)
+        ( TypedLambdaExpr
+            chooseInfo
+            itemBinder
+            itemName
+            ( TypedPatternCaseExpr
+                inferredIntInfo
+                (boundVariableExpr itemName inferredIntInfo itemBinder)
+                [ TypedCaseArm
+                    (TypedVariablePattern inferredIntInfo currentBinder currentName)
+                    ( Just
+                        ( binaryExpr
+                            boolInfo
+                            ">"
+                            (boundVariableExpr currentName inferredIntInfo currentBinder)
+                            (inferredIntExpr 0)
+                        )
+                    )
+                    ( binaryExpr
+                        inferredIntInfo
+                        "+"
+                        (boundVariableExpr currentName inferredIntInfo currentBinder)
+                        (boundVariableExpr seedName inferredIntInfo seedBinder)
+                    ),
+                  TypedCaseArm
+                    (TypedWildcardPattern inferredIntInfo)
+                    Nothing
+                    (boundVariableExpr seedName inferredIntInfo seedBinder)
+                ]
+            )
+        ),
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( TypedApplyExpr
+            inferredIntInfo
+            (boundVariableExpr chooseName chooseInfo chooseBinder)
+            (inferredIntExpr 2)
+        )
+    ]
+    inferredIntInfo
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    chooseName = resolvedName "choose"
+    chooseBinder = TypedBinderId (modulePath, [1], chooseName)
+    itemName = resolvedName "item"
+    itemBinder = TypedBinderId (modulePath, [1, 0], itemName)
+    currentName = resolvedName "current"
+    currentBinder = TypedBinderId (modulePath, [1, 0, 0, 0], currentName)
+    chooseInfo = stagedFunctionInfo [("item", inferredIntInfo)] inferredIntInfo
+    inferredIntExpr :: Integer -> TypedExpr
+    inferredIntExpr value =
+      TypedLiteralExpr inferredIntInfo (TypedIntegerLiteral (Text.pack (show value)))
+
+scalarPatternCaseClosureResultProgram :: TypedProgram
+scalarPatternCaseClosureResultProgram =
+  expectedRootProgram
+    [ TypedLetStatement
+        chooseBinder
+        chooseName
+        (TypedSpan 2 1)
+        (patternCaseCallableScheme chooseBinder TypedDirectCallableShape chooseInfo)
+        ( TypedLambdaExpr
+            chooseInfo
+            flagBinder
+            flagName
+            ( TypedPatternCaseExpr
+                remainingInfo
+                (boundVariableExpr flagName boolInfo flagBinder)
+                [ TypedCaseArm
+                    (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+                    Nothing
+                    ( TypedLambdaExpr
+                        remainingInfo
+                        trueItemBinder
+                        itemName
+                        (boundVariableExpr itemName intInfo trueItemBinder)
+                    ),
+                  TypedCaseArm
+                    (TypedWildcardPattern boolInfo)
+                    Nothing
+                    ( TypedLambdaExpr
+                        remainingInfo
+                        falseItemBinder
+                        itemName
+                        (intExpr 0)
+                    )
+                ]
+            )
+        ),
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedApplyExpr
+            inferredIntInfo
+            ( TypedApplyExpr
+                remainingInferredInfo
+                (boundVariableExpr chooseName chooseInfo chooseBinder)
+                (boolExpr True)
+            )
+            (TypedLiteralExpr inferredIntInfo (TypedIntegerLiteral "7"))
+        )
+    ]
+    inferredIntInfo
+  where
+    chooseName = resolvedName "choose"
+    chooseBinder = TypedBinderId (modulePath, [0], chooseName)
+    flagName = resolvedName "flag"
+    flagBinder = TypedBinderId (modulePath, [0, 0], flagName)
+    itemName = resolvedName "item"
+    trueItemBinder = TypedBinderId (modulePath, [0, 0, 0, 1, 1], itemName)
+    falseItemBinder = TypedBinderId (modulePath, [0, 0, 0, 2, 1], itemName)
+    remainingInfo = stagedFunctionInfo [("item", intInfo)] intInfo
+    remainingInferredInfo = stagedFunctionInfo [("item", inferredIntInfo)] inferredIntInfo
+    chooseInfo = functionInfo [("flag", boolInfo)] remainingInfo
+
+patternCaseCallableScheme :: TypedBinderId -> TypedCallableShape -> TypedNodeInfo -> TypedScheme
+patternCaseCallableScheme owner callableShape info =
+  TypedScheme
+    owner
+    []
+    []
+    []
+    (typedExpressionType info)
+    (typedExpressionRecipe info)
+    (Just callableShape)
 
 scalarBindingProducerFixtures :: [(Text, Fixture)]
 scalarBindingProducerFixtures =
@@ -2415,6 +2885,7 @@ validIndependentLowererPrograms =
        ]
     <> lowererBoundaryPrograms
     <> lowererStructuralBoundaryPrograms
+    <> scalarPatternCaseLowererBoundaryPrograms
 
 invalidLowererBoundaryPrograms :: [(Text, TypedProgram)]
 invalidLowererBoundaryPrograms =
@@ -3244,12 +3715,153 @@ importedDirectCallLowererProgram =
         intInfo
 
 rejectedScalarFixtures :: [Fixture]
-rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "pattern-case", "local-block-binding"]
+rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "local-block-binding"]
 
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   scalarBindingProducerFixtures
-    <> [ ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
+    <> [ ( "scalar-pattern-case",
+           sourceFixtureNoExports
+             "scalar-pattern-case"
+             "case True { | True -> 1 | _ -> 2 }."
+         ),
+         ( "scalar-pattern-case-variable-guards",
+           sourceFixtureNoExports
+             "scalar-pattern-case-variable-guards"
+             "case 2 { | item if item > 2 -> item | fallback -> fallback + 1 }."
+         ),
+         ( "scalar-pattern-case-repeated-literal-guards",
+           sourceFixtureNoExports
+             "scalar-pattern-case-repeated-literal-guards"
+             "case 2 { | 2 if False -> 10 | 2 if True -> 20 | _ -> 30 }."
+         ),
+         ( "scalar-pattern-case-capture",
+           sourceFixtureNoExports
+             "scalar-pattern-case-capture"
+             ( Text.unlines
+                 [ "seed = 40.",
+                   "choose = \\(item) -> case item { | current if current > 0 -> current + seed | _ -> seed }.",
+                   "choose 2."
+                 ]
+             )
+         ),
+         ( "scalar-pattern-case-closure-result",
+           sourceFixtureNoExports
+             "scalar-pattern-case-closure-result"
+             ( Text.unlines
+                 [ "choose = \\(flag) -> case flag { | True -> \\(item) -> item | _ -> \\(item) -> 0 }.",
+                   "(choose True) 7."
+                 ]
+             )
+         ),
+         ( "pattern-case-in-conditional-branch",
+           sourceFixtureNoExports
+             "pattern-case-in-conditional-branch"
+             "if True then case 1 { | 1 -> 10 | _ -> 20 } else 30."
+         ),
+         ( "conditional-in-pattern-case-guard",
+           sourceFixtureNoExports
+             "conditional-in-pattern-case-guard"
+             "case 1 { | 1 if if True then False else True -> 10 | _ -> 20 }."
+         ),
+         ( "pattern-case-in-pattern-case-body",
+           sourceFixtureNoExports
+             "pattern-case-in-pattern-case-body"
+             "case True { | True -> case 1 { | 1 -> 10 | _ -> 20 } | _ -> 30 }."
+         ),
+         ( "pattern-case-scrutinee-pattern-case",
+           sourceFixtureNoExports
+             "pattern-case-scrutinee-pattern-case"
+             "case (case True { | True -> 1 | _ -> 2 }) { | 1 -> 10 | _ -> 20 }."
+         ),
+         ( "pattern-case-ambient-scalar",
+           sourceFixtureNoExports
+             "pattern-case-ambient-scalar"
+             ( Text.unlines
+                 [ "identity :: Int -> Int.",
+                   "identity = \\(item) -> item.",
+                   "seed = identity 1.",
+                   "chosen = case seed { | item if item == seed -> item | _ -> 0 }.",
+                   "chosen + seed."
+                 ]
+             )
+         ),
+         ( "pattern-case-captured-scalar",
+           sourceFixtureNoExports
+             "pattern-case-captured-scalar"
+             ( Text.unlines
+                 [ "seed = 1.",
+                   "choose = \\(item) -> case item { | current if current == seed -> current | _ -> seed }.",
+                   "choose seed."
+                 ]
+             )
+         ),
+         ( "pattern-case-call-argument",
+           sourceFixtureNoExports
+             "pattern-case-call-argument"
+             "(\\(item) -> item) (case 1 { | 1 -> 2 | _ -> 3 })."
+         ),
+         ( "pattern-case-final-guarded-catch-all",
+           sourceFixtureNoExports
+             "pattern-case-final-guarded-catch-all"
+             "case True { | _ if True -> 1 }."
+         ),
+         ( "pattern-case-missing-final-catch-all",
+           sourceFixtureNoExports
+             "pattern-case-missing-final-catch-all"
+             "case True { | True -> 1 }."
+         ),
+         ( "pattern-case-unguarded-non-final-wildcard",
+           sourceFixtureNoExports
+             "pattern-case-unguarded-non-final-wildcard"
+             "case True { | _ -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-unguarded-non-final-variable",
+           sourceFixtureNoExports
+             "pattern-case-unguarded-non-final-variable"
+             "case True { | item -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-managed-scrutinee",
+           sourceFixtureNoExports
+             "pattern-case-managed-scrutinee"
+             "case \"managed\" { | _ -> 1 }."
+         ),
+         ( "pattern-case-constructor-pattern",
+           sourceFixtureNoExports
+             "pattern-case-constructor-pattern"
+             "data Maybe = Nothing. case Nothing { | Nothing -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-list-pattern",
+           sourceFixtureNoExports
+             "pattern-case-list-pattern"
+             "case [1] { | [1] -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-tuple-pattern",
+           sourceFixtureNoExports
+             "pattern-case-tuple-pattern"
+             "case (True, False) { | (True, False) -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-as-pattern",
+           sourceFixtureNoExports
+             "pattern-case-as-pattern"
+             "case True { | whole @ True -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-or-pattern",
+           sourceFixtureNoExports
+             "pattern-case-or-pattern"
+             "case True { | True | False -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-non-bool-guard",
+           sourceFixtureNoExports
+             "pattern-case-non-bool-guard"
+             "case True { | True if 1 -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-incompatible-arm-results",
+           sourceFixtureNoExports
+             "pattern-case-incompatible-arm-results"
+             "case True { | True -> 1 | _ -> False }."
+         ),
+         ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
          ("conditional-captured-scalar", sourceFixtureNoExports "conditional-captured-scalar" conditionalCapturedScalarSource),
          ("conditional-closure-result-application", sourceFixtureNoExports "conditional-closure-result-application" conditionalClosureResultApplicationSource),
          ("nested-conditionals", sourceFixtureNoExports "nested-conditionals" nestedConditionalsSource),
@@ -4137,7 +4749,7 @@ producerEdgeFixtures =
          ( "guarded-pattern-case-unsupported-children",
            sourceFixtureNoExports
              "guarded-pattern-case-unsupported-children"
-             "case [1] { | _ if if True then True else False -> [2] }."
+             "case [1] { | _ if { ignored = [2]. True. } -> [3] }."
          ),
          ( "nested-block-unsupported-child",
            sourceFixtureNoExports
@@ -4818,7 +5430,7 @@ listValueSource = "[1]."
 nonUnitTupleSource = "(1, 2)."
 dataValueSource = Text.unlines ["data Box = Box.", "Box."]
 conditionalSource = "if True then 1 else 2."
-patternCaseSource = "case True { | _ -> 1 }."
+patternCaseSource = "case True { | True -> 1 | _ -> 2 }."
 localBlockBindingSource = "{ item = 1. item. }."
 
 conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
