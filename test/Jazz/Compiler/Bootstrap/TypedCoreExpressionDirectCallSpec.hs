@@ -7,7 +7,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Statement (..))
+import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (NumericUInt8), Statement (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
@@ -34,7 +34,8 @@ import Jazz.Compiler.TypeInference.Elaboration
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
-    ExpressionType (TBoolType, TFunctionType),
+    ExpressionType (TBoolType, TFunctionType, TIntegerLiteralType, TNumericType),
+    IntegerLiteralRange (..),
     ScopeCapabilityFacts (..),
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
@@ -87,6 +88,25 @@ tests =
     ("specializes comparison operands to their unified numeric type", testNarrowComparisonOperand),
     ("specializes terminal binary operands to their unified numeric type", testNarrowRootBinaryDirectCall),
     ("normalizes equivalent scalar aliases to the expected type", testEquivalentScalarAliasSpecialization),
+    ("rejects inherited recursive captures unavailable at an earlier caller", testEarlierCallerTransitiveCaptureAvailability),
+    ("specializes every use of a captured numeric scalar", testCapturedNumericScalarReferenceSpecialization),
+    ("specializes enclosing expressions that reuse captured numeric scalars", testCapturedCompositeScalarSpecialization),
+    ("specializes independent scalar binders recolored with recursive captures", testCapturedCompositeScalarBinderSpecialization),
+    ("preserves capture expectations for non-integral comparison operands", testCapturedComparisonResultSpecialization),
+    ("specializes enclosing function expressions that reuse captured numeric scalars", testCapturedFunctionBodySpecialization),
+    ("specializes callable parameters recolored with captured numeric scalars", testCapturedFunctionParameterSpecialization),
+    ("specializes callable parameters invoked with captured numeric scalars", testCapturedCallableParameterApplicationSpecialization),
+    ("specializes scalar binders recolored inside callable bodies", testCapturedFunctionScalarBinderSpecialization),
+    ("specializes scalar binders recolored as callable arguments", testCapturedFunctionArgumentScalarBinderSpecialization),
+    ("specializes scalar binders initialized from callable results", testCapturedFunctionResultScalarBinderSpecialization),
+    ("specializes higher-order profiles from callable arguments", testCapturedHigherOrderCallableArgumentSpecialization),
+    ("specializes forwarded higher-order profiles from callable arguments", testCapturedForwardedHigherOrderCallableArgumentSpecialization),
+    ("specializes terminal anonymous callable bodies", testCapturedTerminalAnonymousCallableSpecialization),
+    ("respecializes callers of specialized named functions", testCapturedNamedCallerSpecialization),
+    ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
+    ("specializes recursive scalar alias captures across omitted source statements", testRecordedScalarStatementIndices),
+    ("rejects eager recursive closure calls before their captures exist", testEagerRecursiveClosureCaptureAvailability),
+    ("rejects eager nested closure construction before transitive captures exist", testEagerNestedClosureCaptureAvailability),
     ("rejects unused user-defined operator bindings", testUnusedUserDefinedOperatorBinding),
     ("retains root data failures with their real statement paths", testRootDataFailureAccumulation),
     ("retains nested data-block child failures in structural order", testNestedDataFailureAccumulation),
@@ -183,7 +203,11 @@ testFixtureManifest = do
           "capturing-function",
           "partial-direct-call",
           "self-recursive-function",
-          "mutually-recursive-functions"
+          "mutually-recursive-functions",
+          "closure-value-mutual-recursion",
+          "closure-value-self-recursion",
+          "capturing-self-recursion",
+          "capturing-mutual-recursion"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -198,8 +222,9 @@ testFixtureManifest = do
           "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
-          "closure-value-mutual-recursion",
-          "closure-value-self-recursion",
+          "later-capture-mutual-recursion",
+          "transitive-later-capture-mutual-recursion",
+          "interleaved-rebound-capture-mutual-recursion",
           "polymorphic-or-evidence-function",
           "imported-direct-call",
           "user-defined-operator-call"
@@ -207,9 +232,9 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 28 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 45 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "accepted fixture count" 32 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 18 (length rejectedFixtureNames)
+    >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
     >> assertEqual "prior scalar/direct-call inventory count" 36 (Set.size priorSet)
@@ -246,9 +271,14 @@ testIndependentLowererManifest = do
           "scalar-binding-direct-call-result",
           "self-recursive-function",
           "mutually-recursive-functions",
+          "closure-value-mutual-recursion",
+          "closure-value-self-recursion",
+          "capturing-self-recursion",
+          "capturing-mutual-recursion",
           "scalar-binding-unsupported-rhs",
           "combined-statement-failure-order",
           "recursion-descendant-failure-order",
+          "interleaved-capture-mutual-recursion",
           "closure-valued-parameter",
           "closure-valued-result",
           "closure-shaped-named-function",
@@ -261,8 +291,6 @@ testIndependentLowererManifest = do
           "duplicate-function-identity",
           "capturing-function",
           "closure-shaped-self-recursive-function",
-          "closure-value-mutual-recursion",
-          "closure-value-self-recursion",
           "nested-lambda-closure-value-self-recursion",
           "imported-direct-call",
           "managed-scalar-entry",
@@ -329,6 +357,7 @@ testAcceptedManifestPipeline =
         <> scalarExpectedPrograms
         <> directCallExpectedPrograms
         <> directRecursionExpectedPrograms
+        <> closureRecursionExpectedPrograms
         <> closedCallableExpectedPrograms
         <> lexicalCaptureExpectedPrograms
         <> curriedApplicationExpectedPrograms
@@ -336,6 +365,7 @@ testAcceptedManifestPipeline =
       scalarExpectedLoweredPrograms
         <> directCallExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- directRecursionExpectedLoweredPrograms]
+        <> [(name, lowered) | (name, _, lowered) <- closureRecursionExpectedLoweredPrograms]
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
@@ -815,6 +845,13 @@ testLowererCallableBoundary =
               (LoweredIRNameFailureDetail (currentName "seed"))
           ]
         ),
+        ( "interleaved-capture-mutual-recursion",
+          [ statementFailure
+              4
+              LoweredIRRecursiveFunctionUnsupported
+              (LoweredIRNameFailureDetail (currentName "right"))
+          ]
+        ),
         ( "non-concrete-closure-representation",
           [ statementFailure
               1
@@ -847,31 +884,6 @@ testLowererCallableBoundary =
               3
               LoweredIRDuplicateFunctionIdentity
               (LoweredIRNameFailureDetail (currentName "identity"))
-          ]
-        ),
-        ( "closure-shaped-self-recursive-function",
-          [ statementFailure
-              1
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop"))
-          ]
-        ),
-        ( "closure-value-mutual-recursion",
-          [ statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "left")),
-            statementFailure
-              5
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "right"))
-          ]
-        ),
-        ( "closure-value-self-recursion",
-          [ statementFailure
-              3
-              LoweredIRRecursiveFunctionUnsupported
-              (LoweredIRNameFailureDetail (currentName "loop"))
           ]
         ),
         ( "nested-lambda-closure-value-self-recursion",
@@ -1251,6 +1263,1337 @@ testEquivalentScalarAliasSpecialization =
     "equivalent scalar alias specialization"
     (producerEdgeFixture "equivalent-scalar-alias-specialization")
 
+testEarlierCallerTransitiveCaptureAvailability :: IO ()
+testEarlierCallerTransitiveCaptureAvailability = do
+  let fixture = producerEdgeFixture "earlier-caller-transitive-recursive-capture"
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "caller")
+          ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "earlier caller transitive capture repeatability" firstRun secondRun
+  assertEqual "earlier caller transitive capture rejection" expected (typedCoreProductionStatus firstRun)
+
+testCapturedNumericScalarReferenceSpecialization :: IO ()
+testCapturedNumericScalarReferenceSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [1])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalScalarBinding
+              2
+              "copy"
+              spanValue
+              literalType
+              (ProvisionalVariableExpression "seed" literalType),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalLiteralExpression (LInt 1) uint8Type)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured numeric scalar" provisionalScope
+
+testCapturedCompositeScalarSpecialization :: IO ()
+testCapturedCompositeScalarSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [1])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              2
+              spanValue
+              ( ProvisionalBinaryExpression
+                  "+"
+                  literalType
+                  literalType
+                  (ProvisionalVariableExpression "seed" literalType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured composite scalar specialization" provisionalScope
+
+testCapturedCompositeScalarBinderSpecialization :: IO ()
+testCapturedCompositeScalarBinderSpecialization = do
+  let spanValue = SourceSpan 1 1
+      seedType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [2])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              seedType
+              (ProvisionalLiteralExpression (LInt 1) seedType),
+            ProvisionalScalarBinding
+              1
+              "other"
+              spanValue
+              otherType
+              (ProvisionalLiteralExpression (LInt 2) otherType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalBinaryExpression
+                  "+"
+                  seedType
+                  seedType
+                  (ProvisionalVariableExpression "seed" seedType)
+                  (ProvisionalVariableExpression "other" otherType)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured composite scalar binder specialization" provisionalScope
+
+testCapturedComparisonResultSpecialization :: IO ()
+testCapturedComparisonResultSpecialization = do
+  let spanValue = SourceSpan 1 1
+      seedType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      comparisonOperandType = TIntegerLiteralType (IntegerLiteralRange 1 2)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [1])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              seedType
+              (ProvisionalLiteralExpression (LInt 1) seedType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalScalarBinding
+              2
+              "flag"
+              spanValue
+              TBoolType
+              ( ProvisionalBinaryExpression
+                  "<"
+                  TBoolType
+                  comparisonOperandType
+                  (ProvisionalVariableExpression "seed" seedType)
+                  (ProvisionalLiteralExpression (LInt 2) otherType)
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              (ProvisionalVariableExpression "flag" TBoolType)
+          ]
+  assertProvisionalProductionCompletes "captured comparison result specialization" provisionalScope
+
+testCapturedFunctionBodySpecialization :: IO ()
+testCapturedFunctionBodySpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalLiteralExpression (LInt 1) literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured function body specialization" provisionalScope
+
+testCapturedFunctionParameterSpecialization :: IO ()
+testCapturedFunctionParameterSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured function parameter specialization"
+    [("helper", typedUInt8UnaryType)]
+    Nothing
+    provisionalScope
+
+testCapturedCallableParameterApplicationSpecialization :: IO ()
+testCapturedCallableParameterApplicationSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      callbackFunctionType = TFunctionType literalType literalType
+      helperFunctionType = TFunctionType callbackFunctionType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      ( ProvisionalApplyExpression
+                          literalType
+                          (ProvisionalVariableExpression "function" callbackFunctionType)
+                          (ProvisionalVariableExpression "seed" literalType)
+                      )
+                      (ProvisionalVariableExpression "seed" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              (ProvisionalVariableExpression "helper" helperFunctionType)
+          ]
+  assertProvisionalProductionTypes
+    "captured callable parameter application specialization"
+    [("helper", typedUInt8HigherOrderType)]
+    (Just typedUInt8HigherOrderType)
+    provisionalScope
+
+testCapturedFunctionScalarBinderSpecialization :: IO ()
+testCapturedFunctionScalarBinderSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [2])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalScalarBinding
+              1
+              "other"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 2) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "other" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured function scalar binder specialization"
+    [("other", typedUInt8Type), ("helper", typedIntToUInt8Type)]
+    Nothing
+    provisionalScope
+
+testCapturedFunctionArgumentScalarBinderSpecialization :: IO ()
+testCapturedFunctionArgumentScalarBinderSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [2])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalScalarBinding
+              1
+              "other"
+              spanValue
+              otherType
+              (ProvisionalLiteralExpression (LInt 2) otherType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression "other" otherType)
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured function argument scalar binder specialization"
+    [("other", typedUInt8Type), ("helper", typedUInt8UnaryType)]
+    Nothing
+    provisionalScope
+
+testCapturedFunctionResultScalarBinderSpecialization :: IO ()
+testCapturedFunctionResultScalarBinderSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalScalarBinding
+              3
+              "result"
+              spanValue
+              literalType
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              (ProvisionalVariableExpression "result" literalType)
+          ]
+  assertProvisionalProductionTypes
+    "captured function result scalar binder specialization"
+    [("helper", typedUInt8UnaryType), ("result", typedUInt8Type)]
+    Nothing
+    provisionalScope
+
+testCapturedHigherOrderCallableArgumentSpecialization :: IO ()
+testCapturedHigherOrderCallableArgumentSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      applyFunctionType = TFunctionType helperFunctionType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      applyDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "apply"
+          spanValue
+          applyFunctionType
+          (Just (PlainTypeBinding applyFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              applyDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  applyFunctionType
+                  ( ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "function" helperFunctionType)
+                      (ProvisionalLiteralExpression (LInt 1) literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "apply" applyFunctionType)
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured higher-order callable argument specialization"
+    [("helper", typedUInt8UnaryType), ("apply", typedUInt8HigherOrderType)]
+    Nothing
+    provisionalScope
+
+testCapturedForwardedHigherOrderCallableArgumentSpecialization :: IO ()
+testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      applyFunctionType = TFunctionType helperFunctionType literalType
+      forwardFunctionType = TFunctionType helperFunctionType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      applyDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "apply"
+          spanValue
+          applyFunctionType
+          (Just (PlainTypeBinding applyFunctionType))
+          Nothing
+      forwardDeclaration =
+        ProvisionalCallableDeclaration
+          4
+          "forward"
+          spanValue
+          forwardFunctionType
+          (Just (PlainTypeBinding forwardFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              applyDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  applyFunctionType
+                  ( ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "function" helperFunctionType)
+                      (ProvisionalLiteralExpression (LInt 1) literalType)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              forwardDeclaration
+              ( ProvisionalLambdaExpression
+                  "function"
+                  forwardFunctionType
+                  ( ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "apply" applyFunctionType)
+                      (ProvisionalVariableExpression "function" helperFunctionType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              5
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "forward" forwardFunctionType)
+                  (ProvisionalVariableExpression "helper" helperFunctionType)
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured forwarded higher-order callable argument specialization"
+    [ ("helper", typedUInt8UnaryType),
+      ("apply", typedUInt8HigherOrderType),
+      ("forward", typedUInt8HigherOrderType)
+    ]
+    Nothing
+    provisionalScope
+
+testCapturedTerminalAnonymousCallableSpecialization :: IO ()
+testCapturedTerminalAnonymousCallableSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      anonymousFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              2
+              spanValue
+              ( ProvisionalLambdaExpression
+                  "item"
+                  anonymousFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured terminal anonymous callable specialization"
+    []
+    (Just typedUInt8UnaryType)
+    provisionalScope
+
+testCapturedNamedCallerSpecialization :: IO ()
+testCapturedNamedCallerSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      consumerFunctionType = TFunctionType literalType literalType
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          1
+          "loop"
+          spanValue
+          recursiveFunctionType
+          (Just (PlainTypeBinding recursiveFunctionType))
+          (Just [1])
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      consumerDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "consumer"
+          spanValue
+          consumerFunctionType
+          (Just (PlainTypeBinding consumerFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              consumerDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  consumerFunctionType
+                  ( ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "helper" helperFunctionType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ( ProvisionalApplyExpression
+                  literalType
+                  (ProvisionalVariableExpression "consumer" consumerFunctionType)
+                  (ProvisionalLiteralExpression (LInt 1) literalType)
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured named caller specialization"
+    [("helper", typedUInt8UnaryType), ("consumer", typedUInt8UnaryType)]
+    Nothing
+    provisionalScope
+
+testCapturedScalarAliasSourceSpecialization :: IO ()
+testCapturedScalarAliasSourceSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [2])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalScalarBinding
+              1
+              "copy"
+              spanValue
+              literalType
+              (ProvisionalVariableExpression "seed" literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "copy" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalLiteralExpression (LInt 1) uint8Type)
+              )
+          ]
+  assertProvisionalProductionCompletes "captured scalar alias source specialization" provisionalScope
+
+testRecordedScalarStatementIndices :: IO ()
+testRecordedScalarStatementIndices = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [3])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              1
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalScalarBinding
+              2
+              "copy"
+              spanValue
+              literalType
+              (ProvisionalVariableExpression "seed" literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "copy" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalLiteralExpression (LInt 1) uint8Type)
+              )
+          ]
+  assertProvisionalProductionCompletes "recorded scalar statement indices" provisionalScope
+
+testEagerRecursiveClosureCaptureAvailability :: IO ()
+testEagerRecursiveClosureCaptureAvailability = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      functionType = TFunctionType uint8Type uint8Type
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          3
+          "loop"
+          spanValue
+          functionType
+          (Just (PlainTypeBinding functionType))
+          (Just [3])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "result"
+              spanValue
+              uint8Type
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalLiteralExpression (LInt 1) uint8Type)
+              ),
+            ProvisionalScalarBinding
+              1
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalSignature 2 "loop" spanValue functionType,
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  functionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" functionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              4
+              spanValue
+              ProvisionalUnitExpression
+          ]
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
+      status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  assertEqual "eager recursive closure capture rejection" expected status
+
+testEagerNestedClosureCaptureAvailability :: IO ()
+testEagerNestedClosureCaptureAvailability = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let spanValue = SourceSpan 1 1
+      uint8Type = TNumericType NumericUInt8
+      callbackType = TFunctionType uint8Type uint8Type
+      invokeType = TFunctionType callbackType uint8Type
+      invokeDeclaration =
+        ProvisionalCallableDeclaration
+          0
+          "invoke"
+          spanValue
+          invokeType
+          (Just (PlainTypeBinding invokeType))
+          Nothing
+      loopDeclaration =
+        ProvisionalCallableDeclaration
+          4
+          "loop"
+          spanValue
+          callbackType
+          (Just (PlainTypeBinding callbackType))
+          (Just [4])
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalFunctionBinding
+              invokeDeclaration
+              ( ProvisionalLambdaExpression
+                  "callback"
+                  invokeType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "callback" callbackType)
+                      (ProvisionalLiteralExpression (LInt 1) uint8Type)
+                  )
+              ),
+            ProvisionalScalarBinding
+              1
+              "result"
+              spanValue
+              uint8Type
+              ( ProvisionalApplyExpression
+                  uint8Type
+                  (ProvisionalVariableExpression "invoke" invokeType)
+                  ( ProvisionalLambdaExpression
+                      "item"
+                      callbackType
+                      ( ProvisionalApplyExpression
+                          uint8Type
+                          (ProvisionalVariableExpression "loop" callbackType)
+                          (ProvisionalVariableExpression "item" uint8Type)
+                      )
+                  )
+              ),
+            ProvisionalScalarBinding
+              2
+              "seed"
+              spanValue
+              uint8Type
+              (ProvisionalLiteralExpression (LInt 1) uint8Type),
+            ProvisionalSignature 3 "loop" spanValue callbackType,
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  callbackType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" callbackType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              5
+              spanValue
+              ProvisionalUnitExpression
+          ]
+      expected =
+        TypedCoreProductionUnsupported
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
+      status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  assertEqual "eager nested closure capture rejection" expected status
+
+assertProvisionalProductionCompletes :: Text -> ProvisionalTypedExpr -> IO ()
+assertProvisionalProductionCompletes label =
+  assertProvisionalProductionTypes label [] Nothing
+
+assertProvisionalProductionTypes :: Text -> [(Text, TypedType)] -> Maybe TypedType -> ProvisionalTypedExpr -> IO ()
+assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType provisionalScope = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let status =
+        typedCoreProductionOutcomeStatus
+          ( finalizeValidatedTypedCoreExpressionDirectCall
+              (TypedSourcePath "src/App/Main.jz")
+              resolvedModule
+              initialInferState
+              provisionalScope
+          )
+  case status of
+    TypedCoreProductionSucceeded programValue -> do
+      assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
+      case programValue of
+        TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _ -> do
+          let bindingTypes =
+                Map.fromList
+                  [ (identifier, typeValue)
+                  | TypedLetStatement
+                      _
+                      (TypedResolvedName TypedCurrentModule TypedValueNamespace identifier)
+                      _
+                      (TypedScheme _ _ _ _ typeValue _ _)
+                      _ <-
+                      statements
+                  ]
+              selectedBindingTypes =
+                [ (identifier, Map.lookup identifier bindingTypes)
+                | (identifier, _) <- expectedBindingTypes
+                ]
+          assertEqual
+            (label <> " specialized binding types")
+            [(identifier, Just typeValue) | (identifier, typeValue) <- expectedBindingTypes]
+            selectedBindingTypes
+          case expectedTerminalType of
+            Just expectedType ->
+              case reverse statements of
+                TypedExpressionStatement _ expression : _ ->
+                  assertEqual
+                    (label <> " specialized terminal type")
+                    expectedType
+                    (typedNodeType (typedExpressionInfo expression))
+                _ -> failTest (label <> " typed program has no terminal expression")
+            Nothing -> pure ()
+        _ -> failTest (label <> " typed program has an unexpected module shape")
+      case lowerTypedCoreExpressionDirectCall programValue of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
+        other -> failTest (label <> " did not lower: " <> Text.pack (show other))
+    other -> failTest (label <> " did not produce typed core: " <> Text.pack (show other))
+
+typedUInt8Type :: TypedType
+typedUInt8Type = TypedNumericType TypedUInt8Type
+
+typedUInt8UnaryType :: TypedType
+typedUInt8UnaryType = TypedFunctionType typedUInt8Type typedUInt8Type
+
+typedIntToUInt8Type :: TypedType
+typedIntToUInt8Type = TypedFunctionType TypedIntType typedUInt8Type
+
+typedUInt8HigherOrderType :: TypedType
+typedUInt8HigherOrderType = TypedFunctionType typedUInt8UnaryType typedUInt8Type
+
 testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do
   let fixture = producerEdgeFixture "unused-user-defined-operator"
@@ -1626,7 +2969,6 @@ testRejectedCallableProfile =
     expectedKinds =
       [ TypedCoreImportedInputsUnsupported,
         TypedCoreUserDefinedOperatorUnsupported,
-        TypedCoreRecursiveFunctionUnsupported,
         TypedCoreNonMonomorphicFunctionUnsupported,
         TypedCoreUnresolvedExpressionType
       ]
@@ -1656,8 +2998,6 @@ callableExpectedStatuses =
 callableRejectionNames :: [Text]
 callableRejectionNames =
   [ "oversaturated-direct-call",
-    "closure-value-mutual-recursion",
-    "closure-value-self-recursion",
     "polymorphic-or-evidence-function",
     "imported-direct-call",
     "user-defined-operator-call"
@@ -1696,14 +3036,17 @@ rejectedManifestExpectedStatuses =
       unsupported
         [expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
     ),
-    ( "closure-value-mutual-recursion",
+    ( "later-capture-mutual-recursion",
       unsupported
-        [ statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "left"),
-          statementFailure 5 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")
-        ]
+        [statementFailure 4 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
     ),
-    ( "closure-value-self-recursion",
-      unsupported [statementFailure 3 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "loop")]
+    ( "transitive-later-capture-mutual-recursion",
+      unsupported
+        [statementFailure 6 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
+    ),
+    ( "interleaved-rebound-capture-mutual-recursion",
+      unsupported
+        [statementFailure 5 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
     ),
     ( "polymorphic-or-evidence-function",
       unsupported

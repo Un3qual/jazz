@@ -19,7 +19,8 @@ import Jazz.Compiler.Bootstrap.CanonicalValue
     canonicalNullaryConstructor,
   )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-  ( directRecursionExpectedPrograms,
+  ( closureRecursionExpectedPrograms,
+    directRecursionExpectedPrograms,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinOwnership (..),
@@ -69,7 +70,7 @@ tests =
 coreTests :: [NamedTest]
 coreTests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
-    ("accepts exact producer direct-recursion artifacts", testProducerDirectRecursionArtifacts),
+    ("accepts exact producer recursive artifacts", testProducerRecursionArtifacts),
     ("encodes every typed-core outcome constructor", testOutcomeEncoding),
     ("accepts every fixed valid program", testValidPrograms),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
@@ -120,18 +121,26 @@ testValidPrograms =
     (\fixture -> assertEqual (validFixtureName fixture <> " valid failures") [] (validateTypedProgram (validFixtureProgram fixture)))
     validFixtures
 
-testProducerDirectRecursionArtifacts :: IO ()
-testProducerDirectRecursionArtifacts = do
+testProducerRecursionArtifacts :: IO ()
+testProducerRecursionArtifacts = do
   assertEqual
     "producer direct-recursion fixture names"
     ["self-recursive-function", "mutually-recursive-functions"]
     (map fst directRecursionExpectedPrograms)
+  assertEqual
+    "producer closure-recursion fixture names"
+    [ "closure-value-mutual-recursion",
+      "closure-value-self-recursion",
+      "capturing-self-recursion",
+      "capturing-mutual-recursion"
+    ]
+    (map fst closureRecursionExpectedPrograms)
   mapM_
     ( \(fixture, program) -> do
         assertEqual (fixture <> " producer artifact first validation") [] (validateTypedProgram program)
         assertEqual (fixture <> " producer artifact second validation") [] (validateTypedProgram program)
     )
-    directRecursionExpectedPrograms
+    (directRecursionExpectedPrograms <> closureRecursionExpectedPrograms)
 
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do
@@ -295,6 +304,7 @@ testJazzValidationParity = do
           <> map invalidFixtureProgram invalidFixtures
           <> reviewRegressionPrograms
           <> map snd directRecursionExpectedPrograms
+          <> map snd closureRecursionExpectedPrograms
       expectedRuntimeValue =
         VList
           [ VTuple

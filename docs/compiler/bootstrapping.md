@@ -25,10 +25,15 @@ Hosted front-end parity is implemented, but ordinary compilation still uses
 the stage-0 parsing and semantic pipeline. Typed core and lowered IR cover a
 bounded opt-in profile rather than the full language. It supports scalar
 bindings, direct calls, function values, unary closures, lexical capture,
-higher-order calls, curried application, and capture-free, non-escaping direct
-self and mutual recursion. Closure-shaped recursion, full control flow, scalar
-exports, and complete multi-module integration remain outside that profile.
-Ordinary run mode continues to evaluate canonical core with the interpreter.
+higher-order calls, curried application, capture-free, non-escaping direct self
+and mutual recursion, and closure-shaped self and mutual recursion when every
+external capture is available before the first group member. Closure-shaped
+groups share one immutable environment containing ordered external captures;
+members reuse it and reconstruct self or peer closures without cyclic
+initialization. Later or interleaved external captures, full control flow,
+scalar exports, and complete multi-module integration remain outside that
+profile. Ordinary run mode continues to evaluate canonical core with the
+interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in

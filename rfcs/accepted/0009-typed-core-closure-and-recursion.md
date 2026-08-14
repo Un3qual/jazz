@@ -348,15 +348,15 @@ run after every promotion and closeout.
 
 ### Implementation progress
 
-As of `2026-08-12`, the closure-call foundation, scalar-binding prerequisite,
-lexical-capture, curried-application, and direct-recursion children have landed
-through their required focused gates and the full serialized compiler suite.
-The opt-in profile now includes exact binder resolution, deterministic immutable
-capture environments, staged currying, ordinary partial-application closure
-results, ordered callable oversaturation, transported recursive-group metadata,
-and capture-free non-escaping self and mutual direct recursion. Closure recursion
-is the sole next child awaiting curation. Ordinary compile and run remain
-unchanged.
+As of `2026-08-13`, all six children have landed through their required focused
+gates and the full serialized compiler suite. The opt-in profile includes exact
+binder resolution, deterministic immutable capture environments, staged
+currying, ordinary partial-application closure results, ordered callable
+oversaturation, transported recursive-group metadata, capture-free non-escaping
+direct recursion, and escaping or capturing self/mutual recursion through one
+shared immutable external-capture environment. Later or interleaved external
+captures remain structured profile failures. RFC 0009 has no remaining delivery
+child, and ordinary compile and run remain unchanged.
 
 ## Context
 

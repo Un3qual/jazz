@@ -51,5 +51,9 @@ representation.
 The supported subset includes scalar bindings, direct calls, function values,
 unary closures, lexical capture, higher-order calls, curried application, and
 capture-free, non-escaping direct self and mutual recursion. Closure-shaped
-recursion, full control flow, scalar exports, complete multi-module integration,
+self and mutual recursion is also supported when every external capture is
+available before the first group member. These groups share one immutable
+environment containing ordered external captures, and reconstruct self or peer
+closures from it without cyclic initialization. Later or interleaved external
+captures, full control flow, scalar exports, complete multi-module integration,
 native emission, linking, and a native runtime remain outside this path.

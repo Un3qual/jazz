@@ -31,7 +31,11 @@ from partial areas and planned work.
 typed-core and backend-neutral lowering path currently covers scalar bindings,
 direct calls, function values, unary closures, lexical capture, higher-order
 calls, partial application, ordered application of additional arguments, and
-capture-free, non-escaping direct self and mutual recursion. It excludes
-closure-shaped recursion, full control flow, scalar exports, and complete
-multi-module integration. Ordinary compile and run modes remain on canonical
-core and the interpreter.
+capture-free, non-escaping direct self and mutual recursion. It also covers
+closure-shaped self and mutual recursion when every external capture precedes
+the first group member. These groups reuse one immutable shared environment
+containing ordered external captures and reconstruct self or peer closures
+without cyclic initialization. It excludes later or interleaved external
+captures, full control flow, scalar exports, and complete multi-module
+integration. Ordinary compile and run modes remain on canonical core and the
+interpreter.
