@@ -210,8 +210,9 @@ Each blocked item should answer these questions:
   catch-all while transporting nested, ambient, captured, and in-flight values
   through deterministic branch and join edges. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: implement accepted RFC 0012 as one resolved-type pattern
-  coverage child for ordinary cases and canonicalized pattern lambdas.
+- Smallest unblocker: execute active child
+  `JN-PATTERN-COVERAGE-ANALYSIS-001` as one resolved-type pattern coverage pass
+  for ordinary cases and canonicalized pattern lambdas.
 - Decision needed: accepted on `2026-08-14`. Non-exhaustive matches and wholly
   unreachable arms are hard compile errors. Guards never contribute coverage.
 - Recommended default: keep coverage independent of unification and runtime
