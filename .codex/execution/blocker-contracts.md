@@ -210,25 +210,29 @@ Each blocked item should answer these questions:
   catch-all while transporting nested, ambient, captured, and in-flight values
   through deterministic branch and join edges. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: none currently. No further hosted semantic-compiler child
-  is accepted or source-backed after scalar pattern cases.
-- Decision needed: a new durable contract before another child is promoted.
-- Recommended default: preserve the landed immediate-scalar boundary. Managed
-  patterns require managed-value production, stable layouts, tags, field
-  projection, and ownership. Pattern lambdas require invocation-time mismatch
-  semantics integrated with closure construction, currying, recursion, and
-  callable identity. Exhaustiveness and unreachable-arm analysis require
-  separate coverage reasoning and diagnostic policy.
-- Candidate child: none currently.
-- Target paths: none until a separate accepted contract exists.
-- Verification: the scalar-pattern-case plan owns the focused contract gate,
-  complete serialized suite, queue/RFC checks, documentation check, and clean
-  committed-worktree evidence.
-- Still not in scope: managed constructor, list, tuple, or text patterns; as-
-  or or-patterns; pattern lambdas; exhaustiveness or unreachable-arm analysis;
-  backend `E3022`; runtime failure/trap services; normal compile/run cutover;
-  tail calls; modules; native, embedding, bytecode, or VM work; or revival of
-  removed legacy implementations.
+- Smallest unblocker: implement accepted RFC 0012 as one resolved-type pattern
+  coverage child for ordinary cases and canonicalized pattern lambdas.
+- Decision needed: accepted on `2026-08-14`. Non-exhaustive matches and wholly
+  unreachable arms are hard compile errors. Guards never contribute coverage.
+- Recommended default: keep coverage independent of unification and runtime
+  selection. Record match observations during inference, resolve them once
+  after final substitution, and use one pure usefulness-matrix engine for the
+  complete active pattern surface.
+- Candidate child: `JN-PATTERN-COVERAGE-ANALYSIS-001`.
+- Target paths: `src/Jazz/Compiler/TypeInference.hs`,
+  `src/Jazz/Compiler/TypeInference/State.hs`,
+  `src/Jazz/Compiler/PatternCoverage.hs`,
+  `src/Jazz/Compiler/DiagnosticCatalog.hs`, and
+  `test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs`.
+- Verification: `cabal test pattern-coverage-spec pattern-semantics-spec
+  adt-pattern-type-spec adt-pattern-runtime-spec diagnostic-catalog-spec
+  --test-show-details=direct --jobs=1`; `cabal test all
+  --test-show-details=direct --jobs=1`; `bash scripts/check-docs.sh`;
+  `bash scripts/check-execution-queue.sh`; `git diff --check`.
+- Still not in scope: constant-folding guards, partial redundancy inside a
+  useful or-pattern, new pattern syntax, managed-value Typed Core production,
+  managed pattern lowering, pattern-lambda backend lowering, runtime `E3022`
+  removal, selection optimization, native work, or normal compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
