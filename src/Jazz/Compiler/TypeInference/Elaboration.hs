@@ -233,6 +233,7 @@ data FunctionProfile = FunctionProfile
     functionType :: ExpressionType,
     functionArity :: Int
   }
+  deriving (Eq)
 
 -- | Canonical free value references for dependency analysis. This walks the
 -- resolved core expression rather than the provisional production tree, so a
@@ -447,10 +448,15 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   Just function
                     | functionStatementIndex function == statementIndex -> functionType function
                   _ -> expressionType
-              selectedExpression =
+              captureSpecializedExpression =
                 case selectedCaptureType of
                   Just captureType -> specializeProvisionalCallableCapture state captureType expression
                   Nothing -> expression
+              selectedExpression =
+                specializeProvisionalCallableProfile
+                  functions
+                  selectedExpressionType
+                  captureSpecializedExpression
               generatedOperatorFailures =
                 case name of
                   GeneratedName (OperatorBinding _) ->
@@ -543,10 +549,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   Nothing -> scalarBindings
            in (failures, acceptedStatement, nextScalarBindings)
         ProvisionalTerminalExpression statementIndex spanValue expression ->
-          let selectedExpression =
+          let namedApplicationExpression = specializeProvisionalNamedApplications functions expression
+              selectedExpression =
                 case scalarCaptureExpectedType recursiveScalarCaptureTypes scalarBindings expression of
-                  Just captureType -> specializeProvisionalExpression state (Just captureType) expression
-                  Nothing -> expression
+                  Just captureType ->
+                    case namedApplicationExpression of
+                      ProvisionalLambdaExpression {} ->
+                        specializeProvisionalCallableProfile
+                          functions
+                          (maybe (resolveType state captureType) id (provisionalExpressionType state namedApplicationExpression))
+                          (specializeProvisionalCallableCapture state captureType namedApplicationExpression)
+                      _ -> specializeProvisionalExpression state (Just captureType) namedApplicationExpression
+                  Nothing -> namedApplicationExpression
               (failures, maybeTypedExpression) =
                 finalizeExpression recursiveScalarCaptureTypes eagerClosureCaptureStatements EagerExpression functions callableShapes statementIndex [] scalarBindings ScalarExpression selectedExpression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression, scalarBindings)
@@ -884,42 +898,156 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             TFunctionType argumentType resultType -> argumentType : argumentTypes resultType
             _ -> []
 
-    specializeProvisionalNamedApplications functions expression =
+    specializeProvisionalNamedApplications functions = specializeProvisionalNamedApplicationsWith functions Set.empty
+
+    specializeProvisionalNamedApplicationsWith functions initialLexicalNames = go initialLexicalNames
+      where
+        go lexicalNames expression =
+          case expression of
+            ProvisionalVariableExpression name expressionType
+              | Set.notMember name lexicalNames,
+                Just function <- Map.lookup name functions ->
+                  ProvisionalVariableExpression name (functionType function)
+              | otherwise -> ProvisionalVariableExpression name expressionType
+            ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
+              ProvisionalBinaryExpression
+                operatorSymbol
+                expressionType
+                operandType
+                (go lexicalNames left)
+                (go lexicalNames right)
+            ProvisionalLambdaExpression parameterName expressionType body ->
+              ProvisionalLambdaExpression
+                parameterName
+                expressionType
+                (go (Set.insert parameterName lexicalNames) body)
+            ProvisionalApplyExpression {} ->
+              let (callee, arguments, resultTypes) = applicationSpine expression
+                  specializedCallee = go lexicalNames callee
+                  specializedArguments =
+                    [ (argumentPath, go lexicalNames argument)
+                    | (argumentPath, argument) <- arguments
+                    ]
+                  selectedFunctionType =
+                    case callee of
+                      ProvisionalVariableExpression name _
+                        | Set.notMember name lexicalNames,
+                          Just function <- Map.lookup name functions ->
+                            Just (functionType function)
+                      _ -> provisionalExpressionType state specializedCallee
+                  (selectedArguments, selectedResultTypes) =
+                    case selectedFunctionType of
+                      Just selectedFunctionTypeValue ->
+                        ( applicationArguments selectedFunctionTypeValue specializedArguments,
+                          applicationResultTypes selectedFunctionTypeValue resultTypes
+                        )
+                      Nothing -> (specializedArguments, resultTypes)
+               in foldl'
+                    ( \functionExpression (resultType, (_, argument)) ->
+                        ProvisionalApplyExpression resultType functionExpression argument
+                    )
+                    specializedCallee
+                    (zip selectedResultTypes selectedArguments)
+            _ -> expression
+
+    specializeProvisionalCallableProfile functions = go Set.empty
+      where
+        go lexicalNames expectedType expression =
+          case expression of
+            ProvisionalLambdaExpression parameterName expressionType body ->
+              let resolvedExpressionType = resolveType state expressionType
+                  resolvedExpectedType = resolveType state expectedType
+                  (parameterType, resultType) =
+                    case (resolvedExpressionType, resolvedExpectedType) of
+                      (TFunctionType fallbackParameter fallbackResult, TFunctionType expectedParameter expectedResult) ->
+                        ( specializeCompatibleType state expectedParameter fallbackParameter,
+                          specializeCompatibleType state expectedResult fallbackResult
+                        )
+                      (TFunctionType fallbackParameter fallbackResult, _) ->
+                        (fallbackParameter, fallbackResult)
+                      _ -> (resolvedExpressionType, resolvedExpressionType)
+                  nextLexicalNames = Set.insert parameterName lexicalNames
+                  parameterSpecializedBody =
+                    specializeProvisionalParameterReferences state parameterName parameterType body
+                  applicationSpecializedBody =
+                    specializeProvisionalNamedApplicationsWith functions nextLexicalNames parameterSpecializedBody
+                  specializedBody =
+                    case applicationSpecializedBody of
+                      ProvisionalLambdaExpression {} ->
+                        go nextLexicalNames resultType applicationSpecializedBody
+                      _ -> specializeProvisionalExpression state (Just resultType) applicationSpecializedBody
+                  selectedParameterType =
+                    foldl'
+                      (\selectedType referenceType -> specializeCompatibleType state referenceType selectedType)
+                      parameterType
+                      (provisionalParameterReferenceTypes parameterName specializedBody)
+                  selectedResultType = maybe resultType id (provisionalExpressionType state specializedBody)
+               in ProvisionalLambdaExpression
+                    parameterName
+                    (TFunctionType selectedParameterType selectedResultType)
+                    specializedBody
+            _ -> specializeProvisionalExpression state (Just expectedType) expression
+
+    collectStatementCallProfiles referenceFunctions functions statement =
+      case statement of
+        ProvisionalFunctionBinding _ expression -> collectExpressionCallProfiles referenceFunctions Set.empty functions expression
+        ProvisionalScalarBinding _ _ _ _ expression -> collectExpressionCallProfiles referenceFunctions Set.empty functions expression
+        ProvisionalTerminalExpression _ _ expression -> collectExpressionCallProfiles referenceFunctions Set.empty functions expression
+        _ -> functions
+
+    collectExpressionCallProfiles referenceFunctions lexicalNames functions expression =
       case expression of
-        ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
-          ProvisionalBinaryExpression
-            operatorSymbol
-            expressionType
-            operandType
-            (specializeProvisionalNamedApplications functions left)
-            (specializeProvisionalNamedApplications functions right)
-        ProvisionalLambdaExpression parameterName expressionType body ->
-          ProvisionalLambdaExpression
-            parameterName
-            expressionType
-            (specializeProvisionalNamedApplications functions body)
+        ProvisionalBinaryExpression _ _ _ left right ->
+          collectExpressionCallProfiles
+            referenceFunctions
+            lexicalNames
+            (collectExpressionCallProfiles referenceFunctions lexicalNames functions left)
+            right
+        ProvisionalLambdaExpression parameterName _ body ->
+          collectExpressionCallProfiles referenceFunctions (Set.insert parameterName lexicalNames) functions body
         ProvisionalApplyExpression {} ->
-          let (callee, arguments, resultTypes) = applicationSpine expression
-              specializedCallee = specializeProvisionalNamedApplications functions callee
+          let (callee, arguments, _) = applicationSpine expression
               specializedArguments =
-                [ (argumentPath, specializeProvisionalNamedApplications functions argument)
+                [ (argumentPath, specializeProvisionalNamedApplicationsWith referenceFunctions lexicalNames argument)
                 | (argumentPath, argument) <- arguments
                 ]
-              (selectedArguments, selectedResultTypes) =
+              callSpecializedFunctions =
                 case callee of
                   ProvisionalVariableExpression name _
-                    | Just function <- Map.lookup name functions ->
-                        ( applicationArguments (functionType function) specializedArguments,
-                          applicationResultTypes (functionType function) resultTypes
-                        )
-                  _ -> (specializedArguments, resultTypes)
+                    | Set.notMember name lexicalNames,
+                      Just function <- Map.lookup name functions ->
+                        Map.insert
+                          name
+                          function {functionType = specializeHigherOrderArguments (functionType function) specializedArguments}
+                          functions
+                  _ -> functions
+              childSpecializedFunctions =
+                collectExpressionCallProfiles referenceFunctions lexicalNames callSpecializedFunctions callee
            in foldl'
-                ( \functionExpression (resultType, (_, argument)) ->
-                    ProvisionalApplyExpression resultType functionExpression argument
-                )
-                specializedCallee
-                (zip selectedResultTypes selectedArguments)
-        _ -> expression
+                (\accumulated (_, argument) -> collectExpressionCallProfiles referenceFunctions lexicalNames accumulated argument)
+                childSpecializedFunctions
+                arguments
+        _ -> functions
+      where
+        specializeHigherOrderArguments functionTypeValue arguments =
+          foldl'
+            specializeArgument
+            functionTypeValue
+            (zip [0 :: Int ..] arguments)
+        specializeArgument selectedFunctionType (argumentIndex, (_, argument)) =
+          case provisionalExpressionType state argument of
+            Just argumentType -> specializeHigherOrderArgumentAt argumentIndex argumentType selectedFunctionType
+            Nothing -> selectedFunctionType
+        specializeHigherOrderArgumentAt argumentIndex argumentType selectedFunctionType =
+          case resolveType state selectedFunctionType of
+            TFunctionType parameterType resultType
+              | argumentIndex == 0,
+                TFunctionType {} <- resolveType state parameterType,
+                TFunctionType {} <- resolveType state argumentType ->
+                  TFunctionType (specializeCompatibleType state argumentType parameterType) resultType
+              | argumentIndex > 0 ->
+                  TFunctionType parameterType (specializeHigherOrderArgumentAt (argumentIndex - 1) argumentType resultType)
+            _ -> selectedFunctionType
 
     callableOversaturationSupported directArity resultTypes =
       all isCallableResult intermediateOversaturationResults
@@ -1042,25 +1170,43 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 expressionType = provisionalCallableType declaration
             _ -> functions
 
-    specializeFunctionProfiles scalarCaptureTypes statements initialFunctions =
-      fst (foldl' collect (initialFunctions, Map.empty) statements)
+    specializeFunctionProfiles scalarCaptureTypes statements initialFunctions = converge initialFunctions
       where
+        converge functions
+          | nextFunctions == functions = functions
+          | otherwise = converge nextFunctions
+          where
+            bindingFunctions = fst (foldl' collect (functions, Map.empty) statements)
+            nextFunctions = foldl' (collectStatementCallProfiles bindingFunctions) bindingFunctions statements
+
         collect (functions, scalarBindings) statement =
           case statement of
             ProvisionalFunctionBinding declaration expression ->
               let statementIndex = provisionalCallableStatementIndex declaration
                   name = provisionalCallableName declaration
+                  selectedCaptureType = scalarCaptureExpectedType scalarCaptureTypes scalarBindings expression
+                  captureSpecializedExpression =
+                    case selectedCaptureType of
+                      Just captureType -> specializeProvisionalCallableCapture state captureType expression
+                      Nothing -> expression
+                  currentType =
+                    case Map.lookup name functions of
+                      Just function
+                        | functionStatementIndex function == statementIndex -> functionType function
+                      _ -> provisionalCallableType declaration
+                  selectedExpression =
+                    specializeProvisionalCallableProfile
+                      functions
+                      currentType
+                      captureSpecializedExpression
                   selectedType =
-                    case scalarCaptureExpectedType scalarCaptureTypes scalarBindings expression of
+                    case selectedCaptureType of
                       Just captureType ->
                         maybe
-                          (specializeCallableCaptureType state captureType (provisionalCallableType declaration))
+                          (specializeCallableCaptureType state captureType currentType)
                           id
-                          ( provisionalExpressionType
-                              state
-                              (specializeProvisionalCallableCapture state captureType expression)
-                          )
-                      Nothing -> provisionalCallableType declaration
+                          (provisionalExpressionType state selectedExpression)
+                      Nothing -> maybe currentType id (provisionalExpressionType state selectedExpression)
                   nextFunctions =
                     case Map.lookup name functions of
                       Just function
@@ -1989,6 +2135,47 @@ specializeProvisionalExpression state maybeExpected expression =
       case maybeExpected of
         Just expectedType -> specializeExpressionType state expectedType expressionType
         Nothing -> resolveType state expressionType
+
+specializeProvisionalParameterReferences :: InferState -> Name -> ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
+specializeProvisionalParameterReferences state parameterName selectedType = expressionReferences False
+  where
+    expressionReferences shadowed expression =
+      case expression of
+        ProvisionalUnitExpression -> ProvisionalUnitExpression
+        ProvisionalLiteralExpression {} -> expression
+        ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
+          ProvisionalBinaryExpression
+            operatorSymbol
+            expressionType
+            operandType
+            (child left)
+            (child right)
+        ProvisionalVariableExpression name expressionType
+          | not shadowed,
+            name == parameterName ->
+              ProvisionalVariableExpression name (specializeCompatibleType state selectedType expressionType)
+          | otherwise -> expression
+        ProvisionalLambdaExpression nestedParameterName expressionType body ->
+          ProvisionalLambdaExpression
+            nestedParameterName
+            expressionType
+            (expressionReferences (shadowed || nestedParameterName == parameterName) body)
+        ProvisionalApplyExpression expressionType function argument ->
+          ProvisionalApplyExpression expressionType (child function) (child argument)
+        ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
+        ProvisionalUnsupportedExpression {} -> expression
+        ProvisionalRetainedFailures {} -> expression
+      where
+        child = expressionReferences shadowed
+
+specializeCompatibleType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+specializeCompatibleType state expectedType expressionType =
+  case (resolveType state expressionType, resolveType state expectedType) of
+    (TFunctionType expressionParameter expressionResult, TFunctionType expectedParameter expectedResult) ->
+      TFunctionType
+        (specializeCompatibleType state expectedParameter expressionParameter)
+        (specializeCompatibleType state expectedResult expressionResult)
+    _ -> specializeExpressionType state expectedType expressionType
 
 specializeProvisionalCallableCapture :: InferState -> ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
 specializeProvisionalCallableCapture state captureType expression =
