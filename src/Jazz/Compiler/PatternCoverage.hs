@@ -4,6 +4,7 @@
 module Jazz.Compiler.PatternCoverage
   ( ConstructorInventory,
     PatternCoverageFailure (..),
+    PatternCoverageSite (..),
     analyzePatternCoverage,
     constructorInventoryFromBindings,
     emptyConstructorInventory,
@@ -41,20 +42,31 @@ data PatternCoverageFailure
   | UnreachablePatternArm Int
   deriving (Eq, Show)
 
+data PatternCoverageSite = PatternCoverageSite
+  { patternCoverageSiteOrdinal :: Int,
+    patternCoverageSiteConstructorInventory :: ConstructorInventory,
+    patternCoverageSiteScrutineeType :: ExpressionType,
+    patternCoverageSiteArms :: [CaseArm]
+  }
+  deriving (Eq, Show)
+
 -- | Constructor information that is safe to treat as a closed domain. A data
 -- type remains open unless every declared constructor is visible in the
 -- lexical type environment.
 newtype ConstructorInventory = ConstructorInventory (Map Text DataConstructorInventory)
+  deriving (Eq, Show)
 
 data DataConstructorInventory = DataConstructorInventory
   { inventoryTypeParameters :: [Name],
     inventoryConstructors :: [VisibleConstructor]
   }
+  deriving (Eq, Show)
 
 data VisibleConstructor = VisibleConstructor
   { visibleConstructorName :: Name,
     visibleConstructorArguments :: [ConstructorArgumentType]
   }
+  deriving (Eq, Show)
 
 emptyConstructorInventory :: ConstructorInventory
 emptyConstructorInventory = ConstructorInventory Map.empty
@@ -374,13 +386,23 @@ renderCoveragePattern patternValue =
     PVariable name -> renderName name
     PLiteral literal -> renderLiteral literal
     PConstructor name fields ->
-      Text.unwords (renderName name : map renderCoveragePattern fields)
-    PList elements -> "[" <> Text.intercalate ", " (map renderCoveragePattern elements) <> "]"
+      Text.unwords (renderName name : map renderCoveragePatternAtom fields)
+    PList elements -> "[" <> Text.intercalate ", " (map renderCoveragePatternAtom elements) <> "]"
     PConsList headPattern tailPattern ->
-      "[" <> renderCoveragePattern headPattern <> " | " <> renderCoveragePattern tailPattern <> "]"
-    PTuple elements -> "(" <> Text.intercalate ", " (map renderCoveragePattern elements) <> ")"
-    PAs name innerPattern -> renderName name <> " @ " <> renderCoveragePattern innerPattern
+      "[" <> renderCoveragePatternAtom headPattern <> " | " <> renderCoveragePatternAtom tailPattern <> "]"
+    PTuple elements -> "(" <> Text.intercalate ", " (map renderCoveragePatternAtom elements) <> ")"
+    PAs name innerPattern -> renderName name <> " @ " <> renderCoveragePatternAtom innerPattern
     POr alternatives -> Text.intercalate " | " (map renderCoveragePattern alternatives)
+
+renderCoveragePatternAtom :: Pattern -> Text
+renderCoveragePatternAtom patternValue =
+  case patternValue of
+    PConstructor _ (_ : _) -> grouped
+    PAs {} -> grouped
+    POr {} -> grouped
+    _ -> renderCoveragePattern patternValue
+  where
+    grouped = "(" <> renderCoveragePattern patternValue <> ")"
 
 renderLiteral :: Literal -> Text
 renderLiteral literal =

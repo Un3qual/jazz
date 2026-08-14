@@ -3,12 +3,27 @@
 module Main (main) where
 
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     Literal (..),
     Pattern (..),
+  )
+import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
+import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
+import Jazz.Compiler.Diagnostics
+  ( Diagnostic,
+    diagnosticCode,
+    diagnosticSummary,
+    isErrorDiagnostic,
+  )
+import Jazz.Compiler.Driver
+  ( compileErrors,
+    compileSource,
+    compileWarnings,
   )
 import Jazz.Compiler.PatternCoverage
   ( ConstructorInventory,
@@ -16,12 +31,24 @@ import Jazz.Compiler.PatternCoverage
     analyzePatternCoverage,
     constructorInventoryFromBindings,
     emptyConstructorInventory,
+    renderCoveragePattern,
+  )
+import Jazz.Compiler.TypeInference
+  ( InferenceInputs (..),
+    InferenceResult (..),
+    inferExpressionWithInputs,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType (..),
     TypeBinding (..),
+    emptyScopeCapabilityFacts,
+  )
+import Jazz.Compiler.WarningConfig
+  ( WarningSettings,
+    defaultWarningSettings,
+    resolveWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -53,7 +80,21 @@ tests =
     ("as-patterns contribute their inner coverage", testAsPatternCoverage),
     ("or-pattern alternatives form a coverage union", testOrPatternCoverage),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
-    ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern)
+    ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
+    ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
+    ("source pipeline rejects a non-exhaustive match", testIncompleteSourceMatch),
+    ("source pipeline rejects an unreachable arm", testUnreachableSourceArm),
+    ("nested source matches retain traversal order", testNestedSourceMatches),
+    ("existing type errors suppress coverage cascades", testCoverageSuppression),
+    ("source pipeline closes locally declared ADTs", testLocalAdtCoverage),
+    ("pattern lambdas share source coverage", testPatternLambdaCoverage),
+    ("guarded source arms do not contribute coverage", testGuardedSourceCoverage),
+    ("recursive inference records one source match", testRecursiveMatchRecordedOnce),
+    ("nested constructor witnesses render unambiguously", testNestedWitnessRendering),
+    ("source reachability covers every strict arm case", testStrictSourceReachability),
+    ("repeated guarded arms remain reachable", testRepeatedGuardedSourceArms),
+    ("warning-only diagnostics do not suppress coverage", testWarningsDoNotSuppressCoverage),
+    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage)
   ]
 
 testEmptyBoolMatch :: IO ()
@@ -247,6 +288,222 @@ testCoveredOrPattern =
       arm (POr [PLiteral (LBool False), PLiteral (LBool True)])
     ]
     [UnreachablePatternArm 3]
+
+testCompleteSourceMatch :: IO ()
+testCompleteSourceMatch = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | False -> 0 | True -> 1 }."
+  assertEqual "complete source diagnostics" [] (compileErrors result)
+
+testIncompleteSourceMatch :: IO ()
+testIncompleteSourceMatch = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | True -> 1 }."
+  assertEqual
+    "incomplete source diagnostics"
+    [("E2018", "non-exhaustive pattern match; missing pattern: False")]
+    (diagnosticIdentities (compileErrors result))
+
+testUnreachableSourceArm :: IO ()
+testUnreachableSourceArm = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | False -> 0 | False -> 1 | True -> 2 }."
+  assertEqual
+    "unreachable source diagnostics"
+    [("E2019", "pattern arm 2 is unreachable because earlier unguarded arms cover it")]
+    (diagnosticIdentities (compileErrors result))
+
+testNestedSourceMatches :: IO ()
+testNestedSourceMatches = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | True -> case False { | False -> 0 } }."
+  assertEqual
+    "nested source diagnostics"
+    [ ("E2018", "non-exhaustive pattern match; missing pattern: False"),
+      ("E2018", "non-exhaustive pattern match; missing pattern: True")
+    ]
+    (diagnosticIdentities (compileErrors result))
+
+testCoverageSuppression :: IO ()
+testCoverageSuppression = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | 0 -> 1 }."
+  assertEqual
+    "coverage suppression diagnostics"
+    ["E2011"]
+    (map (diagnosticCodeText . diagnosticCode) (compileErrors result))
+
+diagnosticIdentities :: [Diagnostic] -> [(Text, Text)]
+diagnosticIdentities =
+  map
+    ( \diagnostic ->
+        ( diagnosticCodeText (diagnosticCode diagnostic),
+          diagnosticSummary diagnostic
+        )
+    )
+
+testLocalAdtCoverage :: IO ()
+testLocalAdtCoverage = do
+  completeResult <-
+    compileSource
+      defaultWarningSettings
+      "data Maybe a = Nothing | Just a. x = case Just True { | Nothing -> 0 | Just False -> 1 | Just True -> 2 }."
+  assertEqual "complete local ADT diagnostics" [] (compileErrors completeResult)
+  incompleteResult <-
+    compileSource
+      defaultWarningSettings
+      "data Maybe a = Nothing | Just a. x = case Just True { | Just item -> 1 }."
+  assertEqual
+    "incomplete local ADT diagnostics"
+    [("E2018", "non-exhaustive pattern match; missing pattern: Nothing")]
+    (diagnosticIdentities (compileErrors incompleteResult))
+
+testPatternLambdaCoverage :: IO ()
+testPatternLambdaCoverage = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "choose = \\(True) -> 1. x = choose True."
+  assertEqual
+    "pattern lambda diagnostics"
+    [("E2018", "non-exhaustive pattern match; missing pattern: False")]
+    (diagnosticIdentities (compileErrors result))
+
+testGuardedSourceCoverage :: IO ()
+testGuardedSourceCoverage = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | False if True -> 0 | True -> 1 }."
+  assertEqual
+    "guarded source diagnostics"
+    [("E2018", "non-exhaustive pattern match; missing pattern: False")]
+    (diagnosticIdentities (compileErrors result))
+
+testRecursiveMatchRecordedOnce :: IO ()
+testRecursiveMatchRecordedOnce = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "f = \\(item) -> case item { | True -> if item then 1 else f item }. x = f True."
+  assertEqual
+    "recursive source diagnostics"
+    [("E2018", "non-exhaustive pattern match; missing pattern: False")]
+    (diagnosticIdentities (compileErrors result))
+
+testNestedWitnessRendering :: IO ()
+testNestedWitnessRendering =
+  assertEqual
+    "nested witness"
+    "Pair (Just _) [(_, _) | _]"
+    ( renderCoveragePattern
+        ( PConstructor
+            "Pair"
+            [ PConstructor "Just" [PWildcard],
+              PConsList (PTuple [PWildcard, PWildcard]) PWildcard
+            ]
+        )
+    )
+
+testStrictSourceReachability :: IO ()
+testStrictSourceReachability =
+  mapM_
+    assertUnreachableArm
+    [ ( "constructor arm",
+        2,
+        "data Maybe a = Nothing | Just a. x = case Just 1 { | Just _ -> 0 | Just item -> 1 | Nothing -> 2 }."
+      ),
+      ( "exact list arm",
+        3,
+        "x = case [1] { | [] -> 0 | [_ | _] -> 1 | [item] -> 2 }."
+      ),
+      ( "guarded arm",
+        2,
+        "x = case True { | _ -> 0 | True if False -> 1 }."
+      )
+    ]
+  where
+    assertUnreachableArm :: (Text, Int, Text) -> IO ()
+    assertUnreachableArm (label, armIndex, source) = do
+      result <- compileSource defaultWarningSettings source
+      assertEqual
+        (label <> " diagnostics")
+        [("E2019", "pattern arm " <> Text.pack (show armIndex) <> " is unreachable because earlier unguarded arms cover it")]
+        (diagnosticIdentities (compileErrors result))
+
+testRepeatedGuardedSourceArms :: IO ()
+testRepeatedGuardedSourceArms = do
+  result <-
+    compileSource
+      defaultWarningSettings
+      "x = case True { | True if False -> 0 | True if True -> 1 | _ -> 2 }."
+  assertEqual "repeated guarded diagnostics" [] (compileErrors result)
+
+testWarningsDoNotSuppressCoverage :: IO ()
+testWarningsDoNotSuppressCoverage = do
+  result <-
+    compileSource
+      unusedWarningSettings
+      "unused = 1. case True { | True -> 1 }."
+  assertEqual
+    "coverage alongside warnings"
+    ["E2018"]
+    (map (diagnosticCodeText . diagnosticCode) (compileErrors result))
+  assertEqual "warning remains present" False (null (compileWarnings result))
+
+unusedWarningSettings :: WarningSettings
+unusedWarningSettings =
+  case resolveWarningSettings ["-Wunused-binding"] Nothing Nothing Nothing of
+    Right settings -> settings
+    Left diagnostic -> error (show diagnostic)
+
+testHiddenImportedConstructorCoverage :: IO ()
+testHiddenImportedConstructorCoverage = do
+  result <-
+    inferExpressionWithInputs
+      hiddenConstructorInputs
+      ( EPatternCase
+          (EVar "subject")
+          [arm (PConstructor "Nothing" [])]
+      )
+  assertEqual
+    "hidden constructor pipeline diagnostics"
+    [("E2018", "non-exhaustive pattern match; missing pattern: _")]
+    (diagnosticIdentities (filter isErrorDiagnostic (inferredDiagnostics result)))
+
+hiddenConstructorInputs :: InferenceInputs
+hiddenConstructorInputs =
+  InferenceInputs
+    { inferenceBuiltinMode = ResolveKernelOnly,
+      inferenceWarningSettings = defaultWarningSettings,
+      inferenceImportedTypes =
+        Map.fromList
+          [ ("subject", PlainTypeBinding maybeIntType),
+            ("Nothing", ConstructorTypeBinding "Maybe" ["a"] [])
+          ],
+      inferenceImportedDataTypes =
+        Map.singleton
+          "Maybe"
+          ( DataTypeBinding
+              ["a"]
+              [ [],
+                [ConstructorArgumentParameter "a"]
+              ]
+          ),
+      inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+      inferenceImportedClassNames = Set.empty,
+      inferenceCurrentModulePath = Nothing
+    }
 
 assertCoverage :: Text -> ExpressionType -> [CaseArm] -> [PatternCoverageFailure] -> IO ()
 assertCoverage label expressionType arms expected =

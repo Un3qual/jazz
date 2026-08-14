@@ -8,13 +8,20 @@ autonomous_ready: yes
 depends_on: []
 plan_section: "Full closeout"
 target_paths:
+  - src/Jazz/Compiler/PatternCoverage.hs
   - src/Jazz/Compiler/TypeInference.hs
   - src/Jazz/Compiler/TypeInference/State.hs
   - src/Jazz/Compiler/TypeInference/Diagnostics.hs
   - src/Jazz/Compiler/DiagnosticCatalog.hs
+  - src/Jazz/Compiler/BundledPrelude.hs
+  - jazz/stdlib/Prelude.jz
   - jazz.cabal
+  - test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs
+  - test/Jazz/Compiler/Semantics/AdtPatternTypeSpec.hs
   - test/Jazz/Compiler/Semantics/AdtPatternRuntimeSpec.hs
   - test/Jazz/Compiler/Semantics/LambdaSemanticsSpec.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   - test/Jazz/Compiler/Diagnostics/DiagnosticCatalogSpec.hs
   - docs/language/control-flow.md
   - docs/language/algebraic-data-types-and-patterns.md
@@ -74,7 +81,7 @@ resolved type inference, Nix
   diagnostics contain an effective error.
 - Record inference observations once; do not rerun inference, inspect runtime
   values, or make coverage part of unification.
-- Preserve stable traversal ordering, arm ordering, constructor declaration
+- Preserve stable traversal ordering, arm ordering, qualified constructor
   ordering, and deterministic missing-pattern rendering.
 - Keep the interpreter and runtime `E3022` unchanged as defensive boundaries.
 - Do not change Typed Core, Lowered IR, managed-value lowering, pattern-lambda
@@ -307,6 +314,7 @@ git commit -m "feat: analyze pattern coverage"
 ```haskell
 data PatternCoverageSite = PatternCoverageSite
   { patternCoverageSiteOrdinal :: Int,
+    patternCoverageSiteConstructorInventory :: ConstructorInventory,
     patternCoverageSiteScrutineeType :: ExpressionType,
     patternCoverageSiteArms :: [CaseArm]
   }
@@ -316,7 +324,7 @@ recordPatternCoverageSite :: PatternCoverageSite -> InferState -> InferState
 inferPatternCoverageSites :: InferState -> [PatternCoverageSite]
 ```
 
-- [ ] **Step 1: Add failing integration tests.** Compile source rather than
+- [x] **Step 1: Add failing integration tests.** Compile source rather than
       calling the pure engine:
 
 ```haskell
@@ -332,12 +340,12 @@ testNestedSitesAreReportedOnce = do
 Also add an invalid-pattern case that asserts only existing `E2011`, proving
 coverage suppression.
 
-- [ ] **Step 2: Run the suite and verify source compilation still accepts
+- [x] **Step 2: Run the suite and verify source compilation still accepts
       incomplete matches.** Run the Task 2 Step 2 command.
 
 Expected: FAIL because no pipeline coverage diagnostics exist.
 
-- [ ] **Step 3: Extend `InferenceOutput`.** Add:
+- [x] **Step 3: Extend `InferenceOutput`.** Add:
 
 ```haskell
 outputPatternCoverageSites :: Seq PatternCoverageSite
@@ -349,7 +357,7 @@ current ordinal and increments only the counter. `recordPatternCoverageSite`
 appends exactly one site. `inferPatternCoverageSites` materializes the sequence
 without exposing mutable state.
 
-- [ ] **Step 4: Record every canonical match once.** In both
+- [x] **Step 4: Record every canonical match once.** In both
       `EPatternCase` traversal branches, reserve the ordinal before visiting the
       scrutinee, thread the reserved state into child inference, and append the
       site after arm inference:
@@ -360,20 +368,26 @@ let (coverageOrdinal, stateWithCoverageOrdinal) = reservePatternCoverageSite sta
       inferExprTypeDetailed builtinMode env stateWithCoverageOrdinal scrutineeExpr
     stateWithCoverageSite =
       recordPatternCoverageSite
-        (PatternCoverageSite coverageOrdinal scrutineeType caseArms)
+        ( PatternCoverageSite
+            coverageOrdinal
+            (constructorInventoryFromBindings (inferDataTypes finalState) env)
+            scrutineeType
+            caseArms
+        )
         finalState
 ```
 
 Return `stateWithCoverageSite` while using it consistently for final
 specialization and profile checks.
 
-- [ ] **Step 5: Resolve sites after final substitution.** Extend
+- [x] **Step 5: Resolve sites after final substitution.** Extend
       `FinalizedInference` with final coverage diagnostics. Sort observations by
       ordinal, resolve scrutinee types through `resolveType finalState`, and call
-      `analyzePatternCoverage (inferDataTypes finalState)` once per site. Update
-      `forceFinalizedInferenceContainers` so results cannot retain solver state.
+      `analyzePatternCoverage` once per site using the recorded lexical
+      constructor inventory. Update `forceFinalizedInferenceContainers` so
+      results cannot retain solver state.
 
-- [ ] **Step 6: Suppress cascades at `finishInference`.** Compute:
+- [x] **Step 6: Suppress cascades at `finishInference`.** Compute:
 
 ```haskell
 baseDiagnostics = analyzerDiagnostics <> finalizedTypeErrors finalizedInference
@@ -385,12 +399,12 @@ diagnostics = baseDiagnostics <> coverageDiagnostics
 
 Do not let warning-only analyzer output suppress coverage.
 
-- [ ] **Step 7: Lock rollback and production parity.** Add tests where an
+- [x] **Step 7: Lock rollback and production parity.** Add tests where an
       invalid duplicate-binder arm, unknown constructor, or failed nested body
       does not leak a coverage site, and verify the typed-core production entry
       returns the same source coverage errors before any profile status.
 
-- [ ] **Step 8: Run inference-focused tests and commit.**
+- [x] **Step 8: Run inference-focused tests and commit.**
 
 Run:
 
@@ -431,7 +445,7 @@ mkUnreachablePatternArmError :: Int -> Diagnostic
 
 with stable codes `E2018` and `E2019`.
 
-- [ ] **Step 1: Add failing catalog and diagnostic assertions.** Extend the
+- [x] **Step 1: Add failing catalog and diagnostic assertions.** Extend the
       exact error inventory through `2019`. Assert exact summaries:
 
 ```text
@@ -439,7 +453,7 @@ non-exhaustive pattern match; missing pattern: False
 pattern arm 2 is unreachable because earlier unguarded arms cover it
 ```
 
-- [ ] **Step 2: Run focused diagnostics and prove the codes are absent.**
+- [x] **Step 2: Run focused diagnostics and prove the codes are absent.**
 
 Run:
 
@@ -449,18 +463,18 @@ nix --extra-experimental-features 'nix-command flakes' develop --command cabal t
 
 Expected: FAIL on missing `E2018`/`E2019` catalog entries or summaries.
 
-- [ ] **Step 3: Add the stable catalog entries and constructors.** Extend
+- [x] **Step 3: Add the stable catalog entries and constructors.** Extend
       `ErrorCode` with `E2018 | E2019`; keep `errorSubsystem` unchanged because
       both fall under `TypeDiagnostics`. Implement the two diagnostic builders
       with `CompilationOrigin`, the exact summaries above, and deterministic
       `help` for `E2018`: `add an unguarded arm that covers the missing pattern`.
 
-- [ ] **Step 4: Materialize ordered failures.** Map `NonExhaustivePattern` and
+- [x] **Step 4: Materialize ordered failures.** Map `NonExhaustivePattern` and
       `UnreachablePatternArm` to the new builders only after final type
       resolution. Emit unreachable arms in source order, then the
       non-exhaustive failure for that site.
 
-- [ ] **Step 5: Convert runtime no-match expectations to compile errors.** In
+- [x] **Step 5: Convert runtime no-match expectations to compile errors.** In
       `AdtPatternRuntimeSpec.hs` and `LambdaSemanticsSpec.hs`, replace tests whose
       purpose is no-match failure with `E2018` compile assertions and no runtime
       output. For successful tests that intentionally use refutable pattern
@@ -472,13 +486,13 @@ pick = \|((item, _) | (_, item)) -> item |(_) -> 0.
 
 Do not weaken coverage or delete success coverage to preserve old fixtures.
 
-- [ ] **Step 6: Add strict reachability cases.** Prove `E2019` for duplicate
+- [x] **Step 6: Add strict reachability cases.** Prove `E2019` for duplicate
       literals, constructor arms after a covered constructor, exact-list arms
       after a cons wildcard, guarded arms covered by an earlier unguarded arm,
       and a wholly covered or-pattern. Prove repeated guarded patterns remain
       reachable.
 
-- [ ] **Step 7: Run the affected behavior matrix.**
+- [x] **Step 7: Run the affected behavior matrix.**
 
 Run:
 
@@ -489,7 +503,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command cabal t
 Expected: PASS with strict source errors and unchanged selection behavior for
 exhaustive programs.
 
-- [ ] **Step 8: Commit the diagnostic contract.**
+- [x] **Step 8: Commit the diagnostic contract.**
 
 ```bash
 git add src/Jazz/Compiler/TypeInference/Diagnostics.hs src/Jazz/Compiler/DiagnosticCatalog.hs src/Jazz/Compiler/TypeInference.hs test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs test/Jazz/Compiler/Semantics/AdtPatternRuntimeSpec.hs test/Jazz/Compiler/Semantics/LambdaSemanticsSpec.hs test/Jazz/Compiler/Diagnostics/DiagnosticCatalogSpec.hs

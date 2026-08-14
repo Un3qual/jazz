@@ -15,8 +15,9 @@ module Jazz.Compiler.DiagnosticCatalog
     lookupWarningCategory,
     warningCode,
     warningHasAnalyzerEmitter,
-    warningToken
-  ) where
+    warningToken,
+  )
+where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -55,6 +56,8 @@ data ErrorCode
   | E2015
   | E2016
   | E2017
+  | E2018
+  | E2019
   | E3001
   | E3002
   | E3003
@@ -211,9 +214,10 @@ warningHasAnalyzerEmitter category =
 -- configuration parsing.
 lookupWarningCategory :: Text -> Maybe WarningCategory
 lookupWarningCategory rawToken =
-  lookup normalizedToken
+  lookup
+    normalizedToken
     [ (warningToken category, category)
-      | category <- allWarningCategories
+    | category <- allWarningCategories
     ]
   where
     normalizedToken = Text.toLower (Text.strip rawToken)
@@ -244,7 +248,7 @@ errorSubsystem :: ErrorCode -> DiagnosticSubsystem
 errorSubsystem code
   | code <= E0005 = SyntaxDiagnostics
   | code <= E1010 = AnalysisDiagnostics
-  | code <= E2017 = TypeDiagnostics
+  | code <= E2019 = TypeDiagnostics
   | code <= E3040 = RuntimeDiagnostics
   | code <= E4016 = ModuleDiagnostics
   | otherwise = ToolingDiagnostics

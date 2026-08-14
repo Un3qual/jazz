@@ -26,6 +26,7 @@ module Jazz.Compiler.TypeInference
   )
 where
 
+import Data.List (sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -101,6 +102,12 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser.Operator
   ( isBuiltinOperatorSymbol,
   )
+import Jazz.Compiler.PatternCoverage
+  ( PatternCoverageFailure (..),
+    PatternCoverageSite (..),
+    analyzePatternCoverage,
+    constructorInventoryFromBindings,
+  )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     prepareRecursiveScope,
@@ -170,10 +177,13 @@ import Jazz.Compiler.TypeInference.State
     inferDataTypes,
     inferErrorsRev,
     inferModuleCapabilityFacts,
+    inferPatternCoverageSites,
     inferRuntimeTypeHints,
     inferVisibleTypes,
     initialInferState,
     modifyInferenceOutput,
+    recordPatternCoverageSite,
+    reservePatternCoverageSite,
   )
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding,
@@ -340,6 +350,7 @@ inferExpressionWork mode inputs preludeStatementIndices expr =
 
 data FinalizedInference = FinalizedInference
   { finalizedTypeErrors :: [Diagnostic],
+    finalizedPatternCoverageDiagnostics :: [Diagnostic],
     finalizedRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
     finalizedModuleInterface :: ModuleInterface
   }
@@ -348,6 +359,10 @@ finalizeInferenceState :: InferenceInputs -> Expr -> InferState -> FinalizedInfe
 finalizeInferenceState inputs expr finalState =
   FinalizedInference
     { finalizedTypeErrors = reverse (inferErrorsRev finalState),
+      finalizedPatternCoverageDiagnostics =
+        concatMap
+          (patternCoverageDiagnostics finalState)
+          (sortOn patternCoverageSiteOrdinal (inferPatternCoverageSites finalState)),
       finalizedRuntimeTypeHints = inferRuntimeTypeHints finalState,
       finalizedModuleInterface = moduleInterfaceFromState inputs expr finalState
     }
@@ -367,7 +382,11 @@ finishInference mode inputs hiddenStatementIndices subject inferredResult forwar
           hiddenStatementIndices
           expr
   let expression = inferenceSubjectExpr subject
-      diagnostics = analyzerDiagnostics <> finalizedTypeErrors finalizedInference
+      baseDiagnostics = analyzerDiagnostics <> finalizedTypeErrors finalizedInference
+      coverageDiagnostics
+        | any isErrorDiagnostic baseDiagnostics = []
+        | otherwise = finalizedPatternCoverageDiagnostics finalizedInference
+      diagnostics = baseDiagnostics <> coverageDiagnostics
   expression `seq`
     inferredExpressionType inferredResult `seq`
       pure
@@ -385,8 +404,27 @@ finishInference mode inputs hiddenStatementIndices subject inferredResult forwar
 forceFinalizedInferenceContainers :: FinalizedInference -> ()
 forceFinalizedInferenceContainers finalizedInference =
   forceListWith forceInferenceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
-    forceMapEntriesWhnf (finalizedRuntimeTypeHints finalizedInference) `seq`
-      forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
+    forceListWith forceInferenceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
+      forceMapEntriesWhnf (finalizedRuntimeTypeHints finalizedInference) `seq`
+        forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
+
+patternCoverageDiagnostics :: InferState -> PatternCoverageSite -> [Diagnostic]
+patternCoverageDiagnostics finalState site =
+  map
+    coverageFailureDiagnostic
+    ( analyzePatternCoverage
+        (patternCoverageSiteConstructorInventory site)
+        (resolveType finalState (patternCoverageSiteScrutineeType site))
+        (patternCoverageSiteArms site)
+    )
+
+coverageFailureDiagnostic :: PatternCoverageFailure -> Diagnostic
+coverageFailureDiagnostic failure =
+  case failure of
+    NonExhaustivePattern missingPattern ->
+      mkNonExhaustivePatternMatchError missingPattern
+    UnreachablePatternArm armIndex ->
+      mkUnreachablePatternArmError armIndex
 
 -- This is phase-owned rather than imported from 'Jazz.Compiler.Force': that
 -- structural-forcing module already depends on this module through
@@ -766,14 +804,16 @@ inferExprTypeDetailed builtinMode env state expr =
                   )
        in (InferredExpr expressionType provisionalExpr failures, finalState)
     EPatternCase scrutineeExpr caseArms ->
-      let (scrutineeResult, stateAfterScrutinee) =
-            inferExprTypeDetailed builtinMode env state scrutineeExpr
+      let (coverageOrdinal, stateWithCoverageOrdinal) =
+            reservePatternCoverageSite state
+          (scrutineeResult, stateAfterScrutinee) =
+            inferExprTypeDetailed builtinMode env stateWithCoverageOrdinal scrutineeExpr
           (scrutineeType, stateWithScrutineeType) =
             case inferredExpressionType scrutineeResult of
               Just inferredScrutineeType ->
                 (inferredScrutineeType, stateAfterScrutinee)
               Nothing -> freshTypeVar stateAfterScrutinee
-          (expressionType, finalState, armResults) =
+          (expressionType, inferredFinalState, armResults) =
             inferPatternCaseTypeWithResults
               inferExprTypeDetailed
               builtinMode
@@ -781,6 +821,17 @@ inferExprTypeDetailed builtinMode env state expr =
               scrutineeType
               stateWithScrutineeType
               caseArms
+          finalState =
+            recordPatternCoverageSite
+              ( PatternCoverageSite
+                  { patternCoverageSiteOrdinal = coverageOrdinal,
+                    patternCoverageSiteConstructorInventory =
+                      constructorInventoryFromBindings (inferDataTypes inferredFinalState) env,
+                    patternCoverageSiteScrutineeType = scrutineeType,
+                    patternCoverageSiteArms = caseArms
+                  }
+              )
+              inferredFinalState
           failures =
             childFailures 0 scrutineeResult
               <> concat (zipWith patternCaseArmFailures [0 ..] armResults)
@@ -1353,15 +1404,17 @@ inferExprTypeDetailed builtinMode env state expr =
                     <> childFailures 2 elseResult
                 )
         EPatternCase scrutineeExpr caseArms ->
-          let (scrutineeResult, stateAfterScrutinee) =
-                inferExprTypeDetailed builtinMode env state scrutineeExpr
+          let (coverageOrdinal, stateWithCoverageOrdinal) =
+                reservePatternCoverageSite state
+              (scrutineeResult, stateAfterScrutinee) =
+                inferExprTypeDetailed builtinMode env stateWithCoverageOrdinal scrutineeExpr
               (scrutineeType, stateWithScrutineeType) =
                 case inferredExpressionType scrutineeResult of
                   Just inferredScrutineeType ->
                     (inferredScrutineeType, stateAfterScrutinee)
                   Nothing ->
                     freshTypeVar stateAfterScrutinee
-              (expressionType, finalState, armResults) =
+              (expressionType, inferredFinalState, armResults) =
                 inferPatternCaseTypeWithResults
                   inferExprTypeDetailed
                   builtinMode
@@ -1369,6 +1422,17 @@ inferExprTypeDetailed builtinMode env state expr =
                   scrutineeType
                   stateWithScrutineeType
                   caseArms
+              finalState =
+                recordPatternCoverageSite
+                  ( PatternCoverageSite
+                      { patternCoverageSiteOrdinal = coverageOrdinal,
+                        patternCoverageSiteConstructorInventory =
+                          constructorInventoryFromBindings (inferDataTypes inferredFinalState) env,
+                        patternCoverageSiteScrutineeType = scrutineeType,
+                        patternCoverageSiteArms = caseArms
+                      }
+                  )
+                  inferredFinalState
            in retainedUnsupported
                 expressionType
                 finalState

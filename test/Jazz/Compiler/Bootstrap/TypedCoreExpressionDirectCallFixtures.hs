@@ -3829,7 +3829,7 @@ producerEdgeFixtures =
          ( "pattern-case-constructor-pattern",
            sourceFixtureNoExports
              "pattern-case-constructor-pattern"
-             "data Maybe = Nothing. case Nothing { | Nothing -> 1 | _ -> 2 }."
+             "data Maybe = Nothing. case Nothing { | Nothing -> 1 }."
          ),
          ( "pattern-case-list-pattern",
            sourceFixtureNoExports
@@ -3849,7 +3849,7 @@ producerEdgeFixtures =
          ( "pattern-case-or-pattern",
            sourceFixtureNoExports
              "pattern-case-or-pattern"
-             "case True { | True | False -> 1 | _ -> 2 }."
+             "case True { | True | False -> 1 }."
          ),
          ( "pattern-case-non-bool-guard",
            sourceFixtureNoExports
@@ -4749,7 +4749,7 @@ producerEdgeFixtures =
          ( "guarded-pattern-case-unsupported-children",
            sourceFixtureNoExports
              "guarded-pattern-case-unsupported-children"
-             "case [1] { | _ if { ignored = [2]. True. } -> [3] }."
+             "case [1] { | _ if { ignored = [2]. True. } -> [3] | _ -> [4] }."
          ),
          ( "nested-block-unsupported-child",
            sourceFixtureNoExports

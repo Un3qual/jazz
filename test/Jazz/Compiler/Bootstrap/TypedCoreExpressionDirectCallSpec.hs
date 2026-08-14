@@ -530,11 +530,7 @@ testScalarPatternCaseProducerBoundaries = do
   assertEmptyArmBoundary
   where
     expectedSourceFailures =
-      [ ("pattern-case-final-guarded-catch-all", [profileFailure 0]),
-        ("pattern-case-missing-final-catch-all", [profileFailure 0]),
-        ("pattern-case-unguarded-non-final-wildcard", [profileFailure 0]),
-        ("pattern-case-unguarded-non-final-variable", [profileFailure 0]),
-        ("pattern-case-managed-scrutinee", [profileFailure 0]),
+      [ ("pattern-case-managed-scrutinee", [profileFailure 0]),
         ( "pattern-case-constructor-pattern",
           [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
             profileFailure 1
@@ -554,7 +550,11 @@ testScalarPatternCaseProducerBoundaries = do
         ("pattern-case-or-pattern", [profileFailure 0])
       ]
     expectedDiagnosticFailures =
-      [ ("pattern-case-non-bool-guard", "E2001"),
+      [ ("pattern-case-final-guarded-catch-all", "E2018"),
+        ("pattern-case-missing-final-catch-all", "E2018"),
+        ("pattern-case-unguarded-non-final-wildcard", "E2019"),
+        ("pattern-case-unguarded-non-final-variable", "E2019"),
+        ("pattern-case-non-bool-guard", "E2001"),
         ("pattern-case-incompatible-arm-results", "E2012")
       ]
 
@@ -601,9 +601,16 @@ testScalarPatternCaseProducerBoundaries = do
       secondProduction <- produceResolvedFixture fixture emptyCaseModule
       assertEqual "empty pattern-case repeatable rejection" firstProduction secondProduction
       assertEqual
-        "empty pattern-case exact producer-profile rejection"
-        (TypedCoreProductionUnsupported [profileFailure 0])
+        "empty pattern-case exact diagnostic rejection"
+        TypedCoreProductionBlockedByDiagnostics
         (typedCoreProductionStatus firstProduction)
+      assertEqual
+        "empty pattern-case exact diagnostic"
+        ["E2018"]
+        [ diagnosticCodeText (diagnosticCode diagnostic)
+        | diagnostic <- inferredDiagnostics (typedCoreProductionInferenceResult firstProduction),
+          isErrorDiagnostic diagnostic
+        ]
 
     replaceTerminalExpression replacement coreModule =
       case coreModuleExpr coreModule of
@@ -4451,6 +4458,7 @@ testUnsupportedCompositeFailureAccumulation =
             expressionFailure 0 [1, 0] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail,
             expressionFailure 0 [1, 0, 0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [2, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
           ]
         ),

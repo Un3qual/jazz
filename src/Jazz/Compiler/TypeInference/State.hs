@@ -24,6 +24,7 @@ module Jazz.Compiler.TypeInference.State
     inferModuleCapabilityFacts,
     inferNextTypeVar,
     inferNumericVars,
+    inferPatternCoverageSites,
     inferRigidTypeVars,
     inferRuntimeTypeHints,
     inferStrictEqualityVars,
@@ -32,12 +33,15 @@ module Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState
-  ) where
+    modifyModuleInferenceState,
+    recordPatternCoverageSite,
+    reservePatternCoverageSite,
+  )
+where
 
+import Data.Foldable (toList)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
-import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
@@ -47,6 +51,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST (SignatureType)
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
@@ -57,7 +62,7 @@ import Jazz.Compiler.TypeInference.Types
     ScopeCapabilityFacts,
     TypeEnv,
     TypeSchemeConstraint,
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
   )
 
 data SolverState = SolverState
@@ -95,7 +100,9 @@ data InferenceOutput = InferenceOutput
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputInferredConstraintCount :: Int,
     outputErrorsRev :: [Diagnostic],
-    outputErrorCount :: Int
+    outputErrorCount :: Int,
+    outputPatternCoverageSites :: Seq PatternCoverageSite,
+    outputNextPatternCoverageOrdinal :: Int
   }
   deriving (Eq, Show)
 
@@ -164,7 +171,9 @@ initialInferState =
             outputInferredConstraints = [],
             outputInferredConstraintCount = 0,
             outputErrorsRev = [],
-            outputErrorCount = 0
+            outputErrorCount = 0,
+            outputPatternCoverageSites = Seq.empty,
+            outputNextPatternCoverageOrdinal = 0
           }
     }
 
@@ -236,3 +245,29 @@ inferErrorsRev = outputErrorsRev . inferOutput
 
 inferErrorCount :: InferState -> Int
 inferErrorCount = outputErrorCount . inferOutput
+
+inferPatternCoverageSites :: InferState -> [PatternCoverageSite]
+inferPatternCoverageSites = toList . outputPatternCoverageSites . inferOutput
+
+reservePatternCoverageSite :: InferState -> (Int, InferState)
+reservePatternCoverageSite state =
+  ( ordinal,
+    modifyInferenceOutput
+      ( \output ->
+          output
+            { outputNextPatternCoverageOrdinal = ordinal + 1
+            }
+      )
+      state
+  )
+  where
+    ordinal = outputNextPatternCoverageOrdinal (inferOutput state)
+
+recordPatternCoverageSite :: PatternCoverageSite -> InferState -> InferState
+recordPatternCoverageSite site =
+  modifyInferenceOutput
+    ( \output ->
+        output
+          { outputPatternCoverageSites = outputPatternCoverageSites output Seq.|> site
+          }
+    )
