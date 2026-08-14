@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.TypeInference.Pattern
-  ( inferPatternCaseType,
+  ( InferredPatternCaseArm (..),
+    inferPatternCaseType,
     inferPatternCaseTypeWithResults,
     inferPatternType,
     instantiateConstructorBinding
@@ -9,6 +10,7 @@ module Jazz.Compiler.TypeInference.Pattern
 
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import Data.Maybe (mapMaybe)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Text (Text)
@@ -32,6 +34,17 @@ import Jazz.Compiler.TypeInference.Types
     TypeEnv,
     instantiateConstructorFieldType
   )
+
+data InferredPatternCaseArm = InferredPatternCaseArm
+  Pattern
+  (Maybe InferredExpr)
+  InferredExpr
+  deriving (Eq, Show)
+
+data PatternCaseArmResult result = PatternCaseArmResult
+  Pattern
+  (Maybe result)
+  (Maybe result)
 
 inferPatternCaseType ::
   InferExprFn ->
@@ -63,19 +76,24 @@ inferPatternCaseTypeWithResults ::
   ExpressionType ->
   InferState ->
   [CaseArm] ->
-  (Maybe ExpressionType, InferState, [InferredExpr])
+  (Maybe ExpressionType, InferState, [InferredPatternCaseArm])
 inferPatternCaseTypeWithResults inferExpression builtinMode env scrutineeType initialState caseArms =
-  inferPatternCaseTypeInternal
-    ( \builtin childEnv childState childExpr ->
-        let (childResult, nextState) =
-              inferExpression builtin childEnv childState childExpr
-         in (inferredExpressionType childResult, nextState, Just childResult)
-    )
-    builtinMode
-    env
-    scrutineeType
-    initialState
-    caseArms
+  let (expressionType, finalState, armResults) =
+        inferPatternCaseTypeInternal
+          ( \builtin childEnv childState childExpr ->
+              let (childResult, nextState) =
+                    inferExpression builtin childEnv childState childExpr
+               in (inferredExpressionType childResult, nextState, Just childResult)
+          )
+          builtinMode
+          env
+          scrutineeType
+          initialState
+          caseArms
+   in (expressionType, finalState, mapMaybe retainArm armResults)
+  where
+    retainArm (PatternCaseArmResult pattern maybeGuardResult maybeBodyResult) =
+      InferredPatternCaseArm pattern maybeGuardResult <$> maybeBodyResult
 
 inferPatternCaseTypeInternal ::
   (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (Maybe ExpressionType, InferState, Maybe result)) ->
@@ -84,7 +102,7 @@ inferPatternCaseTypeInternal ::
   ExpressionType ->
   InferState ->
   [CaseArm] ->
-  (Maybe ExpressionType, InferState, [result])
+  (Maybe ExpressionType, InferState, [PatternCaseArmResult result])
 inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initialState caseArms =
   let (expressionType, finalState, reversedResults) =
         foldl' step (Nothing, initialState, []) caseArms
@@ -97,7 +115,11 @@ inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initi
             rejectDuplicatePatternBinders pattern rawPatternTyping stateAcc stateAfterPatternCheck
        in
         if patternSkipsBranchType patternTyping
-          then (maybeExpectedBodyType, stateAfterPattern, resultsAcc)
+          then
+            ( maybeExpectedBodyType,
+              stateAfterPattern,
+              PatternCaseArmResult pattern Nothing Nothing : resultsAcc
+            )
           else
             let armEnv =
                   patternBindings patternTyping `Map.union` env
@@ -105,10 +127,8 @@ inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initi
                   inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
                 (maybeBodyType, stateAfterBody, maybeBodyResult) =
                   inferExpression builtinMode armEnv stateAfterGuard bodyExpr
-                resultsAfterGuard =
-                  maybe resultsAcc (: resultsAcc) maybeGuardResult
                 nextResults =
-                  maybe resultsAfterGuard (: resultsAfterGuard) maybeBodyResult
+                  PatternCaseArmResult pattern maybeGuardResult maybeBodyResult : resultsAcc
              in
               case (maybeExpectedBodyType, maybeBodyType) of
                 (Nothing, _) ->

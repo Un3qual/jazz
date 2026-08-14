@@ -53,6 +53,8 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
+    ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
@@ -187,6 +189,7 @@ testFixtureManifest = do
           "ordering-operators",
           "equality-operators",
           "conditional",
+          "pattern-case",
           "scalar-parameter-return",
           "single-argument-direct-call",
           "curried-multi-argument-direct-call",
@@ -220,7 +223,6 @@ testFixtureManifest = do
           "list-value",
           "non-unit-tuple",
           "data-value",
-          "pattern-case",
           "local-block-binding",
           "oversaturated-direct-call",
           "later-capture-mutual-recursion",
@@ -233,8 +235,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 33 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 17 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 34 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 16 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -356,6 +358,7 @@ testAcceptedManifestPipeline =
     expectedTypedPrograms =
       [("unit-entry", expectedUnitProgram)]
         <> scalarExpectedPrograms
+        <> scalarPatternCaseExpectedPrograms
         <> directCallExpectedPrograms
         <> directRecursionExpectedPrograms
         <> closureRecursionExpectedPrograms
@@ -370,6 +373,16 @@ testAcceptedManifestPipeline =
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
+    expectedLoweringFailures =
+      [ ( "pattern-case",
+          LoweredIRUnsupported
+            [ LoweredIRLoweringFailure
+                (TypedExpressionPath ["App", "Main"] [0] [0])
+                LoweredIRUnsupportedExpression
+                LoweredIRNoFailureDetail
+            ]
+        )
+      ]
 
     assertAccepted name =
       case lookup name expectedTypedPrograms of
@@ -396,8 +409,8 @@ testAcceptedManifestPipeline =
           case typedCoreProductionStatus firstProduction of
             TypedCoreProductionSucceeded typedProgram -> do
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
-              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms) of
-                (Just validatedProgram, Just expectedLoweredProgram) -> do
+              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms, lookup name expectedLoweringFailures) of
+                (Just validatedProgram, Just expectedLoweredProgram, Nothing) -> do
                   let lowering = lowerTypedCoreExpressionDirectCall typedProgram
                       trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
                   assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
@@ -409,10 +422,151 @@ testAcceptedManifestPipeline =
                     LoweredIRSucceeded loweredProgram ->
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
-                (Nothing, _) -> failTest (name <> " did not retain its validation proof")
-                (_, Nothing) -> failTest (name <> " is missing a lowered-program expectation")
+                (Just validatedProgram, Nothing, Just expectedLoweringFailure) -> do
+                  let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+                      trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
+                  assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
+                  assertEqual (name <> " retained lowering boundary") expectedLoweringFailure lowering
+                (Nothing, _, _) -> failTest (name <> " did not retain its validation proof")
+                (_, _, _) -> failTest (name <> " has ambiguous or missing lowering expectations")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testScalarPatternCaseProduction :: IO ()
+testScalarPatternCaseProduction =
+  mapM_ assertProduced scalarPatternCaseExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture =
+            if name == "pattern-case"
+              then fixtureByName name
+              else producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      assertEqual
+        (name <> " exact typed production")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstProduction)
+      assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
+      assertEqual
+        (name <> " retained lowerer boundary")
+        ( LoweredIRUnsupported
+            [ LoweredIRLoweringFailure
+                (TypedExpressionPath ["App", "Main"] [0] [0])
+                LoweredIRUnsupportedExpression
+                LoweredIRNoFailureDetail
+            ]
+        )
+        (lowerTypedCoreExpressionDirectCall expectedProgram)
+
+testScalarPatternCaseProducerBoundaries :: IO ()
+testScalarPatternCaseProducerBoundaries = do
+  mapM_ assertSourceBoundary expectedSourceFailures
+  mapM_ assertDiagnosticBoundary expectedDiagnosticFailures
+  assertEmptyArmBoundary
+  where
+    expectedSourceFailures =
+      [ ("pattern-case-final-guarded-catch-all", [profileFailure 0]),
+        ("pattern-case-missing-final-catch-all", [profileFailure 0]),
+        ("pattern-case-unguarded-non-final-wildcard", [profileFailure 0]),
+        ("pattern-case-unguarded-non-final-variable", [profileFailure 0]),
+        ("pattern-case-managed-scrutinee", [profileFailure 0]),
+        ( "pattern-case-constructor-pattern",
+          [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+            profileFailure 1
+          ]
+        ),
+        ( "pattern-case-list-pattern",
+          [ profileFailure 0,
+            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+          ]
+        ),
+        ( "pattern-case-tuple-pattern",
+          [ profileFailure 0,
+            expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail
+          ]
+        ),
+        ("pattern-case-as-pattern", [profileFailure 0]),
+        ("pattern-case-or-pattern", [profileFailure 0])
+      ]
+    expectedDiagnosticFailures =
+      [ ("pattern-case-non-bool-guard", "E2001"),
+        ("pattern-case-incompatible-arm-results", "E2012")
+      ]
+
+    assertSourceBoundary (name, expectedFailures) = do
+      let fixture = producerEdgeFixture name
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " repeatable rejection") firstProduction secondProduction
+      assertEqual
+        (name <> " exact producer-profile rejection")
+        (TypedCoreProductionUnsupported expectedFailures)
+        (typedCoreProductionStatus firstProduction)
+
+    assertDiagnosticBoundary (name, expectedDiagnosticCode) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstProduction <- produceFixture fixture
+      secondProduction <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
+      assertEqual (name <> " repeatable diagnostic block") firstProduction secondProduction
+      assertEqual
+        (name <> " remains owned by inference diagnostics")
+        TypedCoreProductionBlockedByDiagnostics
+        (typedCoreProductionStatus firstProduction)
+      assertEqual
+        (name <> " exact inference diagnostic")
+        [expectedDiagnosticCode]
+        [ diagnosticCodeText (diagnosticCode diagnostic)
+        | diagnostic <- inferredDiagnostics ordinary,
+          isErrorDiagnostic diagnostic
+        ]
+
+    assertEmptyArmBoundary = do
+      let fixture = fixtureByName "unit-entry"
+      resolvedModule <- resolveFixtureModule fixture
+      let emptyCaseModule =
+            resolvedModule
+              { resolvedModuleCore =
+                  replaceTerminalExpression
+                    (EPatternCase (ELit (LBool True)) [])
+                    (resolvedModuleCore resolvedModule)
+              }
+      firstProduction <- produceResolvedFixture fixture emptyCaseModule
+      secondProduction <- produceResolvedFixture fixture emptyCaseModule
+      assertEqual "empty pattern-case repeatable rejection" firstProduction secondProduction
+      assertEqual
+        "empty pattern-case exact producer-profile rejection"
+        (TypedCoreProductionUnsupported [profileFailure 0])
+        (typedCoreProductionStatus firstProduction)
+
+    replaceTerminalExpression replacement coreModule =
+      case coreModuleExpr coreModule of
+        EBlock [SExpr spanValue _] ->
+          coreModule {coreModuleExpr = EBlock [SExpr spanValue replacement]}
+        other ->
+          error ("unexpected unit fixture core shape: " <> show other)
+
+    profileFailure statementIndex =
+      expressionFailure
+        statementIndex
+        []
+        TypedCorePatternCaseUnsupported
+        TypedCorePatternCaseDetail
+
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+
+    statementFailure statementIndex kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
+        kind
+        detail
 
 testConditionalProfileCoverage :: IO ()
 testConditionalProfileCoverage =
@@ -3339,7 +3493,6 @@ rejectedManifestExpectedStatuses =
           expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
         ]
     ),
-    ("pattern-case", unsupported [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
     ( "oversaturated-direct-call",
       unsupported
@@ -3664,7 +3817,7 @@ testUnsupportedCompositeFailureAccumulation =
       [ ( "pattern-case-unsupported-children",
           [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
             expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
           ]
         ),
         ( "nested-block-unsupported-child",
@@ -3676,7 +3829,7 @@ testUnsupportedCompositeFailureAccumulation =
         ( "guarded-pattern-case-unsupported-children",
           [ expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail,
             expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure 0 [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+            expressionFailure 0 [1, 1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
           ]
         ),
         ( "unsupported-binary-child",

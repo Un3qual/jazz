@@ -32,10 +32,12 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( DataConstructor (..),
+  ( CaseArm (..),
+    DataConstructor (..),
     Expr (..),
     Literal (..),
     NumericType (..),
+    Pattern (..),
     SignatureType,
     Statement (..),
   )
@@ -112,6 +114,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
   ( InferredExpr (..),
     InferredProductionFailure (..),
+    ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionFailureDetail (..),
@@ -140,7 +143,8 @@ import Jazz.Compiler.TypeInference.Operator
     instantiateOperatorType,
   )
 import Jazz.Compiler.TypeInference.Pattern
-  ( inferPatternCaseTypeWithResults,
+  ( InferredPatternCaseArm (..),
+    inferPatternCaseTypeWithResults,
   )
 import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplicationWithResult,
@@ -761,10 +765,37 @@ inferExprTypeDetailed builtinMode env state expr =
                       elseExpression
                   )
        in (InferredExpr expressionType provisionalExpr failures, finalState)
-    EPatternCase {} ->
-      inferUnsupportedWithProduction
-        TypedCorePatternCaseUnsupported
-        TypedCorePatternCaseDetail
+    EPatternCase scrutineeExpr caseArms ->
+      let (scrutineeResult, stateAfterScrutinee) =
+            inferExprTypeDetailed builtinMode env state scrutineeExpr
+          (scrutineeType, stateWithScrutineeType) =
+            case inferredExpressionType scrutineeResult of
+              Just inferredScrutineeType ->
+                (inferredScrutineeType, stateAfterScrutinee)
+              Nothing -> freshTypeVar stateAfterScrutinee
+          (expressionType, finalState, armResults) =
+            inferPatternCaseTypeWithResults
+              inferExprTypeDetailed
+              builtinMode
+              env
+              scrutineeType
+              stateWithScrutineeType
+              caseArms
+          failures =
+            scalarPatternCaseProfileFailures finalState scrutineeType caseArms
+              <> childFailures 0 scrutineeResult
+              <> concat (zipWith patternCaseArmFailures [0 ..] armResults)
+          provisionalExpr = do
+            case failures of
+              _ : _ -> pure (ProvisionalRetainedFailures failures)
+              [] -> do
+                resultType <- expressionType
+                scrutinee <-
+                  inferredProvisionalExpr
+                    (specializeInferredExpression finalState scrutineeType scrutineeResult)
+                arms <- traverse (provisionalPatternCaseArm finalState resultType) armResults
+                pure (ProvisionalPatternCaseExpression resultType scrutinee arms)
+       in (InferredExpr expressionType provisionalExpr failures, finalState)
     EList elements ->
       let (expressionType, finalState, elementResults) = inferListWithProduction state elements
           failures =
@@ -886,6 +917,72 @@ inferExprTypeDetailed builtinMode env state expr =
       [ InferredProductionFailure (prefix <> childPath) kind detail
       | InferredProductionFailure childPath kind detail <- inferredProductionFailures result
       ]
+
+    patternCaseArmFailures armIndex (InferredPatternCaseArm _ maybeGuardResult bodyResult) =
+      maybe [] (prefixFailures [armIndex + 1, 0]) maybeGuardResult
+        <> prefixFailures [armIndex + 1, 1] bodyResult
+
+    scalarPatternCaseProfileFailures finalState scrutineeType caseArms
+      | supportedScalarScrutinee finalState scrutineeType
+          && supportedScalarArms caseArms =
+          []
+      | otherwise =
+          [ InferredProductionFailure
+              []
+              TypedCorePatternCaseUnsupported
+              TypedCorePatternCaseDetail
+          ]
+
+    supportedScalarScrutinee finalState scrutineeType =
+      case resolveType finalState scrutineeType of
+        TIntType -> True
+        TIntegerLiteralType literalRange ->
+          integerLiteralRangeFitsNumericType literalRange NumericInt64
+        TFloatType -> True
+        TNumericType {} -> True
+        TBoolType -> True
+        TCharType -> True
+        TTupleType [] -> True
+        _ -> False
+
+    supportedScalarArms caseArms =
+      case reverse caseArms of
+        CaseArm finalPattern Nothing _ : precedingArms ->
+          catchAllPattern finalPattern
+            && all supportedPrecedingArm precedingArms
+        _ -> False
+
+    supportedPrecedingArm (CaseArm pattern maybeGuard _) =
+      supportedScalarPattern pattern
+        && (not (catchAllPattern pattern) || hasGuard maybeGuard)
+
+    supportedScalarPattern pattern =
+      case pattern of
+        PLiteral {} -> True
+        PWildcard -> True
+        PVariable {} -> True
+        _ -> False
+
+    catchAllPattern pattern =
+      case pattern of
+        PWildcard -> True
+        PVariable {} -> True
+        _ -> False
+
+    hasGuard maybeGuard =
+      case maybeGuard of
+        Just _ -> True
+        Nothing -> False
+
+    provisionalPatternCaseArm finalState resultType (InferredPatternCaseArm pattern maybeGuardResult bodyResult) = do
+      guardExpression <-
+        traverse
+          (inferredProvisionalExpr . specializeInferredExpression finalState TBoolType)
+          maybeGuardResult
+      bodyExpression <-
+        inferredProvisionalExpr
+          (specializeInferredExpression finalState resultType bodyResult)
+      pure (ProvisionalPatternCaseArm pattern guardExpression bodyExpression)
 
     applicationArgumentPath argumentCount argumentIndex =
       replicate (argumentCount - argumentIndex - 1) 0 <> [1]
@@ -1277,7 +1374,7 @@ inferExprTypeDetailed builtinMode env state expr =
                 failureKind
                 failureDetail
                 ( childFailures 0 scrutineeResult
-                    <> concat (zipWith childFailures [1 ..] armResults)
+                    <> concat (zipWith patternCaseArmFailures [0 ..] armResults)
                 )
         EBinary operatorSymbol leftExpr rightExpr ->
           let (expressionType, finalState, leftResult, rightResult) =

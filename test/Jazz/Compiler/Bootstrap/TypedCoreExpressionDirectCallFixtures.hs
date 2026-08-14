@@ -15,6 +15,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     expectedNestedScalarLoweredProgram,
     scalarFixtures,
     scalarExpectedPrograms,
+    scalarPatternCaseExpectedPrograms,
     scalarBindingExpectedPrograms,
     scalarBindingExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
@@ -140,6 +141,7 @@ acceptedFixtures =
     sourceFixture "ordering-operators" orderingOperatorsSource,
     sourceFixture "equality-operators" equalityOperatorsSource,
     sourceFixtureNoExports "conditional" conditionalSource,
+    sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixture "scalar-parameter-return" scalarParameterReturnSource,
     sourceFixture "single-argument-direct-call" singleArgumentDirectCallSource,
     sourceFixture "curried-multi-argument-direct-call" curriedMultiArgumentDirectCallSource,
@@ -179,7 +181,6 @@ rejectedFixtures =
     sourceFixtureNoExports "list-value" listValueSource,
     sourceFixtureNoExports "non-unit-tuple" nonUnitTupleSource,
     sourceFixtureNoExports "data-value" dataValueSource,
-    sourceFixtureNoExports "pattern-case" patternCaseSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
     sourceFixtureNoExports "later-capture-mutual-recursion" laterCaptureMutualRecursionSource,
@@ -497,6 +498,43 @@ scalarExpectedPrograms =
         modulePath
     )
   ]
+
+scalarPatternCaseExpectedPrograms :: [(Text, TypedProgram)]
+scalarPatternCaseExpectedPrograms =
+  [ ("pattern-case", scalarPatternCaseExpectedProgram),
+    ("scalar-pattern-case", scalarPatternCaseExpectedProgram)
+  ]
+
+scalarPatternCaseExpectedProgram :: TypedProgram
+scalarPatternCaseExpectedProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        []
+        [ TypedExpressionStatement
+            (TypedSpan 2 1)
+            ( TypedPatternCaseExpr
+                intInfo
+                (boolExpr True)
+                [ TypedCaseArm
+                    (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+                    Nothing
+                    (intExpr 1),
+                  TypedCaseArm
+                    (TypedWildcardPattern boolInfo)
+                    Nothing
+                    (intExpr 2)
+                ]
+            )
+        ]
+        intInfo
+    ]
+    modulePath
 
 scalarBindingProducerFixtures :: [(Text, Fixture)]
 scalarBindingProducerFixtures =
@@ -3244,12 +3282,77 @@ importedDirectCallLowererProgram =
         intInfo
 
 rejectedScalarFixtures :: [Fixture]
-rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "pattern-case", "local-block-binding"]
+rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "local-block-binding"]
 
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   scalarBindingProducerFixtures
-    <> [ ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
+    <> [ ( "scalar-pattern-case",
+           sourceFixtureNoExports
+             "scalar-pattern-case"
+             "case True { | True -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-final-guarded-catch-all",
+           sourceFixtureNoExports
+             "pattern-case-final-guarded-catch-all"
+             "case True { | _ if True -> 1 }."
+         ),
+         ( "pattern-case-missing-final-catch-all",
+           sourceFixtureNoExports
+             "pattern-case-missing-final-catch-all"
+             "case True { | True -> 1 }."
+         ),
+         ( "pattern-case-unguarded-non-final-wildcard",
+           sourceFixtureNoExports
+             "pattern-case-unguarded-non-final-wildcard"
+             "case True { | _ -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-unguarded-non-final-variable",
+           sourceFixtureNoExports
+             "pattern-case-unguarded-non-final-variable"
+             "case True { | item -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-managed-scrutinee",
+           sourceFixtureNoExports
+             "pattern-case-managed-scrutinee"
+             "case \"managed\" { | _ -> 1 }."
+         ),
+         ( "pattern-case-constructor-pattern",
+           sourceFixtureNoExports
+             "pattern-case-constructor-pattern"
+             "data Maybe = Nothing. case Nothing { | Nothing -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-list-pattern",
+           sourceFixtureNoExports
+             "pattern-case-list-pattern"
+             "case [1] { | [1] -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-tuple-pattern",
+           sourceFixtureNoExports
+             "pattern-case-tuple-pattern"
+             "case (True, False) { | (True, False) -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-as-pattern",
+           sourceFixtureNoExports
+             "pattern-case-as-pattern"
+             "case True { | whole @ True -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-or-pattern",
+           sourceFixtureNoExports
+             "pattern-case-or-pattern"
+             "case True { | True | False -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-non-bool-guard",
+           sourceFixtureNoExports
+             "pattern-case-non-bool-guard"
+             "case True { | True if 1 -> 1 | _ -> 2 }."
+         ),
+         ( "pattern-case-incompatible-arm-results",
+           sourceFixtureNoExports
+             "pattern-case-incompatible-arm-results"
+             "case True { | True -> 1 | _ -> False }."
+         ),
+         ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
          ("conditional-captured-scalar", sourceFixtureNoExports "conditional-captured-scalar" conditionalCapturedScalarSource),
          ("conditional-closure-result-application", sourceFixtureNoExports "conditional-closure-result-application" conditionalClosureResultApplicationSource),
          ("nested-conditionals", sourceFixtureNoExports "nested-conditionals" nestedConditionalsSource),
@@ -4818,7 +4921,7 @@ listValueSource = "[1]."
 nonUnitTupleSource = "(1, 2)."
 dataValueSource = Text.unlines ["data Box = Box.", "Box."]
 conditionalSource = "if True then 1 else 2."
-patternCaseSource = "case True { | _ -> 1 }."
+patternCaseSource = "case True { | True -> 1 | _ -> 2 }."
 localBlockBindingSource = "{ item = 1. item. }."
 
 conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text

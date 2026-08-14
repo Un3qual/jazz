@@ -191,7 +191,7 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   `[armIndex]` for the arm pattern; retain each arm's existing guard/body child
   paths and source order.
 
-- [ ] **Step 1: Move the scalar pattern-case fixture into the accepted
+- [x] **Step 1: Move the scalar pattern-case fixture into the accepted
       manifest.** Replace the old rejected fixture with this total form:
 
   ```jazz
@@ -205,14 +205,14 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   `TypedCaseArm` values, `TypedLiteralPattern`, and `TypedWildcardPattern`.
   Keep its Lowered IR expectation absent until Task 4.
 
-- [ ] **Step 2: Add exact producer boundary cases.** Assert profile failures
+- [x] **Step 2: Add exact producer boundary cases.** Assert profile failures
       for an empty arm list, a final guarded catch-all, a missing final
       catch-all, an unguarded non-final wildcard, an unguarded non-final
       variable, a managed scrutinee, and constructor/list/tuple/as/or patterns.
       Assert the existing inference diagnostic remains responsible for
       non-`Bool` guards and incompatible arm result types.
 
-- [ ] **Step 3: Run the focused producer suite and verify RED.** Run:
+- [x] **Step 3: Run the focused producer suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
@@ -222,32 +222,32 @@ backend-neutral Typed Core and Lowered IR v1, Nix
   `TypedCorePatternCaseUnsupported`; exact closed-boundary expectations remain
   stable.
 
-- [ ] **Step 4: Return structured inferred arms.** Change
+- [x] **Step 4: Return structured inferred arms.** Change
       `inferPatternCaseTypeWithResults` to return
       `[InferredPatternCaseArm]`. Construct each record inside the same
       `inferPatternCaseTypeInternal` traversal that already owns pattern
       typing, arm environments, `Bool` guard checking, and body unification.
       Do not re-infer guards or bodies during elaboration.
 
-- [ ] **Step 5: Construct and finalize provisional cases.** Replace the root
+- [x] **Step 5: Construct and finalize provisional cases.** Replace the root
       `EPatternCase` profile rejection in `inferExprTypeDetailed` with
       `ProvisionalPatternCaseExpression`. Recursively finalize the scrutinee,
       exact supported patterns, optional guards, and bodies. Emit
       `TypedPatternCaseExpr` only if every descendant and profile failure list
       is empty.
 
-- [ ] **Step 6: Enforce the bounded arm grammar in one producer helper.** Scan
+- [x] **Step 6: Enforce the bounded arm grammar in one producer helper.** Scan
       the source-ordered arms once. Reject unsupported pattern forms, missing
       or guarded final catch-alls, and unguarded earlier wildcard/variable
       arms. Verify literal patterns have the scrutinee's final type before
       calling the existing literal finalizer.
 
-- [ ] **Step 7: Run the Step 3 command.** Expected: exact Typed Core now
+- [x] **Step 7: Run the Step 3 command.** Expected: exact Typed Core now
       matches; lowering still returns a structured lowerer-profile failure at
       the case path, proving the producer half is green without weakening the
       backend boundary.
 
-- [ ] **Step 8: Commit the producer milestone.** Run:
+- [x] **Step 8: Commit the producer milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference.hs src/Jazz/Compiler/TypeInference/Pattern.hs src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
