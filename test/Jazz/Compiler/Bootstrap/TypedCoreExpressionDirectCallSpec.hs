@@ -68,6 +68,7 @@ tests =
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
+    ("lowers managed Text literals with one layout and no services", testManagedTextLowering),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
     ("lowers staged curried applications", testCurriedApplicationLowering),
@@ -309,6 +310,7 @@ testIndependentLowererManifest = do
           "imported-direct-call",
           "managed-scalar-entry",
           "conditional-entry",
+          "managed-pattern-scrutinee",
           "pattern-case-constructor-lowerer",
           "pattern-case-list-lowerer",
           "pattern-case-tuple-lowerer",
@@ -1725,6 +1727,18 @@ testManagedTextProduction =
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
+testManagedTextLowering :: IO ()
+testManagedTextLowering =
+  mapM_ assertLowered managedTextExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lowering") firstRun secondRun
+      assertEqual (name <> " exact managed Text lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
+
 testLexicalCaptureProduction :: IO ()
 testLexicalCaptureProduction =
   mapM_ assertProduced lexicalCaptureExpectedPrograms
@@ -2048,19 +2062,7 @@ testLowererCallableBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "combined-statement-failure-order",
-          [ statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "message")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedRepresentation
-              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
-          ]
-        ),
-        ( "recursion-descendant-failure-order",
+      [ ( "recursion-descendant-failure-order",
           [ expressionFailure
               2
               [0, 0, 1]
@@ -2263,15 +2265,11 @@ testLowererStructuralBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "managed-scalar-entry",
+      [ ( "managed-pattern-scrutinee",
           [ LoweredIRLoweringFailure
-              (TypedModulePath ["App", "Main"])
-              LoweredIRUnsupportedRepresentation
-              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe),
-            LoweredIRLoweringFailure
               (TypedExpressionPath ["App", "Main"] [0] [0])
-              LoweredIRUnsupportedRepresentation
-              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
+              LoweredIRUnsupportedPattern
+              LoweredIRNoFailureDetail
           ]
         )
       ]

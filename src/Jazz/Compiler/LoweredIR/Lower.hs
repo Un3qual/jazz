@@ -18,6 +18,13 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
+  ( RuntimeServiceKey,
+    orderedRuntimeServices,
+    textLayout,
+    textLayoutId,
+    textRepresentation,
+  )
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
@@ -80,6 +87,11 @@ data LoweringState = LoweringState
     loweringLocalBindings :: Map.Map TypedBinderId LoweredOperand,
     loweringSharedEnvironments :: Map.Map LoweredLayoutId LoweredOperand,
     loweringCarriedOperands :: Map.Map Int LoweredOperand
+  }
+
+data RuntimeRequirements = RuntimeRequirements
+  { runtimeRequiresTextLayout :: Bool,
+    runtimeRequiredServices :: Set.Set RuntimeServiceKey
   }
 
 data ResultDestination
@@ -180,7 +192,7 @@ lowerValidatedProgram (TypedProgram maybePrelude modules entryModulePath) =
     typedModulePath (TypedModule modulePath _ _ _ _ _ _ _) = modulePath
 
 lowerValidatedModule :: TypedModule -> Either [LoweredIRLoweringFailure] LoweredProgram
-lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface recursiveGroups statements moduleInfo) =
+lowerValidatedModule typedModule@(TypedModule modulePath _ imports exports moduleInterface recursiveGroups statements moduleInfo) =
   case allFailures of
     failures@(_ : _) -> Left failures
     [] ->
@@ -217,7 +229,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
             Map.fromList
               [ (binder, representation)
               | TypedLetStatement binder _ _ scheme _ <- statements,
-                Just (_, representation) <- [scalarSchemeContract scheme]
+                Just (_, representation) <- [valueSchemeContract scheme]
               ]
         }
     moduleFailures
@@ -256,8 +268,8 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
           Right
             ( LoweredProgram
                 supportedLoweredIRVersion
-                (orderedClosureLayouts functionShapes)
-                []
+                (requiredLayouts runtimeRequirements functionShapes)
+                (orderedRuntimeServices (runtimeRequiredServices runtimeRequirements))
                 ( functions
                     <> [ LoweredFunction
                            entryFunctionId
@@ -279,6 +291,7 @@ lowerValidatedModule (TypedModule modulePath _ imports exports moduleInterface r
                 LoweredIRUnsupportedModule
                 LoweredIRNoFailureDetail
             ]
+    runtimeRequirements = collectRuntimeRequirements typedModule
 
 orderedStatementFailures ::
   Int ->
@@ -433,6 +446,129 @@ orderedClosureLayouts = reverse . snd . foldl' collect (Set.empty, [])
                   : snd state
               )
 
+requiredLayouts :: RuntimeRequirements -> [FunctionShape] -> [LoweredLayout]
+requiredLayouts requirements functions =
+  [textLayout | runtimeRequiresTextLayout requirements]
+    <> orderedClosureLayouts functions
+
+collectRuntimeRequirements :: TypedModule -> RuntimeRequirements
+collectRuntimeRequirements (TypedModule _ _ _ _ moduleInterface _ statements moduleInfo) =
+  foldl'
+    mergeRuntimeRequirements
+    (requirementsForNodeInfo moduleInfo)
+    ( requirementsForInterface moduleInterface
+        : map requirementsForStatement statements
+    )
+
+emptyRuntimeRequirements :: RuntimeRequirements
+emptyRuntimeRequirements = RuntimeRequirements False Set.empty
+
+mergeRuntimeRequirements :: RuntimeRequirements -> RuntimeRequirements -> RuntimeRequirements
+mergeRuntimeRequirements left right =
+  RuntimeRequirements
+    { runtimeRequiresTextLayout =
+        runtimeRequiresTextLayout left || runtimeRequiresTextLayout right,
+      runtimeRequiredServices =
+        Set.union
+          (runtimeRequiredServices left)
+          (runtimeRequiredServices right)
+    }
+
+requirementsForInterface :: TypedModuleInterface -> RuntimeRequirements
+requirementsForInterface (TypedModuleInterface values _ _ _) =
+  foldl'
+    mergeRuntimeRequirements
+    emptyRuntimeRequirements
+    [requirementsForScheme scheme | TypedValueInterface _ scheme <- values]
+
+requirementsForStatement :: TypedStatement -> RuntimeRequirements
+requirementsForStatement statement =
+  case statement of
+    TypedLetStatement _ _ _ scheme expression ->
+      requirementsForScheme scheme
+        `mergeRuntimeRequirements` requirementsForExpression expression
+    TypedSignatureStatement _ _ _ scheme -> requirementsForScheme scheme
+    TypedExpressionStatement _ expression -> requirementsForExpression expression
+    TypedDataStatement {} -> emptyRuntimeRequirements
+    TypedClassStatement {} -> emptyRuntimeRequirements
+    TypedImplStatement {} -> emptyRuntimeRequirements
+
+requirementsForScheme :: TypedScheme -> RuntimeRequirements
+requirementsForScheme (TypedScheme _ _ _ _ _ recipe _) =
+  requirementsForRecipe recipe
+
+requirementsForNodeInfo :: TypedNodeInfo -> RuntimeRequirements
+requirementsForNodeInfo info = requirementsForRecipe (typedNodeRecipe info)
+
+requirementsForRecipe :: TypedRepresentationRecipe -> RuntimeRequirements
+requirementsForRecipe recipe =
+  case recipe of
+    TypedManagedTextRecipe -> RuntimeRequirements True Set.empty
+    TypedClosureRecipe arguments result ->
+      foldl'
+        mergeRuntimeRequirements
+        (requirementsForRecipe result)
+        (map requirementsForRecipe arguments)
+    _ -> emptyRuntimeRequirements
+
+requirementsForExpression :: TypedExpr -> RuntimeRequirements
+requirementsForExpression expression =
+  foldl'
+    mergeRuntimeRequirements
+    (requirementsForNodeInfo (typedExpressionInfo expression))
+    ( case expression of
+        TypedLiteralExpr {} -> []
+        TypedVariableExpr {} -> []
+        TypedLambdaExpr _ _ _ body -> [requirementsForExpression body]
+        TypedOperatorValueExpr {} -> []
+        TypedListExpr _ values -> map requirementsForExpression values
+        TypedTupleExpr _ values -> map requirementsForExpression values
+        TypedApplyExpr _ function argument -> map requirementsForExpression [function, argument]
+        TypedTypeApplicationExpr _ function _ _ -> [requirementsForExpression function]
+        TypedIfExpr _ condition consequent alternative -> map requirementsForExpression [condition, consequent, alternative]
+        TypedPatternCaseExpr _ scrutinee arms ->
+          requirementsForExpression scrutinee : map requirementsForArm arms
+        TypedBinaryExpr _ _ left right -> map requirementsForExpression [left, right]
+        TypedLeftSectionExpr _ left _ -> [requirementsForExpression left]
+        TypedRightSectionExpr _ _ right -> [requirementsForExpression right]
+        TypedBlockExpr _ blockStatements -> map requirementsForStatement blockStatements
+    )
+
+requirementsForArm :: TypedCaseArm -> RuntimeRequirements
+requirementsForArm (TypedCaseArm patternValue guard result) =
+  foldl'
+    mergeRuntimeRequirements
+    (requirementsForPattern patternValue)
+    (requirementsForExpression result : maybe [] ((: []) . requirementsForExpression) guard)
+
+requirementsForPattern :: TypedPattern -> RuntimeRequirements
+requirementsForPattern patternValue =
+  foldl'
+    mergeRuntimeRequirements
+    (requirementsForNodeInfo (patternInfo patternValue))
+    (map requirementsForPattern (patternChildren patternValue))
+  where
+    patternInfo patternNode =
+      case patternNode of
+        TypedWildcardPattern info -> info
+        TypedVariablePattern info _ _ -> info
+        TypedLiteralPattern info _ -> info
+        TypedConstructorPattern info _ _ -> info
+        TypedListPattern info _ -> info
+        TypedConsListPattern info _ _ -> info
+        TypedTuplePattern info _ -> info
+        TypedAsPattern info _ _ _ -> info
+        TypedOrPattern info _ -> info
+    patternChildren patternNode =
+      case patternNode of
+        TypedConstructorPattern _ _ children -> children
+        TypedListPattern _ children -> children
+        TypedConsListPattern _ headPattern tailPattern -> [headPattern, tailPattern]
+        TypedTuplePattern _ children -> children
+        TypedAsPattern _ _ _ nested -> [nested]
+        TypedOrPattern _ alternatives -> alternatives
+        _ -> []
+
 collectRootFunctionShapes ::
   [Text] ->
   [TypedStatement] ->
@@ -447,7 +583,7 @@ collectRootFunctionShapes modulePath =
         TypedSignatureStatement {} ->
           continue reversedFailures reversedFunctions reversedLocalNames seenNames seenGeneratedIdentities
         TypedLetStatement _ name _ scheme expression
-          | Just _ <- scalarSchemeContract scheme ->
+          | Just _ <- valueSchemeContract scheme ->
               continue
                 reversedFailures
                 reversedFunctions
@@ -830,15 +966,15 @@ monomorphicSchemeContract (TypedScheme owner typeParameters evidence primitive t
       Just (owner, typeValue, recipe, callableShape)
 monomorphicSchemeContract _ = Nothing
 
-scalarSchemeContract :: TypedScheme -> Maybe (TypedBinderId, LoweredRepresentation)
-scalarSchemeContract (TypedScheme owner typeParameters evidence primitive typeValue recipe Nothing)
+valueSchemeContract :: TypedScheme -> Maybe (TypedBinderId, LoweredRepresentation)
+valueSchemeContract (TypedScheme owner typeParameters evidence primitive typeValue recipe Nothing)
   | null typeParameters,
     null evidence,
     null primitive =
-      case scalarRepresentation typeValue recipe of
+      case valueRepresentation typeValue recipe of
         Just representation -> Just (owner, representation)
         Nothing -> Nothing
-scalarSchemeContract _ = Nothing
+valueSchemeContract _ = Nothing
 
 collectUnaryClosureShape ::
   TypedType ->
@@ -948,6 +1084,7 @@ valueRepresentation :: TypedType -> TypedRepresentationRecipe -> Maybe LoweredRe
 valueRepresentation typeValue recipe =
   case (typeValue, loweredRepresentation recipe) of
     (TypedFunctionType {}, Just representation@LoweredClosureRepresentation {}) -> Just representation
+    (TypedTextType, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
     _ -> scalarRepresentation typeValue recipe
 
 validateStatementProfiles ::
@@ -1908,7 +2045,7 @@ emitEntry modulePath functions =
     go statementIndex resultOperand state (statement : rest) =
       case statement of
         TypedLetStatement binder _ _ scheme expression
-          | Just (schemeBinder, expectedRepresentation) <- scalarSchemeContract scheme,
+          | Just (schemeBinder, expectedRepresentation) <- valueSchemeContract scheme,
             binder == schemeBinder ->
               case lowerExpression
                 modulePath
@@ -2877,6 +3014,21 @@ lowerLiteral path info literal state =
           loweredImmediate
             (LoweredFloatImmediate width (whole <> "." <> fractional))
         Nothing -> unsupportedRepresentation path (typedNodeRecipe info) state
+    (TypedTextLiteral value, TypedManagedTextRecipe) ->
+      let temporaryIndex = loweringNextTemporary state
+          temporary = LoweredTemporaryId ("t" <> Text.pack (show temporaryIndex))
+          instruction =
+            LoweredInstruction
+              temporary
+              textRepresentation
+              (LoweredConstructText textLayoutId value)
+       in ( [],
+            Just (LoweredTemporaryOperand temporary textRepresentation),
+            state
+              { loweringNextTemporary = temporaryIndex + 1,
+                loweringInstructions = instruction : loweringInstructions state
+              }
+          )
     _ -> unsupportedRepresentation path (typedNodeRecipe info) state
   where
     loweredImmediate immediate =
@@ -3208,6 +3360,7 @@ loweredRepresentation recipe =
     TypedFloatRecipe bits ->
       LoweredFloatRepresentation <$> floatWidth bits
     TypedCharRecipe -> Just LoweredCharRepresentation
+    TypedManagedTextRecipe -> Just textRepresentation
     TypedClosureRecipe arguments result -> do
       argumentRepresentations <- traverse loweredRepresentation arguments
       resultRepresentation <- loweredRepresentation result

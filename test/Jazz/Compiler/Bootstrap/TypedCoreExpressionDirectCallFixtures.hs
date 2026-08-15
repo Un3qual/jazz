@@ -23,6 +23,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarBindingExpectedLoweredPrograms,
     managedTextProducerFixtures,
     managedTextExpectedPrograms,
+    managedTextExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,
     curriedApplicationExpectedPrograms,
@@ -1006,6 +1007,357 @@ managedTextExpectedPrograms =
     ("unsupported-managed-capture", managedTextCaptureProgram),
     ("partial-call-managed-argument-failure", managedTextPartialApplicationProgram)
   ]
+
+managedTextExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+managedTextExpectedLoweredPrograms =
+  [ ( "managed-text-literal",
+      managedTextProgram "managed-text-literal",
+      expectedManagedTextLiteralLoweredProgram "managed"
+    ),
+    ( "managed-scalar-binding",
+      managedTextProgram "managed-scalar-binding",
+      expectedManagedTextLiteralLoweredProgram "managed"
+    ),
+    ( "managed-text-identity",
+      managedTextProgram "managed-text-identity",
+      expectedManagedTextIdentityLoweredProgram
+    ),
+    ( "managed-text-capture-transport",
+      managedTextProgram "managed-text-capture-transport",
+      expectedManagedTextCaptureLoweredProgram
+    ),
+    ( "managed-text-conditional-result",
+      managedTextProgram "managed-text-conditional-result",
+      expectedManagedTextConditionalLoweredProgram
+    ),
+    ( "managed-text-scalar-case-result",
+      managedTextProgram "managed-text-scalar-case-result",
+      expectedManagedTextScalarCaseLoweredProgram
+    ),
+    ( "combined-statement-failure-order",
+      combinedStatementFailureOrderLowererProgram,
+      expectedManagedTextBindingAfterConditionalProgram
+    )
+  ]
+  where
+    managedTextProgram name =
+      case lookup name managedTextExpectedPrograms of
+        Just program -> program
+        Nothing -> error ("managed Text producer expectation is missing: " <> Text.unpack name)
+
+expectedManagedTextLiteralLoweredProgram :: Text -> LoweredProgram
+expectedManagedTextLiteralLoweredProgram value =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [textLayout]
+    []
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        textRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                textRepresentation
+                (LoweredConstructText textLayoutId value)
+            ]
+            (Just (LoweredReturn (loweredTemporary 1 textRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+
+textLayoutId :: LoweredLayoutId
+textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
+
+textLayout :: LoweredLayout
+textLayout = LoweredLayout textLayoutId LoweredTextLayout
+
+textRepresentation :: LoweredRepresentation
+textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+
+expectedManagedTextIdentityLoweredProgram :: LoweredProgram
+expectedManagedTextIdentityLoweredProgram =
+  expectedManagedTextProgram
+    [ expectedLocalFunction
+        "identity"
+        [LoweredParameter (LoweredParameterId "arg1") textRepresentation]
+        textRepresentation
+        []
+        (loweredParameter 1 textRepresentation)
+    ]
+    textRepresentation
+    [ expectedTextInstruction 1 "Jazz",
+      expectedDirectCallInstruction
+        2
+        textRepresentation
+        "identity"
+        [loweredTemporary 1 textRepresentation]
+    ]
+    (loweredTemporary 2 textRepresentation)
+
+expectedManagedTextCaptureLoweredProgram :: LoweredProgram
+expectedManagedTextCaptureLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [ textLayout,
+      LoweredLayout captureLayoutId (LoweredClosureEnvironmentLayout [textRepresentation])
+    ]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::capture")
+        ( Just
+            ( LoweredParameter
+                (LoweredParameterId "environment")
+                captureEnvironmentRepresentation
+            )
+        )
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        textRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                textRepresentation
+                ( LoweredProjectField
+                    captureLayoutId
+                    0
+                    ( LoweredFunctionParameterOperand
+                        (LoweredParameterId "environment")
+                        captureEnvironmentRepresentation
+                    )
+                )
+            ]
+            (Just (LoweredReturn (loweredTemporary 1 textRepresentation)))
+        ]
+        (LoweredBlockId "entry"),
+      LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        textRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ expectedTextInstruction 1 "managed",
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                captureEnvironmentRepresentation
+                ( LoweredConstructProduct
+                    captureLayoutId
+                    [loweredTemporary 1 textRepresentation]
+                ),
+              LoweredInstruction
+                (LoweredTemporaryId "t3")
+                captureClosureRepresentation
+                ( LoweredConstructClosure
+                    (LoweredFunctionId "App::Main::capture")
+                    (loweredTemporary 2 captureEnvironmentRepresentation)
+                ),
+              expectedClosureCallInstruction
+                4
+                textRepresentation
+                (loweredTemporary 3 captureClosureRepresentation)
+                [loweredImmediate (LoweredBoolImmediate True)]
+            ]
+            (Just (LoweredReturn (loweredTemporary 4 textRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+  where
+    captureLayoutId =
+      LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$2$n7:capture"
+    captureEnvironmentRepresentation =
+      LoweredManagedReferenceRepresentation captureLayoutId
+    captureClosureRepresentation =
+      LoweredClosureRepresentation
+        (LoweredCallSignature [LoweredBoolRepresentation] textRepresentation)
+
+expectedManagedTextConditionalLoweredProgram :: LoweredProgram
+expectedManagedTextConditionalLoweredProgram =
+  expectedManagedTextProgram
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::choose")
+        Nothing
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        textRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            ( Just
+                ( LoweredBranch
+                    (loweredParameter 1 LoweredBoolRepresentation)
+                    thenBlockId
+                    []
+                    elseBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            thenBlockId
+            []
+            [expectedTextInstruction 1 "yes"]
+            (Just (LoweredReturn (loweredTemporary 1 textRepresentation))),
+          LoweredBlock
+            elseBlockId
+            []
+            [expectedTextInstruction 1 "no"]
+            (Just (LoweredReturn (loweredTemporary 1 textRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    textRepresentation
+    [ expectedDirectCallInstruction
+        1
+        textRepresentation
+        "choose"
+        [loweredImmediate (LoweredBoolImmediate True)]
+    ]
+    (loweredTemporary 1 textRepresentation)
+  where
+    thenBlockId = LoweredBlockId "if$s1$1$e2$0,0$then"
+    elseBlockId = LoweredBlockId "if$s1$1$e2$0,0$else"
+
+expectedManagedTextScalarCaseLoweredProgram :: LoweredProgram
+expectedManagedTextScalarCaseLoweredProgram =
+  expectedManagedTextProgram
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::choose")
+        Nothing
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        textRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ expectedPrimitiveInstruction
+                1
+                LoweredBoolRepresentation
+                (LoweredComparisonPrimitive LoweredEqual)
+                [ loweredParameter 1 LoweredBoolRepresentation,
+                  loweredImmediate (LoweredBoolImmediate True)
+                ]
+            ]
+            ( Just
+                ( LoweredBranch
+                    (loweredTemporary 1 LoweredBoolRepresentation)
+                    trueBodyBlockId
+                    []
+                    fallbackBodyBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            trueBodyBlockId
+            []
+            [expectedTextInstruction 1 "yes"]
+            (Just (LoweredReturn (loweredTemporary 1 textRepresentation))),
+          LoweredBlock
+            fallbackBodyBlockId
+            []
+            [expectedTextInstruction 1 "no"]
+            (Just (LoweredReturn (loweredTemporary 1 textRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    textRepresentation
+    [ expectedDirectCallInstruction
+        1
+        textRepresentation
+        "choose"
+        [loweredImmediate (LoweredBoolImmediate True)]
+    ]
+    (loweredTemporary 1 textRepresentation)
+  where
+    trueBodyBlockId = LoweredBlockId "case$s1$1$e2$0,0$a0$body"
+    fallbackBodyBlockId = LoweredBlockId "case$s1$1$e2$0,0$a1$body"
+
+expectedManagedTextProgram :: [LoweredFunction] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+expectedManagedTextProgram functions resultRepresentation instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [textLayout]
+    []
+    ( functions
+        <> [ LoweredFunction
+               loweredEntryFunctionId
+               Nothing
+               []
+               resultRepresentation
+               [ LoweredBlock
+                   (LoweredBlockId "entry")
+                   []
+                   instructions
+                   (Just (LoweredReturn resultOperand))
+               ]
+               (LoweredBlockId "entry")
+           ]
+    )
+    loweredEntryFunctionId
+
+expectedTextInstruction :: Int -> Text -> LoweredInstruction
+expectedTextInstruction index value =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    textRepresentation
+    (LoweredConstructText textLayoutId value)
+
+expectedManagedTextBindingAfterConditionalProgram :: LoweredProgram
+expectedManagedTextBindingAfterConditionalProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [textLayout]
+    []
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        LoweredBoolRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            ( Just
+                ( LoweredBranch
+                    (loweredImmediate (LoweredBoolImmediate True))
+                    thenBlockId
+                    []
+                    elseBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            thenBlockId
+            []
+            []
+            (Just (LoweredJump joinBlockId [loweredInt64 1])),
+          LoweredBlock
+            elseBlockId
+            []
+            []
+            (Just (LoweredJump joinBlockId [loweredInt64 2])),
+          LoweredBlock
+            joinBlockId
+            [LoweredParameter (LoweredParameterId "result") int64Representation]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                textRepresentation
+                (LoweredConstructText textLayoutId "later")
+            ]
+            (Just (LoweredReturn (loweredImmediate (LoweredBoolImmediate True))))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+  where
+    thenBlockId = LoweredBlockId "if$s1$0$e1$0$then"
+    elseBlockId = LoweredBlockId "if$s1$0$e1$0$else"
+    joinBlockId = LoweredBlockId "if$s1$0$e1$0$join"
 
 scalarBindingExpectedPrograms :: [(Text, TypedProgram)]
 scalarBindingExpectedPrograms =
@@ -3354,7 +3706,8 @@ independentLowererPrograms =
 lowererStructuralBoundaryPrograms :: [(Text, TypedProgram)]
 lowererStructuralBoundaryPrograms =
   [ ("managed-scalar-entry", managedScalarLowererProgram),
-    ("conditional-entry", conditionalLowererProgram)
+    ("conditional-entry", conditionalLowererProgram),
+    ("managed-pattern-scrutinee", managedPatternScrutineeLowererProgram)
   ]
 
 reviewLowererBoundaryPrograms :: [(Text, TypedProgram)]
@@ -3413,6 +3766,20 @@ managedScalarLowererProgram =
   expectedScalarProgram
     textInfo
     (TypedLiteralExpr textInfo (TypedTextLiteral "managed"))
+
+managedPatternScrutineeLowererProgram :: TypedProgram
+managedPatternScrutineeLowererProgram =
+  expectedScalarProgram
+    textInfo
+    ( TypedPatternCaseExpr
+        textInfo
+        (textExpr "managed")
+        [ TypedCaseArm
+            (TypedWildcardPattern textInfo)
+            Nothing
+            (textExpr "managed")
+        ]
+    )
 
 conditionalLowererProgram :: TypedProgram
 conditionalLowererProgram =

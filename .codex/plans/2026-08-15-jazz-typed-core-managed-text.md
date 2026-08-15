@@ -288,23 +288,23 @@ and the reference interpreter.
 - Text literals emit one `LoweredConstructText` instruction into a new
   block-local temporary.
 
-- [ ] **Step 1: Add exact Lowered IR expectations.** Export
+- [x] **Step 1: Add exact Lowered IR expectations.** Export
       `managedTextExpectedLoweredPrograms`. Cover literal construction, binding
       evaluated once and reused, direct parameter/result transport, closure
       capture environment fields, conditional and scalar-case value joins,
       and Text through direct and closure tail calls. Every expected program
       contains one Text layout and an empty runtime-service list.
 
-- [ ] **Step 2: Add a lowerer-only negative artifact.** Hand-construct a valid
+- [x] **Step 2: Add a lowerer-only negative artifact.** Hand-construct a valid
       Typed Core program that attempts a Text pattern scrutinee and assert that
       lowering fails with the existing managed/scrutinee profile failure and
       returns no partial Lowered IR program.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Run the Task 2 focused
+- [x] **Step 3: Run the focused suite and verify RED.** Run the Task 2 focused
       suite. Expected failures name unsupported managed representation or Text
       literal lowering, and no new expected program validates yet.
 
-- [ ] **Step 4: Create the runtime-service catalog foundation.** Add the module
+- [x] **Step 4: Create the runtime-service catalog foundation.** Add the module
       to `jazz.cabal` exposed modules. Implement all four exact service
       signatures even though this task emits none:
 
@@ -322,17 +322,17 @@ and the reference interpreter.
   Use the exact semantic IDs from RFC 0014 and return contracts in constructor
   order, not `Set` order.
 
-- [ ] **Step 5: Implement requirement collection and Text construction.** Wire
+- [x] **Step 5: Implement requirement collection and Text construction.** Wire
       the Text representation into general values, module-scope binding
       contracts, parameters, results, capture layouts, edge operands, returns,
       and tail calls. Preserve `scalarRepresentation` for pattern checks.
 
-- [ ] **Step 6: Run focused producer/lowerer/contracts verification.** Run the
+- [x] **Step 6: Run focused producer/lowerer/contracts verification.** Run the
       first frontmatter verification command. Expected: all exact transport
       programs validate; Text-only programs declare no service; managed
       scrutinees still fail closed.
 
-- [ ] **Step 7: Commit the lowering milestone.** Run:
+- [x] **Step 7: Commit the lowering milestone.** Run:
 
   ```bash
   git add jazz.cabal src/Jazz/Compiler/LoweredIR/RuntimeServiceCatalog.hs src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs

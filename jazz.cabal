@@ -104,6 +104,7 @@ library jazz-internal
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.LoweredIR
       Jazz.Compiler.LoweredIR.Lower
+      Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
       Jazz.Compiler.LoweredIR.Validate
       Jazz.Compiler.TypedCore
       Jazz.Compiler.TypedCore.Validate
