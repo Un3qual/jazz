@@ -1,12 +1,12 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 3"
+plan_section: "Full closeout"
 target_paths:
   - src/Jazz/Compiler/LoweredIR/Lower.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
@@ -323,18 +323,18 @@ Cabal, Nix
 - The queue returns to a checker-valid terminal-empty state with no invented
   successor.
 
-- [ ] **Step 1: Update compiler and status documentation.** Describe compiler
+- [x] **Step 1: Update compiler and status documentation.** Describe compiler
       stages and semantic boundaries rather than implementation filenames.
 
-- [ ] **Step 2: Mark RFC 0013 implemented.** Add the verified child and exact
+- [x] **Step 2: Mark RFC 0013 implemented.** Add the verified child and exact
       boundary to its implementation status.
 
-- [ ] **Step 3: Close the plan and queue.** Set plan `status: complete`,
+- [x] **Step 3: Close the plan and queue.** Set plan `status: complete`,
       `plan_section: "Full closeout"`, remove the ready row, update the
       bootstrap blocker, and retain the explicit no-source-backed/no-named-
       candidate terminal wording.
 
-- [ ] **Step 4: Run documentation and queue checks.** Run:
+- [x] **Step 4: Run documentation and queue checks.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
@@ -344,7 +344,7 @@ Cabal, Nix
 
   Expected: all commands exit zero.
 
-- [ ] **Step 5: Commit documentation closeout.** Run:
+- [x] **Step 5: Commit documentation closeout.** Run:
 
   ```bash
   git add docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0013-typed-core-tail-position-lowering.md .codex/plans/2026-08-14-jazz-typed-core-tail-position-lowering.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
@@ -397,4 +397,6 @@ Cabal, Nix
 
 ## Full closeout
 
-Pending implementation and fresh verification.
+Task 4 closes the documentation and dispatcher state. Task 5's focused,
+repository-audit, and full serialized-suite commands remain pending: this
+closeout records no fresh full-suite evidence and does not claim that gate ran.

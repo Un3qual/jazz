@@ -55,22 +55,30 @@ self and mutual recursion is also supported when every external capture is
 available before the first group member. These groups share one immutable
 environment containing ordered external captures, and reconstruct self or peer
 closures from it without cyclic initialization. Bounded value-producing
-conditionals may nest within all of these expressions. Lowering evaluates each
-condition once, selects one branch, and resumes through a result join while
-transporting block-local ambient and in-flight values as explicit edge
-arguments. Bounded scalar pattern cases may nest there too. Lowering evaluates
-their scrutinee once, tries scalar literal, wildcard, and variable arms in
-source order, continues after false guards, scopes variable binders to one arm,
-and transports the selected result through one join. A final unguarded
-wildcard or variable is required by this opt-in backend profile; that syntactic
-gate is not a public exhaustiveness result.
+conditionals and scalar pattern cases may nest within all of these expressions.
+In value positions, lowering evaluates each condition or scrutinee once,
+preserves source-ordered scalar literal, wildcard, and variable arms with
+false-guard fallthrough, and transports the selected result through explicit
+branch and join edges. A final unguarded wildcard or variable is required by
+this opt-in backend profile.
+
+For a complete named or lifted function result, lowering records direct or
+closure tail intent instead. The result position recurses into selected
+conditional branches and bounded scalar-case bodies, so they terminate directly
+without a result join. Conditions, scrutinees, guards, operands, and nested
+value contexts remain value positions. Partial applications still return
+closure values, and oversaturated calls tail-terminate only at their final exact
+stage. Module entry remains ordinary call/join/return lowering. This records
+intent in the existing Lowered IR only; it changes neither its schema, format,
+or validator nor the runtime ABI, public language semantics, hosted compiler,
+or native-stack behavior.
 
 Managed patterns remain outside the path until managed values have stable
 layouts, tags, projections, and ownership during production and lowering.
 Pattern lambdas remain outside it because invocation-time mismatch must be
 defined across closure construction, currying, recursion, and callable
-identity. Exhaustiveness and unreachable-arm diagnostics remain separate
-because they need coverage reasoning and a language-level diagnostic policy.
-Later or interleaved external captures, scalar exports, complete multi-module
-integration, native emission, linking, and a native runtime also remain outside
-this path.
+identity. Source-level exhaustiveness and unreachable-arm diagnostics are
+implemented under RFC 0012; the backend profile's final-catch-all requirement
+is a separate lowering boundary. Later or interleaved external captures, scalar
+exports, complete multi-module integration, native emission, linking, and a
+native runtime also remain outside this path.

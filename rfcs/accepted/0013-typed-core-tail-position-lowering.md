@@ -75,5 +75,17 @@ unnecessary result joins.
 
 ## Implementation status
 
-Approved for `JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001` on
-2026-08-14.
+Implemented on 2026-08-14 by
+`JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001`.
+
+The opt-in lowerer now records direct and closure tail intent only for complete
+named or lifted function results. It recursively applies that result boundary
+to selected conditional branches and bounded scalar-pattern-case bodies, while
+conditions, scrutinees, guards, operands, and nested value contexts continue to
+lower as values. Partial applications return closure values and oversaturated
+applications tail-terminate only at their final exact stage. The synthetic
+module entry remains ordinary call/join/return lowering.
+
+The implementation reuses the existing Lowered IR schema, format, validator,
+and runtime ABI. It changes no public language semantics or hosted-Jazz
+compiler behavior and makes no native-stack optimization guarantee.

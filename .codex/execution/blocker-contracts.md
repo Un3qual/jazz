@@ -223,21 +223,21 @@ Each blocked item should answer these questions:
   cases and pattern lambdas with `E2018`, rejects wholly unreachable arms with
   `E2019`, treats guards as non-covering, and preserves runtime `E3022` as a
   defensive boundary.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001` from accepted RFC 0013.
-- Decision needed: none. The function-result boundary, direct and closure
-  terminators, conditional/case propagation, and entry-function exclusion are
-  fixed by RFC 0013.
-- Recommended default: propagate function-result position structurally and
-  retain existing value-position joins, ordering, schemas, and validators.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001`.
-- Target paths: `src/Jazz/Compiler/LoweredIR/Lower.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`, and the
-  matching compiler/status/RFC owners.
-- Verification: focused Typed Core/Lowered IR suites, full serialized Cabal
-  suite, documentation checks, queue checks, repository audit, and
-  `git diff --check` as named by the active plan.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001`
+  completed on `2026-08-14`. The opt-in lowerer records exact direct and
+  closure tail intent only for complete named or lifted function results,
+  including recursively selected conditional branches and bounded scalar-case
+  bodies. Module entry remains ordinary call/join/return lowering.
+- Smallest unblocker: none currently. The source-backed compiler batch is
+  complete.
+- Decision needed: none. There is no source-backed next curation target and no
+  named candidate currently.
+- Recommended default: do not invent a successor; await a new accepted,
+  source-backed contract.
+- Candidate child: none currently.
+- Target paths: not set until a new accepted compiler contract names them.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`.
 - Still not in scope: module-entry tail transfer, source tail-recursion
   diagnostics, native stack guarantees, managed-value Typed Core production,
   managed pattern lowering, pattern-lambda backend lowering, runtime `E3022`

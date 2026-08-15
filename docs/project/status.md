@@ -35,14 +35,25 @@ capture-free, non-escaping direct self and mutual recursion. It also covers
 closure-shaped self and mutual recursion when every external capture precedes
 the first group member. These groups reuse one immutable shared environment
 containing ordered external captures and reconstruct self or peer closures
-without cyclic initialization. Bounded value-producing conditionals can nest
-throughout that profile and lower to deterministic multi-block control flow
-with explicit branch and join transport. Bounded scalar pattern cases can nest
-there too: the scrutinee runs once; literal, wildcard, and variable arms retain
-source order; false guards fall through; variable binders stay arm-local; and
-selected scalar or closure results meet at one transported join. The opt-in
-profile requires a final unguarded wildcard or variable, which makes its
-lowering total independently of the general source coverage analysis.
+without cyclic initialization. Bounded value-producing conditionals and scalar
+pattern cases can nest throughout that profile. In value positions, their
+deterministic multi-block control flow preserves explicit branch and join
+transport: a case evaluates its scrutinee once, retains source-ordered literal,
+wildcard, and variable arms, falls through false guards, and keeps variable
+binders arm-local.
+
+For complete named or lifted function results, the profile records direct and
+closure tail intent. It propagates that result position through selected
+conditional branches and bounded scalar-case bodies, which terminate directly
+without result joins. Conditions, scrutinees, guards, operands, and nested value
+contexts remain ordinary value positions. Partial applications still return
+closure values; oversaturated calls tail-terminate only at the final exact
+stage; and module entry remains ordinary call/join/return lowering. This uses
+the existing Lowered IR schema, format, and validator and changes neither the
+runtime ABI, public language semantics, hosted compiler, nor native-stack
+behavior. The opt-in profile still requires a final unguarded wildcard or
+variable as its independent lowering-totality boundary; source-level static
+exhaustiveness and unreachable-arm analysis are implemented under RFC 0012.
 
 Managed patterns remain deferred in Typed Core pending managed-value
 production, layout, projection, and ownership contracts. Pattern-lambda
