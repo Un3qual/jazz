@@ -76,8 +76,17 @@ Check changed Haskell files with the repository's pinned formatter, passing
 explicit file paths:
 
 ```bash
-ormolu --mode check src/Jazz/Compiler/Parser.hs test/Jazz/Compiler/Parser/ParserFoundationSpec.hs
+bash scripts/check-haskell-format.sh src/Jazz/Compiler/Parser.hs test/Jazz/Compiler/Parser/ParserFoundationSpec.hs
 ```
+
+The repository audit also rejects the partial `error` identifier and qualified
+`Map.!` lookups in active compiler sources. Use an explicit failure result and
+total map lookup instead; use a domain-specific type-variable name such as
+`failure` when abstracting over an error type.
+
+The locked HLint is advisory until it parses all GHC 9.14 syntax used by the
+compiler. Do not suppress its parse failures or present its hint count as a
+clean verification gate.
 
 For public documentation or website work, run:
 

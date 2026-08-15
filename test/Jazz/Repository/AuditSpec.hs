@@ -37,6 +37,11 @@ import Jazz.Repository.FeatureInventory
     inventorySurface,
     requiredAuthoredFeatures,
   )
+import Jazz.Repository.HaskellSourcePolicy
+  ( HaskellSourcePolicyViolation (..),
+    readCompilerHaskellPolicyViolations,
+    validateHaskellSourcePolicy,
+  )
 import Jazz.Repository.JazzSourceFormat
   ( JazzSourceFormatViolation (..),
     renderJazzSourceFormatViolation,
@@ -82,7 +87,11 @@ main = runTestSuite "RepositoryAudit" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("discovers the complete authored Jazz source set", testAuthoredSourceInventory),
+  [ ("rejects partial error identifiers in Haskell compiler sources", testPartialErrorIdentifierPolicy),
+    ("rejects partial qualified map lookups in Haskell compiler sources", testPartialQualifiedMapLookupPolicy),
+    ("ignores partial-operation names outside Haskell code", testHaskellSourcePolicyLexicalBoundaries),
+    ("keeps checked-in Haskell compiler sources total", testCheckedInCompilerHaskellPolicy),
+    ("discovers the complete authored Jazz source set", testAuthoredSourceInventory),
     ("covers the implemented Jazz surface across authored sources", testAuthoredFeatureInventory),
     ("distinguishes partial applications from saturated calls", testPartialApplicationInventory),
     ("covers every public standard-library module family", testStandardLibraryModuleInventory),
@@ -127,6 +136,49 @@ tests =
     ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths),
     ("keeps repository infrastructure on the canonical Jazz identity", testCanonicalRepositoryInfrastructure)
   ]
+
+testPartialErrorIdentifierPolicy :: IO ()
+testPartialErrorIdentifierPolicy =
+  do
+    assertEqual
+      "partial error identifier"
+      [PartialErrorIdentifier "Example.hs" 1]
+      (validateHaskellSourcePolicy "Example.hs" "value = error \"boom\"")
+    assertEqual
+      "apostrophes in identifiers do not hide later partial identifiers"
+      [PartialErrorIdentifier "Example.hs" 2]
+      (validateHaskellSourcePolicy "Example.hs" "value' = 1\nnext = error \"boom\"")
+
+testPartialQualifiedMapLookupPolicy :: IO ()
+testPartialQualifiedMapLookupPolicy =
+  assertEqual
+    "partial qualified map lookup"
+    [PartialQualifiedMapLookup "Example.hs" 1]
+    (validateHaskellSourcePolicy "Example.hs" "value = table Map.! key")
+
+testHaskellSourcePolicyLexicalBoundaries :: IO ()
+testHaskellSourcePolicyLexicalBoundaries =
+  do
+    assertEqual
+      "comments and literals do not contain executable partial operations"
+      []
+      ( validateHaskellSourcePolicy
+          "Example.hs"
+          "-- error and Map.! are documentation\nmessage = \"error Map.!\"\ncharacter = '!'"
+      )
+    assertEqual
+      "nested comments and identifier substrings are ignored"
+      []
+      ( validateHaskellSourcePolicy
+          "Example.hs"
+          "{- outer error {- nested Map.! -} -}\nerrors = someMap.! key"
+      )
+
+testCheckedInCompilerHaskellPolicy :: IO ()
+testCheckedInCompilerHaskellPolicy =
+  withPackageRoot $ \packageRoot -> do
+    violations <- readCompilerHaskellPolicyViolations packageRoot
+    assertEqual "checked-in compiler Haskell source policy" [] violations
 
 testAuthoredSourceInventory :: IO ()
 testAuthoredSourceInventory =

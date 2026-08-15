@@ -121,11 +121,11 @@ import qualified Text.Megaparsec as MP
 
 type ModuleBodyParser = TokenStream -> Either ParserFailure ([SurfaceStatement], TokenStream)
 
-type ImplExpressionParser error = TokenStream -> Either error (SurfaceExpr, TokenStream)
+type ImplExpressionParser failure = TokenStream -> Either failure (SurfaceExpr, TokenStream)
 
-data CapabilityFailure error
+data CapabilityFailure failure
   = CapabilityParserFailure ParserFailure
-  | CapabilityExpressionFailure error
+  | CapabilityExpressionFailure failure
 
 data CapabilityDeclarationBody
   = CapabilityClassBody [SurfaceClassMethodSignature]
@@ -176,8 +176,8 @@ parseCapabilityDeclarationTokensDetailed parseImplExpression =
 -- the unconsumed suffix of its input list in the original order because the
 -- cursor advance is derived from the suffix length.
 adaptListExpressionParser ::
-  ([Token] -> Either error (SurfaceExpr, [Token])) ->
-  ImplExpressionParser error
+  ([Token] -> Either failure (SurfaceExpr, [Token])) ->
+  ImplExpressionParser failure
 adaptListExpressionParser parseExpression tokens = do
   (expression, remaining) <- parseExpression (tokenStreamToList tokens)
   let consumedCount = tokenStreamLength tokens - length remaining
@@ -195,10 +195,10 @@ capabilityFailureDetailed capabilityFailure =
     CapabilityParserFailure failure -> failure
     CapabilityExpressionFailure failure -> failure
 
-liftCapabilityParserResult :: Either ParserFailure value -> Either (CapabilityFailure error) value
+liftCapabilityParserResult :: Either ParserFailure value -> Either (CapabilityFailure failure) value
 liftCapabilityParserResult = mapLeft CapabilityParserFailure
 
-liftCapabilityExpressionResult :: Either error value -> Either (CapabilityFailure error) value
+liftCapabilityExpressionResult :: Either failure value -> Either (CapabilityFailure failure) value
 liftCapabilityExpressionResult = mapLeft CapabilityExpressionFailure
 
 parseImportStatementParser :: Parser SurfaceStatement
@@ -877,9 +877,9 @@ parseDataStatementFromTokens tokens =
         )
 
 parseCapabilityDeclarationFromTokens ::
-  ImplExpressionParser error ->
+  ImplExpressionParser failure ->
   TokenStream ->
-  Either (CapabilityFailure error) (SurfaceStatement, TokenStream)
+  Either (CapabilityFailure failure) (SurfaceStatement, TokenStream)
 parseCapabilityDeclarationFromTokens parseImplExpression tokens =
   case tokens of
     declarationToken@Token {tokenKind = TIdentifier declarationKind} :< tokensAfterKeyword ->
@@ -908,11 +908,11 @@ parseCapabilityDeclarationFromTokens parseImplExpression tokens =
         )
 
 parseCapabilityDeclaration ::
-  ImplExpressionParser error ->
+  ImplExpressionParser failure ->
   Text ->
   Token ->
   TokenStream ->
-  Either (CapabilityFailure error) (SurfaceStatement, TokenStream)
+  Either (CapabilityFailure failure) (SurfaceStatement, TokenStream)
 parseCapabilityDeclaration parseImplExpression declarationKind declarationToken tokensAfterKeyword = do
   (capabilityName, maybeHeaderArguments, headerRemaining) <-
     liftCapabilityParserResult
@@ -1087,11 +1087,11 @@ parseCapabilityHeaderName declarationKind declarationToken tokensAfterKeyword =
                 )
 
 parseCapabilityDeclarationBody ::
-  ImplExpressionParser error ->
+  ImplExpressionParser failure ->
   Text ->
   Token ->
   TokenStream ->
-  Either (CapabilityFailure error) (CapabilityDeclarationBody, TokenStream)
+  Either (CapabilityFailure failure) (CapabilityDeclarationBody, TokenStream)
 parseCapabilityDeclarationBody parseImplExpression declarationKind declarationToken tokens =
   case tokens of
     Token {tokenKind = TLBrace} :< rest ->

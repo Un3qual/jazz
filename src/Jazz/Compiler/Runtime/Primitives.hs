@@ -81,10 +81,10 @@ import Jazz.Compiler.Runtime.Types
   )
 
 -- | The only evaluator capability needed by primitive value semantics.
-type RuntimeApplication error m =
-  RuntimeValue -> RuntimeValue -> ExceptT error m RuntimeValue
+type RuntimeApplication failure m =
+  RuntimeValue -> RuntimeValue -> ExceptT failure m RuntimeValue
 
-liftRuntimeResult :: Monad m => (Diagnostic -> error) -> Either Diagnostic value -> ExceptT error m value
+liftRuntimeResult :: Monad m => (Diagnostic -> failure) -> Either Diagnostic value -> ExceptT failure m value
 liftRuntimeResult injectDiagnostic result =
   case result of
     Left diagnostic -> throwE (injectDiagnostic diagnostic)
@@ -93,11 +93,11 @@ liftRuntimeResult injectDiagnostic result =
 -- | Evaluate builtin semantics once enough arguments have been collected.
 evalBuiltin ::
   Monad m =>
-  (Diagnostic -> error) ->
-  RuntimeApplication error m ->
+  (Diagnostic -> failure) ->
+  RuntimeApplication failure m ->
   BuiltinSymbol ->
   [RuntimeValue] ->
-  ExceptT error m RuntimeValue
+  ExceptT failure m RuntimeValue
 evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinMap, [mapper, collection])
@@ -363,11 +363,11 @@ runtimeText runtimeValue =
 -- predicate application returns a Bool.
 filterElements ::
   Monad m =>
-  (Diagnostic -> error) ->
-  RuntimeApplication error m ->
+  (Diagnostic -> failure) ->
+  RuntimeApplication failure m ->
   RuntimeValue ->
   [RuntimeValue] ->
-  ExceptT error m [RuntimeValue]
+  ExceptT failure m [RuntimeValue]
 filterElements injectDiagnostic applyRuntimeValue predicate values = do
   results <- traverse applyPredicate values
   pure [value | (value, True) <- results]
@@ -426,12 +426,12 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
 -- | Evaluate the builtin operator subset supported by the runtime.
 evalBinary ::
   Monad m =>
-  (Diagnostic -> error) ->
-  RuntimeApplication error m ->
+  (Diagnostic -> failure) ->
+  RuntimeApplication failure m ->
   Text ->
   RuntimeValue ->
   RuntimeValue ->
-  ExceptT error m RuntimeValue
+  ExceptT failure m RuntimeValue
 evalBinary injectDiagnostic applyRuntimeValue operatorSymbol leftValue rightValue
   | operatorSymbol == "$" = applyRuntimeValue leftValue rightValue
   | otherwise = liftRuntimeResult injectDiagnostic (evalBinaryPure operatorSymbol leftValue rightValue)

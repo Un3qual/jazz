@@ -894,6 +894,7 @@ test-suite repository-audit-spec
   other-modules:
       Jazz.Repository.AuthoredSources
       Jazz.Repository.FeatureInventory
+      Jazz.Repository.HaskellSourcePolicy
       Jazz.Repository.JazzSourceFormat
       Jazz.Repository.PackagePolicy
       Jazz.Repository.Root
