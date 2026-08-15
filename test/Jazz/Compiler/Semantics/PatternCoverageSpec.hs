@@ -30,6 +30,7 @@ import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace),
     mkIdentifier,
     resolvedImportedName,
+    sourceName,
   )
 import Jazz.Compiler.PatternCoverage
   ( ConstructorInventory,
@@ -89,6 +90,7 @@ tests =
     ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
     ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
     ("duplicate non-total alternatives stay symbolic", testDuplicateNonTotalAlternatives),
+    ("repeated distinct non-total alternatives stay symbolic", testRepeatedDistinctNonTotalAlternatives),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
     ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
     ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
@@ -105,7 +107,8 @@ tests =
     ("source reachability covers every strict arm case", testStrictSourceReachability),
     ("repeated guarded arms remain reachable", testRepeatedGuardedSourceArms),
     ("warning-only diagnostics do not suppress coverage", testWarningsDoNotSuppressCoverage),
-    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage)
+    ("hidden imported constructors stay out of witnesses", testHiddenImportedConstructorCoverage),
+    ("constructor inventories materialize only reachable data types", testTypeScopedConstructorInventory)
   ]
 
 testEmptyBoolMatch :: IO ()
@@ -335,6 +338,63 @@ testDuplicateNonTotalAlternatives = do
     duplicateFalse =
       POr [PLiteral (LBool False), PLiteral (LBool False)]
     repeatedPattern = PTuple (replicate fieldCount duplicateFalse)
+
+testRepeatedDistinctNonTotalAlternatives :: IO ()
+testRepeatedDistinctNonTotalAlternatives = do
+  completed <-
+    timeout 5000000 $
+      evaluate
+        ( UnreachablePatternArm 2
+            `elem` analyzePatternCoverage
+              emptyConstructorInventory
+              (TTupleType (replicate fieldCount TIntType))
+              [arm repeatedPattern, arm repeatedPattern]
+        )
+  assertEqual "repeated distinct non-total alternatives" (Just True) completed
+  where
+    fieldCount = 30
+    zeroOrOne =
+      POr [PLiteral (LInt 0), PLiteral (LInt 1)]
+    repeatedPattern = PTuple (replicate fieldCount zeroOrOne)
+
+testTypeScopedConstructorInventory :: IO ()
+testTypeScopedConstructorInventory = do
+  _ <- evaluate (Map.size dataTypes)
+  completed <-
+    timeout 5000000 $
+      evaluate
+        ( and
+            [ null
+                ( analyzePatternCoverage
+                    (constructorInventoryFromBindings dataTypes (environment siteIndex))
+                    targetType
+                    [arm (PConstructor "Only" [])]
+                )
+            | siteIndex <- [1 .. siteCount]
+            ]
+        )
+  assertEqual "type-scoped constructor inventory" (Just True) completed
+  where
+    siteCount :: Int
+    siteCount = 300
+
+    dataTypeCount :: Int
+    dataTypeCount = 100000
+    targetType = TDataType "Target" []
+    dataTypes =
+      Map.insert
+        "Target"
+        (DataTypeBinding [] [[]])
+        ( Map.fromList
+            [ ("Unused" <> Text.pack (show dataTypeIndex), DataTypeBinding [] [[]])
+            | dataTypeIndex <- [1 .. dataTypeCount]
+            ]
+        )
+    environment siteIndex =
+      Map.insert
+        (sourceName (mkIdentifier ("value" <> Text.pack (show siteIndex))))
+        (PlainTypeBinding TIntType)
+        (Map.singleton "Only" (ConstructorTypeBinding "Target" [] []))
 
 testPartlyUsefulOrPattern :: IO ()
 testPartlyUsefulOrPattern =
