@@ -5366,6 +5366,7 @@ emptyInputs =
       inferenceWarningSettings = defaultWarningSettings,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
+      inferenceImportedConstructorWitnessNames = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
       inferenceImportedClassNames = Set.empty,
       inferenceCurrentModulePath = Just modulePath

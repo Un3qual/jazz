@@ -106,7 +106,7 @@ import Jazz.Compiler.PatternCoverage
   ( PatternCoverageFailure (..),
     PatternCoverageSite (..),
     analyzePatternCoverage,
-    constructorInventoryFromBindings,
+    constructorInventoryFromBindingsWithWitnessNames,
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
@@ -174,6 +174,7 @@ import Jazz.Compiler.TypeInference.State
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
+    inferConstructorWitnessNames,
     inferDataTypes,
     inferErrorsRev,
     inferModuleCapabilityFacts,
@@ -219,6 +220,7 @@ data InferenceInputs = InferenceInputs
     inferenceWarningSettings :: WarningSettings,
     inferenceImportedTypes :: TypeEnv,
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
+    inferenceImportedConstructorWitnessNames :: Map Name Name,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
     inferenceImportedClassNames :: Set Text,
     inferenceCurrentModulePath :: Maybe [Text]
@@ -547,6 +549,7 @@ emptyInferenceInputs builtinMode settings =
       inferenceWarningSettings = settings,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
+      inferenceImportedConstructorWitnessNames = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
       inferenceImportedClassNames = Set.empty,
       inferenceCurrentModulePath = Nothing
@@ -590,7 +593,9 @@ initialStateForInference inputs =
         inferModule =
           (inferModule initialInferState)
             { inferenceModulePath = inferenceCurrentModulePath inputs,
-              inferenceRuntimeHintPath = inferenceCurrentModulePath inputs
+              inferenceRuntimeHintPath = inferenceCurrentModulePath inputs,
+              inferenceConstructorWitnessNames =
+                inferenceImportedConstructorWitnessNames inputs
             }
       }
 
@@ -826,7 +831,10 @@ inferExprTypeDetailed builtinMode env state expr =
               ( PatternCoverageSite
                   { patternCoverageSiteOrdinal = coverageOrdinal,
                     patternCoverageSiteConstructorInventory =
-                      constructorInventoryFromBindings (inferDataTypes inferredFinalState) env,
+                      constructorInventoryFromBindingsWithWitnessNames
+                        (inferConstructorWitnessNames inferredFinalState)
+                        (inferDataTypes inferredFinalState)
+                        env,
                     patternCoverageSiteScrutineeType = scrutineeType,
                     patternCoverageSiteArms = caseArms
                   }
@@ -1427,7 +1435,10 @@ inferExprTypeDetailed builtinMode env state expr =
                   ( PatternCoverageSite
                       { patternCoverageSiteOrdinal = coverageOrdinal,
                         patternCoverageSiteConstructorInventory =
-                          constructorInventoryFromBindings (inferDataTypes inferredFinalState) env,
+                          constructorInventoryFromBindingsWithWitnessNames
+                            (inferConstructorWitnessNames inferredFinalState)
+                            (inferDataTypes inferredFinalState)
+                            env,
                         patternCoverageSiteScrutineeType = scrutineeType,
                         patternCoverageSiteArms = caseArms
                       }

@@ -518,6 +518,7 @@ hiddenConstructorInputs =
                 [ConstructorArgumentParameter "a"]
               ]
           ),
+      inferenceImportedConstructorWitnessNames = Map.empty,
       inferenceImportedCapabilities = emptyScopeCapabilityFacts,
       inferenceImportedClassNames = Set.empty,
       inferenceCurrentModulePath = Nothing

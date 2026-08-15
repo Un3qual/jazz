@@ -10,6 +10,7 @@ module Jazz.Compiler.TypeInference.State
     inferClassMethodSignatures,
     inferConcreteImplFacts,
     inferConcreteImplMethods,
+    inferConstructorWitnessNames,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
     inferRuntimeHintPath,
@@ -51,6 +52,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST (SignatureType)
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Name (Name)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
@@ -90,6 +92,7 @@ data ModuleInferenceState = ModuleInferenceState
     inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
+    inferenceConstructorWitnessNames :: Map Name Name,
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
@@ -162,6 +165,7 @@ initialInferState =
             inferenceRuntimeHintPath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
+            inferenceConstructorWitnessNames = Map.empty,
             inferenceVisibleTypes = Map.empty
           },
       inferOutput =
@@ -221,6 +225,9 @@ inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModul
 
 inferModuleCapabilityFacts :: InferState -> Map [Text] ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
+
+inferConstructorWitnessNames :: InferState -> Map Name Name
+inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule

@@ -7,6 +7,7 @@ module Jazz.Compiler.PatternCoverage
     PatternCoverageSite (..),
     analyzePatternCoverage,
     constructorInventoryFromBindings,
+    constructorInventoryFromBindingsWithWitnessNames,
     emptyConstructorInventory,
     renderCoveragePattern,
   )
@@ -65,6 +66,8 @@ data DataConstructorInventory = DataConstructorInventory
 
 data VisibleConstructor = VisibleConstructor
   { visibleConstructorName :: Name,
+    -- Keep diagnostic spelling separate from the canonical matching identity.
+    visibleConstructorWitnessName :: Name,
     visibleConstructorArguments :: [ConstructorArgumentType]
   }
   deriving (Eq, Show)
@@ -76,7 +79,15 @@ constructorInventoryFromBindings ::
   Map Text DataTypeBinding ->
   TypeEnv ->
   ConstructorInventory
-constructorInventoryFromBindings dataTypes env =
+constructorInventoryFromBindings =
+  constructorInventoryFromBindingsWithWitnessNames Map.empty
+
+constructorInventoryFromBindingsWithWitnessNames ::
+  Map Name Name ->
+  Map Text DataTypeBinding ->
+  TypeEnv ->
+  ConstructorInventory
+constructorInventoryFromBindingsWithWitnessNames witnessNames dataTypes env =
   ConstructorInventory (Map.mapMaybeWithKey closedInventory dataTypes)
   where
     closedInventory typeNameText (DataTypeBinding typeParameters declaredConstructors)
@@ -100,6 +111,8 @@ constructorInventoryFromBindings dataTypes env =
               Just
                 VisibleConstructor
                   { visibleConstructorName = constructorName,
+                    visibleConstructorWitnessName =
+                      Map.findWithDefault constructorName constructorName witnessNames,
                     visibleConstructorArguments = argumentTypes
                   }
         _ -> Nothing
@@ -156,9 +169,20 @@ data CoverageConstructor
   | CoverageListNil
   | CoverageListCons
   | CoverageTuple Int
-  | CoverageData Name
+  | CoverageData Name Name
   | CoverageLiteral Literal
-  deriving (Eq, Show)
+  deriving (Show)
+
+instance Eq CoverageConstructor where
+  CoverageBool left == CoverageBool right = left == right
+  CoverageUnit == CoverageUnit = True
+  CoverageListNil == CoverageListNil = True
+  CoverageListCons == CoverageListCons = True
+  CoverageTuple left == CoverageTuple right = left == right
+  -- Source aliases affect witness rendering, never coverage equality.
+  CoverageData left _ == CoverageData right _ = left == right
+  CoverageLiteral left == CoverageLiteral right = left == right
+  _ == _ = False
 
 data ConstructorShape = ConstructorShape
   { shapeConstructor :: CoverageConstructor,
@@ -175,7 +199,7 @@ normalizePattern patternValue =
     PLiteral (LBool value) -> [CoverageConstructor (CoverageBool value) []]
     PLiteral literal -> [CoverageConstructor (CoverageLiteral literal) []]
     PConstructor name fields ->
-      normalizeConstructor (CoverageData name) fields
+      normalizeConstructor (CoverageData name name) fields
     PList elements -> normalizeList elements
     PConsList headPattern tailPattern ->
       normalizeConstructor CoverageListCons [headPattern, tailPattern]
@@ -288,7 +312,10 @@ dataConstructorShapes (ConstructorInventory inventories) typeName actualTypeArgu
           ]
   pure
     [ ConstructorShape
-        (CoverageData (visibleConstructorName constructor))
+        ( CoverageData
+            (visibleConstructorName constructor)
+            (visibleConstructorWitnessName constructor)
+        )
         (map (instantiateArgument typeArguments) (visibleConstructorArguments constructor))
     | constructor <- inventoryConstructors dataInventory
     ]
@@ -377,7 +404,8 @@ coveragePatternToPattern coveragePattern =
                 (coveragePatternToPattern tailPattern)
             _ -> PWildcard
         CoverageTuple _ -> PTuple (map coveragePatternToPattern fields)
-        CoverageData name -> PConstructor name (map coveragePatternToPattern fields)
+        CoverageData _ witnessName ->
+          PConstructor witnessName (map coveragePatternToPattern fields)
         CoverageLiteral literal -> PLiteral literal
 
 renderCoveragePattern :: Pattern -> Text
