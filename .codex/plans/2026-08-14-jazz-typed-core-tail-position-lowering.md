@@ -14,7 +14,9 @@ target_paths:
   - docs/compiler/bootstrapping.md
   - docs/compiler/pipeline.md
   - docs/project/status.md
+  - rfcs/README.md
   - rfcs/accepted/0013-typed-core-tail-position-lowering.md
+  - .codex/execution/queue.md
   - .codex/execution/blocker-contracts.md
 verification:
   - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
