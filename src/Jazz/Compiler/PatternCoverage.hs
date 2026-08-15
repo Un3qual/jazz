@@ -17,6 +17,7 @@ import Data.List (find, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -27,6 +28,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (ConstructorNamespace),
+    ResolvedNameOrigin (CurrentModule),
     identifierText,
     renderName,
   )
@@ -52,22 +54,23 @@ data PatternCoverageSite = PatternCoverageSite
   }
   deriving (Eq, Show)
 
--- | Constructor information that is safe to treat as a closed domain. A data
--- type remains open unless every declared constructor is visible in the
--- lexical type environment.
+-- | Constructor information for every known data type. Visible constructor
+-- shapes remain useful even when hidden constructors keep the outer domain
+-- open.
 newtype ConstructorInventory = ConstructorInventory (Map Text DataConstructorInventory)
   deriving (Eq, Show)
 
 data DataConstructorInventory = DataConstructorInventory
   { inventoryTypeParameters :: [Name],
-    inventoryConstructors :: [VisibleConstructor]
+    inventoryConstructors :: [VisibleConstructor],
+    inventoryIsClosed :: Bool
   }
   deriving (Eq, Show)
 
 data VisibleConstructor = VisibleConstructor
   { visibleConstructorName :: Name,
     -- Keep diagnostic spelling separate from the canonical matching identity.
-    visibleConstructorWitnessName :: Name,
+    visibleConstructorWitnessName :: Maybe Name,
     visibleConstructorArguments :: [ConstructorArgumentType]
   }
   deriving (Eq, Show)
@@ -88,16 +91,14 @@ constructorInventoryFromBindingsWithWitnessNames ::
   TypeEnv ->
   ConstructorInventory
 constructorInventoryFromBindingsWithWitnessNames witnessNames dataTypes env =
-  ConstructorInventory (Map.mapMaybeWithKey closedInventory dataTypes)
+  ConstructorInventory (Map.mapWithKey dataInventory dataTypes)
   where
-    closedInventory typeNameText (DataTypeBinding typeParameters declaredConstructors)
-      | length visibleConstructors == length declaredConstructors =
-          Just
-            DataConstructorInventory
-              { inventoryTypeParameters = typeParameters,
-                inventoryConstructors = visibleConstructors
-              }
-      | otherwise = Nothing
+    dataInventory typeNameText (DataTypeBinding typeParameters declaredConstructors) =
+      DataConstructorInventory
+        { inventoryTypeParameters = typeParameters,
+          inventoryConstructors = visibleConstructors,
+          inventoryIsClosed = length visibleConstructors == length declaredConstructors
+        }
       where
         visibleConstructors =
           sortOn
@@ -112,10 +113,24 @@ constructorInventoryFromBindingsWithWitnessNames witnessNames dataTypes env =
                 VisibleConstructor
                   { visibleConstructorName = constructorName,
                     visibleConstructorWitnessName =
-                      Map.findWithDefault constructorName constructorName witnessNames,
+                      accessibleWitnessName
+                        constructorName
+                        (Map.findWithDefault constructorName constructorName witnessNames),
                     visibleConstructorArguments = argumentTypes
                   }
         _ -> Nothing
+
+    accessibleWitnessName constructorName witnessName =
+      case (constructorName, witnessName) of
+        (ResolvedName _ ConstructorNamespace _, SourceName member)
+          | Set.member (identifierText member) localConstructorNames -> Nothing
+        _ -> Just witnessName
+
+    localConstructorNames =
+      Set.fromList
+        [ identifierText member
+        | ResolvedName CurrentModule ConstructorNamespace member <- Map.keys env
+        ]
 
 -- | Analyze one source-ordered match. Guarded arms are checked for usefulness
 -- but never added to the rows that cover later arms.
@@ -175,7 +190,7 @@ data CoverageConstructor
   | CoverageListNil
   | CoverageListCons
   | CoverageTuple Int
-  | CoverageData Name Name
+  | CoverageData Name (Maybe Name)
   | CoverageLiteral Literal
   deriving (Show)
 
@@ -205,7 +220,7 @@ normalizePattern patternValue =
     PLiteral (LBool value) -> CoverageConstructor (CoverageBool value) []
     PLiteral literal -> CoverageConstructor (CoverageLiteral literal) []
     PConstructor name fields ->
-      normalizeConstructor (CoverageData name name) fields
+      normalizeConstructor (CoverageData name (Just name)) fields
     PList elements -> normalizeList elements
     PConsList headPattern tailPattern ->
       normalizeConstructor CoverageListCons [headPattern, tailPattern]
@@ -364,45 +379,73 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
 usefulPatternVector _ _ _ _ = Nothing
 
 constructorShapes :: ConstructorInventory -> ExpressionType -> Maybe [ConstructorShape]
-constructorShapes inventory expressionType =
+constructorShapes inventory expressionType = do
+  domain <- constructorDomain inventory expressionType
+  if domainIsClosed domain
+    then Just (domainShapes domain)
+    else Nothing
+
+data ConstructorDomain = ConstructorDomain
+  { domainIsClosed :: Bool,
+    domainShapes :: [ConstructorShape]
+  }
+
+constructorDomain :: ConstructorInventory -> ExpressionType -> Maybe ConstructorDomain
+constructorDomain inventory expressionType =
   case expressionType of
     TBoolType ->
       Just
-        [ ConstructorShape (CoverageBool False) [],
-          ConstructorShape (CoverageBool True) []
-        ]
+        ( ConstructorDomain
+            True
+            [ ConstructorShape (CoverageBool False) [],
+              ConstructorShape (CoverageBool True) []
+            ]
+        )
     TListType elementType ->
       Just
-        [ ConstructorShape CoverageListNil [],
-          ConstructorShape CoverageListCons [elementType, TListType elementType]
-        ]
-    TTupleType [] -> Just [ConstructorShape CoverageUnit []]
-    TTupleType fields -> Just [ConstructorShape (CoverageTuple (length fields)) fields]
+        ( ConstructorDomain
+            True
+            [ ConstructorShape CoverageListNil [],
+              ConstructorShape CoverageListCons [elementType, TListType elementType]
+            ]
+        )
+    TTupleType [] -> Just (ConstructorDomain True [ConstructorShape CoverageUnit []])
+    TTupleType fields ->
+      Just
+        ( ConstructorDomain
+            True
+            [ConstructorShape (CoverageTuple (length fields)) fields]
+        )
     TDataType typeName actualTypeArguments ->
-      dataConstructorShapes inventory typeName actualTypeArguments
+      dataConstructorDomain inventory typeName actualTypeArguments
     _ -> Nothing
 
-dataConstructorShapes ::
+dataConstructorDomain ::
   ConstructorInventory ->
   Name ->
   [ExpressionType] ->
-  Maybe [ConstructorShape]
-dataConstructorShapes (ConstructorInventory inventories) typeName actualTypeArguments = do
+  Maybe ConstructorDomain
+dataConstructorDomain (ConstructorInventory inventories) typeName actualTypeArguments = do
   dataInventory <- Map.lookup (renderName typeName) inventories
   let typeArguments =
         Map.fromList
           [ (identifierText parameter, argument)
           | (parameter, argument) <- zip (inventoryTypeParameters dataInventory) actualTypeArguments
           ]
+      shapes =
+        [ ConstructorShape
+            ( CoverageData
+                (visibleConstructorName constructor)
+                (visibleConstructorWitnessName constructor)
+            )
+            (map (instantiateArgument typeArguments) (visibleConstructorArguments constructor))
+        | constructor <- inventoryConstructors dataInventory
+        ]
   pure
-    [ ConstructorShape
-        ( CoverageData
-            (visibleConstructorName constructor)
-            (visibleConstructorWitnessName constructor)
-        )
-        (map (instantiateArgument typeArguments) (visibleConstructorArguments constructor))
-    | constructor <- inventoryConstructors dataInventory
-    ]
+    ConstructorDomain
+      { domainIsClosed = inventoryIsClosed dataInventory,
+        domainShapes = shapes
+      }
 
 instantiateArgument :: Map Text ExpressionType -> ConstructorArgumentType -> ExpressionType
 instantiateArgument typeArguments argument =
@@ -424,9 +467,17 @@ constructorShape ::
   Int ->
   Maybe ConstructorShape
 constructorShape inventory expressionType constructor fallbackArity =
-  case constructorShapes inventory expressionType of
-    Just shapes -> find ((== constructor) . shapeConstructor) shapes
-    Nothing -> Just (ConstructorShape constructor (replicate fallbackArity unknownFieldType))
+  case constructorDomain inventory expressionType of
+    Just domain ->
+      case find ((== constructor) . shapeConstructor) (domainShapes domain) of
+        Just shape -> Just shape
+        Nothing
+          | domainIsClosed domain -> Nothing
+          | otherwise -> Just fallbackShape
+    Nothing -> Just fallbackShape
+  where
+    fallbackShape =
+      ConstructorShape constructor (replicate fallbackArity unknownFieldType)
 
 specializeMatrix :: ConstructorShape -> PatternMatrix -> PatternMatrix
 specializeMatrix shape = concatMap specializeRow
@@ -496,8 +547,11 @@ coveragePatternToPattern coveragePattern =
                 (coveragePatternToPattern tailPattern)
             _ -> PWildcard
         CoverageTuple _ -> PTuple (map coveragePatternToPattern fields)
-        CoverageData _ witnessName ->
-          PConstructor witnessName (map coveragePatternToPattern fields)
+        CoverageData _ maybeWitnessName ->
+          case maybeWitnessName of
+            Just witnessName ->
+              PConstructor witnessName (map coveragePatternToPattern fields)
+            Nothing -> PWildcard
         CoverageLiteral literal -> PLiteral literal
 
 renderCoveragePattern :: Pattern -> Text
