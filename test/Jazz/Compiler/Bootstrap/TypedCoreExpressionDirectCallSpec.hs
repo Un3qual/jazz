@@ -56,6 +56,7 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("retains ordinary returns for non-tail function results and consumed calls", testFunctionResultNegativeTerminators),
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
@@ -439,6 +440,78 @@ testAcceptedManifestPipeline =
                 (_, _, _) -> failTest (name <> " has ambiguous or missing lowering expectations")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
+
+testFunctionResultNegativeTerminators :: IO ()
+testFunctionResultNegativeTerminators = do
+  literalProgram <- lowerFixture "explicit-numeric-widths"
+  scalarProgram <- lowerFixture "scalar-parameter-return"
+  binaryProgram <- lowerFixture "mixed-direct-and-value-use"
+  partialProgram <-
+    case lookup "curried-partial-higher-order-consumer" curriedApplicationExpectedPrograms of
+      Just typedProgram ->
+        case lowerTypedCoreExpressionDirectCall typedProgram of
+          LoweredIRSucceeded loweredProgram -> pure loweredProgram
+          other -> failTest ("partial application did not lower: " <> Text.pack (show other))
+      Nothing -> failTest "partial application typed program is missing"
+  assertEqual
+    "literal function result retains LoweredReturn"
+    True
+    (hasReturnTerminator "App::Main::asInt64" literalProgram)
+  assertEqual
+    "scalar function result retains LoweredReturn"
+    True
+    (hasReturnTerminator "App::Main::identity" scalarProgram)
+  assertEqual
+    "partial application function result retains LoweredReturn"
+    True
+    (hasReturnTerminator "App::Main::combine" partialProgram)
+  assertEqual
+    "binary-consumed direct call remains an instruction"
+    True
+    (hasDirectCallInstruction "App::Main::apply" binaryProgram)
+  assertEqual
+    "binary-consumed closure call remains an instruction"
+    True
+    (hasClosureCallInstruction binaryProgram)
+  where
+    lowerFixture name = do
+      production <- produceFixture (fixtureByName name)
+      case typedCoreProductionStatus production of
+        TypedCoreProductionSucceeded typedProgram ->
+          case lowerTypedCoreExpressionDirectCall typedProgram of
+            LoweredIRSucceeded loweredProgram -> pure loweredProgram
+            other -> failTest (name <> " did not lower: " <> Text.pack (show other))
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+    hasReturnTerminator functionId (LoweredProgram _ _ _ functions _) =
+      any
+        ( \(LoweredFunction currentId _ _ _ blocks _) ->
+            currentId == LoweredFunctionId functionId
+              && any isReturnBlock blocks
+        )
+        functions
+    isReturnBlock (LoweredBlock _ _ _ (Just LoweredReturn {})) = True
+    isReturnBlock _ = False
+    hasDirectCallInstruction functionId (LoweredProgram _ _ _ functions _) =
+      any
+        ( \(LoweredFunction _ _ _ _ blocks _) ->
+            any (any isExpectedCall . blockInstructions) blocks
+        )
+        functions
+      where
+        blockInstructions (LoweredBlock _ _ instructions _) = instructions
+        isExpectedCall (LoweredInstruction _ _ (LoweredDirectCall currentId _)) =
+          currentId == LoweredFunctionId functionId
+        isExpectedCall _ = False
+    hasClosureCallInstruction (LoweredProgram _ _ _ functions _) =
+      any
+        ( \(LoweredFunction _ _ _ _ blocks _) ->
+            any (any isClosureCall . blockInstructions) blocks
+        )
+        functions
+      where
+        blockInstructions (LoweredBlock _ _ instructions _) = instructions
+        isClosureCall (LoweredInstruction _ _ LoweredClosureCall {}) = True
+        isClosureCall _ = False
 
 testScalarPatternCaseProduction :: IO ()
 testScalarPatternCaseProduction =

@@ -1235,17 +1235,12 @@ curriedPartialHigherOrderLoweredProgram =
   expectedClosureCallableLoweredProgram
     curriedCombineLayouts
     ( curriedCombineFunctions
-        <> [ expectedLocalFunction
+        <> [ expectedTailLocalFunction
                "apply"
                [LoweredParameter (LoweredParameterId "arg1") curriedCombineInnerClosureRepresentation]
                int64Representation
-               [ expectedClosureCallInstruction
-                   1
-                   int64Representation
-                   (loweredParameter 1 curriedCombineInnerClosureRepresentation)
-                   [loweredInt64 2]
-               ]
-               (loweredTemporary 1 int64Representation)
+               []
+               (LoweredClosureTailCall (loweredParameter 1 curriedCombineInnerClosureRepresentation) [loweredInt64 2])
            ]
     )
     int64Representation
@@ -1980,10 +1975,9 @@ expectedCapturedRecursiveFunction functionName peerName layoutId =
             int64Representation
             (LoweredProjectField layoutId 0 environmentOperand),
           expectedClosureWithEnvironmentInstructionFor 2 peerName intClosureRepresentation environmentOperand,
-          expectedPrimitiveInstruction 3 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredParameter 1 int64Representation, loweredTemporary 1 int64Representation],
-          expectedClosureCallInstruction 4 int64Representation (loweredTemporary 2 intClosureRepresentation) [loweredTemporary 3 int64Representation]
+          expectedPrimitiveInstruction 3 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredParameter 1 int64Representation, loweredTemporary 1 int64Representation]
         ]
-        (Just (LoweredReturn (loweredTemporary 4 int64Representation)))
+        (Just (LoweredClosureTailCall (loweredTemporary 2 intClosureRepresentation) [loweredTemporary 3 int64Representation]))
     ]
     (LoweredBlockId "entry")
   where
@@ -1996,12 +1990,12 @@ directRecursionExpectedLoweredPrograms =
   [ ( "self-recursive-function",
       selfRecursiveExpectedProgram,
       expectedCallableLoweredProgram
-        [ expectedLocalFunction
+        [ expectedTailLocalFunction
             "loop"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "loop" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation)
+            []
+            (loweredDirectTailCall "loop" [loweredParameter 1 int64Representation])
         ]
         int64Representation
         [expectedDirectCallInstruction 1 int64Representation "loop" [loweredInt64 1]]
@@ -2010,18 +2004,18 @@ directRecursionExpectedLoweredPrograms =
     ( "mutually-recursive-functions",
       mutuallyRecursiveExpectedProgram,
       expectedCallableLoweredProgram
-        [ expectedLocalFunction
+        [ expectedTailLocalFunction
             "left"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "right" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation),
-          expectedLocalFunction
+            []
+            (loweredDirectTailCall "right" [loweredParameter 1 int64Representation]),
+          expectedTailLocalFunction
             "right"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "left" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation)
+            []
+            (loweredDirectTailCall "left" [loweredParameter 1 int64Representation])
         ]
         int64Representation
         [expectedDirectCallInstruction 1 int64Representation "left" [loweredInt64 1]]
@@ -2222,12 +2216,12 @@ directCallExpectedLoweredPrograms =
     ),
     ( "forward-direct-call-dag",
       expectedCallableLoweredProgram
-        [ expectedLocalFunction
+        [ expectedTailLocalFunction
             "first"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "second" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation),
+            []
+            (loweredDirectTailCall "second" [loweredParameter 1 int64Representation]),
           expectedLocalFunction
             "second"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
@@ -2526,10 +2520,8 @@ expectedRecursivePassingFunction functionName peerName layoutId =
     [ LoweredBlock
         (LoweredBlockId "entry")
         []
-        [ expectedClosureWithEnvironmentInstruction 1 peerName environmentOperand,
-          expectedDirectCallInstruction 2 LoweredBoolRepresentation "apply" [loweredTemporary 1 boolClosureRepresentation]
-        ]
-        (Just (LoweredReturn (loweredTemporary 2 LoweredBoolRepresentation)))
+        [expectedClosureWithEnvironmentInstruction 1 peerName environmentOperand]
+        (Just (loweredDirectTailCall "apply" [loweredTemporary 1 boolClosureRepresentation]))
     ]
     (LoweredBlockId "entry")
   where
@@ -2548,10 +2540,8 @@ expectedRecursiveCallingFunction functionName peerName layoutId =
     [ LoweredBlock
         (LoweredBlockId "entry")
         []
-        [ expectedClosureWithEnvironmentInstructionFor 1 peerName intClosureRepresentation environmentOperand,
-          expectedClosureCallInstruction 2 int64Representation (loweredTemporary 1 intClosureRepresentation) [loweredParameter 1 int64Representation]
-        ]
-        (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
+        [expectedClosureWithEnvironmentInstructionFor 1 peerName intClosureRepresentation environmentOperand]
+        (Just (LoweredClosureTailCall (loweredTemporary 1 intClosureRepresentation) [loweredParameter 1 int64Representation]))
     ]
     (LoweredBlockId "entry")
   where
@@ -2715,31 +2705,21 @@ expectedBoolIdentityClosure layoutId =
 
 expectedBoolApplyFunction :: LoweredFunction
 expectedBoolApplyFunction =
-  expectedLocalFunction
+  expectedTailLocalFunction
     "apply"
     [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
     LoweredBoolRepresentation
-    [ expectedClosureCallInstruction
-        1
-        LoweredBoolRepresentation
-        (loweredParameter 1 boolClosureRepresentation)
-        [loweredImmediate (LoweredBoolImmediate True)]
-    ]
-    (loweredTemporary 1 LoweredBoolRepresentation)
+    []
+    (LoweredClosureTailCall (loweredParameter 1 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate True)])
 
 expectedBoolForwardFunction :: LoweredFunction
 expectedBoolForwardFunction =
-  expectedLocalFunction
+  expectedTailLocalFunction
     "forward"
     [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
     LoweredBoolRepresentation
-    [ expectedDirectCallInstruction
-        1
-        LoweredBoolRepresentation
-        "apply"
-        [loweredParameter 1 boolClosureRepresentation]
-    ]
-    (loweredTemporary 1 LoweredBoolRepresentation)
+    []
+    (loweredDirectTailCall "apply" [loweredParameter 1 boolClosureRepresentation])
 
 expectedBoolCombineFunction :: LoweredFunction
 expectedBoolCombineFunction =
@@ -2830,6 +2810,22 @@ expectedLocalFunction name parameters resultRepresentation instructions resultOp
     [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
     (LoweredBlockId "entry")
 
+expectedTailLocalFunction ::
+  Text ->
+  [LoweredParameter] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredTerminator ->
+  LoweredFunction
+expectedTailLocalFunction name parameters resultRepresentation instructions terminator =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> name))
+    Nothing
+    parameters
+    resultRepresentation
+    [LoweredBlock (LoweredBlockId "entry") [] instructions (Just terminator)]
+    (LoweredBlockId "entry")
+
 expectedLiteralFunction :: Text -> LoweredRepresentation -> LoweredImmediate -> LoweredFunction
 expectedLiteralFunction name resultRepresentation immediateValue =
   expectedLocalFunction
@@ -2845,6 +2841,10 @@ expectedDirectCallInstruction index representation functionName operands =
     (LoweredTemporaryId ("t" <> Text.pack (show index)))
     representation
     (LoweredDirectCall (LoweredFunctionId ("App::Main::" <> functionName)) operands)
+
+loweredDirectTailCall :: Text -> [LoweredOperand] -> LoweredTerminator
+loweredDirectTailCall functionName operands =
+  LoweredDirectTailCall (LoweredFunctionId ("App::Main::" <> functionName)) operands
 
 loweredParameter :: Int -> LoweredRepresentation -> LoweredOperand
 loweredParameter index =

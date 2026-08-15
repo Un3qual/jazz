@@ -82,6 +82,10 @@ data LoweringState = LoweringState
     loweringCarriedOperands :: Map.Map Int LoweredOperand
   }
 
+data ResultDestination
+  = ProduceValue
+  | FinishFunction LoweredRepresentation
+
 data AmbientSlot
   = AmbientLocalSlot TypedBinderId LoweredRepresentation
   | AmbientSharedEnvironmentSlot LoweredLayoutId LoweredRepresentation
@@ -1547,11 +1551,29 @@ startBlock blockId parameters state =
       loweringCurrentBlockParameters = parameters
     }
 
+finishFunctionResult :: LoweredRepresentation -> LoweredOperand -> LoweringState -> Maybe LoweringState
+finishFunctionResult expected operand state
+  | loweredOperandRepresentation operand /= expected = Nothing
+  | LoweredTemporaryOperand temporary representation <- operand,
+    LoweredInstruction produced representation' operation : prior <- loweringInstructions state,
+    produced == temporary,
+    representation' == representation,
+    Just terminator <- tailTerminator operation =
+      Just (finishCurrentBlock terminator state {loweringInstructions = prior})
+  | otherwise = Just (finishCurrentBlock (LoweredReturn operand) state)
+
 finishFunctionBlocks :: LoweredOperand -> LoweringState -> [LoweredBlock]
 finishFunctionBlocks resultOperand =
   reverse
     . loweringCompletedBlocks
     . finishCurrentBlock (LoweredReturn resultOperand)
+
+tailTerminator :: LoweredOperation -> Maybe LoweredTerminator
+tailTerminator operation =
+  case operation of
+    LoweredDirectCall functionId operands -> Just (LoweredDirectTailCall functionId operands)
+    LoweredClosureCall functionOperand operands -> Just (LoweredClosureTailCall functionOperand operands)
+    _ -> Nothing
 
 conditionalBlockId :: [Int] -> [Int] -> Text -> LoweredBlockId
 conditionalBlockId statementPath reversedExpressionPath role =
@@ -1699,25 +1721,27 @@ emitFunction ::
   FunctionShape ->
   Either [LoweredIRLoweringFailure] LoweredFunction
 emitFunction modulePath functions function =
-  case lowerExpression
+  case lowerFunctionResult
     modulePath
     [functionShapeStatementIndex function]
     (functionShapeReversedBodyPath function)
     functions
     (functionShapeParameters function)
+    (functionShapeResultRepresentation function)
     initialState
     (functionShapeBody function) of
-    ([], Just resultOperand, finalState) ->
+    ([], finalState)
+      | null (loweringInstructions finalState) ->
       Right
         ( LoweredFunction
             (functionShapeId function)
             (functionEnvironmentParameter function)
             (map functionParameter (functionShapeParameters function))
             (functionShapeResultRepresentation function)
-            (finishFunctionBlocks resultOperand finalState)
+            (reverse (loweringCompletedBlocks finalState))
             (LoweredBlockId "entry")
         )
-    (failures@(_ : _), _, _) -> Left failures
+    (failures@(_ : _), _) -> Left failures
     _ ->
       Left
         [ LoweredIRLoweringFailure
@@ -1727,6 +1751,30 @@ emitFunction modulePath functions function =
         ]
   where
     initialState = initializeFunctionState function
+
+lowerFunctionResult ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweredRepresentation ->
+  LoweringState ->
+  TypedExpr ->
+  ([LoweredIRLoweringFailure], LoweringState)
+lowerFunctionResult modulePath statementPath expressionPath functions parameters expected state expression =
+  lowerToDestination (FinishFunction expected)
+  where
+    lowerToDestination destination =
+      case lowerExpression modulePath statementPath expressionPath functions parameters state expression of
+        (failures, Just operand, finalState) ->
+          case destination of
+            ProduceValue -> (failures, finalState)
+            FinishFunction resultRepresentation ->
+              case finishFunctionResult resultRepresentation operand finalState of
+                Just finishedState -> (failures, finishedState)
+                Nothing -> (failures, finalState)
+        (failures, Nothing, finalState) -> (failures, finalState)
 
 initializeFunctionState :: FunctionShape -> LoweringState
 initializeFunctionState function =
