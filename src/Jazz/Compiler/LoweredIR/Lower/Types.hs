@@ -12,6 +12,7 @@ module Jazz.Compiler.LoweredIR.Lower.Types
     CaptureShape (..),
     FunctionShape (..),
     FunctionIndex (..),
+    LoweringAnalysis (..),
   )
 where
 
@@ -128,4 +129,13 @@ data FunctionIndex = FunctionIndex
     indexedFunctionShapesByStatement :: Map.Map Int FunctionShape,
     indexedRecursiveGroupMembers :: Map.Map TypedBinderId [TypedBinderId],
     indexedScalarRepresentations :: Map.Map TypedBinderId LoweredRepresentation
+  }
+
+data LoweringAnalysis = LoweringAnalysis
+  { analyzedModulePath :: [Text],
+    analyzedStatements :: [TypedStatement],
+    analyzedFunctionShapes :: [FunctionShape],
+    analyzedFunctionIndex :: FunctionIndex,
+    analyzedResultRepresentation :: LoweredRepresentation,
+    analyzedRuntimeRequirements :: RuntimeRequirements
   }

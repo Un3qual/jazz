@@ -106,6 +106,7 @@ library jazz-internal
       Jazz.Compiler.LoweredIR
       Jazz.Compiler.LoweredIR.Lower
       Jazz.Compiler.LoweredIR.Lower.Requirements
+      Jazz.Compiler.LoweredIR.Lower.Shapes
       Jazz.Compiler.LoweredIR.Lower.Types
       Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
       Jazz.Compiler.LoweredIR.Validate
