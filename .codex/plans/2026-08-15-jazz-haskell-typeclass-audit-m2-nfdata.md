@@ -54,12 +54,12 @@
 - Modify: `src/Jazz/Compiler/ModuleInterface.hs`
 - Modify: `src/Jazz/Compiler/TypeInference/Result.hs`
 
-- [ ] Derive `Generic` and `NFData` for every canonical structure reachable from `Expr`: `Literal`, `Pattern`, `CaseArm`, `DataConstructor`, `Expr`, `SignaturePayload`, `SignatureConstraint`, `NumericType`, `SignatureType`, `SignatureToken`, `ClassMethodSignature`, `ImplMethod`, and `Statement`.
-- [ ] Derive them for every `ModuleGraph` product: `DeclaredModuleExports`, `CoreModule`, `ResolvedImport`, `ResolvedModule`, and `ResolvedProgram`.
-- [ ] Derive them for every inference structure reachable from `InferenceResult`: `ExpressionType`, `ConstructorArgumentType`, `IntegerLiteralRange`, `NumericConstraint`, `TypeBinding`, `TypeScheme`, `TypeSchemePrimitiveConstraint`, `TypeSchemeConstraint`, `DataTypeBinding`, `ClassMethodType`, `ImplMethodType`, and `ScopeCapabilityFacts`.
-- [ ] Derive them for `ModuleInterface`, `CompiledPrelude`, `CompiledModule`, and `CompiledProgram`; intentionally leave `CompileInputs` unchanged.
-- [ ] Derive them for `InferenceResult` in `TypeInference/Result.hs`.
-- [ ] Build with development warnings, run inference/module/profiling strictness suites, format, and commit as `refactor: derive NFData for compiler products`.
+- [x] Derive `Generic` and `NFData` for every canonical structure reachable from `Expr`: `Literal`, `Pattern`, `CaseArm`, `DataConstructor`, `Expr`, `SignaturePayload`, `SignatureConstraint`, `NumericType`, `SignatureType`, `SignatureToken`, `ClassMethodSignature`, `ImplMethod`, and `Statement`.
+- [x] Derive them for every `ModuleGraph` product: `DeclaredModuleExports`, `CoreModule`, `ResolvedImport`, `ResolvedModule`, and `ResolvedProgram`.
+- [x] Derive them for every inference structure reachable from `InferenceResult`: `ExpressionType`, `ConstructorArgumentType`, `IntegerLiteralRange`, `NumericConstraint`, `TypeBinding`, `TypeScheme`, `TypeSchemePrimitiveConstraint`, `TypeSchemeConstraint`, `DataTypeBinding`, `ClassMethodType`, `ImplMethodType`, and `ScopeCapabilityFacts`.
+- [x] Derive them for `ModuleInterface`, `CompiledPrelude`, `CompiledModule`, and `CompiledProgram`; intentionally leave `CompileInputs` unchanged.
+- [x] Derive them for `InferenceResult` in `TypeInference/Result.hs`.
+- [x] Build with development warnings, run inference/module/profiling strictness suites, format, and commit as `refactor: derive NFData for compiler products`.
 
 ## Task 3: Typed Core contract
 

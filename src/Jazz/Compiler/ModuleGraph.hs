@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Parse-once module graph shared by semantic compilation and runtime.
@@ -7,10 +10,13 @@ module Jazz.Compiler.ModuleGraph
     ResolvedImport (..),
     ResolvedModule (..),
     ResolvedProgram (..),
-    unresolvedResolvedModuleNames
-  ) where
+    unresolvedResolvedModuleNames,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -22,12 +28,12 @@ import Jazz.Compiler.AST
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
-    ModuleExportSelector
+    ModuleExportSelector,
   )
 import Jazz.Compiler.Name (Name (..))
 
@@ -38,7 +44,8 @@ data DeclaredModuleExports = DeclaredModuleExports
   { declaredModuleExportsSpan :: SourceSpan,
     declaredModuleExportSelectors :: [ModuleExportSelector]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data CoreModule = CoreModule
   { coreModuleDeclaredPath :: Maybe [Text],
@@ -46,7 +53,8 @@ data CoreModule = CoreModule
     coreModuleImports :: [ResolvedImport],
     coreModuleExpr :: Expr
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ResolvedImport = ResolvedImport
   { resolvedImportSpan :: SourceSpan,
@@ -54,7 +62,8 @@ data ResolvedImport = ResolvedImport
     resolvedImportAlias :: Maybe Text,
     resolvedImportSymbols :: Maybe [Text]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ResolvedModule = ResolvedModule
   { resolvedModulePath :: [Text],
@@ -63,13 +72,15 @@ data ResolvedModule = ResolvedModule
     resolvedModuleExportInventory :: ModuleExportInventory,
     resolvedModuleCore :: CoreModule
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ResolvedProgram = ResolvedProgram
   { resolvedProgramEntryPath :: [Text],
     resolvedProgramModules :: [ResolvedModule]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Test/audit helper enforcing that resolver output contains no surface-name
 -- constructors. Generated names are already compiler-owned and remain valid.

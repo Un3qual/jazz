@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+
 -- | The materialized result of type inference.
 --
 -- This module is deliberately a leaf-level owner for the result record so
@@ -8,7 +12,9 @@ module Jazz.Compiler.TypeInference.Result
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST (Expr, SignatureType)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
@@ -22,4 +28,5 @@ data InferenceResult = InferenceResult
     inferredRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
     inferredModuleInterface :: ModuleInterface
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
