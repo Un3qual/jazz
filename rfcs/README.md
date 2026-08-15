@@ -32,6 +32,7 @@ only `docs/` and does not publish this directory.
 | [0010](accepted/0010-typed-core-conditional-control-flow.md)   | Typed-core conditional control flow   |
 | [0011](accepted/0011-typed-core-scalar-pattern-cases.md)       | Typed-core scalar pattern cases       |
 | [0012](accepted/0012-static-pattern-coverage.md)               | Static pattern coverage               |
+| [0013](accepted/0013-typed-core-tail-position-lowering.md)     | Typed-core tail-position lowering     |
 
 ## Process
 

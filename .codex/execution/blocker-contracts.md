@@ -156,6 +156,10 @@ Each blocked item should answer these questions:
   requires strict post-inference exhaustiveness and unreachable-arm analysis
   across the complete active pattern surface while retaining runtime `E3022` as
   a defensive boundary.
+- Accepted decision: [RFC 0013: Typed-core tail-position lowering](../../rfcs/accepted/0013-typed-core-tail-position-lowering.md)
+  authorizes exact local direct and closure tail terminators in true named or
+  lifted function-result position, including selected conditional branches and
+  bounded scalar-case bodies without result joins.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -219,20 +223,26 @@ Each blocked item should answer these questions:
   cases and pattern lambdas with `E2018`, rejects wholly unreachable arms with
   `E2019`, treats guards as non-covering, and preserves runtime `E3022` as a
   defensive boundary.
-- Smallest unblocker: none currently. No later source-backed bootstrap child is
-  accepted or named after static pattern coverage.
-- Decision needed: none currently. Managed pattern lowering and
-  pattern-callable backend semantics require separate accepted contracts.
-- Recommended default: preserve the completed coverage boundary independently
-  of unification, runtime selection, and backend lowering.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001`
+  completed on `2026-08-14`. The opt-in lowerer records exact direct and
+  closure tail intent only for complete named or lifted function results,
+  including recursively selected conditional branches and bounded scalar-case
+  bodies. Module entry remains ordinary call/join/return lowering.
+- Smallest unblocker: none currently. The source-backed compiler batch is
+  complete.
+- Decision needed: none. There is no source-backed next curation target and no
+  named candidate currently.
+- Recommended default: do not invent a successor; await a new accepted,
+  source-backed contract.
 - Candidate child: none currently.
-- Target paths: not set; no later bootstrap implementation child is open.
+- Target paths: not set until a new accepted compiler contract names them.
 - Verification: `bash scripts/check-execution-queue.sh`;
   `bash scripts/check-docs.sh`.
-- Still not in scope: constant-folding guards, partial redundancy inside a
-  useful or-pattern, new pattern syntax, managed-value Typed Core production,
+- Still not in scope: module-entry tail transfer, source tail-recursion
+  diagnostics, native stack guarantees, managed-value Typed Core production,
   managed pattern lowering, pattern-lambda backend lowering, runtime `E3022`
-  removal, selection optimization, native work, or normal compile/run cutover.
+  removal, general CFG optimization, native work, or normal compile/run
+  cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

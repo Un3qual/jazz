@@ -34,6 +34,9 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directCallExpectedLoweredPrograms,
     closedCallableExpectedLoweredPrograms,
     independentClosureExpectedLoweredPrograms,
+    functionBodyConsumedCallExpectedProgram,
+    functionBodyPartialApplicationExpectedProgram,
+    nestedTailControlFlowExpectedLoweredPrograms,
     rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
     validIndependentLowererPrograms,
@@ -1018,6 +1021,84 @@ scalarBindingExpectedLoweredPrograms =
     )
   ]
 
+functionBodyConsumedCallExpectedProgram :: (TypedProgram, LoweredProgram)
+functionBodyConsumedCallExpectedProgram =
+  ( typedProgram,
+    expectedCallableLoweredProgram
+      [ expectedLocalFunction
+          "identity"
+          [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+          LoweredBoolRepresentation
+          []
+          (loweredParameter 1 LoweredBoolRepresentation),
+        expectedLocalFunction
+          "consumeDirect"
+          [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+          LoweredBoolRepresentation
+          [ expectedDirectCallInstruction 1 LoweredBoolRepresentation "identity" [loweredImmediate (LoweredBoolImmediate True)],
+            expectedPrimitiveInstruction
+              2
+              LoweredBoolRepresentation
+              (LoweredComparisonPrimitive LoweredEqual)
+              [loweredTemporary 1 LoweredBoolRepresentation, loweredImmediate (LoweredBoolImmediate False)]
+          ]
+          (loweredTemporary 2 LoweredBoolRepresentation),
+        expectedLocalFunction
+          "consumeClosure"
+          [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
+          LoweredBoolRepresentation
+          [ expectedClosureCallInstruction
+              1
+              LoweredBoolRepresentation
+              (loweredParameter 1 boolClosureRepresentation)
+              [loweredImmediate (LoweredBoolImmediate True)],
+            expectedPrimitiveInstruction
+              2
+              LoweredBoolRepresentation
+              (LoweredComparisonPrimitive LoweredEqual)
+              [loweredTemporary 1 LoweredBoolRepresentation, loweredImmediate (LoweredBoolImmediate False)]
+          ]
+          (loweredTemporary 2 LoweredBoolRepresentation)
+      ]
+      LoweredBoolRepresentation
+      []
+      (loweredImmediate (LoweredBoolImmediate True))
+  )
+  where
+    typedProgram =
+      expectedFunctionProgram
+        []
+        [ ExpectedFunction
+            "identity"
+            [("item", boolInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            (variableExpr "item" boolInfo),
+          ExpectedFunction
+            "consumeDirect"
+            [("ignored", boolInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            ( binaryExpr
+                boolInfo
+                "=="
+                (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+                (boolExpr False)
+            ),
+          ExpectedFunction
+            "consumeClosure"
+            [("function", boolCallableInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            ( binaryExpr
+                boolInfo
+                "=="
+                (directCall "function" [boolInfo] boolInfo [boolExpr True])
+                (boolExpr False)
+            )
+        ]
+        (boolExpr True)
+
 lexicalCaptureExpectedPrograms :: [(Text, TypedProgram)]
 lexicalCaptureExpectedPrograms =
   [ ("capturing-function", capturingProducerProgram),
@@ -1048,6 +1129,197 @@ curriedPartialApplicationProgram =
   where
     combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
     remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+
+functionBodyPartialApplicationExpectedProgram :: (TypedProgram, LoweredProgram)
+functionBodyPartialApplicationExpectedProgram =
+  ( typedProgram,
+    expectedClosureCallableLoweredProgram
+      curriedCombineLayouts
+      ( curriedCombineFunctions
+          <> [ expectedLocalFunction
+                 "partial"
+                 [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+                 curriedCombineInnerClosureRepresentation
+                 [ expectedEmptyEnvironmentInstruction 1 curriedCombineOuterLayoutId,
+                   LoweredInstruction
+                     (LoweredTemporaryId "t2")
+                     curriedCombineOuterClosureRepresentation
+                     ( LoweredConstructClosure
+                         (LoweredFunctionId "App::Main::combine")
+                         (loweredTemporary 1 (LoweredManagedReferenceRepresentation curriedCombineOuterLayoutId))
+                     ),
+                   expectedClosureCallInstruction
+                     3
+                     curriedCombineInnerClosureRepresentation
+                     (loweredTemporary 2 curriedCombineOuterClosureRepresentation)
+                     [loweredInt64 1]
+                 ]
+                 (loweredTemporary 3 curriedCombineInnerClosureRepresentation)
+             ]
+      )
+      LoweredBoolRepresentation
+      []
+      (loweredImmediate (LoweredBoolImmediate True))
+  )
+  where
+    typedProgram =
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [ combineFunction {expectedFunctionShape = TypedClosureCallableShape},
+          ExpectedFunction
+            "partial"
+            [("ignored", boolInfo)]
+            remainingInfo
+            TypedDirectCallableShape
+            ( TypedApplyExpr
+                remainingInfo
+                (variableExpr "combine" combineInfo)
+                (intExpr 1)
+            )
+        ]
+        (boolExpr True)
+    combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
+    remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+
+nestedTailControlFlowExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+nestedTailControlFlowExpectedLoweredPrograms =
+  [ ( "nested-tail-if-alternatives",
+      expectedCallableLoweredProgram
+        [ LoweredFunction
+            (functionId "chooseNestedIf")
+            Nothing
+            [ parameter "arg1" LoweredBoolRepresentation,
+              parameter "arg2" LoweredBoolRepresentation,
+              parameter "arg3" intRepresentation
+            ]
+            intRepresentation
+            [ LoweredBlock
+                entryBlockId
+                []
+                []
+                (Just (LoweredBranch (functionParameter "arg1" LoweredBoolRepresentation) outerIfThenBlockId [] outerIfElseBlockId [])),
+              LoweredBlock
+                outerIfThenBlockId
+                []
+                []
+                (Just (LoweredBranch (functionParameter "arg2" LoweredBoolRepresentation) nestedIfThenBlockId [] nestedIfElseBlockId [])),
+              LoweredBlock
+                nestedIfThenBlockId
+                []
+                []
+                (Just (LoweredReturn (functionParameter "arg3" intRepresentation))),
+              LoweredBlock
+                nestedIfElseBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 1))),
+              LoweredBlock
+                outerIfElseBlockId
+                []
+                [comparisonInstruction (functionParameter "arg3" intRepresentation) (intImmediate 0)]
+                (Just (LoweredBranch boolTemporary nestedIfCaseFirstBodyBlockId [] nestedIfCaseFinalBodyBlockId [])),
+              LoweredBlock
+                nestedIfCaseFirstBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 2))),
+              LoweredBlock
+                nestedIfCaseFinalBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 3)))
+            ]
+            entryBlockId
+        ]
+        intRepresentation
+        [ expectedDirectCallInstruction
+            1
+            intRepresentation
+            "chooseNestedIf"
+            [boolImmediate True, boolImmediate False, intImmediate 9]
+        ]
+        (loweredTemporary 1 intRepresentation)
+    ),
+    ( "nested-tail-case-bodies",
+      expectedCallableLoweredProgram
+        [ LoweredFunction
+            (functionId "chooseNestedCase")
+            Nothing
+            [ parameter "arg1" intRepresentation,
+              parameter "arg2" LoweredBoolRepresentation
+            ]
+            intRepresentation
+            [ LoweredBlock
+                entryBlockId
+                []
+                [comparisonInstruction (functionParameter "arg1" intRepresentation) (intImmediate 0)]
+                (Just (LoweredBranch boolTemporary outerCaseFirstBodyBlockId [] outerCaseFinalBodyBlockId [])),
+              LoweredBlock
+                outerCaseFirstBodyBlockId
+                []
+                []
+                (Just (LoweredBranch (functionParameter "arg2" LoweredBoolRepresentation) caseIfThenBlockId [] caseIfElseBlockId [])),
+              LoweredBlock
+                caseIfThenBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 1))),
+              LoweredBlock
+                caseIfElseBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 2))),
+              LoweredBlock
+                outerCaseFinalBodyBlockId
+                []
+                [comparisonInstruction (functionParameter "arg1" intRepresentation) (intImmediate 1)]
+                (Just (LoweredBranch boolTemporary nestedCaseFirstBodyBlockId [] nestedCaseFinalBodyBlockId [])),
+              LoweredBlock
+                nestedCaseFirstBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 3))),
+              LoweredBlock
+                nestedCaseFinalBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 4)))
+            ]
+            entryBlockId
+        ]
+        intRepresentation
+        [expectedDirectCallInstruction 1 intRepresentation "chooseNestedCase" [intImmediate 0, boolImmediate True]]
+        (loweredTemporary 1 intRepresentation)
+    )
+  ]
+  where
+    functionId name = LoweredFunctionId ("App::Main::" <> name)
+    parameter name representation = LoweredParameter (LoweredParameterId name) representation
+    functionParameter name representation =
+      LoweredFunctionParameterOperand (LoweredParameterId name) representation
+    boolImmediate = loweredImmediate . LoweredBoolImmediate
+    intImmediate = loweredImmediate . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+    boolTemporary = loweredTemporary 1 LoweredBoolRepresentation
+    comparisonInstruction left right =
+      LoweredInstruction
+        (LoweredTemporaryId "t1")
+        LoweredBoolRepresentation
+        (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [left, right])
+    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    entryBlockId = LoweredBlockId "entry"
+    outerIfThenBlockId = LoweredBlockId "if$s1$1$e4$0,0,0,0$then"
+    outerIfElseBlockId = LoweredBlockId "if$s1$1$e4$0,0,0,0$else"
+    nestedIfThenBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,0,1$then"
+    nestedIfElseBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,0,1$else"
+    nestedIfCaseFirstBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,0,2$a0$body"
+    nestedIfCaseFinalBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,0,2$a1$body"
+    outerCaseFirstBodyBlockId = LoweredBlockId "case$s1$1$e3$0,0,0$a0$body"
+    outerCaseFinalBodyBlockId = LoweredBlockId "case$s1$1$e3$0,0,0$a1$body"
+    caseIfThenBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,1,1$then"
+    caseIfElseBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,1,1$else"
+    nestedCaseFirstBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,2,1$a0$body"
+    nestedCaseFinalBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,2,1$a1$body"
 
 curriedCallableOversaturationProgram :: TypedProgram
 curriedCallableOversaturationProgram =
@@ -1235,17 +1507,12 @@ curriedPartialHigherOrderLoweredProgram =
   expectedClosureCallableLoweredProgram
     curriedCombineLayouts
     ( curriedCombineFunctions
-        <> [ expectedLocalFunction
+        <> [ expectedTailLocalFunction
                "apply"
                [LoweredParameter (LoweredParameterId "arg1") curriedCombineInnerClosureRepresentation]
                int64Representation
-               [ expectedClosureCallInstruction
-                   1
-                   int64Representation
-                   (loweredParameter 1 curriedCombineInnerClosureRepresentation)
-                   [loweredInt64 2]
-               ]
-               (loweredTemporary 1 int64Representation)
+               []
+               (LoweredClosureTailCall (loweredParameter 1 curriedCombineInnerClosureRepresentation) [loweredInt64 2])
            ]
     )
     int64Representation
@@ -1980,10 +2247,9 @@ expectedCapturedRecursiveFunction functionName peerName layoutId =
             int64Representation
             (LoweredProjectField layoutId 0 environmentOperand),
           expectedClosureWithEnvironmentInstructionFor 2 peerName intClosureRepresentation environmentOperand,
-          expectedPrimitiveInstruction 3 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredParameter 1 int64Representation, loweredTemporary 1 int64Representation],
-          expectedClosureCallInstruction 4 int64Representation (loweredTemporary 2 intClosureRepresentation) [loweredTemporary 3 int64Representation]
+          expectedPrimitiveInstruction 3 int64Representation (LoweredArithmeticPrimitive LoweredAdd) [loweredParameter 1 int64Representation, loweredTemporary 1 int64Representation]
         ]
-        (Just (LoweredReturn (loweredTemporary 4 int64Representation)))
+        (Just (LoweredClosureTailCall (loweredTemporary 2 intClosureRepresentation) [loweredTemporary 3 int64Representation]))
     ]
     (LoweredBlockId "entry")
   where
@@ -1996,12 +2262,12 @@ directRecursionExpectedLoweredPrograms =
   [ ( "self-recursive-function",
       selfRecursiveExpectedProgram,
       expectedCallableLoweredProgram
-        [ expectedLocalFunction
+        [ expectedTailLocalFunction
             "loop"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "loop" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation)
+            []
+            (loweredDirectTailCall "loop" [loweredParameter 1 int64Representation])
         ]
         int64Representation
         [expectedDirectCallInstruction 1 int64Representation "loop" [loweredInt64 1]]
@@ -2010,18 +2276,18 @@ directRecursionExpectedLoweredPrograms =
     ( "mutually-recursive-functions",
       mutuallyRecursiveExpectedProgram,
       expectedCallableLoweredProgram
-        [ expectedLocalFunction
+        [ expectedTailLocalFunction
             "left"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "right" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation),
-          expectedLocalFunction
+            []
+            (loweredDirectTailCall "right" [loweredParameter 1 int64Representation]),
+          expectedTailLocalFunction
             "right"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "left" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation)
+            []
+            (loweredDirectTailCall "left" [loweredParameter 1 int64Representation])
         ]
         int64Representation
         [expectedDirectCallInstruction 1 int64Representation "left" [loweredInt64 1]]
@@ -2222,12 +2488,12 @@ directCallExpectedLoweredPrograms =
     ),
     ( "forward-direct-call-dag",
       expectedCallableLoweredProgram
-        [ expectedLocalFunction
+        [ expectedTailLocalFunction
             "first"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
             int64Representation
-            [expectedDirectCallInstruction 1 int64Representation "second" [loweredParameter 1 int64Representation]]
-            (loweredTemporary 1 int64Representation),
+            []
+            (loweredDirectTailCall "second" [loweredParameter 1 int64Representation]),
           expectedLocalFunction
             "second"
             [LoweredParameter (LoweredParameterId "arg1") int64Representation]
@@ -2526,10 +2792,8 @@ expectedRecursivePassingFunction functionName peerName layoutId =
     [ LoweredBlock
         (LoweredBlockId "entry")
         []
-        [ expectedClosureWithEnvironmentInstruction 1 peerName environmentOperand,
-          expectedDirectCallInstruction 2 LoweredBoolRepresentation "apply" [loweredTemporary 1 boolClosureRepresentation]
-        ]
-        (Just (LoweredReturn (loweredTemporary 2 LoweredBoolRepresentation)))
+        [expectedClosureWithEnvironmentInstruction 1 peerName environmentOperand]
+        (Just (loweredDirectTailCall "apply" [loweredTemporary 1 boolClosureRepresentation]))
     ]
     (LoweredBlockId "entry")
   where
@@ -2548,10 +2812,8 @@ expectedRecursiveCallingFunction functionName peerName layoutId =
     [ LoweredBlock
         (LoweredBlockId "entry")
         []
-        [ expectedClosureWithEnvironmentInstructionFor 1 peerName intClosureRepresentation environmentOperand,
-          expectedClosureCallInstruction 2 int64Representation (loweredTemporary 1 intClosureRepresentation) [loweredParameter 1 int64Representation]
-        ]
-        (Just (LoweredReturn (loweredTemporary 2 int64Representation)))
+        [expectedClosureWithEnvironmentInstructionFor 1 peerName intClosureRepresentation environmentOperand]
+        (Just (LoweredClosureTailCall (loweredTemporary 1 intClosureRepresentation) [loweredParameter 1 int64Representation]))
     ]
     (LoweredBlockId "entry")
   where
@@ -2715,31 +2977,21 @@ expectedBoolIdentityClosure layoutId =
 
 expectedBoolApplyFunction :: LoweredFunction
 expectedBoolApplyFunction =
-  expectedLocalFunction
+  expectedTailLocalFunction
     "apply"
     [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
     LoweredBoolRepresentation
-    [ expectedClosureCallInstruction
-        1
-        LoweredBoolRepresentation
-        (loweredParameter 1 boolClosureRepresentation)
-        [loweredImmediate (LoweredBoolImmediate True)]
-    ]
-    (loweredTemporary 1 LoweredBoolRepresentation)
+    []
+    (LoweredClosureTailCall (loweredParameter 1 boolClosureRepresentation) [loweredImmediate (LoweredBoolImmediate True)])
 
 expectedBoolForwardFunction :: LoweredFunction
 expectedBoolForwardFunction =
-  expectedLocalFunction
+  expectedTailLocalFunction
     "forward"
     [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
     LoweredBoolRepresentation
-    [ expectedDirectCallInstruction
-        1
-        LoweredBoolRepresentation
-        "apply"
-        [loweredParameter 1 boolClosureRepresentation]
-    ]
-    (loweredTemporary 1 LoweredBoolRepresentation)
+    []
+    (loweredDirectTailCall "apply" [loweredParameter 1 boolClosureRepresentation])
 
 expectedBoolCombineFunction :: LoweredFunction
 expectedBoolCombineFunction =
@@ -2830,6 +3082,22 @@ expectedLocalFunction name parameters resultRepresentation instructions resultOp
     [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
     (LoweredBlockId "entry")
 
+expectedTailLocalFunction ::
+  Text ->
+  [LoweredParameter] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredTerminator ->
+  LoweredFunction
+expectedTailLocalFunction name parameters resultRepresentation instructions terminator =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> name))
+    Nothing
+    parameters
+    resultRepresentation
+    [LoweredBlock (LoweredBlockId "entry") [] instructions (Just terminator)]
+    (LoweredBlockId "entry")
+
 expectedLiteralFunction :: Text -> LoweredRepresentation -> LoweredImmediate -> LoweredFunction
 expectedLiteralFunction name resultRepresentation immediateValue =
   expectedLocalFunction
@@ -2845,6 +3113,10 @@ expectedDirectCallInstruction index representation functionName operands =
     (LoweredTemporaryId ("t" <> Text.pack (show index)))
     representation
     (LoweredDirectCall (LoweredFunctionId ("App::Main::" <> functionName)) operands)
+
+loweredDirectTailCall :: Text -> [LoweredOperand] -> LoweredTerminator
+loweredDirectTailCall functionName operands =
+  LoweredDirectTailCall (LoweredFunctionId ("App::Main::" <> functionName)) operands
 
 loweredParameter :: Int -> LoweredRepresentation -> LoweredOperand
 loweredParameter index =
@@ -3754,6 +4026,36 @@ producerEdgeFixtures =
                  ]
              )
          ),
+         ( "scalar-pattern-case-tail-function",
+           sourceFixtureNoExports
+             "scalar-pattern-case-tail-function"
+             ( Text.unlines
+                 [ "loop :: Int -> Int.",
+                   "loop = \\(item) -> case item { | 0 -> 0 | 1 -> loop 0 | next if next == 2 -> next | _ -> 3 }.",
+                   "loop 1."
+                 ]
+             )
+         ),
+         ( "nested-tail-if-alternatives",
+           sourceFixtureNoExports
+             "nested-tail-if-alternatives"
+             ( Text.unlines
+                 [ "chooseNestedIf :: Bool -> Bool -> Int -> Int.",
+                   "chooseNestedIf = \\(outer, inner, item) -> if outer then (if inner then item else 1) else (case item { | 0 -> 2 | _ -> 3 }).",
+                   "chooseNestedIf True False 9."
+                 ]
+             )
+         ),
+         ( "nested-tail-case-bodies",
+           sourceFixtureNoExports
+             "nested-tail-case-bodies"
+             ( Text.unlines
+                 [ "chooseNestedCase :: Int -> Bool -> Int.",
+                   "chooseNestedCase = \\(item, flag) -> case item { | 0 -> if flag then 1 else 2 | _ -> case item { | 1 -> 3 | _ -> 4 } }.",
+                   "chooseNestedCase 0 True."
+                 ]
+             )
+         ),
          ( "pattern-case-in-conditional-branch",
            sourceFixtureNoExports
              "pattern-case-in-conditional-branch"
@@ -3863,6 +4165,7 @@ producerEdgeFixtures =
          ),
          ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
          ("conditional-captured-scalar", sourceFixtureNoExports "conditional-captured-scalar" conditionalCapturedScalarSource),
+         ("conditional-tail-call-function", sourceFixtureNoExports "conditional-tail-call-function" conditionalTailCallFunctionSource),
          ("conditional-closure-result-application", sourceFixtureNoExports "conditional-closure-result-application" conditionalClosureResultApplicationSource),
          ("nested-conditionals", sourceFixtureNoExports "nested-conditionals" nestedConditionalsSource),
          ("empty-module", sourceFixtureNoExports "empty-module" ""),
@@ -5434,7 +5737,7 @@ conditionalSource = "if True then 1 else 2."
 patternCaseSource = "case True { | True -> 1 | _ -> 2 }."
 localBlockBindingSource = "{ item = 1. item. }."
 
-conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
+conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalTailCallFunctionSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
 conditionalFunctionParameterSource =
   Text.unlines
     [ "choose :: Bool -> Int -> Int.",
@@ -5450,6 +5753,12 @@ conditionalCapturedScalarSource =
       "apply :: (Bool -> Int) -> Int.",
       "apply = \\(function) -> function True.",
       "apply choose."
+    ]
+conditionalTailCallFunctionSource =
+  Text.unlines
+    [ "loop :: Bool -> Int -> Int.",
+      "loop = \\(stop, item) -> if stop then item else loop True item.",
+      "loop False 7."
     ]
 conditionalClosureResultApplicationSource =
   Text.unlines

@@ -56,6 +56,9 @@ tests =
     ("audits the independent typed-core lowerer manifests", testIndependentLowererManifest),
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
+    ("keeps function-body consumed calls as ordinary operations", testFunctionResultNegativeTerminators),
+    ("preserves function-body partial-application returns", testFunctionBodyPartialApplicationResult),
+    ("lowers nested function-result control flow exactly", testNestedTailControlFlow),
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
@@ -440,6 +443,56 @@ testAcceptedManifestPipeline =
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")
 
+testFunctionResultNegativeTerminators :: IO ()
+testFunctionResultNegativeTerminators = do
+  let (typedProgram, expectedProgram) = functionBodyConsumedCallExpectedProgram
+  assertEqual
+    "function-body consumed calls use valid typed core"
+    []
+    (validateTypedProgram typedProgram)
+  assertEqual
+    "function-body consumed calls use valid Lowered IR"
+    []
+    (validateLoweredProgram expectedProgram)
+  assertEqual
+    "function-body consumed direct and closure calls lower exactly"
+    (LoweredIRSucceeded expectedProgram)
+    (lowerTypedCoreExpressionDirectCall typedProgram)
+
+testFunctionBodyPartialApplicationResult :: IO ()
+testFunctionBodyPartialApplicationResult = do
+  let (typedProgram, expectedProgram) = functionBodyPartialApplicationExpectedProgram
+  assertEqual
+    "function-body partial application uses valid typed core"
+    []
+    (validateTypedProgram typedProgram)
+  assertEqual
+    "function-body partial application uses valid Lowered IR"
+    []
+    (validateLoweredProgram expectedProgram)
+  assertEqual
+    "function-body partial application lowers exactly"
+    (LoweredIRSucceeded expectedProgram)
+    (lowerTypedCoreExpressionDirectCall typedProgram)
+
+testNestedTailControlFlow :: IO ()
+testNestedTailControlFlow =
+  mapM_ assertExact nestedTailControlFlowExpectedLoweredPrograms
+  where
+    assertExact (name, expectedProgram) = do
+      firstProduction <- produceFixture (producerEdgeFixture name)
+      secondProduction <- produceFixture (producerEdgeFixture name)
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
+      case typedCoreProductionStatus firstProduction of
+        TypedCoreProductionSucceeded typedProgram -> do
+          assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
+          assertEqual
+            (name <> " exact nested tail lowering")
+            (LoweredIRSucceeded expectedProgram)
+            (lowerTypedCoreExpressionDirectCall typedProgram)
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
+
 testScalarPatternCaseProduction :: IO ()
 testScalarPatternCaseProduction =
   mapM_ assertProduced scalarPatternCaseExpectedPrograms
@@ -698,6 +751,7 @@ testScalarPatternCaseTransportLowering = do
         "pattern-case-ambient-scalar",
         "pattern-case-captured-scalar",
         "scalar-pattern-case-closure-result",
+        "scalar-pattern-case-tail-function",
         "pattern-case-call-argument"
       ]
     assertTransported name = do
@@ -857,18 +911,16 @@ expectedPatternCaseTransportShapes =
     ( "pattern-case-captured-scalar",
       [ ( LoweredFunctionId "App::Main::choose",
           [ shape capturedPrefix "$a0$guard" intSingle [("$a0$body", intSingle), ("$a1$body", intSingle)],
-            shape capturedPrefix "$a0$body" intSingle [("$join", intPair)],
-            shape capturedPrefix "$a1$body" intSingle [("$join", intPair)],
-            shape capturedPrefix "$join" intPair []
+            shape capturedPrefix "$a0$body" intSingle [],
+            shape capturedPrefix "$a1$body" intSingle []
           ]
         )
       ]
     ),
     ( "scalar-pattern-case-closure-result",
       [ ( LoweredFunctionId "App::Main::choose",
-          [ shape closureResultPrefix "$a0$body" [] [("$join", closureSingle)],
-            shape closureResultPrefix "$a1$body" [] [("$join", closureSingle)],
-            shape closureResultPrefix "$join" closureSingle []
+          [ shape closureResultPrefix "$a0$body" [] [],
+            shape closureResultPrefix "$a1$body" [] []
           ]
         )
       ]
@@ -1133,6 +1185,71 @@ expectedPatternCaseControlFlows =
           ]
         )
       ]
+    ),
+    ( "scalar-pattern-case-tail-function",
+      [ ( functionId "loop",
+          [ LoweredBlock
+              entryBlockId
+              []
+              [comparisonInstruction 1 (functionParameter "arg1" intRepresentation) (intImmediate 0)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      tailCaseFirstBodyBlockId
+                      []
+                      tailCaseSecondTestBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              tailCaseFirstBodyBlockId
+              []
+              []
+              (Just (LoweredReturn (intImmediate 0))),
+            LoweredBlock
+              tailCaseSecondTestBlockId
+              []
+              [comparisonInstruction 1 (functionParameter "arg1" intRepresentation) (intImmediate 1)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      tailCaseSecondBodyBlockId
+                      []
+                      tailCaseGuardBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              tailCaseSecondBodyBlockId
+              []
+              []
+              (Just (LoweredDirectTailCall (functionId "loop") [intImmediate 0])),
+            LoweredBlock
+              tailCaseGuardBlockId
+              []
+              [comparisonInstruction 1 (functionParameter "arg1" intRepresentation) (intImmediate 2)]
+              ( Just
+                  ( LoweredBranch
+                      (temporary 1 LoweredBoolRepresentation)
+                      tailCaseGuardBodyBlockId
+                      []
+                      tailCaseFinalBodyBlockId
+                      []
+                  )
+              ),
+            LoweredBlock
+              tailCaseGuardBodyBlockId
+              []
+              []
+              (Just (LoweredReturn (functionParameter "arg1" intRepresentation))),
+            LoweredBlock
+              tailCaseFinalBodyBlockId
+              []
+              []
+              (Just (LoweredReturn (intImmediate 3)))
+          ]
+        )
+      ]
     )
   ]
   where
@@ -1146,6 +1263,9 @@ expectedPatternCaseControlFlows =
     blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
     blockParameter name representation =
       LoweredBlockParameterOperand (LoweredParameterId name) representation
+    functionParameter :: Text -> LoweredRepresentation -> LoweredOperand
+    functionParameter name representation =
+      LoweredFunctionParameterOperand (LoweredParameterId name) representation
     temporary :: Int -> LoweredRepresentation -> LoweredOperand
     temporary index representation =
       LoweredTemporaryOperand
@@ -1194,6 +1314,12 @@ expectedPatternCaseControlFlows =
     scrutineeOuterFirstBodyBlockId = blockId "case$s1$0$e1$0$a0$body"
     scrutineeOuterFinalBodyBlockId = blockId "case$s1$0$e1$0$a1$body"
     scrutineeOuterJoinBlockId = blockId "case$s1$0$e1$0$join"
+    tailCaseFirstBodyBlockId = blockId "case$s1$1$e2$0,0$a0$body"
+    tailCaseSecondTestBlockId = blockId "case$s1$1$e2$0,0$a1$test"
+    tailCaseSecondBodyBlockId = blockId "case$s1$1$e2$0,0$a1$body"
+    tailCaseGuardBlockId = blockId "case$s1$1$e2$0,0$a2$guard"
+    tailCaseGuardBodyBlockId = blockId "case$s1$1$e2$0,0$a2$body"
+    tailCaseFinalBodyBlockId = blockId "case$s1$1$e2$0,0$a3$body"
 
 testConditionalProfileCoverage :: IO ()
 testConditionalProfileCoverage =
@@ -1202,6 +1328,7 @@ testConditionalProfileCoverage =
     names =
       [ "conditional-function-parameter",
         "conditional-captured-scalar",
+        "conditional-tail-call-function",
         "conditional-closure-result-application",
         "nested-conditionals"
       ]
@@ -1262,17 +1389,12 @@ expectedConditionalControlFlows =
               parameterThenBlockId
               []
               []
-              (Just (LoweredJump parameterJoinBlockId [functionParameter "arg2" intRepresentation])),
+              (Just (LoweredReturn (functionParameter "arg2" intRepresentation))),
             LoweredBlock
               parameterElseBlockId
               []
               []
-              (Just (LoweredJump parameterJoinBlockId [intImmediate 0])),
-            LoweredBlock
-              parameterJoinBlockId
-              [parameter "result" intRepresentation]
-              []
-              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+              (Just (LoweredReturn (intImmediate 0)))
           ]
         )
       ]
@@ -1304,12 +1426,7 @@ expectedConditionalControlFlows =
               capturedThenBlockId
               [parameter "live1" intRepresentation]
               []
-              ( Just
-                  ( LoweredJump
-                      capturedJoinBlockId
-                      [blockParameter "live1" intRepresentation, blockParameter "live1" intRepresentation]
-                  )
-              ),
+              (Just (LoweredReturn (blockParameter "live1" intRepresentation))),
             LoweredBlock
               capturedElseBlockId
               [parameter "live1" intRepresentation]
@@ -1321,17 +1438,41 @@ expectedConditionalControlFlows =
                       [blockParameter "live1" intRepresentation, intImmediate 2]
                   )
               ]
+              (Just (LoweredReturn (temporary 1 intRepresentation)))
+          ]
+        )
+      ]
+    ),
+    ( "conditional-tail-call-function",
+      [ ( functionId "loop",
+          [ LoweredBlock
+              entryBlockId
+              []
+              []
               ( Just
-                  ( LoweredJump
-                      capturedJoinBlockId
-                      [blockParameter "live1" intRepresentation, temporary 1 intRepresentation]
+                  ( LoweredBranch
+                      (functionParameter "arg1" LoweredBoolRepresentation)
+                      tailThenBlockId
+                      []
+                      tailElseBlockId
+                      []
                   )
               ),
             LoweredBlock
-              capturedJoinBlockId
-              [parameter "live1" intRepresentation, parameter "result" intRepresentation]
+              tailThenBlockId
               []
-              (Just (LoweredReturn (blockParameter "result" intRepresentation)))
+              []
+              (Just (LoweredReturn (functionParameter "arg2" intRepresentation))),
+            LoweredBlock
+              tailElseBlockId
+              []
+              []
+              ( Just
+                  ( LoweredDirectTailCall
+                      (functionId "loop")
+                      [boolImmediate True, functionParameter "arg2" intRepresentation]
+                  )
+              )
           ]
         )
       ]
@@ -1505,12 +1646,12 @@ expectedConditionalControlFlows =
     entryBlockId = blockId "entry"
     parameterThenBlockId = blockId "if$s1$1$e3$0,0,0$then"
     parameterElseBlockId = blockId "if$s1$1$e3$0,0,0$else"
-    parameterJoinBlockId = blockId "if$s1$1$e3$0,0,0$join"
     capturedSeedLayoutId =
       LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n6:choose"
     capturedThenBlockId = blockId "if$s1$3$e2$0,0$then"
     capturedElseBlockId = blockId "if$s1$3$e2$0,0$else"
-    capturedJoinBlockId = blockId "if$s1$3$e2$0,0$join"
+    tailThenBlockId = blockId "if$s1$1$e3$0,0,0$then"
+    tailElseBlockId = blockId "if$s1$1$e3$0,0,0$else"
     identityLayoutId =
       LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$1$n8:identity"
     alwaysFalseLayoutId =

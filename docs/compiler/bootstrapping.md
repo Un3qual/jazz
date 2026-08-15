@@ -30,25 +30,36 @@ and mutual recursion, and closure-shaped self and mutual recursion when every
 external capture is available before the first group member. Closure-shaped
 groups share one immutable environment containing ordered external captures;
 members reuse it and reconstruct self or peer closures without cyclic
-initialization. Value-producing conditionals may nest anywhere in this profile;
-they lower to deterministic then, else, and join blocks with every block-local
-value transported explicitly. Bounded scalar pattern cases may nest in the same
-expressions. They evaluate the scrutinee once, try literal, wildcard, and
-variable arms in source order, fall through false guards, keep variable binders
-inside one arm, and resume through one explicitly transported result join. The
-required final unguarded catch-all makes this opt-in lowering profile total; it
-is not static exhaustiveness analysis.
+initialization. Value-producing conditionals and bounded scalar pattern cases
+may nest anywhere in this profile. In value positions, lowering keeps their
+deterministic then, else, and result-join control flow, transporting each
+block-local value explicitly. A case evaluates its scrutinee once, tries
+literal, wildcard, and variable arms in source order, falls through false
+guards, and keeps variable binders inside one arm.
+
+For a complete named or lifted function result, the opt-in lowerer records
+direct or closure tail intent instead. That result position propagates through
+selected conditional branches and selected bounded scalar-case bodies, which
+terminate directly without a result join. Conditions, scrutinees, guards,
+operands, and nested value contexts remain ordinary value positions. Partial
+applications still return closure values, and an oversaturated application can
+tail-terminate only at its final exact stage. The synthetic module entry remains
+ordinary call/join/return lowering. These terminators record intent only: they
+do not change the Lowered IR contract or validator, runtime ABI, public
+language behavior, hosted compiler, or promise native stack optimization.
+
+The required final unguarded catch-all makes this opt-in lowering profile total.
+It is separate from source-level static exhaustiveness and unreachable-arm
+analysis, which shipped under RFC 0012.
 
 Managed constructor, list, tuple, and text patterns remain deferred because
 their lowering first needs managed-value production, stable layout identity,
 tag and field projection, and ownership rules. Pattern lambdas remain deferred
 because a parameter mismatch happens at invocation time and therefore needs a
 match-failure contract integrated with closures, currying, recursion, and
-callable parameter identity. Exhaustiveness and unreachable-arm analysis remain
-deferred because they require separate coverage reasoning and diagnostic
-policy. Later or interleaved external captures, scalar exports, and complete
-multi-module integration also remain outside the profile. Ordinary run mode
-continues to evaluate canonical core with the interpreter.
+callable parameter identity. Later or interleaved external captures, scalar
+exports, and complete multi-module integration also remain outside the profile.
+Ordinary run mode continues to evaluate canonical core with the interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in
