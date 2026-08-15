@@ -71,6 +71,8 @@ tests =
     ("produces exact managed Text operations", testManagedTextOperationProduction),
     ("lowers exact managed Text runtime services", testManagedTextOperationLowering),
     ("keeps managed Text kernel values and arities bounded", testManagedTextKernelBoundaries),
+    ("locks every managed Text profile exclusion", testManagedTextProfileExclusions),
+    ("leaves managed Text service integrity with Lowered IR validation", testManagedTextServiceValidationOwnership),
     ("lowers managed Text literals with one layout and no services", testManagedTextLowering),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
@@ -1801,6 +1803,129 @@ testManagedTextKernelBoundaries = do
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable rejection") firstRun secondRun
       assertEqual (name <> " diagnostic precedence") TypedCoreProductionBlockedByDiagnostics (typedCoreProductionStatus firstRun)
+
+testManagedTextProfileExclusions :: IO ()
+testManagedTextProfileExclusions = do
+  mapM_ assertExcluded exactExclusions
+  mapM_ assertManifestExclusion ["text-value", "non-unit-tuple", "data-value", "resolved-import", "imported-direct-call"]
+  where
+    exactExclusions =
+      [ ( "managed-text-literal-pattern",
+          [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+        ),
+        ( "managed-text-uncons",
+          [expressionFailure 0 [] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_textUnconsRaw")]
+        ),
+        ( "managed-text-from-chars",
+          [expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
+        ),
+        ( "managed-text-concat",
+          [expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
+        ),
+        ( "managed-text-read-io",
+          [expressionFailure 0 [] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_readTextRaw!")]
+        ),
+        ( "managed-text-write-io",
+          [expressionFailure 0 [] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_writeTextRaw!")]
+        )
+      ]
+    assertExcluded (name, failures) = do
+      let fixture = producerEdgeFixture name
+          expected = TypedCoreProductionUnsupported failures
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable exclusion") firstRun secondRun
+      assertEqual (name <> " exact exclusion") expected (typedCoreProductionStatus firstRun)
+    assertManifestExclusion name = do
+      let fixture = fixtureByName name
+          expected =
+            case lookup name rejectedManifestExpectedStatuses of
+              Just status -> status
+              Nothing -> error ("managed Text manifest exclusion is missing: " <> Text.unpack name)
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " repeatable established exclusion") firstRun secondRun
+      assertEqual (name <> " exact established exclusion") expected (typedCoreProductionStatus firstRun)
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+
+testManagedTextServiceValidationOwnership :: IO ()
+testManagedTextServiceValidationOwnership = do
+  assertEqual
+    "managed Text malformed service signature"
+    [ LoweredIRValidationFailure
+        (LoweredInstructionPath entryFunctionId entryBlockId 2)
+        LoweredRuntimeCallSignatureMismatch
+        (LoweredRepresentationDetail LoweredBoolRepresentation textRepresentation)
+    ]
+    (validateLoweredProgram malformedSignatureProgram)
+  assertEqual
+    "managed Text missing service reference"
+    [ LoweredIRValidationFailure
+        (LoweredInstructionPath entryFunctionId entryBlockId 2)
+        LoweredUnknownRuntimeService
+        (LoweredIdentifierDetail "jazz.runtime.text.equal.v1")
+    ]
+    (validateLoweredProgram missingServiceProgram)
+  where
+    textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
+    textLayout = LoweredLayout textLayoutId LoweredTextLayout
+    textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+    equalityServiceId = LoweredRuntimeServiceId "jazz.runtime.text.equal.v1"
+    entryFunctionId = LoweredFunctionId "App::Main::$entry"
+    entryBlockId = LoweredBlockId "entry"
+    malformedSignatureProgram = serviceProgram [malformedService]
+    missingServiceProgram = serviceProgram []
+    malformedService =
+      LoweredRuntimeService
+        equalityServiceId
+        (LoweredCallSignature [LoweredBoolRepresentation, textRepresentation] LoweredBoolRepresentation)
+    serviceProgram services =
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [textLayout]
+        services
+        [ LoweredFunction
+            entryFunctionId
+            Nothing
+            []
+            LoweredBoolRepresentation
+            [ LoweredBlock
+                entryBlockId
+                []
+                [ textInstruction 1 "left",
+                  textInstruction 2 "right",
+                  LoweredInstruction
+                    (LoweredTemporaryId "t3")
+                    LoweredBoolRepresentation
+                    ( LoweredRuntimeCall
+                        equalityServiceId
+                        [ textTemporary 1,
+                          textTemporary 2
+                        ]
+                    )
+                ]
+                (Just (LoweredReturn (LoweredTemporaryOperand (LoweredTemporaryId "t3") LoweredBoolRepresentation)))
+            ]
+            entryBlockId
+        ]
+        entryFunctionId
+    textInstruction :: Int -> Text -> LoweredInstruction
+    textInstruction index value =
+      LoweredInstruction
+        (LoweredTemporaryId ("t" <> Text.pack (show index)))
+        textRepresentation
+        (LoweredConstructText textLayoutId value)
+    textTemporary :: Int -> LoweredOperand
+    textTemporary index =
+      LoweredTemporaryOperand
+        (LoweredTemporaryId ("t" <> Text.pack (show index)))
+        textRepresentation
 
 testManagedTextLowering :: IO ()
 testManagedTextLowering =

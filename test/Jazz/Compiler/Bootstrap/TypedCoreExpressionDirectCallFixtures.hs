@@ -27,6 +27,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     managedTextOperationExpectedPrograms,
     managedTextOperationExpectedLoweredPrograms,
     managedTextKernelBoundaryFixtures,
+    managedTextExclusionFixtures,
     managedTextExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,
@@ -1098,6 +1099,16 @@ managedTextKernelBoundaryFixtures =
     ("managed-text-partial-append", sourceFixtureNoExports "managed-text-partial-append" managedTextPartialAppendSource),
     ("managed-text-partial-append-char", sourceFixtureNoExports "managed-text-partial-append-char" managedTextPartialAppendCharSource),
     ("managed-text-oversaturated-length", sourceFixtureNoExports "managed-text-oversaturated-length" managedTextOversaturatedLengthSource)
+  ]
+
+managedTextExclusionFixtures :: [(Text, Fixture)]
+managedTextExclusionFixtures =
+  [ ("managed-text-literal-pattern", sourceFixtureNoExports "managed-text-literal-pattern" managedTextLiteralPatternSource),
+    ("managed-text-uncons", sourceFixtureNoExports "managed-text-uncons" managedTextUnconsSource),
+    ("managed-text-from-chars", sourceFixtureNoExports "managed-text-from-chars" managedTextFromCharsSource),
+    ("managed-text-concat", sourceFixtureNoExports "managed-text-concat" managedTextConcatSource),
+    ("managed-text-read-io", sourceFixtureNoExports "managed-text-read-io" managedTextReadIOSource),
+    ("managed-text-write-io", sourceFixtureNoExports "managed-text-write-io" managedTextWriteIOSource)
   ]
 
 managedTextOperationExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
@@ -4862,6 +4873,7 @@ producerEdgeFixtures =
     <> managedTextProducerFixtures
     <> managedTextOperationProducerFixtures
     <> managedTextKernelBoundaryFixtures
+    <> managedTextExclusionFixtures
     <> [ ( "scalar-pattern-case",
            sourceFixtureNoExports
              "scalar-pattern-case"
@@ -6562,7 +6574,7 @@ defaultIntEntrySource = "7."
 defaultFloatEntrySource = "1.05."
 managedTextLiteralSource = "\"managed\"."
 
-managedTextEqualitySource, managedTextInequalitySource, managedTextLengthSource, managedTextAppendSource, managedTextAppendCharSource, managedTextCombinedOperationsSource, managedTextDuplicateEqualitySource, managedTextConditionalAppendSource, managedTextBareLengthSource, managedTextPartialAppendSource, managedTextPartialAppendCharSource, managedTextOversaturatedLengthSource :: Text
+managedTextEqualitySource, managedTextInequalitySource, managedTextLengthSource, managedTextAppendSource, managedTextAppendCharSource, managedTextCombinedOperationsSource, managedTextDuplicateEqualitySource, managedTextConditionalAppendSource, managedTextBareLengthSource, managedTextPartialAppendSource, managedTextPartialAppendCharSource, managedTextOversaturatedLengthSource, managedTextLiteralPatternSource, managedTextUnconsSource, managedTextFromCharsSource, managedTextConcatSource, managedTextReadIOSource, managedTextWriteIOSource :: Text
 managedTextEqualitySource = "\"left\" == \"right\"."
 managedTextInequalitySource = "\"left\" != \"right\"."
 managedTextLengthSource = "__kernel_textLength \"Jazz\"."
@@ -6586,6 +6598,13 @@ managedTextBareLengthSource = "__kernel_textLength."
 managedTextPartialAppendSource = "__kernel_textAppend \"Jazz\"."
 managedTextPartialAppendCharSource = "__kernel_textAppendChar \"Jazz\"."
 managedTextOversaturatedLengthSource = "__kernel_textLength \"Jazz\" 1."
+managedTextLiteralPatternSource =
+  "case \"Jazz\" { | \"Jazz\" -> True | _ -> False }."
+managedTextUnconsSource = "__kernel_textUnconsRaw \"Jazz\"."
+managedTextFromCharsSource = "__kernel_textFromChars ['J']."
+managedTextConcatSource = "__kernel_textConcat [\"Jazz\"]."
+managedTextReadIOSource = "__kernel_readTextRaw! \"source.jz\"."
+managedTextWriteIOSource = "__kernel_writeTextRaw! \"target.jz\" \"Jazz\"."
 
 scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource, scalarBindingFailedInitializerSource, managedTextIdentitySource, managedTextCaptureTransportSource, managedTextConditionalResultSource, managedTextScalarCaseResultSource :: Text
 scalarBindingLiteralSource =
