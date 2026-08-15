@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Exception (evaluate)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -60,6 +61,7 @@ import Jazz.TestHarness
     assertEqual,
     runTestSuite,
   )
+import System.Timeout (timeout)
 
 main :: IO ()
 main = runTestSuite "PatternCoverage" tests
@@ -84,6 +86,7 @@ tests =
     ("exact lists specialize through cons cells", testExactListShadowing),
     ("as-patterns contribute their inner coverage", testAsPatternCoverage),
     ("or-pattern alternatives form a coverage union", testOrPatternCoverage),
+    ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
     ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
     ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
@@ -271,6 +274,25 @@ testOrPatternCoverage =
     TBoolType
     [arm (POr [PLiteral (LBool False), PLiteral (LBool True)])]
     []
+
+testNestedOrPatternProductCoverage :: IO ()
+testNestedOrPatternProductCoverage = do
+  completed <-
+    timeout 5000000 $
+      evaluate
+        ( null
+            ( analyzePatternCoverage
+                emptyConstructorInventory
+                (TTupleType (replicate fieldCount TBoolType))
+                [arm productPattern]
+            )
+        )
+  assertEqual "nested or-pattern product" (Just True) completed
+  where
+    fieldCount = 30
+    booleanAlternative =
+      POr [PLiteral (LBool False), PLiteral (LBool True)]
+    productPattern = PTuple (replicate fieldCount booleanAlternative)
 
 testPartlyUsefulOrPattern :: IO ()
 testPartlyUsefulOrPattern =

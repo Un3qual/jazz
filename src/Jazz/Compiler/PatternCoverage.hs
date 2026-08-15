@@ -131,21 +131,26 @@ analyzePatternCoverage inventory expressionType arms =
       foldl' analyzeArm ([], []) (zip [1 ..] arms)
 
     analyzeArm (previousRows, failures) (armIndex, CaseArm patternValue maybeGuard _) =
-      let alternatives = normalizePattern patternValue
+      let normalizedPattern =
+            simplifyCoveragePattern
+              inventory
+              expressionType
+              (normalizePattern patternValue)
           useful =
-            any
-              ( hasWitness
-                  . usefulPatternVector inventory [expressionType] previousRows
-                  . pure
+            hasWitness
+              ( usefulPatternVector
+                  inventory
+                  [expressionType]
+                  previousRows
+                  [normalizedPattern]
               )
-              alternatives
           nextFailures =
             if useful
               then failures
               else failures <> [UnreachablePatternArm armIndex]
           nextRows =
             case maybeGuard of
-              Nothing -> previousRows <> map pure alternatives
+              Nothing -> previousRows <> [[normalizedPattern]]
               Just _ -> previousRows
        in (nextRows, nextFailures)
 
@@ -161,6 +166,7 @@ hasWitness = maybe False (const True)
 data CoveragePattern
   = CoverageWildcard
   | CoverageConstructor CoverageConstructor [CoveragePattern]
+  | CoverageOr [CoveragePattern]
   deriving (Eq, Show)
 
 data CoverageConstructor
@@ -191,38 +197,104 @@ data ConstructorShape = ConstructorShape
 
 type PatternMatrix = [[CoveragePattern]]
 
-normalizePattern :: Pattern -> [CoveragePattern]
+normalizePattern :: Pattern -> CoveragePattern
 normalizePattern patternValue =
   case patternValue of
-    PWildcard -> [CoverageWildcard]
-    PVariable _ -> [CoverageWildcard]
-    PLiteral (LBool value) -> [CoverageConstructor (CoverageBool value) []]
-    PLiteral literal -> [CoverageConstructor (CoverageLiteral literal) []]
+    PWildcard -> CoverageWildcard
+    PVariable _ -> CoverageWildcard
+    PLiteral (LBool value) -> CoverageConstructor (CoverageBool value) []
+    PLiteral literal -> CoverageConstructor (CoverageLiteral literal) []
     PConstructor name fields ->
       normalizeConstructor (CoverageData name name) fields
     PList elements -> normalizeList elements
     PConsList headPattern tailPattern ->
       normalizeConstructor CoverageListCons [headPattern, tailPattern]
-    PTuple [] -> [CoverageConstructor CoverageUnit []]
+    PTuple [] -> CoverageConstructor CoverageUnit []
     PTuple elements -> normalizeConstructor (CoverageTuple (length elements)) elements
     PAs _ innerPattern -> normalizePattern innerPattern
-    POr alternatives -> concatMap normalizePattern alternatives
+    POr alternatives -> CoverageOr (map normalizePattern alternatives)
 
-normalizeConstructor :: CoverageConstructor -> [Pattern] -> [CoveragePattern]
+normalizeConstructor :: CoverageConstructor -> [Pattern] -> CoveragePattern
 normalizeConstructor constructor fields =
-  [ CoverageConstructor constructor normalizedFields
-  | normalizedFields <- sequence (map normalizePattern fields)
-  ]
+  CoverageConstructor constructor (map normalizePattern fields)
 
-normalizeList :: [Pattern] -> [CoveragePattern]
+normalizeList :: [Pattern] -> CoveragePattern
 normalizeList elements =
   case elements of
-    [] -> [CoverageConstructor CoverageListNil []]
+    [] -> CoverageConstructor CoverageListNil []
     element : rest ->
-      [ CoverageConstructor CoverageListCons [normalizedElement, normalizedRest]
-      | normalizedElement <- normalizePattern element,
-        normalizedRest <- normalizeList rest
-      ]
+      CoverageConstructor
+        CoverageListCons
+        [normalizePattern element, normalizeList rest]
+
+simplifyCoveragePattern ::
+  ConstructorInventory ->
+  ExpressionType ->
+  CoveragePattern ->
+  CoveragePattern
+simplifyCoveragePattern inventory expressionType patternValue =
+  if coveragePatternIsTotal inventory expressionType simplifiedPattern
+    then CoverageWildcard
+    else simplifiedPattern
+  where
+    simplifiedPattern =
+      case patternValue of
+        CoverageWildcard -> CoverageWildcard
+        CoverageOr alternatives ->
+          CoverageOr
+            (map (simplifyCoveragePattern inventory expressionType) alternatives)
+        CoverageConstructor constructor fields ->
+          case constructorShape inventory expressionType constructor (length fields) of
+            Just shape
+              | length fields == length (shapeFieldTypes shape) ->
+                  CoverageConstructor
+                    constructor
+                    ( zipWith
+                        (simplifyCoveragePattern inventory)
+                        (shapeFieldTypes shape)
+                        fields
+                    )
+            _ -> CoverageConstructor constructor fields
+
+coveragePatternIsTotal ::
+  ConstructorInventory ->
+  ExpressionType ->
+  CoveragePattern ->
+  Bool
+coveragePatternIsTotal inventory expressionType patternValue =
+  case patternValue of
+    CoverageWildcard -> True
+    CoverageOr alternatives ->
+      case constructorShapes inventory expressionType of
+        Just shapes ->
+          all
+            (\shape -> any (coveragePatternCoversShape inventory shape) alternatives)
+            shapes
+        Nothing -> any (coveragePatternIsTotal inventory expressionType) alternatives
+    CoverageConstructor {} ->
+      case constructorShapes inventory expressionType of
+        Just [shape] -> coveragePatternCoversShape inventory shape patternValue
+        _ -> False
+
+coveragePatternCoversShape ::
+  ConstructorInventory ->
+  ConstructorShape ->
+  CoveragePattern ->
+  Bool
+coveragePatternCoversShape inventory shape patternValue =
+  case patternValue of
+    CoverageWildcard -> True
+    CoverageOr alternatives ->
+      any (coveragePatternCoversShape inventory shape) alternatives
+    CoverageConstructor constructor fields ->
+      constructor == shapeConstructor shape
+        && length fields == length (shapeFieldTypes shape)
+        && and
+          ( zipWith
+              (coveragePatternIsTotal inventory)
+              (shapeFieldTypes shape)
+              fields
+          )
 
 usefulPatternVector ::
   ConstructorInventory ->
@@ -244,6 +316,18 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
           (fields <> restQuery)
       let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
       pure (CoverageConstructor constructor fieldWitnesses : restWitnesses)
+    CoverageOr alternatives ->
+      firstJust
+        ( map
+            ( \alternative ->
+                usefulPatternVector
+                  inventory
+                  (expressionType : restTypes)
+                  matrix
+                  (alternative : restQuery)
+            )
+            alternatives
+        )
     CoverageWildcard ->
       case constructorShapes inventory expressionType of
         Just shapes
@@ -345,24 +429,29 @@ constructorShape inventory expressionType constructor fallbackArity =
     Nothing -> Just (ConstructorShape constructor (replicate fallbackArity unknownFieldType))
 
 specializeMatrix :: ConstructorShape -> PatternMatrix -> PatternMatrix
-specializeMatrix shape = mapMaybe specializeRow
+specializeMatrix shape = concatMap specializeRow
   where
     specializeRow row =
       case row of
-        [] -> Nothing
+        [] -> []
         CoverageWildcard : rest ->
-          Just (replicate (length (shapeFieldTypes shape)) CoverageWildcard <> rest)
+          [replicate (length (shapeFieldTypes shape)) CoverageWildcard <> rest]
         CoverageConstructor constructor fields : rest
-          | constructor == shapeConstructor shape -> Just (fields <> rest)
-          | otherwise -> Nothing
+          | constructor == shapeConstructor shape -> [fields <> rest]
+          | otherwise -> []
+        CoverageOr alternatives : rest ->
+          concatMap (specializeRow . (: rest)) alternatives
 
 defaultMatrix :: PatternMatrix -> PatternMatrix
-defaultMatrix = mapMaybe defaultRow
+defaultMatrix = concatMap defaultRow
   where
     defaultRow row =
       case row of
-        CoverageWildcard : rest -> Just rest
-        _ -> Nothing
+        CoverageWildcard : rest -> [rest]
+        CoverageConstructor {} : _ -> []
+        CoverageOr alternatives : rest ->
+          concatMap (defaultRow . (: rest)) alternatives
+        [] -> []
 
 allShapeConstructorsPresent :: [ConstructorShape] -> PatternMatrix -> Bool
 allShapeConstructorsPresent shapes matrix =
@@ -378,6 +467,8 @@ constructorPresent shape = any rowHasConstructor
     rowHasConstructor row =
       case row of
         CoverageConstructor constructor _ : _ -> constructor == shapeConstructor shape
+        CoverageOr alternatives : rest ->
+          any (rowHasConstructor . (: rest)) alternatives
         _ -> False
 
 firstJust :: [Maybe value] -> Maybe value
@@ -391,6 +482,7 @@ coveragePatternToPattern :: CoveragePattern -> Pattern
 coveragePatternToPattern coveragePattern =
   case coveragePattern of
     CoverageWildcard -> PWildcard
+    CoverageOr alternatives -> POr (map coveragePatternToPattern alternatives)
     CoverageConstructor constructor fields ->
       case constructor of
         CoverageBool value -> PLiteral (LBool value)
