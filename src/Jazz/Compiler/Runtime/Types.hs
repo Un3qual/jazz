@@ -115,6 +115,10 @@ data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Dia
 newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq SignatureType)
   deriving (Eq, Show)
 
+instance Semigroup RuntimeExplicitResultHints where
+  RuntimeExplicitResultHints outerHints <> RuntimeExplicitResultHints innerHints =
+    RuntimeExplicitResultHints (outerHints Seq.>< innerHints)
+
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
@@ -339,15 +343,15 @@ prependRuntimeExplicitResultHint typeHint runtimeValue =
         runtimeValue
 
 attachRuntimeExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
-attachRuntimeExplicitResultHints (RuntimeExplicitResultHints outerHints) runtimeValue =
+attachRuntimeExplicitResultHints outerHints runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints (RuntimeExplicitResultHints innerHints) innerValue ->
+    VRuntimeExplicitResultHints innerHints innerValue ->
       VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints (outerHints Seq.>< innerHints))
+        (outerHints <> innerHints)
         innerValue
     _ ->
       VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints outerHints)
+        outerHints
         runtimeValue
 
 runtimeExplicitResultHintsView :: RuntimeValue -> Maybe (RuntimeExplicitResultHints, RuntimeValue)

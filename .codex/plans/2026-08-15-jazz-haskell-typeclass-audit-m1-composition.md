@@ -60,14 +60,14 @@
 - Test: `test/Jazz/Compiler/Semantics/PatternSemanticsSpec.hs`
 - Test: `module-resolution-spec`, `module-exports-spec`, `module-pipeline-contract-spec`, and `runtime-semantics-spec`
 
-- [ ] Run the recursive-binding, pattern, module-import, and runtime characterization suites before edits. These public tests are the red/characterization boundary because the private constructors must remain private.
-- [ ] Add `Semigroup` and `Monoid` to private `OrderedNames`. Preserve first occurrence by inserting the right sequence into the left accumulator. Replace `orderedNamesEmpty`, `orderedNamesUnion`, and `orderedNamesUnions` with `mempty`, `(<>)`, `mconcat`, or `foldMap`, then delete the helpers.
-- [ ] Add `Semigroup` and `Monoid` to private `PatternBindings` using left-biased `Map.union` and to private `PatternTyping` using binding composition plus `(||)`. Replace and delete the four parallel empty and merge helpers.
-- [ ] Add `Semigroup` and `Monoid` to private `ImportedInterface`, delegating capability facts to their instance and preserving left-biased maps plus set union. Replace dependency accumulation with `foldMap`; delete `mergeModuleInterfaces`.
-- [ ] Add only `Semigroup` to `RuntimeExplicitResultHints`, backed by `Seq.><`. Rewrite nested hint attachment with `(<>)`; do not add `Monoid`.
-- [ ] Rerun every characterization suite from the first step and format all four source files.
-- [ ] Confirm `rg -n 'orderedNames(Empty|Union|Unions)|emptyPatternBindings|mergePatternBindings|emptyPatternTyping|mergePatternTyping|mergeModuleInterfaces' src test` finds no deleted helper.
-- [ ] Commit the four source files as `refactor: use lawful private accumulators`.
+- [x] Run the recursive-binding, pattern, module-import, and runtime characterization suites before edits. These public tests are the red/characterization boundary because the private constructors must remain private.
+- [x] Add `Semigroup` and `Monoid` to private `OrderedNames`. Preserve first occurrence by inserting the right sequence into the left accumulator. Replace `orderedNamesEmpty`, `orderedNamesUnion`, and `orderedNamesUnions` with `mempty`, `(<>)`, `mconcat`, or `foldMap`, then delete the helpers.
+- [x] Add `Semigroup` and `Monoid` to private `PatternBindings` using left-biased `Map.union` and to private `PatternTyping` using binding composition plus `(||)`. Replace and delete the four parallel empty and merge helpers.
+- [x] Add `Semigroup` and `Monoid` to private `ImportedInterface`, delegating capability facts to their instance and preserving left-biased maps plus set union. Replace dependency accumulation with `foldMap`; delete `mergeModuleInterfaces`.
+- [x] Add only `Semigroup` to `RuntimeExplicitResultHints`, backed by `Seq.><`. Rewrite nested hint attachment with `(<>)`; do not add `Monoid`.
+- [x] Rerun every characterization suite and format the three files accepted by the pinned formatter. `Runtime/Types.hs` retains its established formatting because the formatter cannot parse GHC 9.14's valid `data VExplicitResultHints` export syntax; the development build and runtime suite gate that file.
+- [x] Confirm `rg -n 'orderedNames(Empty|Union|Unions)|emptyPatternBindings|mergePatternBindings|emptyPatternTyping|mergePatternTyping|mergeModuleInterfaces' src test` finds no deleted helper.
+- [x] Commit the four source files as `refactor: use lawful private accumulators`.
 
 ## Task 3: Exhaustive numeric enumeration
 

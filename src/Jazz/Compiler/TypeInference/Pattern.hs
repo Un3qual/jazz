@@ -191,8 +191,12 @@ inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initi
 newtype PatternBindings = PatternBindings (Map Name ExpressionType)
   deriving (Eq, Show)
 
-emptyPatternBindings :: PatternBindings
-emptyPatternBindings = PatternBindings Map.empty
+instance Semigroup PatternBindings where
+  PatternBindings left <> PatternBindings right =
+    PatternBindings (Map.union left right)
+
+instance Monoid PatternBindings where
+  mempty = PatternBindings Map.empty
 
 singletonPatternBinding :: Name -> ExpressionType -> PatternBindings
 singletonPatternBinding name expressionType =
@@ -204,10 +208,6 @@ lookupPatternBinding name (PatternBindings bindings) = Map.lookup name bindings
 insertPatternBinding :: Name -> ExpressionType -> PatternBindings -> PatternBindings
 insertPatternBinding name expressionType (PatternBindings bindings) =
   PatternBindings (Map.insert name expressionType bindings)
-
-mergePatternBindings :: PatternBindings -> PatternBindings -> PatternBindings
-mergePatternBindings (PatternBindings left) (PatternBindings right) =
-  PatternBindings (left `Map.union` right)
 
 patternBindingNames :: PatternBindings -> Set Name
 patternBindingNames (PatternBindings bindings) = Map.keysSet bindings
@@ -226,24 +226,24 @@ data PatternTyping = PatternTyping
     patternSkipsBranchType :: Bool
   }
 
-emptyPatternTyping :: PatternTyping
-emptyPatternTyping =
-  PatternTyping
-    { patternBindings = emptyPatternBindings,
-      patternSkipsBranchType = False
-    }
+instance Semigroup PatternTyping where
+  left <> right =
+    PatternTyping
+      { patternBindings = patternBindings left <> patternBindings right,
+        patternSkipsBranchType =
+          patternSkipsBranchType left || patternSkipsBranchType right
+      }
+
+instance Monoid PatternTyping where
+  mempty =
+    PatternTyping
+      { patternBindings = mempty,
+        patternSkipsBranchType = False
+      }
 
 skipBranchPatternTyping :: PatternTyping
 skipBranchPatternTyping =
-  emptyPatternTyping {patternSkipsBranchType = True}
-
-mergePatternTyping :: PatternTyping -> PatternTyping -> PatternTyping
-mergePatternTyping left right =
-  PatternTyping
-    { patternBindings = mergePatternBindings (patternBindings left) (patternBindings right),
-      patternSkipsBranchType =
-        patternSkipsBranchType left || patternSkipsBranchType right
-    }
+  mempty {patternSkipsBranchType = True}
 
 rejectDuplicatePatternBinders :: Pattern -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
 rejectDuplicatePatternBinders pattern typing stableState checkedState =
@@ -309,7 +309,7 @@ inferPatternType :: TypeEnv -> ExpressionType -> Pattern -> InferState -> (Patte
 inferPatternType env scrutineeType pattern state =
   case pattern of
     PVariable name ->
-      ( emptyPatternTyping
+      ( mempty
           { patternBindings =
               singletonPatternBinding
                 name
@@ -317,11 +317,11 @@ inferPatternType env scrutineeType pattern state =
           },
         state
       )
-    PWildcard -> (emptyPatternTyping, state)
+    PWildcard -> (mempty, state)
     PLiteral literal ->
       let literalType = literalExpressionType literal
        in case unifyTypes scrutineeType literalType state of
-            Just unifiedState -> (emptyPatternTyping, unifiedState)
+            Just unifiedState -> (mempty, unifiedState)
             Nothing ->
               ( skipBranchPatternTyping,
                 addTypeError
@@ -394,7 +394,7 @@ inferOrPatternType env scrutineeType alternatives initialState =
     inferRemainingAlternatives expectedBinderNames bindingsAcc stateAcc remainingAlternatives =
       case remainingAlternatives of
         [] ->
-          ( emptyPatternTyping
+          ( mempty
               { patternBindings = resolvePatternBindings stateAcc bindingsAcc
               },
             stateAcc
@@ -527,7 +527,7 @@ inferConstructorArgumentPatterns ::
   InferState ->
   (PatternTyping, InferState)
 inferConstructorArgumentPatterns env argumentTypes patterns initialState =
-  go emptyPatternTyping initialState (zip argumentTypes patterns)
+  go mempty initialState (zip argumentTypes patterns)
   where
     go typingAcc stateAcc remainingPatterns =
       case remainingPatterns of
@@ -535,7 +535,7 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
         (argumentType, pattern) : rest ->
           let (typing, stateAfterPattern) =
                 inferPatternType env argumentType pattern stateAcc
-              mergedTyping = mergePatternTyping typing typingAcc
+              mergedTyping = typing <> typingAcc
            in if patternSkipsBranchType mergedTyping
                 then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
                 else go mergedTyping stateAfterPattern rest
@@ -574,7 +574,7 @@ inferListElementPatterns ::
   InferState ->
   (PatternTyping, InferState)
 inferListElementPatterns env elementType patterns initialState =
-  go emptyPatternTyping initialState patterns
+  go mempty initialState patterns
   where
     go typingAcc stateAcc remainingPatterns =
       case remainingPatterns of
@@ -582,7 +582,7 @@ inferListElementPatterns env elementType patterns initialState =
         pattern : rest ->
           let (typing, stateAfterPattern) =
                 inferPatternType env elementType pattern stateAcc
-              mergedTyping = mergePatternTyping typing typingAcc
+              mergedTyping = typing <> typingAcc
            in if patternSkipsBranchType mergedTyping
                 then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
                 else go mergedTyping stateAfterPattern rest
@@ -632,7 +632,7 @@ inferConsListSubpatterns env elementType headPattern tailPattern initialState =
           let tailListType = TListType (resolveType stateAfterHeadPattern elementType)
               (tailTyping, stateAfterTailPattern) =
                 inferPatternType env tailListType tailPattern stateAfterHeadPattern
-              mergedTyping = mergePatternTyping tailTyping headTyping
+              mergedTyping = tailTyping <> headTyping
            in if patternSkipsBranchType mergedTyping
                 then (mergedTyping, rollbackSkippedPatternState initialState stateAfterTailPattern)
                 else (mergedTyping, stateAfterTailPattern)
