@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-15
 
-**Status:** Approved design; awaiting written-design review
+**Status:** Approved for implementation
 
 ## Purpose
 
