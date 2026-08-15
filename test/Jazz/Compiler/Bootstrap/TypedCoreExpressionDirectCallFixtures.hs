@@ -34,6 +34,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directCallExpectedLoweredPrograms,
     closedCallableExpectedLoweredPrograms,
     independentClosureExpectedLoweredPrograms,
+    functionBodyConsumedCallExpectedProgram,
     rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
     validIndependentLowererPrograms,
@@ -1017,6 +1018,84 @@ scalarBindingExpectedLoweredPrograms =
         (loweredTemporary 1 LoweredBoolRepresentation)
     )
   ]
+
+functionBodyConsumedCallExpectedProgram :: (TypedProgram, LoweredProgram)
+functionBodyConsumedCallExpectedProgram =
+  ( typedProgram,
+    expectedCallableLoweredProgram
+      [ expectedLocalFunction
+          "identity"
+          [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+          LoweredBoolRepresentation
+          []
+          (loweredParameter 1 LoweredBoolRepresentation),
+        expectedLocalFunction
+          "consumeDirect"
+          [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+          LoweredBoolRepresentation
+          [ expectedDirectCallInstruction 1 LoweredBoolRepresentation "identity" [loweredImmediate (LoweredBoolImmediate True)],
+            expectedPrimitiveInstruction
+              2
+              LoweredBoolRepresentation
+              (LoweredComparisonPrimitive LoweredEqual)
+              [loweredTemporary 1 LoweredBoolRepresentation, loweredImmediate (LoweredBoolImmediate False)]
+          ]
+          (loweredTemporary 2 LoweredBoolRepresentation),
+        expectedLocalFunction
+          "consumeClosure"
+          [LoweredParameter (LoweredParameterId "arg1") boolClosureRepresentation]
+          LoweredBoolRepresentation
+          [ expectedClosureCallInstruction
+              1
+              LoweredBoolRepresentation
+              (loweredParameter 1 boolClosureRepresentation)
+              [loweredImmediate (LoweredBoolImmediate True)],
+            expectedPrimitiveInstruction
+              2
+              LoweredBoolRepresentation
+              (LoweredComparisonPrimitive LoweredEqual)
+              [loweredTemporary 1 LoweredBoolRepresentation, loweredImmediate (LoweredBoolImmediate False)]
+          ]
+          (loweredTemporary 2 LoweredBoolRepresentation)
+      ]
+      LoweredBoolRepresentation
+      []
+      (loweredImmediate (LoweredBoolImmediate True))
+  )
+  where
+    typedProgram =
+      expectedFunctionProgram
+        []
+        [ ExpectedFunction
+            "identity"
+            [("item", boolInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            (variableExpr "item" boolInfo),
+          ExpectedFunction
+            "consumeDirect"
+            [("ignored", boolInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            ( binaryExpr
+                boolInfo
+                "=="
+                (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+                (boolExpr False)
+            ),
+          ExpectedFunction
+            "consumeClosure"
+            [("function", boolCallableInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            ( binaryExpr
+                boolInfo
+                "=="
+                (directCall "function" [boolInfo] boolInfo [boolExpr True])
+                (boolExpr False)
+            )
+        ]
+        (boolExpr True)
 
 lexicalCaptureExpectedPrograms :: [(Text, TypedProgram)]
 lexicalCaptureExpectedPrograms =
