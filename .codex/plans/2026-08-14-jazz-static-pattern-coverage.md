@@ -588,7 +588,7 @@ development shell and record that exact successful command.
 - [x] **Step 7: Commit the verified closeout.**
 
 ```bash
-git add docs/language/control-flow.md docs/language/algebraic-data-types-and-patterns.md docs/reference/diagnostics.md docs/project/status.md rfcs/accepted/0012-static-pattern-coverage.md .codex/plans/2026-08-14-jazz-static-pattern-coverage.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
+git add docs/language/control-flow.md docs/language/algebraic-data-types-and-patterns.md docs/reference/diagnostics.md docs/project/status.md rfcs/README.md rfcs/accepted/0012-static-pattern-coverage.md .codex/plans/2026-08-14-jazz-static-pattern-coverage.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
 git commit -m "docs: close static pattern coverage"
 ```
 

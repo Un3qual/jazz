@@ -27,8 +27,10 @@ Pattern coverage uses two strict type diagnostics:
 | `E2018` | a case or pattern lambda is non-exhaustive; the summary gives a witness |
 | `E2019` | an entire arm is unreachable after earlier unguarded arms               |
 
-Guarded arms never contribute to exhaustiveness or shadow later arms. Existing
-analysis or type errors suppress pattern-coverage follow-on reports.
+Guarded arms never contribute to exhaustiveness or shadow later arms. A guarded
+arm is still checked for reachability, so earlier unguarded arms can make it
+report `E2019`. Existing analysis or type errors suppress pattern-coverage
+follow-on reports.
 
 ## Warning categories and IDs
 

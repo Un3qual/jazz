@@ -25,6 +25,11 @@ import Jazz.Compiler.Driver
     compileSource,
     compileWarnings,
   )
+import Jazz.Compiler.Name
+  ( NameNamespace (ConstructorNamespace),
+    mkIdentifier,
+    resolvedImportedName,
+  )
 import Jazz.Compiler.PatternCoverage
   ( ConstructorInventory,
     PatternCoverageFailure (..),
@@ -91,6 +96,7 @@ tests =
     ("guarded source arms do not contribute coverage", testGuardedSourceCoverage),
     ("recursive inference records one source match", testRecursiveMatchRecordedOnce),
     ("nested constructor witnesses render unambiguously", testNestedWitnessRendering),
+    ("imported witnesses render source-accessible constructor names", testImportedWitnessRendering),
     ("source reachability covers every strict arm case", testStrictSourceReachability),
     ("repeated guarded arms remain reachable", testRepeatedGuardedSourceArms),
     ("warning-only diagnostics do not suppress coverage", testWarningsDoNotSuppressCoverage),
@@ -412,6 +418,18 @@ testNestedWitnessRendering =
             [ PConstructor "Just" [PWildcard],
               PConsList (PTuple [PWildcard, PWildcard]) PWildcard
             ]
+        )
+    )
+
+testImportedWitnessRendering :: IO ()
+testImportedWitnessRendering =
+  assertEqual
+    "imported witness"
+    "Second _"
+    ( renderCoveragePattern
+        ( PConstructor
+            (resolvedImportedName ["Lib", "Choice"] ConstructorNamespace (mkIdentifier "Second"))
+            [PWildcard]
         )
     )
 

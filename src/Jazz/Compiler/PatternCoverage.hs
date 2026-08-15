@@ -24,7 +24,8 @@ import Jazz.Compiler.AST
     Pattern (..),
   )
 import Jazz.Compiler.Name
-  ( Name,
+  ( Name (..),
+    NameNamespace (ConstructorNamespace),
     identifierText,
     renderName,
   )
@@ -386,13 +387,19 @@ renderCoveragePattern patternValue =
     PVariable name -> renderName name
     PLiteral literal -> renderLiteral literal
     PConstructor name fields ->
-      Text.unwords (renderName name : map renderCoveragePatternAtom fields)
+      Text.unwords (renderCoverageConstructorName name : map renderCoveragePatternAtom fields)
     PList elements -> "[" <> Text.intercalate ", " (map renderCoveragePatternAtom elements) <> "]"
     PConsList headPattern tailPattern ->
       "[" <> renderCoveragePatternAtom headPattern <> " | " <> renderCoveragePatternAtom tailPattern <> "]"
     PTuple elements -> "(" <> Text.intercalate ", " (map renderCoveragePatternAtom elements) <> ")"
     PAs name innerPattern -> renderName name <> " @ " <> renderCoveragePatternAtom innerPattern
     POr alternatives -> Text.intercalate " | " (map renderCoveragePattern alternatives)
+
+renderCoverageConstructorName :: Name -> Text
+renderCoverageConstructorName name =
+  case name of
+    ResolvedName _ ConstructorNamespace member -> identifierText member
+    _ -> renderName name
 
 renderCoveragePatternAtom :: Pattern -> Text
 renderCoveragePatternAtom patternValue =
