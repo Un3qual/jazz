@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Scope, binding, signature, and constructor inference.  Typed-core
@@ -363,14 +364,16 @@ inferScopeTypeWithModeAndForwardBindings ::
   (InferredExpr, InferState, Map Int (Name, SourceSpan))
 inferScopeTypeWithModeAndForwardBindings preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   inferScopeTypeInternal
-    True
-    preludeStatementIndices
-    inferExpression
-    mode
-    builtinMode
-    initialEnv
-    initialState
-    (prepareInferenceScope builtinMode initialEnv statements)
+    ScopeInferenceRequest
+      { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
+        scopePreludeStatementIndices = preludeStatementIndices,
+        scopeInferExpression = inferExpression,
+        scopeProductionMode = mode,
+        scopeBuiltinMode = builtinMode,
+        scopeInitialEnv = initialEnv,
+        scopeInitialState = initialState,
+        scopePreparedInference = prepareInferenceScope builtinMode initialEnv statements
+      }
 
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
   PreparedRecursiveScope ->
@@ -384,37 +387,52 @@ inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope preludeStatementIndices inferExpression mode builtinMode initialEnv initialState =
   let inferenceScope = preparedInferenceScope (inferenceOuterBindingNames builtinMode initialEnv) preparedScope
    in inferenceScope `seq`
-        inferScopeTypeInternal True preludeStatementIndices inferExpression mode builtinMode initialEnv initialState inferenceScope
+        inferScopeTypeInternal
+          ScopeInferenceRequest
+            { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
+              scopePreludeStatementIndices = preludeStatementIndices,
+              scopeInferExpression = inferExpression,
+              scopeProductionMode = mode,
+              scopeBuiltinMode = builtinMode,
+              scopeInitialEnv = initialEnv,
+              scopeInitialState = initialState,
+              scopePreparedInference = inferenceScope
+            }
 
 inferNestedScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (InferredExpr, InferState)
 inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
         inferScopeTypeInternal
-          False
-          preludeStatementIndices
-          inferExpression
-          mode
-          builtinMode
-          initialEnv
-          initialState
-          (prepareInferenceScope builtinMode initialEnv statements)
+          ScopeInferenceRequest
+            { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
+              scopePreludeStatementIndices = preludeStatementIndices,
+              scopeInferExpression = inferExpression,
+              scopeProductionMode = mode,
+              scopeBuiltinMode = builtinMode,
+              scopeInitialEnv = initialEnv,
+              scopeInitialState = initialState,
+              scopePreparedInference = prepareInferenceScope builtinMode initialEnv statements
+            }
    in (inferredResult, finalState)
 
 inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
         inferScopeTypeInternal
-          False
-          preludeStatementIndices
-          ( \_mode builtin env state expr ->
-              let (expressionType, nextState) = inferExpression builtin env state expr
-               in (InferredExpr expressionType Nothing [], nextState)
-          )
-          InferenceOnly
-          builtinMode
-          initialEnv
-          initialState
-          (prepareInferenceScope builtinMode initialEnv statements)
+          ScopeInferenceRequest
+            { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
+              scopePreludeStatementIndices = preludeStatementIndices,
+              scopeInferExpression =
+                ( \_mode builtin env state expr ->
+                    let (expressionType, nextState) = inferExpression builtin env state expr
+                     in (InferredExpr expressionType Nothing [], nextState)
+                ),
+              scopeProductionMode = InferenceOnly,
+              scopeBuiltinMode = builtinMode,
+              scopeInitialEnv = initialEnv,
+              scopeInitialState = initialState,
+              scopePreparedInference = prepareInferenceScope builtinMode initialEnv statements
+            }
    in (inferredExpressionType inferredResult, finalState)
 
 prepareInferenceScope :: BuiltinResolutionMode -> TypeEnv -> [Statement] -> PreparedInferenceScope
@@ -433,6 +451,27 @@ inferenceOuterBindingNames builtinMode initialEnv =
 
 data PreparedInferenceScope = PreparedInferenceScope ![Statement] !(Map Int Name) !(Map Int [Int])
 
+data ForwardSignedFunctionsPolicy
+  = ForbidForwardSignedFunctions
+  | PermitForwardSignedFunctions
+
+forwardSignedFunctionsPermitted :: ForwardSignedFunctionsPolicy -> Bool
+forwardSignedFunctionsPermitted policy =
+  case policy of
+    ForbidForwardSignedFunctions -> False
+    PermitForwardSignedFunctions -> True
+
+data ScopeInferenceRequest = ScopeInferenceRequest
+  { scopeForwardSignedFunctionsPolicy :: ForwardSignedFunctionsPolicy,
+    scopePreludeStatementIndices :: Set Int,
+    scopeInferExpression :: InferExprWithModeFn,
+    scopeProductionMode :: TypedCoreProductionMode,
+    scopeBuiltinMode :: BuiltinResolutionMode,
+    scopeInitialEnv :: TypeEnv,
+    scopeInitialState :: InferState,
+    scopePreparedInference :: PreparedInferenceScope
+  }
+
 preparedInferenceScope :: Set Name -> PreparedRecursiveScope -> PreparedInferenceScope
 preparedInferenceScope expectedOuterBindingNames preparedScope =
   PreparedInferenceScope
@@ -443,13 +482,23 @@ preparedInferenceScope expectedOuterBindingNames preparedScope =
     recursiveScopeFactsValue =
       preparedRecursiveScopeFactsForOuterBindings expectedOuterBindingNames preparedScope
 
-inferScopeTypeInternal :: Bool -> Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> PreparedInferenceScope -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
-inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices inferExpression mode builtinMode initialEnv initialState (PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement) =
+inferScopeTypeInternal :: ScopeInferenceRequest -> (InferredExpr, InferState, Map Int (Name, SourceSpan))
+inferScopeTypeInternal
+  ScopeInferenceRequest
+    { scopeForwardSignedFunctionsPolicy,
+      scopePreludeStatementIndices,
+      scopeInferExpression,
+      scopeProductionMode,
+      scopeBuiltinMode,
+      scopeInitialEnv,
+      scopeInitialState,
+      scopePreparedInference = PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement
+    } =
   let (scopeType, finalState, provisionalStatements, productionFailures) =
         go initialEnv (typeEnvFreeVariables initialEnv) Nothing Nothing Map.empty Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
       stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
       provisionalExpr =
-        case mode of
+        case scopeProductionMode of
           ProduceTypedCoreExpressionDirectCall -> Just (ProvisionalScopeStatements provisionalStatements)
           InferenceOnly -> Nothing
    in ( InferredExpr scopeType provisionalExpr productionFailures,
@@ -457,8 +506,15 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
         forwardAnalysisBindings
       )
   where
+    preludeStatementIndices = scopePreludeStatementIndices
+    inferExpression = scopeInferExpression
+    mode = scopeProductionMode
+    builtinMode = scopeBuiltinMode
+    initialEnv = scopeInitialEnv
+    initialState = scopeInitialState
+
     inferPlain builtin env state expr =
-      let (result, nextState) = inferExpression mode builtin env state expr
+      let (result, nextState) = scopeInferExpression scopeProductionMode builtin env state expr
        in (inferredExpressionType result, nextState)
 
     indexedStatements = zip [0 ..] statements
@@ -556,7 +612,7 @@ inferScopeTypeInternal allowForwardSignedFunctions preludeStatementIndices infer
     predeclaredDataTypes =
       predeclareScopeDataTypes indexedStatements initialState
     scopePreparation =
-      prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatements initialState
+      prepareScope scopeForwardSignedFunctionsPolicy mode predeclaredDataTypes indexedStatements initialState
     bindingSeedsByStatement = preparedBindingSeeds scopePreparation
     preparedSignaturesByStatement = preparedSignatures scopePreparation
     forwardFunctionBindings = preparedForwardFunctions scopePreparation
@@ -1626,13 +1682,13 @@ data ScopePreparation = ScopePreparation
   }
 
 prepareScope ::
-  Bool ->
+  ForwardSignedFunctionsPolicy ->
   TypedCoreProductionMode ->
   Map Text DataTypeBinding ->
   [(Int, Statement)] ->
   InferState ->
   ScopePreparation
-prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatements initialState =
+prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedStatements initialState =
   let (bindingSeeds, signatures, forwardFunctions, _, _, finalPreparationState) =
         foldl'
           step
@@ -1756,7 +1812,7 @@ prepareScope allowForwardSignedFunctions mode predeclaredDataTypes indexedStatem
               nextForwardFunctions =
                 case pendingSignature of
                   Just (PreparedSignature (Just signature) True)
-                    | allowForwardSignedFunctions,
+                    | forwardSignedFunctionsPermitted forwardSignedFunctionsPolicy,
                       mode == ProduceTypedCoreExpressionDirectCall,
                       pendingSignatureName signature == identifierText bindingName,
                       ELambda {} <- bindingExpression,
