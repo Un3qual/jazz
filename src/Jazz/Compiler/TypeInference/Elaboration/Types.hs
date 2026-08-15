@@ -19,6 +19,8 @@ module Jazz.Compiler.TypeInference.Elaboration.Types
     FunctionProfile (..),
     ExpressionRole (..),
     ExpressionEvaluation (..),
+    FinalizationEnv (..),
+    FinalizationLocation (..),
     blockedTypedCoreProductionOutcome,
     unsupportedTypedCoreProductionOutcome,
     invariantFailuresTypedCoreProductionOutcome,
@@ -29,6 +31,7 @@ module Jazz.Compiler.TypeInference.Elaboration.Types
   )
 where
 
+import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( Literal,
@@ -37,12 +40,14 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
     TypeBinding,
   )
 import Jazz.Compiler.TypedCore
-  ( TypedCallableShape,
+  ( TypedBinderId,
+    TypedCallableShape,
     TypedCoreValidationFailure,
     TypedProgram,
   )
@@ -238,3 +243,21 @@ data ExpressionRole
 data ExpressionEvaluation
   = EagerExpression
   | DeferredExpression
+
+data FinalizationEnv = FinalizationEnv
+  { finalizationInferState :: InferState,
+    finalizationModulePath :: [Text],
+    finalizationFunctions :: Map Name FunctionProfile,
+    finalizationCallableShapes :: Map Name TypedCallableShape,
+    finalizationScalarCaptureTypes :: Map TypedBinderId ExpressionType,
+    finalizationEagerClosureCaptureStatements :: Map Name Int
+  }
+
+data FinalizationLocation = FinalizationLocation
+  { finalizationStatementIndex :: Int,
+    finalizationChildPath :: [Int],
+    finalizationParameters :: Map Name TypedBinderId,
+    finalizationScalarBindings :: Map Name TypedBinderId,
+    finalizationExpressionEvaluation :: ExpressionEvaluation,
+    finalizationExpressionRole :: ExpressionRole
+  }
