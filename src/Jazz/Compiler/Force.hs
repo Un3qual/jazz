@@ -38,21 +38,9 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    DiagnosticLabel,
     SourceSpan,
-    diagnosticCode,
-    diagnosticHelp,
-    diagnosticNotes,
-    diagnosticOrigin,
-    diagnosticPrimaryLabel,
-    diagnosticSecondaryLabels,
-    diagnosticSeverity,
-    diagnosticSubject,
-    diagnosticSummary,
-    diagnosticWarningCategory,
-    labelMessage,
-    labelSpan,
   )
+import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.LoweredIR
   ( LoweredBlock (..),
     LoweredBlockId (..),
@@ -125,7 +113,7 @@ import Jazz.Compiler.Parser.Lexer
   )
 import Jazz.Compiler.Runtime.Semantics (renderRuntimeValue)
 import Jazz.Compiler.Runtime.Types (RuntimeValue)
-import Jazz.Compiler.TypeInference (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
@@ -935,25 +923,6 @@ forceSignatureToken token = token `seq` ()
 
 forceSourceSpan :: SourceSpan -> ()
 forceSourceSpan sourceSpan = sourceSpan `seq` ()
-
-forceDiagnostic :: Diagnostic -> ()
-forceDiagnostic diagnostic =
-  diagnosticSeverity diagnostic `seq`
-    diagnosticCode diagnostic `seq`
-      diagnosticWarningCategory diagnostic `seq`
-        diagnosticOrigin diagnostic `seq`
-          diagnosticSummary diagnostic `seq`
-            forceMaybeWith forceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
-              forceListWith forceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
-                forceMaybeWith (\subject -> subject `seq` ()) (diagnosticSubject diagnostic) `seq`
-                  forceListWhnf (diagnosticNotes diagnostic) `seq`
-                    forceMaybeWith (\helpText -> helpText `seq` ()) (diagnosticHelp diagnostic)
-
-forceDiagnosticLabel :: DiagnosticLabel -> ()
-forceDiagnosticLabel diagnosticLabel =
-  labelSpan diagnosticLabel `seq`
-    labelMessage diagnosticLabel `seq`
-      ()
 
 forceModuleInterface :: ModuleInterface -> ()
 forceModuleInterface interface =

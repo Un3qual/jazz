@@ -42,10 +42,10 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Prelude (PreparedPrelude (..))
 import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
-    InferenceResult (..),
     inferExpressionWithInputs,
     inferExpressionWithInputsAndHiddenStatements
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),

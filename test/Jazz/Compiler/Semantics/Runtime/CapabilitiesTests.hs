@@ -58,10 +58,10 @@ import Jazz.Compiler.RuntimeHints
     explicitTypeApplicationRuntimeHintKeyInModule
   )
 import Jazz.Compiler.TypeInference
-  ( InferenceResult (..),
-    inferExpressionWithBuiltins,
+  ( inferExpressionWithBuiltins,
     inferExpressionWithBuiltinsAndSourceUnitStatements
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings
   )

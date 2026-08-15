@@ -42,9 +42,9 @@ import Jazz.Compiler.PatternCoverage
   )
 import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
-    InferenceResult (..),
     inferExpressionWithInputs,
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),

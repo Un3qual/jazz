@@ -62,22 +62,10 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    DiagnosticLabel,
     SourceSpan,
-    diagnosticCode,
-    diagnosticHelp,
-    diagnosticNotes,
-    diagnosticOrigin,
-    diagnosticPrimaryLabel,
-    diagnosticSecondaryLabels,
-    diagnosticSeverity,
-    diagnosticSubject,
-    diagnosticSummary,
-    diagnosticWarningCategory,
     isErrorDiagnostic,
-    labelMessage,
-    labelSpan,
   )
+import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
@@ -153,6 +141,7 @@ import Jazz.Compiler.TypeInference.Pattern
   ( InferredPatternCaseArm (..),
     inferPatternCaseTypeWithResults,
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplicationWithResult,
     inferNestedScopeTypeWithMode,
@@ -203,17 +192,6 @@ import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,
   )
-
--- | `InferenceResult` keeps the canonicalized expression plus one ordered
--- diagnostic stream containing analyzer reports followed by type-inference
--- reports.
-data InferenceResult = InferenceResult
-  { inferredExpr :: Expr,
-    inferredDiagnostics :: [Diagnostic],
-    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
-    inferredModuleInterface :: ModuleInterface
-  }
-  deriving (Eq, Show)
 
 data InferenceInputs = InferenceInputs
   { inferenceBuiltinMode :: BuiltinResolutionMode,
@@ -405,8 +383,8 @@ finishInference mode inputs hiddenStatementIndices subject inferredResult forwar
 -- producer skips this boundary because its finalizer still needs that state.
 forceFinalizedInferenceContainers :: FinalizedInference -> ()
 forceFinalizedInferenceContainers finalizedInference =
-  forceListWith forceInferenceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
-    forceListWith forceInferenceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
+  forceListWith forceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
+    forceListWith forceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
       forceMapEntriesWhnf (finalizedRuntimeTypeHints finalizedInference) `seq`
         forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
 
@@ -427,28 +405,6 @@ coverageFailureDiagnostic failure =
       mkNonExhaustivePatternMatchError missingPattern
     UnreachablePatternArm armIndex ->
       mkUnreachablePatternArmError armIndex
-
--- This is phase-owned rather than imported from 'Jazz.Compiler.Force': that
--- structural-forcing module already depends on this module through
--- 'InferenceResult'. Keep the two definitions aligned.
-forceInferenceDiagnostic :: Diagnostic -> ()
-forceInferenceDiagnostic diagnostic =
-  diagnosticSeverity diagnostic `seq`
-    diagnosticCode diagnostic `seq`
-      diagnosticWarningCategory diagnostic `seq`
-        diagnosticOrigin diagnostic `seq`
-          diagnosticSummary diagnostic `seq`
-            forceMaybeWith forceInferenceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
-              forceListWith forceInferenceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
-                forceMaybeWhnf (diagnosticSubject diagnostic) `seq`
-                  forceListWith (\note -> note `seq` ()) (diagnosticNotes diagnostic) `seq`
-                    forceMaybeWhnf (diagnosticHelp diagnostic)
-
-forceInferenceDiagnosticLabel :: DiagnosticLabel -> ()
-forceInferenceDiagnosticLabel diagnosticLabel =
-  labelSpan diagnosticLabel `seq`
-    labelMessage diagnosticLabel `seq`
-      ()
 
 forceModuleInterfaceContainers :: ModuleInterface -> ()
 forceModuleInterfaceContainers moduleInterface =
@@ -472,12 +428,6 @@ forceListWith forceValue values =
   case values of
     [] -> ()
     value : remaining -> forceValue value `seq` forceListWith forceValue remaining
-
-forceMaybeWith :: (value -> ()) -> Maybe value -> ()
-forceMaybeWith = maybe ()
-
-forceMaybeWhnf :: Maybe value -> ()
-forceMaybeWhnf = forceMaybeWith (\value -> value `seq` ())
 
 inferResolvedModuleTypedCoreExpressionDirectCall ::
   InferenceInputs ->

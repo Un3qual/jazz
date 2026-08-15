@@ -120,9 +120,9 @@ import Jazz.Compiler.SourceProgram
     scopeStatements
   )
 import Jazz.Compiler.TypeInference
-  ( InferenceResult (..),
-    inferExpressionWithBuiltinsAndSourceUnitStatements
+  ( inferExpressionWithBuiltinsAndSourceUnitStatements
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig
   ( WarningSettings
   )

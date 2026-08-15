@@ -98,6 +98,7 @@ library jazz-internal
       Jazz.Compiler.CapabilityFacts
       Jazz.Compiler.Diagnostics
       Jazz.Compiler.Diagnostics.Render
+      Jazz.Compiler.Diagnostics.Strictness
       Jazz.Compiler.DiagnosticCatalog
       Jazz.Compiler.Driver
       Jazz.Compiler.Force
@@ -154,6 +155,7 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Elaboration
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
+      Jazz.Compiler.TypeInference.Result
       Jazz.Compiler.TypeInference.Scope
       Jazz.Compiler.TypeInference.Signature
       Jazz.Compiler.TypeInference.State

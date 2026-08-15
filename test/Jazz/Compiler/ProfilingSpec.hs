@@ -86,7 +86,7 @@ import Jazz.Compiler.Profiling
   )
 import Jazz.Compiler.Runtime.Types (RuntimeValue (VConstructor))
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey (ExplicitTypeApplicationRuntimeHintKey))
-import Jazz.Compiler.TypeInference (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
     ConstructorArgumentType (ConstructorArgumentMonomorphic),

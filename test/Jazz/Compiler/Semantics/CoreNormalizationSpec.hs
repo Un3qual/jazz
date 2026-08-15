@@ -10,9 +10,9 @@ import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
 import Jazz.Compiler.TypeInference
-  ( InferenceResult (inferredExpr),
-    inferExpressionDefault
+  ( inferExpressionDefault
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (inferredExpr))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,

@@ -23,7 +23,8 @@ import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..), exportInventory)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
 import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
-import Jazz.Compiler.TypeInference
+import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Elaboration
   ( InferredExpr (..),
     ProvisionalCallableDeclaration (..),
