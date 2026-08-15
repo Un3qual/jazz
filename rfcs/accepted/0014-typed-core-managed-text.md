@@ -96,6 +96,22 @@ rest of the public Text module.
 
 ## Implementation status
 
-Accepted for implementation planning on 2026-08-15. No implementation or
-ordinary compile/run behavior is claimed until the queue child is completed
-and verified.
+Implemented on 2026-08-15 by
+`JN-BOOTSTRAP-TYPED-CORE-MANAGED-TEXT-001`.
+
+The opt-in producer now retains managed Text in every approved value position
+and recognizes only the exactly saturated catalog-owned length, append, and
+append-char kernel identities. The lowerer emits
+`jazz.layout.text.v1` once when required and emits only referenced pure Text
+services in equality, length, append, append-char order. Exact fixtures cover
+transport through bindings, direct and closure calls, captures, conditional
+and scalar-case results, CFG joins, returns, and tail operands; operation
+fixtures cover service deduplication, ordering, and left-to-right evaluation
+through nested control flow.
+
+Bare and partial approved builtin uses, oversaturation diagnostics, managed
+patterns and scrutinees, collections, broader Text operations, Text I/O,
+imports, and malformed service references remain locked at their existing
+producer, lowerer, or validator boundaries. The implementation changes no
+Typed Core or Lowered IR schema, hosted Jazz validator, `RuntimeHost`, native
+ABI, or ordinary compile/run path.

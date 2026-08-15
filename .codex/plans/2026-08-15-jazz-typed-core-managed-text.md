@@ -1,12 +1,12 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-MANAGED-TEXT-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Task 2"
+plan_section: "Full closeout"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration.hs
   - src/Jazz/Compiler/LoweredIR/Lower.hs
@@ -528,12 +528,12 @@ and the reference interpreter.
   and returns the bootstrap umbrella to a terminal-empty state without
   inventing a managed-collections successor.
 
-- [ ] **Step 1: Complete negative exact fixtures.** Verify every exclusion
+- [x] **Step 1: Complete negative exact fixtures.** Verify every exclusion
       above returns its existing ordered diagnostics/profile failures and no
       partial Typed Core or Lowered IR artifact. Include a hand-built malformed
       service signature/reference case for Lowered IR validation ownership.
 
-- [ ] **Step 2: Run focused verification.** Run:
+- [x] **Step 2: Run focused verification.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
@@ -541,20 +541,20 @@ and the reference interpreter.
 
   Expected: all positive, negative, and schema/validator parity cases pass.
 
-- [ ] **Step 3: Commit the boundary tests.** Run:
+- [x] **Step 3: Commit the boundary tests.** Run:
 
   ```bash
   git add test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   git commit -m "test: lock managed text profile boundaries"
   ```
 
-- [ ] **Step 4: Update implementation documentation and durable state.** Record
+- [x] **Step 4: Update implementation documentation and durable state.** Record
       the producer/lowerer boundary, exact layout/services, exclusions, tests,
       and ordinary compile/run non-cutover. Mark this plan complete, remove its
       ready row, and update the bootstrap blocker with completion evidence and
       no automatic successor.
 
-- [ ] **Step 5: Run full repository verification.** Run, in order:
+- [x] **Step 5: Run full repository verification.** Run, in order:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -567,7 +567,7 @@ and the reference interpreter.
   hosted Jazz, schema, interpreter, public Text, native ABI, or unrelated queue
   change entered the batch.
 
-- [ ] **Step 6: Commit the closeout milestone.** Run:
+- [x] **Step 6: Commit the closeout milestone.** Run:
 
   ```bash
   git add docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/README.md rfcs/accepted/0014-typed-core-managed-text.md .codex/plans/2026-08-15-jazz-typed-core-managed-text.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
@@ -576,15 +576,15 @@ and the reference interpreter.
 
 ## Final review checklist
 
-- [ ] Every RFC 0014 positive behavior has an exact Typed Core and exact
+- [x] Every RFC 0014 positive behavior has an exact Typed Core and exact
       Lowered IR expectation.
-- [ ] Every explicit exclusion has a negative fixture at its owning boundary.
-- [ ] Text construction/transport declares one layout and zero services.
-- [ ] Equality, length, append, and append-char declare only referenced
+- [x] Every explicit exclusion has a negative fixture at its owning boundary.
+- [x] Text construction/transport declares one layout and zero services.
+- [x] Equality, length, append, and append-char declare only referenced
       services in catalog order.
-- [ ] Pattern scrutinees still use immediate-scalar validation.
-- [ ] Bare, partial, and oversaturated approved builtin behavior matches the
+- [x] Pattern scrutinees still use immediate-scalar validation.
+- [x] Bare, partial, and oversaturated approved builtin behavior matches the
       accepted failure precedence.
-- [ ] No new schema node, version, hosted Jazz change, host callback, native
+- [x] No new schema node, version, hosted Jazz change, host callback, native
       symbol, or normal compile/run path exists.
-- [ ] All frontmatter verification commands pass from a clean worktree.
+- [x] All frontmatter verification commands pass from a clean worktree.

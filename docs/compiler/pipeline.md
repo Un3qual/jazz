@@ -73,12 +73,20 @@ intent in the existing Lowered IR only; it changes neither its schema, format,
 or validator nor the runtime ABI, public language semantics, hosted compiler,
 or native-stack behavior.
 
-Managed patterns remain outside the path until managed values have stable
-layouts, tags, projections, and ownership during production and lowering.
-Pattern lambdas remain outside it because invocation-time mismatch must be
-defined across closure construction, currying, recursion, and callable
-identity. Source-level exhaustiveness and unreachable-arm diagnostics are
-implemented under RFC 0012; the backend profile's final-catch-all requirement
-is a separate lowering boundary. Later or interleaved external captures, scalar
-exports, complete multi-module integration, native emission, linking, and a
-native runtime also remain outside this path.
+Managed `Text` values can cross the same bindings, call boundaries, captures,
+control-flow edges, returns, and tail-call operands. One stable Text layout
+supports literal construction and transport. Strict equality, length, append,
+and append-char use exact pure runtime-service dependencies; inequality calls
+equality and then Boolean-not. The lowerer emits only referenced services in a
+fixed order and does not expose them through `RuntimeHost` or a native ABI.
+
+Managed constructor, list, and tuple patterns, managed scrutinees, and Text
+literal patterns remain outside the path. Pattern lambdas remain outside it
+because invocation-time mismatch must be defined across closure construction,
+currying, recursion, and callable identity. Text uncons, from-chars, concat,
+I/O, and collection transport also remain separate contracts. Source-level
+exhaustiveness and unreachable-arm diagnostics are implemented under RFC 0012;
+the backend profile's final-catch-all requirement is a separate lowering
+boundary. Later or interleaved external captures, scalar exports, complete
+multi-module integration, native emission, linking, and a native runtime also
+remain outside this path.
