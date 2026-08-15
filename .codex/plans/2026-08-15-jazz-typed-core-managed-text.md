@@ -362,8 +362,8 @@ and the reference interpreter.
   ```
 
 - The canonical callee is a `TypedVariableExpr` whose reference is
-  `TypedBuiltinName (builtinSymbolName symbol)` and whose binder reference is
-  absent.
+  `TypedBuiltinName (builtinSymbolKernelName symbol)` and whose binder reference
+  is absent. Kernel intrinsics have no accepted unprefixed Typed Core identity.
 - Use `builtinSymbolArity`; do not duplicate arity in elaboration.
 - Exactly saturated calls use existing staged `TypedApplyExpr` nodes and the
   resolved callable type/recipe. No other builtin or non-local call is added to
@@ -371,7 +371,7 @@ and the reference interpreter.
 - Existing `TypedBinaryExpr` production handles Text `==` and `!=` after both
   operands finalize with Text information; result information remains Bool.
 
-- [ ] **Step 1: Add exact operation producer fixtures.** Cover:
+- [x] **Step 1: Add exact operation producer fixtures.** Cover:
 
   ```jazz
   "left" == "right".
@@ -385,35 +385,35 @@ and the reference interpreter.
   append-char. Expected Typed Core must use canonical `TypedBuiltinName`
   identities and exact staged recipes.
 
-- [ ] **Step 2: Add producer-boundary negatives.** Cover a bare approved
+- [x] **Step 2: Add producer-boundary negatives.** Cover a bare approved
       builtin, a one-argument partial append, a one-argument partial
       append-char, and an oversaturated length call. Assert exact structured
       profile failures for bare/partial uses and ordinary diagnostic precedence
       for oversaturation. Keep kernel uncons, from-chars, and concat rejected
       by their existing boundaries.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Expected: Text equality
+- [x] **Step 3: Run the focused suite and verify RED.** Expected: Text equality
       can now type but approved kernel calls still receive non-local call
       failures; exact operation expectations do not match.
 
-- [ ] **Step 4: Implement canonical approved-builtin finalization.** Import
+- [x] **Step 4: Implement canonical approved-builtin finalization.** Import
       `BuiltinSymbol(..)`, `BuiltinResolutionMode(ResolveKernelOnly)`,
-      `builtinSymbolArity`, `builtinSymbolName`, and
+      `builtinSymbolArity`, `builtinSymbolKernelName`, and
       `lookupBuiltinSymbolInMode`. Branch before ordinary local-call handling,
       check exact arity, build the canonical callee, and reuse the existing
       staged application finalizer.
 
-- [ ] **Step 5: Implement bare/partial profile failures without changing
+- [x] **Step 5: Implement bare/partial profile failures without changing
       oversaturation.** A bare canonical approved builtin returns
       `TypedCoreCallableValueUnsupported`; an undersaturated application reports
       `TypedCoreCallArityUnsupported` with catalog expected/actual arity. Do not
       intercept a source expression that inference already rejected.
 
-- [ ] **Step 6: Run focused producer and Typed Core contract suites.** Expected:
+- [x] **Step 6: Run focused producer and Typed Core contract suites.** Expected:
       exact positive nodes pass, all negative precedence assertions pass, and
       unrelated builtins remain rejected.
 
-- [ ] **Step 7: Commit the operation-producer milestone.** Run:
+- [x] **Step 7: Commit the operation-producer milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs

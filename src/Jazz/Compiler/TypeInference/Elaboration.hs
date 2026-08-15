@@ -37,7 +37,14 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CaseArm (..), DataConstructor (..), Expr (..), ImplMethod (..), Literal (..), NumericType (..), Pattern (..), Statement (..))
-import Jazz.Compiler.BuiltinCatalog (numericTypeIsIntegral)
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly),
+    BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
+    builtinSymbolArity,
+    builtinSymbolKernelName,
+    lookupBuiltinSymbolInMode,
+    numericTypeIsIntegral,
+  )
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.ModuleExports
@@ -672,6 +679,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
                             Nothing
                           )
+          | Just _ <- approvedTextRuntimeServiceBuiltin name ->
+              ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
+                Nothing
+              )
           | otherwise ->
               ( [failureAt statementIndex childPath TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))],
                 Nothing
@@ -885,9 +896,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       let (callee, arguments, resultTypes) = applicationSpine expression
           selectedArguments =
             case callee of
-              ProvisionalVariableExpression name _
+              ProvisionalVariableExpression name expressionType
                 | Just function <- Map.lookup name functions ->
                     applicationArguments (functionType function) arguments
+                | Just _ <- approvedTextRuntimeServiceBuiltin name ->
+                    applicationArguments expressionType arguments
               _ -> arguments
           finalizedArguments =
             map
@@ -907,6 +920,32 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               selectedArguments
           argumentFailures = concatMap fst finalizedArguments
        in case callee of
+            ProvisionalVariableExpression name expressionType
+              | Just symbol <- approvedTextRuntimeServiceBuiltin name ->
+                  let expectedArity = builtinSymbolArity symbol
+                      actualArity = length arguments
+                      selectedResultTypes = applicationResultTypes expressionType resultTypes
+                      arityFailures =
+                        [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
+                        | actualArity /= expectedArity
+                        ]
+                      (calleeFailures, maybeCallee) =
+                        case callableInfo TypedDirectCallableShape expectedArity statementIndex childPath expressionType of
+                          Left failure -> ([failure], Nothing)
+                          Right info ->
+                            ( [],
+                              Just
+                                ( TypedVariableExpr
+                                    info
+                                    (TypedBuiltinName (builtinSymbolKernelName symbol))
+                                    Nothing
+                                )
+                            )
+                      childFailures = calleeFailures <> argumentFailures
+                   in case arityFailures of
+                        _ : _ -> (arityFailures <> childFailures, Nothing)
+                        [] ->
+                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments selectedResultTypes
             ProvisionalVariableExpression name _
               | Map.member name parameters ->
                   let expectedArity = 1
@@ -1252,6 +1291,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       case name of
         GeneratedName (OperatorBinding storageName) -> TypedGeneratedName (TypedOperatorBinding storageName)
         _ -> TypedResolvedName TypedCurrentModule TypedValueNamespace (identifierText name)
+
+    approvedTextRuntimeServiceBuiltin name =
+      case lookupBuiltinSymbolInMode ResolveKernelOnly (identifierText name) of
+        Just symbol@BuiltinTextLength -> Just symbol
+        Just symbol@BuiltinTextAppend -> Just symbol
+        Just symbol@BuiltinTextAppendChar -> Just symbol
+        _ -> Nothing
 
     scheme owner callableShape info =
       TypedScheme owner [] [] [] (typedNodeType info) (typedNodeRecipe info) maybeCallableShape

@@ -68,6 +68,8 @@ tests =
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
+    ("produces exact managed Text operations", testManagedTextOperationProduction),
+    ("keeps managed Text kernel values and arities bounded", testManagedTextKernelBoundaries),
     ("lowers managed Text literals with one layout and no services", testManagedTextLowering),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
@@ -1726,6 +1728,66 @@ testManagedTextProduction =
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
+testManagedTextOperationProduction :: IO ()
+testManagedTextOperationProduction =
+  mapM_ assertProduced managedTextOperationExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
+testManagedTextKernelBoundaries :: IO ()
+testManagedTextKernelBoundaries = do
+  mapM_ assertKernelUnsupported unsupportedExpectations
+  assertBlockedByDiagnostics "managed-text-oversaturated-length"
+  where
+    unsupportedExpectations =
+      [ ( "managed-text-bare-length",
+          TypedCoreCallableValueUnsupported,
+          TypedCoreNameDetail "__kernel_textLength"
+        ),
+        ( "managed-text-partial-append",
+          TypedCoreCallArityUnsupported,
+          TypedCoreArityDetail 2 1
+        ),
+        ( "managed-text-partial-append-char",
+          TypedCoreCallArityUnsupported,
+          TypedCoreArityDetail 2 1
+        )
+      ]
+    assertKernelUnsupported (name, kind, detail) = do
+      let fixture = producerEdgeFixture name
+          expected =
+            TypedCoreProductionUnsupported
+              [ TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                  kind
+                  detail
+              ]
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable rejection") firstRun secondRun
+      assertEqual (name <> " exact producer boundary") expected (typedCoreProductionStatus firstRun)
+    assertBlockedByDiagnostics name = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable rejection") firstRun secondRun
+      assertEqual (name <> " diagnostic precedence") TypedCoreProductionBlockedByDiagnostics (typedCoreProductionStatus firstRun)
 
 testManagedTextLowering :: IO ()
 testManagedTextLowering =

@@ -23,6 +23,9 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarBindingExpectedLoweredPrograms,
     managedTextProducerFixtures,
     managedTextExpectedPrograms,
+    managedTextOperationProducerFixtures,
+    managedTextOperationExpectedPrograms,
+    managedTextKernelBoundaryFixtures,
     managedTextExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,
@@ -62,7 +65,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly),
+    BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
+    builtinSymbolKernelName,
+  )
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.LoweredIR
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
@@ -1006,6 +1013,62 @@ managedTextExpectedPrograms =
     ("managed-text-scalar-case-result", managedTextScalarCaseResultProgram),
     ("unsupported-managed-capture", managedTextCaptureProgram),
     ("partial-call-managed-argument-failure", managedTextPartialApplicationProgram)
+  ]
+
+managedTextOperationProducerFixtures :: [(Text, Fixture)]
+managedTextOperationProducerFixtures =
+  [ ("managed-text-equality", sourceFixtureNoExports "managed-text-equality" managedTextEqualitySource),
+    ("managed-text-inequality", sourceFixtureNoExports "managed-text-inequality" managedTextInequalitySource),
+    ("managed-text-length", sourceFixtureNoExports "managed-text-length" managedTextLengthSource),
+    ("managed-text-append", sourceFixtureNoExports "managed-text-append" managedTextAppendSource),
+    ("managed-text-append-char", sourceFixtureNoExports "managed-text-append-char" managedTextAppendCharSource),
+    ("managed-text-combined-operations", sourceFixtureNoExports "managed-text-combined-operations" managedTextCombinedOperationsSource)
+  ]
+
+managedTextOperationExpectedPrograms :: [(Text, TypedProgram)]
+managedTextOperationExpectedPrograms =
+  [ ( "managed-text-equality",
+      expectedRootProgram
+        [TypedExpressionStatement (TypedSpan 2 1) (binaryExpr boolInfo "==" (textExpr "left") (textExpr "right"))]
+        boolInfo
+    ),
+    ( "managed-text-inequality",
+      expectedRootProgram
+        [TypedExpressionStatement (TypedSpan 2 1) (binaryExpr boolInfo "!=" (textExpr "left") (textExpr "right"))]
+        boolInfo
+    ),
+    ( "managed-text-length",
+      expectedRootProgram
+        [TypedExpressionStatement (TypedSpan 2 1) (managedTextBuiltinCall BuiltinTextLength [textInfo] intInfo [textExpr "Jazz"])]
+        intInfo
+    ),
+    ( "managed-text-append",
+      expectedRootProgram
+        [TypedExpressionStatement (TypedSpan 2 1) (managedTextBuiltinCall BuiltinTextAppend [textInfo, textInfo] textInfo [textExpr "Jazz", textExpr "!"])]
+        textInfo
+    ),
+    ( "managed-text-append-char",
+      expectedRootProgram
+        [TypedExpressionStatement (TypedSpan 2 1) (managedTextBuiltinCall BuiltinTextAppendChar [textInfo, charInfo] textInfo [textExpr "Jazz", charExpr '!'])]
+        textInfo
+    ),
+    ( "managed-text-combined-operations",
+      expectedRootProgram
+        [ TypedExpressionStatement (TypedSpan 2 1) (binaryExpr boolInfo "==" (textExpr "left") (textExpr "right")),
+          TypedExpressionStatement (TypedSpan 3 1) (managedTextBuiltinCall BuiltinTextLength [textInfo] intInfo [textExpr "Jazz"]),
+          TypedExpressionStatement (TypedSpan 4 1) (managedTextBuiltinCall BuiltinTextAppend [textInfo, textInfo] textInfo [textExpr "Jazz", textExpr "!"]),
+          TypedExpressionStatement (TypedSpan 5 1) (managedTextBuiltinCall BuiltinTextAppendChar [textInfo, charInfo] textInfo [textExpr "Jazz", charExpr '!'])
+        ]
+        textInfo
+    )
+  ]
+
+managedTextKernelBoundaryFixtures :: [(Text, Fixture)]
+managedTextKernelBoundaryFixtures =
+  [ ("managed-text-bare-length", sourceFixtureNoExports "managed-text-bare-length" managedTextBareLengthSource),
+    ("managed-text-partial-append", sourceFixtureNoExports "managed-text-partial-append" managedTextPartialAppendSource),
+    ("managed-text-partial-append-char", sourceFixtureNoExports "managed-text-partial-append-char" managedTextPartialAppendCharSource),
+    ("managed-text-oversaturated-length", sourceFixtureNoExports "managed-text-oversaturated-length" managedTextOversaturatedLengthSource)
   ]
 
 managedTextExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
@@ -2507,6 +2570,24 @@ managedTextPartialApplicationProgram =
         (variableExpr "right" intInfo)
     keepRightInfo = stagedFunctionInfo [("ignored", textInfo), ("right", intInfo)] intInfo
     remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+
+managedTextBuiltinCall :: BuiltinSymbol -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
+managedTextBuiltinCall symbol parameterInfos resultInfo arguments =
+  go
+    (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (TypedBuiltinName (builtinSymbolKernelName symbol)) Nothing)
+    parameterInfos
+    arguments
+  where
+    go functionExpression remainingParameters remainingArguments =
+      case (remainingParameters, remainingArguments) of
+        (_ : parameterRest, argument : argumentRest) ->
+          let applicationInfo =
+                case parameterRest of
+                  [] -> resultInfo
+                  _ -> stagedFunctionInfo (zip (repeat "") parameterRest) resultInfo
+           in go (TypedApplyExpr applicationInfo functionExpression argument) parameterRest argumentRest
+        ([], []) -> functionExpression
+        _ -> error "managed Text builtin expectation must be fully saturated"
 
 expectedRootProgram :: [TypedStatement] -> TypedNodeInfo -> TypedProgram
 expectedRootProgram statements moduleInfo =
@@ -4533,6 +4614,8 @@ producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   scalarBindingProducerFixtures
     <> managedTextProducerFixtures
+    <> managedTextOperationProducerFixtures
+    <> managedTextKernelBoundaryFixtures
     <> [ ( "scalar-pattern-case",
            sourceFixtureNoExports
              "scalar-pattern-case"
@@ -6232,6 +6315,24 @@ charEntrySource = "'j'."
 defaultIntEntrySource = "7."
 defaultFloatEntrySource = "1.05."
 managedTextLiteralSource = "\"managed\"."
+
+managedTextEqualitySource, managedTextInequalitySource, managedTextLengthSource, managedTextAppendSource, managedTextAppendCharSource, managedTextCombinedOperationsSource, managedTextBareLengthSource, managedTextPartialAppendSource, managedTextPartialAppendCharSource, managedTextOversaturatedLengthSource :: Text
+managedTextEqualitySource = "\"left\" == \"right\"."
+managedTextInequalitySource = "\"left\" != \"right\"."
+managedTextLengthSource = "__kernel_textLength \"Jazz\"."
+managedTextAppendSource = "__kernel_textAppend \"Jazz\" \"!\"."
+managedTextAppendCharSource = "__kernel_textAppendChar \"Jazz\" '!'."
+managedTextCombinedOperationsSource =
+  Text.unlines
+    [ "\"left\" == \"right\".",
+      "__kernel_textLength \"Jazz\".",
+      "__kernel_textAppend \"Jazz\" \"!\".",
+      "__kernel_textAppendChar \"Jazz\" '!'."
+    ]
+managedTextBareLengthSource = "__kernel_textLength."
+managedTextPartialAppendSource = "__kernel_textAppend \"Jazz\"."
+managedTextPartialAppendCharSource = "__kernel_textAppendChar \"Jazz\"."
+managedTextOversaturatedLengthSource = "__kernel_textLength \"Jazz\" 1."
 
 scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource, scalarBindingFailedInitializerSource, managedTextIdentitySource, managedTextCaptureTransportSource, managedTextConditionalResultSource, managedTextScalarCaseResultSource :: Text
 scalarBindingLiteralSource =
