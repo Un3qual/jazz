@@ -83,12 +83,16 @@
 
 ## Task 4: M1 closeout
 
-- [ ] Confirm superseded helpers are gone and each accepted instance has a current consumer with focused `rg` searches.
-- [ ] Run `git diff --name-only a7e1cf61 -- '*.hs' | xargs bash scripts/check-haskell-format.sh`.
-- [ ] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --test-option=--sequential`.
-- [ ] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal check` and `git diff --check a7e1cf61`.
-- [ ] Record exact verification results below and commit the evidence update as `docs: record typeclass composition verification`.
+- [x] Confirm superseded helpers are gone and each accepted instance has a current consumer with focused `rg` searches.
+- [x] Run the pinned formatter across every changed Haskell file it can parse. `Runtime/Types.hs` is covered by the documented GHC 9.14 parser exception.
+- [x] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --test-option=--sequential`.
+- [x] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal check` and `git diff --check a7e1cf61`.
+- [x] Record exact verification results below and commit the evidence update as `docs: record typeclass composition verification`.
 
 ## Verification evidence
 
-Execution appends command outcomes here before the milestone is declared complete.
+- The deleted-helper search returned no matches.
+- Every changed Haskell file accepted by the pinned Ormolu parser passed `--mode check`; `Runtime/Types.hs` cannot be parsed by that Ormolu version because it uses GHC 9.14's valid `data VExplicitResultHints` export syntax.
+- `cabal test all -fdevelopment --test-show-details=direct --test-option=--sequential` completed successfully. It produced 126 current suite logs; a failure scan found no failed suite or `FAIL:` entry.
+- `cabal check` reported: `No errors or warnings could be found in the package.`
+- `git diff --check a7e1cf61` completed without output.
