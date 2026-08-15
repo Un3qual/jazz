@@ -364,25 +364,25 @@ Cabal, Nix
   contract parity.
 - Full suite proves repository-wide compatibility under serialized execution.
 
-- [ ] **Step 1: Run focused verification.** Run:
+- [x] **Step 1: Run focused verification.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
   ```
 
-- [ ] **Step 2: Run the repository audit.** Run:
+- [x] **Step 2: Run the repository audit.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test repository-audit-spec --test-show-details=direct --jobs=1
   ```
 
-- [ ] **Step 3: Run the full serialized suite.** Run:
+- [x] **Step 3: Run the full serialized suite.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
   ```
 
-- [ ] **Step 4: Run final repository checks.** Run:
+- [x] **Step 4: Run final repository checks.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
@@ -391,12 +391,29 @@ Cabal, Nix
   git status --short --branch
   ```
 
-- [ ] **Step 5: Record fresh verification evidence in the plan's `Full
+- [x] **Step 5: Record fresh verification evidence in the plan's `Full
 closeout` section.** Include focused suite names, full suite count,
       documentation/queue/audit results, branch, and commit IDs.
 
 ## Full closeout
 
-Task 4 closes the documentation and dispatcher state. Task 5's focused,
-repository-audit, and full serialized-suite commands remain pending: this
-closeout records no fresh full-suite evidence and does not claim that gate ran.
+Task 5 fresh verification completed on 2026-08-14. On the Task 4 closeout
+state (`1427c7f2`), the following serialized Nix commands each exited 0:
+
+- `cabal test` for `jazz-typed-core-expression-direct-call-spec`,
+  `jazz-typed-core-contract-spec`, and `jazz-lowered-ir-contract-spec`, with
+  `--test-show-details=direct --jobs=1`;
+- `cabal test repository-audit-spec --test-show-details=direct --jobs=1`;
+- `cabal test all --test-show-details=direct --jobs=1`, which passed the
+  actual fresh total of 62 suites.
+
+The relevant implementation history is `05700567` (function-result tail
+calls), `40851b90` (consumed-call coverage), and `5720e73a` (control-flow
+tail position); Task 4 documentation and dispatcher closeout is `1427c7f2`.
+After those commands, `d6cf63e7` made only canonical Prettier whitespace
+changes to this plan and `.codex/execution/queue.md`; it changed no evidence,
+checkbox, or behavior. On current branch
+`codex/typed-core-tail-position-lowering`, the pinned Nix documentation check,
+`bash scripts/check-execution-queue.sh`, and `git diff --check` were rerun and
+each exited 0 with a clean worktree. No new full-suite run was required for
+that formatting-only commit.
