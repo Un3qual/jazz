@@ -141,6 +141,8 @@ library jazz-internal
       Jazz.Compiler.Purity
       Jazz.Compiler.RecursiveBindings
       Jazz.Compiler.Runtime
+      Jazz.Compiler.Runtime.Engine
+      Jazz.Compiler.Runtime.HostEvaluation
       Jazz.Compiler.Runtime.Outcome
       Jazz.Compiler.Runtime.Observation
       Jazz.Compiler.Runtime.Observation.Profile
