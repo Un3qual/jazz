@@ -1860,7 +1860,6 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
 
-
 -- | Operators whose representation is supported by direct-call production.
 isTypedCoreDirectCallOperator :: Text -> Bool
 isTypedCoreDirectCallOperator operatorSymbol =
