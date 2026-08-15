@@ -22,12 +22,19 @@ module Jazz.Compiler.TypedCore.Validate.Internal
     validatedTypedProgram,
     definitionNameKey,
     resolvedNameKey,
+    resolvedNameFromKey,
     withVisibleNames,
     withLexicalContracts,
+    validateSpan,
+    qualifyExternalType,
+    qualifyExternalRecipe,
+    qualifyExternalImplId,
+    qualifyExternalName,
     coreNameIdentifier,
     typedModulePath,
     implModulePath,
     implTargetTypes,
+    binderModulePath,
     renderModulePath,
     failure,
     maybeToList,
@@ -180,3 +187,62 @@ firstJust values =
     [] -> Nothing
     Nothing : rest -> firstJust rest
     Just value : _ -> Just value
+
+validateSpan :: TypedCoreValidationPath -> TypedSpan -> [TypedCoreValidationFailure]
+validateSpan path (TypedSpan line column)
+  | line > 0 && column > 0 = []
+  | otherwise = [failure path TypedInvalidSpan TypedNoValidationDetail]
+
+qualifyExternalType :: [Text] -> TypedType -> TypedType
+qualifyExternalType modulePath typeValue =
+  case typeValue of
+    TypedListType elementType -> TypedListType (qualifyExternalType modulePath elementType)
+    TypedTupleType elementTypes -> TypedTupleType (map (qualifyExternalType modulePath) elementTypes)
+    TypedDataType name arguments -> TypedDataType (qualifyExternalName modulePath name) (map (qualifyExternalType modulePath) arguments)
+    TypedFunctionType argument result -> TypedFunctionType (qualifyExternalType modulePath argument) (qualifyExternalType modulePath result)
+    _ -> typeValue
+
+qualifyExternalRecipe :: [Text] -> TypedRepresentationRecipe -> TypedRepresentationRecipe
+qualifyExternalRecipe modulePath recipe =
+  case recipe of
+    TypedManagedListRecipe elementRecipe -> TypedManagedListRecipe (qualifyExternalRecipe modulePath elementRecipe)
+    TypedManagedProductRecipe elementRecipes -> TypedManagedProductRecipe (map (qualifyExternalRecipe modulePath) elementRecipes)
+    TypedManagedVariantRecipe name arguments ->
+      TypedManagedVariantRecipe
+        (qualifyExternalName modulePath name)
+        (map (qualifyExternalType modulePath) arguments)
+    TypedClosureRecipe parameters result ->
+      TypedClosureRecipe
+        (map (qualifyExternalRecipe modulePath) parameters)
+        (qualifyExternalRecipe modulePath result)
+    _ -> recipe
+
+qualifyExternalImplId :: [Text] -> TypedImplId -> TypedImplId
+qualifyExternalImplId modulePath (TypedImplId implPath capability targetTypes) =
+  TypedImplId
+    implPath
+    (qualifyExternalName modulePath capability)
+    (map (qualifyExternalType modulePath) targetTypes)
+
+qualifyExternalName :: [Text] -> TypedCoreName -> TypedCoreName
+qualifyExternalName modulePath name =
+  case name of
+    TypedResolvedName TypedCurrentModule namespace identifier ->
+      TypedResolvedName
+        (if modulePath == ["Prelude"] then TypedAmbientPrelude else TypedImportedModule modulePath)
+        namespace
+        identifier
+    _ -> name
+
+binderModulePath :: TypedBinderId -> [Text]
+binderModulePath (TypedBinderId (modulePath, _, _)) = modulePath
+
+resolvedNameFromKey :: ModuleContext -> ResolvedNameKey -> TypedCoreName
+resolvedNameFromKey _ (GeneratedNameKey kind) = TypedGeneratedName kind
+resolvedNameFromKey context (ResolvedNameKey modulePath namespace identifier) =
+  TypedResolvedName origin namespace identifier
+  where
+    origin
+      | modulePath == moduleContextPath context = TypedCurrentModule
+      | modulePath == ["Prelude"] = TypedAmbientPrelude
+      | otherwise = TypedImportedModule modulePath
