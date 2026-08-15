@@ -48,7 +48,34 @@ nix --extra-experimental-features 'nix-command flakes' develop --command cabal t
 - Task 3 plan progress and this report are committed together in the commit
   containing this report.
 
+## Final-review follow-up
+
+The final branch review identified a Minor exact-coverage gap: existing nested
+conditional/case fixtures exercised synthetic module entry, while named
+function-result fixtures covered only a top-level conditional or scalar case.
+
+Two source-valid named-function fixtures now compare the complete produced
+Lowered IR program, including deterministic block IDs, against hand-written
+expectations:
+
+- `nested-tail-if-alternatives`: an `if` in one selected tail-`if` branch and a
+  scalar case in the other selected tail-`if` branch.
+- `nested-tail-case-bodies`: an `if` in one selected tail scalar-case body and
+  another scalar case in the other selected tail scalar-case body.
+
+Every nested selected body terminates directly with `LoweredReturn`; neither
+the outer nor nested function-result level contains a result join. The exact
+expected programs validate, produced Typed Core validates, and the existing
+entry/value-position join coverage remains green in the same focused suite.
+
+The focused direct-call suite passed before the test changes and the new exact
+fixtures passed on their first run, so no implementation change was needed.
+Final serialized focused verification, Ormolu checking for both touched test
+modules, and `git diff --check` all exited 0.
+
+Follow-up commit: `15259559` — `test: cover nested tail control flow`.
+
 ## Concerns
 
-None. Task 4/5 documentation, queue closeout, broad contract suites, and the
-full repository gate remain intentionally pending for their owning tasks.
+None from Task 3 or its final-review follow-up. No source, public docs, queue,
+or Task 5 evidence changed in the follow-up.
