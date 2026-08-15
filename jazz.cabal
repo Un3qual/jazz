@@ -330,6 +330,8 @@ test-suite profiling-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/ProfilingSpec.hs
+  build-depends:
+      deepseq >= 1.5 && < 1.6
 
 test-suite haskell-typeclass-contracts-spec
   import: test-common

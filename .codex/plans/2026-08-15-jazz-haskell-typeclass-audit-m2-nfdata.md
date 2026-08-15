@@ -68,10 +68,10 @@
 - Modify: `src/Jazz/Compiler/TypedCore.hs`
 - Modify: `test/Jazz/Compiler/ProfilingSpec.hs`
 
-- [ ] Add one compile-time test expression in the profiling strictness test module that requires `NFData TypedProgram`; confirm it fails before implementation.
-- [ ] Derive `Generic` and `NFData` for every Typed Core declaration from `TypedTypeParameterId` through `TypedProgram`, inclusive. Keep validation result and validation outcome types outside this contract.
-- [ ] Build the library, run `jazz-typed-core-contract-spec`, `jazz-typed-core-expression-direct-call-spec`, and profiling strictness tests.
-- [ ] Format and commit as `refactor: derive NFData for typed core`.
+- [x] Add one compile-time test expression in the profiling strictness test module that requires `NFData TypedProgram`; confirm it fails before implementation.
+- [x] Derive `Generic` and `NFData` for every Typed Core declaration from `TypedTypeParameterId` through `TypedProgram`, inclusive. Keep validation result and validation outcome types outside this contract.
+- [x] Build the library, run `jazz-typed-core-contract-spec`, `jazz-typed-core-expression-direct-call-spec`, and profiling strictness tests.
+- [x] Format and commit as `refactor: derive NFData for typed core`.
 
 ## Task 4: Lowered IR contract
 

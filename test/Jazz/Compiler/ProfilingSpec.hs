@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.DeepSeq (NFData, rnf)
 import Control.Exception (IOException, evaluate, throw, try)
 import Data.IORef
   ( IORef,
@@ -56,6 +57,10 @@ import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     exportInventory,
   )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedModule (..),
+  )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -63,10 +68,6 @@ import Jazz.Compiler.ModuleInterface
     ModuleInterface (..),
     emptyCompiledPrelude,
     emptyModuleInterface,
-  )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    ResolvedModule (..),
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (RuntimeBindingExport),
@@ -120,9 +121,20 @@ tests =
     ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
     ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
     ("typed-program forcing evaluates nested artifact payloads", testDeepTypedProgramForcing),
+    ("typed programs expose a structural NFData contract", testTypedProgramNFDataContract),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
+
+requireNFData :: (NFData value) => value -> ()
+requireNFData = rnf
+
+testTypedProgramNFDataContract :: IO ()
+testTypedProgramNFDataContract =
+  assertEqual
+    "typed program NFData contract"
+    ()
+    (requireNFData (Typed.TypedProgram Nothing [] []))
 
 testBenchmarkGroupMetadata :: IO ()
 testBenchmarkGroupMetadata = do

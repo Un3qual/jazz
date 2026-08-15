@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Semantic typed-core contract shared by the stage-0 compiler and the
@@ -5,23 +8,30 @@
 -- states constructible so the boundary validator can report them precisely.
 module Jazz.Compiler.TypedCore where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 
 newtype TypedTypeParameterId = TypedTypeParameterId Int
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedEvidenceParameterId = TypedEvidenceParameterId Int
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedBinderId = TypedBinderId ([Text], [Int], TypedCoreName)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedEvidenceParameterRef = TypedEvidenceParameterRef TypedBinderId TypedEvidenceParameterId
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedSourcePath = TypedSourcePath Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 validTypedSourcePath :: TypedSourcePath -> Bool
 validTypedSourcePath (TypedSourcePath sourcePath) =
@@ -41,14 +51,16 @@ data TypedNameOrigin
   = TypedCurrentModule
   | TypedImportedModule [Text]
   | TypedAmbientPrelude
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedNameNamespace
   = TypedValueNamespace
   | TypedConstructorNamespace
   | TypedTypeNamespace
   | TypedCapabilityNamespace
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedGeneratedNameKind
   = TypedLambdaPatternArgument Int
@@ -56,7 +68,8 @@ data TypedGeneratedNameKind
   | TypedOperatorSectionFunction
   | TypedOperatorSectionLeft
   | TypedOperatorSectionRight
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedCoreName
   = TypedUnresolvedSourceName Text
@@ -64,15 +77,18 @@ data TypedCoreName
   | TypedResolvedName TypedNameOrigin TypedNameNamespace Text
   | TypedBuiltinName Text
   | TypedGeneratedName TypedGeneratedNameKind
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedOperatorRef
   = TypedBuiltinOperator Text
   | TypedResolvedOperator TypedCoreName Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedSpan = TypedSpan Int Int
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedNumericType
   = TypedInt8Type
@@ -86,7 +102,8 @@ data TypedNumericType
   | TypedFloat16Type
   | TypedFloat32Type
   | TypedFloat64Type
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedType
   = TypedIntType
@@ -100,7 +117,8 @@ data TypedType
   | TypedDataType TypedCoreName [TypedType]
   | TypedFunctionType TypedType TypedType
   | TypedTypeParameterType TypedTypeParameterId
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedRepresentationRecipe
   = TypedUnitRecipe
@@ -115,7 +133,8 @@ data TypedRepresentationRecipe
   | TypedManagedVariantRecipe TypedCoreName [TypedType]
   | TypedClosureRecipe [TypedRepresentationRecipe] TypedRepresentationRecipe
   | TypedRepresentationParameterRecipe TypedTypeParameterId
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedNumericConstraint
   = TypedAnyNumericConstraint
@@ -123,23 +142,28 @@ data TypedNumericConstraint
   | TypedRuntimeComparisonNumericConstraint
   | TypedIntegralNumericConstraint
   | TypedIntegralLiteralNumericConstraint Text Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedPrimitiveConstraint
   = TypedNumericPrimitiveConstraint TypedNumericConstraint TypedType
   | TypedStrictEqualityPrimitiveConstraint TypedType
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedCapabilityConstraint = TypedCapabilityConstraint TypedCoreName (Maybe Text) TypedType
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedEvidenceParameter = TypedEvidenceParameter TypedEvidenceParameterId TypedCapabilityConstraint
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedCallableShape
   = TypedDirectCallableShape
   | TypedClosureCallableShape
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedScheme
   = TypedScheme
@@ -150,19 +174,24 @@ data TypedScheme
       TypedType
       TypedRepresentationRecipe
       (Maybe TypedCallableShape)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedTypeArgument = TypedTypeArgument TypedTypeParameterId TypedType
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedInstantiation = TypedInstantiation TypedBinderId [TypedTypeArgument] (Maybe TypedSpan)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedImplId = TypedImplId [Text] TypedCoreName [TypedType]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedMethodId = TypedMethodId TypedImplId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedEvidenceUse
   = TypedEvidenceUse
@@ -170,15 +199,18 @@ data TypedEvidenceUse
       TypedCapabilityConstraint
       TypedImplId
       (Maybe TypedMethodId)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedEvidenceCandidate = TypedEvidenceCandidate TypedImplId (Maybe TypedMethodId)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedEvidenceSelection
   = TypedSelectedEvidence TypedEvidenceUse
   | TypedEvidenceCandidates TypedCapabilityConstraint [TypedEvidenceCandidate]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedNodeInfo
   = TypedNodeInfo
@@ -186,7 +218,8 @@ data TypedNodeInfo
       TypedRepresentationRecipe
       [TypedInstantiation]
       [TypedEvidenceSelection]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedLiteral
   = TypedIntegerLiteral Text
@@ -194,7 +227,8 @@ data TypedLiteral
   | TypedBooleanLiteral Bool
   | TypedCharacterLiteral Char
   | TypedTextLiteral Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedPattern
   = TypedWildcardPattern TypedNodeInfo
@@ -206,10 +240,12 @@ data TypedPattern
   | TypedTuplePattern TypedNodeInfo [TypedPattern]
   | TypedAsPattern TypedNodeInfo TypedBinderId TypedCoreName TypedPattern
   | TypedOrPattern TypedNodeInfo [TypedPattern]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedCaseArm = TypedCaseArm TypedPattern (Maybe TypedExpr) TypedExpr
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedExpr
   = TypedLiteralExpr TypedNodeInfo TypedLiteral
@@ -226,7 +262,8 @@ data TypedExpr
   | TypedLeftSectionExpr TypedNodeInfo TypedExpr TypedOperatorRef
   | TypedRightSectionExpr TypedNodeInfo TypedOperatorRef TypedExpr
   | TypedBlockExpr TypedNodeInfo [TypedStatement]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 typedExpressionInfo :: TypedExpr -> TypedNodeInfo
 typedExpressionInfo expression =
@@ -258,7 +295,8 @@ data TypedConstructorDeclaration
       TypedCoreName
       [TypedType]
       [TypedRepresentationRecipe]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedDataDeclaration
   = TypedDataDeclaration
@@ -266,10 +304,12 @@ data TypedDataDeclaration
       TypedCoreName
       [TypedTypeParameterId]
       [TypedConstructorDeclaration]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedMethodSignature = TypedMethodSignature TypedCoreName TypedSpan TypedScheme
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedClassDeclaration
   = TypedClassDeclaration
@@ -277,7 +317,8 @@ data TypedClassDeclaration
       TypedCoreName
       [TypedTypeParameterId]
       [TypedMethodSignature]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedMethodDefinition
   = TypedMethodDefinition
@@ -286,10 +327,12 @@ data TypedMethodDefinition
       TypedCoreName
       TypedSpan
       TypedExpr
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedImplDeclaration = TypedImplDeclaration TypedSpan TypedImplId [TypedMethodDefinition]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedStatement
   = TypedLetStatement TypedBinderId TypedCoreName TypedSpan TypedScheme TypedExpr
@@ -298,25 +341,32 @@ data TypedStatement
   | TypedClassStatement TypedClassDeclaration
   | TypedImplStatement TypedImplDeclaration
   | TypedExpressionStatement TypedSpan TypedExpr
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedResolvedImport = TypedResolvedImport TypedSpan [Text] (Maybe Text) (Maybe [Text])
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedModuleExport = TypedModuleExport TypedNameNamespace Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedValueInterface = TypedValueInterface TypedCoreName TypedScheme
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedDataInterface = TypedDataInterface TypedDataDeclaration
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedClassInterface = TypedClassInterface TypedClassDeclaration
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedImplInterface = TypedImplInterface TypedImplId
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedModuleInterface
   = TypedModuleInterface
@@ -324,10 +374,12 @@ data TypedModuleInterface
       [TypedDataInterface]
       [TypedClassInterface]
       [TypedImplInterface]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype TypedRecursiveGroup = TypedRecursiveGroup [TypedBinderId]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedModule
   = TypedModule
@@ -339,10 +391,12 @@ data TypedModule
       [TypedRecursiveGroup]
       [TypedStatement]
       TypedNodeInfo
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedProgram = TypedProgram (Maybe TypedModule) [TypedModule] [Text]
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data TypedCoreValidationPath
   = TypedProgramPath
