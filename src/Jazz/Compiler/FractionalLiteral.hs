@@ -1,3 +1,7 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+
 -- | Source-exact metadata for decimal fractional literals.
 module Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
@@ -9,14 +13,17 @@ module Jazz.Compiler.FractionalLiteral
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Ratio
   ( (%),
   )
+import GHC.Generics (Generic)
 
 -- | Preserve enough decimal source structure to validate literal conversions
 -- before binary floating-point rounding can hide boundary cases.
 data FractionalLiteralSource = FractionalLiteralSource Integer Integer Integer
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 mkFractionalLiteralSource :: Integer -> Integer -> Int -> FractionalLiteralSource
 mkFractionalLiteralSource wholePart fractionalPart fractionalDigitCount =

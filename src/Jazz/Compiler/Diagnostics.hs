@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Presentation-neutral diagnostics shared by compiler, runtime, and tooling
@@ -42,18 +45,21 @@ module Jazz.Compiler.Diagnostics
     setDiagnosticRelatedSpan,
     setDiagnosticSubject,
     mkSameScopeRebindingWarning,
-    sortWarnings
-  ) where
+    sortWarnings,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.List (sortOn)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import Jazz.Compiler.DiagnosticCatalog
   ( DiagnosticCode,
     DiagnosticSeverity (..),
     ErrorCode,
     WarningCategory (..),
     errorCode,
-    warningCode
+    warningCode,
   )
 
 -- | 1-based source location used throughout the compiler. Standalone parsing
@@ -69,7 +75,8 @@ data SourceSpan
         spanLine :: Int,
         spanColumn :: Int
       }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Broad ownership needed by result filtering without coupling the common
 -- report to phase-specific compiler types.
@@ -77,7 +84,8 @@ data DiagnosticOrigin
   = CompilationOrigin
   | RuntimeOrigin
   | ToolingOrigin
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | A source span plus phase-owned explanatory text. Presentation punctuation
 -- remains the renderer's responsibility.
@@ -85,7 +93,8 @@ data DiagnosticLabel = DiagnosticLabel
   { labelSpan :: SourceSpan,
     labelMessage :: Text
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data Diagnostic = Diagnostic
   { diagnosticSeverity :: DiagnosticSeverity,
@@ -99,7 +108,8 @@ data Diagnostic = Diagnostic
     diagnosticNotes :: [Text],
     diagnosticHelp :: Maybe Text
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 mkErrorDiagnostic :: ErrorCode -> DiagnosticOrigin -> Text -> Diagnostic
 mkErrorDiagnostic code origin summary =

@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Structured names used after surface syntax is lowered into the core AST.
@@ -25,23 +28,27 @@ module Jazz.Compiler.Name
     resolvedAmbientName,
     resolvedImportedName,
     resolvedLocalName,
-    sourceName
-  ) where
+    sourceName,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Char
   ( ord,
-    toUpper
+    toUpper,
   )
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.Purity (Purity (..))
 import qualified Jazz.Compiler.Purity as Purity
 import Numeric (showHex)
 
 -- | A source identifier paired with the purity implied by its spelling.
 data Identifier = Identifier Text Purity
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 class IdentifierLike name where
   identifierText :: name -> Text
@@ -97,13 +104,15 @@ data NameNamespace
   | ConstructorNamespace
   | TypeNamespace
   | CapabilityNamespace
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data ResolvedNameOrigin
   = CurrentModule
   | ImportedModule [Text]
   | AmbientPrelude
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | `OperatorBinding` retains the canonical hidden storage spelling until the
 -- parser surface grows a dedicated operator-binding node.
@@ -113,7 +122,8 @@ data GeneratedNameKind
   | OperatorSectionFunction
   | OperatorSectionLeft
   | OperatorSectionRight
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data Name
   = SourceName Identifier
@@ -121,7 +131,8 @@ data Name
   | ResolvedName ResolvedNameOrigin NameNamespace Identifier
   | BuiltinName Identifier
   | GeneratedName GeneratedNameKind
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 instance IsString Name where
   fromString = SourceName . fromString

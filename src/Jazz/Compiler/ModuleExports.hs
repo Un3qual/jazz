@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared typed inventory for source and compiled module exports.
@@ -28,6 +31,7 @@ module Jazz.Compiler.ModuleExports
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -37,6 +41,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics (SourceSpan, qualifySourceSpan)
 import Jazz.Compiler.Name (NameNamespace (..))
 
@@ -44,18 +49,21 @@ data LocatedModuleExportName = LocatedModuleExportName
   { locatedModuleExportName :: Text,
     locatedModuleExportSpan :: SourceSpan
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data ModuleTypeConstructorSelector
   = AbstractType
   | AllTypeConstructors SourceSpan
   | SelectedTypeConstructors (NonEmpty LocatedModuleExportName)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data ModuleExportSelector
   = ModuleExportSelector (Maybe NameNamespace) Text
   | ModuleTypeExportSelector Text SourceSpan ModuleTypeConstructorSelector
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 moduleExportSelectorName :: ModuleExportSelector -> Text
 moduleExportSelectorName selector =
@@ -97,10 +105,12 @@ data ModuleExport = ModuleExport
   { moduleExportNamespace :: NameNamespace,
     moduleExportName :: Text
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype ModuleExportInventory = ModuleExportInventory (Set ModuleExport)
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 instance Semigroup ModuleExportInventory where
   ModuleExportInventory left <> ModuleExportInventory right =

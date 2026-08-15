@@ -31,18 +31,18 @@
 - Modify: `src/Jazz/Compiler/Name.hs`
 - Modify: `src/Jazz/Compiler/DiagnosticCatalog.hs`
 - Modify: `src/Jazz/Compiler/Diagnostics.hs`
-- Modify: `src/Jazz/Compiler/RecursiveBindings.hs`
+- Modify: `src/Jazz/Compiler/RuntimeHints.hs`
 - Modify: `src/Jazz/Compiler/BuiltinCatalog.hs`
 - Modify: `src/Jazz/Compiler/ModuleExports.hs`
 
-- [ ] Run `profiling-spec` before edits and preserve its output as the characterization baseline.
-- [ ] Add `deepseq >= 1.5 && < 1.6` to the private `jazz-internal` library dependency list, not just test or benchmark components.
-- [ ] Enable `DeriveAnyClass`, `DeriveGeneric`, and `DerivingStrategies` only in modules that need them. Import `Control.DeepSeq (NFData)` and `GHC.Generics (Generic)` explicitly.
-- [ ] Derive stock `Generic` and anyclass `NFData` for `Purity` and `FractionalLiteralSource`.
-- [ ] Derive them for name leaves: `Identifier`, `NameNamespace`, `ResolvedNameOrigin`, `GeneratedNameKind`, and `Name`.
-- [ ] Derive them for diagnostic leaves: `ErrorCode`, `WarningCategory`, `DiagnosticSeverity`, and `DiagnosticCode` in `DiagnosticCatalog.hs`, then `SourceSpan`, `DiagnosticOrigin`, `DiagnosticLabel`, and `Diagnostic` in `Diagnostics.hs`. Do not migrate `DiagnosticSubsystem`, `DiagnosticMetadata`, or ownership enumeration types.
-- [ ] Derive them for `BindingRuntimeHintKey`, `BuiltinResolutionMode`, `BuiltinSymbol`, `LocatedModuleExportName`, `ModuleTypeConstructorSelector`, `ModuleExportSelector`, `ModuleExport`, and `ModuleExportInventory`. Do not migrate `ModuleImportMode`.
-- [ ] Run a development library build and `profiling-spec`; format and commit as `refactor: derive NFData for compiler leaves`.
+- [x] Run `profiling-spec` before edits and preserve its output as the characterization baseline.
+- [x] Add `deepseq >= 1.5 && < 1.6` to the private `jazz-internal` library dependency list, not just test or benchmark components.
+- [x] Enable `DeriveAnyClass`, `DeriveGeneric`, and `DerivingStrategies` only in modules that need them. Import `Control.DeepSeq (NFData)` and `GHC.Generics (Generic)` explicitly.
+- [x] Derive stock `Generic` and anyclass `NFData` for `Purity` and `FractionalLiteralSource`.
+- [x] Derive them for name leaves: `Identifier`, `NameNamespace`, `ResolvedNameOrigin`, `GeneratedNameKind`, and `Name`.
+- [x] Derive them for diagnostic leaves: `ErrorCode`, `WarningCategory`, `DiagnosticSeverity`, and `DiagnosticCode` in `DiagnosticCatalog.hs`, then `SourceSpan`, `DiagnosticOrigin`, `DiagnosticLabel`, and `Diagnostic` in `Diagnostics.hs`. Do not migrate `DiagnosticSubsystem`, `DiagnosticMetadata`, or ownership enumeration types.
+- [x] Derive them for `BindingRuntimeHintKey`, `BuiltinResolutionMode`, `BuiltinSymbol`, `LocatedModuleExportName`, `ModuleTypeConstructorSelector`, `ModuleExportSelector`, `ModuleExport`, and `ModuleExportInventory`. Do not migrate `ModuleImportMode`.
+- [x] Run a development library build and `profiling-spec`; format and commit as `refactor: derive NFData for compiler leaves`.
 
 ## Task 2: Canonical, module, and inference structures
 
