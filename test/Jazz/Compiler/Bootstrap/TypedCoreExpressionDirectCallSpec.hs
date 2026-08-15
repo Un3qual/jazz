@@ -69,6 +69,7 @@ tests =
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
     ("produces exact managed Text operations", testManagedTextOperationProduction),
+    ("lowers exact managed Text runtime services", testManagedTextOperationLowering),
     ("keeps managed Text kernel values and arities bounded", testManagedTextKernelBoundaries),
     ("lowers managed Text literals with one layout and no services", testManagedTextLowering),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
@@ -1745,6 +1746,18 @@ testManagedTextOperationProduction =
         (TypedCoreProductionSucceeded expectedProgram)
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
+testManagedTextOperationLowering :: IO ()
+testManagedTextOperationLowering =
+  mapM_ assertLowered managedTextOperationExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lowering") firstRun secondRun
+      assertEqual (name <> " exact service lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
 
 testManagedTextKernelBoundaries :: IO ()
 testManagedTextKernelBoundaries = do

@@ -6,12 +6,16 @@ module Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
     textLayoutId,
     textLayout,
     textRepresentation,
+    textOperationService,
     runtimeServiceContract,
     orderedRuntimeServices,
   )
 where
 
 import qualified Data.Set as Set
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
+  )
 import Jazz.Compiler.LoweredIR
 
 data RuntimeServiceKey
@@ -29,6 +33,14 @@ textLayout = LoweredLayout textLayoutId LoweredTextLayout
 
 textRepresentation :: LoweredRepresentation
 textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+
+textOperationService :: BuiltinSymbol -> Maybe RuntimeServiceKey
+textOperationService symbol =
+  case symbol of
+    BuiltinTextLength -> Just TextLengthService
+    BuiltinTextAppend -> Just TextAppendService
+    BuiltinTextAppendChar -> Just TextAppendCharService
+    _ -> Nothing
 
 runtimeServiceContract :: RuntimeServiceKey -> LoweredRuntimeService
 runtimeServiceContract key =

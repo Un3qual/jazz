@@ -25,6 +25,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     managedTextExpectedPrograms,
     managedTextOperationProducerFixtures,
     managedTextOperationExpectedPrograms,
+    managedTextOperationExpectedLoweredPrograms,
     managedTextKernelBoundaryFixtures,
     managedTextExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
@@ -72,6 +73,10 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
+  ( RuntimeServiceKey (TextAppendCharService, TextAppendService, TextEqualService, TextLengthService),
+    runtimeServiceContract,
+  )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -1022,7 +1027,9 @@ managedTextOperationProducerFixtures =
     ("managed-text-length", sourceFixtureNoExports "managed-text-length" managedTextLengthSource),
     ("managed-text-append", sourceFixtureNoExports "managed-text-append" managedTextAppendSource),
     ("managed-text-append-char", sourceFixtureNoExports "managed-text-append-char" managedTextAppendCharSource),
-    ("managed-text-combined-operations", sourceFixtureNoExports "managed-text-combined-operations" managedTextCombinedOperationsSource)
+    ("managed-text-combined-operations", sourceFixtureNoExports "managed-text-combined-operations" managedTextCombinedOperationsSource),
+    ("managed-text-duplicate-equality", sourceFixtureNoExports "managed-text-duplicate-equality" managedTextDuplicateEqualitySource),
+    ("managed-text-conditional-append", sourceFixtureNoExports "managed-text-conditional-append" managedTextConditionalAppendSource)
   ]
 
 managedTextOperationExpectedPrograms :: [(Text, TypedProgram)]
@@ -1060,6 +1067,28 @@ managedTextOperationExpectedPrograms =
           TypedExpressionStatement (TypedSpan 5 1) (managedTextBuiltinCall BuiltinTextAppendChar [textInfo, charInfo] textInfo [textExpr "Jazz", charExpr '!'])
         ]
         textInfo
+    ),
+    ( "managed-text-duplicate-equality",
+      expectedRootProgram
+        [ TypedExpressionStatement (TypedSpan 2 1) (binaryExpr boolInfo "==" (textExpr "left") (textExpr "right")),
+          TypedExpressionStatement (TypedSpan 3 1) (binaryExpr boolInfo "==" (textExpr "left") (textExpr "right"))
+        ]
+        boolInfo
+    ),
+    ( "managed-text-conditional-append",
+      expectedRootProgram
+        [ TypedExpressionStatement
+            (TypedSpan 2 1)
+            ( managedTextBuiltinCall
+                BuiltinTextAppend
+                [textInfo, textInfo]
+                textInfo
+                [ TypedIfExpr textInfo (boolExpr True) (textExpr "left") (textExpr "other"),
+                  textExpr "right"
+                ]
+            )
+        ]
+        textInfo
     )
   ]
 
@@ -1070,6 +1099,223 @@ managedTextKernelBoundaryFixtures =
     ("managed-text-partial-append-char", sourceFixtureNoExports "managed-text-partial-append-char" managedTextPartialAppendCharSource),
     ("managed-text-oversaturated-length", sourceFixtureNoExports "managed-text-oversaturated-length" managedTextOversaturatedLengthSource)
   ]
+
+managedTextOperationExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+managedTextOperationExpectedLoweredPrograms =
+  [ operation "managed-text-equality" expectedManagedTextEqualityLoweredProgram,
+    operation "managed-text-inequality" expectedManagedTextInequalityLoweredProgram,
+    operation "managed-text-length" expectedManagedTextLengthLoweredProgram,
+    operation "managed-text-append" expectedManagedTextAppendLoweredProgram,
+    operation "managed-text-append-char" expectedManagedTextAppendCharLoweredProgram,
+    operation "managed-text-combined-operations" expectedManagedTextCombinedOperationsLoweredProgram,
+    operation "managed-text-duplicate-equality" expectedManagedTextDuplicateEqualityLoweredProgram,
+    operation "managed-text-conditional-append" expectedManagedTextConditionalAppendLoweredProgram
+  ]
+  where
+    operation name expectedProgram =
+      case lookup name managedTextOperationExpectedPrograms of
+        Just typedProgram -> (name, typedProgram, expectedProgram)
+        Nothing -> error ("managed Text operation expectation is missing: " <> Text.unpack name)
+
+expectedManagedTextEqualityLoweredProgram :: LoweredProgram
+expectedManagedTextEqualityLoweredProgram =
+  expectedManagedTextOperationProgram
+    LoweredBoolRepresentation
+    [runtimeServiceContract TextEqualService]
+    [ expectedTextInstruction 1 "left",
+      expectedTextInstruction 2 "right",
+      expectedRuntimeCallInstruction
+        3
+        LoweredBoolRepresentation
+        TextEqualService
+        [loweredTemporary 1 textRepresentation, loweredTemporary 2 textRepresentation]
+    ]
+    (loweredTemporary 3 LoweredBoolRepresentation)
+
+expectedManagedTextInequalityLoweredProgram :: LoweredProgram
+expectedManagedTextInequalityLoweredProgram =
+  expectedManagedTextOperationProgram
+    LoweredBoolRepresentation
+    [runtimeServiceContract TextEqualService]
+    [ expectedTextInstruction 1 "left",
+      expectedTextInstruction 2 "right",
+      expectedRuntimeCallInstruction
+        3
+        LoweredBoolRepresentation
+        TextEqualService
+        [loweredTemporary 1 textRepresentation, loweredTemporary 2 textRepresentation],
+      expectedPrimitiveInstruction
+        4
+        LoweredBoolRepresentation
+        (LoweredBooleanPrimitive LoweredBooleanNot)
+        [loweredTemporary 3 LoweredBoolRepresentation]
+    ]
+    (loweredTemporary 4 LoweredBoolRepresentation)
+
+expectedManagedTextLengthLoweredProgram :: LoweredProgram
+expectedManagedTextLengthLoweredProgram =
+  expectedManagedTextOperationProgram
+    int64Representation
+    [runtimeServiceContract TextLengthService]
+    [ expectedTextInstruction 1 "Jazz",
+      expectedRuntimeCallInstruction
+        2
+        int64Representation
+        TextLengthService
+        [loweredTemporary 1 textRepresentation]
+    ]
+    (loweredTemporary 2 int64Representation)
+
+expectedManagedTextAppendLoweredProgram :: LoweredProgram
+expectedManagedTextAppendLoweredProgram =
+  expectedManagedTextOperationProgram
+    textRepresentation
+    [runtimeServiceContract TextAppendService]
+    [ expectedTextInstruction 1 "Jazz",
+      expectedTextInstruction 2 "!",
+      expectedRuntimeCallInstruction
+        3
+        textRepresentation
+        TextAppendService
+        [loweredTemporary 1 textRepresentation, loweredTemporary 2 textRepresentation]
+    ]
+    (loweredTemporary 3 textRepresentation)
+
+expectedManagedTextAppendCharLoweredProgram :: LoweredProgram
+expectedManagedTextAppendCharLoweredProgram =
+  expectedManagedTextOperationProgram
+    textRepresentation
+    [runtimeServiceContract TextAppendCharService]
+    [ expectedTextInstruction 1 "Jazz",
+      expectedRuntimeCallInstruction
+        2
+        textRepresentation
+        TextAppendCharService
+        [loweredTemporary 1 textRepresentation, loweredImmediate (LoweredCharImmediate '!')]
+    ]
+    (loweredTemporary 2 textRepresentation)
+
+expectedManagedTextCombinedOperationsLoweredProgram :: LoweredProgram
+expectedManagedTextCombinedOperationsLoweredProgram =
+  expectedManagedTextOperationProgram
+    textRepresentation
+    [ runtimeServiceContract TextEqualService,
+      runtimeServiceContract TextLengthService,
+      runtimeServiceContract TextAppendService,
+      runtimeServiceContract TextAppendCharService
+    ]
+    [ expectedTextInstruction 1 "left",
+      expectedTextInstruction 2 "right",
+      expectedRuntimeCallInstruction 3 LoweredBoolRepresentation TextEqualService [loweredTemporary 1 textRepresentation, loweredTemporary 2 textRepresentation],
+      expectedTextInstruction 4 "Jazz",
+      expectedRuntimeCallInstruction 5 int64Representation TextLengthService [loweredTemporary 4 textRepresentation],
+      expectedTextInstruction 6 "Jazz",
+      expectedTextInstruction 7 "!",
+      expectedRuntimeCallInstruction 8 textRepresentation TextAppendService [loweredTemporary 6 textRepresentation, loweredTemporary 7 textRepresentation],
+      expectedTextInstruction 9 "Jazz",
+      expectedRuntimeCallInstruction 10 textRepresentation TextAppendCharService [loweredTemporary 9 textRepresentation, loweredImmediate (LoweredCharImmediate '!')]
+    ]
+    (loweredTemporary 10 textRepresentation)
+
+expectedManagedTextDuplicateEqualityLoweredProgram :: LoweredProgram
+expectedManagedTextDuplicateEqualityLoweredProgram =
+  expectedManagedTextOperationProgram
+    LoweredBoolRepresentation
+    [runtimeServiceContract TextEqualService]
+    [ expectedTextInstruction 1 "left",
+      expectedTextInstruction 2 "right",
+      expectedRuntimeCallInstruction 3 LoweredBoolRepresentation TextEqualService [loweredTemporary 1 textRepresentation, loweredTemporary 2 textRepresentation],
+      expectedTextInstruction 4 "left",
+      expectedTextInstruction 5 "right",
+      expectedRuntimeCallInstruction 6 LoweredBoolRepresentation TextEqualService [loweredTemporary 4 textRepresentation, loweredTemporary 5 textRepresentation]
+    ]
+    (loweredTemporary 6 LoweredBoolRepresentation)
+
+expectedManagedTextConditionalAppendLoweredProgram :: LoweredProgram
+expectedManagedTextConditionalAppendLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [textLayout]
+    [runtimeServiceContract TextAppendService]
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        textRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            ( Just
+                ( LoweredBranch
+                    (loweredImmediate (LoweredBoolImmediate True))
+                    thenBlockId
+                    []
+                    elseBlockId
+                    []
+                )
+            ),
+          LoweredBlock
+            thenBlockId
+            []
+            [expectedTextInstruction 1 "left"]
+            (Just (LoweredJump joinBlockId [loweredTemporary 1 textRepresentation])),
+          LoweredBlock
+            elseBlockId
+            []
+            [expectedTextInstruction 1 "other"]
+            (Just (LoweredJump joinBlockId [loweredTemporary 1 textRepresentation])),
+          LoweredBlock
+            joinBlockId
+            [LoweredParameter (LoweredParameterId "result") textRepresentation]
+            [ expectedTextInstruction 1 "right",
+              expectedRuntimeCallInstruction
+                2
+                textRepresentation
+                TextAppendService
+                [ LoweredBlockParameterOperand (LoweredParameterId "result") textRepresentation,
+                  loweredTemporary 1 textRepresentation
+                ]
+            ]
+            (Just (LoweredReturn (loweredTemporary 2 textRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+  where
+    thenBlockId = LoweredBlockId "if$s1$0$e3$0,0,1$then"
+    elseBlockId = LoweredBlockId "if$s1$0$e3$0,0,1$else"
+    joinBlockId = LoweredBlockId "if$s1$0$e3$0,0,1$join"
+
+expectedManagedTextOperationProgram :: LoweredRepresentation -> [LoweredRuntimeService] -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+expectedManagedTextOperationProgram resultRepresentation services instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [textLayout]
+    services
+    [ LoweredFunction
+        loweredEntryFunctionId
+        Nothing
+        []
+        resultRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            instructions
+            (Just (LoweredReturn resultOperand))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    loweredEntryFunctionId
+
+expectedRuntimeCallInstruction :: Int -> LoweredRepresentation -> RuntimeServiceKey -> [LoweredOperand] -> LoweredInstruction
+expectedRuntimeCallInstruction index representation serviceKey operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredRuntimeCall serviceId operands)
+  where
+    LoweredRuntimeService serviceId _ = runtimeServiceContract serviceKey
 
 managedTextExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
 managedTextExpectedLoweredPrograms =
@@ -6316,7 +6562,7 @@ defaultIntEntrySource = "7."
 defaultFloatEntrySource = "1.05."
 managedTextLiteralSource = "\"managed\"."
 
-managedTextEqualitySource, managedTextInequalitySource, managedTextLengthSource, managedTextAppendSource, managedTextAppendCharSource, managedTextCombinedOperationsSource, managedTextBareLengthSource, managedTextPartialAppendSource, managedTextPartialAppendCharSource, managedTextOversaturatedLengthSource :: Text
+managedTextEqualitySource, managedTextInequalitySource, managedTextLengthSource, managedTextAppendSource, managedTextAppendCharSource, managedTextCombinedOperationsSource, managedTextDuplicateEqualitySource, managedTextConditionalAppendSource, managedTextBareLengthSource, managedTextPartialAppendSource, managedTextPartialAppendCharSource, managedTextOversaturatedLengthSource :: Text
 managedTextEqualitySource = "\"left\" == \"right\"."
 managedTextInequalitySource = "\"left\" != \"right\"."
 managedTextLengthSource = "__kernel_textLength \"Jazz\"."
@@ -6329,6 +6575,13 @@ managedTextCombinedOperationsSource =
       "__kernel_textAppend \"Jazz\" \"!\".",
       "__kernel_textAppendChar \"Jazz\" '!'."
     ]
+managedTextDuplicateEqualitySource =
+  Text.unlines
+    [ "\"left\" == \"right\".",
+      "\"left\" == \"right\"."
+    ]
+managedTextConditionalAppendSource =
+  "__kernel_textAppend (if True then \"left\" else \"other\") \"right\"."
 managedTextBareLengthSource = "__kernel_textLength."
 managedTextPartialAppendSource = "__kernel_textAppend \"Jazz\"."
 managedTextPartialAppendCharSource = "__kernel_textAppendChar \"Jazz\"."

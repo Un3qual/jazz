@@ -462,39 +462,39 @@ and the reference interpreter.
 - Runtime calls remain instructions followed by `LoweredReturn`; they are not
   Lowered IR v1 tail terminators.
 
-- [ ] **Step 1: Add exact service-lowering expectations.** For each operation,
+- [x] **Step 1: Add exact service-lowering expectations.** For each operation,
       assert exact layout, exact referenced service list, argument order,
       instruction order, result representation, and return. Assert inequality
       uses equality plus Boolean-not and does not declare a second service.
 
-- [ ] **Step 2: Add dependency-set expectations.** Prove literal-only transport
+- [x] **Step 2: Add dependency-set expectations.** Prove literal-only transport
       has no services, duplicate equality uses declare equality once, and a
       combined program declares services in equality/length/append/append-char
       catalog order regardless of tree or `Set` ordering.
 
-- [ ] **Step 3: Add nested CFG evaluation-order expectations.** Put Text calls
+- [x] **Step 3: Add nested CFG evaluation-order expectations.** Put Text calls
       around conditional or case operands and assert each argument is evaluated
       exactly once, left to right, with complete carried-operand edges.
 
-- [ ] **Step 4: Run the focused suite and verify RED.** Expected: operation
+- [x] **Step 4: Run the focused suite and verify RED.** Expected: operation
       programs fail at unsupported binary/application lowering or contain no
       required services.
 
-- [ ] **Step 5: Extend structural requirement collection.** Recognize only
+- [x] **Step 5: Extend structural requirement collection.** Recognize only
       validated Text equality and canonical approved builtin spines. Deduplicate
       keys and materialize contracts with `orderedRuntimeServices`.
 
-- [ ] **Step 6: Lower equality, inequality, and exact kernel spines.** Reuse the
+- [x] **Step 6: Lower equality, inequality, and exact kernel spines.** Reuse the
       existing argument and carried-operand folds. Check each emitted operand
       and result against the catalog signature before producing an instruction;
       a mismatch returns the existing structured lowerer failure and no
       program.
 
-- [ ] **Step 7: Run focused producer/lowerer/contracts verification.** Run the
+- [x] **Step 7: Run focused producer/lowerer/contracts verification.** Run the
       first frontmatter verification command. Expected: exact programs and both
       validator parity suites pass.
 
-- [ ] **Step 8: Commit the runtime-service milestone.** Run:
+- [x] **Step 8: Commit the runtime-service milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/RuntimeServiceCatalog.hs src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs

@@ -17,12 +17,19 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly),
+    builtinSymbolArity,
+    lookupBuiltinSymbolInMode,
+  )
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
-  ( RuntimeServiceKey,
+  ( RuntimeServiceKey (TextEqualService),
     orderedRuntimeServices,
+    runtimeServiceContract,
     textLayout,
     textLayoutId,
+    textOperationService,
     textRepresentation,
   )
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
@@ -515,7 +522,9 @@ requirementsForExpression :: TypedExpr -> RuntimeRequirements
 requirementsForExpression expression =
   foldl'
     mergeRuntimeRequirements
-    (requirementsForNodeInfo (typedExpressionInfo expression))
+    ( requirementsForNodeInfo (typedExpressionInfo expression)
+        `mergeRuntimeRequirements` requirementsForSemanticExpression expression
+    )
     ( case expression of
         TypedLiteralExpr {} -> []
         TypedVariableExpr {} -> []
@@ -533,6 +542,19 @@ requirementsForExpression expression =
         TypedRightSectionExpr _ _ right -> [requirementsForExpression right]
         TypedBlockExpr _ blockStatements -> map requirementsForStatement blockStatements
     )
+
+requirementsForSemanticExpression :: TypedExpr -> RuntimeRequirements
+requirementsForSemanticExpression expression =
+  case textEqualityOperation expression of
+    Just _ -> runtimeServiceRequirement TextEqualService
+    Nothing ->
+      case textRuntimeServiceApplication expression of
+        Just serviceKey -> runtimeServiceRequirement serviceKey
+        Nothing -> emptyRuntimeRequirements
+
+runtimeServiceRequirement :: RuntimeServiceKey -> RuntimeRequirements
+runtimeServiceRequirement serviceKey =
+  RuntimeRequirements False (Set.singleton serviceKey)
 
 requirementsForArm :: TypedCaseArm -> RuntimeRequirements
 requirementsForArm (TypedCaseArm patternValue guard result) =
@@ -1444,64 +1466,67 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
         captures
         argument
     targetCheck =
-      case callee of
-        TypedVariableExpr _ name binderReference ->
-          case findFunctionShape binderReference functions of
-            Just target
-              | functionShapeCallableShape target == TypedClosureCallableShape,
-                actualArity >= 1 ->
-                  []
-              | functionShapeCallableShape target == TypedDirectCallableShape,
-                actualArity >= expectedArity ->
-                  []
-              | otherwise ->
+      case textRuntimeServiceApplication expression of
+        Just _ -> []
+        Nothing ->
+          case callee of
+            TypedVariableExpr _ name binderReference ->
+              case findFunctionShape binderReference functions of
+                Just target
+                  | functionShapeCallableShape target == TypedClosureCallableShape,
+                    actualArity >= 1 ->
+                      []
+                  | functionShapeCallableShape target == TypedDirectCallableShape,
+                    actualArity >= expectedArity ->
+                      []
+                  | otherwise ->
+                      [ LoweredIRLoweringFailure
+                          path
+                          LoweredIRCallArityUnsupported
+                          (LoweredIRArityFailureDetail expectedArity actualArity)
+                      ]
+                  where
+                    expectedArity = length (functionShapeParameters target)
+                Nothing
+                  | Just _ <- findParameterShape binderReference parameters,
+                    actualArity >= 1 ->
+                      []
+                  | Just _ <- findParameterShape binderReference parameters ->
+                      [ LoweredIRLoweringFailure
+                          path
+                          LoweredIRCallArityUnsupported
+                          (LoweredIRArityFailureDetail 1 actualArity)
+                      ]
+                Nothing
+                  | Just (CaptureShape _ LoweredClosureRepresentation {}) <- findCaptureShape binderReference captures,
+                    actualArity >= 1 ->
+                      []
+                  | Just (CaptureShape _ LoweredClosureRepresentation {}) <- findCaptureShape binderReference captures ->
+                      [ LoweredIRLoweringFailure
+                          path
+                          LoweredIRCallArityUnsupported
+                          (LoweredIRArityFailureDetail 1 actualArity)
+                      ]
+                Nothing
+                  | Set.member name localValueNames ->
+                      []
+                Nothing ->
                   [ LoweredIRLoweringFailure
                       path
-                      LoweredIRCallArityUnsupported
-                      (LoweredIRArityFailureDetail expectedArity actualArity)
+                      LoweredIRNonLocalCallUnsupported
+                      (LoweredIRNameFailureDetail name)
                   ]
-              where
-                expectedArity = length (functionShapeParameters target)
-            Nothing
-              | Just _ <- findParameterShape binderReference parameters,
-                actualArity >= 1 ->
-                  []
-              | Just _ <- findParameterShape binderReference parameters ->
-                  [ LoweredIRLoweringFailure
-                      path
-                      LoweredIRCallArityUnsupported
-                      (LoweredIRArityFailureDetail 1 actualArity)
-                  ]
-            Nothing
-              | Just (CaptureShape _ LoweredClosureRepresentation {}) <- findCaptureShape binderReference captures,
-                actualArity >= 1 ->
-                  []
-              | Just (CaptureShape _ LoweredClosureRepresentation {}) <- findCaptureShape binderReference captures ->
-                  [ LoweredIRLoweringFailure
-                      path
-                      LoweredIRCallArityUnsupported
-                      (LoweredIRArityFailureDetail 1 actualArity)
-                  ]
-            Nothing
-              | Set.member name localValueNames ->
-                  []
-            Nothing ->
-              [ LoweredIRLoweringFailure
-                  path
-                  LoweredIRNonLocalCallUnsupported
-                  (LoweredIRNameFailureDetail name)
-              ]
-        _ ->
-          inspectExpression
-            modulePath
-            statementPath
-            calleePath
-            functions
-            localValueNames
-            allowEntryLocals
-            parameters
-            captures
-            callee
+            _ ->
+              inspectExpression
+                modulePath
+                statementPath
+                calleePath
+                functions
+                localValueNames
+                allowEntryLocals
+                parameters
+                captures
+                callee
 
     actualArity = length arguments
 
@@ -1521,6 +1546,35 @@ applicationSpine rootPath =
             ((1 : currentPath, argument) : arguments)
             function
         _ -> (expression, currentPath, arguments)
+
+textEqualityOperation :: TypedExpr -> Maybe Bool
+textEqualityOperation expression =
+  case expression of
+    TypedBinaryExpr info (TypedBuiltinOperator operator) left right
+      | typedNodeRecipe info == TypedBoolRecipe,
+        typedNodeRecipe (typedExpressionInfo left) == TypedManagedTextRecipe,
+        typedNodeRecipe (typedExpressionInfo right) == TypedManagedTextRecipe ->
+          case operator of
+            "==" -> Just False
+            "!=" -> Just True
+            _ -> Nothing
+    _ -> Nothing
+
+textRuntimeServiceApplication :: TypedExpr -> Maybe RuntimeServiceKey
+textRuntimeServiceApplication expression = do
+  let (callee, _, arguments) = applicationSpine [] expression
+  (identifier, binderReference) <-
+    case callee of
+      TypedVariableExpr _ (TypedBuiltinName name) binder -> Just (name, binder)
+      _ -> Nothing
+  case binderReference of
+    Just _ -> Nothing
+    Nothing -> do
+      symbol <- lookupBuiltinSymbolInMode ResolveKernelOnly identifier
+      serviceKey <- textOperationService symbol
+      if length arguments == builtinSymbolArity symbol
+        then Just serviceKey
+        else Nothing
 
 findFunctionShape :: Maybe TypedBinderId -> FunctionIndex -> Maybe FunctionShape
 findFunctionShape binderReference functions = do
@@ -2237,18 +2291,33 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
         parameters
         state
     TypedBinaryExpr info operator left right ->
-      lowerBinary
-        modulePath
-        statementPath
-        expressionPath
-        path
-        info
-        operator
-        left
-        right
-        functions
-        parameters
-        state
+      case textEqualityOperation expression of
+        Just negateResult ->
+          lowerTextEquality
+            modulePath
+            statementPath
+            expressionPath
+            path
+            info
+            negateResult
+            left
+            right
+            functions
+            parameters
+            state
+        Nothing ->
+          lowerBinary
+            modulePath
+            statementPath
+            expressionPath
+            path
+            info
+            operator
+            left
+            right
+            functions
+            parameters
+            state
     TypedApplyExpr {} ->
       lowerApplication
         modulePath
@@ -3117,6 +3186,70 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
             (_, releasedState) -> (Nothing, releasedState)
         Nothing -> (Nothing, carriedRightState)
 
+lowerTextEquality ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  TypedNodeInfo ->
+  Bool ->
+  TypedExpr ->
+  TypedExpr ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerTextEquality modulePath statementPath expressionPath path info negateResult left right functions parameters state =
+  case resultRepresentationFailures <> leftFailures <> rightFailures of
+    failures@(_ : _) -> (failures, Nothing, rightState)
+    [] ->
+      case (maybeResultRepresentation, maybeTransportedLeftOperand, maybeRightOperand) of
+        (Just resultRepresentation, Just leftOperand, Just rightOperand) ->
+          case emitRuntimeServiceInstruction TextEqualService resultRepresentation [leftOperand, rightOperand] rightState of
+            Just (equalityOperand, equalityState)
+              | negateResult ->
+                  case emitBooleanNotInstruction equalityOperand equalityState of
+                    Just (negatedOperand, negatedState) ->
+                      ([], Just negatedOperand, negatedState)
+                    Nothing -> unsupportedExpression path rightState
+              | otherwise -> ([], Just equalityOperand, equalityState)
+            Nothing -> unsupportedExpression path rightState
+        _ -> unsupportedExpression path rightState
+  where
+    (resultRepresentationFailures, maybeResultRepresentation) =
+      representationAtPath path (typedNodeRecipe info)
+    (leftFailures, maybeLeftOperand, leftState) =
+      lowerExpression
+        modulePath
+        statementPath
+        (0 : expressionPath)
+        functions
+        parameters
+        state
+        left
+    (maybeLeftCarrier, rightInitialState) =
+      case maybeLeftOperand of
+        Just leftOperand ->
+          let (carrier, carriedState) = carryOperand leftOperand leftState
+           in (Just carrier, carriedState)
+        Nothing -> (Nothing, leftState)
+    (rightFailures, maybeRightOperand, carriedRightState) =
+      lowerExpression
+        modulePath
+        statementPath
+        (1 : expressionPath)
+        functions
+        parameters
+        rightInitialState
+        right
+    (maybeTransportedLeftOperand, rightState) =
+      case maybeLeftCarrier of
+        Just carrier ->
+          case releaseCarriedOperands [carrier] carriedRightState of
+            (Just [leftOperand], releasedState) -> (Just leftOperand, releasedState)
+            (_, releasedState) -> (Nothing, releasedState)
+        Nothing -> (Nothing, carriedRightState)
+
 lowerApplication ::
   [Text] ->
   [Int] ->
@@ -3128,6 +3261,40 @@ lowerApplication ::
   TypedExpr ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerApplication modulePath statementPath expressionPath path functions parameters state expression =
+  case textRuntimeServiceApplication expression of
+    Just serviceKey ->
+      lowerTextRuntimeApplication
+        modulePath
+        statementPath
+        expressionPath
+        path
+        functions
+        parameters
+        state
+        serviceKey
+        expression
+    Nothing ->
+      lowerOrdinaryApplication
+        modulePath
+        statementPath
+        expressionPath
+        path
+        functions
+        parameters
+        state
+        expression
+
+lowerOrdinaryApplication ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  TypedExpr ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerOrdinaryApplication modulePath statementPath expressionPath path functions parameters state expression =
   case callee of
     TypedVariableExpr _ name binderReference ->
       case binderReference >>= (`Map.lookup` loweringLocalBindings state) of
@@ -3239,6 +3406,104 @@ lowerApplication modulePath statementPath expressionPath path functions paramete
                  in (Just carrier, operandState)
               Nothing -> (Nothing, nextState)
        in (nextFailures : reversedFailureChunks, maybeCarrier : reversedCarriers, carriedState)
+
+lowerTextRuntimeApplication ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  RuntimeServiceKey ->
+  TypedExpr ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerTextRuntimeApplication modulePath statementPath expressionPath path functions parameters state serviceKey expression =
+  case resultRepresentationFailures <> argumentFailures of
+    failures@(_ : _) -> (failures, Nothing, argumentState)
+    [] ->
+      case (maybeResultRepresentation, argumentOperands) of
+        (Just resultRepresentation, Just operands) ->
+          case emitRuntimeServiceInstruction serviceKey resultRepresentation operands argumentState of
+            Just (resultOperand, resultState) ->
+              ([], Just resultOperand, resultState)
+            Nothing -> unsupportedExpression path argumentState
+        _ -> unsupportedExpression path argumentState
+  where
+    (_, _, arguments) = applicationSpine expressionPath expression
+    (resultRepresentationFailures, maybeResultRepresentation) =
+      representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
+    (reversedArgumentFailureChunks, reversedArgumentCarriers, carriedArgumentState) =
+      foldl'
+        lowerArgument
+        ([], [], state)
+        arguments
+    argumentFailures = concat (reverse reversedArgumentFailureChunks)
+    (argumentOperands, argumentState) =
+      case sequence (reverse reversedArgumentCarriers) of
+        Just carriers -> releaseCarriedOperands carriers carriedArgumentState
+        Nothing -> (Nothing, carriedArgumentState)
+    lowerArgument (reversedFailureChunks, reversedCarriers, currentState) (argumentPath, argument) =
+      let (nextFailures, maybeOperand, nextState) =
+            lowerExpression
+              modulePath
+              statementPath
+              argumentPath
+              functions
+              parameters
+              currentState
+              argument
+          (maybeCarrier, carriedState) =
+            case maybeOperand of
+              Just operand ->
+                let (carrier, operandState) = carryOperand operand nextState
+                 in (Just carrier, operandState)
+              Nothing -> (Nothing, nextState)
+       in (nextFailures : reversedFailureChunks, maybeCarrier : reversedCarriers, carriedState)
+
+emitRuntimeServiceInstruction ::
+  RuntimeServiceKey ->
+  LoweredRepresentation ->
+  [LoweredOperand] ->
+  LoweringState ->
+  Maybe (LoweredOperand, LoweringState)
+emitRuntimeServiceInstruction serviceKey resultRepresentation operands state =
+  case runtimeServiceContract serviceKey of
+    LoweredRuntimeService serviceId (LoweredCallSignature expectedArguments expectedResult)
+      | map loweredOperandRepresentation operands == expectedArguments,
+        resultRepresentation == expectedResult ->
+          let temporaryIndex = loweringNextTemporary state
+              temporaryId = LoweredTemporaryId ("t" <> Text.pack (show temporaryIndex))
+              instruction =
+                LoweredInstruction
+                  temporaryId
+                  resultRepresentation
+                  (LoweredRuntimeCall serviceId operands)
+              nextState =
+                state
+                  { loweringNextTemporary = temporaryIndex + 1,
+                    loweringInstructions = instruction : loweringInstructions state
+                  }
+           in Just (LoweredTemporaryOperand temporaryId resultRepresentation, nextState)
+      | otherwise -> Nothing
+
+emitBooleanNotInstruction :: LoweredOperand -> LoweringState -> Maybe (LoweredOperand, LoweringState)
+emitBooleanNotInstruction operand state
+  | loweredOperandRepresentation operand == LoweredBoolRepresentation =
+      let temporaryIndex = loweringNextTemporary state
+          temporaryId = LoweredTemporaryId ("t" <> Text.pack (show temporaryIndex))
+          instruction =
+            LoweredInstruction
+              temporaryId
+              LoweredBoolRepresentation
+              (LoweredPrimitiveOperation (LoweredBooleanPrimitive LoweredBooleanNot) [operand])
+          nextState =
+            state
+              { loweringNextTemporary = temporaryIndex + 1,
+                loweringInstructions = instruction : loweringInstructions state
+              }
+       in Just (LoweredTemporaryOperand temporaryId LoweredBoolRepresentation, nextState)
+  | otherwise = Nothing
 
 lowerUnaryClosureApplication ::
   [Text] ->
