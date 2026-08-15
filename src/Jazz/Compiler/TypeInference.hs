@@ -107,6 +107,11 @@ import Jazz.Compiler.RuntimeHints
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
+  ( finalizeValidatedTypedCoreExpressionDirectCall,
+    isTypedCoreDirectCallOperator,
+    specializeInferredExpression,
+  )
+import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     InferredProductionFailure (..),
     ProvisionalPatternCaseArm (..),
@@ -120,9 +125,6 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionStatus (..),
     blockProductionFailureKindAndDetail,
     blockedTypedCoreProductionOutcome,
-    finalizeValidatedTypedCoreExpressionDirectCall,
-    isTypedCoreDirectCallOperator,
-    specializeInferredExpression,
     typedCoreProductionOutcomeStatus,
     typedCoreProductionOutcomeValidatedProgram,
     unsupportedTypedCoreProductionOutcome,

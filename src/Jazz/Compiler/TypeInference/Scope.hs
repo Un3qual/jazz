@@ -78,6 +78,9 @@ import Jazz.Compiler.RuntimeHints
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
+  ( specializeInferredExpression,
+  )
+import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     InferredProductionFailure (..),
     ProvisionalCallableDeclaration (..),
@@ -87,7 +90,6 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
     blockProductionFailureKindAndDetail,
-    specializeInferredExpression,
   )
 import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified Jazz.Compiler.TypeInference.Signature as Signature

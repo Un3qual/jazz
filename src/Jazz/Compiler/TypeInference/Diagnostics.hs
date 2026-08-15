@@ -109,7 +109,7 @@ import Jazz.Compiler.PatternCoverage (renderCoveragePattern)
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
-import Jazz.Compiler.TypeInference.Elaboration
+import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr,
     TypedCoreProductionMode,
   )

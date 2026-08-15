@@ -27,7 +27,7 @@ import Jazz.Compiler.Pattern
     patternBinderNames,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Elaboration (InferredExpr (..))
+import Jazz.Compiler.TypeInference.Elaboration.Types (InferredExpr (..))
 import Jazz.Compiler.TypeInference.Solver
   ( combineIntegerLiteralRanges,
     freshTypeVar,

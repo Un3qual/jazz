@@ -26,13 +26,15 @@ import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Elaboration
+  ( expressionDependencyNames,
+    finalizeValidatedTypedCoreExpressionDirectCall,
+    typedCoreProductionOutcomeStatus,
+  )
+import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     ProvisionalCallableDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
-    expressionDependencyNames,
-    finalizeValidatedTypedCoreExpressionDirectCall,
-    typedCoreProductionOutcomeStatus,
   )
 import Jazz.Compiler.TypeInference.Pattern (InferredPatternCaseArm (..), inferPatternCaseTypeWithResults)
 import Jazz.Compiler.TypeInference.State (initialInferState)

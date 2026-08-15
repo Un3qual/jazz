@@ -64,6 +64,31 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
 import Jazz.Compiler.Pattern (patternBinderNames)
+import Jazz.Compiler.TypeInference.Elaboration.Types
+  ( ExpressionEvaluation (..),
+    ExpressionRole (..),
+    FunctionProfile (..),
+    InferredExpr (..),
+    InferredProductionFailure (..),
+    ProvisionalCallableDeclaration (..),
+    ProvisionalPatternCaseArm (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    TypedCoreProductionFailure (..),
+    TypedCoreProductionFailureDetail (..),
+    TypedCoreProductionFailureKind (..),
+    TypedCoreProductionMode (..),
+    TypedCoreProductionOutcome,
+    TypedCoreProductionPath (..),
+    TypedCoreProductionStatus (..),
+    blockProductionFailureKindAndDetail,
+    blockedTypedCoreProductionOutcome,
+    invariantFailuresTypedCoreProductionOutcome,
+    succeededTypedCoreProductionOutcome,
+    typedCoreProductionOutcomeStatus,
+    typedCoreProductionOutcomeValidatedProgram,
+    unsupportedTypedCoreProductionOutcome,
+  )
 import Jazz.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
     resolveType,
@@ -72,186 +97,8 @@ import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
-  ( ValidatedTypedProgram,
-    validateTypedProgramOnce,
-    validatedTypedProgram,
+  ( validateTypedProgramOnce,
   )
-
-data TypedCoreProductionStatus
-  = TypedCoreProductionBlockedByDiagnostics
-  | TypedCoreProductionUnsupported [TypedCoreProductionFailure]
-  | TypedCoreProductionInvariantFailures [TypedCoreValidationFailure]
-  | TypedCoreProductionSucceeded TypedProgram
-  deriving (Eq, Show)
-
--- | The private production outcome keeps a successful raw program and its
--- validation proof in one constructor. Public callers can observe the legacy
--- status and trusted proof without being able to forge an inconsistent pair.
-data TypedCoreProductionOutcome
-  = ProductionBlockedByDiagnostics
-  | ProductionUnsupported [TypedCoreProductionFailure]
-  | ProductionInvariantFailures [TypedCoreValidationFailure]
-  | ProductionSucceeded ValidatedTypedProgram
-  deriving (Eq, Show)
-
-blockedTypedCoreProductionOutcome :: TypedCoreProductionOutcome
-blockedTypedCoreProductionOutcome = ProductionBlockedByDiagnostics
-
-unsupportedTypedCoreProductionOutcome :: [TypedCoreProductionFailure] -> TypedCoreProductionOutcome
-unsupportedTypedCoreProductionOutcome = ProductionUnsupported
-
-typedCoreProductionOutcomeStatus :: TypedCoreProductionOutcome -> TypedCoreProductionStatus
-typedCoreProductionOutcomeStatus outcome =
-  case outcome of
-    ProductionBlockedByDiagnostics -> TypedCoreProductionBlockedByDiagnostics
-    ProductionUnsupported failures -> TypedCoreProductionUnsupported failures
-    ProductionInvariantFailures failures -> TypedCoreProductionInvariantFailures failures
-    ProductionSucceeded validatedProgram ->
-      TypedCoreProductionSucceeded (validatedTypedProgram validatedProgram)
-
-typedCoreProductionOutcomeValidatedProgram :: TypedCoreProductionOutcome -> Maybe ValidatedTypedProgram
-typedCoreProductionOutcomeValidatedProgram outcome =
-  case outcome of
-    ProductionSucceeded validatedProgram -> Just validatedProgram
-    _ -> Nothing
-
-data TypedCoreProductionPath
-  = TypedCoreProductionInputPath
-  | TypedCoreProductionModulePath [Text]
-  | TypedCoreProductionStatementPath [Text] Int
-  | TypedCoreProductionExpressionPath [Text] Int [Int]
-  deriving (Eq, Show)
-
-data TypedCoreProductionFailureKind
-  = TypedCoreModulePathMismatch
-  | TypedCoreInvalidPortableSourcePath
-  | TypedCoreResolvedImportsUnsupported
-  | TypedCoreImportedInputsUnsupported
-  | TypedCoreAmbientPreludeInputUnsupported
-  | TypedCoreUnsupportedRootExpression
-  | TypedCoreManagedValueUnsupported
-  | TypedCoreStructuredValueUnsupported
-  | TypedCoreControlFlowUnsupported
-  | TypedCorePatternCaseUnsupported
-  | TypedCoreNestedBlockUnsupported
-  | TypedCoreUserDefinedOperatorUnsupported
-  | TypedCoreCallableValueUnsupported
-  | TypedCoreCallArityUnsupported
-  | TypedCoreCaptureUnsupported
-  | TypedCoreRecursiveFunctionUnsupported
-  | TypedCoreFunctionRebindingUnsupported
-  | TypedCoreDuplicateParameterUnsupported
-  | TypedCoreNonMonomorphicFunctionUnsupported
-  | TypedCoreNonLocalCallUnsupported
-  | TypedCoreUnsupportedExport
-  | TypedCoreUnresolvedExpressionType
-  deriving (Eq, Show)
-
-data TypedCoreProductionFailureDetail
-  = TypedCoreNoFailureDetail
-  | TypedCoreTextValueDetail
-  | TypedCoreListValueDetail
-  | TypedCoreTupleValueDetail
-  | TypedCoreDataValueDetail
-  | TypedCoreConditionalDetail
-  | TypedCorePatternCaseDetail
-  | TypedCoreLocalBlockDetail
-  | TypedCoreUnsupportedRootDetail
-  | TypedCoreNameDetail Text
-  | TypedCoreArityDetail Int Int
-  deriving (Eq, Show)
-
-data TypedCoreProductionFailure
-  = TypedCoreProductionFailure
-      TypedCoreProductionPath
-      TypedCoreProductionFailureKind
-      TypedCoreProductionFailureDetail
-  deriving (Eq, Show)
-
-data TypedCoreProductionMode
-  = InferenceOnly
-  | ProduceTypedCoreExpressionDirectCall
-  deriving (Eq, Show)
-
--- | Keep the unsupported block classification beside the failure contract so
--- root and nested production traversals cannot drift apart.
-blockProductionFailureKindAndDetail ::
-  [Statement] ->
-  (TypedCoreProductionFailureKind, TypedCoreProductionFailureDetail)
-blockProductionFailureKindAndDetail statements
-  | any isDataStatement statements =
-      (TypedCoreStructuredValueUnsupported, TypedCoreDataValueDetail)
-  | otherwise =
-      (TypedCoreNestedBlockUnsupported, TypedCoreLocalBlockDetail)
-  where
-    isDataStatement statement =
-      case statement of
-        SData {} -> True
-        _ -> False
-
--- | The private result threaded by the shared inference traversal. Ordinary
--- inference projects the expression type; production also consumes the
--- provisional node and ordered profile failures.
-data InferredExpr = InferredExpr
-  { inferredExpressionType :: Maybe ExpressionType,
-    inferredProvisionalExpr :: Maybe ProvisionalTypedExpr,
-    inferredProductionFailures :: [InferredProductionFailure]
-  }
-  deriving (Eq, Show)
-
-data InferredProductionFailure
-  = InferredProductionFailure
-      [Int]
-      TypedCoreProductionFailureKind
-      TypedCoreProductionFailureDetail
-  deriving (Eq, Show)
-
-data ProvisionalTypedExpr
-  = ProvisionalUnitExpression
-  | ProvisionalLiteralExpression Literal ExpressionType
-  | ProvisionalBinaryExpression Text ExpressionType ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
-  | ProvisionalVariableExpression Name ExpressionType
-  | ProvisionalLambdaExpression Name ExpressionType ProvisionalTypedExpr
-  | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
-  | ProvisionalIfExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr ProvisionalTypedExpr
-  | ProvisionalPatternCaseExpression ExpressionType ProvisionalTypedExpr [ProvisionalPatternCaseArm]
-  | ProvisionalScopeStatements [ProvisionalTypedStatement]
-  | ProvisionalUnsupportedExpression TypedCoreProductionFailureKind TypedCoreProductionFailureDetail
-  | ProvisionalRetainedFailures [InferredProductionFailure]
-  deriving (Eq, Show)
-
-data ProvisionalPatternCaseArm
-  = ProvisionalPatternCaseArm
-      Pattern
-      (Maybe ProvisionalTypedExpr)
-      ProvisionalTypedExpr
-  deriving (Eq, Show)
-
-data ProvisionalTypedStatement
-  = ProvisionalSignature Int Name SourceSpan ExpressionType
-  | ProvisionalFunctionBinding ProvisionalCallableDeclaration ProvisionalTypedExpr
-  | ProvisionalScalarBinding Int Name SourceSpan ExpressionType ProvisionalTypedExpr
-  | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
-  | ProvisionalUnsupportedCallableBinding ProvisionalCallableDeclaration TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
-  | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
-  deriving (Eq, Show)
-
-data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration
-  { provisionalCallableStatementIndex :: Int,
-    provisionalCallableName :: Name,
-    provisionalCallableSpan :: SourceSpan,
-    provisionalCallableType :: ExpressionType,
-    provisionalCallableBinding :: Maybe TypeBinding,
-    provisionalCallableRecursiveGroupMembers :: Maybe [Int]
-  }
-  deriving (Eq, Show)
-
-data FunctionProfile = FunctionProfile
-  { functionStatementIndex :: Int,
-    functionType :: ExpressionType,
-    functionArity :: Int
-  }
-  deriving (Eq)
 
 -- | Canonical free value references for dependency analysis. This walks the
 -- resolved core expression rather than the provisional production tree, so a
@@ -310,15 +157,6 @@ expressionDependencyNames = go
       | isBuiltinOperatorSymbol operatorSymbol = Set.empty
       | otherwise = Set.singleton (operatorBindingName operatorSymbol)
 
-data ExpressionRole
-  = FunctionBindingExpression TypedCallableShape Int
-  | CalleeExpression
-  | ScalarExpression
-
-data ExpressionEvaluation
-  = EagerExpression
-  | DeferredExpression
-
 -- | Finalize once while retaining the opaque validation proof for a trusted
 -- downstream lowering handoff. The public status keeps exposing the exact raw
 -- Typed Program artifact for compatibility.
@@ -364,7 +202,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           moduleFailures = missingResultFailures <> fst exportResult
           productionFailures = moduleFailures <> statementFailures
        in case productionFailures of
-            _ : _ -> ProductionUnsupported productionFailures
+            _ : _ -> unsupportedTypedCoreProductionOutcome productionFailures
             [] ->
               case reverse typedStatements of
                 TypedExpressionStatement _ terminalExpression : _ ->
@@ -375,13 +213,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           typedStatements
                           (typedExpressionInfo terminalExpression)
                    in case validateTypedProgramOnce programValue of
-                        Right validatedProgram -> ProductionSucceeded validatedProgram
-                        Left failures -> ProductionInvariantFailures failures
-                _ -> ProductionUnsupported [missingModuleResultFailure]
+                        Right validatedProgram -> succeededTypedCoreProductionOutcome validatedProgram
+                        Left failures -> invariantFailuresTypedCoreProductionOutcome failures
+                _ -> unsupportedTypedCoreProductionOutcome [missingModuleResultFailure]
     ProvisionalUnsupportedExpression kind detail ->
-      ProductionUnsupported [failureAt 0 [] kind detail]
+      unsupportedTypedCoreProductionOutcome [failureAt 0 [] kind detail]
     _ ->
-      ProductionUnsupported [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+      unsupportedTypedCoreProductionOutcome [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
   where
     modulePath = resolvedModulePath resolvedModule
 

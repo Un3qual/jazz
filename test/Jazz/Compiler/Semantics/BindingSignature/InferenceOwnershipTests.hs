@@ -47,7 +47,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
   ( InferExprFn,
     InferExprWithModeFn
   )
-import Jazz.Compiler.TypeInference.Elaboration
+import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
