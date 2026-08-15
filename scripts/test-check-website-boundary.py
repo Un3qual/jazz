@@ -56,6 +56,15 @@ class WebsiteBoundaryTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertEqual("Website boundary checks passed.\n", result.stdout)
 
+    def test_built_output_allows_configured_google_analytics_script(self) -> None:
+        (self.build / "index.html").write_text(
+            '<script async src="https://www.googletagmanager.com/gtag/js?id=G-05ZC42S145"></script>',
+            encoding="utf-8",
+        )
+        result = self.run_checker()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("Website boundary checks passed.\n", result.stdout)
+
     def test_explicit_build_directory_must_exist(self) -> None:
         shutil.rmtree(self.build)
         self.assert_violation("build directory is missing")

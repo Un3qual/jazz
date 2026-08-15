@@ -43,9 +43,10 @@ SCRIPT_ELEMENT_RE = re.compile(r"(?is)<script\b[^>]*>(.*?)</script\b[^>]*>")
 STYLE_ATTRIBUTE_RE = re.compile(
     r'''(?is)\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))'''
 )
-PRODUCTION_PREFIXES = (
+ALLOWED_REMOTE_PREFIXES = (
     "https://un3qual.github.io/jazz/",
     "//un3qual.github.io/jazz/",
+    "https://www.googletagmanager.com/gtag/js?id=G-05ZC42S145",
 )
 
 def read_text(path: Path) -> str | None:
@@ -57,7 +58,7 @@ def read_text(path: Path) -> str | None:
 
 def allowed_remote_url(url: str) -> bool:
     cleaned = url.rstrip(".,;:!?")
-    return cleaned.startswith(PRODUCTION_PREFIXES)
+    return cleaned.startswith(ALLOWED_REMOTE_PREFIXES)
 
 
 def html_css_sources(source: str) -> list[str]:

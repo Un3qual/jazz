@@ -861,3 +861,33 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   assert.match(config, /theme:\s*prismThemes\.(?:github|vsLight)/);
   assert.match(config, /darkTheme:\s*prismThemes\.(?:dracula|vsDark)/);
 });
+
+test('all published pages include the configured Google Analytics tag', async () => {
+  const {loadSiteConfig} = await import(
+    '@docusaurus/core/lib/server/config.js'
+  );
+  const {siteConfig} = await loadSiteConfig({siteDir: websiteRoot});
+  const headTags = siteConfig.headTags ?? [];
+  const scriptTag = headTags.find(
+    ({tagName, attributes}) =>
+      tagName === 'script' &&
+      attributes?.src ===
+        'https://www.googletagmanager.com/gtag/js?id=G-05ZC42S145',
+  );
+  const configTag = headTags.find(
+    ({tagName, innerHTML}) =>
+      tagName === 'script' &&
+      typeof innerHTML === 'string' &&
+      innerHTML.includes("gtag('config', 'G-05ZC42S145');"),
+  );
+
+  assert.equal(scriptTag?.attributes?.async, true);
+  assert.match(
+    configTag?.innerHTML ?? '',
+    /window\.dataLayer = window\.dataLayer \|\| \[\];/,
+  );
+  assert.match(
+    configTag?.innerHTML ?? '',
+    /gtag\('js', new Date\(\)\);/,
+  );
+});

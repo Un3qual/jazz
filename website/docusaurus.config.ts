@@ -9,6 +9,25 @@ const config: Config = {
   favicon: 'img/favicon.svg',
   url: 'https://un3qual.github.io',
   baseUrl: '/jazz/',
+  headTags: [
+    {
+      tagName: 'script',
+      attributes: {
+        async: true,
+        src: 'https://www.googletagmanager.com/gtag/js?id=G-05ZC42S145',
+      },
+    },
+    {
+      tagName: 'script',
+      attributes: {},
+      innerHTML: `
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', 'G-05ZC42S145');
+      `,
+    },
+  ],
   organizationName: 'un3qual',
   projectName: 'jazz',
   trailingSlash: false,
