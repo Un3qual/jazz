@@ -509,6 +509,11 @@ test-suite jazz-lowered-ir-contract-spec
       Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
       Jazz.Compiler.Bootstrap.CanonicalValue
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -528,6 +533,11 @@ test-suite jazz-typed-core-contract-spec
       Jazz.Compiler.Bootstrap.TypedCoreContract.ReviewFixtures
       Jazz.Compiler.Bootstrap.TypedCoreContract.Tests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -538,6 +548,16 @@ test-suite jazz-typed-core-expression-direct-call-spec
   main-is: Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   other-modules:
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
 
 test-suite parser-core-spec
   import: test-common
