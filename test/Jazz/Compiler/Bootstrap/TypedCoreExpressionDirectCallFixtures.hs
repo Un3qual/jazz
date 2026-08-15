@@ -36,6 +36,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     independentClosureExpectedLoweredPrograms,
     functionBodyConsumedCallExpectedProgram,
     functionBodyPartialApplicationExpectedProgram,
+    nestedTailControlFlowExpectedLoweredPrograms,
     rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
     validIndependentLowererPrograms,
@@ -1180,6 +1181,145 @@ functionBodyPartialApplicationExpectedProgram =
         (boolExpr True)
     combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
     remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+
+nestedTailControlFlowExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+nestedTailControlFlowExpectedLoweredPrograms =
+  [ ( "nested-tail-if-alternatives",
+      expectedCallableLoweredProgram
+        [ LoweredFunction
+            (functionId "chooseNestedIf")
+            Nothing
+            [ parameter "arg1" LoweredBoolRepresentation,
+              parameter "arg2" LoweredBoolRepresentation,
+              parameter "arg3" intRepresentation
+            ]
+            intRepresentation
+            [ LoweredBlock
+                entryBlockId
+                []
+                []
+                (Just (LoweredBranch (functionParameter "arg1" LoweredBoolRepresentation) outerIfThenBlockId [] outerIfElseBlockId [])),
+              LoweredBlock
+                outerIfThenBlockId
+                []
+                []
+                (Just (LoweredBranch (functionParameter "arg2" LoweredBoolRepresentation) nestedIfThenBlockId [] nestedIfElseBlockId [])),
+              LoweredBlock
+                nestedIfThenBlockId
+                []
+                []
+                (Just (LoweredReturn (functionParameter "arg3" intRepresentation))),
+              LoweredBlock
+                nestedIfElseBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 1))),
+              LoweredBlock
+                outerIfElseBlockId
+                []
+                [comparisonInstruction (functionParameter "arg3" intRepresentation) (intImmediate 0)]
+                (Just (LoweredBranch boolTemporary nestedIfCaseFirstBodyBlockId [] nestedIfCaseFinalBodyBlockId [])),
+              LoweredBlock
+                nestedIfCaseFirstBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 2))),
+              LoweredBlock
+                nestedIfCaseFinalBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 3)))
+            ]
+            entryBlockId
+        ]
+        intRepresentation
+        [ expectedDirectCallInstruction
+            1
+            intRepresentation
+            "chooseNestedIf"
+            [boolImmediate True, boolImmediate False, intImmediate 9]
+        ]
+        (loweredTemporary 1 intRepresentation)
+    ),
+    ( "nested-tail-case-bodies",
+      expectedCallableLoweredProgram
+        [ LoweredFunction
+            (functionId "chooseNestedCase")
+            Nothing
+            [ parameter "arg1" intRepresentation,
+              parameter "arg2" LoweredBoolRepresentation
+            ]
+            intRepresentation
+            [ LoweredBlock
+                entryBlockId
+                []
+                [comparisonInstruction (functionParameter "arg1" intRepresentation) (intImmediate 0)]
+                (Just (LoweredBranch boolTemporary outerCaseFirstBodyBlockId [] outerCaseFinalBodyBlockId [])),
+              LoweredBlock
+                outerCaseFirstBodyBlockId
+                []
+                []
+                (Just (LoweredBranch (functionParameter "arg2" LoweredBoolRepresentation) caseIfThenBlockId [] caseIfElseBlockId [])),
+              LoweredBlock
+                caseIfThenBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 1))),
+              LoweredBlock
+                caseIfElseBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 2))),
+              LoweredBlock
+                outerCaseFinalBodyBlockId
+                []
+                [comparisonInstruction (functionParameter "arg1" intRepresentation) (intImmediate 1)]
+                (Just (LoweredBranch boolTemporary nestedCaseFirstBodyBlockId [] nestedCaseFinalBodyBlockId [])),
+              LoweredBlock
+                nestedCaseFirstBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 3))),
+              LoweredBlock
+                nestedCaseFinalBodyBlockId
+                []
+                []
+                (Just (LoweredReturn (intImmediate 4)))
+            ]
+            entryBlockId
+        ]
+        intRepresentation
+        [expectedDirectCallInstruction 1 intRepresentation "chooseNestedCase" [intImmediate 0, boolImmediate True]]
+        (loweredTemporary 1 intRepresentation)
+    )
+  ]
+  where
+    functionId name = LoweredFunctionId ("App::Main::" <> name)
+    parameter name representation = LoweredParameter (LoweredParameterId name) representation
+    functionParameter name representation =
+      LoweredFunctionParameterOperand (LoweredParameterId name) representation
+    boolImmediate = loweredImmediate . LoweredBoolImmediate
+    intImmediate = loweredImmediate . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+    boolTemporary = loweredTemporary 1 LoweredBoolRepresentation
+    comparisonInstruction left right =
+      LoweredInstruction
+        (LoweredTemporaryId "t1")
+        LoweredBoolRepresentation
+        (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [left, right])
+    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+    entryBlockId = LoweredBlockId "entry"
+    outerIfThenBlockId = LoweredBlockId "if$s1$1$e4$0,0,0,0$then"
+    outerIfElseBlockId = LoweredBlockId "if$s1$1$e4$0,0,0,0$else"
+    nestedIfThenBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,0,1$then"
+    nestedIfElseBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,0,1$else"
+    nestedIfCaseFirstBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,0,2$a0$body"
+    nestedIfCaseFinalBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,0,2$a1$body"
+    outerCaseFirstBodyBlockId = LoweredBlockId "case$s1$1$e3$0,0,0$a0$body"
+    outerCaseFinalBodyBlockId = LoweredBlockId "case$s1$1$e3$0,0,0$a1$body"
+    caseIfThenBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,1,1$then"
+    caseIfElseBlockId = LoweredBlockId "if$s1$1$e5$0,0,0,1,1$else"
+    nestedCaseFirstBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,2,1$a0$body"
+    nestedCaseFinalBodyBlockId = LoweredBlockId "case$s1$1$e5$0,0,0,2,1$a1$body"
 
 curriedCallableOversaturationProgram :: TypedProgram
 curriedCallableOversaturationProgram =
@@ -3893,6 +4033,26 @@ producerEdgeFixtures =
                  [ "loop :: Int -> Int.",
                    "loop = \\(item) -> case item { | 0 -> 0 | 1 -> loop 0 | next if next == 2 -> next | _ -> 3 }.",
                    "loop 1."
+                 ]
+             )
+         ),
+         ( "nested-tail-if-alternatives",
+           sourceFixtureNoExports
+             "nested-tail-if-alternatives"
+             ( Text.unlines
+                 [ "chooseNestedIf :: Bool -> Bool -> Int -> Int.",
+                   "chooseNestedIf = \\(outer, inner, item) -> if outer then (if inner then item else 1) else (case item { | 0 -> 2 | _ -> 3 }).",
+                   "chooseNestedIf True False 9."
+                 ]
+             )
+         ),
+         ( "nested-tail-case-bodies",
+           sourceFixtureNoExports
+             "nested-tail-case-bodies"
+             ( Text.unlines
+                 [ "chooseNestedCase :: Int -> Bool -> Int.",
+                   "chooseNestedCase = \\(item, flag) -> case item { | 0 -> if flag then 1 else 2 | _ -> case item { | 1 -> 3 | _ -> 4 } }.",
+                   "chooseNestedCase 0 True."
                  ]
              )
          ),

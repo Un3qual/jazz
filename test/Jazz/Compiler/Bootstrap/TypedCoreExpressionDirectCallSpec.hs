@@ -58,6 +58,7 @@ tests =
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("keeps function-body consumed calls as ordinary operations", testFunctionResultNegativeTerminators),
     ("preserves function-body partial-application returns", testFunctionBodyPartialApplicationResult),
+    ("lowers nested function-result control flow exactly", testNestedTailControlFlow),
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
@@ -473,6 +474,24 @@ testFunctionBodyPartialApplicationResult = do
     "function-body partial application lowers exactly"
     (LoweredIRSucceeded expectedProgram)
     (lowerTypedCoreExpressionDirectCall typedProgram)
+
+testNestedTailControlFlow :: IO ()
+testNestedTailControlFlow =
+  mapM_ assertExact nestedTailControlFlowExpectedLoweredPrograms
+  where
+    assertExact (name, expectedProgram) = do
+      firstProduction <- produceFixture (producerEdgeFixture name)
+      secondProduction <- produceFixture (producerEdgeFixture name)
+      assertEqual (name <> " repeatable production") firstProduction secondProduction
+      assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
+      case typedCoreProductionStatus firstProduction of
+        TypedCoreProductionSucceeded typedProgram -> do
+          assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
+          assertEqual
+            (name <> " exact nested tail lowering")
+            (LoweredIRSucceeded expectedProgram)
+            (lowerTypedCoreExpressionDirectCall typedProgram)
+        other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
 
 testScalarPatternCaseProduction :: IO ()
 testScalarPatternCaseProduction =
