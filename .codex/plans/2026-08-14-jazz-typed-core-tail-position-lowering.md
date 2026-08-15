@@ -397,23 +397,24 @@ closeout` section.** Include focused suite names, full suite count,
 
 ## Full closeout
 
-Task 5 fresh verification completed on 2026-08-14. On the Task 4 closeout
-state (`1427c7f2`), the following serialized Nix commands each exited 0:
+The authoritative Task 5 result is the fresh post-review gate completed on
+2026-08-15 at `fb5a2b11`. The serialized Nix focused command passed
+`jazz-typed-core-expression-direct-call-spec`,
+`jazz-typed-core-contract-spec`, and `jazz-lowered-ir-contract-spec`; the
+serialized `repository-audit-spec` command also passed. The fresh serialized
+`cabal test all --test-show-details=direct --jobs=1` command passed the actual
+total of 62 suites.
 
-- `cabal test` for `jazz-typed-core-expression-direct-call-spec`,
-  `jazz-typed-core-contract-spec`, and `jazz-lowered-ir-contract-spec`, with
-  `--test-show-details=direct --jobs=1`;
-- `cabal test repository-audit-spec --test-show-details=direct --jobs=1`;
-- `cabal test all --test-show-details=direct --jobs=1`, which passed the
-  actual fresh total of 62 suites.
+The pinned Nix `scripts/check-docs.sh` check, `bash
+scripts/check-execution-queue.sh`, `git diff --check`, and `git status --short
+--branch` all passed on branch `codex/typed-core-tail-position-lowering`, with
+a clean worktree. Relevant implementation and remediation history is
+`05700567` (function-result tail calls), `40851b90` (consumed-call coverage),
+`5720e73a` (control-flow tail position), `1427c7f2` (Task 4 closeout),
+`7ba1a801` (partial-application return repair), `15259559` (nested tail
+control-flow coverage), and `fb5a2b11` (nested-tail coverage receipt).
 
-The relevant implementation history is `05700567` (function-result tail
-calls), `40851b90` (consumed-call coverage), and `5720e73a` (control-flow
-tail position); Task 4 documentation and dispatcher closeout is `1427c7f2`.
-After those commands, `d6cf63e7` made only canonical Prettier whitespace
-changes to this plan and `.codex/execution/queue.md`; it changed no evidence,
-checkbox, or behavior. On current branch
-`codex/typed-core-tail-position-lowering`, the pinned Nix documentation check,
-`bash scripts/check-execution-queue.sh`, and `git diff --check` were rerun and
-each exited 0 with a clean worktree. No new full-suite run was required for
-that formatting-only commit.
+This evidence supersedes the earlier pre-remediation 62-suite result recorded
+by `2dac3760`; `d6cf63e7` remains the formatting-only repair that preceded
+that earlier record. The current-source gate above, not the earlier run, is
+the final verification result.
