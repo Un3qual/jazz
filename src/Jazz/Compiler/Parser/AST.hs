@@ -131,7 +131,7 @@ data SurfaceNumericType
   | SurfaceNumericFloat16
   | SurfaceNumericFloat32
   | SurfaceNumericFloat64
-  deriving (Eq, Ord, Show)
+  deriving (Bounded, Enum, Eq, Ord, Show)
 
 data SurfaceSignatureType
   = SurfaceTypeInt

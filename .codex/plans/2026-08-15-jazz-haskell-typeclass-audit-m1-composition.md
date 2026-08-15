@@ -76,10 +76,10 @@
 - Modify: `src/Jazz/Compiler/Parser/AST.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`
 
-- [ ] Add an assertion that `[minBound .. maxBound]` equals the exact current order: `SurfaceNumericInt8`, `SurfaceNumericInt16`, `SurfaceNumericInt32`, `SurfaceNumericInt64`, `SurfaceNumericUInt8`, `SurfaceNumericUInt16`, `SurfaceNumericUInt32`, `SurfaceNumericUInt64`, `SurfaceNumericFloat16`, `SurfaceNumericFloat32`, `SurfaceNumericFloat64`.
-- [ ] Run `canonical-parser-comparison-spec` and confirm compilation fails because `SurfaceNumericType` lacks `Bounded` and `Enum`.
-- [ ] Derive `Enum` and `Bounded` for `SurfaceNumericType` and replace the hand-maintained `allNumericTypes` constructor list with `[minBound .. maxBound]`.
-- [ ] Format both files, rerun `canonical-parser-comparison-spec`, and commit as `refactor: derive numeric surface enumeration`.
+- [x] Add an assertion that `[minBound .. maxBound]` equals the exact current order: `SurfaceNumericInt8`, `SurfaceNumericInt16`, `SurfaceNumericInt32`, `SurfaceNumericInt64`, `SurfaceNumericUInt8`, `SurfaceNumericUInt16`, `SurfaceNumericUInt32`, `SurfaceNumericUInt64`, `SurfaceNumericFloat16`, `SurfaceNumericFloat32`, `SurfaceNumericFloat64`.
+- [x] Run `canonical-parser-comparison-spec` and confirm compilation fails because `SurfaceNumericType` lacks `Bounded` and `Enum`.
+- [x] Derive `Enum` and `Bounded` for `SurfaceNumericType` and replace the hand-maintained `allNumericTypes` constructor list with `[minBound .. maxBound]`.
+- [x] Format both files, rerun `canonical-parser-comparison-spec`, and commit as `refactor: derive numeric surface enumeration`.
 
 ## Task 4: M1 closeout
 
