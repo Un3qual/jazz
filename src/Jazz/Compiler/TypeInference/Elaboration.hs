@@ -2267,7 +2267,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
            in Right (TypedNodeInfo (TypedNumericType numericTypeValue) recipe [] [])
         TBoolType -> Right (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [])
         TCharType -> Right (TypedNodeInfo TypedCharType TypedCharRecipe [] [])
-        TTextType -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreTextValueDetail)
+        TTextType -> Right (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [])
         TListType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreListValueDetail)
         TTupleType [] -> Right unitInfo
         TTupleType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail)
@@ -2284,7 +2284,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         (LFloat _ source Nothing, TypedNumericType numericType) -> Right (fractionalLiteral source (Just numericType))
         (LBool value, TypedBoolType) -> Right (TypedBooleanLiteral value)
         (LChar value, TypedCharType) -> Right (TypedCharacterLiteral value)
-        (LText _, _) -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreTextValueDetail)
+        (LText value, TypedTextType) -> Right (TypedTextLiteral value)
         _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
 
     fractionalLiteral source maybeNumericType =

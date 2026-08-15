@@ -21,6 +21,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     scalarPatternCaseLowererBoundaryPrograms,
     scalarBindingExpectedPrograms,
     scalarBindingExpectedLoweredPrograms,
+    managedTextProducerFixtures,
+    managedTextExpectedPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,
     curriedApplicationExpectedPrograms,
@@ -976,8 +978,33 @@ scalarBindingProducerFixtures =
   [ ("scalar-binding-literal", sourceFixtureNoExports "scalar-binding-literal" scalarBindingLiteralSource),
     ("scalar-binding-ordered-reuse", sourceFixtureNoExports "scalar-binding-ordered-reuse" scalarBindingOrderedReuseSource),
     ("scalar-binding-direct-call-result", sourceFixtureNoExports "scalar-binding-direct-call-result" scalarBindingDirectCallResultSource),
-    ("managed-scalar-binding", sourceFixtureNoExports "managed-scalar-binding" managedScalarBindingSource),
     ("scalar-binding-failed-initializer-hidden", sourceFixtureNoExports "scalar-binding-failed-initializer-hidden" scalarBindingFailedInitializerSource)
+  ]
+
+managedTextProducerFixtures :: [(Text, Fixture)]
+managedTextProducerFixtures =
+  [ ("managed-text-literal", sourceFixtureNoExports "managed-text-literal" managedTextLiteralSource),
+    ("managed-scalar-binding", sourceFixtureNoExports "managed-scalar-binding" managedScalarBindingSource),
+    ("managed-text-identity", sourceFixtureNoExports "managed-text-identity" managedTextIdentitySource),
+    ("managed-text-capture-transport", sourceFixtureNoExports "managed-text-capture-transport" managedTextCaptureTransportSource),
+    ("managed-text-conditional-result", sourceFixtureNoExports "managed-text-conditional-result" managedTextConditionalResultSource),
+    ("managed-text-scalar-case-result", sourceFixtureNoExports "managed-text-scalar-case-result" managedTextScalarCaseResultSource)
+  ]
+
+managedTextExpectedPrograms :: [(Text, TypedProgram)]
+managedTextExpectedPrograms =
+  [ ( "managed-text-literal",
+      expectedRootProgram
+        [TypedExpressionStatement (TypedSpan 2 1) (textExpr "managed")]
+        textInfo
+    ),
+    ("managed-scalar-binding", managedScalarBindingProgram),
+    ("managed-text-identity", managedTextIdentityProgram),
+    ("managed-text-capture-transport", managedTextCaptureTransportProgram),
+    ("managed-text-conditional-result", managedTextConditionalResultProgram),
+    ("managed-text-scalar-case-result", managedTextScalarCaseResultProgram),
+    ("unsupported-managed-capture", managedTextCaptureProgram),
+    ("partial-call-managed-argument-failure", managedTextPartialApplicationProgram)
   ]
 
 scalarBindingExpectedPrograms :: [(Text, TypedProgram)]
@@ -1982,6 +2009,152 @@ scalarBindingDirectCallResultProgram =
       bindExpectedExpressionVariables
         (Map.singleton functionName functionBinder)
         (directCall "identity" [boolInfo] boolInfo [boolExpr True])
+
+managedScalarBindingProgram :: TypedProgram
+managedScalarBindingProgram =
+  expectedRootProgram
+    [ TypedLetStatement messageBinder messageName (TypedSpan 2 1) messageScheme (textExpr "managed"),
+      TypedExpressionStatement (TypedSpan 3 1) (boundVariableExpr messageName textInfo messageBinder)
+    ]
+    textInfo
+  where
+    messageName = resolvedName "message"
+    messageBinder = TypedBinderId (modulePath, [0], messageName)
+    messageScheme = scalarScheme messageBinder textInfo
+
+managedTextIdentityProgram :: TypedProgram
+managedTextIdentityProgram =
+  expectedFunctionProgramWithLineOffset
+    1
+    []
+    [ ExpectedFunction
+        "identity"
+        [("item", textInfo)]
+        textInfo
+        TypedDirectCallableShape
+        (variableExpr "item" textInfo)
+    ]
+    (directCall "identity" [textInfo] textInfo [textExpr "Jazz"])
+
+managedTextCaptureTransportProgram :: TypedProgram
+managedTextCaptureTransportProgram =
+  expectedRootProgram
+    ( TypedLetStatement messageBinder messageName (TypedSpan 2 1) messageScheme (textExpr "managed")
+        : functionStatements
+          <> [ TypedExpressionStatement
+                 (TypedSpan 5 1)
+                 ( bindExpectedExpressionVariables
+                     (Map.singleton captureName captureBinder)
+                     (directCall "capture" [boolInfo] textInfo [boolExpr True])
+                 )
+             ]
+    )
+    textInfo
+  where
+    messageName = resolvedName "message"
+    messageBinder = TypedBinderId (modulePath, [0], messageName)
+    messageScheme = scalarScheme messageBinder textInfo
+    captureName = resolvedName "capture"
+    captureBinder = TypedBinderId (modulePath, [2], captureName)
+    function =
+      ExpectedFunction
+        "capture"
+        [("ignored", boolInfo)]
+        textInfo
+        TypedClosureCallableShape
+        (variableExpr "message" textInfo)
+    functionStatements =
+      map
+        (bindExpectedStatementVariables (Map.fromList [(messageName, messageBinder), (captureName, captureBinder)]))
+        (expectedFunctionStatementsAtLineOffset 1 1 2 function)
+
+managedTextConditionalResultProgram :: TypedProgram
+managedTextConditionalResultProgram =
+  expectedFunctionProgramWithLineOffset
+    1
+    []
+    [ ExpectedFunction
+        "choose"
+        [("flag", boolInfo)]
+        textInfo
+        TypedDirectCallableShape
+        (TypedIfExpr textInfo (variableExpr "flag" boolInfo) (textExpr "yes") (textExpr "no"))
+    ]
+    (directCall "choose" [boolInfo] textInfo [boolExpr True])
+
+managedTextScalarCaseResultProgram :: TypedProgram
+managedTextScalarCaseResultProgram =
+  expectedFunctionProgramWithLineOffset
+    1
+    []
+    [ ExpectedFunction
+        "choose"
+        [("flag", boolInfo)]
+        textInfo
+        TypedDirectCallableShape
+        ( TypedPatternCaseExpr
+            textInfo
+            (variableExpr "flag" boolInfo)
+            [ TypedCaseArm
+                (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+                Nothing
+                (textExpr "yes"),
+              TypedCaseArm
+                (TypedWildcardPattern boolInfo)
+                Nothing
+                (textExpr "no")
+            ]
+        )
+    ]
+    (directCall "choose" [boolInfo] textInfo [boolExpr True])
+
+managedTextCaptureProgram :: TypedProgram
+managedTextCaptureProgram =
+  expectedRootProgram
+    ( TypedLetStatement messageBinder messageName (TypedSpan 2 1) messageScheme (textExpr "managed")
+        : functionStatements
+          <> [TypedExpressionStatement (TypedSpan 5 1) (TypedTupleExpr unitInfo [])]
+    )
+    unitInfo
+  where
+    messageName = resolvedName "message"
+    messageBinder = TypedBinderId (modulePath, [0], messageName)
+    messageScheme = scalarScheme messageBinder textInfo
+    checkName = resolvedName "check"
+    checkBinder = TypedBinderId (modulePath, [2], checkName)
+    function =
+      ExpectedFunction
+        "check"
+        [("ignored", boolInfo)]
+        boolInfo
+        TypedClosureCallableShape
+        (binaryExpr boolInfo "==" (variableExpr "message" textInfo) (variableExpr "message" textInfo))
+    functionStatements =
+      map
+        (bindExpectedStatementVariables (Map.fromList [(messageName, messageBinder), (checkName, checkBinder)]))
+        (expectedFunctionStatementsAtLineOffset 1 1 2 function)
+
+managedTextPartialApplicationProgram :: TypedProgram
+managedTextPartialApplicationProgram =
+  expectedFunctionProgramWithLineOffset
+    1
+    []
+    [keepRightFunction]
+    ( TypedApplyExpr
+        remainingInfo
+        (variableExpr "keepRight" keepRightInfo)
+        (textExpr "managed")
+    )
+  where
+    keepRightFunction =
+      ExpectedFunction
+        "keepRight"
+        [("ignored", textInfo), ("right", intInfo)]
+        intInfo
+        TypedClosureCallableShape
+        (variableExpr "right" intInfo)
+    keepRightInfo = stagedFunctionInfo [("ignored", textInfo), ("right", intInfo)] intInfo
+    remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
 
 expectedRootProgram :: [TypedStatement] -> TypedNodeInfo -> TypedProgram
 expectedRootProgram statements moduleInfo =
@@ -3992,6 +4165,7 @@ rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-uni
 producerEdgeFixtures :: [(Text, Fixture)]
 producerEdgeFixtures =
   scalarBindingProducerFixtures
+    <> managedTextProducerFixtures
     <> [ ( "scalar-pattern-case",
            sourceFixtureNoExports
              "scalar-pattern-case"
@@ -5684,14 +5858,15 @@ modulePath = ["App", "Main"]
 validSourcePath :: TypedSourcePath
 validSourcePath = TypedSourcePath "src/App/Main.jz"
 
-unitEntrySource, boolEntrySource, charEntrySource, defaultIntEntrySource, defaultFloatEntrySource :: Text
+unitEntrySource, boolEntrySource, charEntrySource, defaultIntEntrySource, defaultFloatEntrySource, managedTextLiteralSource :: Text
 unitEntrySource = "()."
 boolEntrySource = "True."
 charEntrySource = "'j'."
 defaultIntEntrySource = "7."
 defaultFloatEntrySource = "1.05."
+managedTextLiteralSource = "\"managed\"."
 
-scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource, scalarBindingFailedInitializerSource :: Text
+scalarBindingLiteralSource, scalarBindingOrderedReuseSource, scalarBindingDirectCallResultSource, managedScalarBindingSource, scalarBindingFailedInitializerSource, managedTextIdentitySource, managedTextCaptureTransportSource, managedTextConditionalResultSource, managedTextScalarCaseResultSource :: Text
 scalarBindingLiteralSource =
   Text.unlines
     [ "seed = 40.",
@@ -5715,6 +5890,31 @@ managedScalarBindingSource =
   Text.unlines
     [ "message = \"managed\".",
       "message."
+    ]
+managedTextIdentitySource =
+  Text.unlines
+    [ "identity :: Text -> Text.",
+      "identity = \\(item) -> item.",
+      "identity \"Jazz\"."
+    ]
+managedTextCaptureTransportSource =
+  Text.unlines
+    [ "message = \"managed\".",
+      "capture :: Bool -> Text.",
+      "capture = \\(ignored) -> message.",
+      "capture True."
+    ]
+managedTextConditionalResultSource =
+  Text.unlines
+    [ "choose :: Bool -> Text.",
+      "choose = \\(flag) -> if flag then \"yes\" else \"no\".",
+      "choose True."
+    ]
+managedTextScalarCaseResultSource =
+  Text.unlines
+    [ "choose :: Bool -> Text.",
+      "choose = \\(flag) -> case flag { | True -> \"yes\" | _ -> \"no\" }.",
+      "choose True."
     ]
 scalarBindingFailedInitializerSource =
   Text.unlines
@@ -5815,6 +6015,9 @@ boolExpr value = TypedLiteralExpr boolInfo (TypedBooleanLiteral value)
 
 charExpr :: Char -> TypedExpr
 charExpr value = TypedLiteralExpr charInfo (TypedCharacterLiteral value)
+
+textExpr :: Text -> TypedExpr
+textExpr value = TypedLiteralExpr textInfo (TypedTextLiteral value)
 
 intExpr :: Integer -> TypedExpr
 intExpr value = TypedLiteralExpr intInfo (TypedIntegerLiteral (Text.pack (show value)))

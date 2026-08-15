@@ -67,6 +67,7 @@ tests =
     ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
+    ("produces managed Text literals and bindings exactly", testManagedTextProduction),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
     ("lowers staged curried applications", testCurriedApplicationLowering),
@@ -92,7 +93,7 @@ tests =
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("admits captured arguments inside direct-call bodies", testCurriedArgumentCapture),
     ("retains supplied arguments inside partial applications", testPartialApplicationArgumentCapture),
-    ("retains managed-argument failures inside valid partial applications", testPartialApplicationManagedArgumentFailure),
+    ("retains managed arguments inside valid partial applications", testPartialApplicationManagedArgumentProduction),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
     ("retains later sibling failures after accepting a captured closure call", testClosureUseArgumentFailureOrder),
     ("collapses mixed callable-use reasons to one closure classification", testClosureShapeClassificationCollapse),
@@ -1675,7 +1676,6 @@ expectedConditionalControlFlows =
 testScalarBindingProduction :: IO ()
 testScalarBindingProduction = do
   mapM_ assertProduced scalarBindingExpectedPrograms
-  assertManagedBindingRejected
   assertFailedBindingHidden
   where
     assertProduced (name, expectedProgram) = do
@@ -1691,18 +1691,6 @@ testScalarBindingProduction = do
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
-    assertManagedBindingRejected = do
-      let fixture = producerEdgeFixture "managed-scalar-binding"
-          expected =
-            TypedCoreProductionUnsupported
-              [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 0 [0] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message")
-              ]
-      firstRun <- produceFixture fixture
-      secondRun <- produceFixture fixture
-      assertEqual "managed scalar binding repeatable rejection" firstRun secondRun
-      assertEqual "managed scalar binding complete rejection" expected (typedCoreProductionStatus firstRun)
     assertFailedBindingHidden = do
       let fixture = producerEdgeFixture "scalar-binding-failed-initializer-hidden"
           expected =
@@ -1719,6 +1707,23 @@ testScalarBindingProduction = do
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
         kind
         detail
+
+testManagedTextProduction :: IO ()
+testManagedTextProduction =
+  mapM_ assertProduced managedTextExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
 testLexicalCaptureProduction :: IO ()
 testLexicalCaptureProduction =
@@ -1808,7 +1813,6 @@ testLexicalCaptureLowering =
 testLexicalCaptureFixtureMatrix :: IO ()
 testLexicalCaptureFixtureMatrix = do
   mapM_ assertSupported lexicalABIs
-  assertUnsupportedCapture
   where
     assertSupported (name, expectedBinders, expectedLayouts, expectedFunctionIds, expectedNestedEnvironment) = do
       let fixture = producerEdgeFixture name
@@ -1833,26 +1837,6 @@ testLexicalCaptureFixtureMatrix = do
                 Nothing -> pure ()
             other -> failTest (name <> " did not lower: " <> Text.pack (show other))
         other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
-
-    assertUnsupportedCapture = do
-      let fixture = producerEdgeFixture "unsupported-managed-capture"
-          expected =
-            TypedCoreProductionUnsupported
-              [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 0 [0] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 2 [0, 0, 0] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message"),
-                expressionFailure 2 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message")
-              ]
-      firstRun <- produceFixture fixture
-      secondRun <- produceFixture fixture
-      assertEqual "unsupported managed capture repeatability" firstRun secondRun
-      assertEqual "unsupported managed capture exact rejection" expected (typedCoreProductionStatus firstRun)
-
-    expressionFailure statementIndex childPath kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-        kind
-        detail
 
     lexicalABIs :: [(Text, [TypedBinderId], [LoweredLayout], [LoweredFunctionId], Maybe (LoweredLayoutId, [LoweredOperand]))]
     lexicalABIs =
@@ -2375,36 +2359,21 @@ testPartialApplicationArgumentCapture = do
         other -> failTest ("partial-call argument did not lower: " <> Text.pack (show other))
     other -> failTest ("partial-call argument did not produce typed core: " <> Text.pack (show other))
 
-testPartialApplicationManagedArgumentFailure :: IO ()
-testPartialApplicationManagedArgumentFailure = do
-  let fixture = producerEdgeFixture "partial-call-managed-argument-failure"
+testPartialApplicationManagedArgumentProduction :: IO ()
+testPartialApplicationManagedArgumentProduction = do
+  let name = "partial-call-managed-argument-failure"
+      fixture = producerEdgeFixture name
       expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [1])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail
-          ]
+        case lookup name managedTextExpectedPrograms of
+          Just program -> program
+          Nothing -> error "managed Text partial-application expectation is missing"
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "partial managed-argument repeatability" firstRun secondRun
-  assertEqual "partial managed-argument failure path" expected (typedCoreProductionStatus firstRun)
+  assertEqual
+    "partial managed-argument exact typed program"
+    (TypedCoreProductionSucceeded expected)
+    (typedCoreProductionStatus firstRun)
 
 testNonLocalCallArgumentFailureAccumulation :: IO ()
 testNonLocalCallArgumentFailureAccumulation = do
@@ -4249,9 +4218,7 @@ rejectedManifestExpectedStatuses =
     ),
     ( "text-value",
       unsupported
-        [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-          expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
-        ]
+        [expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
     ),
     ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
     ("non-unit-tuple", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),

@@ -166,7 +166,7 @@ and the reference interpreter.
 - Existing `valueInfo`, `valueTypeAndRecipe`, binder references, callable
   recipes, and closure-capture analysis transport the managed recipe unchanged.
 
-- [ ] **Step 1: Add exact producer fixtures.** Export
+- [x] **Step 1: Add exact producer fixtures.** Export
       `managedTextProducerFixtures` and `managedTextExpectedPrograms`. Cover:
 
   ```jazz
@@ -196,7 +196,7 @@ and the reference interpreter.
   `TypedProgram`, binder references, callable schemes, and nested managed
   recipes; do not compare summaries.
 
-- [ ] **Step 2: Reclassify existing manifests precisely.** Change
+- [x] **Step 2: Reclassify existing manifests precisely.** Change
       `managed-scalar-binding` from structured rejection to the exact accepted
       binding program. Keep primary fixture `text-value` rejected for its list
       expression, but remove the obsolete Text failure from its expected
@@ -204,7 +204,7 @@ and the reference interpreter.
       operation lands in Task 4; the new transport-only capture fixture proves
       capture independently.
 
-- [ ] **Step 3: Run the focused producer suite and verify RED.** Run:
+- [x] **Step 3: Run the focused producer suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=direct --jobs=1
@@ -213,11 +213,11 @@ and the reference interpreter.
   Expected: the new exact fixtures receive
   `TypedCoreManagedValueUnsupported` or differ from their expected Text nodes.
 
-- [ ] **Step 4: Implement Text finalization only.** Add the two exact cases to
+- [x] **Step 4: Implement Text finalization only.** Add the two exact cases to
       `scalarInfo` and `typedLiteral`. Do not add builtin recognition or
       lowerer behavior in this task.
 
-- [ ] **Step 5: Run producer and contract verification.** Run:
+- [x] **Step 5: Run producer and contract verification.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec --test-show-details=direct --jobs=1
@@ -227,7 +227,7 @@ and the reference interpreter.
   rejected, and all earlier scalar/closure/currying/recursion/CFG fixtures stay
   unchanged.
 
-- [ ] **Step 6: Commit the producer milestone.** Run:
+- [x] **Step 6: Commit the producer milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference/Elaboration.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
