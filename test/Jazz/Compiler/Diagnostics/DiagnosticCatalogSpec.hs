@@ -16,12 +16,12 @@ import Jazz.Compiler.DiagnosticCatalog
     lookupWarningCategory,
     warningCode,
     warningHasAnalyzerEmitter,
-    warningToken
+    warningToken,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -103,7 +103,7 @@ expectedErrorNumbers =
   [1 .. 5]
     <> [1001 .. 1007]
     <> [1010]
-    <> [2001 .. 2017]
+    <> [2001 .. 2019]
     <> [3001 .. 3003]
     <> [3006 .. 3040]
     <> [4001 .. 4016]

@@ -44,7 +44,9 @@ must belong to its type and carry the expected number of fields. Tuple and list
 shapes, duplicate binders, alternative binders, guard types, and branch result
 types are checked before evaluation.
 
-Case arms are tried in source order. Static exhaustiveness and unreachable-arm
-analysis are not implemented yet. If no pattern and guard select an arm at
-runtime, evaluation fails with `E3022`. See
-[control flow](control-flow.md) for guards and ordering.
+Case arms are tried in source order and must cover the complete resolved input
+type. Unguarded constructor arms can exhaust a closed ADT; guarded arms do not
+contribute coverage. The compiler reports an example missing pattern for an
+incomplete match and rejects an arm whose whole pattern space was covered by
+earlier unguarded arms. See [control flow](control-flow.md) for guards,
+ordering, and diagnostic codes.

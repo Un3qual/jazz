@@ -42,6 +42,7 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkNumericConversionFractionalLiteralTypeError,
     mkNumericConversionLiteralTypeError,
     mkNumericSectionOperandTypeError,
+    mkNonExhaustivePatternMatchError,
     mkOrPatternBinderSetMismatchError,
     mkOrPatternBinderTypeMismatchError,
     mkPatternBranchTypeMismatchError,
@@ -57,34 +58,40 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeStrictEqualityConstraintError,
     mkUnknownConstructorPatternError,
     mkUnknownConstructorPayloadTypeError,
+    mkUnreachablePatternArmError,
     mkInvalidConstructorPayloadTypeError,
     mkUnsupportedOperatorValueError,
     mkUnsupportedSectionOperatorError,
     renderSignaturePayload,
-    renderType
-  ) where
+    renderType,
+  )
+where
 
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr,
     NumericType,
+    Pattern,
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode,
-    renderNumericTypeName
+    renderNumericTypeName,
   )
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     constraintImplFactKey,
-    identifierLooksLikeTypeVariable
+    identifierLooksLikeTypeVariable,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -92,35 +99,34 @@ import Jazz.Compiler.Diagnostics
     SourceSpan,
     diagnosticPrimarySpan,
     mkErrorDiagnostic,
+    setDiagnosticHelp,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
-    setDiagnosticSubject
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+    setDiagnosticSubject,
   )
 import Jazz.Compiler.Name (Name, identifierText)
+import Jazz.Compiler.PatternCoverage (renderCoveragePattern)
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType
-  )
-import Jazz.Compiler.TypeInference.State
-  ( InferState (..),
-    InferenceOutput (..),
-    inferErrorCount,
-    inferErrorsRev,
-    inferClassFacts,
-    inferConcreteImplFacts,
-    modifyInferenceOutput
+  ( renderSignatureType,
   )
 import Jazz.Compiler.TypeInference.Elaboration
   ( InferredExpr,
-    TypedCoreProductionMode
+    TypedCoreProductionMode,
   )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
+import Jazz.Compiler.TypeInference.State
+  ( InferState (..),
+    InferenceOutput (..),
+    inferClassFacts,
+    inferConcreteImplFacts,
+    inferErrorCount,
+    inferErrorsRev,
+    modifyInferenceOutput,
+  )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     NumericConstraint,
-    TypeEnv
+    TypeEnv,
   )
 
 -- Production-aware traversal results retain the same type result alongside
@@ -203,8 +209,10 @@ mkDuplicateDataTypeDeclarationError typeName spanValue =
 
 mkSignatureTypeMismatchError :: Text -> SourceSpan -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkSignatureTypeMismatchError bindingName signatureSpan declaredType bindingSpan inferredType =
-  setDiagnosticSubject bindingName $ setDiagnosticRelatedSpan bindingSpan $ setDiagnosticPrimarySpan signatureSpan $
-    mkErrorDiagnostic E2005 CompilationOrigin ("binding '" <> bindingName <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
+  setDiagnosticSubject bindingName $
+    setDiagnosticRelatedSpan bindingSpan $
+      setDiagnosticPrimarySpan signatureSpan $
+        mkErrorDiagnostic E2005 CompilationOrigin ("binding '" <> bindingName <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
 
 mkApplyTypeError :: ExpressionType -> ExpressionType -> Diagnostic
 mkApplyTypeError functionType argumentType =
@@ -231,8 +239,9 @@ mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude =
 
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkBindingTypeMismatchError bindingName expectedType bindingSpan actualType =
-  setDiagnosticPrimarySpan bindingSpan $ setDiagnosticSubject bindingName $
-    mkErrorDiagnostic E2006 CompilationOrigin ("binding '" <> bindingName <> "' is used recursively as type " <> renderType expectedType <> " but its definition inferred " <> renderType actualType)
+  setDiagnosticPrimarySpan bindingSpan $
+    setDiagnosticSubject bindingName $
+      mkErrorDiagnostic E2006 CompilationOrigin ("binding '" <> bindingName <> "' is used recursively as type " <> renderType expectedType <> " but its definition inferred " <> renderType actualType)
 
 mkListElementTypeMismatchError :: ExpressionType -> ExpressionType -> Diagnostic
 mkListElementTypeMismatchError expectedType foundType =
@@ -275,7 +284,8 @@ mkMethodLocalTypeVariableError methodKey variableName methodSpan =
   withSubject methodKey $
     setDiagnosticPrimarySpan methodSpan $
       mkErrorDiagnostic
-        E2009 CompilationOrigin
+        E2009
+        CompilationOrigin
         ( "class method '"
             <> methodKey
             <> "' uses unsupported method-local type variable '"
@@ -288,7 +298,8 @@ mkUndeclaredSignatureConstraintError bindingName primitive constraintName argume
   withSubject bindingName $
     setDiagnosticPrimarySpan signatureSpan $
       mkErrorDiagnostic
-        E2009 CompilationOrigin
+        E2009
+        CompilationOrigin
         ( "signature for '"
             <> bindingName
             <> "' does not declare required "
@@ -374,6 +385,23 @@ mkOrPatternBinderSetMismatchError expected found = mkErrorDiagnostic E2011 Compi
 
 mkOrPatternBinderTypeMismatchError :: Name -> ExpressionType -> ExpressionType -> Diagnostic
 mkOrPatternBinderTypeMismatchError name leftType rightType = mkErrorDiagnostic E2011 CompilationOrigin ("or-pattern binder '" <> identifierText name <> "' has incompatible types " <> renderType leftType <> " and " <> renderType rightType)
+
+mkNonExhaustivePatternMatchError :: Pattern -> Diagnostic
+mkNonExhaustivePatternMatchError missingPattern =
+  setDiagnosticHelp
+    "add an unguarded arm that covers the missing pattern"
+    ( mkErrorDiagnostic
+        E2018
+        CompilationOrigin
+        ("non-exhaustive pattern match; missing pattern: " <> renderCoveragePattern missingPattern)
+    )
+
+mkUnreachablePatternArmError :: Int -> Diagnostic
+mkUnreachablePatternArmError armIndex =
+  mkErrorDiagnostic
+    E2019
+    CompilationOrigin
+    ("pattern arm " <> tshow armIndex <> " is unreachable because earlier unguarded arms cover it")
 
 renderType :: ExpressionType -> Text
 renderType expressionType =
@@ -475,15 +503,17 @@ renderBinderSet names = "{" <> Text.intercalate ", " (map identifierText (Set.to
 withSubject :: Text -> Diagnostic -> Diagnostic
 withSubject = setDiagnosticSubject
 
-tshow :: Show a => a -> Text
+tshow :: (Show a) => a -> Text
 tshow = Text.pack . show
+
 mkInvalidSignatureTypeError :: InferState -> Text -> SourceSpan -> SignaturePayload -> Diagnostic
 mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
   setDiagnosticSubject symbol $
     setDiagnosticPrimarySpan
       signatureSpan
       ( mkErrorDiagnostic
-          E2009 CompilationOrigin
+          E2009
+          CompilationOrigin
           (invalidSignatureSummary state symbol signaturePayload)
       )
 
@@ -530,7 +560,8 @@ mkInvalidExplicitTypeApplicationArgumentError :: InferState -> SourceSpan -> Sig
 mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
   setDiagnosticPrimarySpan spanValue $
     mkErrorDiagnostic
-      E2009 CompilationOrigin
+      E2009
+      CompilationOrigin
       ( case signatureTypeFailureSummary state signatureType of
           Just reason -> reason
           Nothing -> "invalid or unsupported explicit type application argument '" <> renderSignatureType signatureType <> "'"
@@ -541,7 +572,8 @@ mkInvalidImplTargetError state implSpan signatureType =
   case signatureTypeFailureSummary state signatureType of
     Just failureSummary ->
       Just
-        ( setDiagnosticPrimarySpan implSpan
+        ( setDiagnosticPrimarySpan
+            implSpan
             (mkErrorDiagnostic E2009 CompilationOrigin ("invalid impl target: " <> failureSummary))
         )
     Nothing -> Nothing

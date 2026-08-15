@@ -383,6 +383,7 @@ lookupSource expression sourcePath =
                   componentPath = CanonicalSourcePath "fixtures/parser/component.jz".
                   expressionTokens = \\(source) -> case lexSource (CanonicalSourcePath "fixtures/parser/component.jz") source {
                     | CanonicalLexSuccess path tokens -> tokens
+                    | CanonicalLexFailure path failure -> []
                   }.
                   parseComponentExpression = \\(source) -> tokenRunComplete (parseFoundationalExpression expressionBlockFailure) (expressionTokens source).
                   parseComponentTokens = \\(source) -> parseTokens componentPath (expressionTokens source).

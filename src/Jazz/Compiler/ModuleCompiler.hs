@@ -34,7 +34,7 @@ import Jazz.Compiler.ModuleExports
 import Jazz.Compiler.ModuleInterface
 import Jazz.Compiler.Name
   ( Name (..),
-    NameNamespace (CapabilityNamespace, TypeNamespace),
+    NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace),
     ResolvedNameOrigin (..),
     identifierText,
     mkIdentifier
@@ -78,6 +78,7 @@ compilePreparedPrelude settings preparedPrelude =
               inferenceWarningSettings = settings,
               inferenceImportedTypes = Map.empty,
               inferenceImportedDataTypes = Map.empty,
+              inferenceImportedConstructorWitnessNames = Map.empty,
               inferenceImportedCapabilities = emptyScopeCapabilityFacts,
               inferenceImportedClassNames = Set.empty,
               inferenceCurrentModulePath = Just []
@@ -143,6 +144,8 @@ compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPat
           inferenceWarningSettings = compileInputWarningSettings inputs,
           inferenceImportedTypes = interfaceTypeEnv importedInterface,
           inferenceImportedDataTypes = importedDataTypes importedInterface,
+          inferenceImportedConstructorWitnessNames =
+            interfaceConstructorWitnessNames importedInterface,
           inferenceImportedCapabilities = interfaceCapabilities importedInterface,
           inferenceImportedClassNames = importedClassNames importedInterface,
           inferenceCurrentModulePath = Just modulePath
@@ -208,6 +211,7 @@ importWholeCompiledModuleInterface compiledModule =
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,
     importedDataTypes :: Map Text DataTypeBinding,
+    importedConstructorWitnessNames :: Map Name Name,
     importedCapabilities :: ScopeCapabilityFacts,
     importedClassNames :: Set.Set Text
   }
@@ -218,11 +222,18 @@ interfaceTypeEnv = importedTypes
 interfaceCapabilities :: ImportedInterface -> ScopeCapabilityFacts
 interfaceCapabilities = importedCapabilities
 
+interfaceConstructorWitnessNames :: ImportedInterface -> Map Name Name
+interfaceConstructorWitnessNames = importedConstructorWitnessNames
+
 mergeModuleInterfaces :: ImportedInterface -> ImportedInterface -> ImportedInterface
 mergeModuleInterfaces left right =
   ImportedInterface
     { importedTypes = Map.union (importedTypes left) (importedTypes right),
       importedDataTypes = Map.union (importedDataTypes left) (importedDataTypes right),
+      importedConstructorWitnessNames =
+        Map.union
+          (importedConstructorWitnessNames left)
+          (importedConstructorWitnessNames right),
       importedCapabilities =
         ScopeCapabilityFacts
           { scopeClassFacts = Map.union (scopeClassFacts (importedCapabilities left)) (scopeClassFacts (importedCapabilities right)),
@@ -260,11 +271,30 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
             )
             | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
           ],
+      importedConstructorWitnessNames =
+        Map.fromList
+          [ (importedName export, sourceConstructorName export)
+          | export <- Map.keys selectedValueTypes,
+            moduleExportNamespace export == ConstructorNamespace
+          ],
       importedCapabilities =
         rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities,
       importedClassNames = selectedClassNames
     }
   where
+    importedName export =
+      ResolvedName
+        origin
+        (moduleExportNamespace export)
+        (mkIdentifier (moduleExportName export))
+
+    sourceConstructorName export =
+      case maybeAlias of
+        Nothing -> SourceName member
+        Just alias -> QualifiedName (mkIdentifier alias) member
+      where
+        member = mkIdentifier (moduleExportName export)
+
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
     importMode =

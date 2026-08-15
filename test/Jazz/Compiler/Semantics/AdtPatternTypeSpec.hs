@@ -3,36 +3,36 @@
 module Main (main) where
 
 import Data.Text
-  ( Text
-  )
-import Jazz.Compiler.Driver
-  ( CompileResult,
-    compileExpr,
-    compileSource,
-    compileErrors
+  ( Text,
   )
 import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     Literal (..),
-    Pattern (..)
+    Pattern (..),
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText,
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    diagnosticCode
+    diagnosticCode,
   )
-import Jazz.Compiler.DiagnosticCatalog
-  ( diagnosticCodeText
+import Jazz.Compiler.Driver
+  ( CompileResult,
+    compileErrors,
+    compileExpr,
+    compileSource,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -387,20 +387,26 @@ testSourcePipelineEnforcesNamedGenericConstructorPayloadTypes = do
 
 testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes :: IO ()
 testSourcePipelineResolvesEarlierLocalNamedGenericConstructorPayloadTypes = do
-  result <- compileSource defaultWarningSettings """
-    data Status = Ready.
-    data Box a = Box Status.
-    subject = Box Ready.
-    """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      data Status = Ready.
+      data Box a = Box Status.
+      subject = Box Ready.
+      """
   assertCompiles "earlier local named generic constructor payload type" result
 
 testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTypes :: IO ()
 testSourcePipelineRejectsMismatchedEarlierLocalNamedGenericConstructorPayloadTypes = do
-  result <- compileSource defaultWarningSettings """
-    data Status = Ready.
-    data Box a = Box Status.
-    subject = Box 1.
-    """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      data Status = Ready.
+      data Box a = Box Status.
+      subject = Box 1.
+      """
   assertSingleDiagnosticCode
     "earlier local named generic constructor payload mismatch code"
     "E2006"
@@ -437,7 +443,8 @@ testSourcePipelineLinksRepeatedGenericConstructorPayloadParameters = do
 testSourcePipelineTypesRecursiveGenericConstructorFields :: IO ()
 testSourcePipelineTypesRecursiveGenericConstructorFields = do
   result <-
-    compileSource defaultWarningSettings
+    compileSource
+      defaultWarningSettings
       """
       data Tree a
         = Leaf a
@@ -455,7 +462,8 @@ testSourcePipelineTypesRecursiveGenericConstructorFields = do
 testSourcePipelineTypesMutuallyRecursiveConstructorFields :: IO ()
 testSourcePipelineTypesMutuallyRecursiveConstructorFields = do
   result <-
-    compileSource defaultWarningSettings
+    compileSource
+      defaultWarningSettings
       """
       data Expression
         = Literal Int
@@ -469,7 +477,8 @@ testSourcePipelineTypesMutuallyRecursiveConstructorFields = do
 testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches :: IO ()
 testSourcePipelineRejectsRecursiveGenericConstructorFieldMismatches = do
   result <-
-    compileSource defaultWarningSettings
+    compileSource
+      defaultWarningSettings
       """
       data Tree a
         = Leaf a
@@ -510,7 +519,7 @@ testSourcePipelineTreatsConstructorPayloadsAsMonomorphic = do
 
 testSourcePipelineAcceptsListPatterns :: IO ()
 testSourcePipelineAcceptsListPatterns = do
-  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head] -> head + 1 | [] -> 0 }."
+  result <- compileSource defaultWarningSettings "values = [1]. x = case values { | [head] -> head + 1 | [] -> 0 | _ -> 0 }."
   assertCompiles "list pattern" result
 
 testSourcePipelineTypesListPatternBinders :: IO ()
@@ -562,12 +571,12 @@ testSourcePipelineAcceptsOrPatternCommonBinders = do
 
 testSourcePipelineAcceptsLambdaOrPatternCommonBinders :: IO ()
 testSourcePipelineAcceptsLambdaOrPatternCommonBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. choose = \\(Just item | Also item) -> item + 1. x = choose (Also 41)."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. choose = \\|(Just item | Also item) -> item + 1 |(_) -> 0. x = choose (Also 41)."
   assertCompiles "lambda or-pattern common binder result" result
 
 testSourcePipelineAcceptsOrPatternGuardBinders :: IO ()
 testSourcePipelineAcceptsOrPatternGuardBinders = do
-  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Just 4. x = case subject { | Just item | Also item if item > 0 -> item | Nothing -> 0 }."
+  result <- compileSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Just 4. x = case subject { | Just item | Also item if item > 0 -> item | Nothing -> 0 | _ -> 0 }."
   assertCompiles "or-pattern guard binder result" result
 
 testSourcePipelineRejectsOrPatternBinderSetMismatch :: IO ()

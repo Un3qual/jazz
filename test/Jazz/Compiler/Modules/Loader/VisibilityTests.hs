@@ -54,6 +54,9 @@ visibilityTests =
     , ("run module graph keeps alias-hidden dependency export from shadowing prelude", testRunModuleGraphAliasImportHiddenExportUsesPrelude)
     , ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude)
     , ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup)
+    , ("compile module graph qualifies alias-only pattern coverage witnesses", testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness)
+    , ("compile module graph hides shadowed imported constructor witnesses", testCompileModuleGraphHidesShadowedImportedConstructorWitness)
+    , ("compile module graph retains visible constructor payload coverage", testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage)
     , ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes)
     , ("run module graph resolves alias-qualified types in signatures", testRunModuleGraphResolvesAliasQualifiedTypesInSignatures)
     , ("compile module graph rejects private alias-qualified types", testCompileModuleGraphRejectsPrivateAliasQualifiedType)
@@ -612,6 +615,116 @@ testRunModuleGraphQualifiedAliasDataConstructorLookup = do
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
+testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness :: IO ()
+testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] -> do
+      assertContains "alias-only coverage code" "E2018" (renderDiagnostic diagnostic)
+      assertContains
+        "alias-only coverage witness"
+        "missing pattern: Choice::Second _"
+        (renderDiagnostic diagnostic)
+    diagnostics ->
+      failTest
+        ( "expected one alias-qualified E2018 diagnostic, got "
+            <> Text.pack (show diagnostics)
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", """
+        import Lib::Choice as Choice.
+        selected = Choice::Third.
+        case selected { | _ if False -> 0 }.
+        """),
+          ("src/Lib/Choice.jz", "data Choice = Second Int | Third.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphHidesShadowedImportedConstructorWitness :: IO ()
+testCompileModuleGraphHidesShadowedImportedConstructorWitness = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] -> do
+      assertContains "shadowed coverage code" "E2018" (renderDiagnostic diagnostic)
+      assertContains
+        "shadowed coverage witness"
+        "missing pattern: _"
+        (renderDiagnostic diagnostic)
+    diagnostics ->
+      failTest
+        ( "expected one shadow-safe E2018 diagnostic, got "
+            <> Text.pack (show diagnostics)
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Choice.
+        data Other = Second.
+        selected = First.
+        case selected { | First -> 0 }.
+        }
+        """),
+          ("src/Lib/Choice.jz", "data Choice = First | Second.")
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
+testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage :: IO ()
+testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage = do
+  result <-
+    compileModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  case compileErrors result of
+    [diagnostic] ->
+      assertContains
+        "partially visible constructor reachability"
+        "E2019: pattern arm 3 is unreachable"
+        (renderDiagnostic diagnostic)
+    diagnostics ->
+      failTest
+        ( "expected one partially visible constructor E2019 diagnostic, got "
+            <> Text.pack (show diagnostics)
+        )
+  where
+    sourceMap =
+      Map.fromList
+        [ ("src/App/Main.jz", """
+        module App::Main {
+        import Lib::Choice.
+        selected = First True.
+        case selected {
+        | First False -> 0
+        | First True -> 1
+        | First _ -> 2
+        | _ -> 3
+        }.
+        }
+        """),
+          ( "src/Lib/Choice.jz",
+            "module Lib::Choice (type Choice(First)) { data Choice = First Bool | Second. }"
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
+
 testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes :: IO ()
 testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
   result <-
@@ -982,7 +1095,8 @@ testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
       Map.fromList
         [ ("src/App/Main.jz", """
         import Lib::Maybe.
-        choose = \\(Just item | Also item) -> item + 1.
+        choose = \\|(Just item | Also item) -> item + 1
+                  |(Nothing) -> 0.
         choose (Also 41).
         """),
           ("src/Lib/Maybe.jz", """

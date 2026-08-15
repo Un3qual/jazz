@@ -20,11 +20,11 @@ __prelude_compareText :: Text -> Text -> Ordering.
 __prelude_compareText = \(left, right) -> case __kernel_textUnconsRaw left {
 | [] -> case __kernel_textUnconsRaw right {
   | [] -> EQ
-  | [(rightFirst, rightRest)] -> LT
+  | [(rightFirst, rightRest) | _] -> LT
   }
-| [(leftFirst, leftRest)] -> case __kernel_textUnconsRaw right {
+| [(leftFirst, leftRest) | _] -> case __kernel_textUnconsRaw right {
   | [] -> GT
-  | [(rightFirst, rightRest)] -> if __kernel_charToUInt32 leftFirst < __kernel_charToUInt32 rightFirst then LT else if __kernel_charToUInt32 leftFirst > __kernel_charToUInt32 rightFirst then GT else __prelude_compareText leftRest rightRest
+  | [(rightFirst, rightRest) | _] -> if __kernel_charToUInt32 leftFirst < __kernel_charToUInt32 rightFirst then LT else if __kernel_charToUInt32 leftFirst > __kernel_charToUInt32 rightFirst then GT else __prelude_compareText leftRest rightRest
   }
 }.
 

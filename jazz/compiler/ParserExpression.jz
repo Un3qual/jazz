@@ -280,7 +280,13 @@ module ParserExpression (
                   (tokenPunctuation RightParenPunctuation)
                   (tokenSucceed first)
               }
+              | [] -> tokenKeepRight
+                (tokenPunctuation RightParenPunctuation)
+                (tokenSucceed first)
             }
+            | [] -> tokenKeepRight
+              (tokenPunctuation RightParenPunctuation)
+              (tokenSucceed first)
           })
           tokenRemaining
         | other -> tokenKeepRight (tokenPunctuation RightParenPunctuation) (tokenSucceed first)

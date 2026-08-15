@@ -226,6 +226,9 @@ module ParserDeclaration (
         else tokenFailAtSpan
           (canonicalTokenSpan declarationToken)
           (ExpectedSyntax "abstraction declaration" (FoundToken (IdentifierKind name) name))
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan declarationToken)
+        (InternalParserFailure TokenStreamParseFailure)
     })
     tokenIdentifier.
 
@@ -487,6 +490,9 @@ module ParserDeclaration (
                 | Nothing -> tokenFailAt Nothing (ExpectedSyntax "signature terminator" EndOfInput)
               })
               tokenPeek
+            | other -> tokenFailAtSpan
+              (canonicalTokenSpan memberToken)
+              (InternalParserFailure TokenStreamParseFailure)
           })
           tokenIdentifier)
     })
@@ -543,6 +549,9 @@ module ParserDeclaration (
             tokenPeek
             else tokenSucceed (nameToken, separatorToken))
         (tokenPunctuation DoubleColonPunctuation)
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan nameToken)
+        (InternalParserFailure TokenStreamParseFailure)
     })
     tokenIdentifier.
 
@@ -563,6 +572,9 @@ module ParserDeclaration (
               (tokenPunctuation DotPunctuation)
               (tokenSucceed (LetStatement name (canonicalTokenSpan nameToken) valueExpression)))
             (parseExpression context))
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan nameToken)
+        (InternalParserFailure TokenStreamParseFailure)
     })
     tokenIdentifier.
 
@@ -637,6 +649,9 @@ module ParserDeclaration (
               (tokenSucceed
                 (SignatureStatement name (canonicalTokenSpan nameToken) (parseSignaturePayload payloadTokens))))
             (collectSignaturePayload []))
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan nameToken)
+        (InternalParserFailure TokenStreamParseFailure)
     })
     tokenIdentifier.
 
@@ -654,9 +669,7 @@ module ParserDeclaration (
       | Nothing -> tokenFailAt Nothing
         (ExpectedSyntax "type constructor name" (EndOfInputAfter "'data'"))
       | Just token -> tokenTransform
-        (\(nameToken) -> case canonicalTokenKind nameToken {
-          | IdentifierKind name -> name
-        })
+        canonicalTokenLexeme
         (tokenTakeIf
           (\(candidate) -> case canonicalTokenKind candidate {
             | IdentifierKind name -> identifierStartsUpper name
@@ -771,6 +784,9 @@ module ParserDeclaration (
       | IdentifierKind constructorName -> tokenAndThen
         (\(arguments) -> tokenSucceed (SurfaceDataConstructor constructorName arguments))
         (parseDataConstructorArguments typeName typeParameters [])
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan constructorToken)
+        (InternalParserFailure TokenStreamParseFailure)
     })
     parseDataConstructorToken.
 
@@ -1331,6 +1347,9 @@ module ParserDeclaration (
                 (ImportStatement (canonicalTokenSpan importToken) modulePath (Just alias) Nothing))
           })
           tokenPeek
+      | other -> tokenFailAtSpan
+        (canonicalTokenSpan aliasToken)
+        (InternalParserFailure TokenStreamParseFailure)
     })
     tokenIdentifier.
 
@@ -1975,6 +1994,9 @@ module ParserDeclaration (
         | OperatorKind symbol -> tokenKeepRight
           (tokenPunctuation RightParenPunctuation)
           (tokenSucceed (operatorToken, symbol))
+        | other -> tokenFailAtSpan
+          (canonicalTokenSpan operatorToken)
+          (InternalParserFailure TokenStreamParseFailure)
       })
       tokenOperator).
 
@@ -2049,9 +2071,13 @@ module ParserDeclaration (
                 (canonicalTokenSpan separator)
                 (InternalParserFailure TokenStreamParseFailure)
             }
+            | [] -> tokenFailAt Nothing (InternalParserFailure TokenStreamParseFailure)
+          }
+          | [] -> tokenFailAt Nothing (InternalParserFailure TokenStreamParseFailure)
         }
+        | [] -> tokenFailAt Nothing (InternalParserFailure TokenStreamParseFailure)
       }
-    }
+      | [] -> tokenFailAt Nothing (InternalParserFailure TokenStreamParseFailure)
     })
     tokenRemaining.
 

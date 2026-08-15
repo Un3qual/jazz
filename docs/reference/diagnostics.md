@@ -15,10 +15,22 @@ does not duplicate the report.
 | --------------- | ---------------------------------------------- |
 | `E0001`–`E0005` | syntax and Prelude preparation                 |
 | `E1001`–`E1010` | name and semantic analysis                     |
-| `E2001`–`E2017` | type inference and checking                    |
+| `E2001`–`E2019` | type inference and checking                    |
 | `E3001`–`E3040` | runtime evaluation and host operations         |
 | `E4001`–`E4016` | module resolution, imports, and exports        |
 | `E5001`–`E5005` | CLI, configuration, source input, and profiles |
+
+Pattern coverage uses two strict type diagnostics:
+
+| Code    | Meaning                                                                 |
+| ------- | ----------------------------------------------------------------------- |
+| `E2018` | a case or pattern lambda is non-exhaustive; the summary gives a witness |
+| `E2019` | an entire arm is unreachable after earlier unguarded arms               |
+
+Guarded arms never contribute to exhaustiveness or shadow later arms. A guarded
+arm is still checked for reachability, so earlier unguarded arms can make it
+report `E2019`. Existing analysis or type errors suppress pattern-coverage
+follow-on reports.
 
 ## Warning categories and IDs
 

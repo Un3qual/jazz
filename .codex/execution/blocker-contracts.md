@@ -152,6 +152,10 @@ Each blocked item should answer these questions:
   authorizes ordered immediate-scalar literal, wildcard, and variable patterns,
   guarded fallthrough, arm-local binders, one result join, and a required final
   unguarded catch-all without a runtime failure service or exhaustiveness claim.
+- Accepted decision: [RFC 0012: Static pattern coverage](../../rfcs/accepted/0012-static-pattern-coverage.md)
+  requires strict post-inference exhaustiveness and unreachable-arm analysis
+  across the complete active pattern surface while retaining runtime `E3022` as
+  a defensive boundary.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -210,25 +214,25 @@ Each blocked item should answer these questions:
   catch-all while transporting nested, ambient, captured, and in-flight values
   through deterministic branch and join edges. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: none currently. No further hosted semantic-compiler child
-  is accepted or source-backed after scalar pattern cases.
-- Decision needed: a new durable contract before another child is promoted.
-- Recommended default: preserve the landed immediate-scalar boundary. Managed
-  patterns require managed-value production, stable layouts, tags, field
-  projection, and ownership. Pattern lambdas require invocation-time mismatch
-  semantics integrated with closure construction, currying, recursion, and
-  callable identity. Exhaustiveness and unreachable-arm analysis require
-  separate coverage reasoning and diagnostic policy.
+- Completed child: `JN-PATTERN-COVERAGE-ANALYSIS-001` completed on
+  `2026-08-14`. One resolved-type usefulness analysis now rejects incomplete
+  cases and pattern lambdas with `E2018`, rejects wholly unreachable arms with
+  `E2019`, treats guards as non-covering, and preserves runtime `E3022` as a
+  defensive boundary.
+- Smallest unblocker: none currently. No later source-backed bootstrap child is
+  accepted or named after static pattern coverage.
+- Decision needed: none currently. Managed pattern lowering and
+  pattern-callable backend semantics require separate accepted contracts.
+- Recommended default: preserve the completed coverage boundary independently
+  of unification, runtime selection, and backend lowering.
 - Candidate child: none currently.
-- Target paths: none until a separate accepted contract exists.
-- Verification: the scalar-pattern-case plan owns the focused contract gate,
-  complete serialized suite, queue/RFC checks, documentation check, and clean
-  committed-worktree evidence.
-- Still not in scope: managed constructor, list, tuple, or text patterns; as-
-  or or-patterns; pattern lambdas; exhaustiveness or unreachable-arm analysis;
-  backend `E3022`; runtime failure/trap services; normal compile/run cutover;
-  tail calls; modules; native, embedding, bytecode, or VM work; or revival of
-  removed legacy implementations.
+- Target paths: not set; no later bootstrap implementation child is open.
+- Verification: `bash scripts/check-execution-queue.sh`;
+  `bash scripts/check-docs.sh`.
+- Still not in scope: constant-folding guards, partial redundancy inside a
+  useful or-pattern, new pattern syntax, managed-value Typed Core production,
+  managed pattern lowering, pattern-lambda backend lowering, runtime `E3022`
+  removal, selection optimization, native work, or normal compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

@@ -387,6 +387,7 @@ lookupSource expression sourcePath =
                   componentPath = CanonicalSourcePath "fixtures/parser/types-declarations-modules.jz".
                   expressionTokens = \\(source) -> case lexSource componentPath source {
                     | CanonicalLexSuccess path tokens -> tokens
+                    | CanonicalLexFailure path failure -> []
                   }.
                   __EXPRESSION__.
                 }

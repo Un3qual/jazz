@@ -3,23 +3,23 @@
 module Main (main) where
 
 import Data.Text
-  ( Text
+  ( Text,
   )
 import Jazz.Compiler.Driver
   ( RunResult (..),
     runCompileErrors,
     runRuntimeErrors,
-    runSource
+    runSource,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -53,11 +53,11 @@ tests =
     ("runtime selects mixed literal-led later or-pattern arm after guarded fallback", testRuntimeSelectsMixedLiteralLedLaterOrPatternArmAfterGuardedFallback),
     ("runtime selects variable-led mixed later or-pattern arm after prior body", testRuntimeSelectsVariableLedMixedLaterOrPatternArmAfterPriorBody),
     ("runtime falls through when or-pattern guard is False", testRuntimeFallsThroughWhenOrPatternGuardIsFalse),
-    ("runtime reports no match when no or-pattern alternative matches", testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches),
+    ("compiler rejects a non-exhaustive or-pattern match", testCompilerRejectsNonExhaustiveOrPattern),
     ("runtime falls through when pattern guard is False", testRuntimeFallsThroughWhenPatternGuardIsFalse),
     ("runtime skips pattern guard when pattern fails", testRuntimeSkipsPatternGuardWhenPatternFails),
-    ("runtime reports no match when matching pattern guard is False", testRuntimeReportsNoMatchWhenPatternGuardIsFalse),
-    ("runtime reports a deterministic error when no case arm matches", testRuntimeReportsNoMatchingArm)
+    ("compiler rejects a match covered only by a guard", testCompilerRejectsGuardOnlyCoverage),
+    ("compiler rejects a non-exhaustive literal match", testCompilerRejectsNonExhaustiveLiteralMatch)
   ]
 
 testRuntimeSelectsLiteralArm :: IO ()
@@ -88,7 +88,8 @@ testRuntimeAppliesDataConstructor = do
 testRuntimePreservesRecursiveGenericConstructorFieldHints :: IO ()
 testRuntimePreservesRecursiveGenericConstructorFieldHints = do
   result <-
-    runSource defaultWarningSettings
+    runSource
+      defaultWarningSettings
       """
       data Tree a
         = Leaf a
@@ -116,7 +117,7 @@ testRuntimeMatchesNullaryConstructorPatterns = do
 
 testRuntimeMatchesListPatterns :: IO ()
 testRuntimeMatchesListPatterns = do
-  result <- runSource defaultWarningSettings "values = [1]. case values { | [head] -> head + 1 | [] -> 0 }."
+  result <- runSource defaultWarningSettings "values = [1]. case values { | [head] -> head + 1 | [] -> 0 | _ -> 0 }."
   assertSuccessfulRuntime "list pattern match" (Just "2") result
 
 testRuntimeRequiresExactListPatternLength :: IO ()
@@ -161,7 +162,7 @@ testRuntimeFallsBackWhenAsPatternInnerDoesNotMatch = do
 
 testRuntimeSupportsAsPatternLambdaParameters :: IO ()
 testRuntimeSupportsAsPatternLambdaParameters = do
-  result <- runSource defaultWarningSettings "f = \\(whole @ [head | tail]) -> head + hd tail. f [1, 2]."
+  result <- runSource defaultWarningSettings "f = \\|(whole @ [head | tail]) -> head + hd tail |(_) -> 0. f [1, 2]."
   assertSuccessfulRuntime "as-pattern lambda parameter" (Just "3") result
 
 testRuntimeComparesConstructorValuesInsidePatternArms :: IO ()
@@ -176,7 +177,7 @@ testRuntimeSelectsFirstMatchingOrPatternAlternative = do
 
 testRuntimeUsesFirstMatchingOrPatternAlternativeBindings :: IO ()
 testRuntimeUsesFirstMatchingOrPatternAlternativeBindings = do
-  result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (item, _) | (_, item) -> item | _ -> 0 }."
+  result <- runSource defaultWarningSettings "pair = (1, 2). case pair { | (item, _) | (_, item) -> item }."
   assertSuccessfulRuntime "or-pattern alternative binding order" (Just "1") result
 
 testRuntimeUsesFirstMatchingLambdaOrPatternAlternativeBindings :: IO ()
@@ -204,19 +205,19 @@ testRuntimeFallsThroughWhenOrPatternGuardIsFalse = do
   result <- runSource defaultWarningSettings "data Maybe a = Nothing | Just a | Also a. subject = Also 2. case subject { | Just item | Also item if item > 3 -> 1 | _ -> 0 }."
   assertSuccessfulRuntime "or-pattern false guard fallback" (Just "0") result
 
-testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches :: IO ()
-testRuntimeReportsNoMatchWhenNoOrPatternAlternativeMatches = do
+testCompilerRejectsNonExhaustiveOrPattern :: IO ()
+testCompilerRejectsNonExhaustiveOrPattern = do
   result <- runSource defaultWarningSettings "case 3 { | 1 | 2 -> 10 }."
-  assertEqual "or-pattern no-match compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticCode
-    "or-pattern no-match runtime code"
-    "E3022"
-    (runRuntimeErrors result)
+    "or-pattern coverage code"
+    "E2018"
+    (runCompileErrors result)
   assertSingleDiagnosticContains
-    "or-pattern no-match runtime text"
-    "matched no arms"
-    (runRuntimeErrors result)
-  assertEqual "or-pattern no-match runtime output" Nothing (runOutput result)
+    "or-pattern coverage text"
+    "non-exhaustive pattern match"
+    (runCompileErrors result)
+  assertEqual "or-pattern coverage runtime errors" [] (runRuntimeErrors result)
+  assertEqual "or-pattern coverage runtime output" Nothing (runOutput result)
 
 testRuntimeFallsThroughWhenPatternGuardIsFalse :: IO ()
 testRuntimeFallsThroughWhenPatternGuardIsFalse = do
@@ -225,36 +226,36 @@ testRuntimeFallsThroughWhenPatternGuardIsFalse = do
 
 testRuntimeSkipsPatternGuardWhenPatternFails :: IO ()
 testRuntimeSkipsPatternGuardWhenPatternFails = do
-  result <- runSource defaultWarningSettings "values = [1, 2]. case values { | [only] if only == hd [] -> only | [head | tail] -> head }."
+  result <- runSource defaultWarningSettings "values = [1, 2]. case values { | [only] if only == hd [] -> only | [head | tail] -> head | [] -> 0 }."
   assertSuccessfulRuntime "pattern guard skipped after pattern failure" (Just "1") result
 
-testRuntimeReportsNoMatchWhenPatternGuardIsFalse :: IO ()
-testRuntimeReportsNoMatchWhenPatternGuardIsFalse = do
+testCompilerRejectsGuardOnlyCoverage :: IO ()
+testCompilerRejectsGuardOnlyCoverage = do
   result <- runSource defaultWarningSettings "case 1 { | item if item > 1 -> item }."
-  assertEqual "false-guard no-match compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticCode
-    "false-guard no-match runtime code"
-    "E3022"
-    (runRuntimeErrors result)
+    "guard-only coverage code"
+    "E2018"
+    (runCompileErrors result)
   assertSingleDiagnosticContains
-    "false-guard no-match runtime text"
-    "matched no arms"
-    (runRuntimeErrors result)
-  assertEqual "false-guard no-match runtime output" Nothing (runOutput result)
+    "guard-only coverage text"
+    "non-exhaustive pattern match"
+    (runCompileErrors result)
+  assertEqual "guard-only coverage runtime errors" [] (runRuntimeErrors result)
+  assertEqual "guard-only coverage runtime output" Nothing (runOutput result)
 
-testRuntimeReportsNoMatchingArm :: IO ()
-testRuntimeReportsNoMatchingArm = do
+testCompilerRejectsNonExhaustiveLiteralMatch :: IO ()
+testCompilerRejectsNonExhaustiveLiteralMatch = do
   result <- runSource defaultWarningSettings "case 2 { | 1 -> 10 }."
-  assertEqual "no-match compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticCode
-    "no-match runtime code"
-    "E3022"
-    (runRuntimeErrors result)
+    "literal coverage code"
+    "E2018"
+    (runCompileErrors result)
   assertSingleDiagnosticContains
-    "no-match runtime text"
-    "matched no arms"
-    (runRuntimeErrors result)
-  assertEqual "no-match runtime output" Nothing (runOutput result)
+    "literal coverage text"
+    "non-exhaustive pattern match"
+    (runCompileErrors result)
+  assertEqual "literal coverage runtime errors" [] (runRuntimeErrors result)
+  assertEqual "literal coverage runtime output" Nothing (runOutput result)
 
 assertSuccessfulRuntime :: Text -> Maybe Text -> RunResult -> IO ()
 assertSuccessfulRuntime label expectedOutput result = do

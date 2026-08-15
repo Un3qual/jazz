@@ -81,6 +81,8 @@ module ParserSignature (
                 (\(memberToken) -> case canonicalTokenKind memberToken {
                   | IdentifierKind member -> tokenSucceed
                     (memberToken, textAppend (textAppend qualifier "::") member)
+                  | other -> tokenFailCurrent
+                    (\(encountered) -> ExpectedSyntax "identifier" encountered)
                 })
                 tokenIdentifier)
             | other -> tokenSucceed (firstToken, qualifier)
@@ -88,6 +90,8 @@ module ParserSignature (
           | Nothing -> tokenSucceed (firstToken, qualifier)
         })
         tokenPeek
+      | other -> tokenFailCurrent
+        (\(encountered) -> ExpectedSyntax "identifier" encountered)
     })
     tokenIdentifier.
 

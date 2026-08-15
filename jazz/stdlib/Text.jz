@@ -45,7 +45,7 @@ module Text (
   textUncons :: Text -> Maybe((Char, Text)).
   textUncons = \(text) -> case __kernel_textUnconsRaw text {
     | [] -> Nothing
-    | [(first, rest)] -> Just (first, rest)
+    | [(first, rest) | _] -> Just (first, rest)
   }.
 
   textAppend :: Text -> Text -> Text.

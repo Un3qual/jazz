@@ -425,7 +425,7 @@ testWrappedAliasCycleConditionRuntimeError = do
 
 testPatternCaseAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testPatternCaseAliasOnlyRecursiveCycleRuntimeError = do
-  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 0 { | 0 -> y }. y = x. x.") :: IO (Either SomeException RunResult))
+  maybeResult <- timeout 1000000 (try (runSource defaultWarningSettings "x = case 0 { | 0 -> y | _ -> y }. y = x. x.") :: IO (Either SomeException RunResult))
   case maybeResult of
     Nothing ->
       failTest "expected pattern-case alias-only recursive cycle to terminate with a runtime diagnostic, but evaluation timed out"
