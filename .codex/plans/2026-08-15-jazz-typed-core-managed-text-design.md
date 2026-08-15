@@ -71,9 +71,11 @@ the existing `TypedApplyExpr` staging and final result information. Production
 accepts the spine only when it supplies the builtin's exact arity.
 
 A bare approved kernel builtin is a `TypedCoreCallableValueUnsupported`
-profile failure. A partial or oversaturated approved kernel application is a
+profile failure. A partial approved kernel application is a
 `TypedCoreCallArityUnsupported` failure with exact expected and actual arity.
-Other builtins and non-local calls retain their current profile failures.
+Oversaturation retains the ordinary source diagnostic and blocks production
+before profile failures are considered. Other builtins and non-local calls
+retain their current profile failures.
 
 Finalization must not add a second inference pass, allocate solver variables,
 select evidence again, or change inference-only results.
@@ -206,7 +208,9 @@ source-to-Typed-Core and source-to-Lowered-IR fixtures will cover:
 
 Negative fixtures will prove deterministic rejection of:
 
-- bare, partial, and oversaturated approved Text kernel builtins;
+- bare and partial approved Text kernel builtins at the producer boundary;
+- oversaturated approved Text kernel calls through ordinary source
+  diagnostics;
 - Text literal patterns and managed scrutinees;
 - lists, tuples, ADTs, and their layouts or projections;
 - Text uncons, from-chars, and concat;

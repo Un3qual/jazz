@@ -18,9 +18,10 @@ conditionals, scalar-pattern-case results, returns, and tail calls. Pattern
 scrutinees remain inside the existing immediate-scalar lowering profile.
 
 The approved Text kernel applications are resolved through `BuiltinCatalog`
-and must be exactly saturated. A bare kernel builtin, partial application, or
-oversaturation is outside this child. Other managed values and non-local calls
-retain their existing profile failures.
+and must be exactly saturated. A bare kernel builtin or partial application
+fails at the producer profile boundary. Oversaturation retains ordinary source
+diagnostic precedence. Other managed values and non-local calls retain their
+existing profile failures.
 
 Lowered IR uses one canonical Text layout:
 
