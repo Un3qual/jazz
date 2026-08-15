@@ -6,7 +6,7 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 2"
+plan_section: "Task 3"
 target_paths:
   - src/Jazz/Compiler/LoweredIR/Lower.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
@@ -233,54 +233,71 @@ Cabal, Nix
   carries completed blocks into later failure alternatives, and emits no join
   block.
 
-- [ ] **Step 1: Change the exact conditional function expectations.** For
+- [x] **Step 1: Change the exact conditional function expectations.** For
       `conditional-function-parameter` and `conditional-captured-scalar`, make
       then/else blocks terminate directly with `LoweredReturn` and remove only
       their result join blocks. Keep entry-position conditional expectations
       unchanged.
 
-- [ ] **Step 2: Add exact tail-call conditional coverage.** Use a source-valid
+- [x] **Step 2: Add exact tail-call conditional coverage.** Use a source-valid
       recursive function whose base branch returns a scalar and whose recursive
       branch calls a local function. Expect one branch return and one direct or
       closure tail terminator, with no conditional result join.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Expected: function-body
+- [x] **Step 3: Run the focused suite and verify RED.** Expected: function-body
       conditionals still emit jumps to a result join and return its block
       parameter.
 
-- [ ] **Step 4: Implement destination-aware conditional lowering.** Reuse the
+- [x] **Step 4: Implement destination-aware conditional lowering.** Reuse the
       existing condition evaluation, deterministic block IDs, ambient slots,
       parameters, arguments, and remapping. In `FinishFunction`, recursively
       lower then and else bodies with the enclosing result representation and
       merge only their completed block lists.
 
-- [ ] **Step 5: Run the focused suite and verify conditional GREEN.** Confirm
+- [x] **Step 5: Run the focused suite and verify conditional GREEN.** Confirm
       nested entry/value conditionals still retain their joins.
 
-- [ ] **Step 6: Add exact scalar-case function expectations.** Cover literal
+- [x] **Step 6: Add exact scalar-case function expectations.** Cover literal
       tests, a guarded variable arm, an unguarded catch-all, direct return, and
       a tail call. Expect no result join only for the function-body case;
       scrutinee and guard control flow must remain unchanged.
 
-- [ ] **Step 7: Run the focused suite and verify case RED.** Expected: selected
+- [x] **Step 7: Run the focused suite and verify case RED.** Expected: selected
       bodies still jump to a shared result join.
 
-- [ ] **Step 8: Implement destination-aware scalar-case lowering.** Preserve
+- [x] **Step 8: Implement destination-aware scalar-case lowering.** Preserve
       profile checks, single scrutinee evaluation, `controlSlots`, arm-local
       binding, guard fallthrough, and later-arm continuation templates. In
       `FinishFunction`, terminate each body recursively and continue building
       only later alternative blocks; do not start the result join.
 
-- [ ] **Step 9: Run the focused suite and verify case GREEN.** Confirm every
+- [x] **Step 9: Run the focused suite and verify case GREEN.** Confirm every
       produced program validates and value-position case expectations retain
       their joins.
 
-- [ ] **Step 10: Commit the CFG milestone.** Run:
+- [x] **Step 10: Commit the CFG milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   git commit -m "feat: propagate tail position through control flow"
   ```
+
+**Task 3 verification evidence (2026-08-14):**
+
+- Conditional RED: the focused serialized Nix command exited 1 because
+  `conditional-function-parameter` still jumped through its result join.
+- Conditional GREEN: the same command exited 0 after destination-aware
+  conditional lowering; nested synthetic-entry/value conditionals retained
+  their joins.
+- Scalar-case RED: after correcting the hand-written expected block path and
+  rerunning, the focused command exited 1 because selected bodies still
+  jumped to the shared result join and the recursive body still contained a
+  `LoweredDirectCall` instruction.
+- Scalar-case GREEN and final verification: the focused command exited 0;
+  exact guarded-variable/literal/catch-all control flow validated, function
+  bodies had no result join, and value-position cases retained their joins.
+- Formatting: `ormolu --mode check` exited 0 for the three Task 3 Haskell
+  files. Feature commit: `5720e73a`.
 
 ### Task 4: Close compiler documentation and execution state
 
