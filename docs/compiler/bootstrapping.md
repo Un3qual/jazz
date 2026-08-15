@@ -52,14 +52,23 @@ The required final unguarded catch-all makes this opt-in lowering profile total.
 It is separate from source-level static exhaustiveness and unreachable-arm
 analysis, which shipped under RFC 0012.
 
-Managed constructor, list, tuple, and text patterns remain deferred because
-their lowering first needs managed-value production, stable layout identity,
-tag and field projection, and ownership rules. Pattern lambdas remain deferred
-because a parameter mismatch happens at invocation time and therefore needs a
-match-failure contract integrated with closures, currying, recursion, and
-callable parameter identity. Later or interleaved external captures, scalar
-exports, and complete multi-module integration also remain outside the profile.
-Ordinary run mode continues to evaluate canonical core with the interpreter.
+Managed `Text` is the first non-closure managed value in this profile. Text
+literals, bindings, parameters, results, captures, calls, control-flow joins,
+returns, and tail-call operands use one semantic Text layout. Strict equality,
+length, append, and append-char lower to exact pure runtime-service
+dependencies; inequality reuses equality followed by Boolean-not. Text-only
+transport declares no service, and referenced services are deduplicated in a
+fixed catalog order.
+
+Managed constructor, list, and tuple patterns, managed scrutinees, and Text
+literal patterns remain deferred. Text value transport does not authorize
+uncons, from-chars, concat, Text I/O, or a runtime-host or native ABI. Pattern
+lambdas remain deferred because a parameter mismatch happens at invocation time
+and therefore needs a match-failure contract integrated with closures,
+currying, recursion, and callable parameter identity. Later or interleaved
+external captures, scalar exports, and complete multi-module integration also
+remain outside the profile. Ordinary run mode continues to evaluate canonical
+core with the interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in

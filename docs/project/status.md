@@ -55,11 +55,18 @@ behavior. The opt-in profile still requires a final unguarded wildcard or
 variable as its independent lowering-totality boundary; source-level static
 exhaustiveness and unreachable-arm analysis are implemented under RFC 0012.
 
-Managed patterns remain deferred in Typed Core pending managed-value
-production, layout, projection, and ownership contracts. Pattern-lambda
-backend lowering remains deferred pending an invocation contract integrated
-with closures, currying, recursion, and callable identity. Ordinary source
-cases and pattern lambdas now share strict post-inference exhaustiveness and
-unreachable-arm analysis. The backend path also excludes later or interleaved
-external captures, scalar exports, and complete multi-module integration.
-Ordinary compile and run modes remain on canonical core and the interpreter.
+Managed `Text` construction and transport now spans bindings, parameters,
+results, captures, calls, conditional and scalar-case results, returns, and
+tail-call operands. The Lowered IR path uses one semantic Text layout and exact
+pure services for equality, length, append, and append-char; inequality reuses
+equality followed by Boolean-not. Text-only transport declares no service, and
+referenced services are deduplicated in fixed catalog order.
+
+Managed patterns and scrutinees remain deferred pending separate matching,
+projection, and ownership contracts. Pattern-lambda backend lowering remains
+deferred pending an invocation contract integrated with closures, currying,
+recursion, and callable identity. Text uncons, from-chars, concat, I/O,
+collections, later or interleaved external captures, scalar exports, and
+complete multi-module integration remain excluded. The Text services are not
+`RuntimeHost` operations or a native ABI. Ordinary compile and run modes remain
+on canonical core and the interpreter.

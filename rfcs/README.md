@@ -33,6 +33,7 @@ only `docs/` and does not publish this directory.
 | [0011](accepted/0011-typed-core-scalar-pattern-cases.md)       | Typed-core scalar pattern cases       |
 | [0012](accepted/0012-static-pattern-coverage.md)               | Static pattern coverage               |
 | [0013](accepted/0013-typed-core-tail-position-lowering.md)     | Typed-core tail-position lowering     |
+| [0014](accepted/0014-typed-core-managed-text.md)               | Typed-core managed Text (implemented) |
 
 ## Process
 

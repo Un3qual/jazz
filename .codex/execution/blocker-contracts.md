@@ -160,6 +160,11 @@ Each blocked item should answer these questions:
   authorizes exact local direct and closure tail terminators in true named or
   lifted function-result position, including selected conditional branches and
   bounded scalar-case bodies without result joins.
+- Accepted decision: [RFC 0014: Typed-core managed Text](../../rfcs/accepted/0014-typed-core-managed-text.md)
+  authorizes managed Text construction and transport throughout the existing
+  opt-in expression profile plus strict equality, length, append, and
+  append-char through one semantic Text layout and exact pure runtime-service
+  dependencies.
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -228,21 +233,31 @@ Each blocked item should answer these questions:
   closure tail intent only for complete named or lifted function results,
   including recursively selected conditional branches and bounded scalar-case
   bodies. Module entry remains ordinary call/join/return lowering.
-- Smallest unblocker: none currently. The source-backed compiler batch is
-  complete.
-- Decision needed: none. There is no source-backed next curation target and no
-  named candidate currently.
-- Recommended default: do not invent a successor; await a new accepted,
-  source-backed contract.
-- Candidate child: none currently.
-- Target paths: not set until a new accepted compiler contract names them.
-- Verification: `bash scripts/check-execution-queue.sh`;
-  `bash scripts/check-docs.sh`.
+- Completed child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-TEXT-001` completed on
+  `2026-08-15`. The opt-in producer now retains managed Text through the
+  established value, callable, capture, CFG, return, and tail-operand profile.
+  Lowering uses `jazz.layout.text.v1` and exact pure services for equality,
+  length, append, and append-char, deduplicated in catalog order. Inequality
+  reuses equality followed by Boolean-not. Normal compile/run remains on
+  canonical core and the reference interpreter.
+- Smallest unblocker: none. RFC 0014 is complete, and no accepted source-backed
+  bootstrap successor exists.
+- Decision needed: a separate durable contract before promoting another
+  managed-value, hosted semantic-compiler, module-execution, or native child.
+- Recommended default: leave the umbrella blocked and the curation target empty
+  until such a contract exists.
+- Candidate child: none.
+- Target paths: none.
+- Verification:
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh`
+  - `bash scripts/check-execution-queue.sh`
+  - `git diff --check`
 - Still not in scope: module-entry tail transfer, source tail-recursion
-  diagnostics, native stack guarantees, managed-value Typed Core production,
-  managed pattern lowering, pattern-lambda backend lowering, runtime `E3022`
-  removal, general CFG optimization, native work, or normal compile/run
-  cutover.
+  diagnostics, native stack guarantees, managed patterns, lists, tuples, ADTs,
+  Text uncons/from-chars/concat, Text I/O, RuntimeHost services, imported-module
+  execution, native ABI, or normal compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

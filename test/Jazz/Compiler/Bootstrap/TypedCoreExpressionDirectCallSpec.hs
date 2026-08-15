@@ -67,6 +67,13 @@ tests =
     ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
+    ("produces managed Text literals and bindings exactly", testManagedTextProduction),
+    ("produces exact managed Text operations", testManagedTextOperationProduction),
+    ("lowers exact managed Text runtime services", testManagedTextOperationLowering),
+    ("keeps managed Text kernel values and arities bounded", testManagedTextKernelBoundaries),
+    ("locks every managed Text profile exclusion", testManagedTextProfileExclusions),
+    ("leaves managed Text service integrity with Lowered IR validation", testManagedTextServiceValidationOwnership),
+    ("lowers managed Text literals with one layout and no services", testManagedTextLowering),
     ("produces binder-resolved lexical closures", testLexicalCaptureProduction),
     ("produces staged curried partial applications", testCurriedApplicationProduction),
     ("lowers staged curried applications", testCurriedApplicationLowering),
@@ -92,7 +99,6 @@ tests =
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("admits captured arguments inside direct-call bodies", testCurriedArgumentCapture),
     ("retains supplied arguments inside partial applications", testPartialApplicationArgumentCapture),
-    ("retains managed-argument failures inside valid partial applications", testPartialApplicationManagedArgumentFailure),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
     ("retains later sibling failures after accepting a captured closure call", testClosureUseArgumentFailureOrder),
     ("collapses mixed callable-use reasons to one closure classification", testClosureShapeClassificationCollapse),
@@ -308,6 +314,7 @@ testIndependentLowererManifest = do
           "imported-direct-call",
           "managed-scalar-entry",
           "conditional-entry",
+          "managed-pattern-scrutinee",
           "pattern-case-constructor-lowerer",
           "pattern-case-list-lowerer",
           "pattern-case-tuple-lowerer",
@@ -1675,7 +1682,6 @@ expectedConditionalControlFlows =
 testScalarBindingProduction :: IO ()
 testScalarBindingProduction = do
   mapM_ assertProduced scalarBindingExpectedPrograms
-  assertManagedBindingRejected
   assertFailedBindingHidden
   where
     assertProduced (name, expectedProgram) = do
@@ -1691,18 +1697,6 @@ testScalarBindingProduction = do
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
-    assertManagedBindingRejected = do
-      let fixture = producerEdgeFixture "managed-scalar-binding"
-          expected =
-            TypedCoreProductionUnsupported
-              [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 0 [0] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message")
-              ]
-      firstRun <- produceFixture fixture
-      secondRun <- produceFixture fixture
-      assertEqual "managed scalar binding repeatable rejection" firstRun secondRun
-      assertEqual "managed scalar binding complete rejection" expected (typedCoreProductionStatus firstRun)
     assertFailedBindingHidden = do
       let fixture = producerEdgeFixture "scalar-binding-failed-initializer-hidden"
           expected =
@@ -1719,6 +1713,230 @@ testScalarBindingProduction = do
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
         kind
         detail
+
+testManagedTextProduction :: IO ()
+testManagedTextProduction =
+  mapM_ assertProduced managedTextExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
+testManagedTextOperationProduction :: IO ()
+testManagedTextOperationProduction =
+  mapM_ assertProduced managedTextOperationExpectedPrograms
+  where
+    assertProduced (name, expectedProgram) = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable production") firstRun secondRun
+      assertEqual
+        (name <> " exact typed program")
+        (TypedCoreProductionSucceeded expectedProgram)
+        (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
+
+testManagedTextOperationLowering :: IO ()
+testManagedTextOperationLowering =
+  mapM_ assertLowered managedTextOperationExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lowering") firstRun secondRun
+      assertEqual (name <> " exact service lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
+
+testManagedTextKernelBoundaries :: IO ()
+testManagedTextKernelBoundaries = do
+  mapM_ assertKernelUnsupported unsupportedExpectations
+  assertBlockedByDiagnostics "managed-text-oversaturated-length"
+  where
+    unsupportedExpectations =
+      [ ( "managed-text-bare-length",
+          TypedCoreCallableValueUnsupported,
+          TypedCoreNameDetail "__kernel_textLength"
+        ),
+        ( "managed-text-partial-append",
+          TypedCoreCallArityUnsupported,
+          TypedCoreArityDetail 2 1
+        ),
+        ( "managed-text-partial-append-char",
+          TypedCoreCallArityUnsupported,
+          TypedCoreArityDetail 2 1
+        )
+      ]
+    assertKernelUnsupported (name, kind, detail) = do
+      let fixture = producerEdgeFixture name
+          expected =
+            TypedCoreProductionUnsupported
+              [ TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                  kind
+                  detail
+              ]
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable rejection") firstRun secondRun
+      assertEqual (name <> " exact producer boundary") expected (typedCoreProductionStatus firstRun)
+    assertBlockedByDiagnostics name = do
+      let fixture = producerEdgeFixture name
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable rejection") firstRun secondRun
+      assertEqual (name <> " diagnostic precedence") TypedCoreProductionBlockedByDiagnostics (typedCoreProductionStatus firstRun)
+
+testManagedTextProfileExclusions :: IO ()
+testManagedTextProfileExclusions = do
+  mapM_ assertExcluded exactExclusions
+  mapM_ assertManifestExclusion ["text-value", "non-unit-tuple", "data-value", "resolved-import", "imported-direct-call"]
+  where
+    exactExclusions =
+      [ ( "managed-text-literal-pattern",
+          [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+        ),
+        ( "managed-text-uncons",
+          [expressionFailure 0 [] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_textUnconsRaw")]
+        ),
+        ( "managed-text-from-chars",
+          [expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
+        ),
+        ( "managed-text-concat",
+          [expressionFailure 0 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
+        ),
+        ( "managed-text-read-io",
+          [expressionFailure 0 [] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_readTextRaw!")]
+        ),
+        ( "managed-text-write-io",
+          [expressionFailure 0 [] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_writeTextRaw!")]
+        )
+      ]
+    assertExcluded (name, failures) = do
+      let fixture = producerEdgeFixture name
+          expected = TypedCoreProductionUnsupported failures
+      ordinary <- inferFixture fixture
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
+      assertEqual (name <> " repeatable exclusion") firstRun secondRun
+      assertEqual (name <> " exact exclusion") expected (typedCoreProductionStatus firstRun)
+    assertManifestExclusion name = do
+      let fixture = fixtureByName name
+          expected =
+            case lookup name rejectedManifestExpectedStatuses of
+              Just status -> status
+              Nothing -> error ("managed Text manifest exclusion is missing: " <> Text.unpack name)
+      firstRun <- produceFixture fixture
+      secondRun <- produceFixture fixture
+      assertEqual (name <> " repeatable established exclusion") firstRun secondRun
+      assertEqual (name <> " exact established exclusion") expected (typedCoreProductionStatus firstRun)
+    expressionFailure statementIndex childPath kind detail =
+      TypedCoreProductionFailure
+        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+        kind
+        detail
+
+testManagedTextServiceValidationOwnership :: IO ()
+testManagedTextServiceValidationOwnership = do
+  assertEqual
+    "managed Text malformed service signature"
+    [ LoweredIRValidationFailure
+        (LoweredInstructionPath entryFunctionId entryBlockId 2)
+        LoweredRuntimeCallSignatureMismatch
+        (LoweredRepresentationDetail LoweredBoolRepresentation textRepresentation)
+    ]
+    (validateLoweredProgram malformedSignatureProgram)
+  assertEqual
+    "managed Text missing service reference"
+    [ LoweredIRValidationFailure
+        (LoweredInstructionPath entryFunctionId entryBlockId 2)
+        LoweredUnknownRuntimeService
+        (LoweredIdentifierDetail "jazz.runtime.text.equal.v1")
+    ]
+    (validateLoweredProgram missingServiceProgram)
+  where
+    textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
+    textLayout = LoweredLayout textLayoutId LoweredTextLayout
+    textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+    equalityServiceId = LoweredRuntimeServiceId "jazz.runtime.text.equal.v1"
+    entryFunctionId = LoweredFunctionId "App::Main::$entry"
+    entryBlockId = LoweredBlockId "entry"
+    malformedSignatureProgram = serviceProgram [malformedService]
+    missingServiceProgram = serviceProgram []
+    malformedService =
+      LoweredRuntimeService
+        equalityServiceId
+        (LoweredCallSignature [LoweredBoolRepresentation, textRepresentation] LoweredBoolRepresentation)
+    serviceProgram services =
+      LoweredProgram
+        (LoweredIRVersion 1)
+        [textLayout]
+        services
+        [ LoweredFunction
+            entryFunctionId
+            Nothing
+            []
+            LoweredBoolRepresentation
+            [ LoweredBlock
+                entryBlockId
+                []
+                [ textInstruction 1 "left",
+                  textInstruction 2 "right",
+                  LoweredInstruction
+                    (LoweredTemporaryId "t3")
+                    LoweredBoolRepresentation
+                    ( LoweredRuntimeCall
+                        equalityServiceId
+                        [ textTemporary 1,
+                          textTemporary 2
+                        ]
+                    )
+                ]
+                (Just (LoweredReturn (LoweredTemporaryOperand (LoweredTemporaryId "t3") LoweredBoolRepresentation)))
+            ]
+            entryBlockId
+        ]
+        entryFunctionId
+    textInstruction :: Int -> Text -> LoweredInstruction
+    textInstruction index value =
+      LoweredInstruction
+        (LoweredTemporaryId ("t" <> Text.pack (show index)))
+        textRepresentation
+        (LoweredConstructText textLayoutId value)
+    textTemporary :: Int -> LoweredOperand
+    textTemporary index =
+      LoweredTemporaryOperand
+        (LoweredTemporaryId ("t" <> Text.pack (show index)))
+        textRepresentation
+
+testManagedTextLowering :: IO ()
+testManagedTextLowering =
+  mapM_ assertLowered managedTextExpectedLoweredPrograms
+  where
+    assertLowered (name, typedProgram, expectedProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lowering") firstRun secondRun
+      assertEqual (name <> " exact managed Text lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
 
 testLexicalCaptureProduction :: IO ()
 testLexicalCaptureProduction =
@@ -1808,7 +2026,6 @@ testLexicalCaptureLowering =
 testLexicalCaptureFixtureMatrix :: IO ()
 testLexicalCaptureFixtureMatrix = do
   mapM_ assertSupported lexicalABIs
-  assertUnsupportedCapture
   where
     assertSupported (name, expectedBinders, expectedLayouts, expectedFunctionIds, expectedNestedEnvironment) = do
       let fixture = producerEdgeFixture name
@@ -1833,26 +2050,6 @@ testLexicalCaptureFixtureMatrix = do
                 Nothing -> pure ()
             other -> failTest (name <> " did not lower: " <> Text.pack (show other))
         other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
-
-    assertUnsupportedCapture = do
-      let fixture = producerEdgeFixture "unsupported-managed-capture"
-          expected =
-            TypedCoreProductionUnsupported
-              [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 0 [0] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-                expressionFailure 2 [0, 0, 0] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message"),
-                expressionFailure 2 [0, 0, 1] TypedCoreCaptureUnsupported (TypedCoreNameDetail "message")
-              ]
-      firstRun <- produceFixture fixture
-      secondRun <- produceFixture fixture
-      assertEqual "unsupported managed capture repeatability" firstRun secondRun
-      assertEqual "unsupported managed capture exact rejection" expected (typedCoreProductionStatus firstRun)
-
-    expressionFailure statementIndex childPath kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-        kind
-        detail
 
     lexicalABIs :: [(Text, [TypedBinderId], [LoweredLayout], [LoweredFunctionId], Maybe (LoweredLayoutId, [LoweredOperand]))]
     lexicalABIs =
@@ -2064,19 +2261,7 @@ testLowererCallableBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "combined-statement-failure-order",
-          [ statementFailure
-              1
-              LoweredIRInvalidFunctionShape
-              (LoweredIRNameFailureDetail (currentName "message")),
-            expressionFailure
-              1
-              [0]
-              LoweredIRUnsupportedRepresentation
-              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
-          ]
-        ),
-        ( "recursion-descendant-failure-order",
+      [ ( "recursion-descendant-failure-order",
           [ expressionFailure
               2
               [0, 0, 1]
@@ -2279,15 +2464,11 @@ testLowererStructuralBoundary =
           assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
 
     expectedResults =
-      [ ( "managed-scalar-entry",
+      [ ( "managed-pattern-scrutinee",
           [ LoweredIRLoweringFailure
-              (TypedModulePath ["App", "Main"])
-              LoweredIRUnsupportedRepresentation
-              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe),
-            LoweredIRLoweringFailure
               (TypedExpressionPath ["App", "Main"] [0] [0])
-              LoweredIRUnsupportedRepresentation
-              (LoweredIRRecipeFailureDetail TypedManagedTextRecipe)
+              LoweredIRUnsupportedPattern
+              LoweredIRNoFailureDetail
           ]
         )
       ]
@@ -2374,37 +2555,6 @@ testPartialApplicationArgumentCapture = do
           assertEqual "partial-call argument lowered validation" [] (validateLoweredProgram loweredProgram)
         other -> failTest ("partial-call argument did not lower: " <> Text.pack (show other))
     other -> failTest ("partial-call argument did not produce typed core: " <> Text.pack (show other))
-
-testPartialApplicationManagedArgumentFailure :: IO ()
-testPartialApplicationManagedArgumentFailure = do
-  let fixture = producerEdgeFixture "partial-call-managed-argument-failure"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [1])
-              TypedCoreManagedValueUnsupported
-              TypedCoreTextValueDetail
-          ]
-  firstRun <- produceFixture fixture
-  secondRun <- produceFixture fixture
-  assertEqual "partial managed-argument repeatability" firstRun secondRun
-  assertEqual "partial managed-argument failure path" expected (typedCoreProductionStatus firstRun)
 
 testNonLocalCallArgumentFailureAccumulation :: IO ()
 testNonLocalCallArgumentFailureAccumulation = do
@@ -4249,9 +4399,7 @@ rejectedManifestExpectedStatuses =
     ),
     ( "text-value",
       unsupported
-        [ expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreTextValueDetail,
-          expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
-        ]
+        [expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
     ),
     ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
     ("non-unit-tuple", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
