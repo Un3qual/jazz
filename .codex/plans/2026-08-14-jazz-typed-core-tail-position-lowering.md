@@ -168,13 +168,13 @@ Cabal, Nix
 - `tailTerminator` maps only `LoweredDirectCall` and `LoweredClosureCall`; no
   other instruction may be removed.
 
-- [ ] **Step 1: Change exact recursive and helper-function expectations to tail
+- [x] **Step 1: Change exact recursive and helper-function expectations to tail
       terminators.** Cover direct self/mutual recursion, closure-shaped
       recursion, capturing recursion, and a non-recursive local helper. Leave
       the synthetic entry expectations as ordinary call instructions and
       returns.
 
-- [ ] **Step 2: Run the focused suite and verify RED.** Run:
+- [x] **Step 2: Run the focused suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=direct --jobs=1
@@ -183,23 +183,23 @@ Cabal, Nix
   Expected: exact Lowered IR comparisons report call instructions plus
   `LoweredReturn` where tail terminators are now required.
 
-- [ ] **Step 3: Add `lowerFunctionResult`, `finishFunctionResult`, and
+- [x] **Step 3: Add `lowerFunctionResult`, `finishFunctionResult`, and
       `tailTerminator`; route `emitFunction` through them.** Build a
       `LoweredFunction` from `reverse (loweringCompletedBlocks finalState)`;
       never append a second terminator.
 
-- [ ] **Step 4: Run the Step 2 command and verify GREEN for direct and closure
+- [x] **Step 4: Run the Step 2 command and verify GREEN for direct and closure
       function bodies.** Confirm entry-function expectations remain unchanged.
 
-- [ ] **Step 5: Add negative exact expectations.** Prove that a function body
+- [x] **Step 5: Add negative exact expectations.** Prove that a function body
       returning a literal, scalar operand, or partial application uses
       `LoweredReturn`, and that a call consumed by a binary expression remains a
       `LoweredDirectCall` or `LoweredClosureCall` instruction.
 
-- [ ] **Step 6: Run the focused suite again.** Expected: all function-result
+- [x] **Step 6: Run the focused suite again.** Expected: all function-result
       and negative expectations pass with validated Lowered IR.
 
-- [ ] **Step 7: Commit the call-termination milestone.** Run:
+- [x] **Step 7: Commit the call-termination milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
