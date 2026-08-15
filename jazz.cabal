@@ -153,6 +153,9 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Capabilities
       Jazz.Compiler.TypeInference.Diagnostics
       Jazz.Compiler.TypeInference.Elaboration
+      Jazz.Compiler.TypeInference.Elaboration.Finalize
+      Jazz.Compiler.TypeInference.Elaboration.Profiles
+      Jazz.Compiler.TypeInference.Elaboration.Specialize
       Jazz.Compiler.TypeInference.Elaboration.Types
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
