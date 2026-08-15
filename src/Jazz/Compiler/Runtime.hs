@@ -123,6 +123,10 @@ import Jazz.Compiler.Runtime.Primitives
   ( evalBinary,
     evalBuiltin
   )
+import Jazz.Compiler.Runtime.Request
+  ( RuntimeExpressionRequest (..),
+    RuntimeScopeRequest (..),
+  )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeApplicationKind (..),
     RuntimeBuiltinKind (..),
@@ -366,13 +370,16 @@ evaluateRuntimeExprWithHostObserved ::
   RuntimeHost m ->
   Expr ->
   m (RuntimeObservationResult (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostObserved observationRequest host =
-  evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
+evaluateRuntimeExprWithHostObserved observationRequest host expr =
+  evaluateRuntimeExpressionObserved
     observationRequest
     host
-    Set.empty
-    ResolveKernelOnly
-    Map.empty
+    RuntimeExpressionRequest
+      { runtimeExpressionSourceUnitStatementIndices = Set.empty,
+        runtimeExpressionBuiltinMode = ResolveKernelOnly,
+        runtimeExpressionBindingTypeHints = Map.empty,
+        runtimeExpression = expr
+      }
 
 evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
   Monad m =>
@@ -402,112 +409,94 @@ evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObse
   Expr ->
   m (RuntimeObservationResult (Maybe RuntimeValue))
 evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved observationRequest host preludeStatementIndices builtinMode bindingTypeHints expr =
+  evaluateRuntimeExpressionObserved
+    observationRequest
+    host
+    RuntimeExpressionRequest
+      { runtimeExpressionSourceUnitStatementIndices = preludeStatementIndices,
+        runtimeExpressionBuiltinMode = builtinMode,
+        runtimeExpressionBindingTypeHints = bindingTypeHints,
+        runtimeExpression = expr
+      }
+
+evaluateRuntimeExpressionObserved ::
+  Monad m =>
+  RuntimeObservationRequest ->
+  RuntimeHost m ->
+  RuntimeExpressionRequest ->
+  m (RuntimeObservationResult (Maybe RuntimeValue))
+evaluateRuntimeExpressionObserved observationRequest host request =
   {-# SCC "jazz-stage:evaluation" #-}
   case observationRequest of
     RuntimeObservationDisabled -> do
       outcome <-
-        evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsUnobserved
-          host
-          preludeStatementIndices
-          builtinMode
-          bindingTypeHints
-          expr
+        evaluateRuntimeExpressionUnobserved host request
       pure (RuntimeObservationResult outcome Nothing)
     _ -> do
       (outcome, observationState) <-
         runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-          evaluateRuntimeExprWithRequiredEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
-            evaluationHost
-            preludeStatementIndices
-            builtinMode
-            bindingTypeHints
-            expr
+          evaluateRuntimeExpressionWithRequiredEvaluationHost evaluationHost request
       pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
-evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsUnobserved ::
+evaluateRuntimeExpressionUnobserved ::
   Monad m =>
   RuntimeHost m ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  Expr ->
+  RuntimeExpressionRequest ->
   m (RuntimeOutcome (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsUnobserved host preludeStatementIndices builtinMode bindingTypeHints expr =
+evaluateRuntimeExpressionUnobserved host request =
   runtimeControlOutcome
     <$> runRuntimeHostEvaluation host (\evaluationHost ->
-      evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
-        evaluationHost
-        preludeStatementIndices
-        builtinMode
-        bindingTypeHints
-        expr)
+      evaluateRuntimeExpressionWithEvaluationHost evaluationHost request)
 
-evaluateRuntimeExprWithRequiredEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
+evaluateRuntimeExpressionWithRequiredEvaluationHost ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  Expr ->
+  RuntimeExpressionRequest ->
   RuntimeHostEvaluationT m (Either RuntimeControl (Maybe RuntimeValue))
-evaluateRuntimeExprWithRequiredEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements host preludeStatementIndices builtinMode bindingTypeHints expr =
+evaluateRuntimeExpressionWithRequiredEvaluationHost host request =
   case expr of
     EBlock statements ->
       fmap scopeResultValue
-        <$> runExceptT
-          ( evalScopeWithHost
-              host
-              preludeStatementIndices
-              Nothing
-              EvaluateEntryModule
-              builtinMode
-              bindingTypeHints
-              False
-              Map.empty
-              statements
-          )
+        <$> evaluateRuntimeScopeWithRequiredHostRequest
+          host
+          (runtimeExpressionScopeRequest request statements)
     _ ->
       runExceptT
         (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty False expr)
+  where
+    builtinMode = runtimeExpressionBuiltinMode request
+    bindingTypeHints = runtimeExpressionBindingTypeHints request
+    expr = runtimeExpression request
 
-evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
+evaluateRuntimeExpressionWithEvaluationHost ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  Expr ->
+  RuntimeExpressionRequest ->
   RuntimeHostEvaluationT m (Either RuntimeControl (Maybe RuntimeValue))
-evaluateRuntimeExprWithEvaluationHostAndBuiltinsAndBindingHintsAndSourceUnitStatements host preludeStatementIndices builtinMode bindingTypeHints expr =
+evaluateRuntimeExpressionWithEvaluationHost host request =
   if runtimeExprRequiresHost expr
     then
       case expr of
         EBlock statements ->
           fmap scopeResultValue
-            <$> evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements
+            <$> evaluateRuntimeScopeWithEvaluationHostRequest
               host
-              preludeStatementIndices
-              Nothing
-              EvaluateEntryModule
-              builtinMode
-              bindingTypeHints
-              Map.empty
-              statements
+              (runtimeExpressionScopeRequest request statements)
         _ ->
           runExceptT
             (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty False expr)
     else
       pure
         ( case
-            evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements
-              preludeStatementIndices
-              builtinMode
-              bindingTypeHints
-              expr
+            evaluateRuntimeExpressionPure request
             of
             Left diagnostic -> Left (RuntimeDiagnostic diagnostic)
             Right value -> Right value
         )
+  where
+    builtinMode = runtimeExpressionBuiltinMode request
+    bindingTypeHints = runtimeExpressionBindingTypeHints request
+    expr = runtimeExpression request
 
 -- | Evaluate an expression under the builtin resolution mode chosen by the
 -- caller, returning a terminal scope value when one exists.
@@ -539,25 +528,30 @@ evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements preludeSta
         expr
     )
 
-evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements ::
-  Set Int ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  Expr ->
-  Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExprPureWithBuiltinsAndBindingHintsAndSourceUnitStatements preludeStatementIndices builtinMode bindingTypeHints expr =
+evaluateRuntimeExpressionPure :: RuntimeExpressionRequest -> Either Diagnostic (Maybe RuntimeValue)
+evaluateRuntimeExpressionPure request =
   case expr of
     EBlock statements ->
       scopeResultValue
-        <$> evaluateModuleScopeWithSourceUnitStatements
-          preludeStatementIndices
-          Nothing
-          EvaluateEntryModule
-          builtinMode
-          bindingTypeHints
-          Map.empty
-          statements
+        <$> evaluateRuntimeScopePureRequest
+          (runtimeExpressionScopeRequest request statements)
     _ -> Just <$> evalValue builtinMode bindingTypeHints Map.empty expr
+  where
+    builtinMode = runtimeExpressionBuiltinMode request
+    bindingTypeHints = runtimeExpressionBindingTypeHints request
+    expr = runtimeExpression request
+
+runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> [Statement] -> RuntimeScopeRequest
+runtimeExpressionScopeRequest request statements =
+  RuntimeScopeRequest
+    { runtimeScopeSourceUnitStatementIndices = runtimeExpressionSourceUnitStatementIndices request,
+      runtimeScopeCurrentModulePath = Nothing,
+      runtimeScopeEvaluationMode = EvaluateEntryModule,
+      runtimeScopeBuiltinMode = runtimeExpressionBuiltinMode request,
+      runtimeScopeBindingTypeHints = runtimeExpressionBindingTypeHints request,
+      runtimeScopeInitialEnvironment = Map.empty,
+      runtimeScopeStatements = statements
+    }
 
 
 -- Public scope entry points receive an opaque map whose lazy cells may include
@@ -674,14 +668,18 @@ evaluateModuleScopeWithRequiredHost ::
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   runRuntimeHostEvaluation host $ \evaluationHost ->
-    evaluateModuleScopeWithRequiredEvaluationHost
-      evaluationHost
-      currentModulePath
-      evaluationMode
-      builtinMode
-      bindingTypeHints
-      initialEnv
-      statements
+    runtimeControlAsDiagnosticResult
+      <$> evaluateRuntimeScopeWithRequiredHostRequest
+        evaluationHost
+        RuntimeScopeRequest
+          { runtimeScopeSourceUnitStatementIndices = Set.empty,
+            runtimeScopeCurrentModulePath = currentModulePath,
+            runtimeScopeEvaluationMode = evaluationMode,
+            runtimeScopeBuiltinMode = builtinMode,
+            runtimeScopeBindingTypeHints = bindingTypeHints,
+            runtimeScopeInitialEnvironment = initialEnv,
+            runtimeScopeStatements = statements
+          }
 
 evaluateModuleScopeWithRequiredEvaluationHost ::
   Monad m =>
@@ -695,14 +693,17 @@ evaluateModuleScopeWithRequiredEvaluationHost ::
   RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   runtimeControlAsDiagnosticResult
-    <$> evaluateModuleScopeWithRequiredEvaluationHostControl
+    <$> evaluateRuntimeScopeWithRequiredHostRequest
       host
-      currentModulePath
-      evaluationMode
-      builtinMode
-      bindingTypeHints
-      initialEnv
-      statements
+      RuntimeScopeRequest
+        { runtimeScopeSourceUnitStatementIndices = Set.empty,
+          runtimeScopeCurrentModulePath = currentModulePath,
+          runtimeScopeEvaluationMode = evaluationMode,
+          runtimeScopeBuiltinMode = builtinMode,
+          runtimeScopeBindingTypeHints = bindingTypeHints,
+          runtimeScopeInitialEnvironment = initialEnv,
+          runtimeScopeStatements = statements
+        }
 
 evaluateModuleScopeWithRequiredEvaluationHostControl ::
   Monad m =>
@@ -715,10 +716,28 @@ evaluateModuleScopeWithRequiredEvaluationHostControl ::
   [Statement] ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
 evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  evaluateRuntimeScopeWithRequiredHostRequest
+    host
+    RuntimeScopeRequest
+      { runtimeScopeSourceUnitStatementIndices = Set.empty,
+        runtimeScopeCurrentModulePath = currentModulePath,
+        runtimeScopeEvaluationMode = evaluationMode,
+        runtimeScopeBuiltinMode = builtinMode,
+        runtimeScopeBindingTypeHints = bindingTypeHints,
+        runtimeScopeInitialEnvironment = initialEnv,
+        runtimeScopeStatements = statements
+      }
+
+evaluateRuntimeScopeWithRequiredHostRequest ::
+  Monad m =>
+  RuntimeHost (RuntimeHostEvaluationT m) ->
+  RuntimeScopeRequest ->
+  RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
+evaluateRuntimeScopeWithRequiredHostRequest host request =
   runExceptT
     ( evalScopeWithHost
         host
-        Set.empty
+        (runtimeScopeSourceUnitStatementIndices request)
         currentModulePath
         evaluationMode
         builtinMode
@@ -727,6 +746,13 @@ evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath eval
         initialEnv
         statements
     )
+  where
+    currentModulePath = runtimeScopeCurrentModulePath request
+    evaluationMode = runtimeScopeEvaluationMode request
+    builtinMode = runtimeScopeBuiltinMode request
+    bindingTypeHints = runtimeScopeBindingTypeHints request
+    initialEnv = runtimeScopeInitialEnvironment request
+    statements = runtimeScopeStatements request
 
 evaluateModuleScopeWithHostAndSourceUnitStatements ::
   Monad m =>
@@ -740,30 +766,34 @@ evaluateModuleScopeWithHostAndSourceUnitStatements ::
   [Statement] ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithHostAndSourceUnitStatements host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  evaluateRuntimeScopeWithHostRequest
+    host
+    RuntimeScopeRequest
+      { runtimeScopeSourceUnitStatementIndices = preludeStatementIndices,
+        runtimeScopeCurrentModulePath = currentModulePath,
+        runtimeScopeEvaluationMode = evaluationMode,
+        runtimeScopeBuiltinMode = builtinMode,
+        runtimeScopeBindingTypeHints = bindingTypeHints,
+        runtimeScopeInitialEnvironment = initialEnv,
+        runtimeScopeStatements = statements
+      }
+
+evaluateRuntimeScopeWithHostRequest ::
+  Monad m =>
+  RuntimeHost m ->
+  RuntimeScopeRequest ->
+  m (Either Diagnostic ScopeResult)
+evaluateRuntimeScopeWithHostRequest host request =
   runtimeControlAsDiagnosticResult
     <$> runRuntimeHostEvaluation host (\evaluationHost ->
-      evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements
-        evaluationHost
-        preludeStatementIndices
-        currentModulePath
-        evaluationMode
-        builtinMode
-        bindingTypeHints
-        initialEnv
-        statements)
+      evaluateRuntimeScopeWithEvaluationHostRequest evaluationHost request)
 
-evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements ::
+evaluateRuntimeScopeWithEvaluationHostRequest ::
   Monad m =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Set Int ->
-  Maybe [Text] ->
-  ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  RuntimeEnv ->
-  [Statement] ->
+  RuntimeScopeRequest ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
-evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+evaluateRuntimeScopeWithEvaluationHostRequest host request =
   if
       runtimeExprRequiresHost (EBlock statements)
         || opaqueRuntimeEnvironmentMayReachHostCells initialEnv
@@ -783,18 +813,19 @@ evaluateModuleScopeWithEvaluationHostAndSourceUnitStatements host preludeStateme
     else
       pure
         ( case
-            evaluateModuleScopePureWithSourceUnitStatements
-              preludeStatementIndices
-              currentModulePath
-              evaluationMode
-              builtinMode
-              bindingTypeHints
-              initialEnv
-              statements
+            evaluateRuntimeScopePureRequest request
             of
             Left diagnostic -> Left (RuntimeDiagnostic diagnostic)
             Right value -> Right value
         )
+  where
+    preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
+    currentModulePath = runtimeScopeCurrentModulePath request
+    evaluationMode = runtimeScopeEvaluationMode request
+    builtinMode = runtimeScopeBuiltinMode request
+    bindingTypeHints = runtimeScopeBindingTypeHints request
+    initialEnv = runtimeScopeInitialEnvironment request
+    statements = runtimeScopeStatements request
 
 evaluateModuleScopeWithSourceUnitStatements ::
   Set Int ->
@@ -807,15 +838,17 @@ evaluateModuleScopeWithSourceUnitStatements ::
   Either Diagnostic ScopeResult
 evaluateModuleScopeWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   runIdentity
-    ( evaluateModuleScopeWithHostAndSourceUnitStatements
+    ( evaluateRuntimeScopeWithHostRequest
         disabledRuntimeHost
-        preludeStatementIndices
-        currentModulePath
-        evaluationMode
-        builtinMode
-        bindingTypeHints
-        initialEnv
-        statements
+        RuntimeScopeRequest
+          { runtimeScopeSourceUnitStatementIndices = preludeStatementIndices,
+            runtimeScopeCurrentModulePath = currentModulePath,
+            runtimeScopeEvaluationMode = evaluationMode,
+            runtimeScopeBuiltinMode = builtinMode,
+            runtimeScopeBindingTypeHints = bindingTypeHints,
+            runtimeScopeInitialEnvironment = initialEnv,
+            runtimeScopeStatements = statements
+          }
     )
 
 evaluateModuleScopePureWithSourceUnitStatements ::
@@ -827,8 +860,28 @@ evaluateModuleScopePureWithSourceUnitStatements ::
   RuntimeEnv ->
   [Statement] ->
   Either Diagnostic ScopeResult
-evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements = go Nothing indexedStatements
+evaluateModuleScopePureWithSourceUnitStatements preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
+  evaluateRuntimeScopePureRequest
+    RuntimeScopeRequest
+      { runtimeScopeSourceUnitStatementIndices = preludeStatementIndices,
+        runtimeScopeCurrentModulePath = currentModulePath,
+        runtimeScopeEvaluationMode = evaluationMode,
+        runtimeScopeBuiltinMode = builtinMode,
+        runtimeScopeBindingTypeHints = bindingTypeHints,
+        runtimeScopeInitialEnvironment = initialEnv,
+        runtimeScopeStatements = statements
+      }
+
+evaluateRuntimeScopePureRequest :: RuntimeScopeRequest -> Either Diagnostic ScopeResult
+evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
   where
+    preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
+    currentModulePath = runtimeScopeCurrentModulePath request
+    evaluationMode = runtimeScopeEvaluationMode request
+    builtinMode = runtimeScopeBuiltinMode request
+    bindingTypeHints = runtimeScopeBindingTypeHints request
+    initialEnv = runtimeScopeInitialEnvironment request
+    statements = runtimeScopeStatements request
     scopePlan =
       buildRuntimeScopePlan
         preludeStatementIndices

@@ -146,6 +146,7 @@ library jazz-internal
       Jazz.Compiler.Runtime.Observation.Profile
       Jazz.Compiler.Runtime.Observation.Render
       Jazz.Compiler.Runtime.Primitives
+      Jazz.Compiler.Runtime.Request
       Jazz.Compiler.Runtime.ScopePlan
       Jazz.Compiler.Runtime.Semantics
       Jazz.Compiler.Runtime.Types
