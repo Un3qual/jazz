@@ -1018,7 +1018,7 @@ managedTextExpectedPrograms =
     ("managed-text-conditional-result", managedTextConditionalResultProgram),
     ("managed-text-scalar-case-result", managedTextScalarCaseResultProgram),
     ("unsupported-managed-capture", managedTextCaptureProgram),
-    ("partial-call-managed-argument-failure", managedTextPartialApplicationProgram)
+    ("partial-call-managed-argument", managedTextPartialApplicationProgram)
   ]
 
 managedTextOperationProducerFixtures :: [(Text, Fixture)]
@@ -1030,7 +1030,29 @@ managedTextOperationProducerFixtures =
     ("managed-text-append-char", sourceFixtureNoExports "managed-text-append-char" managedTextAppendCharSource),
     ("managed-text-combined-operations", sourceFixtureNoExports "managed-text-combined-operations" managedTextCombinedOperationsSource),
     ("managed-text-duplicate-equality", sourceFixtureNoExports "managed-text-duplicate-equality" managedTextDuplicateEqualitySource),
-    ("managed-text-conditional-append", sourceFixtureNoExports "managed-text-conditional-append" managedTextConditionalAppendSource)
+    ("managed-text-conditional-append", sourceFixtureNoExports "managed-text-conditional-append" managedTextConditionalAppendSource),
+    ( "managed-text-builtin-local-function-shadow",
+      sourceFixtureNoExports
+        "managed-text-builtin-local-function-shadow"
+        ( Text.unlines
+            [ "__kernel_textLength :: Bool -> Bool.",
+              "__kernel_textLength = \\(item) -> item.",
+              "__kernel_textLength True."
+            ]
+        )
+    ),
+    ( "managed-text-builtin-callable-parameter-shadow",
+      sourceFixtureNoExports
+        "managed-text-builtin-callable-parameter-shadow"
+        ( Text.unlines
+            [ "apply :: (Bool -> Bool) -> Bool.",
+              "apply = \\(__kernel_textLength) -> __kernel_textLength True.",
+              "identity :: Bool -> Bool.",
+              "identity = \\(item) -> item.",
+              "apply identity."
+            ]
+        )
+    )
   ]
 
 managedTextOperationExpectedPrograms :: [(Text, TypedProgram)]
@@ -1090,6 +1112,33 @@ managedTextOperationExpectedPrograms =
             )
         ]
         textInfo
+    ),
+    ( "managed-text-builtin-local-function-shadow",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [ ExpectedFunction
+            "__kernel_textLength"
+            [("item", boolInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            (variableExpr "item" boolInfo)
+        ]
+        (directCall "__kernel_textLength" [boolInfo] boolInfo [boolExpr True])
+    ),
+    ( "managed-text-builtin-callable-parameter-shadow",
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [ ExpectedFunction
+            "apply"
+            [("__kernel_textLength", boolCallableInfo)]
+            boolInfo
+            TypedDirectCallableShape
+            (directCall "__kernel_textLength" [boolInfo] boolInfo [boolExpr True]),
+          boolIdentityFunction
+        ]
+        (directCall "apply" [boolCallableInfo] boolInfo [variableExpr "identity" boolCallableInfo])
     )
   ]
 
@@ -5627,9 +5676,9 @@ producerEdgeFixtures =
                  ]
              )
          ),
-         ( "partial-call-managed-argument-failure",
+         ( "partial-call-managed-argument",
            sourceFixtureNoExports
-             "partial-call-managed-argument-failure"
+             "partial-call-managed-argument"
              ( Text.unlines
                  [ "keepRight :: Text -> Int -> Int.",
                    "keepRight = \\(ignored, right) -> right.",

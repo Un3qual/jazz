@@ -899,7 +899,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               ProvisionalVariableExpression name expressionType
                 | Just function <- Map.lookup name functions ->
                     applicationArguments (functionType function) arguments
-                | Just _ <- approvedTextRuntimeServiceBuiltin name ->
+                | Map.notMember name parameters,
+                  Just _ <- approvedTextRuntimeServiceBuiltin name ->
                     applicationArguments expressionType arguments
               _ -> arguments
           finalizedArguments =
@@ -921,7 +922,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           argumentFailures = concatMap fst finalizedArguments
        in case callee of
             ProvisionalVariableExpression name expressionType
-              | Just symbol <- approvedTextRuntimeServiceBuiltin name ->
+              | Map.notMember name parameters,
+                Map.notMember name functions,
+                Just symbol <- approvedTextRuntimeServiceBuiltin name ->
                   let expectedArity = builtinSymbolArity symbol
                       actualArity = length arguments
                       selectedResultTypes = applicationResultTypes expressionType resultTypes

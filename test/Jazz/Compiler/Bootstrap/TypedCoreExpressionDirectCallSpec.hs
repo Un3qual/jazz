@@ -99,7 +99,6 @@ tests =
     ("admits concrete unit-typed forward functions", testUnitForwardVisibility),
     ("admits captured arguments inside direct-call bodies", testCurriedArgumentCapture),
     ("retains supplied arguments inside partial applications", testPartialApplicationArgumentCapture),
-    ("retains managed arguments inside valid partial applications", testPartialApplicationManagedArgumentProduction),
     ("retains supplied argument failures when non-local calls are rejected", testNonLocalCallArgumentFailureAccumulation),
     ("retains later sibling failures after accepting a captured closure call", testClosureUseArgumentFailureOrder),
     ("collapses mixed callable-use reasons to one closure classification", testClosureShapeClassificationCollapse),
@@ -2556,22 +2555,6 @@ testPartialApplicationArgumentCapture = do
           assertEqual "partial-call argument lowered validation" [] (validateLoweredProgram loweredProgram)
         other -> failTest ("partial-call argument did not lower: " <> Text.pack (show other))
     other -> failTest ("partial-call argument did not produce typed core: " <> Text.pack (show other))
-
-testPartialApplicationManagedArgumentProduction :: IO ()
-testPartialApplicationManagedArgumentProduction = do
-  let name = "partial-call-managed-argument-failure"
-      fixture = producerEdgeFixture name
-      expected =
-        case lookup name managedTextExpectedPrograms of
-          Just program -> program
-          Nothing -> error "managed Text partial-application expectation is missing"
-  firstRun <- produceFixture fixture
-  secondRun <- produceFixture fixture
-  assertEqual "partial managed-argument repeatability" firstRun secondRun
-  assertEqual
-    "partial managed-argument exact typed program"
-    (TypedCoreProductionSucceeded expected)
-    (typedCoreProductionStatus firstRun)
 
 testNonLocalCallArgumentFailureAccumulation :: IO ()
 testNonLocalCallArgumentFailureAccumulation = do
