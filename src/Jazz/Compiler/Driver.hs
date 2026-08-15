@@ -19,27 +19,16 @@ module Jazz.Compiler.Driver
     runCompileErrors,
     runRuntimeErrors,
     runWarnings,
-    runExpr,
-    runExprObserved,
-    runExprWithHost,
-    runExprWithHostObserved,
     runSource,
     runSourceObserved,
-    runSourceWithHost,
-    runSourceWithHostObserved,
     runSourceWithPrelude,
     runSourceWithPreludeAndHost,
-    runSourceWithResolvedPrelude,
-    runSourceWithResolvedPreludeAndHost,
     runSourceWithResolvedPreludeAndHostObserved,
     runModuleGraph,
     runModuleGraphObserved,
-    runModuleGraphWithHost,
-    runModuleGraphWithHostObserved,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
     runModuleGraphWithResolvedPrelude,
-    runModuleGraphWithResolvedPreludeAndHost,
     runModuleGraphWithResolvedPreludeAndHostObserved
   ) where
 
@@ -268,39 +257,6 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
         CompileResult
           { compileDiagnostics = compiledProgramDiagnostics compiledProgram }
 
-runExpr :: WarningSettings -> Expr -> IO RunResult
-runExpr = runExprObserved RuntimeObservationDisabled
-
-runExprObserved :: RuntimeObservationRequest -> WarningSettings -> Expr -> IO RunResult
-runExprObserved observationRequest =
-  runExprWithHostObserved observationRequest disabledRuntimeHost
-
-runExprWithHost :: RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
-runExprWithHost = runExprWithHostObserved RuntimeObservationDisabled
-
-runExprWithHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
-runExprWithHostObserved observationRequest host =
-  runExprWithBuiltinsAndHostObserved observationRequest host ResolveKernelOnly
-
-runExprWithBuiltinsAndHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
-runExprWithBuiltinsAndHostObserved observationRequest host =
-  runExprWithBuiltinsAndHiddenStatementsAndHostObserved observationRequest host Set.empty
-
-runExprWithBuiltinsAndHiddenStatementsAndHostObserved ::
-  RuntimeObservationRequest ->
-  RuntimeHost IO ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  WarningSettings ->
-  Expr ->
-  IO RunResult
-runExprWithBuiltinsAndHiddenStatementsAndHostObserved observationRequest host hiddenStatementIndices =
-  runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved
-    observationRequest
-    host
-    hiddenStatementIndices
-    hiddenStatementIndices
-
 runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
   RuntimeObservationRequest ->
   RuntimeHost IO ->
@@ -368,9 +324,6 @@ runSourceObserved :: RuntimeObservationRequest -> WarningSettings -> Text -> IO 
 runSourceObserved observationRequest =
   runSourceWithHostObserved observationRequest disabledRuntimeHost
 
-runSourceWithHost :: RuntimeHost IO -> WarningSettings -> Text -> IO RunResult
-runSourceWithHost = runSourceWithHostObserved RuntimeObservationDisabled
-
 runSourceWithHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> Text -> IO RunResult
 runSourceWithHostObserved observationRequest host settings source = do
   bundledPreludeSource <- loadBundledPreludeSource
@@ -387,9 +340,6 @@ runSourceWithPrelude = runSourceWithPreludeAndHost disabledRuntimeHost
 runSourceWithPreludeAndHost :: RuntimeHost IO -> WarningSettings -> Maybe Text -> Text -> IO RunResult
 runSourceWithPreludeAndHost host settings preludeSource source =
   runSourceWithResolvedPreludeAndHost host settings (resolvedExplicitPrelude preludeSource) source
-
-runSourceWithResolvedPrelude :: WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
-runSourceWithResolvedPrelude = runSourceWithResolvedPreludeAndHost disabledRuntimeHost
 
 runSourceWithResolvedPreludeAndHost :: RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
 runSourceWithResolvedPreludeAndHost =
@@ -434,15 +384,6 @@ runModuleGraphObserved ::
   IO RunResult
 runModuleGraphObserved observationRequest =
   runModuleGraphWithHostObserved observationRequest disabledRuntimeHost
-
-runModuleGraphWithHost ::
-  RuntimeHost IO ->
-  WarningSettings ->
-  ModuleResolutionConfig ->
-  [Text] ->
-  (FilePath -> IO (Maybe Text)) ->
-  IO RunResult
-runModuleGraphWithHost = runModuleGraphWithHostObserved RuntimeObservationDisabled
 
 runModuleGraphWithHostObserved ::
   RuntimeObservationRequest ->

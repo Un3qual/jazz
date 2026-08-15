@@ -23,11 +23,8 @@ module Jazz.Compiler.Runtime
     evaluateRuntimeExpr,
     evaluateRuntimeExprObserved,
     evaluateRuntimeExprWithHost,
-    evaluateRuntimeExprWithHostObserved,
-    evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements,
     evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved,
     evaluateModuleScopeWithHost,
-    evaluateModuleScopeWithHostAndSourceUnitStatements,
     evaluateModuleScopeWithRequiredHost,
     evaluateModuleScopeWithRequiredEvaluationHost,
     evaluateModuleScopeWithRequiredEvaluationHostControl,
@@ -109,47 +106,30 @@ evaluateRuntimeExpr =
 evaluateRuntimeExprObserved :: RuntimeObservationRequest -> Expr -> RuntimeObservationResult (Maybe RuntimeValue)
 evaluateRuntimeExprObserved observationRequest expr =
   runIdentity
-    (evaluateRuntimeExprWithHostObserved observationRequest disabledRuntimeHost expr)
+    ( evaluateRuntimeExpressionObserved
+        observationRequest
+        disabledRuntimeHost
+        RuntimeExpressionRequest
+          { runtimeExpressionSourceUnitStatementIndices = Set.empty,
+            runtimeExpressionBuiltinMode = ResolveKernelOnly,
+            runtimeExpressionBindingTypeHints = Map.empty,
+            runtimeExpression = expr
+          }
+    )
 
 evaluateRuntimeExprWithHost :: Monad m => RuntimeHost m -> Expr -> m (Either Diagnostic (Maybe RuntimeValue))
-evaluateRuntimeExprWithHost host =
+evaluateRuntimeExprWithHost host expr =
   fmap (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
-    . evaluateRuntimeExprWithHostObserved RuntimeObservationDisabled host
-
-evaluateRuntimeExprWithHostObserved ::
-  Monad m =>
-  RuntimeObservationRequest ->
-  RuntimeHost m ->
-  Expr ->
-  m (RuntimeObservationResult (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostObserved observationRequest host expr =
-  evaluateRuntimeExpressionObserved
-    observationRequest
-    host
-    RuntimeExpressionRequest
-      { runtimeExpressionSourceUnitStatementIndices = Set.empty,
-        runtimeExpressionBuiltinMode = ResolveKernelOnly,
-        runtimeExpressionBindingTypeHints = Map.empty,
-        runtimeExpression = expr
-      }
-
-evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements ::
-  Monad m =>
-  RuntimeHost m ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  Expr ->
-  m (Either Diagnostic (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements host sourceUnitStatementIndices builtinMode bindingTypeHints expr =
-  runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
-    <$> evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
-      RuntimeObservationDisabled
-      host
-      sourceUnitStatementIndices
-      builtinMode
-      bindingTypeHints
-      expr
+    ( evaluateRuntimeExpressionObserved
+        RuntimeObservationDisabled
+        host
+        RuntimeExpressionRequest
+          { runtimeExpressionSourceUnitStatementIndices = Set.empty,
+            runtimeExpressionBuiltinMode = ResolveKernelOnly,
+            runtimeExpressionBindingTypeHints = Map.empty,
+            runtimeExpression = expr
+          }
+    )
 
 evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved ::
   Monad m =>
@@ -195,12 +175,15 @@ evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements ::
   Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements sourceUnitStatementIndices builtinMode bindingTypeHints expr =
   runIdentity
-    ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatements
-        disabledRuntimeHost
-        sourceUnitStatementIndices
-        builtinMode
-        bindingTypeHints
-        expr
+    ( fmap (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
+        ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
+            RuntimeObservationDisabled
+            disabledRuntimeHost
+            sourceUnitStatementIndices
+            builtinMode
+            bindingTypeHints
+            expr
+        )
     )
 
 evaluateModuleScope ::
@@ -237,32 +220,10 @@ evaluateModuleScopeWithHost ::
   [Statement] ->
   m (Either Diagnostic ScopeResult)
 evaluateModuleScopeWithHost host currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
-  evaluateModuleScopeWithHostAndSourceUnitStatements
-    host
-    Set.empty
-    currentModulePath
-    evaluationMode
-    builtinMode
-    bindingTypeHints
-    initialEnv
-    statements
-
-evaluateModuleScopeWithHostAndSourceUnitStatements ::
-  Monad m =>
-  RuntimeHost m ->
-  Set Int ->
-  Maybe [Text] ->
-  ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  RuntimeEnv ->
-  [Statement] ->
-  m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithHostAndSourceUnitStatements host sourceUnitStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnv statements =
   evaluateRuntimeScopeWithHostRequest
     host
     RuntimeScopeRequest
-      { runtimeScopeSourceUnitStatementIndices = sourceUnitStatementIndices,
+      { runtimeScopeSourceUnitStatementIndices = Set.empty,
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeBuiltinMode = builtinMode,
