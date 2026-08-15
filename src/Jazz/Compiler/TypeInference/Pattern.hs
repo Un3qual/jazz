@@ -42,6 +42,7 @@ import Jazz.Compiler.TypeInference.State
     inferErrorsRev,
     modifyInferenceOutput,
   )
+import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     ExpressionType (..),

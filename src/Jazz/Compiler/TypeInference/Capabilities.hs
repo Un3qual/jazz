@@ -98,8 +98,7 @@ import Jazz.Compiler.SignatureRendering
   ( renderSignatureType
   )
 import Jazz.Compiler.TypeInference.Diagnostics
-  ( InferExprFn,
-    addTypeError,
+  ( addTypeError,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
@@ -117,6 +116,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError
   )
+import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
     DeferredExplicitConstraint (..),

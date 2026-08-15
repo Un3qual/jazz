@@ -43,10 +43,6 @@ import Jazz.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
     hasOperatorRule
   )
-import Jazz.Compiler.TypeInference.Diagnostics
-  ( InferExprFn,
-    InferExprWithModeFn
-  )
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     ProvisionalTypedExpr (..),
@@ -54,6 +50,10 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     TypedCoreProductionMode (..)
   )
 import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
+import Jazz.Compiler.TypeInference.Traversal
+  ( InferExprFn,
+    InferExprWithModeFn
+  )
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
     addStrictEqualityTypeVarConstraint,

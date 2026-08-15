@@ -161,6 +161,7 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Signature
       Jazz.Compiler.TypeInference.State
       Jazz.Compiler.TypeInference.Solver
+      Jazz.Compiler.TypeInference.Traversal
       Jazz.Compiler.TypeInference.TypeOps
       Jazz.Compiler.TypeInference.Types
       Jazz.Compiler.WarningConfig

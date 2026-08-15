@@ -118,6 +118,10 @@ import Jazz.Compiler.TypeInference.State
     modifyInferenceOutput,
     modifyModuleInferenceState,
   )
+import Jazz.Compiler.TypeInference.Traversal
+  ( InferExprFn,
+    InferExprWithModeFn,
+  )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
