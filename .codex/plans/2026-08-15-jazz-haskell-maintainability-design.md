@@ -22,13 +22,13 @@ At the audited revision, active Haskell production code is approximately
 50,000 lines and active Haskell test code approximately 87,000 lines. The main
 navigation hotspots are:
 
-| Module | Approximate size | Responsibilities currently co-located |
-| --- | ---: | --- |
-| `TypedCore/Validate.hs` | 5,669 lines | program ordering, visibility, declarations, types, recipes, expressions, patterns, evidence, interfaces |
-| `LoweredIR/Lower.hs` | 3,682 lines | runtime requirements, callable shapes, capture/profile analysis, CFG and instruction emission |
-| `Runtime.hs` | 3,428 lines | public wrappers, evaluator machine, scope evaluation, application, observation adaptation |
-| `TypeInference/Elaboration.hs` | 2,750 lines | provisional data use, callable/capture analysis, recursive finalization |
-| `TypeInference/Scope.hs` | 2,566 lines | scope preparation, recursive groups, declaration inference, ordered traversal |
+| Module                         | Approximate size | Responsibilities currently co-located                                                                   |
+| ------------------------------ | ---------------: | ------------------------------------------------------------------------------------------------------- |
+| `TypedCore/Validate.hs`        |      5,669 lines | program ordering, visibility, declarations, types, recipes, expressions, patterns, evidence, interfaces |
+| `LoweredIR/Lower.hs`           |      3,682 lines | runtime requirements, callable shapes, capture/profile analysis, CFG and instruction emission           |
+| `Runtime.hs`                   |      3,428 lines | public wrappers, evaluator machine, scope evaluation, application, observation adaptation               |
+| `TypeInference/Elaboration.hs` |      2,750 lines | provisional data use, callable/capture analysis, recursive finalization                                 |
+| `TypeInference/Scope.hs`       |      2,566 lines | scope preparation, recursive groups, declaration inference, ordered traversal                           |
 
 The largest test hotspots include a Typed Core contract specification above
 16,000 lines and direct-call fixture/spec modules above 7,000 and 5,000 lines.

@@ -25,17 +25,17 @@
 
 ## File map
 
-| File | Responsibility after this milestone |
-| --- | --- |
-| `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs` | Production outcomes/failures, provisional ADTs, profile/context records |
-| `src/Jazz/Compiler/TypeInference/Traversal.hs` | `InferExprFn` and production-aware traversal callback aliases |
-| `src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs` | Provisional-expression type/capture specialization |
-| `src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs` | Callable, capture, recursion, and dependency analysis |
-| `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs` | Final conversion to validated Typed Core |
-| `src/Jazz/Compiler/TypeInference/Elaboration.hs` | Small compatibility façade re-exporting active internal contracts |
-| `src/Jazz/Compiler/TypeInference/Scope.hs` | Scope traversal driven by one private named request and explicit forward policy |
-| `src/Jazz/Compiler/TypeInference.hs` | Stable active inference conveniences over one private request function |
-| `jazz.cabal` | Registers all new private modules |
+| File                                                        | Responsibility after this milestone                                             |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`      | Production outcomes/failures, provisional ADTs, profile/context records         |
+| `src/Jazz/Compiler/TypeInference/Traversal.hs`              | `InferExprFn` and production-aware traversal callback aliases                   |
+| `src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs` | Provisional-expression type/capture specialization                              |
+| `src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs`   | Callable, capture, recursion, and dependency analysis                           |
+| `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`   | Final conversion to validated Typed Core                                        |
+| `src/Jazz/Compiler/TypeInference/Elaboration.hs`            | Small compatibility façade re-exporting active internal contracts               |
+| `src/Jazz/Compiler/TypeInference/Scope.hs`                  | Scope traversal driven by one private named request and explicit forward policy |
+| `src/Jazz/Compiler/TypeInference.hs`                        | Stable active inference conveniences over one private request function          |
+| `jazz.cabal`                                                | Registers all new private modules                                               |
 
 ### Task 1: Extract provisional elaboration contracts
 

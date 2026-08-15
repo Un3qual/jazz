@@ -25,19 +25,19 @@
 
 ## File map
 
-| File | Responsibility after this milestone |
-| --- | --- |
-| `src/Jazz/Compiler/LoweredIR/Lower/Types.hs` | Lowering failures/results, requirements, shape contracts, analysis result, emission state types |
-| `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs` | Structural runtime-layout/service requirement collection |
-| `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs` | Function/capture discovery and supported-profile validation |
-| `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs` | CFG, block, operand, closure, call, tail-call, and runtime-service emission |
-| `src/Jazz/Compiler/LoweredIR/Lower.hs` | Checked/raw entry points and small analysis-to-emission façade |
-| `src/Jazz/Compiler/Runtime/Request.hs` | Named expression and scope execution requests |
-| `src/Jazz/Compiler/Runtime/HostEvaluation.hs` | Runtime host-state runners and observation-state setup |
-| `src/Jazz/Compiler/Runtime/Engine.hs` | Mutually recursive evaluator machine, scope, forcing, and application engine |
-| `src/Jazz/Compiler/Runtime.hs` | Actively used compatibility façade and value re-exports |
-| `src/Jazz/Compiler/Driver.hs` | Actively used compile/run entry points only |
-| `jazz.cabal` | Registers private modules and focused test helpers |
+| File                                                | Responsibility after this milestone                                                             |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`        | Lowering failures/results, requirements, shape contracts, analysis result, emission state types |
+| `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs` | Structural runtime-layout/service requirement collection                                        |
+| `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`       | Function/capture discovery and supported-profile validation                                     |
+| `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`         | CFG, block, operand, closure, call, tail-call, and runtime-service emission                     |
+| `src/Jazz/Compiler/LoweredIR/Lower.hs`              | Checked/raw entry points and small analysis-to-emission façade                                  |
+| `src/Jazz/Compiler/Runtime/Request.hs`              | Named expression and scope execution requests                                                   |
+| `src/Jazz/Compiler/Runtime/HostEvaluation.hs`       | Runtime host-state runners and observation-state setup                                          |
+| `src/Jazz/Compiler/Runtime/Engine.hs`               | Mutually recursive evaluator machine, scope, forcing, and application engine                    |
+| `src/Jazz/Compiler/Runtime.hs`                      | Actively used compatibility façade and value re-exports                                         |
+| `src/Jazz/Compiler/Driver.hs`                       | Actively used compile/run entry points only                                                     |
+| `jazz.cabal`                                        | Registers private modules and focused test helpers                                              |
 
 ### Task 1: Extract runtime-support requirement collection
 
@@ -131,7 +131,7 @@ git commit -m "refactor: extract lowering requirements"
 **Interfaces:**
 
 - `Lower.Types` owns unchanged `FunctionParameterShape`,
-`FunctionDeclaration`, `CaptureShape`, `FunctionShape`, and `FunctionIndex`.
+  `FunctionDeclaration`, `CaptureShape`, `FunctionShape`, and `FunctionIndex`.
 - It adds:
 
 ```haskell
@@ -221,7 +221,7 @@ git commit -m "refactor: separate lowering shape analysis"
 **Interfaces:**
 
 - `Lower.Types` owns private emission records `LoweringState`,
-`ResultDestination`, and `AmbientSlot`.
+  `ResultDestination`, and `AmbientSlot`.
 - `Emit` produces:
 
 ```haskell

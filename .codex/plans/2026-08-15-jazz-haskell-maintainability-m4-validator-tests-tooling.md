@@ -26,23 +26,23 @@
 
 ## File map
 
-| File | Responsibility after this milestone |
-| --- | --- |
-| `src/Jazz/Compiler/TypedCore/Validate/Internal.hs` | Private proof constructor, context, contracts, paths, lookup/name primitives |
-| `src/Jazz/Compiler/TypedCore/Validate/TypeRecipes.hs` | Types, recipes, schemes, literals, numeric/primitive constraints |
-| `src/Jazz/Compiler/TypedCore/Validate/Evidence.hs` | Capabilities, impl identities, instantiations, evidence selections, node metadata |
-| `src/Jazz/Compiler/TypedCore/Validate/Patterns.hs` | Pattern shapes, binders, constructor fields, or-pattern agreement |
-| `src/Jazz/Compiler/TypedCore/Validate/Expressions.hs` | Mutually recursive expression and ordered-statement traversal, applications/operators, lexical binders, impl bodies |
-| `src/Jazz/Compiler/TypedCore/Validate/Declarations.hs` | Non-recursive signature, scheme, data/class/impl, and method contracts |
-| `src/Jazz/Compiler/TypedCore/Validate/Program.hs` | Program/module order, imports/exports/interfaces, context construction, recursion orchestration |
-| `src/Jazz/Compiler/TypedCore/Validate.hs` | Three-function public façade and abstract proof export |
-| `test/Jazz/Compiler/Bootstrap/TypedCoreContract/*` | Domain-owned Typed Core contract tests and fixtures |
-| `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/*` | Domain-owned producer/lowerer tests |
-| `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/*` | Domain-owned source and exact artifact fixtures |
-| `test/Jazz/Repository/HaskellSourcePolicy.hs` | Comment/literal-aware checks for `error` and qualified partial map lookup |
-| `scripts/check-haskell-format.sh` | Touched-file Ormolu check with an explicit path list |
-| `CONTRIBUTING.md` | Authoritative Haskell maintenance commands and HLint compatibility status |
-| `jazz.cabal` | Registers validator internals and split test modules |
+| File                                                                   | Responsibility after this milestone                                                                                 |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/Jazz/Compiler/TypedCore/Validate/Internal.hs`                     | Private proof constructor, context, contracts, paths, lookup/name primitives                                        |
+| `src/Jazz/Compiler/TypedCore/Validate/TypeRecipes.hs`                  | Types, recipes, schemes, literals, numeric/primitive constraints                                                    |
+| `src/Jazz/Compiler/TypedCore/Validate/Evidence.hs`                     | Capabilities, impl identities, instantiations, evidence selections, node metadata                                   |
+| `src/Jazz/Compiler/TypedCore/Validate/Patterns.hs`                     | Pattern shapes, binders, constructor fields, or-pattern agreement                                                   |
+| `src/Jazz/Compiler/TypedCore/Validate/Expressions.hs`                  | Mutually recursive expression and ordered-statement traversal, applications/operators, lexical binders, impl bodies |
+| `src/Jazz/Compiler/TypedCore/Validate/Declarations.hs`                 | Non-recursive signature, scheme, data/class/impl, and method contracts                                              |
+| `src/Jazz/Compiler/TypedCore/Validate/Program.hs`                      | Program/module order, imports/exports/interfaces, context construction, recursion orchestration                     |
+| `src/Jazz/Compiler/TypedCore/Validate.hs`                              | Three-function public façade and abstract proof export                                                              |
+| `test/Jazz/Compiler/Bootstrap/TypedCoreContract/*`                     | Domain-owned Typed Core contract tests and fixtures                                                                 |
+| `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/*`     | Domain-owned producer/lowerer tests                                                                                 |
+| `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/*` | Domain-owned source and exact artifact fixtures                                                                     |
+| `test/Jazz/Repository/HaskellSourcePolicy.hs`                          | Comment/literal-aware checks for `error` and qualified partial map lookup                                           |
+| `scripts/check-haskell-format.sh`                                      | Touched-file Ormolu check with an explicit path list                                                                |
+| `CONTRIBUTING.md`                                                      | Authoritative Haskell maintenance commands and HLint compatibility status                                           |
+| `jazz.cabal`                                                           | Registers validator internals and split test modules                                                                |
 
 ### Task 1: Establish the validator’s private internal contract
 
@@ -56,7 +56,7 @@
 **Interfaces:**
 
 - `Internal` owns `ModuleContext`, `ForwardSignedFunctionContext`,
-`ResolvedNameKey`, all `*Contract` records, `BinderOccurrence`, and the proof:
+  `ResolvedNameKey`, all `*Contract` records, `BinderOccurrence`, and the proof:
 
 ```haskell
 newtype ValidatedTypedProgram = ValidatedTypedProgram TypedProgram
@@ -67,9 +67,9 @@ validatedTypedProgram (ValidatedTypedProgram typedProgram) = typedProgram
 ```
 
 - It also owns context-only transformations, name-key conversion, path/name
-rendering, `failure`, `maybeToList`, and `firstJust`.
+  rendering, `failure`, `maybeToList`, and `firstJust`.
 - `Internal` is listed under `library jazz-internal.other-modules`; only
-`Jazz.Compiler.TypedCore.Validate` remains exposed.
+  `Jazz.Compiler.TypedCore.Validate` remains exposed.
 
 - [ ] **Step 1: Run the complete validator characterization suite**
 

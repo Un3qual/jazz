@@ -26,20 +26,20 @@
 
 ## File map
 
-| File | Responsibility after this milestone |
-| --- | --- |
-| `src/Jazz/Compiler/TypeInference/Pattern.hs` | Pattern inference with a pattern-specific binder map; no general `TypeBinding` storage |
-| `src/Jazz/Compiler/TypedCore/Validate.hs` | Existing validator with total recursive-group lookup until the milestone-4 split |
-| `src/Jazz/Compiler/Runtime/Outcome.hs` | Sole owner of runtime control/outcome types and compatibility adapters |
-| `src/Jazz/Compiler/Runtime/Types.hs` | Runtime values/state; imports and re-exports `RuntimeControl` during migration |
-| `src/Jazz/Compiler/Runtime/Observation.hs` | Observation data; imports and re-exports `RuntimeOutcome` during migration |
-| `src/Jazz/Compiler/Diagnostics/Strictness.hs` | Sole owner of structural diagnostic forcing |
-| `src/Jazz/Compiler/TypeInference/Result.hs` | Sole owner of `InferenceResult` |
-| `src/Jazz/Compiler/ModuleGraph.hs` | Sole production `ResolvedModule` representation |
-| `src/Jazz/Compiler/ModuleResolver.hs` | Resolves directly into graph modules with one module accumulator |
-| `test/Jazz/Compiler/Runtime/OutcomeTests.hs` | Exact adapter and legacy-exit contract tests |
-| `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs` | Resolver tests using rich modules and local summary projections |
-| `jazz.cabal` | Registers the new private library and test modules |
+| File                                                 | Responsibility after this milestone                                                    |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `src/Jazz/Compiler/TypeInference/Pattern.hs`         | Pattern inference with a pattern-specific binder map; no general `TypeBinding` storage |
+| `src/Jazz/Compiler/TypedCore/Validate.hs`            | Existing validator with total recursive-group lookup until the milestone-4 split       |
+| `src/Jazz/Compiler/Runtime/Outcome.hs`               | Sole owner of runtime control/outcome types and compatibility adapters                 |
+| `src/Jazz/Compiler/Runtime/Types.hs`                 | Runtime values/state; imports and re-exports `RuntimeControl` during migration         |
+| `src/Jazz/Compiler/Runtime/Observation.hs`           | Observation data; imports and re-exports `RuntimeOutcome` during migration             |
+| `src/Jazz/Compiler/Diagnostics/Strictness.hs`        | Sole owner of structural diagnostic forcing                                            |
+| `src/Jazz/Compiler/TypeInference/Result.hs`          | Sole owner of `InferenceResult`                                                        |
+| `src/Jazz/Compiler/ModuleGraph.hs`                   | Sole production `ResolvedModule` representation                                        |
+| `src/Jazz/Compiler/ModuleResolver.hs`                | Resolves directly into graph modules with one module accumulator                       |
+| `test/Jazz/Compiler/Runtime/OutcomeTests.hs`         | Exact adapter and legacy-exit contract tests                                           |
+| `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs` | Resolver tests using rich modules and local summary projections                        |
+| `jazz.cabal`                                         | Registers the new private library and test modules                                     |
 
 ### Task 1: Make pattern inference bindings unrepresentably plain
 
