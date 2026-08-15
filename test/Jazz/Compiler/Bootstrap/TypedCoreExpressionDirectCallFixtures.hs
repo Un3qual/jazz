@@ -3833,6 +3833,16 @@ producerEdgeFixtures =
                  ]
              )
          ),
+         ( "scalar-pattern-case-tail-function",
+           sourceFixtureNoExports
+             "scalar-pattern-case-tail-function"
+             ( Text.unlines
+                 [ "loop :: Int -> Int.",
+                   "loop = \\(item) -> case item { | 0 -> 0 | 1 -> loop 0 | next if next == 2 -> next | _ -> 3 }.",
+                   "loop 1."
+                 ]
+             )
+         ),
          ( "pattern-case-in-conditional-branch",
            sourceFixtureNoExports
              "pattern-case-in-conditional-branch"
@@ -3942,6 +3952,7 @@ producerEdgeFixtures =
          ),
          ("conditional-function-parameter", sourceFixtureNoExports "conditional-function-parameter" conditionalFunctionParameterSource),
          ("conditional-captured-scalar", sourceFixtureNoExports "conditional-captured-scalar" conditionalCapturedScalarSource),
+         ("conditional-tail-call-function", sourceFixtureNoExports "conditional-tail-call-function" conditionalTailCallFunctionSource),
          ("conditional-closure-result-application", sourceFixtureNoExports "conditional-closure-result-application" conditionalClosureResultApplicationSource),
          ("nested-conditionals", sourceFixtureNoExports "nested-conditionals" nestedConditionalsSource),
          ("empty-module", sourceFixtureNoExports "empty-module" ""),
@@ -5513,7 +5524,7 @@ conditionalSource = "if True then 1 else 2."
 patternCaseSource = "case True { | True -> 1 | _ -> 2 }."
 localBlockBindingSource = "{ item = 1. item. }."
 
-conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
+conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalTailCallFunctionSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
 conditionalFunctionParameterSource =
   Text.unlines
     [ "choose :: Bool -> Int -> Int.",
@@ -5529,6 +5540,12 @@ conditionalCapturedScalarSource =
       "apply :: (Bool -> Int) -> Int.",
       "apply = \\(function) -> function True.",
       "apply choose."
+    ]
+conditionalTailCallFunctionSource =
+  Text.unlines
+    [ "loop :: Bool -> Int -> Int.",
+      "loop = \\(stop, item) -> if stop then item else loop True item.",
+      "loop False 7."
     ]
 conditionalClosureResultApplicationSource =
   Text.unlines

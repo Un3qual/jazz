@@ -1732,15 +1732,15 @@ emitFunction modulePath functions function =
     (functionShapeBody function) of
     ([], finalState)
       | null (loweringInstructions finalState) ->
-      Right
-        ( LoweredFunction
-            (functionShapeId function)
-            (functionEnvironmentParameter function)
-            (map functionParameter (functionShapeParameters function))
-            (functionShapeResultRepresentation function)
-            (reverse (loweringCompletedBlocks finalState))
-            (LoweredBlockId "entry")
-        )
+          Right
+            ( LoweredFunction
+                (functionShapeId function)
+                (functionEnvironmentParameter function)
+                (map functionParameter (functionShapeParameters function))
+                (functionShapeResultRepresentation function)
+                (reverse (loweringCompletedBlocks finalState))
+                (LoweredBlockId "entry")
+            )
     (failures@(_ : _), _) -> Left failures
     _ ->
       Left
@@ -1763,8 +1763,42 @@ lowerFunctionResult ::
   TypedExpr ->
   ([LoweredIRLoweringFailure], LoweringState)
 lowerFunctionResult modulePath statementPath expressionPath functions parameters expected state expression =
-  lowerToDestination (FinishFunction expected)
+  case expression of
+    TypedIfExpr info condition thenExpression elseExpression ->
+      discardOperand
+        ( lowerConditionalTo
+            (FinishFunction expected)
+            modulePath
+            statementPath
+            expressionPath
+            path
+            info
+            condition
+            thenExpression
+            elseExpression
+            functions
+            parameters
+            state
+        )
+    TypedPatternCaseExpr info scrutinee arms ->
+      discardOperand
+        ( lowerScalarPatternCaseTo
+            (FinishFunction expected)
+            modulePath
+            statementPath
+            expressionPath
+            path
+            info
+            scrutinee
+            arms
+            functions
+            parameters
+            state
+        )
+    _ -> lowerToDestination (FinishFunction expected)
   where
+    path = TypedExpressionPath modulePath statementPath (reverse expressionPath)
+    discardOperand (failures, _, finalState) = (failures, finalState)
     lowerToDestination destination =
       case lowerExpression modulePath statementPath expressionPath functions parameters state expression of
         (failures, Just operand, finalState) ->
@@ -2091,13 +2125,47 @@ lowerConditional ::
   LoweringState ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerConditional modulePath statementPath expressionPath path info condition thenExpression elseExpression functions parameters state =
+  lowerConditionalTo
+    ProduceValue
+    modulePath
+    statementPath
+    expressionPath
+    path
+    info
+    condition
+    thenExpression
+    elseExpression
+    functions
+    parameters
+    state
+
+lowerConditionalTo ::
+  ResultDestination ->
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  TypedNodeInfo ->
+  TypedExpr ->
+  TypedExpr ->
+  TypedExpr ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerConditionalTo destination modulePath statementPath expressionPath path info condition thenExpression elseExpression functions parameters state =
   case resultRepresentationFailures <> conditionFailures of
     failures@(_ : _) -> (failures, Nothing, conditionState)
     [] ->
       case (maybeResultRepresentation, maybeConditionOperand, ambientArguments slots conditionState) of
         (Just resultRepresentation, Just conditionOperand, Just branchArguments)
           | loweredOperandRepresentation conditionOperand == LoweredBoolRepresentation ->
-              lowerBranches resultRepresentation conditionOperand branchArguments
+              case destination of
+                ProduceValue -> lowerValueBranches resultRepresentation conditionOperand branchArguments
+                FinishFunction expected
+                  | expected == resultRepresentation ->
+                      lowerFunctionBranches expected conditionOperand branchArguments
+                _ -> unsupportedExpression path conditionState
         _ -> unsupportedExpression path conditionState
   where
     (resultRepresentationFailures, maybeResultRepresentation) =
@@ -2117,7 +2185,7 @@ lowerConditional modulePath statementPath expressionPath path info condition the
     elseBlockId = conditionalBlockId statementPath expressionPath "else"
     joinBlockId = conditionalBlockId statementPath expressionPath "join"
 
-    lowerBranches resultRepresentation conditionOperand branchArguments =
+    lowerValueBranches resultRepresentation conditionOperand branchArguments =
       case thenFailures of
         failures@(_ : _) -> (failures, Nothing, thenState)
         [] ->
@@ -2207,6 +2275,59 @@ lowerConditional modulePath statementPath expressionPath path info condition the
                 elseInitial
                 elseExpression
 
+    lowerFunctionBranches expected conditionOperand branchArguments =
+      case thenFailures of
+        failures@(_ : _) -> (failures, Nothing, thenState)
+        [] ->
+          case elseFailures of
+            failures@(_ : _) -> (failures, Nothing, elseState)
+            [] -> ([], Nothing, elseState)
+      where
+        conditionFinished =
+          finishCurrentBlock
+            ( LoweredBranch
+                conditionOperand
+                thenBlockId
+                branchArguments
+                elseBlockId
+                branchArguments
+            )
+            conditionState
+        thenInitial =
+          remapAmbient
+            slots
+            branchParameters
+            (startBlock thenBlockId branchParameters conditionFinished)
+        (thenFailures, thenState) =
+          lowerFunctionResult
+            modulePath
+            statementPath
+            (1 : expressionPath)
+            functions
+            parameters
+            expected
+            thenInitial
+            thenExpression
+        elseBase =
+          conditionState
+            { loweringCompletedBlocks = loweringCompletedBlocks thenState
+            }
+        elseInitial =
+          remapAmbient
+            slots
+            branchParameters
+            (startBlock elseBlockId branchParameters elseBase)
+        (elseFailures, elseState) =
+          lowerFunctionResult
+            modulePath
+            statementPath
+            (2 : expressionPath)
+            functions
+            parameters
+            expected
+            elseInitial
+            elseExpression
+
 lowerScalarPatternCase ::
   [Text] ->
   [Int] ->
@@ -2220,6 +2341,33 @@ lowerScalarPatternCase ::
   LoweringState ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
 lowerScalarPatternCase modulePath statementPath expressionPath path info scrutinee arms functions parameters state =
+  lowerScalarPatternCaseTo
+    ProduceValue
+    modulePath
+    statementPath
+    expressionPath
+    path
+    info
+    scrutinee
+    arms
+    functions
+    parameters
+    state
+
+lowerScalarPatternCaseTo ::
+  ResultDestination ->
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  TypedNodeInfo ->
+  TypedExpr ->
+  [TypedCaseArm] ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerScalarPatternCaseTo destination modulePath statementPath expressionPath path info scrutinee arms functions parameters state =
   case profileFailures <> resultRepresentationFailures <> scrutineeFailures of
     failures@(_ : _) -> (failures, Nothing, scrutineeState)
     [] ->
@@ -2227,7 +2375,12 @@ lowerScalarPatternCase modulePath statementPath expressionPath path info scrutin
         (Just resultRepresentation, Just scrutineeOperand)
           | Just scrutineeRepresentation <- loweredRepresentation (typedNodeRecipe (typedExpressionInfo scrutinee)),
             loweredOperandRepresentation scrutineeOperand == scrutineeRepresentation ->
-              lowerArmChain resultRepresentation scrutineeOperand
+              case destination of
+                ProduceValue -> lowerArmChain resultRepresentation scrutineeOperand
+                FinishFunction expected
+                  | expected == resultRepresentation ->
+                      lowerArmChain resultRepresentation scrutineeOperand
+                _ -> unsupportedExpression path scrutineeState
         _ -> unsupportedExpression path scrutineeState
   where
     profileFailures =
@@ -2267,24 +2420,27 @@ lowerScalarPatternCase modulePath statementPath expressionPath path info scrutin
             carriedState of
             (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
             ([], finalArmState) ->
-              let joinBase =
-                    scrutineeState
-                      { loweringNextCarrier = loweringNextCarrier finalArmState,
-                        loweringCompletedBlocks = loweringCompletedBlocks finalArmState
-                      }
-                  joinParameters =
-                    outerParameters
-                      <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
-                  joinState =
-                    remapAmbient
-                      outerSlots
-                      outerParameters
-                      (startBlock joinBlockId joinParameters joinBase)
-                  resultOperand =
-                    LoweredBlockParameterOperand
-                      (LoweredParameterId "result")
-                      resultRepresentation
-               in ([], Just resultOperand, joinState)
+              case destination of
+                FinishFunction _ -> ([], Nothing, finalArmState)
+                ProduceValue ->
+                  let joinBase =
+                        scrutineeState
+                          { loweringNextCarrier = loweringNextCarrier finalArmState,
+                            loweringCompletedBlocks = loweringCompletedBlocks finalArmState
+                          }
+                      joinParameters =
+                        outerParameters
+                          <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
+                      joinState =
+                        remapAmbient
+                          outerSlots
+                          outerParameters
+                          (startBlock joinBlockId joinParameters joinBase)
+                      resultOperand =
+                        LoweredBlockParameterOperand
+                          (LoweredParameterId "result")
+                          resultRepresentation
+                   in ([], Just resultOperand, joinState)
 
     lowerArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex remainingArms currentState =
       case remainingArms of
@@ -2518,45 +2674,64 @@ lowerScalarPatternCase modulePath statementPath expressionPath path info scrutin
             _ -> ([unsupportedFailure path], loweredGuardState)
 
     lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex (TypedCaseArm _ _ body) laterArms continuationTemplate bodyState =
-      let (bodyFailures, maybeBodyOperand, loweredBodyState) =
-            lowerExpression
-              modulePath
-              statementPath
-              (1 : armIndex + 1 : expressionPath)
-              functions
-              parameters
-              bodyState
-              body
-       in case (bodyFailures, maybeBodyOperand, ambientArguments outerSlots loweredBodyState) of
-            ([], Just bodyOperand, Just joinAmbientArguments)
-              | loweredOperandRepresentation bodyOperand == resultRepresentation ->
-                  let bodyFinished =
-                        finishCurrentBlock
-                          (LoweredJump joinBlockId (joinAmbientArguments <> [bodyOperand]))
-                          loweredBodyState
-                   in case laterArms of
-                        [] -> ([], bodyFinished)
-                        _ ->
-                          case nextArmEntry armIndex laterArms of
-                            Just nextBlockId ->
-                              let nextBase = continuationState continuationTemplate bodyFinished
-                                  nextInitial =
-                                    remapAmbient
-                                      controlSlots
-                                      controlParameters
-                                      (startBlock nextBlockId controlParameters nextBase)
-                               in lowerArms
-                                    resultRepresentation
-                                    scrutineeCarrier
-                                    outerSlots
-                                    controlSlots
-                                    controlParameters
-                                    (armIndex + 1)
-                                    laterArms
-                                    nextInitial
-                            Nothing -> ([unsupportedFailure path], bodyFinished)
-            (failures@(_ : _), _, _) -> (failures, loweredBodyState)
-            _ -> ([unsupportedFailure path], loweredBodyState)
+      case destination of
+        FinishFunction expected ->
+          let (bodyFailures, loweredBodyState) =
+                lowerFunctionResult
+                  modulePath
+                  statementPath
+                  (1 : armIndex + 1 : expressionPath)
+                  functions
+                  parameters
+                  expected
+                  bodyState
+                  body
+           in case bodyFailures of
+                [] -> continueLaterArms loweredBodyState
+                failures@(_ : _) -> (failures, loweredBodyState)
+        ProduceValue ->
+          let (bodyFailures, maybeBodyOperand, loweredBodyState) =
+                lowerExpression
+                  modulePath
+                  statementPath
+                  (1 : armIndex + 1 : expressionPath)
+                  functions
+                  parameters
+                  bodyState
+                  body
+           in case (bodyFailures, maybeBodyOperand, ambientArguments outerSlots loweredBodyState) of
+                ([], Just bodyOperand, Just joinAmbientArguments)
+                  | loweredOperandRepresentation bodyOperand == resultRepresentation ->
+                      continueLaterArms
+                        ( finishCurrentBlock
+                            (LoweredJump joinBlockId (joinAmbientArguments <> [bodyOperand]))
+                            loweredBodyState
+                        )
+                (failures@(_ : _), _, _) -> (failures, loweredBodyState)
+                _ -> ([unsupportedFailure path], loweredBodyState)
+      where
+        continueLaterArms bodyFinished =
+          case laterArms of
+            [] -> ([], bodyFinished)
+            _ ->
+              case nextArmEntry armIndex laterArms of
+                Just nextBlockId ->
+                  let nextBase = continuationState continuationTemplate bodyFinished
+                      nextInitial =
+                        remapAmbient
+                          controlSlots
+                          controlParameters
+                          (startBlock nextBlockId controlParameters nextBase)
+                   in lowerArms
+                        resultRepresentation
+                        scrutineeCarrier
+                        outerSlots
+                        controlSlots
+                        controlParameters
+                        (armIndex + 1)
+                        laterArms
+                        nextInitial
+                Nothing -> ([unsupportedFailure path], bodyFinished)
 
     continuationState template completedState =
       template
