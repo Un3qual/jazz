@@ -176,9 +176,12 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Types
       Jazz.Compiler.WarningConfig
   other-modules:
+      Jazz.Compiler.TypedCore.Validate.Declarations
       Jazz.Compiler.TypedCore.Validate.Evidence
+      Jazz.Compiler.TypedCore.Validate.Expressions
       Jazz.Compiler.TypedCore.Validate.Internal
       Jazz.Compiler.TypedCore.Validate.Patterns
+      Jazz.Compiler.TypedCore.Validate.Program
       Jazz.Compiler.TypedCore.Validate.TypeRecipes
   build-depends:
       aeson >= 2.2 && < 2.3,

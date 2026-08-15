@@ -35,6 +35,7 @@ module Jazz.Compiler.TypedCore.Validate.Internal
     implModulePath,
     implTargetTypes,
     binderModulePath,
+    binderDefinitionKey,
     renderModulePath,
     failure,
     maybeToList,
@@ -246,3 +247,6 @@ resolvedNameFromKey context (ResolvedNameKey modulePath namespace identifier) =
       | modulePath == moduleContextPath context = TypedCurrentModule
       | modulePath == ["Prelude"] = TypedAmbientPrelude
       | otherwise = TypedImportedModule modulePath
+
+binderDefinitionKey :: TypedBinderId -> Maybe ResolvedNameKey
+binderDefinitionKey (TypedBinderId (modulePath, _, name)) = definitionNameKey modulePath name
