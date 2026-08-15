@@ -392,7 +392,7 @@ Cabal, Nix
   ```
 
 - [ ] **Step 5: Record fresh verification evidence in the plan's `Full
-      closeout` section.** Include focused suite names, full suite count,
+closeout` section.** Include focused suite names, full suite count,
       documentation/queue/audit results, branch, and commit IDs.
 
 ## Full closeout
