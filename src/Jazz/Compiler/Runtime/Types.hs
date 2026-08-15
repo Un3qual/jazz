@@ -84,6 +84,7 @@ import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (Name)
 import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
     RuntimeObservationState,
@@ -123,13 +124,6 @@ data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId (Maybe 
 data DeferredHostBindingState
   = DeferredHostBindingEvaluating
   | DeferredHostBindingEvaluated (Either RuntimeControl RuntimeValue)
-
--- | Interpreter-internal non-local control. Runtime diagnostics and requested
--- process exits share the evaluator's unwind path without conflating exit with
--- an error visible to Jazz programs.
-data RuntimeControl
-  = RuntimeDiagnostic Diagnostic
-  | RuntimeExitRequested Integer
 
 data RuntimeHostEvaluationState = RuntimeHostEvaluationState
   { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,

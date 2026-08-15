@@ -136,6 +136,7 @@ library jazz-internal
       Jazz.Compiler.Purity
       Jazz.Compiler.RecursiveBindings
       Jazz.Compiler.Runtime
+      Jazz.Compiler.Runtime.Outcome
       Jazz.Compiler.Runtime.Observation
       Jazz.Compiler.Runtime.Observation.Profile
       Jazz.Compiler.Runtime.Observation.Render
@@ -296,6 +297,7 @@ test-suite runtime-observation-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Runtime/ObservationSpec.hs
   other-modules:
+      Jazz.Compiler.Runtime.OutcomeTests
       Jazz.Compiler.Runtime.Observation.ProfileTests
       Jazz.Compiler.Runtime.Observation.StatisticsTests
   build-depends:

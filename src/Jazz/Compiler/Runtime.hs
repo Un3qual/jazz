@@ -132,7 +132,6 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeHostOperationKind (..),
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
-    RuntimeOutcome (..),
     RuntimeObservationState,
     finishRuntimeObservationResult,
     initialRuntimeObservationState,
@@ -152,6 +151,13 @@ import Jazz.Compiler.Runtime.Observation
     runtimeObservationEnabled,
     runtimeObservationProfileEnabled,
     runtimeObservationStatisticsEnabled
+  )
+import Jazz.Compiler.Runtime.Outcome
+  ( RuntimeControl (..),
+    RuntimeOutcome (..),
+    runtimeControlAsDiagnosticResult,
+    runtimeControlOutcome,
+    runtimeOutcomeAsDiagnosticResult,
   )
 import Jazz.Compiler.Runtime.ScopePlan
   ( buildRuntimeScopePlan,
@@ -212,7 +218,6 @@ import Jazz.Compiler.Runtime.Types
     RuntimeEvidence (..),
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
-    RuntimeControl (..),
     RuntimeMethodCandidate (..),
     RuntimeExplicitResultHints,
     RuntimeValue (..),
@@ -1657,38 +1662,6 @@ nextClosureOrigin callableIdentity =
 
 deferredHostBindingName :: DeferredHostBindingKey -> Name
 deferredHostBindingName (DeferredHostBindingKey _ _ _ bindingName) = bindingName
-
-
-runtimeControlOutcome :: Either RuntimeControl value -> RuntimeOutcome value
-runtimeControlOutcome controlResult =
-  case controlResult of
-    Left (RuntimeDiagnostic diagnostic) -> RuntimeOutcomeFailed diagnostic
-    Left (RuntimeExitRequested status) -> RuntimeOutcomeExited status
-    Right value -> RuntimeOutcomeCompleted value
-
-runtimeControlAsDiagnosticResult :: Either RuntimeControl value -> Either Diagnostic value
-runtimeControlAsDiagnosticResult controlResult =
-  case controlResult of
-    Left (RuntimeDiagnostic diagnostic) -> Left diagnostic
-    Left (RuntimeExitRequested status) ->
-      Left
-        ( runtimeDiagnostic
-            E3020
-            ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
-        )
-    Right value -> Right value
-
-runtimeOutcomeAsDiagnosticResult :: RuntimeOutcome value -> Either Diagnostic value
-runtimeOutcomeAsDiagnosticResult outcome =
-  case outcome of
-    RuntimeOutcomeFailed diagnostic -> Left diagnostic
-    RuntimeOutcomeExited status ->
-      Left
-        ( runtimeDiagnostic
-            E3020
-            ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
-        )
-    RuntimeOutcomeCompleted value -> Right value
 
 throwRuntimeDiagnostic :: Monad m => Diagnostic -> ExceptT RuntimeControl m value
 throwRuntimeDiagnostic = throwE . RuntimeDiagnostic

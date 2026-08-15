@@ -21,18 +21,12 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as Text
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import Jazz.Compiler.AST
   ( Expr (EBlock),
     Statement
   )
-import Jazz.Compiler.DiagnosticCatalog (ErrorCode (..))
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    DiagnosticOrigin (..),
-    mkErrorDiagnostic
-  )
+import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -65,7 +59,6 @@ import Jazz.Compiler.Runtime
     RuntimeCell,
     RuntimeEnv,
     RuntimeHostEvaluationT,
-    RuntimeControl (..),
     RuntimeValue,
     ScopeResult (..),
     evaluateModuleScope,
@@ -77,8 +70,14 @@ import Jazz.Compiler.Runtime
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
-    RuntimeOutcome (..),
     finishRuntimeObservationResult,
+  )
+import Jazz.Compiler.Runtime.Outcome
+  ( RuntimeControl,
+    RuntimeOutcome (..),
+    diagnosticResultOutcome,
+    runtimeControlOutcome,
+    runtimeOutcomeAsDiagnosticResult,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
@@ -332,36 +331,6 @@ evaluatePreludeWithEvaluationHost host compiledPrelude =
                 (scopeResultEnvironment result)
           )
           scopeResult
-
-runtimeControlOutcome :: Either RuntimeControl value -> RuntimeOutcome value
-runtimeControlOutcome controlResult =
-  case controlResult of
-    Left (RuntimeDiagnostic diagnostic) -> RuntimeOutcomeFailed diagnostic
-    Left (RuntimeExitRequested status) -> RuntimeOutcomeExited status
-    Right value -> RuntimeOutcomeCompleted value
-
-diagnosticResultOutcome :: Either Diagnostic value -> RuntimeOutcome value
-diagnosticResultOutcome result =
-  case result of
-    Left diagnostic -> RuntimeOutcomeFailed diagnostic
-    Right value -> RuntimeOutcomeCompleted value
-
-runtimeOutcomeAsDiagnosticResult :: RuntimeOutcome value -> Either Diagnostic value
-runtimeOutcomeAsDiagnosticResult outcome =
-  case outcome of
-    RuntimeOutcomeFailed diagnostic -> Left diagnostic
-    RuntimeOutcomeExited status ->
-      Left
-        ( runtimeExitNotRepresentableDiagnostic status
-        )
-    RuntimeOutcomeCompleted value -> Right value
-
-runtimeExitNotRepresentableDiagnostic :: Integer -> Diagnostic
-runtimeExitNotRepresentableDiagnostic status =
-  mkErrorDiagnostic
-    E3020
-    RuntimeOrigin
-    ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
 
 importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
 importRuntimeModule compiledModules runtimeModules importDecl env =
