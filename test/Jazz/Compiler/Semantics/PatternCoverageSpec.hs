@@ -87,6 +87,7 @@ tests =
     ("as-patterns contribute their inner coverage", testAsPatternCoverage),
     ("or-pattern alternatives form a coverage union", testOrPatternCoverage),
     ("nested or-pattern products stay symbolic", testNestedOrPatternProductCoverage),
+    ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
     ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
     ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
@@ -293,6 +294,28 @@ testNestedOrPatternProductCoverage = do
     booleanAlternative =
       POr [PLiteral (LBool False), PLiteral (LBool True)]
     productPattern = PTuple (replicate fieldCount booleanAlternative)
+
+testJointlyExhaustiveProductAlternatives :: IO ()
+testJointlyExhaustiveProductAlternatives = do
+  completed <-
+    timeout 5000000 $
+      evaluate
+        ( null
+            ( analyzePatternCoverage
+                emptyConstructorInventory
+                (TTupleType (replicate fieldCount productType))
+                [arm (PTuple (replicate fieldCount productAlternative))]
+            )
+        )
+  assertEqual "jointly exhaustive product alternatives" (Just True) completed
+  where
+    fieldCount = 30
+    productType = TTupleType [TBoolType, TBoolType]
+    productAlternative =
+      POr
+        [ PTuple [PLiteral (LBool False), PWildcard],
+          PTuple [PLiteral (LBool True), PWildcard]
+        ]
 
 testPartlyUsefulOrPattern :: IO ()
 testPartlyUsefulOrPattern =

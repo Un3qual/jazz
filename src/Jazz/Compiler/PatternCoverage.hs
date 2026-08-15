@@ -280,16 +280,27 @@ coveragePatternIsTotal inventory expressionType patternValue =
   case patternValue of
     CoverageWildcard -> True
     CoverageOr alternatives ->
-      case constructorShapes inventory expressionType of
-        Just shapes ->
-          all
-            (\shape -> any (coveragePatternCoversShape inventory shape) alternatives)
-            shapes
-        Nothing -> any (coveragePatternIsTotal inventory expressionType) alternatives
+      coveragePatternsAreTotal inventory expressionType alternatives
     CoverageConstructor {} ->
       case constructorShapes inventory expressionType of
         Just [shape] -> coveragePatternCoversShape inventory shape patternValue
         _ -> False
+
+coveragePatternsAreTotal ::
+  ConstructorInventory ->
+  ExpressionType ->
+  [CoveragePattern] ->
+  Bool
+coveragePatternsAreTotal inventory expressionType patterns =
+  not
+    ( hasWitness
+        ( usefulPatternVector
+            inventory
+            [expressionType]
+            (map (: []) patterns)
+            [CoverageWildcard]
+        )
+    )
 
 coveragePatternCoversShape ::
   ConstructorInventory ->
