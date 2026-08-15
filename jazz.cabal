@@ -177,6 +177,7 @@ library jazz-internal
       Jazz.Compiler.WarningConfig
   other-modules:
       Jazz.Compiler.TypedCore.Validate.Internal
+      Jazz.Compiler.TypedCore.Validate.TypeRecipes
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
