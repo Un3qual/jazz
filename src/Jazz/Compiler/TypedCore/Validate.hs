@@ -1529,6 +1529,8 @@ rootRecursiveGroupFailures modulePath statements declaredGroups
       Map.fromListWith
         (\_ existing -> existing)
         [(binderId, (statementIndex, statement)) | (statementIndex, binderId, statement, _) <- callableDeclarations]
+    callableStatementIndex binderId = fst <$> Map.lookup binderId callableByBinder
+    memberStatementIndices = traverse callableStatementIndex
     callableBinderIdentityAmbiguous =
       snd (foldl' collectCallableBinder (Set.empty, False) callableDeclarations)
     collectCallableBinder (seen, ambiguous) (_, binderId, _, _)
@@ -1565,19 +1567,21 @@ rootRecursiveGroupFailures modulePath statements declaredGroups
     memberOrderingFailures =
       [ failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)
       | (groupIndex, TypedRecursiveGroup members) <- zip [0 :: Int ..] declaredGroups,
-        let memberIndices = map (fst . (callableByBinder Map.!)) members,
+        Just memberIndices <- [memberStatementIndices members],
         memberIndices /= sort memberIndices
       ]
     groupOrderingFailures = snd (foldl' validateGroupOrder (Nothing, []) indexedFirstMembers)
     indexedFirstMembers =
-      [ (groupIndex, earliestMemberIndex member members)
-      | (groupIndex, TypedRecursiveGroup (member : members)) <- zip [0 :: Int ..] declaredGroups
-      ]
-    earliestMemberIndex member members =
-      foldl'
-        min
-        (fst (callableByBinder Map.! member))
-        [fst (callableByBinder Map.! candidate) | candidate <- members]
+      mapMaybe
+        ( \(groupIndex, TypedRecursiveGroup members) ->
+            (\indices -> (groupIndex, minimum indices)) <$> nonEmptyMemberIndices members
+        )
+        (zip [0 :: Int ..] declaredGroups)
+    nonEmptyMemberIndices members = do
+      indices <- memberStatementIndices members
+      case indices of
+        [] -> Nothing
+        _ -> Just indices
     validateGroupOrder (previousIndex, failures) (groupIndex, statementIndex) =
       case previousIndex of
         Just previous
