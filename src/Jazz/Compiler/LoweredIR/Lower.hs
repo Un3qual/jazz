@@ -1551,14 +1551,14 @@ startBlock blockId parameters state =
       loweringCurrentBlockParameters = parameters
     }
 
-finishFunctionResult :: LoweredRepresentation -> LoweredOperand -> LoweringState -> Maybe LoweringState
-finishFunctionResult expected operand state
+finishFunctionResult :: TypedExpr -> LoweredRepresentation -> LoweredOperand -> LoweringState -> Maybe LoweringState
+finishFunctionResult expression expected operand state
   | loweredOperandRepresentation operand /= expected = Nothing
   | LoweredTemporaryOperand temporary representation <- operand,
     LoweredInstruction produced representation' operation : prior <- loweringInstructions state,
     produced == temporary,
     representation' == representation,
-    Just terminator <- tailTerminator operation =
+    Just terminator <- tailTerminator expression operation =
       Just (finishCurrentBlock terminator state {loweringInstructions = prior})
   | otherwise = Just (finishCurrentBlock (LoweredReturn operand) state)
 
@@ -1568,12 +1568,27 @@ finishFunctionBlocks resultOperand =
     . loweringCompletedBlocks
     . finishCurrentBlock (LoweredReturn resultOperand)
 
-tailTerminator :: LoweredOperation -> Maybe LoweredTerminator
-tailTerminator operation =
+tailTerminator :: TypedExpr -> LoweredOperation -> Maybe LoweredTerminator
+tailTerminator expression operation =
   case operation of
     LoweredDirectCall functionId operands -> Just (LoweredDirectTailCall functionId operands)
-    LoweredClosureCall functionOperand operands -> Just (LoweredClosureTailCall functionOperand operands)
+    LoweredClosureCall functionOperand operands
+      | completeClosureApplication expression -> Just (LoweredClosureTailCall functionOperand operands)
     _ -> Nothing
+
+completeClosureApplication :: TypedExpr -> Bool
+completeClosureApplication expression =
+  case expression of
+    TypedApplyExpr _ function _ ->
+      case typedNodeRecipe (typedExpressionInfo function) of
+        TypedClosureRecipe _ result -> not (isClosureRecipe result)
+        _ -> False
+    _ -> False
+  where
+    isClosureRecipe recipe =
+      case recipe of
+        TypedClosureRecipe _ _ -> True
+        _ -> False
 
 conditionalBlockId :: [Int] -> [Int] -> Text -> LoweredBlockId
 conditionalBlockId statementPath reversedExpressionPath role =
@@ -1805,7 +1820,7 @@ lowerFunctionResult modulePath statementPath expressionPath functions parameters
           case destination of
             ProduceValue -> (failures, finalState)
             FinishFunction resultRepresentation ->
-              case finishFunctionResult resultRepresentation operand finalState of
+              case finishFunctionResult expression resultRepresentation operand finalState of
                 Just finishedState -> (failures, finishedState)
                 Nothing -> (failures, finalState)
         (failures, Nothing, finalState) -> (failures, finalState)

@@ -57,6 +57,7 @@ tests =
     ("audits every producer failure kind used by the rejected manifest", testRejectedManifestProducerFailures),
     ("runs every accepted manifest fixture through its current opt-in boundary", testAcceptedManifestPipeline),
     ("keeps function-body consumed calls as ordinary operations", testFunctionResultNegativeTerminators),
+    ("preserves function-body partial-application returns", testFunctionBodyPartialApplicationResult),
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
@@ -454,6 +455,22 @@ testFunctionResultNegativeTerminators = do
     (validateLoweredProgram expectedProgram)
   assertEqual
     "function-body consumed direct and closure calls lower exactly"
+    (LoweredIRSucceeded expectedProgram)
+    (lowerTypedCoreExpressionDirectCall typedProgram)
+
+testFunctionBodyPartialApplicationResult :: IO ()
+testFunctionBodyPartialApplicationResult = do
+  let (typedProgram, expectedProgram) = functionBodyPartialApplicationExpectedProgram
+  assertEqual
+    "function-body partial application uses valid typed core"
+    []
+    (validateTypedProgram typedProgram)
+  assertEqual
+    "function-body partial application uses valid Lowered IR"
+    []
+    (validateLoweredProgram expectedProgram)
+  assertEqual
+    "function-body partial application lowers exactly"
     (LoweredIRSucceeded expectedProgram)
     (lowerTypedCoreExpressionDirectCall typedProgram)
 

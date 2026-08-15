@@ -35,6 +35,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     closedCallableExpectedLoweredPrograms,
     independentClosureExpectedLoweredPrograms,
     functionBodyConsumedCallExpectedProgram,
+    functionBodyPartialApplicationExpectedProgram,
     rfcClosureEnvironmentIdentityProgram,
     lowererBoundaryPrograms,
     validIndependentLowererPrograms,
@@ -1125,6 +1126,58 @@ curriedPartialApplicationProgram =
         (intExpr 1)
     )
   where
+    combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
+    remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
+
+functionBodyPartialApplicationExpectedProgram :: (TypedProgram, LoweredProgram)
+functionBodyPartialApplicationExpectedProgram =
+  ( typedProgram,
+    expectedClosureCallableLoweredProgram
+      curriedCombineLayouts
+      ( curriedCombineFunctions
+          <> [ expectedLocalFunction
+                 "partial"
+                 [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+                 curriedCombineInnerClosureRepresentation
+                 [ expectedEmptyEnvironmentInstruction 1 curriedCombineOuterLayoutId,
+                   LoweredInstruction
+                     (LoweredTemporaryId "t2")
+                     curriedCombineOuterClosureRepresentation
+                     ( LoweredConstructClosure
+                         (LoweredFunctionId "App::Main::combine")
+                         (loweredTemporary 1 (LoweredManagedReferenceRepresentation curriedCombineOuterLayoutId))
+                     ),
+                   expectedClosureCallInstruction
+                     3
+                     curriedCombineInnerClosureRepresentation
+                     (loweredTemporary 2 curriedCombineOuterClosureRepresentation)
+                     [loweredInt64 1]
+                 ]
+                 (loweredTemporary 3 curriedCombineInnerClosureRepresentation)
+             ]
+      )
+      LoweredBoolRepresentation
+      []
+      (loweredImmediate (LoweredBoolImmediate True))
+  )
+  where
+    typedProgram =
+      expectedFunctionProgramWithLineOffset
+        1
+        []
+        [ combineFunction {expectedFunctionShape = TypedClosureCallableShape},
+          ExpectedFunction
+            "partial"
+            [("ignored", boolInfo)]
+            remainingInfo
+            TypedDirectCallableShape
+            ( TypedApplyExpr
+                remainingInfo
+                (variableExpr "combine" combineInfo)
+                (intExpr 1)
+            )
+        ]
+        (boolExpr True)
     combineInfo = stagedFunctionInfo [("left", intInfo), ("right", intInfo)] intInfo
     remainingInfo = stagedFunctionInfo [("right", intInfo)] intInfo
 
