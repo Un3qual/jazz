@@ -17,19 +17,19 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-    builtinSymbolArity,
-    lookupBuiltinSymbolInMode,
-  )
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.Lower.Requirements
+  ( collectRuntimeRequirements,
+    requiredRuntimeLayouts,
+    textEqualityOperation,
+    textRuntimeServiceApplication,
+  )
+import Jazz.Compiler.LoweredIR.Lower.Types
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
   ( RuntimeServiceKey (TextEqualService),
     orderedRuntimeServices,
     runtimeServiceContract,
-    textLayout,
     textLayoutId,
-    textOperationService,
     textRepresentation,
   )
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
@@ -41,112 +41,6 @@ import Jazz.Compiler.TypedCore.Validate
   )
 import Text.Read (readMaybe)
 
-data LoweredIRLoweringKind
-  = LoweredIRUnsupportedProgram
-  | LoweredIRUnsupportedModule
-  | LoweredIRUnsupportedStatement
-  | LoweredIRUnsupportedExpression
-  | LoweredIRUnsupportedPattern
-  | LoweredIRIncompletePatternCase
-  | LoweredIRUnsupportedRepresentation
-  | LoweredIRUnsupportedOperator
-  | LoweredIRInvalidFunctionShape
-  | LoweredIRDuplicateFunctionIdentity
-  | LoweredIRDuplicateGeneratedIdentity
-  | LoweredIRDuplicateParameterIdentity
-  | LoweredIRCaptureUnsupported
-  | LoweredIRRecursiveFunctionUnsupported
-  | LoweredIRCallableValueUnsupported
-  | LoweredIRCallArityUnsupported
-  | LoweredIRNonLocalCallUnsupported
-  deriving (Eq, Show)
-
-data LoweredIRLoweringDetail
-  = LoweredIRNoFailureDetail
-  | LoweredIRRecipeFailureDetail TypedRepresentationRecipe
-  | LoweredIROperatorFailureDetail TypedOperatorRef
-  | LoweredIRNameFailureDetail TypedCoreName
-  | LoweredIRGeneratedIdentityFailureDetail Text
-  | LoweredIRArityFailureDetail Int Int
-  deriving (Eq, Show)
-
-data LoweredIRLoweringFailure
-  = LoweredIRLoweringFailure
-      TypedCoreValidationPath
-      LoweredIRLoweringKind
-      LoweredIRLoweringDetail
-  deriving (Eq, Show)
-
-data LoweredIRLoweringResult
-  = LoweredIRTypedCoreFailures [TypedCoreValidationFailure]
-  | LoweredIRUnsupported [LoweredIRLoweringFailure]
-  | LoweredIRInvariantFailures [LoweredIRValidationFailure]
-  | LoweredIRSucceeded LoweredProgram
-  deriving (Eq, Show)
-
-data LoweringState = LoweringState
-  { loweringNextTemporary :: Int,
-    loweringNextCarrier :: Int,
-    loweringInstructions :: [LoweredInstruction],
-    loweringCompletedBlocks :: [LoweredBlock],
-    loweringCurrentBlockId :: LoweredBlockId,
-    loweringCurrentBlockParameters :: [LoweredParameter],
-    loweringLocalBindings :: Map.Map TypedBinderId LoweredOperand,
-    loweringSharedEnvironments :: Map.Map LoweredLayoutId LoweredOperand,
-    loweringCarriedOperands :: Map.Map Int LoweredOperand
-  }
-
-data RuntimeRequirements = RuntimeRequirements
-  { runtimeRequiresTextLayout :: Bool,
-    runtimeRequiredServices :: Set.Set RuntimeServiceKey
-  }
-
-data ResultDestination
-  = ProduceValue
-  | FinishFunction LoweredRepresentation
-
-data AmbientSlot
-  = AmbientLocalSlot TypedBinderId LoweredRepresentation
-  | AmbientSharedEnvironmentSlot LoweredLayoutId LoweredRepresentation
-  | AmbientCarriedOperandSlot Int LoweredRepresentation
-
-data FunctionParameterShape = FunctionParameterShape
-  { functionParameterBinder :: TypedBinderId,
-    functionParameter :: LoweredParameter
-  }
-
-data FunctionDeclaration = FunctionDeclaration
-  { functionDeclarationBinder :: TypedBinderId,
-    functionDeclarationName :: TypedCoreName,
-    functionDeclarationStatementIndex :: Int
-  }
-
-data CaptureShape = CaptureShape
-  { captureShapeBinder :: TypedBinderId,
-    captureShapeRepresentation :: LoweredRepresentation
-  }
-
-data FunctionShape = FunctionShape
-  { functionShapeBinder :: TypedBinderId,
-    functionShapeName :: TypedCoreName,
-    functionShapeCallableShape :: TypedCallableShape,
-    functionShapeId :: LoweredFunctionId,
-    functionShapeEnvironmentLayout :: Maybe LoweredLayoutId,
-    functionShapeStatementIndex :: Int,
-    functionShapeParameters :: [FunctionParameterShape],
-    functionShapeCaptures :: [CaptureShape],
-    functionShapeResultRepresentation :: LoweredRepresentation,
-    functionShapeReversedBodyPath :: [Int],
-    functionShapeBody :: TypedExpr,
-    functionShapeSourceBinding :: Bool
-  }
-
-data FunctionIndex = FunctionIndex
-  { indexedFunctionShapes :: Map.Map TypedBinderId FunctionShape,
-    indexedFunctionShapesByStatement :: Map.Map Int FunctionShape,
-    indexedRecursiveGroupMembers :: Map.Map TypedBinderId [TypedBinderId],
-    indexedScalarRepresentations :: Map.Map TypedBinderId LoweredRepresentation
-  }
 
 lowerTypedCoreExpressionDirectCall :: TypedProgram -> LoweredIRLoweringResult
 lowerTypedCoreExpressionDirectCall typedProgram =
@@ -455,141 +349,8 @@ orderedClosureLayouts = reverse . snd . foldl' collect (Set.empty, [])
 
 requiredLayouts :: RuntimeRequirements -> [FunctionShape] -> [LoweredLayout]
 requiredLayouts requirements functions =
-  [textLayout | runtimeRequiresTextLayout requirements]
+  requiredRuntimeLayouts requirements
     <> orderedClosureLayouts functions
-
-collectRuntimeRequirements :: TypedModule -> RuntimeRequirements
-collectRuntimeRequirements (TypedModule _ _ _ _ moduleInterface _ statements moduleInfo) =
-  foldl'
-    mergeRuntimeRequirements
-    (requirementsForNodeInfo moduleInfo)
-    ( requirementsForInterface moduleInterface
-        : map requirementsForStatement statements
-    )
-
-emptyRuntimeRequirements :: RuntimeRequirements
-emptyRuntimeRequirements = RuntimeRequirements False Set.empty
-
-mergeRuntimeRequirements :: RuntimeRequirements -> RuntimeRequirements -> RuntimeRequirements
-mergeRuntimeRequirements left right =
-  RuntimeRequirements
-    { runtimeRequiresTextLayout =
-        runtimeRequiresTextLayout left || runtimeRequiresTextLayout right,
-      runtimeRequiredServices =
-        Set.union
-          (runtimeRequiredServices left)
-          (runtimeRequiredServices right)
-    }
-
-requirementsForInterface :: TypedModuleInterface -> RuntimeRequirements
-requirementsForInterface (TypedModuleInterface values _ _ _) =
-  foldl'
-    mergeRuntimeRequirements
-    emptyRuntimeRequirements
-    [requirementsForScheme scheme | TypedValueInterface _ scheme <- values]
-
-requirementsForStatement :: TypedStatement -> RuntimeRequirements
-requirementsForStatement statement =
-  case statement of
-    TypedLetStatement _ _ _ scheme expression ->
-      requirementsForScheme scheme
-        `mergeRuntimeRequirements` requirementsForExpression expression
-    TypedSignatureStatement _ _ _ scheme -> requirementsForScheme scheme
-    TypedExpressionStatement _ expression -> requirementsForExpression expression
-    TypedDataStatement {} -> emptyRuntimeRequirements
-    TypedClassStatement {} -> emptyRuntimeRequirements
-    TypedImplStatement {} -> emptyRuntimeRequirements
-
-requirementsForScheme :: TypedScheme -> RuntimeRequirements
-requirementsForScheme (TypedScheme _ _ _ _ _ recipe _) =
-  requirementsForRecipe recipe
-
-requirementsForNodeInfo :: TypedNodeInfo -> RuntimeRequirements
-requirementsForNodeInfo info = requirementsForRecipe (typedNodeRecipe info)
-
-requirementsForRecipe :: TypedRepresentationRecipe -> RuntimeRequirements
-requirementsForRecipe recipe =
-  case recipe of
-    TypedManagedTextRecipe -> RuntimeRequirements True Set.empty
-    TypedClosureRecipe arguments result ->
-      foldl'
-        mergeRuntimeRequirements
-        (requirementsForRecipe result)
-        (map requirementsForRecipe arguments)
-    _ -> emptyRuntimeRequirements
-
-requirementsForExpression :: TypedExpr -> RuntimeRequirements
-requirementsForExpression expression =
-  foldl'
-    mergeRuntimeRequirements
-    ( requirementsForNodeInfo (typedExpressionInfo expression)
-        `mergeRuntimeRequirements` requirementsForSemanticExpression expression
-    )
-    ( case expression of
-        TypedLiteralExpr {} -> []
-        TypedVariableExpr {} -> []
-        TypedLambdaExpr _ _ _ body -> [requirementsForExpression body]
-        TypedOperatorValueExpr {} -> []
-        TypedListExpr _ values -> map requirementsForExpression values
-        TypedTupleExpr _ values -> map requirementsForExpression values
-        TypedApplyExpr _ function argument -> map requirementsForExpression [function, argument]
-        TypedTypeApplicationExpr _ function _ _ -> [requirementsForExpression function]
-        TypedIfExpr _ condition consequent alternative -> map requirementsForExpression [condition, consequent, alternative]
-        TypedPatternCaseExpr _ scrutinee arms ->
-          requirementsForExpression scrutinee : map requirementsForArm arms
-        TypedBinaryExpr _ _ left right -> map requirementsForExpression [left, right]
-        TypedLeftSectionExpr _ left _ -> [requirementsForExpression left]
-        TypedRightSectionExpr _ _ right -> [requirementsForExpression right]
-        TypedBlockExpr _ blockStatements -> map requirementsForStatement blockStatements
-    )
-
-requirementsForSemanticExpression :: TypedExpr -> RuntimeRequirements
-requirementsForSemanticExpression expression =
-  case textEqualityOperation expression of
-    Just _ -> runtimeServiceRequirement TextEqualService
-    Nothing ->
-      case textRuntimeServiceApplication expression of
-        Just serviceKey -> runtimeServiceRequirement serviceKey
-        Nothing -> emptyRuntimeRequirements
-
-runtimeServiceRequirement :: RuntimeServiceKey -> RuntimeRequirements
-runtimeServiceRequirement serviceKey =
-  RuntimeRequirements False (Set.singleton serviceKey)
-
-requirementsForArm :: TypedCaseArm -> RuntimeRequirements
-requirementsForArm (TypedCaseArm patternValue guard result) =
-  foldl'
-    mergeRuntimeRequirements
-    (requirementsForPattern patternValue)
-    (requirementsForExpression result : maybe [] ((: []) . requirementsForExpression) guard)
-
-requirementsForPattern :: TypedPattern -> RuntimeRequirements
-requirementsForPattern patternValue =
-  foldl'
-    mergeRuntimeRequirements
-    (requirementsForNodeInfo (patternInfo patternValue))
-    (map requirementsForPattern (patternChildren patternValue))
-  where
-    patternInfo patternNode =
-      case patternNode of
-        TypedWildcardPattern info -> info
-        TypedVariablePattern info _ _ -> info
-        TypedLiteralPattern info _ -> info
-        TypedConstructorPattern info _ _ -> info
-        TypedListPattern info _ -> info
-        TypedConsListPattern info _ _ -> info
-        TypedTuplePattern info _ -> info
-        TypedAsPattern info _ _ _ -> info
-        TypedOrPattern info _ -> info
-    patternChildren patternNode =
-      case patternNode of
-        TypedConstructorPattern _ _ children -> children
-        TypedListPattern _ children -> children
-        TypedConsListPattern _ headPattern tailPattern -> [headPattern, tailPattern]
-        TypedTuplePattern _ children -> children
-        TypedAsPattern _ _ _ nested -> [nested]
-        TypedOrPattern _ alternatives -> alternatives
-        _ -> []
 
 collectRootFunctionShapes ::
   [Text] ->
@@ -1547,34 +1308,6 @@ applicationSpine rootPath =
             function
         _ -> (expression, currentPath, arguments)
 
-textEqualityOperation :: TypedExpr -> Maybe Bool
-textEqualityOperation expression =
-  case expression of
-    TypedBinaryExpr info (TypedBuiltinOperator operator) left right
-      | typedNodeRecipe info == TypedBoolRecipe,
-        typedNodeRecipe (typedExpressionInfo left) == TypedManagedTextRecipe,
-        typedNodeRecipe (typedExpressionInfo right) == TypedManagedTextRecipe ->
-          case operator of
-            "==" -> Just False
-            "!=" -> Just True
-            _ -> Nothing
-    _ -> Nothing
-
-textRuntimeServiceApplication :: TypedExpr -> Maybe RuntimeServiceKey
-textRuntimeServiceApplication expression = do
-  let (callee, _, arguments) = applicationSpine [] expression
-  (identifier, binderReference) <-
-    case callee of
-      TypedVariableExpr _ (TypedBuiltinName name) binder -> Just (name, binder)
-      _ -> Nothing
-  case binderReference of
-    Just _ -> Nothing
-    Nothing -> do
-      symbol <- lookupBuiltinSymbolInMode ResolveKernelOnly identifier
-      serviceKey <- textOperationService symbol
-      if length arguments == builtinSymbolArity symbol
-        then Just serviceKey
-        else Nothing
 
 findFunctionShape :: Maybe TypedBinderId -> FunctionIndex -> Maybe FunctionShape
 findFunctionShape binderReference functions = do
