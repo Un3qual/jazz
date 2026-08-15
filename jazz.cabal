@@ -330,6 +330,11 @@ test-suite profiling-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/ProfilingSpec.hs
 
+test-suite haskell-typeclass-contracts-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: Jazz/Compiler/HaskellTypeclassContractsSpec.hs
+
 test-suite cli-spec
   import: test-common
   type: exitcode-stdio-1.0

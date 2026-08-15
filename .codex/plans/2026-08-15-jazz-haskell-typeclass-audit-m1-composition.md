@@ -33,20 +33,20 @@
 - Modify: `src/Jazz/Compiler/TypeInference/Scope.hs`
 - Modify: `src/Jazz/Compiler/ModuleExports.hs`
 
-- [ ] Add a `haskell-typeclass-contracts-spec` Cabal suite using `test-common`.
-- [ ] Define `assertMonoidLaws :: (Eq a, Show a, Monoid a) => Text -> a -> a -> a -> IO ()` in the new test module.
-- [ ] Test `RuntimeRequirements` identities, associativity, Boolean disjunction, and service-set union.
-- [ ] Test `ScopeCapabilityFacts` identities, associativity, left-biased class/method collisions, and left-to-right implementation-method concatenation. Use `ClassMethodType "Left" (SignatureType TypeInt)` and `ClassMethodType "Right" (SignatureType TypeBool)` so collision precedence is observable without new exports.
-- [ ] Test `ModuleExportInventory` identities, associativity, and duplicate elimination through `exportInventoryEntries`.
-- [ ] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec -fdevelopment` and confirm compilation fails because the three `Monoid` instances do not exist.
-- [ ] Add `Semigroup` and `Monoid` to `RuntimeRequirements` in `Lower/Types.hs`, preserving `False` plus `Set.empty` as `mempty`.
-- [ ] Rewrite `Requirements.hs` with `mempty`, `(<>)`, and `foldMap`; delete `emptyRuntimeRequirements` and `mergeRuntimeRequirements` and remove obsolete imports.
-- [ ] Add `Semigroup` and `Monoid` to `ScopeCapabilityFacts` in `TypeInference/Types.hs`. Keep `emptyScopeCapabilityFacts = mempty` as a domain-named construction alias.
-- [ ] Delete `mergeCapabilityFacts` from `Capabilities.hs` and its export list; replace all call sites in `Capabilities.hs`, `Operator.hs`, and `Scope.hs` with `(<>)` while preserving operand order.
-- [ ] Add `Semigroup` and `Monoid` to `ModuleExportInventory`; rewrite selector accumulation in `ModuleExports.hs` with `foldMap` without unwrapping and rewrapping the set.
-- [ ] Format all touched Haskell files.
-- [ ] Rerun the focused suite plus `binding-signature-coherence-spec` and `jazz-typed-core-contract-spec` with `-fdevelopment`.
-- [ ] Commit the test and implementation files as `refactor: standardize compiler accumulators`.
+- [x] Add a `haskell-typeclass-contracts-spec` Cabal suite using `test-common`.
+- [x] Define `assertMonoidLaws :: (Eq a, Show a, Monoid a) => Text -> a -> a -> a -> IO ()` in the new test module.
+- [x] Test `RuntimeRequirements` identities, associativity, Boolean disjunction, and service-set union.
+- [x] Test `ScopeCapabilityFacts` identities, associativity, left-biased class/method collisions, and left-to-right implementation-method concatenation. Use `ClassMethodType "Left" (SignatureType TypeInt)` and `ClassMethodType "Right" (SignatureType TypeBool)` so collision precedence is observable without new exports.
+- [x] Test `ModuleExportInventory` identities, associativity, and duplicate elimination through `exportInventoryEntries`.
+- [x] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec -fdevelopment` and confirm compilation fails because the three `Monoid` instances do not exist.
+- [x] Add `Semigroup` and `Monoid` to `RuntimeRequirements` in `Lower/Types.hs`, preserving `False` plus `Set.empty` as `mempty`.
+- [x] Rewrite `Requirements.hs` with `mempty`, `(<>)`, and `foldMap`; delete `emptyRuntimeRequirements` and `mergeRuntimeRequirements` and remove obsolete imports.
+- [x] Add `Semigroup` and `Monoid` to `ScopeCapabilityFacts` in `TypeInference/Types.hs`. Keep `emptyScopeCapabilityFacts = mempty` as a domain-named construction alias.
+- [x] Delete `mergeCapabilityFacts` from `Capabilities.hs` and its export list; replace all call sites in `Capabilities.hs`, `Operator.hs`, and `Scope.hs` with `(<>)` while preserving operand order.
+- [x] Add `Semigroup` and `Monoid` to `ModuleExportInventory`; rewrite selector accumulation in `ModuleExports.hs` with `foldMap` without unwrapping and rewrapping the set.
+- [x] Format all touched Haskell files.
+- [x] Rerun the focused suite plus `binding-signature-coherence-spec` and `jazz-typed-core-contract-spec` with `-fdevelopment`.
+- [x] Commit the test and implementation files as `refactor: standardize compiler accumulators`.
 
 ## Task 2: Private accumulator behavior and simplification
 

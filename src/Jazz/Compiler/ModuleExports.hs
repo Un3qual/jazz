@@ -24,7 +24,7 @@ module Jazz.Compiler.ModuleExports
     selectValidatedModuleExportSelectors,
     visibleImportInventory,
     inventoryHasExport,
-    firstExportNamespace
+    firstExportNamespace,
   )
 where
 
@@ -101,6 +101,13 @@ data ModuleExport = ModuleExport
 
 newtype ModuleExportInventory = ModuleExportInventory (Set ModuleExport)
   deriving (Eq, Show)
+
+instance Semigroup ModuleExportInventory where
+  ModuleExportInventory left <> ModuleExportInventory right =
+    ModuleExportInventory (Set.union left right)
+
+instance Monoid ModuleExportInventory where
+  mempty = ModuleExportInventory Set.empty
 
 data ModuleImportMode
   = UnqualifiedImport
@@ -189,16 +196,16 @@ selectValidatedModuleExportSelectors ::
   ModuleExportInventory ->
   ModuleExportInventory
 selectValidatedModuleExportSelectors constructorOwners selectors inventory =
-  ModuleExportInventory (Set.unions (map selectedEntries selectors))
+  foldMap selectedInventory selectors
   where
-    selectedEntries selector =
+    selectedInventory selector =
       case selector of
         ModuleExportSelector {} ->
-          exportInventoryEntries (selectModuleExportSelectors [selector] inventory)
+          selectModuleExportSelectors [selector] inventory
         ModuleTypeExportSelector typeName _ constructorSelector ->
-          Set.insert
-            (ModuleExport TypeNamespace typeName)
-            (selectedConstructorEntries typeName constructorSelector)
+          exportInventory [ModuleExport TypeNamespace typeName]
+            <> exportInventory
+              (Set.toList (selectedConstructorEntries typeName constructorSelector))
 
     selectedConstructorEntries typeName constructorSelector =
       case constructorSelector of
@@ -208,7 +215,7 @@ selectValidatedModuleExportSelectors constructorOwners selectors inventory =
         SelectedTypeConstructors constructors ->
           Set.fromList
             [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
-              | constructor <- NonEmpty.toList constructors
+            | constructor <- NonEmpty.toList constructors
             ]
 
 moduleExportSelectorMatches :: ModuleExportSelector -> ModuleExport -> Bool

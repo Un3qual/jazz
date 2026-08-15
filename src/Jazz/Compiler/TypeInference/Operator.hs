@@ -9,8 +9,9 @@ module Jazz.Compiler.TypeInference.Operator
     inferBinaryType,
     inferSectionLeftType,
     inferSectionRightType,
-    instantiateOperatorType
-  ) where
+    instantiateOperatorType,
+  )
+where
 
 import Control.Applicative ((<|>))
 import qualified Data.Map.Strict as Map
@@ -20,11 +21,11 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    NumericType (..)
+    NumericType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatIntegerBounds,
-    numericTypeIsIntegral
+    numericTypeIsIntegral,
   )
 import Jazz.Compiler.TypeInference.Capabilities
   ( addInferredEqualityClassConstraintIfVisible,
@@ -32,8 +33,7 @@ import Jazz.Compiler.TypeInference.Capabilities
     capabilityFactsFromState,
     defaultLiteralTypes,
     deferExplicitConstraintsWithFacts,
-    mergeCapabilityFacts,
-    structuralRuntimeEqualityType
+    structuralRuntimeEqualityType,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
@@ -43,11 +43,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkNumericSectionOperandTypeError,
     mkStrictEqualityTypeError,
     mkStrictEqualityUnsupportedTypeError,
-    mkUnsupportedSectionOperatorError
-  )
-import Jazz.Compiler.TypeInference.State
-  ( InferState,
-    inferRigidTypeVars
+    mkUnsupportedSectionOperatorError,
   )
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
@@ -61,17 +57,21 @@ import Jazz.Compiler.TypeInference.Solver
     resolveType,
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
-    unifyTypes
+    unifyTypes,
+  )
+import Jazz.Compiler.TypeInference.State
+  ( InferState,
+    inferRigidTypeVars,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( instantiateTypeSchemeConstraint,
-    instantiateTypeSchemePrimitiveConstraint
+    instantiateTypeSchemePrimitiveConstraint,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
-    TypeScheme (..)
+    TypeScheme (..),
   )
 
 data OperatorRule
@@ -140,7 +140,7 @@ instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
   let replacements =
         Map.fromList
           [ (typeVar, targetType)
-            | typeVar <- Set.toList quantifiedVariables
+          | typeVar <- Set.toList quantifiedVariables
           ]
       instantiatedConstraints =
         map (instantiateTypeSchemeConstraint replacements) explicitConstraints
@@ -149,7 +149,7 @@ instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
       stateWithPrimitiveConstraints =
         applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints state
    in deferExplicitConstraintsWithFacts
-        (mergeCapabilityFacts definingFacts (capabilityFactsFromState state))
+        (definingFacts <> capabilityFactsFromState state)
         definingFacts
         instantiatedConstraints
         stateWithPrimitiveConstraints
@@ -263,7 +263,7 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
               operatorSymbol
               (resolveType errState leftType)
               (resolveType errState rightType)
-        )
+          )
       )
 
 directIntegerFloat64NumericOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
@@ -403,23 +403,22 @@ applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightTy
       case unifyTypes leftType rightType state of
         Just unifiedState ->
           let resolvedType = resolveType unifiedState leftType
-           in
-            case resolvedType of
-              TVarType typeVar ->
-                ( Just TBoolType,
-                  addInferredEqualityClassConstraintIfVisible
-                    (TVarType typeVar)
-                    (addStrictEqualityTypeVarConstraint typeVar unifiedState)
-                )
-              _
-                | supportsRuntimeEqualityType unifiedState resolvedType ->
-                    (Just TBoolType, unifiedState)
-                | otherwise ->
-                    ( Nothing,
-                      addTypeError
-                        unifiedState
-                        (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
-                    )
+           in case resolvedType of
+                TVarType typeVar ->
+                  ( Just TBoolType,
+                    addInferredEqualityClassConstraintIfVisible
+                      (TVarType typeVar)
+                      (addStrictEqualityTypeVarConstraint typeVar unifiedState)
+                  )
+                _
+                  | supportsRuntimeEqualityType unifiedState resolvedType ->
+                      (Just TBoolType, unifiedState)
+                  | otherwise ->
+                      ( Nothing,
+                        addTypeError
+                          unifiedState
+                          (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
+                      )
         Nothing ->
           ( Nothing,
             addTypeError
@@ -461,14 +460,13 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
         Just stateAfterNumericConstraint ->
           let (rightType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
-           in
-            ( Just
-                ( TFunctionType
-                    rightType
-                    (numericRuleResultType resultRule rightType)
-                ),
-              stateAfterSectionType
-            )
+           in ( Just
+                  ( TFunctionType
+                      rightType
+                      (numericRuleResultType resultRule rightType)
+                  ),
+                stateAfterSectionType
+              )
         Nothing ->
           ( Nothing,
             addTypeError
@@ -483,23 +481,22 @@ applyStrictEqualitySectionLeftRule ::
   (Maybe ExpressionType, InferState)
 applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
   let resolvedLeftType = resolveType state leftType
-   in
-    case resolvedLeftType of
-      TVarType typeVar ->
-        ( Just (TFunctionType resolvedLeftType TBoolType),
-          addInferredEqualityClassConstraintIfVisible
-            resolvedLeftType
-            (addStrictEqualityTypeVarConstraint typeVar state)
-        )
-      _
-        | supportsRuntimeEqualityType state resolvedLeftType ->
-            (Just (TFunctionType resolvedLeftType TBoolType), state)
-        | otherwise ->
-            ( Nothing,
-              addTypeError
-                state
-                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
-            )
+   in case resolvedLeftType of
+        TVarType typeVar ->
+          ( Just (TFunctionType resolvedLeftType TBoolType),
+            addInferredEqualityClassConstraintIfVisible
+              resolvedLeftType
+              (addStrictEqualityTypeVarConstraint typeVar state)
+          )
+        _
+          | supportsRuntimeEqualityType state resolvedLeftType ->
+              (Just (TFunctionType resolvedLeftType TBoolType), state)
+          | otherwise ->
+              ( Nothing,
+                addTypeError
+                  state
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
+              )
 
 inferSectionRightType ::
   Text ->
@@ -531,14 +528,13 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
         Just stateAfterNumericConstraint ->
           let (leftType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
-           in
-            ( Just
-                ( TFunctionType
-                    leftType
-                    (numericRuleResultType resultRule leftType)
-                ),
-              stateAfterSectionType
-            )
+           in ( Just
+                  ( TFunctionType
+                      leftType
+                      (numericRuleResultType resultRule leftType)
+                  ),
+                stateAfterSectionType
+              )
         Nothing ->
           ( Nothing,
             addTypeError
@@ -553,33 +549,31 @@ applyStrictEqualitySectionRightRule ::
   (Maybe ExpressionType, InferState)
 applyStrictEqualitySectionRightRule operatorSymbol rightType state =
   let resolvedRightType = resolveType state rightType
-   in
-    case resolvedRightType of
-      TVarType typeVar ->
-        ( Just (TFunctionType resolvedRightType TBoolType),
-          addInferredEqualityClassConstraintIfVisible
-            resolvedRightType
-            (addStrictEqualityTypeVarConstraint typeVar state)
-        )
-      _
-        | supportsRuntimeEqualityType state resolvedRightType ->
-            (Just (TFunctionType resolvedRightType TBoolType), state)
-        | otherwise ->
-            ( Nothing,
-              addTypeError
-                state
-                (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
-            )
+   in case resolvedRightType of
+        TVarType typeVar ->
+          ( Just (TFunctionType resolvedRightType TBoolType),
+            addInferredEqualityClassConstraintIfVisible
+              resolvedRightType
+              (addStrictEqualityTypeVarConstraint typeVar state)
+          )
+        _
+          | supportsRuntimeEqualityType state resolvedRightType ->
+              (Just (TFunctionType resolvedRightType TBoolType), state)
+          | otherwise ->
+              ( Nothing,
+                addTypeError
+                  state
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
+              )
 
 numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)
 numericSectionCounterpartType sectionOperandType state =
   case sectionOperandType of
     TIntegerLiteralType literalRange ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
-       in
-        ( operandType,
-          addNumericTypeVarConstraint typeVar (IntegralLiteralNumericConstraint literalRange) stateAfterOperandType
-        )
+       in ( operandType,
+            addNumericTypeVarConstraint typeVar (IntegralLiteralNumericConstraint literalRange) stateAfterOperandType
+          )
     _ -> (sectionOperandType, state)
 
 numericLiteralBinaryRange ::
@@ -631,30 +625,27 @@ instantiateOperatorType operatorSymbol state =
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
           stateAfterNumericConstraint =
             addNumericTypeVarConstraint typeVar (numericRuleConstraint resultRule) stateAfterOperandType
-       in
-        Just
-          ( TFunctionType
-              operandType
-              (TFunctionType operandType (numericRuleResultType resultRule operandType)),
-            stateAfterNumericConstraint
-          )
+       in Just
+            ( TFunctionType
+                operandType
+                (TFunctionType operandType (numericRuleResultType resultRule operandType)),
+              stateAfterNumericConstraint
+            )
     Just StrictEqualityRule ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
-       in
-        Just
-          ( TFunctionType operandType (TFunctionType operandType TBoolType),
-            addInferredEqualityClassConstraintIfVisible
-              operandType
-              (addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType)
-          )
+       in Just
+            ( TFunctionType operandType (TFunctionType operandType TBoolType),
+              addInferredEqualityClassConstraintIfVisible
+                operandType
+                (addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType)
+            )
     Just ApplicationRule ->
       let (argumentType, stateAfterArgumentType) = freshTypeVar state
           (resultType, stateAfterResultType) = freshTypeVar stateAfterArgumentType
-       in
-        Just
-          ( TFunctionType
-              (TFunctionType argumentType resultType)
-              (TFunctionType argumentType resultType),
-            stateAfterResultType
-          )
+       in Just
+            ( TFunctionType
+                (TFunctionType argumentType resultType)
+                (TFunctionType argumentType resultType),
+              stateAfterResultType
+            )
     Nothing -> Nothing

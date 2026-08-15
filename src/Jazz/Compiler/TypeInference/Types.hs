@@ -16,8 +16,9 @@ module Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
-    instantiateConstructorFieldType
-  ) where
+    instantiateConstructorFieldType,
+  )
+where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -27,15 +28,15 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( NumericType,
     SignaturePayload,
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
-    numericTypeFromName
+    numericTypeFromName,
   )
 import Jazz.Compiler.Name
   ( Name,
-    identifierText
+    identifierText,
   )
 
 data ExpressionType
@@ -159,12 +160,38 @@ data ScopeCapabilityFacts = ScopeCapabilityFacts
   }
   deriving (Eq, Show)
 
+instance Semigroup ScopeCapabilityFacts where
+  leftFacts <> rightFacts =
+    ScopeCapabilityFacts
+      { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+        scopeGeneratedEqualityClassFacts =
+          Set.union
+            (scopeGeneratedEqualityClassFacts leftFacts)
+            (scopeGeneratedEqualityClassFacts rightFacts),
+        scopeConcreteImplFacts =
+          Set.union
+            (scopeConcreteImplFacts leftFacts)
+            (scopeConcreteImplFacts rightFacts),
+        scopeClassMethodSignatures =
+          Map.union
+            (scopeClassMethodSignatures leftFacts)
+            (scopeClassMethodSignatures rightFacts),
+        scopeConcreteImplMethods =
+          Map.unionWith
+            (<>)
+            (scopeConcreteImplMethods leftFacts)
+            (scopeConcreteImplMethods rightFacts)
+      }
+
+instance Monoid ScopeCapabilityFacts where
+  mempty =
+    ScopeCapabilityFacts
+      { scopeClassFacts = Map.empty,
+        scopeGeneratedEqualityClassFacts = Set.empty,
+        scopeConcreteImplFacts = Set.empty,
+        scopeClassMethodSignatures = Map.empty,
+        scopeConcreteImplMethods = Map.empty
+      }
+
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
-emptyScopeCapabilityFacts =
-  ScopeCapabilityFacts
-    { scopeClassFacts = Map.empty,
-      scopeGeneratedEqualityClassFacts = Set.empty,
-      scopeConcreteImplFacts = Set.empty,
-      scopeClassMethodSignatures = Map.empty,
-      scopeConcreteImplMethods = Map.empty
-    }
+emptyScopeCapabilityFacts = mempty

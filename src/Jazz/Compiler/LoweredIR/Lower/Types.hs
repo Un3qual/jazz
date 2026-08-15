@@ -72,6 +72,20 @@ data RuntimeRequirements = RuntimeRequirements
   }
   deriving (Eq, Show)
 
+instance Semigroup RuntimeRequirements where
+  left <> right =
+    RuntimeRequirements
+      { runtimeRequiresTextLayout =
+          runtimeRequiresTextLayout left || runtimeRequiresTextLayout right,
+        runtimeRequiredServices =
+          Set.union
+            (runtimeRequiredServices left)
+            (runtimeRequiredServices right)
+      }
+
+instance Monoid RuntimeRequirements where
+  mempty = RuntimeRequirements False Set.empty
+
 data LoweringState = LoweringState
   { loweringNextTemporary :: Int,
     loweringNextCarrier :: Int,

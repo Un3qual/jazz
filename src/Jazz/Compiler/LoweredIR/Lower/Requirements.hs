@@ -25,49 +25,32 @@ import Jazz.Compiler.TypedCore
 
 collectRuntimeRequirements :: TypedModule -> RuntimeRequirements
 collectRuntimeRequirements (TypedModule _ _ _ _ moduleInterface _ statements moduleInfo) =
-  foldl'
-    mergeRuntimeRequirements
-    (requirementsForNodeInfo moduleInfo)
-    ( requirementsForInterface moduleInterface
-        : map requirementsForStatement statements
-    )
+  requirementsForNodeInfo moduleInfo
+    <> requirementsForInterface moduleInterface
+    <> foldMap requirementsForStatement statements
 
 requiredRuntimeLayouts :: RuntimeRequirements -> [LoweredLayout]
 requiredRuntimeLayouts requirements =
   [textLayout | runtimeRequiresTextLayout requirements]
 
-emptyRuntimeRequirements :: RuntimeRequirements
-emptyRuntimeRequirements = RuntimeRequirements False Set.empty
-
-mergeRuntimeRequirements :: RuntimeRequirements -> RuntimeRequirements -> RuntimeRequirements
-mergeRuntimeRequirements left right =
-  RuntimeRequirements
-    { runtimeRequiresTextLayout =
-        runtimeRequiresTextLayout left || runtimeRequiresTextLayout right,
-      runtimeRequiredServices =
-        Set.union
-          (runtimeRequiredServices left)
-          (runtimeRequiredServices right)
-    }
-
 requirementsForInterface :: TypedModuleInterface -> RuntimeRequirements
 requirementsForInterface (TypedModuleInterface values _ _ _) =
-  foldl'
-    mergeRuntimeRequirements
-    emptyRuntimeRequirements
-    [requirementsForScheme scheme | TypedValueInterface _ scheme <- values]
+  foldMap requirementsForValueInterface values
+  where
+    requirementsForValueInterface (TypedValueInterface _ scheme) =
+      requirementsForScheme scheme
 
 requirementsForStatement :: TypedStatement -> RuntimeRequirements
 requirementsForStatement statement =
   case statement of
     TypedLetStatement _ _ _ scheme expression ->
       requirementsForScheme scheme
-        `mergeRuntimeRequirements` requirementsForExpression expression
+        <> requirementsForExpression expression
     TypedSignatureStatement _ _ _ scheme -> requirementsForScheme scheme
     TypedExpressionStatement _ expression -> requirementsForExpression expression
-    TypedDataStatement {} -> emptyRuntimeRequirements
-    TypedClassStatement {} -> emptyRuntimeRequirements
-    TypedImplStatement {} -> emptyRuntimeRequirements
+    TypedDataStatement {} -> mempty
+    TypedClassStatement {} -> mempty
+    TypedImplStatement {} -> mempty
 
 requirementsForScheme :: TypedScheme -> RuntimeRequirements
 requirementsForScheme (TypedScheme _ _ _ _ _ recipe _) =
@@ -81,36 +64,36 @@ requirementsForRecipe recipe =
   case recipe of
     TypedManagedTextRecipe -> RuntimeRequirements True Set.empty
     TypedClosureRecipe arguments result ->
-      foldl'
-        mergeRuntimeRequirements
-        (requirementsForRecipe result)
-        (map requirementsForRecipe arguments)
-    _ -> emptyRuntimeRequirements
+      requirementsForRecipe result <> foldMap requirementsForRecipe arguments
+    _ -> mempty
 
 requirementsForExpression :: TypedExpr -> RuntimeRequirements
 requirementsForExpression expression =
-  foldl'
-    mergeRuntimeRequirements
-    ( requirementsForNodeInfo (typedExpressionInfo expression)
-        `mergeRuntimeRequirements` requirementsForSemanticExpression expression
-    )
-    ( case expression of
-        TypedLiteralExpr {} -> []
-        TypedVariableExpr {} -> []
-        TypedLambdaExpr _ _ _ body -> [requirementsForExpression body]
-        TypedOperatorValueExpr {} -> []
-        TypedListExpr _ values -> map requirementsForExpression values
-        TypedTupleExpr _ values -> map requirementsForExpression values
-        TypedApplyExpr _ function argument -> map requirementsForExpression [function, argument]
-        TypedTypeApplicationExpr _ function _ _ -> [requirementsForExpression function]
-        TypedIfExpr _ condition consequent alternative -> map requirementsForExpression [condition, consequent, alternative]
-        TypedPatternCaseExpr _ scrutinee arms ->
-          requirementsForExpression scrutinee : map requirementsForArm arms
-        TypedBinaryExpr _ _ left right -> map requirementsForExpression [left, right]
-        TypedLeftSectionExpr _ left _ -> [requirementsForExpression left]
-        TypedRightSectionExpr _ _ right -> [requirementsForExpression right]
-        TypedBlockExpr _ blockStatements -> map requirementsForStatement blockStatements
-    )
+  requirementsForNodeInfo (typedExpressionInfo expression)
+    <> requirementsForSemanticExpression expression
+    <> requirementsForExpressionChildren expression
+
+requirementsForExpressionChildren :: TypedExpr -> RuntimeRequirements
+requirementsForExpressionChildren expression =
+  case expression of
+    TypedLiteralExpr {} -> mempty
+    TypedVariableExpr {} -> mempty
+    TypedLambdaExpr _ _ _ body -> requirementsForExpression body
+    TypedOperatorValueExpr {} -> mempty
+    TypedListExpr _ values -> foldMap requirementsForExpression values
+    TypedTupleExpr _ values -> foldMap requirementsForExpression values
+    TypedApplyExpr _ function argument ->
+      requirementsForExpression function <> requirementsForExpression argument
+    TypedTypeApplicationExpr _ function _ _ -> requirementsForExpression function
+    TypedIfExpr _ condition consequent alternative ->
+      foldMap requirementsForExpression [condition, consequent, alternative]
+    TypedPatternCaseExpr _ scrutinee arms ->
+      requirementsForExpression scrutinee <> foldMap requirementsForArm arms
+    TypedBinaryExpr _ _ left right ->
+      requirementsForExpression left <> requirementsForExpression right
+    TypedLeftSectionExpr _ left _ -> requirementsForExpression left
+    TypedRightSectionExpr _ _ right -> requirementsForExpression right
+    TypedBlockExpr _ blockStatements -> foldMap requirementsForStatement blockStatements
 
 requirementsForSemanticExpression :: TypedExpr -> RuntimeRequirements
 requirementsForSemanticExpression expression =
@@ -119,7 +102,7 @@ requirementsForSemanticExpression expression =
     Nothing ->
       case textRuntimeServiceApplication expression of
         Just serviceKey -> runtimeServiceRequirement serviceKey
-        Nothing -> emptyRuntimeRequirements
+        Nothing -> mempty
 
 runtimeServiceRequirement :: RuntimeServiceKey -> RuntimeRequirements
 runtimeServiceRequirement serviceKey =
@@ -127,17 +110,14 @@ runtimeServiceRequirement serviceKey =
 
 requirementsForArm :: TypedCaseArm -> RuntimeRequirements
 requirementsForArm (TypedCaseArm patternValue guard result) =
-  foldl'
-    mergeRuntimeRequirements
-    (requirementsForPattern patternValue)
-    (requirementsForExpression result : maybe [] ((: []) . requirementsForExpression) guard)
+  requirementsForPattern patternValue
+    <> foldMap requirementsForExpression guard
+    <> requirementsForExpression result
 
 requirementsForPattern :: TypedPattern -> RuntimeRequirements
 requirementsForPattern patternValue =
-  foldl'
-    mergeRuntimeRequirements
-    (requirementsForNodeInfo (patternInfo patternValue))
-    (map requirementsForPattern (patternChildren patternValue))
+  requirementsForNodeInfo (patternInfo patternValue)
+    <> foldMap requirementsForPattern (patternChildren patternValue)
   where
     patternInfo patternNode =
       case patternNode of
