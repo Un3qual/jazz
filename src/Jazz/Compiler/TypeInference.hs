@@ -16,12 +16,10 @@ module Jazz.Compiler.TypeInference
     typedCoreProductionStatus,
     typedCoreProductionValidatedProgram,
     inferResolvedModuleTypedCoreExpressionDirectCall,
-    inferExpressionWithBuiltinsAndHiddenStatements,
     inferExpressionWithBuiltinsAndSourceUnitStatements,
     inferExpressionWithBuiltins,
     inferExpressionWithInputs,
     inferExpressionWithInputsAndHiddenStatements,
-    inferExpression,
     inferExpressionDefault,
   )
 where
@@ -206,6 +204,12 @@ data InferenceInputs = InferenceInputs
     inferenceCurrentModulePath :: Maybe [Text]
   }
 
+data InferenceRequest = InferenceRequest
+  { requestedInferenceInputs :: InferenceInputs,
+    requestedHiddenStatementIndices :: Set Int,
+    requestedPreludeStatementIndices :: Set Int
+  }
+
 -- | The constructor is private so callers can observe, but cannot rewrite, the
 -- inference result and its proof-carrying production outcome independently.
 data TypedCoreProductionResult = TypedCoreProductionResult InferenceResult TypedCoreProductionOutcome
@@ -221,27 +225,14 @@ typedCoreProductionValidatedProgram :: TypedCoreProductionResult -> Maybe Valida
 typedCoreProductionValidatedProgram (TypedCoreProductionResult _ outcome) =
   typedCoreProductionOutcomeValidatedProgram outcome
 
--- This currently forwards analyzer diagnostics while the richer inference/type
--- pipeline is still being built in jazz.
-inferExpression :: WarningSettings -> Expr -> IO InferenceResult
-inferExpression = inferExpressionWithBuiltins ResolveKernelOnly
-
 inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO InferenceResult
-inferExpressionWithBuiltins builtinMode =
-  inferExpressionWithBuiltinsAndHiddenStatements builtinMode Set.empty
-
-inferExpressionWithBuiltinsAndHiddenStatements ::
-  BuiltinResolutionMode ->
-  Set Int ->
-  WarningSettings ->
-  Expr ->
-  IO InferenceResult
-inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings =
-  inferExpressionWithBuiltinsAndSourceUnitStatements
-    builtinMode
-    hiddenStatementIndices
-    hiddenStatementIndices
-    settings
+inferExpressionWithBuiltins builtinMode settings =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
+        requestedHiddenStatementIndices = Set.empty,
+        requestedPreludeStatementIndices = Set.empty
+      }
 
 inferExpressionWithBuiltinsAndSourceUnitStatements ::
   BuiltinResolutionMode ->
@@ -251,24 +242,37 @@ inferExpressionWithBuiltinsAndSourceUnitStatements ::
   Expr ->
   IO InferenceResult
 inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode hiddenStatementIndices preludeStatementIndices settings =
-  inferExpressionWithInputsAndSourceUnitStatements
-    (emptyInferenceInputs builtinMode settings)
-    hiddenStatementIndices
-    preludeStatementIndices
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
+        requestedHiddenStatementIndices = hiddenStatementIndices,
+        requestedPreludeStatementIndices = preludeStatementIndices
+      }
 
 inferExpressionWithInputs :: InferenceInputs -> Expr -> IO InferenceResult
 inferExpressionWithInputs inputs =
-  inferExpressionWithInputsAndHiddenStatements inputs Set.empty
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = inputs,
+        requestedHiddenStatementIndices = Set.empty,
+        requestedPreludeStatementIndices = Set.empty
+      }
 
 inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr =
-  inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices hiddenStatementIndices expr
+inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = inputs,
+        requestedHiddenStatementIndices = hiddenStatementIndices,
+        requestedPreludeStatementIndices = hiddenStatementIndices
+      }
 
-inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr =
+inferExpressionWithRequest :: InferenceRequest -> Expr -> IO InferenceResult
+inferExpressionWithRequest request expr =
   {-# SCC "jazz-stage:type-inference" #-}
-  let (inferredResult, finalState, forwardBindings, inferenceSubject) =
-        inferExpressionWork InferenceOnly inputs preludeStatementIndices expr
+  let inputs = requestedInferenceInputs request
+      (inferredResult, finalState, forwardBindings, inferenceSubject) =
+        inferExpressionWork InferenceOnly inputs (requestedPreludeStatementIndices request) expr
       expression = inferenceSubjectExpr inferenceSubject
       finalizedInference = finalizeInferenceState inputs expression finalState
    in expression `seq`
@@ -276,7 +280,7 @@ inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices p
           finishInference
             InferenceOnly
             inputs
-            hiddenStatementIndices
+            (requestedHiddenStatementIndices request)
             inferenceSubject
             inferredResult
             forwardBindings
@@ -601,7 +605,13 @@ declaredModuleNames expression =
         _ -> True
 
 inferExpressionDefault :: Expr -> IO InferenceResult
-inferExpressionDefault = inferExpression defaultWarningSettings
+inferExpressionDefault =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs ResolveKernelOnly defaultWarningSettings,
+        requestedHiddenStatementIndices = Set.empty,
+        requestedPreludeStatementIndices = Set.empty
+      }
 
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateEnvBinding binding state =
