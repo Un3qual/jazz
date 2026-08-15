@@ -91,6 +91,7 @@ tests =
     ("jointly exhaustive product alternatives stay symbolic", testJointlyExhaustiveProductAlternatives),
     ("duplicate non-total alternatives stay symbolic", testDuplicateNonTotalAlternatives),
     ("repeated distinct non-total alternatives stay symbolic", testRepeatedDistinctNonTotalAlternatives),
+    ("reordered non-total alternatives share canonical coverage", testReorderedNonTotalAlternatives),
     ("partly useful or-pattern arm stays reachable", testPartlyUsefulOrPattern),
     ("wholly covered or-pattern arm is unreachable", testCoveredOrPattern),
     ("source pipeline accepts an exhaustive match", testCompleteSourceMatch),
@@ -356,6 +357,27 @@ testRepeatedDistinctNonTotalAlternatives = do
     zeroOrOne =
       POr [PLiteral (LInt 0), PLiteral (LInt 1)]
     repeatedPattern = PTuple (replicate fieldCount zeroOrOne)
+
+testReorderedNonTotalAlternatives :: IO ()
+testReorderedNonTotalAlternatives = do
+  completed <-
+    timeout 5000000 $
+      evaluate
+        ( UnreachablePatternArm 2
+            `elem` analyzePatternCoverage
+              emptyConstructorInventory
+              (TTupleType (replicate fieldCount TIntType))
+              [arm firstPattern, arm reorderedPattern]
+        )
+  assertEqual "reordered non-total alternatives" (Just True) completed
+  where
+    fieldCount = 30
+    zeroOrOne =
+      POr [PLiteral (LInt 0), PLiteral (LInt 1)]
+    oneOrZero =
+      POr [PLiteral (LInt 1), PLiteral (LInt 0)]
+    firstPattern = PTuple (replicate fieldCount zeroOrOne)
+    reorderedPattern = PTuple (replicate fieldCount oneOrZero)
 
 testTypeScopedConstructorInventory :: IO ()
 testTypeScopedConstructorInventory = do

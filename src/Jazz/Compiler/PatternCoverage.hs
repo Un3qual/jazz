@@ -13,7 +13,7 @@ module Jazz.Compiler.PatternCoverage
   )
 where
 
-import Data.List (find, nub, sortOn)
+import Data.List (find, nub, sort, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -24,6 +24,7 @@ import Jazz.Compiler.AST
     Literal (..),
     Pattern (..),
   )
+import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (ConstructorNamespace),
@@ -256,7 +257,7 @@ data CoveragePattern
   = CoverageWildcard
   | CoverageConstructor CoverageConstructor [CoveragePattern]
   | CoverageOr [CoveragePattern]
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data CoverageConstructor
   = CoverageBool Bool
@@ -278,6 +279,50 @@ instance Eq CoverageConstructor where
   CoverageData left _ == CoverageData right _ = left == right
   CoverageLiteral left == CoverageLiteral right = left == right
   _ == _ = False
+
+instance Ord CoverageConstructor where
+  compare (CoverageBool left) (CoverageBool right) = compare left right
+  compare CoverageUnit CoverageUnit = EQ
+  compare CoverageListNil CoverageListNil = EQ
+  compare CoverageListCons CoverageListCons = EQ
+  compare (CoverageTuple left) (CoverageTuple right) = compare left right
+  -- Source aliases affect witness rendering, never coverage ordering.
+  compare (CoverageData left _) (CoverageData right _) = compare left right
+  compare (CoverageLiteral left) (CoverageLiteral right) = compareCoverageLiteral left right
+  compare left right = compare (coverageConstructorRank left) (coverageConstructorRank right)
+
+coverageConstructorRank :: CoverageConstructor -> Int
+coverageConstructorRank constructor =
+  case constructor of
+    CoverageBool {} -> 0
+    CoverageUnit -> 1
+    CoverageListNil -> 2
+    CoverageListCons -> 3
+    CoverageTuple {} -> 4
+    CoverageData {} -> 5
+    CoverageLiteral {} -> 6
+
+compareCoverageLiteral :: Literal -> Literal -> Ordering
+compareCoverageLiteral left right =
+  case (left, right) of
+    (LInt leftValue, LInt rightValue) -> compare leftValue rightValue
+    (LFloat leftValue leftSource leftType, LFloat rightValue rightSource rightType) ->
+      compare
+        (leftValue, fractionalLiteralSourceParts leftSource, leftType)
+        (rightValue, fractionalLiteralSourceParts rightSource, rightType)
+    (LBool leftValue, LBool rightValue) -> compare leftValue rightValue
+    (LChar leftValue, LChar rightValue) -> compare leftValue rightValue
+    (LText leftValue, LText rightValue) -> compare leftValue rightValue
+    _ -> compare (literalRank left) (literalRank right)
+
+literalRank :: Literal -> Int
+literalRank literal =
+  case literal of
+    LInt {} -> 0
+    LFloat {} -> 1
+    LBool {} -> 2
+    LChar {} -> 3
+    LText {} -> 4
 
 data ConstructorShape = ConstructorShape
   { shapeConstructor :: CoverageConstructor,
@@ -331,7 +376,7 @@ simplifyCoveragePattern inventory expressionType patternValue =
         CoverageWildcard -> CoverageWildcard
         CoverageOr alternatives ->
           CoverageOr
-            (nub (map (simplifyCoveragePattern inventory expressionType) alternatives))
+            (sort (nub (map (simplifyCoveragePattern inventory expressionType) alternatives)))
         CoverageConstructor constructor fields ->
           case constructorShape inventory expressionType constructor (length fields) of
             Just shape
