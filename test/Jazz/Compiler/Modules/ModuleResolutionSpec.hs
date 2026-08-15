@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -22,7 +23,6 @@ import Jazz.Compiler.DiagnosticCatalog
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    ResolvedModule (..),
     modulePathToRelativeFile,
     parseModulePathText,
     resolveModuleGraph,
@@ -46,6 +46,27 @@ import Jazz.TestHarness
     failTest,
     runTestSuite
   )
+
+data ResolvedModuleSummary = ResolvedModuleSummary
+  { summaryModulePath :: [Text],
+    summarySourcePath :: FilePath,
+    summaryImports :: [[Text]]
+  }
+  deriving (Eq, Show)
+
+resolvedModuleSummary :: ModuleGraph.ResolvedModule -> ResolvedModuleSummary
+resolvedModuleSummary resolvedModule =
+  ResolvedModuleSummary
+    { summaryModulePath = ModuleGraph.resolvedModulePath resolvedModule,
+      summarySourcePath = ModuleGraph.resolvedSourcePath resolvedModule,
+      summaryImports = normalizedImportPaths (ModuleGraph.resolvedModuleImports resolvedModule)
+    }
+  where
+    normalizedImportPaths imports =
+      map snd . sortOn fst $
+        [ (Text.intercalate "::" modulePath, modulePath)
+        | modulePath <- Set.toList (Set.fromList (map ModuleGraph.resolvedImportPath imports))
+        ]
 
 main :: IO ()
 main = runTestSuite "ModuleResolution" tests
@@ -660,7 +681,7 @@ testPreservesExactModulePathSegments =
   assertRight
     "case-distinct module paths resolve independently"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -674,20 +695,20 @@ testPreservesExactModulePathSegments =
           ("src/lib/Util.jz", "lowerValue = 2.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Util"],
-            resolvedSourcePath = "src/Lib/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Util"],
+            summarySourcePath = "src/Lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["lib", "Util"],
-            resolvedSourcePath = "src/lib/Util.jz",
-            resolvedImports = []
+        ResolvedModuleSummary
+          { summaryModulePath = ["lib", "Util"],
+            summarySourcePath = "src/lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Util"], ["lib", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Util"], ["lib", "Util"]]
           }
       ]
 
@@ -696,17 +717,17 @@ testAcceptsOmittedModuleDeclaration =
   assertRight
     "omitted declaration uses resolved source path"
     (resolveModuleGraph config sourceFiles ["App", "Nested", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
       Map.fromList
         [("src/App/Nested/Main.jz", "main = 1.")]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["App", "Nested", "Main"],
-            resolvedSourcePath = "src/App/Nested/Main.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["App", "Nested", "Main"],
+            summarySourcePath = "src/App/Nested/Main.jz",
+            summaryImports = []
           }
       ]
 
@@ -715,7 +736,7 @@ testResolveDependencyGraph =
   assertRight
     "resolve graph"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -727,15 +748,15 @@ testResolveDependencyGraph =
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Util"],
-            resolvedSourcePath = "src/Lib/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Util"],
+            summarySourcePath = "src/Lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Util"]]
           }
       ]
 
@@ -744,7 +765,7 @@ testResolveImportsInLexicalRenderedPathOrder =
   assertRight
     "reverse source imports resolve lexically"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -758,20 +779,20 @@ testResolveImportsInLexicalRenderedPathOrder =
           ("src/Zoo/Dep.jz", "zoo = 2.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Alpha", "Dep"],
-            resolvedSourcePath = "src/Alpha/Dep.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Alpha", "Dep"],
+            summarySourcePath = "src/Alpha/Dep.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["Zoo", "Dep"],
-            resolvedSourcePath = "src/Zoo/Dep.jz",
-            resolvedImports = []
+        ResolvedModuleSummary
+          { summaryModulePath = ["Zoo", "Dep"],
+            summarySourcePath = "src/Zoo/Dep.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Alpha", "Dep"], ["Zoo", "Dep"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Alpha", "Dep"], ["Zoo", "Dep"]]
           }
       ]
 
@@ -780,7 +801,7 @@ testCollapsesDuplicateImports =
   assertRight
     "duplicate imports collapse"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -793,15 +814,15 @@ testCollapsesDuplicateImports =
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Util"],
-            resolvedSourcePath = "src/Lib/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Util"],
+            summarySourcePath = "src/Lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Util"]]
           }
       ]
 
@@ -810,7 +831,7 @@ testReusesAlreadyResolvedModuleAcrossBranches =
   assertRight
     "shared dependency is reused"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -831,25 +852,25 @@ testReusesAlreadyResolvedModuleAcrossBranches =
           ("src/Shared/Util.jz", "shared = 1.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Shared", "Util"],
-            resolvedSourcePath = "src/Shared/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Shared", "Util"],
+            summarySourcePath = "src/Shared/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["A", "One"],
-            resolvedSourcePath = "src/A/One.jz",
-            resolvedImports = [["Shared", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["A", "One"],
+            summarySourcePath = "src/A/One.jz",
+            summaryImports = [["Shared", "Util"]]
           },
-        ResolvedModule
-          { resolvedModulePath = ["B", "Two"],
-            resolvedSourcePath = "src/B/Two.jz",
-            resolvedImports = [["Shared", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["B", "Two"],
+            summarySourcePath = "src/B/Two.jz",
+            summaryImports = [["Shared", "Util"]]
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["A", "One"], ["B", "Two"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["A", "One"], ["B", "Two"]]
           }
       ]
 
@@ -858,7 +879,7 @@ testAcceptsMatchingModuleDeclaration =
   assertRight
     "matching declaration is accepted"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -876,15 +897,15 @@ testAcceptsMatchingModuleDeclaration =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Util"],
-            resolvedSourcePath = "src/Lib/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Util"],
+            summarySourcePath = "src/Lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Util"]]
           }
       ]
 
@@ -893,7 +914,7 @@ testDeduplicatesDuplicateRoots =
   assertRight
     "duplicate roots are not treated as ambiguity"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config =
       ModuleResolutionConfig
@@ -909,15 +930,15 @@ testDeduplicatesDuplicateRoots =
           ("src/Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Util"],
-            resolvedSourcePath = "src/Lib/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Util"],
+            summarySourcePath = "src/Lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Util"]]
           }
       ]
 
@@ -926,7 +947,7 @@ testDeduplicatesEquivalentRoots =
   assertRight
     "equivalent roots are not treated as ambiguity"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config =
       ModuleResolutionConfig
@@ -947,8 +968,8 @@ testDeduplicatesEquivalentRoots =
           ("src/./Lib/Util.jz", "util = 1.")
         ]
     expectedModules =
-      [ ResolvedModule ["Lib", "Util"] "src/Lib/Util.jz" [],
-        ResolvedModule ["App", "Main"] "src/App/Main.jz" [["Lib", "Util"]]
+      [ ResolvedModuleSummary ["Lib", "Util"] "src/Lib/Util.jz" [],
+        ResolvedModuleSummary ["App", "Main"] "src/App/Main.jz" [["Lib", "Util"]]
       ]
 
 testReportsUnresolvedImport :: IO ()
@@ -1136,7 +1157,7 @@ testAcceptsValidImportSymbolList =
   assertRight
     "valid import symbol list resolves"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1151,15 +1172,15 @@ testAcceptsValidImportSymbolList =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Math"],
-            resolvedSourcePath = "src/Lib/Math.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Math"],
+            summarySourcePath = "src/Lib/Math.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Math"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Math"]]
           }
       ]
 
@@ -1168,7 +1189,7 @@ testAcceptsDataConstructorImportSymbolList =
   assertRight
     "data constructor import symbol list resolves"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1180,15 +1201,15 @@ testAcceptsDataConstructorImportSymbolList =
           ("src/Lib/Maybe.jz", "data Maybe a = Just a | Nothing.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Maybe"],
-            resolvedSourcePath = "src/Lib/Maybe.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Maybe"],
+            summarySourcePath = "src/Lib/Maybe.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Maybe"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Maybe"]]
           }
       ]
 
@@ -1197,7 +1218,7 @@ testAcceptsTypeApplicationsWhileCollectingModuleReferences =
   assertRight
     "type applications in module reference collection"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1212,15 +1233,15 @@ testAcceptsTypeApplicationsWhileCollectingModuleReferences =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Util"],
-            resolvedSourcePath = "src/Lib/Util.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Util"],
+            summarySourcePath = "src/Lib/Util.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Util"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Util"]]
           }
       ]
 
@@ -1229,7 +1250,7 @@ testAcceptsBareImportUnqualifiedExport =
   assertRight
     "bare import makes exports visible"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1244,15 +1265,15 @@ testAcceptsBareImportUnqualifiedExport =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Math"],
-            resolvedSourcePath = "src/Lib/Math.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Math"],
+            summarySourcePath = "src/Lib/Math.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Math"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Math"]]
           }
       ]
 
@@ -1261,7 +1282,7 @@ testAcceptsLocalBindingOverHiddenExplicitImport =
   assertRight
     "local binding shadows hidden import export"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1277,15 +1298,15 @@ testAcceptsLocalBindingOverHiddenExplicitImport =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Math"],
-            resolvedSourcePath = "src/Lib/Math.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Math"],
+            summarySourcePath = "src/Lib/Math.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Math"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Math"]]
           }
       ]
 
@@ -1532,7 +1553,7 @@ testAcceptsQualifiedAliasReferenceBeforeImport =
   assertRight
     "qualified alias reference before import resolves"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1547,15 +1568,15 @@ testAcceptsQualifiedAliasReferenceBeforeImport =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Math"],
-            resolvedSourcePath = "src/Lib/Math.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Math"],
+            summarySourcePath = "src/Lib/Math.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Math"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Math"]]
           }
       ]
 
@@ -1564,7 +1585,7 @@ testAcceptsLocalBindingSharingAliasName =
   assertRight
     "local binding does not shadow qualified alias"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1580,15 +1601,15 @@ testAcceptsLocalBindingSharingAliasName =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Math"],
-            resolvedSourcePath = "src/Lib/Math.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Math"],
+            summarySourcePath = "src/Lib/Math.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Math"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Math"]]
           }
       ]
 
@@ -1597,7 +1618,7 @@ testAcceptsQualifiedAliasImportReference =
   assertRight
     "qualified alias import reference resolves"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1612,15 +1633,15 @@ testAcceptsQualifiedAliasImportReference =
           """)
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Math"],
-            resolvedSourcePath = "src/Lib/Math.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Math"],
+            summarySourcePath = "src/Lib/Math.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Math"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Math"]]
           }
       ]
 
@@ -1629,7 +1650,7 @@ testAcceptsQualifiedAliasDataConstructorReference =
   assertRight
     "qualified alias data constructor reference resolves"
     (resolveModuleGraph config sourceFiles ["App", "Main"])
-    (\modules -> assertEqual "resolved modules" expectedModules modules)
+    (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -1641,15 +1662,15 @@ testAcceptsQualifiedAliasDataConstructorReference =
           ("src/Lib/Maybe.jz", "data Maybe a = Just a | Nothing.")
         ]
     expectedModules =
-      [ ResolvedModule
-          { resolvedModulePath = ["Lib", "Maybe"],
-            resolvedSourcePath = "src/Lib/Maybe.jz",
-            resolvedImports = []
+      [ ResolvedModuleSummary
+          { summaryModulePath = ["Lib", "Maybe"],
+            summarySourcePath = "src/Lib/Maybe.jz",
+            summaryImports = []
           },
-        ResolvedModule
-          { resolvedModulePath = ["App", "Main"],
-            resolvedSourcePath = "src/App/Main.jz",
-            resolvedImports = [["Lib", "Maybe"]]
+        ResolvedModuleSummary
+          { summaryModulePath = ["App", "Main"],
+            summarySourcePath = "src/App/Main.jz",
+            summaryImports = [["Lib", "Maybe"]]
           }
       ]
 

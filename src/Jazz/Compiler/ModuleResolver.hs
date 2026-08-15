@@ -6,7 +6,6 @@
 -- dependency order for the driver.
 module Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    ResolvedModule (..),
     modulePathToRelativeFile,
     parseModulePathText,
     resolveModuleGraph,
@@ -133,14 +132,6 @@ data ModuleResolutionConfig = ModuleResolutionConfig
   }
   deriving (Eq, Show)
 
--- | Compatibility summary returned by the resolver's inventory-only entrypoints.
-data ResolvedModule = ResolvedModule
-  { resolvedModulePath :: [Text],
-    resolvedSourcePath :: FilePath,
-    resolvedImports :: [[Text]]
-  }
-  deriving (Eq, Show)
-
 -- | Import declaration details retained after parsing so validation can report
 -- diagnostics with the original import span.
 data ParsedImport = ParsedImport
@@ -190,8 +181,7 @@ data BindingOrigin = BindingOrigin
 
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set [Text],
-    resolvedModulesRevState :: [ResolvedModule],
-    resolvedGraphModulesRevState :: [ModuleGraph.ResolvedModule],
+    resolvedModulesRevState :: [ModuleGraph.ResolvedModule],
     resolvedExportInventoriesState :: Map [Text] ModuleExportInventory
   }
 
@@ -243,7 +233,7 @@ resolveModuleGraph ::
   ModuleResolutionConfig ->
   Map FilePath Text ->
   [Text] ->
-  Either Diagnostic [ResolvedModule]
+  Either Diagnostic [ModuleGraph.ResolvedModule]
 resolveModuleGraph config sources entryModulePath =
   runIdentity $
     resolveModuleGraphWithLookup
@@ -258,7 +248,7 @@ resolveModuleGraphWithLookup ::
   ModuleResolutionConfig ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
-  m (Either Diagnostic [ResolvedModule])
+  m (Either Diagnostic [ModuleGraph.ResolvedModule])
 resolveModuleGraphWithLookup config =
   resolveModuleGraphWithLookupAndVisibleSymbols config Set.empty Set.empty
 
@@ -269,7 +259,7 @@ resolveModuleGraphWithLookupAndVisibleSymbols ::
   Set Text ->
   (FilePath -> m (Maybe Text)) ->
   [Text] ->
-  m (Either Diagnostic [ResolvedModule])
+  m (Either Diagnostic [ModuleGraph.ResolvedModule])
 resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath =
   fmap
     (fmap (reverse . resolvedModulesRevState))
@@ -325,7 +315,7 @@ resolveProgramWithAmbientExports config builtinMode ambientExports loadSource en
         ( \state ->
             ModuleGraph.ResolvedProgram
               { ModuleGraph.resolvedProgramEntryPath = entryModulePath,
-                ModuleGraph.resolvedProgramModules = reverse (resolvedGraphModulesRevState state)
+                ModuleGraph.resolvedProgramModules = reverse (resolvedModulesRevState state)
               }
         )
     )
@@ -355,7 +345,6 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
       ResolvedState
         { resolvedSetState = Set.empty,
           resolvedModulesRevState = [],
-          resolvedGraphModulesRevState = [],
           resolvedExportInventoriesState = Map.empty
         }
 
@@ -395,13 +384,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                         (resolvedExportInventoriesState stateAfterDeps) of
                         Left err -> pure (Left err)
                         Right () ->
-                          let resolvedModule =
-                                ResolvedModule
-                                  { resolvedModulePath = modulePath,
-                                    resolvedSourcePath = sourcePath,
-                                    resolvedImports = sortedImports
-                                  }
-                              resolvedCore =
+                          let resolvedCore =
                                 resolveCoreModuleNames
                                   builtinMode
                                   modulePath
@@ -410,7 +393,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                                   (resolvedExportInventoriesState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
                                   (parsedModuleCore parsedModule)
-                              resolvedGraphModule =
+                              resolvedModule =
                                 ModuleGraph.ResolvedModule
                                   { ModuleGraph.resolvedModulePath = modulePath,
                                     ModuleGraph.resolvedSourcePath = sourcePath,
@@ -425,8 +408,6 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                                           Set.insert modulePath (resolvedSetState stateAfterDeps),
                                         resolvedModulesRevState =
                                           resolvedModule : resolvedModulesRevState stateAfterDeps,
-                                        resolvedGraphModulesRevState =
-                                          resolvedGraphModule : resolvedGraphModulesRevState stateAfterDeps,
                                         resolvedExportInventoriesState =
                                           Map.insert
                                             modulePath
