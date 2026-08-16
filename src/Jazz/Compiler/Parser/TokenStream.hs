@@ -7,8 +7,8 @@
 -- cursors and Megaparsec position state cannot retain separate list prefixes.
 module Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
-    data EmptyTokens,
-    data (:<),
+    pattern EmptyTokens,
+    pattern (:<),
     tokenStreamBreak,
     tokenStreamDrop,
     tokenStreamFromList,

@@ -99,8 +99,8 @@ import Jazz.Compiler.Parser.Operator
   )
 import Jazz.Compiler.Parser.Signature
   ( parseConstrainedSignatureTypeDetailed,
-    parseSignatureTypeParser,
     parseSignaturePayload,
+    parseSignatureTypeParser,
     splitTopLevelCommaTokensDetailed,
   )
 import Jazz.Compiler.Parser.TokenParser
@@ -110,12 +110,12 @@ import Jazz.Compiler.Parser.TokenParser
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
-    data EmptyTokens,
-    data (:<),
     tokenStreamDrop,
     tokenStreamFromList,
     tokenStreamLength,
     tokenStreamToList,
+    pattern EmptyTokens,
+    pattern (:<),
   )
 import qualified Text.Megaparsec as MP
 
@@ -143,12 +143,14 @@ capabilityDeclarationKind declarationKind =
 
 parseImportStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseImportStatementTokens tokens =
-  fmap (fmap tokenStreamToList)
+  fmap
+    (fmap tokenStreamToList)
     (mapLeft parserFailureDiagnostic (parseImportStatementFromTokens (tokenStreamFromList tokens)))
 
 parseDataStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseDataStatementTokens tokens =
-  fmap (fmap tokenStreamToList)
+  fmap
+    (fmap tokenStreamToList)
     (mapLeft parserFailureDiagnostic (parseDataStatementFromTokens (tokenStreamFromList tokens)))
 
 parseCapabilityDeclarationTokens ::
@@ -156,8 +158,10 @@ parseCapabilityDeclarationTokens ::
   [Token] ->
   Either Diagnostic (SurfaceStatement, [Token])
 parseCapabilityDeclarationTokens parseImplExpression tokens =
-  fmap (fmap tokenStreamToList)
-    ( mapLeft capabilityFailureDiagnostic
+  fmap
+    (fmap tokenStreamToList)
+    ( mapLeft
+        capabilityFailureDiagnostic
         ( parseCapabilityDeclarationFromTokens
             (adaptListExpressionParser parseImplExpression)
             (tokenStreamFromList tokens)
