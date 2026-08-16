@@ -6,7 +6,6 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptur
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR

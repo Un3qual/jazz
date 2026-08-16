@@ -149,7 +149,8 @@ import Jazz.Compiler.Runtime.Request
     RuntimeScopeRequest (..),
   )
 import Jazz.Compiler.Runtime.ScopePlan
-  ( buildRuntimeScopePlan,
+  ( RuntimeScopePlan,
+    buildRuntimeScopePlan,
     exprDefinitelyNotFunctionValue,
     runtimeExprRequiresHost,
     runtimeModulePathAfterStatements,
@@ -228,6 +229,27 @@ import Jazz.Compiler.RuntimeHost
     hostIOCategoryToken,
     hostIOFailureMessage,
   )
+
+scopePlanBindingRuntimeTypeHint ::
+  RuntimeScopePlan ->
+  Map BindingRuntimeHintKey SignatureType ->
+  Int ->
+  Name ->
+  Maybe SignatureType
+scopePlanBindingRuntimeTypeHint scopePlan bindingTypeHints statementIndex bindingName =
+  runtimeConstraintType modulePath <$> rawHint
+  where
+    modulePath = scopePlanModulePathForStatement scopePlan statementIndex
+    rawHint =
+      case scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName >>= signaturePayloadConstraintType of
+        Just signatureHint -> Just signatureHint
+        Nothing ->
+          case scopePlanStatementAt scopePlan statementIndex of
+            Just (SLet _ bindingSpan _) ->
+              Map.lookup
+                (bindingRuntimeHintKeyInModule modulePath bindingName bindingSpan)
+                bindingTypeHints
+            _ -> Nothing
 
 closeRuntimeProfileOnReturn :: Bool -> EvaluationMachine -> EvaluationMachine
 closeRuntimeProfileOnReturn enabled machine =
@@ -672,25 +694,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName
         >>= runtimeSignatureNumericTarget
 
-    previousSignatureRuntimeTypeHint :: Int -> Name -> Maybe SignatureType
-    previousSignatureRuntimeTypeHint statementIndex bindingName =
-      scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName
-        >>= signaturePayloadConstraintType
-
     bindingRuntimeTypeHint :: Int -> Name -> Maybe SignatureType
-    bindingRuntimeTypeHint statementIndex bindingName =
-      runtimeConstraintType (modulePathForStatement statementIndex) <$> rawHint
-      where
-        rawHint =
-          case previousSignatureRuntimeTypeHint statementIndex bindingName of
-            Just signatureHint -> Just signatureHint
-            Nothing ->
-              case scopePlanStatementAt scopePlan statementIndex of
-                Just (SLet _ bindingSpan _) ->
-                  Map.lookup
-                    (bindingRuntimeHintKeyInModule (modulePathForStatement statementIndex) bindingName bindingSpan)
-                    bindingTypeHints
-                _ -> Nothing
+    bindingRuntimeTypeHint = scopePlanBindingRuntimeTypeHint scopePlan bindingTypeHints
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -997,31 +1002,13 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 builtinMode
                 bindingTypeHints
                 (blockEnvBefore statementIndex)
-                (blockBindingRuntimeTypeHint statementIndex bindingName)
+                (scopePlanBindingRuntimeTypeHint blockScopePlan bindingTypeHints statementIndex bindingName)
                 valueExpr
-                >>= attachRuntimeTypeHint (blockBindingRuntimeTypeHint statementIndex bindingName)
+                >>= attachRuntimeTypeHint (scopePlanBindingRuntimeTypeHint blockScopePlan bindingTypeHints statementIndex bindingName)
                 >>= attachDefaultBindingIntegerTarget
             _ ->
               Left
                 (runtimeDiagnostic E3020 "internal runtime error: expected block binding statement for alias selection")
-
-        blockBindingRuntimeTypeHint statementIndex bindingName =
-          runtimeConstraintType blockModulePath <$> rawHint
-          where
-            rawHint =
-              case blockPreviousSignatureRuntimeTypeHint statementIndex bindingName of
-                Just signatureHint -> Just signatureHint
-                Nothing ->
-                  case scopePlanStatementAt blockScopePlan statementIndex of
-                    Just (SLet _ bindingSpan _) ->
-                      Map.lookup
-                        (bindingRuntimeHintKeyInModule blockModulePath bindingName bindingSpan)
-                        bindingTypeHints
-                    _ -> Nothing
-
-        blockPreviousSignatureRuntimeTypeHint statementIndex bindingName =
-          scopePlanPreviousSignaturePayload blockScopePlan statementIndex bindingName
-            >>= signaturePayloadConstraintType
 
     lookupRecursivePeer :: Name -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
@@ -2598,23 +2585,8 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
       scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName
         >>= runtimeSignatureNumericTarget
 
-    previousSignatureRuntimeTypeHint statementIndex bindingName =
-      scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName
-        >>= signaturePayloadConstraintType
-
     bindingRuntimeTypeHint statementIndex bindingName =
-      runtimeConstraintType (modulePathForStatement statementIndex) <$> rawHint
-      where
-        rawHint =
-          case previousSignatureRuntimeTypeHint statementIndex bindingName of
-            Just signatureHint -> Just signatureHint
-            Nothing ->
-              case scopePlanStatementAt scopePlan statementIndex of
-                Just (SLet _ bindingSpan _) ->
-                  Map.lookup
-                    (bindingRuntimeHintKeyInModule (modulePathForStatement statementIndex) bindingName bindingSpan)
-                    bindingTypeHints
-                _ -> Nothing
+      scopePlanBindingRuntimeTypeHint scopePlan bindingTypeHints statementIndex bindingName
 
 evalHostBindingValue ::
   (Monad m) =>

@@ -10,6 +10,7 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptur
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
+import Jazz.Compiler.LoweredIR (LoweredProgram)
 import Jazz.Compiler.TypedCore
 
 lowererBoundaryPrograms :: [(Text, TypedProgram)]
@@ -33,6 +34,50 @@ lowererBoundaryPrograms =
     ("nested-lambda-closure-value-self-recursion", nestedLambdaClosureValueSelfRecursiveLowererProgram),
     ("imported-direct-call", importedDirectCallLowererProgram)
   ]
+
+lowererBoundaryExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+lowererBoundaryExpectedLoweredPrograms =
+  [ ( "combined-statement-failure-order",
+      combinedStatementFailureOrderLowererProgram,
+      expectedManagedTextBindingAfterConditionalProgram
+    )
+  ]
+
+combinedStatementFailureOrderLowererProgram :: TypedProgram
+combinedStatementFailureOrderLowererProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        []
+        [ TypedLetStatement
+            seedBinder
+            seedName
+            (TypedSpan 1 1)
+            seedScheme
+            (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2)),
+          TypedLetStatement
+            messageBinder
+            messageName
+            (TypedSpan 2 1)
+            messageScheme
+            (TypedLiteralExpr textInfo (TypedTextLiteral "later")),
+          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
+        ]
+        boolInfo
+    ]
+    modulePath
+  where
+    seedName = resolvedName "seed"
+    seedBinder = TypedBinderId (modulePath, [0], seedName)
+    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    messageName = resolvedName "message"
+    messageBinder = TypedBinderId (modulePath, [1], messageName)
+    messageScheme = TypedScheme messageBinder [] [] [] TypedTextType TypedManagedTextRecipe Nothing
 
 validIndependentLowererPrograms :: [(Text, TypedProgram)]
 validIndependentLowererPrograms =

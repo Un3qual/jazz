@@ -27,6 +27,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     managedTextKernelBoundaryFixtures,
     managedTextExclusionFixtures,
     managedTextExpectedLoweredPrograms,
+    lowererBoundaryExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,
     curriedApplicationExpectedPrograms,

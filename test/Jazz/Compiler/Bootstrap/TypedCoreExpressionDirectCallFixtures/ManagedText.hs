@@ -426,10 +426,6 @@ managedTextExpectedLoweredPrograms =
     ( "managed-text-scalar-case-result",
       managedTextProgram "managed-text-scalar-case-result",
       expectedManagedTextScalarCaseLoweredProgram
-    ),
-    ( "combined-statement-failure-order",
-      combinedStatementFailureOrderLowererProgram,
-      expectedManagedTextBindingAfterConditionalProgram
     )
   ]
   where
@@ -900,88 +896,9 @@ managedTextPartialApplicationProgram =
 
 managedTextBuiltinCall :: BuiltinSymbol -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
 managedTextBuiltinCall symbol parameterInfos resultInfo arguments =
-  go
+  saturatedCall
+    "managed Text builtin expectation"
     (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (TypedBuiltinName (builtinSymbolKernelName symbol)) Nothing)
     parameterInfos
+    resultInfo
     arguments
-  where
-    go functionExpression remainingParameters remainingArguments =
-      case (remainingParameters, remainingArguments) of
-        (_ : parameterRest, argument : argumentRest) ->
-          let applicationInfo =
-                case parameterRest of
-                  [] -> resultInfo
-                  _ -> stagedFunctionInfo (zip (repeat "") parameterRest) resultInfo
-           in go (TypedApplyExpr applicationInfo functionExpression argument) parameterRest argumentRest
-        ([], []) -> functionExpression
-        _ -> error "managed Text builtin expectation must be fully saturated"
-
-expectedClosureCallInstruction :: Int -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> LoweredInstruction
-expectedClosureCallInstruction index representation functionOperand operands =
-  LoweredInstruction
-    (LoweredTemporaryId ("t" <> Text.pack (show index)))
-    representation
-    (LoweredClosureCall functionOperand operands)
-
-expectedLocalFunction ::
-  Text ->
-  [LoweredParameter] ->
-  LoweredRepresentation ->
-  [LoweredInstruction] ->
-  LoweredOperand ->
-  LoweredFunction
-expectedLocalFunction name parameters resultRepresentation instructions resultOperand =
-  LoweredFunction
-    (LoweredFunctionId ("App::Main::" <> name))
-    Nothing
-    parameters
-    resultRepresentation
-    [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
-    (LoweredBlockId "entry")
-
-expectedDirectCallInstruction :: Int -> LoweredRepresentation -> Text -> [LoweredOperand] -> LoweredInstruction
-expectedDirectCallInstruction index representation functionName operands =
-  LoweredInstruction
-    (LoweredTemporaryId ("t" <> Text.pack (show index)))
-    representation
-    (LoweredDirectCall (LoweredFunctionId ("App::Main::" <> functionName)) operands)
-
-loweredParameter :: Int -> LoweredRepresentation -> LoweredOperand
-loweredParameter index =
-  LoweredFunctionParameterOperand (LoweredParameterId ("arg" <> Text.pack (show index)))
-
-combinedStatementFailureOrderLowererProgram :: TypedProgram
-combinedStatementFailureOrderLowererProgram =
-  TypedProgram
-    Nothing
-    [ TypedModule
-        modulePath
-        validSourcePath
-        []
-        []
-        (TypedModuleInterface [] [] [] [])
-        []
-        [ TypedLetStatement
-            seedBinder
-            seedName
-            (TypedSpan 1 1)
-            seedScheme
-            (TypedIfExpr intInfo (boolExpr True) (intExpr 1) (intExpr 2)),
-          TypedLetStatement
-            messageBinder
-            messageName
-            (TypedSpan 2 1)
-            messageScheme
-            (TypedLiteralExpr textInfo (TypedTextLiteral "later")),
-          TypedExpressionStatement (TypedSpan 3 1) (boolExpr True)
-        ]
-        boolInfo
-    ]
-    modulePath
-  where
-    seedName = resolvedName "seed"
-    seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
-    messageName = resolvedName "message"
-    messageBinder = TypedBinderId (modulePath, [1], messageName)
-    messageScheme = TypedScheme messageBinder [] [] [] TypedTextType TypedManagedTextRecipe Nothing

@@ -18,7 +18,7 @@ import Jazz.TestHarness (assertEqual, failTest)
 
 testManagedTextLowering :: IO ()
 testManagedTextLowering =
-  mapM_ assertLowered managedTextExpectedLoweredPrograms
+  mapM_ assertLowered (managedTextExpectedLoweredPrograms <> lowererBoundaryExpectedLoweredPrograms)
   where
     assertLowered (name, typedProgram, expectedProgram) = do
       let firstRun = lowerTypedCoreExpressionDirectCall typedProgram

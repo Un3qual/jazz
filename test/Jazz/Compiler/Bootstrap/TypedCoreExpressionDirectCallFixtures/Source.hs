@@ -1242,10 +1242,16 @@ stagedFunctionInfo parameters resultInfo =
 
 directCall :: Text -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
 directCall functionName parameterInfos resultInfo arguments =
-  go
+  saturatedCall
+    "expected direct call"
     (TypedVariableExpr (functionInfo (zip (repeat "") parameterInfos) resultInfo) (resolvedName functionName) Nothing)
     parameterInfos
+    resultInfo
     arguments
+
+saturatedCall :: Text -> TypedExpr -> [TypedNodeInfo] -> TypedNodeInfo -> [TypedExpr] -> TypedExpr
+saturatedCall failureDescription initialFunction parameterInfos resultInfo arguments =
+  go initialFunction parameterInfos arguments
   where
     go functionExpression remainingParameters remainingArguments =
       case (remainingParameters, remainingArguments) of
@@ -1256,7 +1262,7 @@ directCall functionName parameterInfos resultInfo arguments =
                   _ -> stagedFunctionInfo (zip (repeat "") parameterRest) resultInfo
            in go (TypedApplyExpr applicationInfo functionExpression argument) parameterRest argumentRest
         ([], []) -> functionExpression
-        _ -> error "expected direct call must be fully saturated"
+        _ -> error (Text.unpack failureDescription <> " must be fully saturated")
 
 resolvedName :: Text -> TypedCoreName
 resolvedName = TypedResolvedName TypedCurrentModule TypedValueNamespace

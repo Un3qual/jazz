@@ -9,6 +9,40 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.TypedCore
 
+expectedClosureCallInstruction :: Int -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> LoweredInstruction
+expectedClosureCallInstruction index representation functionOperand operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredClosureCall functionOperand operands)
+
+expectedLocalFunction ::
+  Text ->
+  [LoweredParameter] ->
+  LoweredRepresentation ->
+  [LoweredInstruction] ->
+  LoweredOperand ->
+  LoweredFunction
+expectedLocalFunction name parameters resultRepresentation instructions resultOperand =
+  LoweredFunction
+    (LoweredFunctionId ("App::Main::" <> name))
+    Nothing
+    parameters
+    resultRepresentation
+    [LoweredBlock (LoweredBlockId "entry") [] instructions (Just (LoweredReturn resultOperand))]
+    (LoweredBlockId "entry")
+
+expectedDirectCallInstruction :: Int -> LoweredRepresentation -> Text -> [LoweredOperand] -> LoweredInstruction
+expectedDirectCallInstruction index representation functionName operands =
+  LoweredInstruction
+    (LoweredTemporaryId ("t" <> Text.pack (show index)))
+    representation
+    (LoweredDirectCall (LoweredFunctionId ("App::Main::" <> functionName)) operands)
+
+loweredParameter :: Int -> LoweredRepresentation -> LoweredOperand
+loweredParameter index =
+  LoweredFunctionParameterOperand (LoweredParameterId ("arg" <> Text.pack (show index)))
+
 expectedUnitProgram :: TypedProgram
 expectedUnitProgram = TypedProgram Nothing [entryModule] modulePath
 
