@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Surface AST produced directly by the parser before the program is lowered
@@ -21,8 +24,10 @@ module Jazz.Compiler.Parser.AST
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
   )
@@ -43,7 +48,8 @@ data SurfaceLiteral
   | SLBool Bool
   | SLChar Char
   | SLText Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Surface patterns accepted by the current parser slice for general case
 -- expressions.
@@ -57,11 +63,13 @@ data SurfacePattern
   | SPTuple [SurfacePattern]
   | SPAs Identifier SurfacePattern
   | SPOr [SurfacePattern]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | One parser-surface pattern-match arm.
 data SurfaceCaseArm = SurfaceCaseArm SurfacePattern (Maybe SurfaceExpr) SurfaceExpr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Lambda parameters preserve ordinary identifier parameters separately from
 -- destructuring patterns so lowering can keep the direct core lambda shape for
@@ -69,18 +77,21 @@ data SurfaceCaseArm = SurfaceCaseArm SurfacePattern (Maybe SurfaceExpr) SurfaceE
 data SurfaceLambdaParameter
   = SurfaceLambdaIdentifier Identifier
   | SurfaceLambdaPattern SurfacePattern
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | One ordered head/body pair in a multi-body pattern lambda. Unlike an
 -- ordinary lambda parameter list, every head item is a pattern because clause
 -- selection is performed by one shared pattern case after lowering.
 data SurfacePatternLambdaClause
   = SurfacePatternLambdaClause SourceSpan (NonEmpty SurfacePattern) SurfaceExpr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Parser-owned constructor metadata for top-level `data` declarations.
 data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceSignatureType]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Parser-facing expression tree. This remains separate from the core AST so
 -- the surface syntax can grow without forcing analyzer/runtime rewrites.
@@ -101,7 +112,8 @@ data SurfaceExpr
   | SESectionLeft SurfaceExpr Text
   | SESectionRight Text SurfaceExpr
   | SEBlock [SurfaceStatement]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Parser-owned signature payload for the currently supported monomorphic
 -- subset. Unsupported surfaces remain tokenized so later phases can keep
@@ -110,13 +122,15 @@ data SurfaceSignaturePayload
   = SurfaceSignatureType SurfaceSignatureType
   | SurfaceConstrainedSignature [SurfaceSignatureConstraint] SurfaceSignatureType
   | SurfaceUnsupportedSignature [SurfaceSignatureToken]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Parser-owned constraint payload for the `@{...}:` surface. It is
 -- structured before the full type-class model exists so later phases can
 -- reject or narrow it deterministically without depending on opaque raw text.
 data SurfaceSignatureConstraint = SurfaceSignatureConstraint Identifier [SurfaceSignatureType]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Monomorphic signature types supported by the active parser/type slice.
 data SurfaceNumericType
@@ -131,7 +145,8 @@ data SurfaceNumericType
   | SurfaceNumericFloat16
   | SurfaceNumericFloat32
   | SurfaceNumericFloat64
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data SurfaceSignatureType
   = SurfaceTypeInt
@@ -146,7 +161,8 @@ data SurfaceSignatureType
   | SurfaceTypeList SurfaceSignatureType
   | SurfaceTypeTuple [SurfaceSignatureType]
   | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Tokenized fallback for unsupported signature surfaces. The parser records
 -- enough structure for stable downstream diagnostics while avoiding raw-text
@@ -166,13 +182,16 @@ data SurfaceSignatureToken
   | SurfaceSignatureCommaToken
   | SurfaceSignatureOperatorToken Text
   | SurfaceSignatureOtherToken Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data SurfaceClassMethodSignature = SurfaceClassMethodSignature Identifier SourceSpan SurfaceSignaturePayload
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data SurfaceImplMethod = SurfaceImplMethod Identifier SourceSpan SurfaceExpr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Statement forms preserved from the parsed surface program.
 data SurfaceStatement
@@ -184,4 +203,5 @@ data SurfaceStatement
   | SSModule SourceSpan [Text] (Maybe [ModuleExportSelector])
   | SSImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SSExpr SourceSpan SurfaceExpr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)

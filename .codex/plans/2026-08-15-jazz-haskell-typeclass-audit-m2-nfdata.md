@@ -91,16 +91,19 @@
 
 - Modify: `src/Jazz/Compiler/Diagnostics/Strictness.hs`
 - Rewrite: `src/Jazz/Compiler/Force.hs`
+- Modify: `src/Jazz/Compiler/Parser/AST.hs`
+- Modify: `src/Jazz/Compiler/Parser/Lexer.hs`
 - Test: `test/Jazz/Compiler/ProfilingSpec.hs` through `profiling-spec`
 
-- [ ] Add a focused poison test proving `forceDiagnostic` reaches nested spans and labels; confirm the existing manual implementation is the characterization baseline.
-- [ ] Rewrite `forceDiagnostic = rnf` while retaining the named diagnostic ownership boundary.
-- [ ] Confirm with `rg` that `forceCompiledModules`, `forceExpr`, `forceListWith`, `forceSurfaceExpr`, and `forceTokens` have no consumer outside `Force.hs`; remove those unused exports and implementations.
-- [ ] Retain these pure facade functions and implement each with `rnf`: `forceCompiledProgram`, `forceCompiledModule`, `forceCompiledProgramResult`, `forceInferenceResult`, `forceLoweredProgram`, `forceResolvedModule`, and `forceTypedProgram`.
-- [ ] Retain `forceRuntimeProgramOutputResult` as the existing custom result traversal that forces only rendered output. Do not require `NFData RuntimeValue`.
-- [ ] Remove all now-obsolete structural helpers, manual constructor matches, and pattern-synonym imports from `Force.hs`.
-- [ ] Run the complete profiling strictness suite. Specifically verify both directions: deep pure compiler metadata is forced, while unused runtime exports and unrendered partial-constructor arguments remain unforced.
-- [ ] Run a development build, format both modules, and commit as `refactor: replace manual compiler forcing with NFData`.
+- [x] Add a focused poison test proving `forceDiagnostic` reaches nested spans and labels; confirm the old implementation fails because it forces labels only to weak head normal form.
+- [x] Rewrite `forceDiagnostic = rnf` while retaining the named diagnostic ownership boundary.
+- [x] Audit `forceCompiledModules`, `forceExpr`, `forceListWith`, `forceSurfaceExpr`, and `forceTokens` consumers. The benchmark suite actively uses all five, so preserve their public API instead of applying the report's incorrect removal recommendation.
+- [x] Derive `NFData` for surface parser structures plus `Token` and `TokenKind`, then implement `forceExpr`, `forceSurfaceExpr`, `forceTokens`, and `forceCompiledModules` with `rnf`. Retain `forceListWith` for benchmark-owned structures.
+- [x] Retain the pure compiler facade functions and implement each with `rnf`: `forceCompiledProgram`, `forceCompiledModule`, `forceCompiledProgramResult`, `forceInferenceResult`, `forceLoweredProgram`, `forceResolvedModule`, and `forceTypedProgram`.
+- [x] Retain `forceRuntimeProgramOutputResult` as the existing custom result traversal that forces only rendered output. Do not require `NFData RuntimeValue`.
+- [x] Remove all now-obsolete structural helpers, manual constructor matches, and pattern-synonym imports from `Force.hs`.
+- [x] Run the complete profiling strictness suite. Specifically verify both directions: deep pure compiler metadata is forced, while unused runtime exports and unrendered partial-constructor arguments remain unforced.
+- [x] Build the development library and benchmark target, format all changed modules, and commit as `refactor: replace manual compiler forcing with NFData`.
 
 ## Task 6: M2 closeout
 

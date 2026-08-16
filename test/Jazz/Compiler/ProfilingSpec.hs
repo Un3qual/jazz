@@ -23,12 +23,15 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
-    SourceSpan (SourceSpan),
+    SourceSpan (SourceSpan, SourceSpanIn),
+    appendDiagnosticSecondaryLabel,
     mkErrorDiagnostic,
+    setDiagnosticPrimaryLabel,
   )
 import Jazz.Compiler.Force
   ( forceCompiledModule,
     forceCompiledProgram,
+    forceDiagnostic,
     forceInferenceResult,
     forceLoweredProgram,
     forceResolvedModule,
@@ -117,6 +120,7 @@ tests =
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
     ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
     ("compiled-program forcing owns prelude diagnostics", testDeepCompiledProgramForcing),
+    ("diagnostic forcing evaluates nested spans and labels", testDeepDiagnosticForcing),
     ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
     ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
     ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
@@ -362,6 +366,28 @@ testDeepCompiledProgramForcing = do
     "compiled prelude diagnostic"
     marker
     (evaluate (forceCompiledProgram compiledProgram))
+
+testDeepDiagnosticForcing :: IO ()
+testDeepDiagnosticForcing =
+  mapM_
+    (\(label, marker, diagnostic) -> assertForcesMarker label marker (evaluate (forceDiagnostic diagnostic)))
+    [ ( "primary label span",
+        "diagnostic primary label span was forced",
+        setDiagnosticPrimaryLabel
+          (SourceSpanIn (throw (userError "diagnostic primary label span was forced")) 1 1)
+          "primary"
+          baseDiagnostic
+      ),
+      ( "secondary label message",
+        "diagnostic secondary label message was forced",
+        appendDiagnosticSecondaryLabel
+          (SourceSpan 2 3)
+          (throw (userError "diagnostic secondary label message was forced"))
+          baseDiagnostic
+      )
+    ]
+  where
+    baseDiagnostic = mkErrorDiagnostic E1001 CompilationOrigin "diagnostic"
 
 testResolvedModuleProductionLaziness :: IO ()
 testResolvedModuleProductionLaziness = do
