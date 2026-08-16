@@ -80,10 +80,10 @@
 - Modify: `src/Jazz/Compiler/LoweredIR.hs`
 - Modify: `test/Jazz/Compiler/ProfilingSpec.hs`
 
-- [ ] Add one compile-time test expression in the profiling strictness test module that requires `NFData LoweredProgram`; confirm it fails before implementation.
-- [ ] Derive `Generic` and `NFData` for every Lowered IR declaration from `LoweredIRVersion` through `LoweredProgram`, inclusive. Keep lowering validation types outside this contract.
-- [ ] Build the library, run `jazz-lowered-ir-contract-spec` and profiling strictness tests.
-- [ ] Format and commit as `refactor: derive NFData for lowered IR`.
+- [x] Add one compile-time test expression in the profiling strictness test module that requires `NFData LoweredProgram`; confirm it fails before implementation.
+- [x] Derive `Generic` and `NFData` for every Lowered IR declaration from `LoweredIRVersion` through `LoweredProgram`, inclusive. Keep lowering validation types outside this contract.
+- [x] Build the library, run `jazz-lowered-ir-contract-spec` and profiling strictness tests.
+- [x] Format and commit as `refactor: derive NFData for lowered IR`.
 
 ## Task 5: Collapse the forcing facade
 

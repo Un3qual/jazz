@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Permanent backend-neutral lowered representation shared by the stage-0
@@ -40,47 +43,59 @@ module Jazz.Compiler.LoweredIR
     supportedLoweredIRVersion,
     loweredFunctionCallSignature,
     loweredImmediateRepresentation,
-    loweredOperandRepresentation
-  ) where
+    loweredOperandRepresentation,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 
 newtype LoweredIRVersion = LoweredIRVersion Integer
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 supportedLoweredIRVersion :: LoweredIRVersion
 supportedLoweredIRVersion = LoweredIRVersion 1
 
 newtype LoweredFunctionId = LoweredFunctionId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype LoweredBlockId = LoweredBlockId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype LoweredTemporaryId = LoweredTemporaryId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype LoweredLayoutId = LoweredLayoutId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype LoweredRuntimeServiceId = LoweredRuntimeServiceId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype LoweredParameterId = LoweredParameterId Text
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data LoweredIntegerWidth
   = LoweredIntegerWidth8
   | LoweredIntegerWidth16
   | LoweredIntegerWidth32
   | LoweredIntegerWidth64
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data LoweredFloatWidth
   = LoweredFloatWidth16
   | LoweredFloatWidth32
   | LoweredFloatWidth64
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data LoweredRepresentation
   = LoweredUnitRepresentation
@@ -91,13 +106,16 @@ data LoweredRepresentation
   | LoweredCharRepresentation
   | LoweredManagedReferenceRepresentation LoweredLayoutId
   | LoweredClosureRepresentation LoweredCallSignature
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data LoweredCallSignature = LoweredCallSignature [LoweredRepresentation] LoweredRepresentation
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data LoweredVariantLayout = LoweredVariantLayout Integer [LoweredRepresentation]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredLayoutShape
   = LoweredProductLayout [LoweredRepresentation]
@@ -105,16 +123,20 @@ data LoweredLayoutShape
   | LoweredClosureEnvironmentLayout [LoweredRepresentation]
   | LoweredTextLayout
   | LoweredListLayout LoweredRepresentation
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredLayout = LoweredLayout LoweredLayoutId LoweredLayoutShape
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredRuntimeService = LoweredRuntimeService LoweredRuntimeServiceId LoweredCallSignature
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredParameter = LoweredParameter LoweredParameterId LoweredRepresentation
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredImmediate
   = LoweredUnitImmediate
@@ -123,14 +145,16 @@ data LoweredImmediate
   | LoweredUnsignedIntegerImmediate LoweredIntegerWidth Integer
   | LoweredFloatImmediate LoweredFloatWidth Text
   | LoweredCharImmediate Char
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredOperand
   = LoweredFunctionParameterOperand LoweredParameterId LoweredRepresentation
   | LoweredBlockParameterOperand LoweredParameterId LoweredRepresentation
   | LoweredTemporaryOperand LoweredTemporaryId LoweredRepresentation
   | LoweredImmediateOperand LoweredImmediate
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredArithmeticPrimitive
   = LoweredAdd
@@ -138,7 +162,8 @@ data LoweredArithmeticPrimitive
   | LoweredMultiply
   | LoweredDivide
   | LoweredRemainder
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredComparisonPrimitive
   = LoweredEqual
@@ -147,19 +172,22 @@ data LoweredComparisonPrimitive
   | LoweredLessThanOrEqual
   | LoweredGreaterThan
   | LoweredGreaterThanOrEqual
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredBooleanPrimitive
   = LoweredBooleanNot
   | LoweredBooleanAnd
   | LoweredBooleanOr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredPrimitive
   = LoweredArithmeticPrimitive LoweredArithmeticPrimitive
   | LoweredComparisonPrimitive LoweredComparisonPrimitive
   | LoweredBooleanPrimitive LoweredBooleanPrimitive
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredOperation
   = LoweredPrimitiveOperation LoweredPrimitive [LoweredOperand]
@@ -174,16 +202,20 @@ data LoweredOperation
   | LoweredDirectCall LoweredFunctionId [LoweredOperand]
   | LoweredClosureCall LoweredOperand [LoweredOperand]
   | LoweredRuntimeCall LoweredRuntimeServiceId [LoweredOperand]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredInstruction = LoweredInstruction LoweredTemporaryId LoweredRepresentation LoweredOperation
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredSwitchCase = LoweredSwitchCase Integer LoweredBlockId [LoweredOperand]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredSwitchDefault = LoweredSwitchDefault LoweredBlockId [LoweredOperand]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredTerminator
   = LoweredReturn LoweredOperand
@@ -192,16 +224,20 @@ data LoweredTerminator
   | LoweredSwitch LoweredOperand [LoweredSwitchCase] (Maybe LoweredSwitchDefault)
   | LoweredDirectTailCall LoweredFunctionId [LoweredOperand]
   | LoweredClosureTailCall LoweredOperand [LoweredOperand]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredBlock = LoweredBlock LoweredBlockId [LoweredParameter] [LoweredInstruction] (Maybe LoweredTerminator)
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredFunction = LoweredFunction LoweredFunctionId (Maybe LoweredParameter) [LoweredParameter] LoweredRepresentation [LoweredBlock] LoweredBlockId
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredProgram = LoweredProgram LoweredIRVersion [LoweredLayout] [LoweredRuntimeService] [LoweredFunction] LoweredFunctionId
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data LoweredIRValidationPath
   = LoweredProgramPath

@@ -120,6 +120,7 @@ tests =
     ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
     ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
     ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
+    ("lowered programs expose a structural NFData contract", testLoweredProgramNFDataContract),
     ("typed-program forcing evaluates nested artifact payloads", testDeepTypedProgramForcing),
     ("typed programs expose a structural NFData contract", testTypedProgramNFDataContract),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
@@ -135,6 +136,15 @@ testTypedProgramNFDataContract =
     "typed program NFData contract"
     ()
     (requireNFData (Typed.TypedProgram Nothing [] []))
+
+testLoweredProgramNFDataContract :: IO ()
+testLoweredProgramNFDataContract =
+  assertEqual
+    "lowered program NFData contract"
+    ()
+    ( requireNFData
+        (LoweredProgram supportedLoweredIRVersion [] [] [] (LoweredFunctionId "entry"))
+    )
 
 testBenchmarkGroupMetadata :: IO ()
 testBenchmarkGroupMetadata = do
