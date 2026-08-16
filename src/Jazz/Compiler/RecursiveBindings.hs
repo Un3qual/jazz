@@ -130,6 +130,9 @@ preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValu
 -- runtime lookup cannot fall back to structural expression equality.
 data LambdaCaptureHint = LambdaCaptureHint OrderedNames LambdaCaptureHints
 
+-- | The set contains exactly the names in the list, whose order is their first
+-- occurrence. The 'Semigroup' instance preserves this invariant by reinserting
+-- the right operand's ordered list rather than trusting its cached set.
 data OrderedNames = OrderedNames (Set Name) [Name]
 
 instance Semigroup OrderedNames where

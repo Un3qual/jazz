@@ -116,7 +116,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (find, nub, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing, mapMaybe)
+import Data.Maybe (isJust, isNothing, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -172,7 +172,7 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
     step (seen, failures) (path, key, name, identity) =
       case Map.lookup key seen of
         Just previousIdentity
-          | previousIdentity /= identity || identity == Nothing ->
+          | previousIdentity /= identity || isNothing identity ->
               ( seen,
                 failures <> [failure path TypedDuplicateDeclaration (TypedNameDetail name)]
               )
@@ -433,7 +433,7 @@ concreteMonomorphicFunctionScheme (TypedScheme _ parameters evidence primitive t
     && null primitive
     && concreteTypedType typeValue
     && concreteTypedRecipe recipe
-    && callableShape /= Nothing
+    && isJust callableShape
     && case (typeValue, recipe) of
       (TypedFunctionType {}, TypedClosureRecipe {}) -> True
       _ -> False
@@ -1619,13 +1619,13 @@ validateVariableSchemeContract context path directCalleeArgumentCount info binde
       find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
     requiresInstantiation = not (null parameters && null evidenceParameters)
     instantiationFailures
-      | requiresInstantiation && matchingOwnerInstantiation == Nothing =
+      | requiresInstantiation && isNothing matchingOwnerInstantiation =
           [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
       | otherwise = []
     missingEvidenceWithoutInstantiation
       | null parameters,
         not (null evidenceParameters),
-        matchingOwnerInstantiation == Nothing =
+        isNothing matchingOwnerInstantiation =
           [ failure path TypedMissingEvidence (TypedEvidenceParameterDetail parameterId)
           | TypedEvidenceParameter parameterId _ <- evidenceParameters
           ]
@@ -1838,7 +1838,7 @@ validateConstructorExpressionContract context path requireStagedCallableRecipe d
     ownerInstantiation =
       find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
     missingInstantiationFailures
-      | null parameters || ownerInstantiation /= Nothing = []
+      | null parameters || isJust ownerInstantiation = []
       | otherwise = [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
     substitutions =
       case ownerInstantiation of
@@ -2412,13 +2412,13 @@ operatorValueContract context path info (TypedResolvedOperator name _) =
             find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
           instantiationFailures
             | not (null parameters && null evidenceParameters),
-              matchingOwnerInstantiation == Nothing =
+              isNothing matchingOwnerInstantiation =
                 [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
             | otherwise = []
           missingEvidenceFailures
             | null parameters,
               not (null evidenceParameters),
-              matchingOwnerInstantiation == Nothing =
+              isNothing matchingOwnerInstantiation =
                 [ failure path TypedMissingEvidence (TypedEvidenceParameterDetail parameterId)
                 | TypedEvidenceParameter parameterId _ <- evidenceParameters
                 ]

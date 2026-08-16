@@ -22,6 +22,7 @@ where
 
 import Data.List (find, sortOn)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -1039,10 +1040,11 @@ scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath
   case unsupportedArmFailures of
     failure : _ -> [failure]
     []
-      | scalarRepresentation
-          (typedNodeType scrutineeInfo)
-          (typedNodeRecipe scrutineeInfo)
-          == Nothing ->
+      | isNothing
+          ( scalarRepresentation
+              (typedNodeType scrutineeInfo)
+              (typedNodeRecipe scrutineeInfo)
+          ) ->
           [expressionFailure LoweredIRUnsupportedPattern]
       | not (totalArmChain arms) ->
           [expressionFailure LoweredIRIncompletePatternCase]
@@ -1064,7 +1066,7 @@ scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath
         TypedVariablePattern info _ _ -> matchingScrutineeInfo info
         TypedLiteralPattern info _ ->
           matchingScrutineeInfo info
-            && scalarRepresentation (typedNodeType info) (typedNodeRecipe info) /= Nothing
+            && isJust (scalarRepresentation (typedNodeType info) (typedNodeRecipe info))
         _ -> False
     matchingScrutineeInfo info =
       typedNodeType info == typedNodeType scrutineeInfo
@@ -1076,7 +1078,7 @@ scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath
             && all supportedPrecedingArm precedingArms
         _ -> False
     supportedPrecedingArm (TypedCaseArm patternValue maybeGuard _) =
-      not (catchAllPattern patternValue) || maybeGuard /= Nothing
+      not (catchAllPattern patternValue) || isJust maybeGuard
     catchAllPattern patternValue =
       case patternValue of
         TypedWildcardPattern {} -> True

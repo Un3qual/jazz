@@ -409,6 +409,9 @@ data EvaluationFrame
 data EvaluationContinuation
   = EvaluationContinuation RuntimeReturnPolicy EvaluationFrame
 
+-- | 'evaluationContinuationDepth' is the cached length of
+-- 'evaluationContinuations'. All frame pushes and pops must update both fields
+-- together so observation can read the depth in constant time.
 data EvaluationMachine = EvaluationMachine
   { evaluationControl :: EvaluationControl,
     evaluationContinuations :: [EvaluationContinuation],

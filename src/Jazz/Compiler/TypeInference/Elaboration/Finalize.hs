@@ -808,9 +808,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       )
                       callee
                   childFailures = calleeFailures <> argumentFailures
-               in case (arityFailures, resultTypes, finalizedArguments) of
-                    (_ : _, _, _) -> (arityFailures <> childFailures, Nothing)
-                    ([], _, _) -> finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
+               in case arityFailures of
+                    _ : _ -> (arityFailures <> childFailures, Nothing)
+                    [] -> finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
 
     finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes =
       let (resultInfoFailures, resultInfos) =

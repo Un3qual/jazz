@@ -27,6 +27,7 @@ module Jazz.Compiler.TypedCore.Validate.Patterns
 where
 
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Evidence
@@ -200,34 +201,33 @@ validateOrPattern path (firstAlternative : rest) = concatMap compareAlternative 
       where
         actual = patternBinderContract alternative
 
-patternBinderContract :: TypedPattern -> [PatternBinderContract]
-patternBinderContract patternValue =
+patternBinderNodes ::
+  (TypedBinderId -> TypedCoreName -> TypedNodeInfo -> contract) ->
+  TypedPattern ->
+  [contract]
+patternBinderNodes build patternValue =
   case patternValue of
     TypedVariablePattern info binderId name ->
-      [PatternBinderContract binderId name (typedNodeType info) (typedNodeRecipe info)]
-    TypedConstructorPattern _ _ patterns -> concatMap patternBinderContract patterns
-    TypedListPattern _ patterns -> concatMap patternBinderContract patterns
-    TypedConsListPattern _ headPattern tailPattern -> patternBinderContract headPattern <> patternBinderContract tailPattern
-    TypedTuplePattern _ patterns -> concatMap patternBinderContract patterns
+      [build binderId name info]
+    TypedConstructorPattern _ _ patterns -> concatMap recurse patterns
+    TypedListPattern _ patterns -> concatMap recurse patterns
+    TypedConsListPattern _ headPattern tailPattern -> recurse headPattern <> recurse tailPattern
+    TypedTuplePattern _ patterns -> concatMap recurse patterns
     TypedAsPattern info binderId name nested ->
-      PatternBinderContract binderId name (typedNodeType info) (typedNodeRecipe info)
-        : patternBinderContract nested
+      build binderId name info : recurse nested
     TypedOrPattern _ [] -> []
-    TypedOrPattern _ (alternative : _) -> patternBinderContract alternative
+    TypedOrPattern _ (alternative : _) -> recurse alternative
     _ -> []
+  where
+    recurse = patternBinderNodes build
+
+patternBinderContract :: TypedPattern -> [PatternBinderContract]
+patternBinderContract =
+  patternBinderNodes
+    (\binderId name info -> PatternBinderContract binderId name (typedNodeType info) (typedNodeRecipe info))
 
 patternBoundContracts :: TypedPattern -> [BinderContract]
-patternBoundContracts patternValue =
-  case patternValue of
-    TypedVariablePattern info binderId name -> [binderContractFromInfo binderId name info]
-    TypedConstructorPattern _ _ patterns -> concatMap patternBoundContracts patterns
-    TypedListPattern _ patterns -> concatMap patternBoundContracts patterns
-    TypedConsListPattern _ headPattern tailPattern -> patternBoundContracts headPattern <> patternBoundContracts tailPattern
-    TypedTuplePattern _ patterns -> concatMap patternBoundContracts patterns
-    TypedAsPattern info binderId name nested -> binderContractFromInfo binderId name info : patternBoundContracts nested
-    TypedOrPattern _ [] -> []
-    TypedOrPattern _ (alternative : _) -> patternBoundContracts alternative
-    _ -> []
+patternBoundContracts = patternBinderNodes binderContractFromInfo
 
 binderContractFromInfo :: TypedBinderId -> TypedCoreName -> TypedNodeInfo -> BinderContract
 binderContractFromInfo binderId name info =
@@ -236,7 +236,7 @@ binderContractFromInfo binderId name info =
 patternBinderContractsEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool
 patternBinderContractsEqual expected actual =
   length expected == length actual
-    && firstMismatchedBinder expected actual == Nothing
+    && isNothing (firstMismatchedBinder expected actual)
 
 firstMismatchedBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe TypedBinderId
 firstMismatchedBinder [] [] = Nothing

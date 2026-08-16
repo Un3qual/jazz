@@ -53,7 +53,7 @@ where
 
 import Data.List (find, nub, sort)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -505,7 +505,7 @@ capabilityConstraintLabel :: TypedCapabilityConstraint -> Text
 capabilityConstraintLabel (TypedCapabilityConstraint capability maybeMethod _) =
   case maybeMethod of
     Just method -> method
-    Nothing -> maybe "" id (coreNameIdentifier capability)
+    Nothing -> fromMaybe "" (coreNameIdentifier capability)
 
 validateEvidenceUse :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceUse -> [TypedCoreValidationFailure]
 validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapabilityConstraint capability constraintMethod targetType) implId maybeMethodId) =
@@ -523,7 +523,7 @@ validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapab
       | TypedImplId _ implCapability _ <- implId,
         implCapability == capability =
           []
-      | maybeParameterRef == Nothing =
+      | isNothing maybeParameterRef =
           validateCapabilityName context path capability
       | otherwise =
           validateRetainedCapabilityName context path capability
@@ -579,10 +579,10 @@ validateEvidenceUse context path (TypedEvidenceUse maybeParameterRef (TypedCapab
             <> capabilityMethodFailures methodName
             <> implMethodFailures methodName
     validateEvidenceImpl
-      | maybeParameterRef == Nothing = validateImplId context path scope
+      | isNothing maybeParameterRef = validateImplId context path scope
       | otherwise = validateEvidenceImplId context path scope
     validateEvidenceMethod
-      | maybeParameterRef == Nothing = validateMethodId context path scope
+      | isNothing maybeParameterRef = validateMethodId context path scope
       | otherwise = validateEvidenceMethodId context path scope
     capabilityMethodFailures methodName =
       case lookupImplMethodScheme context implId methodName of

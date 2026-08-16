@@ -43,8 +43,10 @@ module Jazz.Compiler.TypedCore.Validate.Internal
   )
 where
 
+import Data.Foldable (asum)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -176,18 +178,8 @@ renderModulePath = Text.intercalate "::"
 failure :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 failure = TypedCoreValidationFailure
 
-maybeToList :: Maybe value -> [value]
-maybeToList maybeValue =
-  case maybeValue of
-    Nothing -> []
-    Just value -> [value]
-
 firstJust :: [Maybe value] -> Maybe value
-firstJust values =
-  case values of
-    [] -> Nothing
-    Nothing : rest -> firstJust rest
-    Just value : _ -> Just value
+firstJust = asum
 
 validateSpan :: TypedCoreValidationPath -> TypedSpan -> [TypedCoreValidationFailure]
 validateSpan path (TypedSpan line column)

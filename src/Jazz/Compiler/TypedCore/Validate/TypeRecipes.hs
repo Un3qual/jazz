@@ -71,6 +71,7 @@ where
 import Data.Char (isAlpha, isAlphaNum, isUpper, ord)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Ratio ((%))
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -638,7 +639,7 @@ invalidRecipeWidth recipe =
     _ -> Nothing
 
 validRecipeWidth :: TypedRepresentationRecipe -> Bool
-validRecipeWidth = maybe True (const False) . invalidRecipeWidth
+validRecipeWidth = isNothing . invalidRecipeWidth
 
 hasUnboundTypeParameter :: Set TypedTypeParameterId -> TypedType -> Bool
 hasUnboundTypeParameter scope typeValue =
@@ -683,11 +684,13 @@ validOperatorBindingName bindingName =
   where
     decodeOperatorBindingSuffix suffix =
       Text.pack <$> traverse (`lookup` canonicalOperatorEncodingPairs) (Text.chunksOf 3 suffix)
-    canonicalOperatorEncodingPairs =
-      [ (encoded, character)
-      | character <- ("!%&*+-/<>?^|~" :: String),
-        encoded <- maybeToList (Text.stripPrefix "$operator:" (operatorBindingIdentifierText (Text.singleton character)))
-      ]
+
+canonicalOperatorEncodingPairs :: [(Text, Char)]
+canonicalOperatorEncodingPairs =
+  [ (encoded, character)
+  | character <- ("!%&*+-/<>?^|~" :: String),
+    encoded <- maybeToList (Text.stripPrefix "$operator:" (operatorBindingIdentifierText (Text.singleton character)))
+  ]
 
 validResolvedIdentifier :: TypedNameNamespace -> Text -> Bool
 validResolvedIdentifier namespace identifier =

@@ -94,9 +94,9 @@ importCycleFailures moduleTable modules =
         (Just leftComponent, Just rightComponent) -> leftComponent == rightComponent
         _ -> False
 
-modulePathReachable :: Map [Text] TypedModule -> Set [Text] -> [Text] -> [Text] -> Bool
-modulePathReachable moduleTable initialSeen currentPath targetPath =
-  go initialSeen [currentPath]
+modulePathReachable :: Map [Text] TypedModule -> [Text] -> [Text] -> Bool
+modulePathReachable moduleTable currentPath targetPath =
+  go Set.empty [currentPath]
   where
     go _ [] = False
     go seen (candidatePath : pendingPaths)
@@ -123,7 +123,7 @@ moduleOrderFailures moduleTable = go Set.empty
       | importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
         Map.member importPath moduleTable,
         Set.notMember importPath precedingPaths,
-        not (modulePathReachable moduleTable Set.empty importPath modulePath)
+        not (modulePathReachable moduleTable importPath modulePath)
       ]
         <> go (Set.insert modulePath precedingPaths) remainingModules
 
