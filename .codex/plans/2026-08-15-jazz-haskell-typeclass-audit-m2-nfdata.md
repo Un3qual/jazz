@@ -117,7 +117,7 @@
 
 ## Verification evidence
 
-- The strictness-helper audit found only the intentional shallow inference ownership boundary, the selective rendered-runtime-output boundary, runtime semantic forcing, and the benchmark's generic list helper. `Force.hs` now contains 90 lines instead of 1,112.
+- The strictness-helper audit found only the intentional shallow inference ownership boundary, the selective rendered-runtime-output boundary, runtime semantic forcing, and the benchmark's generic list helper. `Force.hs` now contains 89 lines instead of 1,112.
 - The final added-instance audit found no speculative higher-kinded, numeric, textual, serialization, exception, runtime-value, or evaluator-state instances.
 - Every changed Haskell file accepted by the pinned Ormolu parser passed the repository format check. `Runtime/Types.hs` remains the sole exception: that Ormolu version's Haddock parser rejects GHC 9.14's valid `data VExplicitResultHints` export syntax.
 - `cabal build all -fdevelopment` completed successfully, including the executable and benchmark consumers of the forcing facade.
