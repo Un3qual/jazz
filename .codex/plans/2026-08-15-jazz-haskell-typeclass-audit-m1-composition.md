@@ -6,7 +6,7 @@
 
 **Architecture:** Instances live with their data declarations so their laws and ownership stay local. Public behavior tests cover private accumulator types; a focused contract suite covers exported accumulators. No representation is exported solely for testing.
 
-**Tech Stack:** Haskell 2021, GHC 9.14.1, Cabal, repository `Jazz.TestHarness`, Nix development shell.
+**Tech Stack:** Haskell 2010 with explicit module extensions, GHC 9.14.1, Cabal, repository `Jazz.TestHarness`, Nix development shell.
 
 ## Global constraints
 

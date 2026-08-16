@@ -8,12 +8,13 @@
 module Jazz.Compiler.Runtime.Primitives
   ( RuntimeApplication,
     evalBuiltin,
-    evalBinary
-  ) where
+    evalBinary,
+  )
+where
 
 import Control.Monad.Trans.Except
   ( ExceptT,
-    throwE
+    throwE,
   )
 import Data.Char
   ( GeneralCategory (DecimalNumber),
@@ -27,14 +28,14 @@ import Data.Char
     isUpper,
     ord,
     toLower,
-    toUpper
+    toUpper,
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (..),
     NumericType (..),
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
@@ -42,33 +43,33 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolNumericConversionTarget,
     numericTypeIntegerBounds,
     numericTypeIsIntegral,
-    renderNumericTypeName
+    renderNumericTypeName,
   )
 import Jazz.Compiler.CapabilityFacts
-  ( constraintSignatureTypesCompatible
+  ( constraintSignatureTypesCompatible,
   )
-import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (..))
+import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime.Semantics
   ( applyRuntimeTypeHint,
-    evalNumericConversion,
     convertIntegerToFloatTarget,
+    evalNumericConversion,
     exceedsFloatTarget,
-    integerValueWithinBounds,
     integerValueMatchesTarget,
+    integerValueWithinBounds,
     isFunctionValue,
-    renderRuntimeValue,
+    numericConversionFloatOverflowDiagnostic,
     renderRuntimeType,
+    renderRuntimeValue,
+    roundFloatTarget,
     runtimeDiagnostic,
     runtimeIntMatchesTarget,
     runtimeValueMatchesConstraint,
-    numericConversionFloatOverflowDiagnostic,
-    roundFloatTarget,
     targetedFloatMetadata,
     targetedIntMetadata,
     untypedFloatMetadata,
-    untypedIntMetadata
+    untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeClosure (..),
@@ -77,14 +78,14 @@ import Jazz.Compiler.Runtime.Types
     RuntimeValue (..),
     constructorIsSaturated,
     foldrRuntimeConstructorArguments,
-    data VExplicitResultHints
+    pattern VExplicitResultHints,
   )
 
 -- | The only evaluator capability needed by primitive value semantics.
 type RuntimeApplication failure m =
   RuntimeValue -> RuntimeValue -> ExceptT failure m RuntimeValue
 
-liftRuntimeResult :: Monad m => (Diagnostic -> failure) -> Either Diagnostic value -> ExceptT failure m value
+liftRuntimeResult :: (Monad m) => (Diagnostic -> failure) -> Either Diagnostic value -> ExceptT failure m value
 liftRuntimeResult injectDiagnostic result =
   case result of
     Left diagnostic -> throwE (injectDiagnostic diagnostic)
@@ -92,7 +93,7 @@ liftRuntimeResult injectDiagnostic result =
 
 -- | Evaluate builtin semantics once enough arguments have been collected.
 evalBuiltin ::
-  Monad m =>
+  (Monad m) =>
   (Diagnostic -> failure) ->
   RuntimeApplication failure m ->
   BuiltinSymbol ->
@@ -212,10 +213,9 @@ evalBuiltinPure builtinFunction arguments =
     (BuiltinCharFromUInt32Raw, [value@(VInt scalar _)])
       | runtimeIntMatchesTarget NumericUInt32 value ->
           let listTypeHint = Just (TypeList TypeChar)
-           in
-            if scalar <= 0x10FFFF && not (scalar >= 0xD800 && scalar <= 0xDFFF)
-              then Right (VList [VChar (chr (fromInteger scalar))] listTypeHint)
-              else Right (VList [] listTypeHint)
+           in if scalar <= 0x10FFFF && not (scalar >= 0xD800 && scalar <= 0xDFFF)
+                then Right (VList [VChar (chr (fromInteger scalar))] listTypeHint)
+                else Right (VList [] listTypeHint)
     (BuiltinCharFromUInt32Raw, [other]) ->
       Left
         ( runtimeDiagnostic
@@ -251,12 +251,11 @@ evalBuiltinPure builtinFunction arguments =
         )
     (BuiltinTextUnconsRaw, [VText textValue]) ->
       let listTypeHint = Just (TypeList (TypeTuple [TypeChar, TypeText]))
-       in
-        case Text.uncons textValue of
-          Nothing ->
-            Right (VList [] listTypeHint)
-          Just (first, rest) ->
-            Right (VList [VTuple [VChar first, VText rest]] listTypeHint)
+       in case Text.uncons textValue of
+            Nothing ->
+              Right (VList [] listTypeHint)
+            Just (first, rest) ->
+              Right (VList [VTuple [VChar first, VText rest]] listTypeHint)
     (BuiltinTextUnconsRaw, [other]) ->
       Left
         ( runtimeDiagnostic
@@ -362,7 +361,7 @@ runtimeText runtimeValue =
 -- | Evaluate filter predicates element-by-element and enforce that each
 -- predicate application returns a Bool.
 filterElements ::
-  Monad m =>
+  (Monad m) =>
   (Diagnostic -> failure) ->
   RuntimeApplication failure m ->
   RuntimeValue ->
@@ -425,7 +424,7 @@ runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
 
 -- | Evaluate the builtin operator subset supported by the runtime.
 evalBinary ::
-  Monad m =>
+  (Monad m) =>
   (Diagnostic -> failure) ->
   RuntimeApplication failure m ->
   Text ->
@@ -442,157 +441,157 @@ evalBinaryPure operatorSymbol leftValue rightValue
     isFunctionValue leftValue || isFunctionValue rightValue =
       Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
   | otherwise =
-  case (operatorSymbol, leftValue, rightValue) of
-    (_, VTyped leftTypeHint leftInnerValue, _)
-      | isStrictEqualityOperator operatorSymbol,
-        runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
-          evalStructuralEquality operatorSymbol leftValue rightValue
-      | otherwise ->
-          preserveLeftTypedNumericOperatorResult operatorSymbol leftTypeHint
-            =<< evalBinaryPure operatorSymbol leftInnerValue rightValue
-    (_, _, VTyped rightTypeHint rightInnerValue)
-      | isStrictEqualityOperator operatorSymbol,
-        runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
-          evalStructuralEquality operatorSymbol leftValue rightValue
-      | otherwise ->
-          preserveRightTypedNumericOperatorResult operatorSymbol leftValue rightTypeHint
-            =<< evalBinaryPure operatorSymbol leftValue rightInnerValue
-    ("+", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerArithmetic "+" leftMetadata rightMetadata (leftInt + rightInt)
-    ("-", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerArithmetic "-" leftMetadata rightMetadata (leftInt - rightInt)
-    ("*", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerArithmetic "*" leftMetadata rightMetadata (leftInt * rightInt)
-    ("/", VInt _ _, VInt 0 _) ->
-      Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
-    ("/", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerArithmetic "/" leftMetadata rightMetadata (leftInt `div` rightInt)
-    ("+", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatArithmetic "+" leftMetadata rightMetadata (leftFloat + rightFloat)
-    ("-", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatArithmetic "-" leftMetadata rightMetadata (leftFloat - rightFloat)
-    ("*", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatArithmetic "*" leftMetadata rightMetadata (leftFloat * rightFloat)
-    ("/", VFloat _ _, VFloat rightFloat _)
-      | floatIsZero rightFloat ->
+      case (operatorSymbol, leftValue, rightValue) of
+        (_, VTyped leftTypeHint leftInnerValue, _)
+          | isStrictEqualityOperator operatorSymbol,
+            runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
+              evalStructuralEquality operatorSymbol leftValue rightValue
+          | otherwise ->
+              preserveLeftTypedNumericOperatorResult operatorSymbol leftTypeHint
+                =<< evalBinaryPure operatorSymbol leftInnerValue rightValue
+        (_, _, VTyped rightTypeHint rightInnerValue)
+          | isStrictEqualityOperator operatorSymbol,
+            runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
+              evalStructuralEquality operatorSymbol leftValue rightValue
+          | otherwise ->
+              preserveRightTypedNumericOperatorResult operatorSymbol leftValue rightTypeHint
+                =<< evalBinaryPure operatorSymbol leftValue rightInnerValue
+        ("+", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerArithmetic "+" leftMetadata rightMetadata (leftInt + rightInt)
+        ("-", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerArithmetic "-" leftMetadata rightMetadata (leftInt - rightInt)
+        ("*", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerArithmetic "*" leftMetadata rightMetadata (leftInt * rightInt)
+        ("/", VInt _ _, VInt 0 _) ->
           Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
-    ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
-    ("+", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Arithmetic "+" rightMetadata leftInt rightFloat (+)
-    ("+", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerArithmetic "+" leftMetadata leftFloat rightInt (+)
-    ("-", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Arithmetic "-" rightMetadata leftInt rightFloat (-)
-    ("-", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerArithmetic "-" leftMetadata leftFloat rightInt (-)
-    ("*", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Arithmetic "*" rightMetadata leftInt rightFloat (*)
-    ("*", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerArithmetic "*" leftMetadata leftFloat rightInt (*)
-    ("/", VInt _ leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata,
-        floatIsZero rightFloat ->
-          Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
-    ("/", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Arithmetic "/" rightMetadata leftInt rightFloat (/)
-    ("/", VFloat _ leftMetadata, VInt 0 rightMetadata)
-      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
-          Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
-    ("/", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerArithmetic "/" leftMetadata leftFloat rightInt (/)
-    ("<", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerPredicate "<" leftInt leftMetadata rightInt rightMetadata (leftInt < rightInt)
-    ("<=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerPredicate "<=" leftInt leftMetadata rightInt rightMetadata (leftInt <= rightInt)
-    (">", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerPredicate ">" leftInt leftMetadata rightInt rightMetadata (leftInt > rightInt)
-    (">=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerPredicate ">=" leftInt leftMetadata rightInt rightMetadata (leftInt >= rightInt)
-    ("<", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatPredicate "<" leftMetadata rightMetadata (leftFloat < rightFloat)
-    ("<=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatPredicate "<=" leftMetadata rightMetadata (leftFloat <= rightFloat)
-    (">", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatPredicate ">" leftMetadata rightMetadata (leftFloat > rightFloat)
-    (">=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatPredicate ">=" leftMetadata rightMetadata (leftFloat >= rightFloat)
-    ("<", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Predicate "<" leftInt rightFloat (<)
-    ("<", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerPredicate "<" leftFloat rightInt (<)
-    ("<=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Predicate "<=" leftInt rightFloat (<=)
-    ("<=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerPredicate "<=" leftFloat rightInt (<=)
-    (">", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Predicate ">" leftInt rightFloat (>)
-    (">", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerPredicate ">" leftFloat rightInt (>)
-    (">=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Predicate ">=" leftInt rightFloat (>=)
-    (">=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerPredicate ">=" leftFloat rightInt (>=)
-    ("==", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerEquality "==" leftInt leftMetadata rightInt rightMetadata
-    ("==", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatPredicate "==" leftMetadata rightMetadata (leftFloat == rightFloat)
-    ("==", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Equality "==" leftInt rightFloat
-    ("==", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerEquality "==" leftFloat rightInt
-    ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
-    ("==", VChar leftChar, VChar rightChar) -> Right (VBool (leftChar == rightChar))
-    ("==", VText leftText, VText rightText) -> Right (VBool (leftText == rightText))
-    ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
-    ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
-    ("==", VConstructorApplication {}, VConstructorApplication {}) -> evalStructuralEquality "==" leftValue rightValue
-    ("!=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
-      evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
-    ("!=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
-      evalFloatPredicate "!=" leftMetadata rightMetadata (leftFloat /= rightFloat)
-    ("!=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
-          evalIntegerFloat64Equality "!=" leftInt rightFloat
-    ("!=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
-      | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
-          evalFloat64IntegerEquality "!=" leftFloat rightInt
-    ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
-    ("!=", VChar leftChar, VChar rightChar) -> Right (VBool (leftChar /= rightChar))
-    ("!=", VText leftText, VText rightText) -> Right (VBool (leftText /= rightText))
-    ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
-    ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
-    ("!=", VConstructorApplication {}, VConstructorApplication {}) -> evalStructuralEquality "!=" leftValue rightValue
-    _ ->
-      Left
-        ( runtimeDiagnostic
-            E3007
-            ( "runtime primitive '"
-                <> operatorSymbol
-                <> "' cannot be applied to "
-                <> renderRuntimeType leftValue
-                <> " and "
-                <> renderRuntimeType rightValue
+        ("/", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerArithmetic "/" leftMetadata rightMetadata (leftInt `div` rightInt)
+        ("+", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatArithmetic "+" leftMetadata rightMetadata (leftFloat + rightFloat)
+        ("-", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatArithmetic "-" leftMetadata rightMetadata (leftFloat - rightFloat)
+        ("*", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatArithmetic "*" leftMetadata rightMetadata (leftFloat * rightFloat)
+        ("/", VFloat _ _, VFloat rightFloat _)
+          | floatIsZero rightFloat ->
+              Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
+        ("/", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatArithmetic "/" leftMetadata rightMetadata (leftFloat / rightFloat)
+        ("+", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Arithmetic "+" rightMetadata leftInt rightFloat (+)
+        ("+", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerArithmetic "+" leftMetadata leftFloat rightInt (+)
+        ("-", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Arithmetic "-" rightMetadata leftInt rightFloat (-)
+        ("-", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerArithmetic "-" leftMetadata leftFloat rightInt (-)
+        ("*", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Arithmetic "*" rightMetadata leftInt rightFloat (*)
+        ("*", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerArithmetic "*" leftMetadata leftFloat rightInt (*)
+        ("/", VInt _ leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata,
+            floatIsZero rightFloat ->
+              Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
+        ("/", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64PromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Arithmetic "/" rightMetadata leftInt rightFloat (/)
+        ("/", VFloat _ leftMetadata, VInt 0 rightMetadata)
+          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+              Left (runtimeDiagnostic E3001 "runtime primitive '/' failed: division by zero")
+        ("/", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64PromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerArithmetic "/" leftMetadata leftFloat rightInt (/)
+        ("<", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerPredicate "<" leftInt leftMetadata rightInt rightMetadata (leftInt < rightInt)
+        ("<=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerPredicate "<=" leftInt leftMetadata rightInt rightMetadata (leftInt <= rightInt)
+        (">", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerPredicate ">" leftInt leftMetadata rightInt rightMetadata (leftInt > rightInt)
+        (">=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerPredicate ">=" leftInt leftMetadata rightInt rightMetadata (leftInt >= rightInt)
+        ("<", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatPredicate "<" leftMetadata rightMetadata (leftFloat < rightFloat)
+        ("<=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatPredicate "<=" leftMetadata rightMetadata (leftFloat <= rightFloat)
+        (">", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatPredicate ">" leftMetadata rightMetadata (leftFloat > rightFloat)
+        (">=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatPredicate ">=" leftMetadata rightMetadata (leftFloat >= rightFloat)
+        ("<", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Predicate "<" leftInt rightFloat (<)
+        ("<", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerPredicate "<" leftFloat rightInt (<)
+        ("<=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Predicate "<=" leftInt rightFloat (<=)
+        ("<=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerPredicate "<=" leftFloat rightInt (<=)
+        (">", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Predicate ">" leftInt rightFloat (>)
+        (">", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerPredicate ">" leftFloat rightInt (>)
+        (">=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Predicate ">=" leftInt rightFloat (>=)
+        (">=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerPredicate ">=" leftFloat rightInt (>=)
+        ("==", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerEquality "==" leftInt leftMetadata rightInt rightMetadata
+        ("==", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatPredicate "==" leftMetadata rightMetadata (leftFloat == rightFloat)
+        ("==", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Equality "==" leftInt rightFloat
+        ("==", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerEquality "==" leftFloat rightInt
+        ("==", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool == rightBool))
+        ("==", VChar leftChar, VChar rightChar) -> Right (VBool (leftChar == rightChar))
+        ("==", VText leftText, VText rightText) -> Right (VBool (leftText == rightText))
+        ("==", VList {}, VList {}) -> evalStructuralEquality "==" leftValue rightValue
+        ("==", VTuple {}, VTuple {}) -> evalStructuralEquality "==" leftValue rightValue
+        ("==", VConstructorApplication {}, VConstructorApplication {}) -> evalStructuralEquality "==" leftValue rightValue
+        ("!=", VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
+          evalIntegerEquality "!=" leftInt leftMetadata rightInt rightMetadata
+        ("!=", VFloat leftFloat leftMetadata, VFloat rightFloat rightMetadata) ->
+          evalFloatPredicate "!=" leftMetadata rightMetadata (leftFloat /= rightFloat)
+        ("!=", VInt leftInt leftMetadata, VFloat rightFloat rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted leftMetadata rightMetadata ->
+              evalIntegerFloat64Equality "!=" leftInt rightFloat
+        ("!=", VFloat leftFloat leftMetadata, VInt rightInt rightMetadata)
+          | runtimeIntFloat64ComparisonPromotionAccepted rightMetadata leftMetadata ->
+              evalFloat64IntegerEquality "!=" leftFloat rightInt
+        ("!=", VBool leftBool, VBool rightBool) -> Right (VBool (leftBool /= rightBool))
+        ("!=", VChar leftChar, VChar rightChar) -> Right (VBool (leftChar /= rightChar))
+        ("!=", VText leftText, VText rightText) -> Right (VBool (leftText /= rightText))
+        ("!=", VList {}, VList {}) -> evalStructuralEquality "!=" leftValue rightValue
+        ("!=", VTuple {}, VTuple {}) -> evalStructuralEquality "!=" leftValue rightValue
+        ("!=", VConstructorApplication {}, VConstructorApplication {}) -> evalStructuralEquality "!=" leftValue rightValue
+        _ ->
+          Left
+            ( runtimeDiagnostic
+                E3007
+                ( "runtime primitive '"
+                    <> operatorSymbol
+                    <> "' cannot be applied to "
+                    <> renderRuntimeType leftValue
+                    <> " and "
+                    <> renderRuntimeType rightValue
+                )
             )
-        )
 
 isStrictEqualityOperator :: Text -> Bool
 isStrictEqualityOperator operatorSymbol =
@@ -871,28 +870,27 @@ evalStructuralEquality :: Text -> RuntimeValue -> RuntimeValue -> Either Diagnos
 evalStructuralEquality operatorSymbol leftValue rightValue =
   if runtimeValueContainsFunction leftValue || runtimeValueContainsFunction rightValue
     then Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
-    else
-      case runtimeStructuralEquality leftValue rightValue of
-        Just equalityResult ->
-          Right
-            ( VBool
-                ( if operatorSymbol == "!="
-                    then not equalityResult
-                    else equalityResult
-                )
-            )
-        Nothing ->
-          Left
-            ( runtimeDiagnostic
-                E3007
-                ( "runtime primitive '"
-                    <> operatorSymbol
-                    <> "' cannot be applied to "
-                    <> renderRuntimeType leftValue
-                    <> " and "
-                    <> renderRuntimeType rightValue
-                )
-            )
+    else case runtimeStructuralEquality leftValue rightValue of
+      Just equalityResult ->
+        Right
+          ( VBool
+              ( if operatorSymbol == "!="
+                  then not equalityResult
+                  else equalityResult
+              )
+          )
+      Nothing ->
+        Left
+          ( runtimeDiagnostic
+              E3007
+              ( "runtime primitive '"
+                  <> operatorSymbol
+                  <> "' cannot be applied to "
+                  <> renderRuntimeType leftValue
+                  <> " and "
+                  <> renderRuntimeType rightValue
+              )
+          )
 
 runtimeValueContainsFunction :: RuntimeValue -> Bool
 runtimeValueContainsFunction value =
@@ -953,15 +951,15 @@ runtimeStructuralEquality leftValue rightValue =
     ( VConstructor leftTypeName _ leftName leftConstructorArguments leftArgs,
       VConstructor rightTypeName _ rightName rightConstructorArguments rightArgs
       )
-      | constructorIsSaturated leftConstructorArguments leftArgs,
-        constructorIsSaturated rightConstructorArguments rightArgs,
-        leftTypeName == rightTypeName,
-        leftName == rightName,
-        leftConstructorArguments == rightConstructorArguments ->
-          structuralElementEquality leftArgs rightArgs
-      | constructorIsSaturated leftConstructorArguments leftArgs,
-        constructorIsSaturated rightConstructorArguments rightArgs ->
-          Just False
+        | constructorIsSaturated leftConstructorArguments leftArgs,
+          constructorIsSaturated rightConstructorArguments rightArgs,
+          leftTypeName == rightTypeName,
+          leftName == rightName,
+          leftConstructorArguments == rightConstructorArguments ->
+            structuralElementEquality leftArgs rightArgs
+        | constructorIsSaturated leftConstructorArguments leftArgs,
+          constructorIsSaturated rightConstructorArguments rightArgs ->
+            Just False
     _ -> Nothing
 
 structuralElementEquality :: [RuntimeValue] -> [RuntimeValue] -> Maybe Bool
@@ -969,7 +967,8 @@ structuralElementEquality leftElements rightElements
   | length leftElements /= length rightElements =
       Just False
   | otherwise =
-      fmap and
+      fmap
+        and
         (traverse (uncurry runtimeStructuralEquality) (zip leftElements rightElements))
 
 evalIntegerPredicate :: Text -> Integer -> RuntimeIntMetadata -> Integer -> RuntimeIntMetadata -> Bool -> Either Diagnostic RuntimeValue

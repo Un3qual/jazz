@@ -38,7 +38,7 @@ module Jazz.Compiler.Runtime.Types
         VExplicitTypeApplication,
         VDeferredHostBinding
       ),
-    data VExplicitResultHints,
+    pattern VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
@@ -59,8 +59,9 @@ module Jazz.Compiler.Runtime.Types
     RuntimeCell,
     RuntimeEnv,
     ScopeResult (..),
-    ModuleEvaluationMode (..)
-  ) where
+    ModuleEvaluationMode (..),
+  )
+where
 
 import Control.Monad.Trans.State.Strict (StateT)
 import qualified Data.Foldable as Foldable
@@ -73,22 +74,22 @@ import Jazz.Compiler.AST
   ( Expr,
     NumericType,
     SignaturePayload,
-    SignatureType
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan
+    SourceSpan,
   )
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (Name)
 import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
-import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
     RuntimeObservationState,
   )
+import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
+import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,

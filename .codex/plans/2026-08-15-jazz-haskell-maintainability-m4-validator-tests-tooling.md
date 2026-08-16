@@ -370,21 +370,23 @@ git commit -m "refactor: split typed-core validation responsibilities"
 **Files:**
 
 - Modify: `test/Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs`
-- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/Shared.hs`
+- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/Fixtures.hs`
+- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/FixedFixtures.hs`
 - Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/ManifestTests.hs`
-- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/ModuleTests.hs`
-- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/TypeRecipeTests.hs`
-- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/ExpressionPatternTests.hs`
-- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/EvidenceTests.hs`
 - Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/ParityTests.hs`
-- Create domain fixture modules under `test/Jazz/Compiler/Bootstrap/TypedCoreContract/Fixtures/`
+- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/RegressionTests.hs`
+- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/ReviewFixtures.hs`
+- Create: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/Tests.hs`
 - Modify: `jazz.cabal` `jazz-typed-core-contract-spec.other-modules`
 
 **Interfaces:**
 
-- Every `*Tests` module produces `tests :: [NamedTest]`.
-- `ParityTests` consumes `allContractPrograms :: [TypedProgram]` from domain fixture modules and owns hosted comparison/batch execution.
-- `Shared` owns only repeated assertion helpers and primitive constructors used by at least two domain modules; it does not define a fixture DSL.
+- `Tests` aggregates `ManifestTests.tests`, `RegressionTests.tests`, and
+  `ParityTests.tests` in that order.
+- `Fixtures` is a compatibility facade over `FixedFixtures` and
+  `ReviewFixtures`.
+- `ParityTests` consumes the fixed and regression program inventories and owns
+  hosted comparison and batch execution.
 
 - [ ] **Step 1: Add the aggregator shape before moving tests**
 
@@ -393,10 +395,7 @@ Change `Main.tests` to concatenate domain lists in the exact current order:
 ```haskell
 tests =
   ManifestTests.tests
-    <> ModuleTests.tests
-    <> TypeRecipeTests.tests
-    <> ExpressionPatternTests.tests
-    <> EvidenceTests.tests
+    <> RegressionTests.tests
     <> ParityTests.tests
 ```
 
@@ -414,28 +413,17 @@ and timeouts to `ParityTests`.
 Keep the current parity program order: valid fixtures, invalid fixtures,
 review regressions, direct-recursion artifacts, then closure-recursion artifacts.
 
-- [ ] **Step 3: Move module and type/recipe domains**
+- [ ] **Step 3: Move fixed fixtures and review regressions**
 
-Move program/module paths, source paths, imports, exports, interfaces,
-visibility, recursive groups, declaration ordering, and module result fixtures
-to `ModuleTests` and `Fixtures.Modules`.
+Move the stable valid/invalid fixture manifests to `FixedFixtures`. Move domain
+and review-regression programs to `ReviewFixtures`, and re-export both through
+the small `Fixtures` compatibility facade.
 
-Move schemes, type parameters, primitive constraints, numeric bounds, recipes,
-callable staging, literals, lists, tuples, data shapes, and type applications
-to `TypeRecipeTests` and `Fixtures.TypeRecipes`.
+- [ ] **Step 4: Move regression execution**
 
-- [ ] **Step 4: Move expression/pattern and evidence domains**
-
-Move scope/binder references, applications, lambdas, blocks, conditionals,
-operators, pattern paths/shapes/binders/or-patterns to
-`ExpressionPatternTests` and `Fixtures.ExpressionsPatterns`.
-
-Move capabilities, classes, impls, methods, instantiations, evidence
-parameters/selections/candidates, and interface evidence closure to
-`EvidenceTests` and `Fixtures.Evidence`.
-
-Promote a constructor to `Shared` only when at least two fixture domains import
-it. Otherwise keep it in its domain module.
+Move program/module, types/recipes, expressions/patterns, evidence, scale, and
+review-regression checks to `RegressionTests`. Keep fixture construction in the
+fixture modules and behavioral assertions in the test module.
 
 - [ ] **Step 5: Verify complete test inventory and hosted parity**
 
@@ -468,10 +456,10 @@ git commit -m "refactor: split typed-core contract tests by domain"
 
 - Original `TypedCoreExpressionDirectCallFixtures` remains a compatibility façade re-exporting active fixture groups used by three suites.
 - Test modules each produce `tests :: [NamedTest]`:
-  `ManifestTests`, `ScalarTests`, `TextTests`, `CallTests`,
-  `CaptureRecursionTests`, and `BoundaryTests`.
-- Fixture modules own: `Source`, `Scalar`, `ManagedText`, `Calls`,
-  `CapturesRecursion`, and `LowererBoundary`.
+  `ManifestTests`, `ScalarTextTests`, `CallTests`, `CaptureRecursionTests`, and
+  `BoundaryTests`.
+- Fixture modules own: `Source`, `Scalar`, `ManagedText`, `CallsCaptures`, and
+  `LowererBoundary`.
 
 - [ ] **Step 1: Split source fixture identity and resolution**
 
@@ -483,10 +471,10 @@ source insertion/order unchanged. Re-export these through the original module.
 
 Move unit/scalar/numeric/binding/pattern-case expected programs to
 `Fixtures.Scalar`; managed Text producer/operation/exclusion artifacts to
-`Fixtures.ManagedText`; direct/curried/closed/higher-order call artifacts to
-`Fixtures.Calls`; lexical capture/direct recursion/closure recursion artifacts
-to `Fixtures.CapturesRecursion`; and independent invalid/profile/lowerer
-boundary programs to `Fixtures.LowererBoundary`.
+`Fixtures.ManagedText`; direct/curried/closed/higher-order call, lexical
+capture, direct recursion, and closure recursion artifacts to
+`Fixtures.CallsCaptures`; and independent invalid/profile/lowerer boundary
+programs to `Fixtures.LowererBoundary`.
 
 Keep shared primitive constructors in the narrowest domain. A constructor used
 by multiple domains moves to `Fixtures.Shared`, which exports constructors only
@@ -499,15 +487,14 @@ Make the original spec a small `Main` that concatenates:
 ```haskell
 tests =
   ManifestTests.tests
-    <> ScalarTests.tests
-    <> TextTests.tests
+    <> ScalarTextTests.tests
     <> CallTests.tests
     <> CaptureRecursionTests.tests
     <> BoundaryTests.tests
 ```
 
 Move each test with the fixtures/assertion helpers it owns. Shared source-to-
-producer execution helpers go in `Spec.Shared`; exact semantic assertions stay
+producer execution helpers go in `Spec.Support`; exact semantic assertions stay
 in their domain test module.
 
 - [ ] **Step 4: Register every shared fixture module in all consuming suites**

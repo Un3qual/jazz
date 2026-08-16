@@ -12,7 +12,7 @@ module Jazz.Compiler.Runtime
     RuntimeHostEvaluationT,
     RuntimeValue (..),
     RuntimeExplicitResultHints,
-    data VExplicitResultHints,
+    pattern VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
@@ -87,9 +87,9 @@ import Jazz.Compiler.Runtime.Types
     RuntimeHostEvaluationT,
     RuntimeValue (..),
     ScopeResult (..),
-    data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
+    pattern VExplicitResultHints,
   )
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.RuntimeHost
@@ -117,9 +117,10 @@ evaluateRuntimeExprObserved observationRequest expr =
           }
     )
 
-evaluateRuntimeExprWithHost :: Monad m => RuntimeHost m -> Expr -> m (Either Diagnostic (Maybe RuntimeValue))
+evaluateRuntimeExprWithHost :: (Monad m) => RuntimeHost m -> Expr -> m (Either Diagnostic (Maybe RuntimeValue))
 evaluateRuntimeExprWithHost host expr =
-  fmap (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
+  fmap
+    (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
     ( evaluateRuntimeExpressionObserved
         RuntimeObservationDisabled
         host
@@ -132,7 +133,7 @@ evaluateRuntimeExprWithHost host expr =
     )
 
 evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved ::
-  Monad m =>
+  (Monad m) =>
   RuntimeObservationRequest ->
   RuntimeHost m ->
   Set Int ->
@@ -175,7 +176,8 @@ evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements ::
   Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements sourceUnitStatementIndices builtinMode bindingTypeHints expr =
   runIdentity
-    ( fmap (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
+    ( fmap
+        (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
         ( evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
             RuntimeObservationDisabled
             disabledRuntimeHost
@@ -210,7 +212,7 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHint
     )
 
 evaluateModuleScopeWithHost ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost m ->
   Maybe [Text] ->
   ModuleEvaluationMode ->
@@ -233,7 +235,7 @@ evaluateModuleScopeWithHost host currentModulePath evaluationMode builtinMode bi
       }
 
 evaluateModuleScopeWithRequiredHost ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost m ->
   Maybe [Text] ->
   ModuleEvaluationMode ->
@@ -258,7 +260,7 @@ evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builti
           }
 
 evaluateModuleScopeWithRequiredEvaluationHost ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe [Text] ->
   ModuleEvaluationMode ->
@@ -279,7 +281,7 @@ evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationM
       statements
 
 evaluateModuleScopeWithRequiredEvaluationHostControl ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe [Text] ->
   ModuleEvaluationMode ->

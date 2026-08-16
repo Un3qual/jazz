@@ -6,7 +6,7 @@
 
 **Architecture:** Pure compiler artifacts derive `Generic` and `NFData` next to their declarations. `Jazz.Compiler.Force` remains a narrow phase facade over `rnf`; the runtime-output path remains a bespoke render-only force. Migration proceeds leaf-first so missing coverage is a compile error.
 
-**Tech Stack:** Haskell 2021, GHC 9.14.1, `deepseq-1.5`, Cabal, Nix development shell.
+**Tech Stack:** Haskell 2010 with explicit module extensions, GHC 9.14.1, `deepseq-1.5`, Cabal, Nix development shell.
 
 ## Global constraints
 
