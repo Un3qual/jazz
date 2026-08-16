@@ -7,7 +7,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CaseArm (..), Expr (..), Literal (..), Pattern (..), Statement (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
@@ -29,6 +29,40 @@ import Jazz.Compiler.TypeInference.Types
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.TestHarness (assertEqual, failTest)
+
+isPatternCaseBlock :: LoweredBlock -> Bool
+isPatternCaseBlock (LoweredBlock (LoweredBlockId name) _ _ _) =
+  "case$" `Text.isPrefixOf` name
+
+functionId :: Text -> LoweredFunctionId
+functionId name = LoweredFunctionId ("App::Main::" <> name)
+
+blockId :: Text -> LoweredBlockId
+blockId = LoweredBlockId
+
+parameter :: Text -> LoweredRepresentation -> LoweredParameter
+parameter name representation = LoweredParameter (LoweredParameterId name) representation
+
+functionParameter :: Text -> LoweredRepresentation -> LoweredOperand
+functionParameter name representation =
+  LoweredFunctionParameterOperand (LoweredParameterId name) representation
+
+blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
+blockParameter name representation =
+  LoweredBlockParameterOperand (LoweredParameterId name) representation
+
+temporary :: Int -> LoweredRepresentation -> LoweredOperand
+temporary index representation =
+  LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index))) representation
+
+boolImmediate :: Bool -> LoweredOperand
+boolImmediate = LoweredImmediateOperand . LoweredBoolImmediate
+
+intImmediate :: Integer -> LoweredOperand
+intImmediate = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+
+intRepresentation :: LoweredRepresentation
+intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
 
 testFunctionResultNegativeTerminators :: IO ()
 testFunctionResultNegativeTerminators = do
@@ -388,26 +422,21 @@ testScalarPatternCaseTransportLowering = do
 
 patternCaseControlFlow :: LoweredProgram -> [(LoweredFunctionId, [LoweredBlock])]
 patternCaseControlFlow (LoweredProgram _ _ _ functions _) =
-  [ (functionId, blocks)
-  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+  [ (loweredFunctionId, blocks)
+  | LoweredFunction loweredFunctionId _ _ _ blocks _ <- functions,
     any isPatternCaseBlock blocks
   ]
-  where
-    isPatternCaseBlock (LoweredBlock (LoweredBlockId blockId) _ _ _) =
-      "case$" `Text.isPrefixOf` blockId
 
 patternCaseTransportShape :: LoweredProgram -> [(LoweredFunctionId, [(LoweredBlockId, [LoweredRepresentation], [(LoweredBlockId, [LoweredRepresentation])])])]
 patternCaseTransportShape (LoweredProgram _ _ _ functions _) =
-  [ (functionId, map blockShape caseBlocks)
-  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+  [ (loweredFunctionId, map blockShape caseBlocks)
+  | LoweredFunction loweredFunctionId _ _ _ blocks _ <- functions,
     let caseBlocks = filter isPatternCaseBlock blocks,
     not (null caseBlocks)
   ]
   where
-    isPatternCaseBlock (LoweredBlock (LoweredBlockId blockId) _ _ _) =
-      "case$" `Text.isPrefixOf` blockId
-    blockShape (LoweredBlock blockId parameters _ terminator) =
-      (blockId, map parameterRepresentation parameters, maybe [] successorShapes terminator)
+    blockShape (LoweredBlock loweredBlockId parameters _ terminator) =
+      (loweredBlockId, map parameterRepresentation parameters, maybe [] successorShapes terminator)
     parameterRepresentation (LoweredParameter _ representation) = representation
     successorShapes terminator =
       case terminator of
@@ -435,8 +464,8 @@ blockOperations :: LoweredProgram -> LoweredBlockId -> [[LoweredOperation]]
 blockOperations (LoweredProgram _ _ _ functions _) targetBlockId =
   [ operations
   | LoweredFunction _ _ _ _ blocks _ <- functions,
-    LoweredBlock blockId _ instructions _ <- blocks,
-    blockId == targetBlockId,
+    LoweredBlock loweredBlockId _ instructions _ <- blocks,
+    loweredBlockId == targetBlockId,
     let operations = [operation | LoweredInstruction _ _ operation <- instructions]
   ]
 
@@ -471,7 +500,6 @@ expectedPatternCaseJoinOperations =
     )
   ]
   where
-    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
     closureRepresentation =
       LoweredClosureRepresentation
         (LoweredCallSignature [intRepresentation] intRepresentation)
@@ -524,7 +552,6 @@ expectedPatternCaseTransportShapes =
   ]
   where
     entryFunction = LoweredFunctionId "App::Main::$entry"
-    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
     intSingle = [intRepresentation]
     intPair = [intRepresentation, intRepresentation]
     closureRepresentation =
@@ -840,30 +867,6 @@ expectedPatternCaseControlFlows =
     )
   ]
   where
-    functionId :: Text -> LoweredFunctionId
-    functionId name = LoweredFunctionId ("App::Main::" <> name)
-    blockId :: Text -> LoweredBlockId
-    blockId = LoweredBlockId
-    parameter :: Text -> LoweredRepresentation -> LoweredParameter
-    parameter name representation =
-      LoweredParameter (LoweredParameterId name) representation
-    blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
-    blockParameter name representation =
-      LoweredBlockParameterOperand (LoweredParameterId name) representation
-    functionParameter :: Text -> LoweredRepresentation -> LoweredOperand
-    functionParameter name representation =
-      LoweredFunctionParameterOperand (LoweredParameterId name) representation
-    temporary :: Int -> LoweredRepresentation -> LoweredOperand
-    temporary index representation =
-      LoweredTemporaryOperand
-        (LoweredTemporaryId ("t" <> Text.pack (show index)))
-        representation
-    boolImmediate :: Bool -> LoweredOperand
-    boolImmediate = LoweredImmediateOperand . LoweredBoolImmediate
-    intImmediate :: Integer -> LoweredOperand
-    intImmediate =
-      LoweredImmediateOperand
-        . LoweredSignedIntegerImmediate LoweredIntegerWidth64
     comparisonInstruction :: Int -> LoweredOperand -> LoweredOperand -> LoweredInstruction
     comparisonInstruction index left right =
       LoweredInstruction
@@ -873,8 +876,6 @@ expectedPatternCaseControlFlows =
             (LoweredComparisonPrimitive LoweredEqual)
             [left, right]
         )
-    intRepresentation =
-      LoweredSignedIntegerRepresentation LoweredIntegerWidth64
     entryBlockId = blockId "entry"
     outerThenBlockId = blockId "if$s1$0$e1$0$then"
     outerElseBlockId = blockId "if$s1$0$e1$0$else"
@@ -947,8 +948,8 @@ testConditionalProfileCoverage =
 
 conditionalControlFlow :: LoweredProgram -> [(LoweredFunctionId, [LoweredBlock])]
 conditionalControlFlow (LoweredProgram _ _ _ functions _) =
-  [ (functionId, blocks)
-  | LoweredFunction functionId _ _ _ blocks _ <- functions,
+  [ (loweredFunctionId, blocks)
+  | LoweredFunction loweredFunctionId _ _ _ blocks _ <- functions,
     any containsBranch blocks
   ]
   where
@@ -1208,24 +1209,6 @@ expectedConditionalControlFlows =
     )
   ]
   where
-    functionId :: Text -> LoweredFunctionId
-    functionId name = LoweredFunctionId ("App::Main::" <> name)
-    blockId :: Text -> LoweredBlockId
-    blockId = LoweredBlockId
-    parameter :: Text -> LoweredRepresentation -> LoweredParameter
-    parameter name representation = LoweredParameter (LoweredParameterId name) representation
-    functionParameter :: Text -> LoweredRepresentation -> LoweredOperand
-    functionParameter name representation = LoweredFunctionParameterOperand (LoweredParameterId name) representation
-    blockParameter :: Text -> LoweredRepresentation -> LoweredOperand
-    blockParameter name representation = LoweredBlockParameterOperand (LoweredParameterId name) representation
-    temporary :: Int -> LoweredRepresentation -> LoweredOperand
-    temporary index representation = LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index))) representation
-    boolImmediate :: Bool -> LoweredOperand
-    boolImmediate = LoweredImmediateOperand . LoweredBoolImmediate
-    intImmediate :: Integer -> LoweredOperand
-    intImmediate = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
-    intRepresentation :: LoweredRepresentation
-    intRepresentation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
     boolClosureRepresentation :: LoweredRepresentation
     boolClosureRepresentation =
       LoweredClosureRepresentation

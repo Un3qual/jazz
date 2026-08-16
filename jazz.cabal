@@ -569,6 +569,7 @@ test-suite jazz-typed-core-expression-direct-call-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 
 test-suite parser-core-spec
   import: test-common

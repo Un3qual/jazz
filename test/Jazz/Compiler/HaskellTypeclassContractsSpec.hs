@@ -81,6 +81,10 @@ testScopeCapabilityFacts = do
     "implementation methods preserve left-to-right order"
     (Just [ImplMethodType TypeInt, ImplMethodType TypeBool])
     (Map.lookup "Comparable" (scopeConcreteImplMethods combined))
+  assertEqual
+    "three-way implementation collisions preserve left-to-right order"
+    (Just [ImplMethodType TypeInt, ImplMethodType TypeBool, ImplMethodType TypeBool])
+    (Map.lookup "Comparable" (scopeConcreteImplMethods (first <> second <> third)))
   where
     combined = first <> second
     first =
@@ -101,7 +105,12 @@ testScopeCapabilityFacts = do
         }
     third =
       mempty
-        { scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
+        { scopeClassFacts = Map.singleton "Comparable" 3,
+          scopeClassMethodSignatures =
+            Map.singleton "compare" (ClassMethodType "Third" (SignatureType TypeInt)),
+          scopeConcreteImplMethods =
+            Map.singleton "Comparable" [ImplMethodType TypeBool],
+          scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
           scopeConcreteImplFacts = Set.singleton "Comparable"
         }
 

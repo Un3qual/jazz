@@ -4,7 +4,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests w
 
 import qualified Data.Set as Set
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.Diagnostics (isErrorDiagnostic)
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
@@ -225,8 +225,6 @@ testAcceptedManifestPipeline =
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
-    expectedLoweringFailures = []
-
     assertAccepted name =
       case lookup name expectedTypedPrograms of
         Just expectedTypedProgram -> do
@@ -252,8 +250,8 @@ testAcceptedManifestPipeline =
           case typedCoreProductionStatus firstProduction of
             TypedCoreProductionSucceeded typedProgram -> do
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
-              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms, lookup name expectedLoweringFailures) of
-                (Just validatedProgram, Just expectedLoweredProgram, Nothing) -> do
+              case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms) of
+                (Just validatedProgram, Just expectedLoweredProgram) -> do
                   let lowering = lowerTypedCoreExpressionDirectCall typedProgram
                       trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
                   assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
@@ -265,12 +263,7 @@ testAcceptedManifestPipeline =
                     LoweredIRSucceeded loweredProgram ->
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
-                (Just validatedProgram, Nothing, Just expectedLoweringFailure) -> do
-                  let lowering = lowerTypedCoreExpressionDirectCall typedProgram
-                      trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
-                  assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
-                  assertEqual (name <> " retained lowering boundary") expectedLoweringFailure lowering
-                (Nothing, _, _) -> failTest (name <> " did not retain its validation proof")
-                (_, _, _) -> failTest (name <> " has ambiguous or missing lowering expectations")
+                (Nothing, _) -> failTest (name <> " did not retain its validation proof")
+                (_, Nothing) -> failTest (name <> " is missing its lowering expectation")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")

@@ -5,7 +5,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.Diagnostics (isErrorDiagnostic)
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower

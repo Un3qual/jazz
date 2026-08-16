@@ -2,18 +2,17 @@
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests where
 
-import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Statement (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticCode,
-    diagnosticSubject,
     isErrorDiagnostic,
   )
 import Jazz.Compiler.LoweredIR.Lower
@@ -138,34 +137,6 @@ testAnonymousLambdaResultAcceptance = do
     Just expectedProgram ->
       assertEqual "anonymous lambda module result acceptance" (TypedCoreProductionSucceeded expectedProgram) (typedCoreProductionStatus firstRun)
     Nothing -> failTest "anonymous lambda result expectation is missing"
-
-assertCompleteProduction :: Text -> Fixture -> IO ()
-assertCompleteProduction label fixture = do
-  ordinary <- inferFixture fixture
-  firstRun <- produceFixture fixture
-  secondRun <- produceFixture fixture
-  assertEqual (label <> " repeatable production") firstRun secondRun
-  assertEqual
-    (label <> " inference compatibility")
-    ordinary
-    (typedCoreProductionInferenceResult firstRun)
-  assertEqual
-    (label <> " diagnostics")
-    []
-    (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
-  case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded programValue -> do
-      assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
-      case lowerTypedCoreExpressionDirectCall programValue of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
-        _ -> failTest (label <> " did not lower successfully")
-    status ->
-      failTest
-        ( label
-            <> " did not produce typed core: "
-            <> Text.pack (show status)
-        )
 
 testProductionDiagnosticCompatibility :: IO ()
 testProductionDiagnosticCompatibility = do
@@ -392,21 +363,6 @@ testNumericPromotionRejection =
       assertEqual (name <> " repeatable production") firstRun secondRun
       assertEqual (name <> " structured rejection") expected (typedCoreProductionStatus firstRun)
 
-assertUnboundLater :: Text -> InferenceResult -> IO ()
-assertUnboundLater label = assertUnboundName label "later"
-
-assertUnboundName :: Text -> Text -> InferenceResult -> IO ()
-assertUnboundName label name inferenceResult =
-  assertEqual
-    (label <> " reports " <> name <> " as unbound")
-    True
-    ( ("E1001", Just name)
-        `elem` [ (diagnosticCodeText (diagnosticCode diagnostic), diagnosticSubject diagnostic)
-               | diagnostic <- inferredDiagnostics inferenceResult,
-                 isErrorDiagnostic diagnostic
-               ]
-    )
-
 testRejectedCallableProfile :: IO ()
 testRejectedCallableProfile =
   mapM_ assertRejected callableExpectedStatuses
@@ -453,139 +409,6 @@ callableRejectionNames =
     "imported-direct-call",
     "user-defined-operator-call"
   ]
-
-rejectedManifestExpectedStatuses :: [(Text, TypedCoreProductionStatus)]
-rejectedManifestExpectedStatuses =
-  [ ("source-diagnostic", TypedCoreProductionBlockedByDiagnostics),
-    ( "invalid-portable-source-path",
-      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail]
-    ),
-    ( "resolved-import",
-      unsupported [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreResolvedImportsUnsupported TypedCoreNoFailureDetail]
-    ),
-    ( "ambient-prelude-input",
-      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail]
-    ),
-    ( "text-value",
-      unsupported
-        [expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
-    ),
-    ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
-    ("non-unit-tuple", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
-    ( "data-value",
-      unsupported
-        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
-          expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
-        ]
-    ),
-    ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
-    ( "oversaturated-direct-call",
-      unsupported
-        [expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
-    ),
-    ( "later-capture-mutual-recursion",
-      unsupported
-        [statementFailure 4 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
-    ),
-    ( "transitive-later-capture-mutual-recursion",
-      unsupported
-        [statementFailure 6 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
-    ),
-    ( "interleaved-rebound-capture-mutual-recursion",
-      unsupported
-        [statementFailure 5 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
-    ),
-    ( "polymorphic-or-evidence-function",
-      unsupported
-        [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "identity"),
-          expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          expressionFailure 1 [0] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
-        ]
-    ),
-    ( "imported-direct-call",
-      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
-    ),
-    ( "user-defined-operator-call",
-      unsupported
-        [ statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
-        ]
-    )
-  ]
-  where
-    unsupported = TypedCoreProductionUnsupported
-    expressionFailure statementIndex childPath kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-        kind
-        detail
-    statementFailure statementIndex kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
-        kind
-        detail
-
-rejectedManifestFailureKinds :: [(Text, [TypedCoreProductionFailureKind])]
-rejectedManifestFailureKinds =
-  [ (name, statusFailureKinds status)
-  | (name, status) <- rejectedManifestExpectedStatuses
-  ]
-
-statusFailureKinds :: TypedCoreProductionStatus -> [TypedCoreProductionFailureKind]
-statusFailureKinds status =
-  case status of
-    TypedCoreProductionBlockedByDiagnostics -> []
-    TypedCoreProductionUnsupported failures ->
-      [ kind
-      | TypedCoreProductionFailure _ kind _ <- failures
-      ]
-    TypedCoreProductionInvariantFailures _ -> []
-    TypedCoreProductionSucceeded _ -> []
-
-resolveFixtureModule :: Fixture -> IO ResolvedModule
-resolveFixtureModule fixture = do
-  result <- resolveFixture fixture
-  case result of
-    Left failures ->
-      failTest
-        ( fixtureName fixture
-            <> " did not resolve through the module resolver: "
-            <> Text.pack (show failures)
-        )
-    Right resolvedModule -> pure resolvedModule
-
-inferFixture :: Fixture -> IO InferenceResult
-inferFixture fixture = do
-  resolvedModule <- resolveFixtureModule fixture
-  inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore resolvedModule))
-
-produceFixture :: Fixture -> IO TypedCoreProductionResult
-produceFixture fixture = do
-  resolvedModule <- resolveFixtureModule fixture
-  produceResolvedFixture fixture resolvedModule
-
-produceFixtureWithTrace :: Fixture -> IO (TypedCoreProductionResult, [FilePath])
-produceFixtureWithTrace fixture = do
-  lookupPaths <- newIORef []
-  resolvedResult <- resolveFixtureWithLookup fixture $ \path -> do
-    modifyIORef' lookupPaths (<> [path])
-    pure (Map.lookup path (fixtureSourceFiles fixture))
-  resolvedModule <-
-    case resolvedResult of
-      Left _ -> failTest (fixtureName fixture <> " did not resolve through the module resolver")
-      Right value -> pure value
-  productionResult <- produceResolvedFixture fixture resolvedModule
-  lookupPathsValue <- readIORef lookupPaths
-  pure (productionResult, lookupPathsValue)
-
-produceResolvedFixture :: Fixture -> ResolvedModule -> IO TypedCoreProductionResult
-produceResolvedFixture fixture resolvedModule =
-  inferResolvedModuleTypedCoreExpressionDirectCall
-    (fixtureInputs fixture)
-    (fixtureSourcePath fixture)
-    resolvedModule
 
 testNestedScalarLowering :: IO ()
 testNestedScalarLowering =
@@ -969,7 +792,7 @@ testInterveningScalarCanonicalOwnership :: Text -> IO ()
 testInterveningScalarCanonicalOwnership requestedName =
   case lookup requestedName expectedResults of
     Just expectedFailures -> assertExact requestedName expectedFailures
-    Nothing -> error "intervening scalar canonical ownership fixture has no expected result"
+    Nothing -> error ("intervening scalar canonical ownership fixture has no expected result: " <> Text.unpack requestedName)
   where
     expectedResults =
       [ ( "intervening-scalar-canonical-ownership",
@@ -1145,7 +968,7 @@ testRejectedCallableRebinding :: Text -> IO ()
 testRejectedCallableRebinding requestedName =
   case lookup requestedName expectedResults of
     Just expectedFailures -> assertExact requestedName expectedFailures
-    Nothing -> error "rejected callable rebinding fixture has no expected result"
+    Nothing -> error ("rejected callable rebinding fixture has no expected result: " <> Text.unpack requestedName)
   where
     expectedResults =
       [ ( "accepted-then-rejected-callable-rebinding",
@@ -1226,7 +1049,7 @@ testCanonicalCallableRebindingDependencies requestedName =
     Nothing ->
       case lookup requestedName expectedResults of
         Just expectedFailures -> assertExact requestedName expectedFailures
-        Nothing -> error "canonical callable rebinding fixture has no expected result"
+        Nothing -> error ("canonical callable rebinding fixture has no expected result: " <> Text.unpack requestedName)
   where
     acceptedGroups =
       [ ("canonical-self-recursion-no-prior", [[(1, "loop")]]),
@@ -1314,7 +1137,7 @@ testRejectedCallableDeclarationTransport :: Text -> IO ()
 testRejectedCallableDeclarationTransport requestedName =
   case lookup requestedName expectedResults of
     Just expectedFailures -> assertExact requestedName expectedFailures
-    Nothing -> error "rejected callable declaration fixture has no expected result"
+    Nothing -> error ("rejected callable declaration fixture has no expected result: " <> Text.unpack requestedName)
   where
     expectedResults =
       [ ( "rejected-self-alias-recursion",
@@ -1538,12 +1361,6 @@ testOperatorDependencyNames = do
         ]
     )
 
-producerEdgeFixture :: Text -> Fixture
-producerEdgeFixture name =
-  case lookup name producerEdgeFixtures of
-    Just fixture -> fixture
-    Nothing -> error "producer edge fixture is missing"
-
 testDiagnosticPrecedence :: IO ()
 testDiagnosticPrecedence = do
   let sourceDiagnosticFixture = fixtureByName "source-diagnostic"
@@ -1706,10 +1523,3 @@ withExpression expression moduleValue =
           []
           expression
     }
-
-fixtureByName :: Text -> Fixture
-fixtureByName name =
-  case filter ((== name) . fixtureName) fixtures of
-    [fixture] -> fixture
-    [] -> error ("fixture is missing: " <> Text.unpack name)
-    _ -> error ("fixture name is ambiguous: " <> Text.unpack name)

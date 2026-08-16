@@ -1091,7 +1091,10 @@ builtinCatalogProgram =
       ]
     statements =
       zipWith expressionStatement [1 ..] builtinExpressions
-    terminalInfo = builtinCatalogInfo BuiltinExit
+    terminalInfo =
+      case reverse builtinExpressions of
+        expression : _ -> typedExpressionInfo expression
+        [] -> error "builtin catalog fixture has no expressions"
 
 builtinAcceptedNames :: BuiltinSymbol -> [Text]
 builtinAcceptedNames symbol =

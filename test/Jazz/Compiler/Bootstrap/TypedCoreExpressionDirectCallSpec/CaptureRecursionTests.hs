@@ -6,7 +6,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (Literal (..), NumericType (NumericUInt8))
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
@@ -29,6 +29,16 @@ import Jazz.Compiler.TypeInference.Types
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.TestHarness (assertEqual, failTest)
+
+recursiveLoopDeclaration :: Int -> SourceSpan -> ExpressionType -> ProvisionalCallableDeclaration
+recursiveLoopDeclaration statementIndex spanValue functionType =
+  ProvisionalCallableDeclaration
+    statementIndex
+    "loop"
+    spanValue
+    functionType
+    (Just (PlainTypeBinding functionType))
+    (Just [statementIndex])
 
 testNarrowLiteralDirectCall :: IO ()
 testNarrowLiteralDirectCall =
@@ -73,14 +83,7 @@ testCapturedNumericScalarReferenceSpecialization = do
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -123,14 +126,7 @@ testCapturedCompositeScalarSpecialization = do
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -170,14 +166,7 @@ testCapturedCompositeScalarBinderSpecialization = do
       otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          2
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [2])
+      loopDeclaration = recursiveLoopDeclaration 2 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -224,14 +213,7 @@ testCapturedComparisonResultSpecialization = do
       comparisonOperandType = TIntegerLiteralType (IntegerLiteralRange 1 2)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -277,14 +259,7 @@ testCapturedFunctionBodySpecialization = do
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -343,14 +318,7 @@ testCapturedFunctionParameterSpecialization = do
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -414,14 +382,7 @@ testCapturedCallableParameterApplicationSpecialization = do
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       callbackFunctionType = TFunctionType literalType literalType
       helperFunctionType = TFunctionType callbackFunctionType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -484,14 +445,7 @@ testCapturedFunctionScalarBinderSpecialization = do
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          2
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [2])
+      loopDeclaration = recursiveLoopDeclaration 2 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           3
@@ -561,14 +515,7 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          2
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [2])
+      loopDeclaration = recursiveLoopDeclaration 2 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           3
@@ -637,14 +584,7 @@ testCapturedFunctionResultScalarBinderSpecialization = do
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -714,14 +654,7 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
       applyFunctionType = TFunctionType helperFunctionType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -805,14 +738,7 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
       helperFunctionType = TFunctionType literalType literalType
       applyFunctionType = TFunctionType helperFunctionType literalType
       forwardFunctionType = TFunctionType helperFunctionType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -916,14 +842,7 @@ testCapturedTerminalAnonymousCallableSpecialization = do
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       anonymousFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -972,14 +891,7 @@ testCapturedNamedCallerSpecialization = do
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
       consumerFunctionType = TFunctionType literalType literalType
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          "loop"
-          spanValue
-          recursiveFunctionType
-          (Just (PlainTypeBinding recursiveFunctionType))
-          (Just [1])
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
@@ -1060,14 +972,7 @@ testCapturedScalarAliasSourceSpecialization = do
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          2
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [2])
+      loopDeclaration = recursiveLoopDeclaration 2 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -1110,14 +1015,7 @@ testRecordedScalarStatementIndices = do
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          3
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [3])
+      loopDeclaration = recursiveLoopDeclaration 3 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -1161,14 +1059,7 @@ testEagerRecursiveClosureCaptureAvailability = do
       literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          3
-          "loop"
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [3])
+      loopDeclaration = recursiveLoopDeclaration 3 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
@@ -1236,14 +1127,7 @@ testEagerNestedClosureCaptureAvailability = do
           invokeType
           (Just (PlainTypeBinding invokeType))
           Nothing
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          4
-          "loop"
-          spanValue
-          callbackType
-          (Just (PlainTypeBinding callbackType))
-          (Just [4])
+      loopDeclaration = recursiveLoopDeclaration 4 spanValue callbackType
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalFunctionBinding

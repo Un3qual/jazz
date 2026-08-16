@@ -68,7 +68,7 @@ validProgram fixtureName =
     "multi-module-interface" -> multiModuleInterfaceProgram
     "lexical-capture" -> lexicalCaptureProgram
     "curried-applications" -> curriedApplicationsProgram
-    _ -> error "unknown valid typed-core fixture"
+    _ -> error ("unknown valid typed-core fixture: " <> Text.unpack fixtureName)
 
 scalarAliasesWidthsProgram :: TypedProgram
 scalarAliasesWidthsProgram =
