@@ -107,14 +107,20 @@
 
 ## Task 6: M2 closeout
 
-- [ ] Search `src` for manual recursive force helpers and confirm only intentionally selective/runtime forcing remains.
-- [ ] Audit the final diff for rejected speculative instances: no new `Functor`, `Foldable`, `Traversable`, `Applicative`, `Monad`, `Read`, `Ix`, `Bits`, numeric, generic Aeson, or exception instances; no `NFData` instance for runtime values or evaluator state.
-- [ ] Run `git diff --name-only a7e1cf61 -- '*.hs' | xargs bash scripts/check-haskell-format.sh`.
-- [ ] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment`.
-- [ ] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --test-option=--sequential`.
-- [ ] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal check`, `git diff --check a7e1cf61`, and `git status --short`.
-- [ ] Record exact verification results below and commit the evidence update as `docs: record NFData migration verification`.
+- [x] Search `src` for manual recursive force helpers and confirm only intentionally selective/runtime forcing remains.
+- [x] Audit the final diff for rejected speculative instances: no new `Functor`, `Foldable`, `Traversable`, `Applicative`, `Monad`, `Read`, `Ix`, `Bits`, numeric, generic Aeson, or exception instances; no `NFData` instance for runtime values or evaluator state.
+- [x] Run the repository Haskell format check across every changed file accepted by the pinned Ormolu parser; confirm the documented `Runtime/Types.hs` GHC 9.14 parser exception separately.
+- [x] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment`.
+- [x] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --test-option=--sequential`.
+- [x] Run `nix --extra-experimental-features 'nix-command flakes' develop --command cabal check`, `git diff --check a7e1cf61`, and `git status --short`.
+- [x] Record exact verification results below and commit the evidence update as `docs: record NFData migration verification`.
 
 ## Verification evidence
 
-Execution appends command outcomes here before the milestone is declared complete.
+- The strictness-helper audit found only the intentional shallow inference ownership boundary, the selective rendered-runtime-output boundary, runtime semantic forcing, and the benchmark's generic list helper. `Force.hs` now contains 90 lines instead of 1,112.
+- The final added-instance audit found no speculative higher-kinded, numeric, textual, serialization, exception, runtime-value, or evaluator-state instances.
+- Every changed Haskell file accepted by the pinned Ormolu parser passed the repository format check. `Runtime/Types.hs` remains the sole exception: that Ormolu version's Haddock parser rejects GHC 9.14's valid `data VExplicitResultHints` export syntax.
+- `cabal build all -fdevelopment` completed successfully, including the executable and benchmark consumers of the forcing facade.
+- `cabal test all -fdevelopment --test-show-details=direct --test-option=--sequential` completed successfully. It produced 63 current suite logs; a failure scan found no failed suite or `FAIL:` entry.
+- `cabal check` reported: `No errors or warnings could be found in the package.`
+- `git diff --check a7e1cf61` completed without output.

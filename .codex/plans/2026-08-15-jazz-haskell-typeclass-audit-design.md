@@ -192,9 +192,12 @@ entry points delegate to `rnf`. This retains useful names such as
 `forceInferenceResult`, `forceTypedProgram`, and `forceLoweredProgram` while
 removing the parallel structural traversal.
 
-Unused forcing exports with no active source or test consumers, including
-surface-parser/token forcing and generic list forcing, will be removed rather
-than migrated speculatively.
+The implementation audit found that the benchmark target consumes
+`forceCompiledModules`, `forceExpr`, `forceSurfaceExpr`, `forceTokens`, and
+`forceListWith` through `Jazz.Benchmark.Force`. Those APIs remain. Canonical,
+surface-parser, and token forcing delegate to declaration-local `NFData`
+instances; `forceListWith` remains the small generic boundary used for
+benchmark-owned structures that are outside the compiler library contract.
 
 ### Selective forcing preserved
 
