@@ -505,7 +505,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
         ProvisionalVariableExpression name expressionType
           | Just constructor <- structuredConstructorBySourceName structuredCatalog name ->
-              case structuredConstructorFieldTypes constructor of
+              case structuredConstructorFieldContracts constructor of
                 [] ->
                   case concreteConstructorContract structuredCatalog finalizationState constructor expressionType of
                     Just (_, resultInfo, instantiations) ->
@@ -930,7 +930,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
     finalizeStructuredConstructorApplication structuredCatalog finalizationEnv finalizationLocation constructor expression finalizedArguments argumentFailures =
       let statementIndex = finalizationStatementIndex finalizationLocation
           childPath = finalizationChildPath finalizationLocation
-          expectedArity = length (structuredConstructorFieldTypes constructor)
+          expectedArity = length (structuredConstructorFieldContracts constructor)
           actualArity = length finalizedArguments
           arityFailures =
             [ failureAt statementIndex childPath TypedCoreCallArityUnsupported (TypedCoreArityDetail expectedArity actualArity)
@@ -1003,9 +1003,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       guard (length concreteArguments == length (structuredConstructorParameters constructor))
       parameterContracts <- traverse parameterContract concreteArguments
       let bindings = Map.fromList (zip (structuredConstructorParameters constructor) parameterContracts)
-      fieldTypes <- traverse (substituteStructuredType bindings) (structuredConstructorFieldTypes constructor)
-      fieldRecipes <- traverse (substituteStructuredRecipe bindings) (structuredConstructorFieldRecipes constructor)
-      let fieldInfos = zipWith (\typeValue recipe -> TypedNodeInfo typeValue recipe [] []) fieldTypes fieldRecipes
+      fieldContracts <- traverse (substituteFieldContract bindings) (structuredConstructorFieldContracts constructor)
+      let fieldInfos =
+            [ TypedNodeInfo typeValue recipe [] []
+            | (typeValue, recipe) <- fieldContracts
+            ]
           instantiations =
             [ TypedInstantiation
                 (structuredConstructorBinder constructor)
@@ -1022,6 +1024,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         parameterContract typeValue = do
           recipe <- representationRecipeForTypedType typeValue
           pure (typeValue, recipe)
+        substituteFieldContract bindings (typeValue, recipe) =
+          (,)
+            <$> substituteStructuredType bindings typeValue
+            <*> substituteStructuredRecipe bindings recipe
 
     substituteStructuredType bindings typeValue =
       case typeValue of

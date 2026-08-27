@@ -11,6 +11,7 @@ import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( constructorLayoutFor,
+    managedLayoutShapeFor,
     orderedManagedLayouts,
     representationForRecipe,
   )
@@ -66,7 +67,7 @@ emitAnalyzedModule analysis =
     functionIndex = analyzedFunctionIndex analysis
     resultRepresentation = analyzedResultRepresentation analysis
     runtimeRequirements = analyzedRuntimeRequirements analysis
-    managedLayoutCatalog = analyzedManagedLayoutCatalog analysis
+    managedLayoutCatalog = indexedManagedLayoutCatalog functionIndex
     entryFunctionId =
       LoweredFunctionId (Text.intercalate "::" (modulePath <> ["$entry"]))
     entryBlockId = LoweredBlockId "entry"
@@ -761,7 +762,7 @@ lowerNullaryManagedVariant path managedLayoutCatalog info constructor state
       let (operand, nextState) =
             emitManagedConstruction
               resultRepresentation
-              (LoweredConstructVariant layoutId (managedConstructorTag constructor) [])
+              (LoweredConstructVariant layoutId (fromIntegral (managedConstructorTag constructor)) [])
               state
        in ([], Just operand, nextState)
   | otherwise = unsupportedExpression path state
@@ -842,11 +843,8 @@ emitManagedConstruction representation operation state =
 
 productLayoutFields :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe [LoweredRepresentation]
 productLayoutFields managedLayoutCatalog expectedId =
-  case [ fields
-       | LoweredLayout layoutId (LoweredProductLayout fields) <- orderedManagedLayouts managedLayoutCatalog,
-         layoutId == expectedId
-       ] of
-    [fields] -> Just fields
+  case managedLayoutShapeFor managedLayoutCatalog expectedId of
+    Just (LoweredProductLayout fields) -> Just fields
     _ -> Nothing
 
 nodeInstantiations :: TypedNodeInfo -> [TypedInstantiation]
@@ -1853,7 +1851,7 @@ lowerManagedVariantApplication modulePath statementPath expressionPath path func
                       let (operand, nextState) =
                             emitManagedConstruction
                               resultRepresentation
-                              (LoweredConstructVariant layoutId (managedConstructorTag constructor) operands)
+                              (LoweredConstructVariant layoutId (fromIntegral (managedConstructorTag constructor)) operands)
                               argumentState
                        in ([], Just operand, nextState)
                 ([], _, argumentState) -> unsupportedExpression path argumentState

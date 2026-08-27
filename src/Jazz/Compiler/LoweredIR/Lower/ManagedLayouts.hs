@@ -6,13 +6,19 @@ module Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     ManagedLayoutCatalog,
     collectManagedLayoutCatalog,
     orderedManagedLayouts,
+    managedLayoutShapeFor,
     representationForRecipe,
     constructorLayoutFor,
   )
 where
 
+import Control.Monad (foldM, join)
+import Data.Bifunctor (first)
+import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq, (|>))
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -27,11 +33,11 @@ import Jazz.Compiler.LoweredIR.Lower.Types
   )
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textRepresentation)
 import Jazz.Compiler.TypedCore
+import Numeric.Natural (Natural)
 
 data CatalogBuild = CatalogBuild
-  { buildSeen :: Set.Set LoweredLayoutId,
-    buildOrder :: [LoweredLayoutId],
-    buildShapes :: Map LoweredLayoutId LoweredLayoutShape
+  { buildOrder :: Seq LoweredLayoutId,
+    buildShapes :: Map LoweredLayoutId (Maybe LoweredLayoutShape)
   }
 
 collectManagedLayoutCatalog :: TypedModule -> Either [LoweredIRLoweringFailure] ManagedLayoutCatalog
@@ -39,8 +45,8 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
   finalBuild <- collectModuleRecipes declarations modulePath typedModule emptyBuild
   layouts <-
     case traverse
-      (\layoutId -> LoweredLayout layoutId <$> Map.lookup layoutId (buildShapes finalBuild))
-      (buildOrder finalBuild) of
+      (\layoutId -> LoweredLayout layoutId <$> join (Map.lookup layoutId (buildShapes finalBuild)))
+      (toList (buildOrder finalBuild)) of
       Just values -> Right values
       Nothing ->
         Left
@@ -52,9 +58,12 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
   pure
     ManagedLayoutCatalog
       { catalogModulePath = modulePath,
-        catalogDataDeclarations = declarations,
         catalogConstructors = constructors,
-        catalogLayoutIds = buildSeen finalBuild,
+        catalogLayoutShapes =
+          Map.fromList
+            [ (layoutId, shape)
+            | LoweredLayout layoutId shape <- layouts
+            ],
         catalogLayouts = layouts
       }
   where
@@ -66,15 +75,15 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
             ConstructorTemplate
               { constructorTemplateDataName = dataDeclarationName declaration,
                 constructorTemplateParameters = dataDeclarationParameters declaration,
-                constructorTemplateTag = fromIntegral tag,
+                constructorTemplateTag = tag,
                 constructorTemplateFieldRecipes = fieldRecipes
               }
           )
         | declaration <- declarationValues,
-          (tag, TypedConstructorDeclaration binder _ _ fieldRecipes) <- zip [0 :: Int ..] (dataDeclarationConstructors declaration)
+          (tag, TypedConstructorDeclaration binder _ _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
         ]
 
-    emptyBuild = CatalogBuild Set.empty [] Map.empty
+    emptyBuild = CatalogBuild Seq.empty Map.empty
 
     collectModuleRecipes dataDeclarations path (TypedModule _ _ _ _ interface _ moduleStatements info) build = do
       afterInterface <- collectInterface dataDeclarations path interface build
@@ -84,6 +93,9 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
 orderedManagedLayouts :: ManagedLayoutCatalog -> [LoweredLayout]
 orderedManagedLayouts = catalogLayouts
 
+managedLayoutShapeFor :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe LoweredLayoutShape
+managedLayoutShapeFor catalog layoutId = Map.lookup layoutId (catalogLayoutShapes catalog)
+
 representationForRecipe :: ManagedLayoutCatalog -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
 representationForRecipe catalog = representationForKnownRecipe catalog
 
@@ -91,16 +103,19 @@ constructorLayoutFor :: ManagedLayoutCatalog -> TypedBinderId -> [TypedInstantia
 constructorLayoutFor catalog binder instantiations = do
   constructor <- Map.lookup binder (catalogConstructors catalog)
   bindings <- constructorBindings constructor binder instantiations
-  concreteRecipes <- traverse (substituteRecipe bindings) (constructorTemplateFieldRecipes constructor)
+  concreteRecipes <-
+    either
+      (const Nothing)
+      Just
+      (traverse (substituteRecipe bindings) (constructorTemplateFieldRecipes constructor))
   fieldRepresentations <- traverse (representationForKnownRecipe catalog) concreteRecipes
-  let dataArguments =
-        [ argument
-        | parameter <- constructorTemplateParameters constructor,
-          (argument, _) <- maybeToList (Map.lookup parameter bindings)
-        ]
-      variantRecipe = TypedManagedVariantRecipe (constructorTemplateDataName constructor) dataArguments
+  dataArguments <-
+    traverse
+      (\parameter -> fst <$> Map.lookup parameter bindings)
+      (constructorTemplateParameters constructor)
+  let variantRecipe = TypedManagedVariantRecipe (constructorTemplateDataName constructor) dataArguments
   layoutId <- managedLayoutId (catalogModulePath catalog) variantRecipe
-  if Set.member layoutId (catalogLayoutIds catalog)
+  if Map.member layoutId (catalogLayoutShapes catalog)
     then
       Just
         ManagedConstructorLayout
@@ -234,7 +249,7 @@ collectRecipe declarations modulePath path build recipe =
     collectProduct fields = do
       layoutId <- maybe failure Right (managedLayoutId modulePath recipe)
       let representation = LoweredManagedReferenceRepresentation layoutId
-      if Set.member layoutId (buildSeen build)
+      if Map.member layoutId (buildShapes build)
         then Right (representation, build)
         else do
           let reserved = reserveLayout layoutId build
@@ -249,7 +264,7 @@ collectRecipe declarations modulePath path build recipe =
         else do
           layoutId <- maybe failure Right (managedLayoutId modulePath recipe)
           let representation = LoweredManagedReferenceRepresentation layoutId
-          if Set.member layoutId (buildSeen build)
+          if Map.member layoutId (buildShapes build)
             then Right (representation, build)
             else do
               bindings <- maybe failure Right (typeBindings parameters arguments)
@@ -267,20 +282,16 @@ collectRecipes declarations modulePath path = go []
       go (representation : reversed) nextBuild rest
 
 collectConstructors :: Map TypedCoreName TypedDataDeclaration -> [Text] -> TypedCoreValidationPath -> Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) -> CatalogBuild -> [TypedConstructorDeclaration] -> Either [LoweredIRLoweringFailure] ([LoweredVariantLayout], CatalogBuild)
-collectConstructors declarations modulePath path bindings = go 0 []
+collectConstructors declarations modulePath path bindings = go (0 :: Natural) []
   where
     go _ reversed build [] = Right (reverse reversed, build)
     go tag reversed build (TypedConstructorDeclaration _ _ _ fieldRecipes : rest) = do
       concreteRecipes <-
         case traverse (substituteRecipe bindings) fieldRecipes of
-          Just recipes -> Right recipes
-          Nothing ->
-            case [recipe | recipe <- fieldRecipes, substituteRecipe bindings recipe == Nothing] of
-              recipe : _ -> Left [unsupportedRepresentation path recipe]
-              [] -> failure
+          Right recipes -> Right recipes
+          Left recipe -> Left [unsupportedRepresentation path recipe]
       (fieldRepresentations, nextBuild) <- collectRecipes declarations modulePath path build concreteRecipes
-      go (tag + 1) (LoweredVariantLayout tag fieldRepresentations : reversed) nextBuild rest
-    failure = Left [LoweredIRLoweringFailure path LoweredIRUnsupportedRepresentation LoweredIRNoFailureDetail]
+      go (tag + 1) (LoweredVariantLayout (fromIntegral tag) fieldRepresentations : reversed) nextBuild rest
 
 representationForKnownRecipe :: ManagedLayoutCatalog -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
 representationForKnownRecipe catalog recipe =
@@ -302,7 +313,7 @@ representationForKnownRecipe catalog recipe =
   where
     managedReference = do
       layoutId <- managedLayoutId (catalogModulePath catalog) recipe
-      if Set.member layoutId (catalogLayoutIds catalog)
+      if Map.member layoutId (catalogLayoutShapes catalog)
         then Just (LoweredManagedReferenceRepresentation layoutId)
         else Nothing
 
@@ -331,18 +342,19 @@ typeBindings parameters arguments = do
   recipes <- traverse recipeForType arguments
   pure (Map.fromList (zip parameters (zip arguments recipes)))
 
-substituteRecipe :: Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) -> TypedRepresentationRecipe -> Maybe TypedRepresentationRecipe
+substituteRecipe :: Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) -> TypedRepresentationRecipe -> Either TypedRepresentationRecipe TypedRepresentationRecipe
 substituteRecipe bindings recipe =
   case recipe of
     TypedManagedListRecipe element -> TypedManagedListRecipe <$> child element
     TypedManagedProductRecipe fields -> TypedManagedProductRecipe <$> traverse child fields
-    TypedManagedVariantRecipe dataName arguments -> TypedManagedVariantRecipe dataName <$> traverse substituteType arguments
+    TypedManagedVariantRecipe dataName arguments ->
+      TypedManagedVariantRecipe dataName
+        <$> maybe (Left recipe) Right (traverse (substituteTypedType bindings) arguments)
     TypedClosureRecipe arguments result -> TypedClosureRecipe <$> traverse child arguments <*> child result
-    TypedRepresentationParameterRecipe parameter -> snd <$> Map.lookup parameter bindings
-    _ -> Just recipe
+    TypedRepresentationParameterRecipe parameter -> maybe (Left recipe) (Right . snd) (Map.lookup parameter bindings)
+    _ -> Right recipe
   where
-    child = substituteRecipe bindings
-    substituteType typeValue = substituteTypedType bindings typeValue
+    child = first (const recipe) . substituteRecipe bindings
 
 substituteTypedType :: Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) -> TypedType -> Maybe TypedType
 substituteTypedType bindings typeValue =
@@ -494,13 +506,13 @@ patternChildren patternValue =
 reserveLayout :: LoweredLayoutId -> CatalogBuild -> CatalogBuild
 reserveLayout layoutId build =
   build
-    { buildSeen = Set.insert layoutId (buildSeen build),
-      buildOrder = buildOrder build <> [layoutId]
+    { buildOrder = buildOrder build |> layoutId,
+      buildShapes = Map.insert layoutId Nothing (buildShapes build)
     }
 
 defineLayout :: LoweredLayoutId -> LoweredLayoutShape -> CatalogBuild -> CatalogBuild
 defineLayout layoutId shape build =
-  build {buildShapes = Map.insert layoutId shape (buildShapes build)}
+  build {buildShapes = Map.insert layoutId (Just shape) (buildShapes build)}
 
 unsupportedRepresentation :: TypedCoreValidationPath -> TypedRepresentationRecipe -> LoweredIRLoweringFailure
 unsupportedRepresentation path recipe =
@@ -542,23 +554,11 @@ floatWidth bits =
     64 -> Just LoweredFloatWidth64
     _ -> Nothing
 
-foldM :: (state -> value -> Either failure state) -> state -> [value] -> Either failure state
-foldM _ state [] = Right state
-foldM step state (value : rest) = do
-  next <- step state value
-  foldM step next rest
-
 single :: [value] -> Maybe value
 single values =
   case values of
     [value] -> Just value
     _ -> Nothing
-
-maybeToList :: Maybe value -> [value]
-maybeToList maybeValue =
-  case maybeValue of
-    Just value -> [value]
-    Nothing -> []
 
 typeArgumentParameter :: TypedTypeArgument -> TypedTypeParameterId
 typeArgumentParameter (TypedTypeArgument parameter _) = parameter

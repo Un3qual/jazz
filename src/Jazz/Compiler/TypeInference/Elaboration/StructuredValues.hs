@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Finalization contracts for retained products and local data declarations.
 module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   ( StructuredConstructor (..),
@@ -11,6 +9,8 @@ module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   )
 where
 
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -37,18 +37,7 @@ data StructuredConstructor = StructuredConstructor
     structuredConstructorName :: TypedCoreName,
     structuredConstructorDataName :: TypedCoreName,
     structuredConstructorParameters :: [TypedTypeParameterId],
-    structuredConstructorFieldTypes :: [TypedType],
-    structuredConstructorFieldRecipes :: [TypedRepresentationRecipe],
-    structuredConstructorTag :: Integer
-  }
-  deriving (Eq, Show)
-
-data StructuredData = StructuredData
-  { structuredDataSourceName :: Name,
-    structuredDataName :: TypedCoreName,
-    structuredDataStatementIndex :: Int,
-    structuredDataParameters :: [TypedTypeParameterId],
-    structuredDataTypedStatement :: TypedStatement
+    structuredConstructorFieldContracts :: [(TypedType, TypedRepresentationRecipe)]
   }
   deriving (Eq, Show)
 
@@ -63,10 +52,9 @@ data StructuredDataSkeleton = StructuredDataSkeleton
   deriving (Eq, Show)
 
 data StructuredValueCatalog = StructuredValueCatalog
-  { catalogDataBySourceName :: Map Name StructuredData,
-    catalogDataSkeletons :: Map Name StructuredDataSkeleton,
+  { catalogDataSkeletons :: Map Name StructuredDataSkeleton,
     catalogConstructorsBySourceName :: Map Name StructuredConstructor,
-    catalogStatementsByIndex :: Map Int TypedStatement
+    catalogStatementsByIndex :: IntMap TypedStatement
   }
   deriving (Eq, Show)
 
@@ -79,19 +67,14 @@ buildStructuredValueCatalog modulePath state statements = do
   let skeletons = mapMaybeSkeleton statements
       skeletonMap = Map.fromList [(skeletonSourceName skeleton, skeleton) | skeleton <- skeletons]
   resolvedData <- traverse (resolveData skeletonMap) skeletons
-  let dataBySourceName = Map.fromList [(structuredDataSourceName dataValue, dataValue) | (dataValue, _) <- resolvedData]
-      constructors = concatMap snd resolvedData
+  let constructors = concatMap snd resolvedData
       constructorsBySourceName =
         Map.fromList [(structuredConstructorSourceName constructor, constructor) | constructor <- constructors]
       statementsByIndex =
-        Map.fromList
-          [ (structuredDataStatementIndex dataValue, structuredDataTypedStatement dataValue)
-          | (dataValue, _) <- resolvedData
-          ]
+        IntMap.fromList [statementEntry | (statementEntry, _) <- resolvedData]
   pure
     StructuredValueCatalog
-      { catalogDataBySourceName = dataBySourceName,
-        catalogDataSkeletons = skeletonMap,
+      { catalogDataSkeletons = skeletonMap,
         catalogConstructorsBySourceName = constructorsBySourceName,
         catalogStatementsByIndex = statementsByIndex
       }
@@ -122,15 +105,8 @@ buildStructuredValueCatalog modulePath state statements = do
               (skeletonName skeleton)
               (skeletonParameters skeleton)
               (map constructorDeclaration constructors)
-          dataValue =
-            StructuredData
-              { structuredDataSourceName = skeletonSourceName skeleton,
-                structuredDataName = skeletonName skeleton,
-                structuredDataStatementIndex = skeletonStatementIndex skeleton,
-                structuredDataParameters = skeletonParameters skeleton,
-                structuredDataTypedStatement = TypedDataStatement declaration
-              }
-      pure (dataValue, constructors)
+          statementEntry = (skeletonStatementIndex skeleton, TypedDataStatement declaration)
+      pure (statementEntry, constructors)
 
     resolveConstructor skeletonMap skeleton constructorIndex (ProvisionalConstructorDeclaration sourceName fieldTemplates) = do
       let parameterVariables =
@@ -152,17 +128,16 @@ buildStructuredValueCatalog modulePath state statements = do
             structuredConstructorName = name,
             structuredConstructorDataName = skeletonName skeleton,
             structuredConstructorParameters = skeletonParameters skeleton,
-            structuredConstructorFieldTypes = map fst fieldContracts,
-            structuredConstructorFieldRecipes = map snd fieldContracts,
-            structuredConstructorTag = fromIntegral constructorIndex
+            structuredConstructorFieldContracts = fieldContracts
           }
 
     constructorDeclaration constructor =
-      TypedConstructorDeclaration
-        (structuredConstructorBinder constructor)
-        (structuredConstructorName constructor)
-        (structuredConstructorFieldTypes constructor)
-        (structuredConstructorFieldRecipes constructor)
+      let (fieldTypes, fieldRecipes) = unzip (structuredConstructorFieldContracts constructor)
+       in TypedConstructorDeclaration
+            (structuredConstructorBinder constructor)
+            (structuredConstructorName constructor)
+            fieldTypes
+            fieldRecipes
 
     statementFailure statementIndex =
       TypedCoreProductionFailure
@@ -171,7 +146,7 @@ buildStructuredValueCatalog modulePath state statements = do
         TypedCoreDataValueDetail
 
 structuredDataStatement :: StructuredValueCatalog -> Int -> Maybe TypedStatement
-structuredDataStatement catalog statementIndex = Map.lookup statementIndex (catalogStatementsByIndex catalog)
+structuredDataStatement catalog statementIndex = IntMap.lookup statementIndex (catalogStatementsByIndex catalog)
 
 structuredNodeInfo :: StructuredValueCatalog -> InferState -> ExpressionType -> Maybe TypedNodeInfo
 structuredNodeInfo catalog state expressionType = do

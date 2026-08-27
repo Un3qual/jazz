@@ -25,6 +25,7 @@ import Data.Text (Text)
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (RuntimeServiceKey)
 import Jazz.Compiler.TypedCore
+import Numeric.Natural (Natural)
 
 data LoweredIRLoweringKind
   = LoweredIRUnsupportedProgram
@@ -151,7 +152,7 @@ data FunctionIndex = FunctionIndex
 
 data ManagedConstructorLayout = ManagedConstructorLayout
   { managedConstructorLayoutId :: LoweredLayoutId,
-    managedConstructorTag :: Integer,
+    managedConstructorTag :: Natural,
     managedConstructorFields :: [LoweredRepresentation]
   }
   deriving (Eq, Show)
@@ -159,15 +160,14 @@ data ManagedConstructorLayout = ManagedConstructorLayout
 data ConstructorTemplate = ConstructorTemplate
   { constructorTemplateDataName :: TypedCoreName,
     constructorTemplateParameters :: [TypedTypeParameterId],
-    constructorTemplateTag :: Integer,
+    constructorTemplateTag :: Natural,
     constructorTemplateFieldRecipes :: [TypedRepresentationRecipe]
   }
 
 data ManagedLayoutCatalog = ManagedLayoutCatalog
   { catalogModulePath :: [Text],
-    catalogDataDeclarations :: Map.Map TypedCoreName TypedDataDeclaration,
     catalogConstructors :: Map.Map TypedBinderId ConstructorTemplate,
-    catalogLayoutIds :: Set.Set LoweredLayoutId,
+    catalogLayoutShapes :: Map.Map LoweredLayoutId LoweredLayoutShape,
     catalogLayouts :: [LoweredLayout]
   }
 
@@ -177,6 +177,5 @@ data LoweringAnalysis = LoweringAnalysis
     analyzedFunctionShapes :: [FunctionShape],
     analyzedFunctionIndex :: FunctionIndex,
     analyzedResultRepresentation :: LoweredRepresentation,
-    analyzedRuntimeRequirements :: RuntimeRequirements,
-    analyzedManagedLayoutCatalog :: ManagedLayoutCatalog
+    analyzedRuntimeRequirements :: RuntimeRequirements
   }

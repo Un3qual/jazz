@@ -29,6 +29,7 @@ import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( collectManagedLayoutCatalog,
     constructorLayoutFor,
+    managedLayoutShapeFor,
     orderedManagedLayouts,
     representationForRecipe,
   )
@@ -61,8 +62,7 @@ analyzeTypedModuleWithCatalog managedLayoutCatalog typedModule@(TypedModule modu
                 analyzedResultRepresentation = resultRepresentation,
                 analyzedRuntimeRequirements =
                   collectRuntimeRequirements typedModule
-                    <> requirementsForManagedLayouts (orderedManagedLayouts managedLayoutCatalog),
-                analyzedManagedLayoutCatalog = managedLayoutCatalog
+                    <> requirementsForManagedLayouts (orderedManagedLayouts managedLayoutCatalog)
               }
         Nothing ->
           Left
@@ -1331,11 +1331,8 @@ constructorApplicationLayout managedLayoutCatalog callee =
 
 productLayoutFields :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe [LoweredRepresentation]
 productLayoutFields managedLayoutCatalog expectedId =
-  case [ fields
-       | LoweredLayout layoutId (LoweredProductLayout fields) <- orderedManagedLayouts managedLayoutCatalog,
-         layoutId == expectedId
-       ] of
-    [fields] -> Just fields
+  case managedLayoutShapeFor managedLayoutCatalog expectedId of
+    Just (LoweredProductLayout fields) -> Just fields
     _ -> Nothing
 
 nodeInstantiations :: TypedNodeInfo -> [TypedInstantiation]
