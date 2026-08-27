@@ -1,6 +1,6 @@
 # RFC 0015: Typed-core managed products and variants
 
-Status: Proposed
+Status: Accepted
 Date: 2026-08-27
 Supersedes: None.
 

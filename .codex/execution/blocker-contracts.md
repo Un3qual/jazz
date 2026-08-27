@@ -165,11 +165,11 @@ Each blocked item should answer these questions:
   opt-in expression profile plus strict equality, length, append, and
   append-char through one semantic Text layout and exact pure runtime-service
   dependencies.
-- Proposed decision: [RFC 0015: Typed-core managed products and variants](../../rfcs/proposed/0015-typed-core-managed-products-and-variants.md)
-  would authorize local tuple and ADT construction, deterministic product and
-  variant layouts, established-boundary transport, and a later independently
-  total managed-pattern decision tree. Its detailed design is recorded in
-  [the managed products and variants design](../plans/2026-08-27-jazz-typed-core-managed-products-variants-design.md).
+- Accepted decision: [RFC 0015: Typed-core managed products and variants](../../rfcs/accepted/0015-typed-core-managed-products-and-variants.md)
+  authorizes local tuple and ADT construction, deterministic product and
+  variant layouts, established-boundary transport, and a separately delivered
+  independently total managed-pattern decision tree. Its detailed design is
+  recorded in [the managed products and variants design](../plans/2026-08-27-jazz-typed-core-managed-products-variants-design.md).
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -245,21 +245,28 @@ Each blocked item should answer these questions:
   length, append, and append-char, deduplicated in catalog order. Inequality
   reuses equality followed by Boolean-not. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: maintainer review and acceptance of proposed RFC 0015,
-  followed by an aligned implementation plan for its first ordered child.
-- Decision needed: accept, revise, or reject RFC 0015's exact layout identity,
-  construction, transport, failure-boundary, and child-order contracts.
-- Recommended default: keep `Ready Now` empty and retain the sole curation
-  target until the proposal is accepted without unresolved contract questions.
+- Smallest unblocker: execute
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001` through
+  the exact accepted plan and verified closeout.
+- Decision needed: none. RFC 0015's layout identity, construction, transport,
+  failure boundary, and child order are accepted.
+- Recommended default: execute the single `Ready Now` child. Do not pre-seed
+  managed pattern implementation until construction and transport close green.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`,
+- Target paths: `src/Jazz/Compiler/TypeInference.hs`,
+  `src/Jazz/Compiler/TypeInference/Scope.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs`,
   `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs`,
-  and
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs`.
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/Source.hs`,
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs`,
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/BoundaryTests.hs`,
+  and `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CallTests.hs`.
 - Verification:
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`

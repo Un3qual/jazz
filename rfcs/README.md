@@ -18,22 +18,23 @@ only `docs/` and does not publish this directory.
 
 ## Accepted decisions
 
-| RFC                                                            | Decision                              |
-| -------------------------------------------------------------- | ------------------------------------- |
-| [0001](accepted/0001-language-authority-and-change-control.md) | Language authority and change control |
-| [0002](accepted/0002-repository-productization.md)             | Repository productization             |
-| [0003](accepted/0003-bootstrap-interpreter-profile.md)         | Bootstrap interpreter profile         |
-| [0004](accepted/0004-hosted-canonical-compiler.md)             | Hosted canonical compiler             |
-| [0005](accepted/0005-typed-core-elaboration.md)                | Typed-core elaboration                |
-| [0006](accepted/0006-lowered-ir-contract.md)                   | Lowered IR contract                   |
-| [0007](accepted/0007-runtime-host-boundary.md)                 | Runtime host boundary                 |
-| [0008](accepted/0008-parser-scale-and-performance-tiers.md)    | Parser scale and performance tiers    |
-| [0009](accepted/0009-typed-core-closure-and-recursion.md)      | Typed-core closures and recursion     |
-| [0010](accepted/0010-typed-core-conditional-control-flow.md)   | Typed-core conditional control flow   |
-| [0011](accepted/0011-typed-core-scalar-pattern-cases.md)       | Typed-core scalar pattern cases       |
-| [0012](accepted/0012-static-pattern-coverage.md)               | Static pattern coverage               |
-| [0013](accepted/0013-typed-core-tail-position-lowering.md)     | Typed-core tail-position lowering     |
-| [0014](accepted/0014-typed-core-managed-text.md)               | Typed-core managed Text (implemented) |
+| RFC                                                               | Decision                                 |
+| ----------------------------------------------------------------- | ---------------------------------------- |
+| [0001](accepted/0001-language-authority-and-change-control.md)    | Language authority and change control    |
+| [0002](accepted/0002-repository-productization.md)                | Repository productization                |
+| [0003](accepted/0003-bootstrap-interpreter-profile.md)            | Bootstrap interpreter profile            |
+| [0004](accepted/0004-hosted-canonical-compiler.md)                | Hosted canonical compiler                |
+| [0005](accepted/0005-typed-core-elaboration.md)                   | Typed-core elaboration                   |
+| [0006](accepted/0006-lowered-ir-contract.md)                      | Lowered IR contract                      |
+| [0007](accepted/0007-runtime-host-boundary.md)                    | Runtime host boundary                    |
+| [0008](accepted/0008-parser-scale-and-performance-tiers.md)       | Parser scale and performance tiers       |
+| [0009](accepted/0009-typed-core-closure-and-recursion.md)         | Typed-core closures and recursion        |
+| [0010](accepted/0010-typed-core-conditional-control-flow.md)      | Typed-core conditional control flow      |
+| [0011](accepted/0011-typed-core-scalar-pattern-cases.md)          | Typed-core scalar pattern cases          |
+| [0012](accepted/0012-static-pattern-coverage.md)                  | Static pattern coverage                  |
+| [0013](accepted/0013-typed-core-tail-position-lowering.md)        | Typed-core tail-position lowering        |
+| [0014](accepted/0014-typed-core-managed-text.md)                  | Typed-core managed Text (implemented)    |
+| [0015](accepted/0015-typed-core-managed-products-and-variants.md) | Typed-core managed products and variants |
 
 ## Process
 
