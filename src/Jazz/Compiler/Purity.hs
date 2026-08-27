@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Minimal purity classification derived from identifier spelling. The `!`
@@ -5,17 +8,21 @@
 module Jazz.Compiler.Purity
   ( Purity (..),
     isImpureName,
-    namePurity
-  ) where
+    namePurity,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 
 -- | Effect marker inferred from a binding or callee name.
 data Purity
   = Pure
   | Impure
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Check the only active impurity marker. The parser permits ordinary text;
 -- callers use this predicate when they need the raw spelling rule directly.

@@ -90,6 +90,7 @@ tests =
   [ ("loads the checked-in parser schema", testLoadsParserSchema),
     ("constructs the schema through the real Jazz module graph", testJazzSchemaRendering),
     ("canonicalizes the complete surface inventory", testSurfaceInventory),
+    ("enumerates every surface numeric type in catalog order", testSurfaceNumericTypeEnumeration),
     ("preserves source-exact numeric values", testNumericFidelity),
     ("canonicalizes the complete parser failure inventory", testFailureInventory),
     ("keeps source result phases distinct", testSourceResultPhases),
@@ -211,6 +212,24 @@ testSurfaceInventory = do
     (\signatureToken -> assertContains (showText signatureToken) (signatureTokenConstructorName signatureToken) rendered)
     allSignatureTokens
 
+testSurfaceNumericTypeEnumeration :: IO ()
+testSurfaceNumericTypeEnumeration =
+  assertEqual
+    "surface numeric type enumeration"
+    [ SurfaceNumericInt8,
+      SurfaceNumericInt16,
+      SurfaceNumericInt32,
+      SurfaceNumericInt64,
+      SurfaceNumericUInt8,
+      SurfaceNumericUInt16,
+      SurfaceNumericUInt32,
+      SurfaceNumericUInt64,
+      SurfaceNumericFloat16,
+      SurfaceNumericFloat32,
+      SurfaceNumericFloat64
+    ]
+    ([minBound .. maxBound] :: [SurfaceNumericType])
+
 surfaceInventory :: SurfaceExpr
 surfaceInventory =
   SEBlock
@@ -318,19 +337,7 @@ allSignatureTypes =
     <> map SurfaceTypeNumeric allNumericTypes
 
 allNumericTypes :: [SurfaceNumericType]
-allNumericTypes =
-  [ SurfaceNumericInt8,
-    SurfaceNumericInt16,
-    SurfaceNumericInt32,
-    SurfaceNumericInt64,
-    SurfaceNumericUInt8,
-    SurfaceNumericUInt16,
-    SurfaceNumericUInt32,
-    SurfaceNumericUInt64,
-    SurfaceNumericFloat16,
-    SurfaceNumericFloat32,
-    SurfaceNumericFloat64
-  ]
+allNumericTypes = [minBound .. maxBound]
 
 allSignatureTokens :: [SurfaceSignatureToken]
 allSignatureTokens =

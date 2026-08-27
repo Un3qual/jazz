@@ -9,31 +9,25 @@ module Jazz.Compiler.ModuleRuntime
     evaluateCompiledProgramObserved,
     evaluateCompiledProgramWithHost,
     evaluateCompiledProgramWithHostObserved,
-    lookupRuntimeModule
-  ) where
+    lookupRuntimeModule,
+  )
+where
 
 import Control.Monad.Trans.Except
   ( ExceptT (..),
-    runExceptT
+    runExceptT,
   )
 import Data.Functor.Identity (runIdentity)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as Text
-import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import Jazz.Compiler.AST
   ( Expr (EBlock),
-    Statement
+    Statement,
   )
-import Jazz.Compiler.DiagnosticCatalog (ErrorCode (..))
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    DiagnosticOrigin (..),
-    mkErrorDiagnostic
-  )
-import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
+import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
+import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -41,15 +35,16 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
     exportNamesInNamespace,
     inventoryHasExport,
-    visibleImportInventory
+    visibleImportInventory,
   )
+import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
     CompiledProgram (..),
     ModuleInterface (..),
     firstCompiledProgramError,
-    moduleInterfaceExportInventory
+    moduleInterfaceExportInventory,
   )
 import Jazz.Compiler.Name
   ( Name (ResolvedName),
@@ -58,31 +53,36 @@ import Jazz.Compiler.Name
     identifierText,
     mkIdentifier,
     renderName,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
     RuntimeCell,
     RuntimeEnv,
     RuntimeHostEvaluationT,
-    RuntimeControl (..),
     RuntimeValue,
     ScopeResult (..),
     evaluateModuleScope,
     evaluateModuleScopeWithRequiredEvaluationHostControl,
     runRuntimeHostEvaluation,
     runRuntimeHostEvaluationWithObservation,
-    runtimeExprRequiresHost
+    runtimeExprRequiresHost,
   )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
-    RuntimeOutcome (..),
     finishRuntimeObservationResult,
+  )
+import Jazz.Compiler.Runtime.Outcome
+  ( RuntimeControl,
+    RuntimeOutcome (..),
+    diagnosticResultOutcome,
+    runtimeControlOutcome,
+    runtimeOutcomeAsDiagnosticResult,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
-    disabledRuntimeHost
+    disabledRuntimeHost,
   )
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
@@ -123,7 +123,8 @@ lookupRuntimeModule modulePath =
 
 evaluateCompiledProgram :: CompiledProgram -> Either Diagnostic RuntimeProgram
 evaluateCompiledProgram =
-  runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
+  runtimeOutcomeAsDiagnosticResult
+    . runtimeObservationOutcome
     . evaluateCompiledProgramObserved RuntimeObservationDisabled
 
 evaluateCompiledProgramObserved :: RuntimeObservationRequest -> CompiledProgram -> RuntimeObservationResult RuntimeProgram
@@ -201,7 +202,7 @@ evaluatePrelude compiledPrelude =
         )
 
 evaluateCompiledProgramWithHost ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost m ->
   CompiledProgram ->
   m (Either Diagnostic RuntimeProgram)
@@ -210,7 +211,7 @@ evaluateCompiledProgramWithHost host compiledProgram =
     <$> evaluateCompiledProgramWithHostObserved RuntimeObservationDisabled host compiledProgram
 
 evaluateCompiledProgramWithHostObserved ::
-  Monad m =>
+  (Monad m) =>
   RuntimeObservationRequest ->
   RuntimeHost m ->
   CompiledProgram ->
@@ -231,7 +232,7 @@ evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram 
           pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateCompiledProgramWithHostUnobserved ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost m ->
   CompiledProgram ->
   m (RuntimeOutcome RuntimeProgram)
@@ -239,12 +240,15 @@ evaluateCompiledProgramWithHostUnobserved host compiledProgram =
   if compiledProgramRequiresHost compiledProgram
     then
       runtimeControlOutcome
-        <$> runRuntimeHostEvaluation host (\evaluationHost ->
-          evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram)
+        <$> runRuntimeHostEvaluation
+          host
+          ( \evaluationHost ->
+              evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram
+          )
     else pure (diagnosticResultOutcome (evaluateCompiledProgramPureUnchecked compiledProgram))
 
 evaluateCompiledProgramWithEvaluationHostUnchecked ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledProgram ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
@@ -305,7 +309,7 @@ compiledProgramRequiresHost compiledProgram =
     || any (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules compiledProgram)
 
 evaluatePreludeWithEvaluationHost ::
-  Monad m =>
+  (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   CompiledPrelude ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
@@ -333,36 +337,6 @@ evaluatePreludeWithEvaluationHost host compiledPrelude =
           )
           scopeResult
 
-runtimeControlOutcome :: Either RuntimeControl value -> RuntimeOutcome value
-runtimeControlOutcome controlResult =
-  case controlResult of
-    Left (RuntimeDiagnostic diagnostic) -> RuntimeOutcomeFailed diagnostic
-    Left (RuntimeExitRequested status) -> RuntimeOutcomeExited status
-    Right value -> RuntimeOutcomeCompleted value
-
-diagnosticResultOutcome :: Either Diagnostic value -> RuntimeOutcome value
-diagnosticResultOutcome result =
-  case result of
-    Left diagnostic -> RuntimeOutcomeFailed diagnostic
-    Right value -> RuntimeOutcomeCompleted value
-
-runtimeOutcomeAsDiagnosticResult :: RuntimeOutcome value -> Either Diagnostic value
-runtimeOutcomeAsDiagnosticResult outcome =
-  case outcome of
-    RuntimeOutcomeFailed diagnostic -> Left diagnostic
-    RuntimeOutcomeExited status ->
-      Left
-        ( runtimeExitNotRepresentableDiagnostic status
-        )
-    RuntimeOutcomeCompleted value -> Right value
-
-runtimeExitNotRepresentableDiagnostic :: Integer -> Diagnostic
-runtimeExitNotRepresentableDiagnostic status =
-  mkErrorDiagnostic
-    E3020
-    RuntimeOrigin
-    ("runtime exit status " <> Text.pack (show status) <> " cannot be represented by this legacy evaluator result")
-
 importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
 importRuntimeModule compiledModules runtimeModules importDecl env =
   case (Map.lookup dependencyPath compiledModules, Map.lookup dependencyPath runtimeModules) of
@@ -371,8 +345,8 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
             compiledModuleExportInventory compiledDependency
           selectedExports =
             [ (runtimeExport, cell)
-              | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-                runtimeExportSelected importDecl publicInventory runtimeExport
+            | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
+              runtimeExportSelected importDecl publicInventory runtimeExport
             ]
           insertExport (runtimeExport, cell) =
             Map.insert
@@ -421,8 +395,8 @@ publishEnvironment origin publicInventory moduleInterface env =
   let renderedLookupIndex = buildRenderedLookupIndex env
    in Map.fromList
         [ (ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)), cell)
-          | runtimeExport <- interfaceExports publicInventory moduleInterface,
-            Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
+        | runtimeExport <- interfaceExports publicInventory moduleInterface,
+          Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
         ]
 
 publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
@@ -430,20 +404,20 @@ publishExports origin publicInventory moduleInterface env =
   let renderedLookupIndex = buildRenderedLookupIndex env
    in Map.fromList
         [ (runtimeExport, cell)
-          | runtimeExport <- interfaceExports publicInventory moduleInterface,
-            Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
+        | runtimeExport <- interfaceExports publicInventory moduleInterface,
+          Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
         ]
 
 interfaceExports :: ModuleExportInventory -> ModuleInterface -> [RuntimeExport]
 interfaceExports publicInventory moduleInterface =
   [ RuntimeBindingExport export
-    | export <- Set.toList (exportInventoryEntries publicInventory),
-      moduleExportNamespace export `elem` [ValueNamespace, ConstructorNamespace]
+  | export <- Set.toList (exportInventoryEntries publicInventory),
+    moduleExportNamespace export `elem` [ValueNamespace, ConstructorNamespace]
   ]
     <> [ RuntimeCapabilityMethodExport className methodName
-         | methodKey <- Map.keys (interfaceClassMethods moduleInterface),
-           Just (className, methodName) <- [splitQualifiedMethodKey methodKey],
-           Set.member className publicClassNames
+       | methodKey <- Map.keys (interfaceClassMethods moduleInterface),
+         Just (className, methodName) <- [splitQualifiedMethodKey methodKey],
+         Set.member className publicClassNames
        ]
   where
     publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
@@ -504,8 +478,8 @@ buildRenderedLookupIndex =
         (\key -> Map.insert key cell)
         index
         [ (namespace, renderedName)
-          | namespace <- matchingNamespaces name,
-            renderedName <- Set.toList (Set.fromList [renderName name, identifierText name])
+        | namespace <- matchingNamespaces name,
+          renderedName <- Set.toList (Set.fromList [renderName name, identifierText name])
         ]
     matchingNamespaces name =
       case name of

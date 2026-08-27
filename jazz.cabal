@@ -80,6 +80,9 @@ common warning-settings
       -Wincomplete-record-updates
       -Wincomplete-uni-patterns
       -Wredundant-constraints
+      -- Ormolu 0.8 uses the GHC 9.12 parser, so explicit pattern-synonym
+      -- imports and exports cannot use GHC 9.14's preferred `data` spelling.
+      -Wno-pattern-namespace-specifier
   if flag(development)
     ghc-options: -Werror
 
@@ -98,12 +101,17 @@ library jazz-internal
       Jazz.Compiler.CapabilityFacts
       Jazz.Compiler.Diagnostics
       Jazz.Compiler.Diagnostics.Render
+      Jazz.Compiler.Diagnostics.Strictness
       Jazz.Compiler.DiagnosticCatalog
       Jazz.Compiler.Driver
       Jazz.Compiler.Force
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.LoweredIR
       Jazz.Compiler.LoweredIR.Lower
+      Jazz.Compiler.LoweredIR.Lower.Emit
+      Jazz.Compiler.LoweredIR.Lower.Requirements
+      Jazz.Compiler.LoweredIR.Lower.Shapes
+      Jazz.Compiler.LoweredIR.Lower.Types
       Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
       Jazz.Compiler.LoweredIR.Validate
       Jazz.Compiler.TypedCore
@@ -136,10 +144,14 @@ library jazz-internal
       Jazz.Compiler.Purity
       Jazz.Compiler.RecursiveBindings
       Jazz.Compiler.Runtime
+      Jazz.Compiler.Runtime.Engine
+      Jazz.Compiler.Runtime.HostEvaluation
+      Jazz.Compiler.Runtime.Outcome
       Jazz.Compiler.Runtime.Observation
       Jazz.Compiler.Runtime.Observation.Profile
       Jazz.Compiler.Runtime.Observation.Render
       Jazz.Compiler.Runtime.Primitives
+      Jazz.Compiler.Runtime.Request
       Jazz.Compiler.Runtime.ScopePlan
       Jazz.Compiler.Runtime.Semantics
       Jazz.Compiler.Runtime.Types
@@ -151,20 +163,35 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Capabilities
       Jazz.Compiler.TypeInference.Diagnostics
       Jazz.Compiler.TypeInference.Elaboration
+      Jazz.Compiler.TypeInference.Elaboration.Finalize
+      Jazz.Compiler.TypeInference.Elaboration.Profiles
+      Jazz.Compiler.TypeInference.Elaboration.Specialize
+      Jazz.Compiler.TypeInference.Elaboration.Types
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
+      Jazz.Compiler.TypeInference.Result
       Jazz.Compiler.TypeInference.Scope
       Jazz.Compiler.TypeInference.Signature
       Jazz.Compiler.TypeInference.State
       Jazz.Compiler.TypeInference.Solver
+      Jazz.Compiler.TypeInference.Traversal
       Jazz.Compiler.TypeInference.TypeOps
       Jazz.Compiler.TypeInference.Types
       Jazz.Compiler.WarningConfig
+  other-modules:
+      Jazz.Compiler.TypedCore.Validate.Declarations
+      Jazz.Compiler.TypedCore.Validate.Evidence
+      Jazz.Compiler.TypedCore.Validate.Expressions
+      Jazz.Compiler.TypedCore.Validate.Internal
+      Jazz.Compiler.TypedCore.Validate.Patterns
+      Jazz.Compiler.TypedCore.Validate.Program
+      Jazz.Compiler.TypedCore.Validate.TypeRecipes
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
       bytestring >= 0.12 && < 0.13,
       containers >= 0.8 && < 0.9,
+      deepseq >= 1.5 && < 1.6,
       directory >= 1.3 && < 1.4,
       filepath >= 1.5 && < 1.6,
       megaparsec >= 9 && < 10,
@@ -296,6 +323,7 @@ test-suite runtime-observation-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Runtime/ObservationSpec.hs
   other-modules:
+      Jazz.Compiler.Runtime.OutcomeTests
       Jazz.Compiler.Runtime.Observation.ProfileTests
       Jazz.Compiler.Runtime.Observation.StatisticsTests
   build-depends:
@@ -305,6 +333,13 @@ test-suite profiling-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/ProfilingSpec.hs
+  build-depends:
+      deepseq >= 1.5 && < 1.6
+
+test-suite haskell-typeclass-contracts-spec
+  import: test-common
+  type: exitcode-stdio-1.0
+  main-is: Jazz/Compiler/HaskellTypeclassContractsSpec.hs
 
 test-suite cli-spec
   import: test-common
@@ -485,6 +520,11 @@ test-suite jazz-lowered-ir-contract-spec
       Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
       Jazz.Compiler.Bootstrap.CanonicalValue
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -496,7 +536,19 @@ test-suite jazz-typed-core-contract-spec
   other-modules:
       Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
       Jazz.Compiler.Bootstrap.CanonicalValue
+      Jazz.Compiler.Bootstrap.TypedCoreContract.Fixtures
+      Jazz.Compiler.Bootstrap.TypedCoreContract.FixedFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreContract.ManifestTests
+      Jazz.Compiler.Bootstrap.TypedCoreContract.ParityTests
+      Jazz.Compiler.Bootstrap.TypedCoreContract.RegressionTests
+      Jazz.Compiler.Bootstrap.TypedCoreContract.ReviewFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreContract.Tests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -507,6 +559,17 @@ test-suite jazz-typed-core-expression-direct-call-spec
   main-is: Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   other-modules:
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 
 test-suite parser-core-spec
   import: test-common
@@ -843,6 +906,7 @@ test-suite repository-audit-spec
   other-modules:
       Jazz.Repository.AuthoredSources
       Jazz.Repository.FeatureInventory
+      Jazz.Repository.HaskellSourcePolicy
       Jazz.Repository.JazzSourceFormat
       Jazz.Repository.PackagePolicy
       Jazz.Repository.Root

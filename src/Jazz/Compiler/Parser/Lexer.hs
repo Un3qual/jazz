@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Bootstrap lexer for the current surface syntax. It keeps the token set
@@ -10,10 +13,12 @@ module Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     isImmediatelyAfter,
     tokenize,
-    tokenizeDetailed
-  ) where
+    tokenizeDetailed,
+  )
+where
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData)
 import Control.Monad (void)
 import Data.Char (chr, isAlpha, isAlphaNum, isDigit, isHexDigit, isSpace, ord)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -21,33 +26,34 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
+import GHC.Generics (Generic)
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
+  )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
     SourceSpan (..),
     mkErrorDiagnostic,
-    setDiagnosticPrimarySpan
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+    setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.Parser.Operator
-  ( isStage2OperatorSymbolChar
+  ( isStage2OperatorSymbolChar,
   )
 import Text.Megaparsec
-  ( Parsec
+  ( Parsec,
   )
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
-  ( char
+  ( char,
   )
 import Text.Megaparsec.Error
   ( ErrorFancy (..),
     ParseError (..),
-    ShowErrorComponent (..)
+    ShowErrorComponent (..),
   )
 import Text.Megaparsec.Pos
-  ( unPos
+  ( unPos,
   )
 
 -- | Token vocabulary understood by the current parser foundation.
@@ -80,7 +86,8 @@ data TokenKind
   | TLBracket
   | TRBracket
   | TComma
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Concrete token annotated with the original lexeme and its starting source
 -- span so later parser errors can report precise locations.
@@ -89,7 +96,8 @@ data Token = Token
     tokenLexeme :: Text,
     tokenSpan :: SourceSpan
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data LexicalLiteralKind
   = CharacterLiteral
@@ -259,13 +267,13 @@ unicodeScalarEscape spanValue = do
         else
           if Text.length digits < 1 || Text.length digits > 6 || not (Text.all isHexDigit digits)
             then literalFailure spanValue (MalformedUnicodeEscape digits)
-            else
-              case TextRead.hexadecimal digits :: Either String (Integer, Text) of
-                Right (value, trailing)
-                  | Text.null trailing,
-                    value <= 0x10FFFF,
-                    not (value >= 0xD800 && value <= 0xDFFF) -> pure (chr (fromInteger value))
-                _ -> literalFailure spanValue (NonScalarUnicodeEscape digits)
+            else case TextRead.hexadecimal digits :: Either String (Integer, Text) of
+              Right (value, trailing)
+                | Text.null trailing,
+                  value <= 0x10FFFF,
+                  not (value >= 0xD800 && value <= 0xDFFF) ->
+                    pure (chr (fromInteger value))
+              _ -> literalFailure spanValue (NonScalarUnicodeEscape digits)
 
 unicodeScalar :: Char -> Bool
 unicodeScalar value =
@@ -426,7 +434,7 @@ firstCustomLexerFailure bundle =
         FancyError _ fancyErrors ->
           firstJust
             [ Just failure
-              | ErrorCustom (LexerError failure) <- Set.toList fancyErrors
+            | ErrorCustom (LexerError failure) <- Set.toList fancyErrors
             ]
         TrivialError {} -> Nothing
 

@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Stable metadata for every published Jazz diagnostic code.
@@ -19,8 +22,10 @@ module Jazz.Compiler.DiagnosticCatalog
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 
 -- | Published native-error identities. Constructor names deliberately match
 -- the stable user-facing spelling while 'DiagnosticCode' keeps the sum of
@@ -117,7 +122,8 @@ data ErrorCode
   | E5003
   | E5004
   | E5005
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | User-visible warning families. Tokens and codes are compatibility
 -- contracts once published.
@@ -126,13 +132,15 @@ data WarningCategory
   | ShadowingOuterScope
   | UnusedBinding
   | DeprecatedSyntax
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Effective severity used by the shared diagnostic model.
 data DiagnosticSeverity
   = SeverityWarning
   | SeverityError
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Broad catalog grouping. These groups remain independent of any future
 -- phase-specific diagnostic payload types.
@@ -149,7 +157,8 @@ data DiagnosticSubsystem
 data DiagnosticCode
   = NativeErrorCode ErrorCode
   | ConfigurableWarningCode WarningCategory
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Published catalog metadata. Warning-only fields are absent for native
 -- errors rather than represented by sentinel values.

@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
-  ( inferenceOwnershipTests
-  ) where
+  ( inferenceOwnershipTests,
+  )
+where
 
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
@@ -14,46 +15,42 @@ import Jazz.Compiler.AST
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly)
+  ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Name
   ( mkIdentifier,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( prepareRecursiveScope
+  ( prepareRecursiveScope,
   )
+import Jazz.Compiler.TypeInference.Capabilities
+  ( typeSchemeReferencedCapabilityFacts,
+  )
+import Jazz.Compiler.TypeInference.Elaboration.Types
+  ( InferredExpr (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    TypedCoreProductionMode (..),
+  )
+import Jazz.Compiler.TypeInference.Operator
+  ( builtinSectionOperatorSymbol,
+    hasOperatorRule,
+  )
+import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     duplicateConstraintName,
     expressionTypeToRuntimeHint,
     expressionTypeToRuntimeTemplate,
-    signaturePayloadToSignatureType
+    signaturePayloadToSignatureType,
   )
-import Jazz.Compiler.TypeInference.Capabilities
-  ( typeSchemeReferencedCapabilityFacts
-  )
-import Jazz.Compiler.TypeInference.Operator
-  ( builtinSectionOperatorSymbol,
-    hasOperatorRule
-  )
-import Jazz.Compiler.TypeInference.Diagnostics
-  ( InferExprFn,
-    InferExprWithModeFn
-  )
-import Jazz.Compiler.TypeInference.Elaboration
-  ( InferredExpr (..),
-    ProvisionalTypedExpr (..),
-    ProvisionalTypedStatement (..),
-    TypedCoreProductionMode (..)
-  )
-import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
     addStrictEqualityTypeVarConstraint,
@@ -61,7 +58,7 @@ import Jazz.Compiler.TypeInference.Solver
     bindTypeVar,
     freshTypeVar,
     resolveType,
-    unifyTypes
+    unifyTypes,
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -83,7 +80,11 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState
+    modifyModuleInferenceState,
+  )
+import Jazz.Compiler.TypeInference.Traversal
+  ( InferExprFn,
+    InferExprWithModeFn,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
@@ -92,7 +93,7 @@ import Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
     instantiateTypeSchemeConstraint,
     instantiateTypeSchemePrimitiveConstraint,
-    replaceTypeVariables
+    replaceTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
@@ -102,13 +103,14 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    failTest
+    failTest,
   )
+
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
   [ ("runtime hints accept Int64-fitting integer ranges", testRuntimeHintsAcceptInt64FittingIntegerRanges),

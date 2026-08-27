@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Canonical builtin inventory and name-resolution policy shared across
@@ -29,18 +32,21 @@ module Jazz.Compiler.BuiltinCatalog
     isKernelBuiltinSymbolName,
     lookupBuiltinSymbolInMode,
     lookupBuiltinSymbol,
-    lookupKernelBuiltinSymbol
-  ) where
+    lookupKernelBuiltinSymbol,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.List
-  ( find
+  ( find,
   )
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST
-  ( NumericType (..)
+  ( NumericType (..),
   )
 
 -- | Selects exactly one builtin naming scheme for a compiler phase: either the
@@ -48,7 +54,8 @@ import Jazz.Compiler.AST
 data BuiltinResolutionMode
   = ResolveKernelOnly
   | ResolveCompatibility
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Declares whether a builtin is conceptually owned by the kernel runtime or
 -- should be surfaced through the prelude contract.
@@ -102,7 +109,8 @@ data BuiltinSymbol
   | BuiltinWriteStderrRaw
   | BuiltinArguments
   | BuiltinExit
-  deriving (Eq, Ord, Show, Enum, Bounded)
+  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 -- | Exhaustive builtin inventory in declaration order. Generated prelude text
 -- and tests rely on this order for reproducible output.
@@ -118,7 +126,7 @@ builtinNamesInMode mode =
     [ case mode of
         ResolveKernelOnly -> builtinSymbolKernelName symbol
         ResolveCompatibility -> builtinSymbolName symbol
-      | symbol <- symbolsForMode mode
+    | symbol <- symbolsForMode mode
     ]
   where
     symbolsForMode resolutionMode =
@@ -410,10 +418,9 @@ kernelBridgeTargetName :: Text -> Maybe Text
 kernelBridgeTargetName bindingName
   | kernelBridgeBindingPrefix `Text.isPrefixOf` bindingName =
       let suffix = Text.drop (Text.length kernelBridgeBindingPrefix) bindingName
-       in
-        if Text.null suffix || not (isKernelBuiltinSymbolName bindingName)
-          then Nothing
-          else Just bindingName
+       in if Text.null suffix || not (isKernelBuiltinSymbolName bindingName)
+            then Nothing
+            else Just bindingName
   | otherwise = Nothing
 
 -- | Resolve a public compatibility/prelude builtin spelling.

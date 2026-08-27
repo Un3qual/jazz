@@ -16,12 +16,10 @@ module Jazz.Compiler.TypeInference
     typedCoreProductionStatus,
     typedCoreProductionValidatedProgram,
     inferResolvedModuleTypedCoreExpressionDirectCall,
-    inferExpressionWithBuiltinsAndHiddenStatements,
     inferExpressionWithBuiltinsAndSourceUnitStatements,
     inferExpressionWithBuiltins,
     inferExpressionWithInputs,
     inferExpressionWithInputsAndHiddenStatements,
-    inferExpression,
     inferExpressionDefault,
   )
 where
@@ -62,22 +60,10 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    DiagnosticLabel,
     SourceSpan,
-    diagnosticCode,
-    diagnosticHelp,
-    diagnosticNotes,
-    diagnosticOrigin,
-    diagnosticPrimaryLabel,
-    diagnosticSecondaryLabels,
-    diagnosticSeverity,
-    diagnosticSubject,
-    diagnosticSummary,
-    diagnosticWarningCategory,
     isErrorDiagnostic,
-    labelMessage,
-    labelSpan,
   )
+import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
@@ -119,6 +105,11 @@ import Jazz.Compiler.RuntimeHints
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
+  ( finalizeValidatedTypedCoreExpressionDirectCall,
+    isTypedCoreDirectCallOperator,
+    specializeInferredExpression,
+  )
+import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     InferredProductionFailure (..),
     ProvisionalPatternCaseArm (..),
@@ -132,9 +123,6 @@ import Jazz.Compiler.TypeInference.Elaboration
     TypedCoreProductionStatus (..),
     blockProductionFailureKindAndDetail,
     blockedTypedCoreProductionOutcome,
-    finalizeValidatedTypedCoreExpressionDirectCall,
-    isTypedCoreDirectCallOperator,
-    specializeInferredExpression,
     typedCoreProductionOutcomeStatus,
     typedCoreProductionOutcomeValidatedProgram,
     unsupportedTypedCoreProductionOutcome,
@@ -153,6 +141,7 @@ import Jazz.Compiler.TypeInference.Pattern
   ( InferredPatternCaseArm (..),
     inferPatternCaseTypeWithResults,
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplicationWithResult,
     inferNestedScopeTypeWithMode,
@@ -204,17 +193,6 @@ import Jazz.Compiler.WarningConfig
     defaultWarningSettings,
   )
 
--- | `InferenceResult` keeps the canonicalized expression plus one ordered
--- diagnostic stream containing analyzer reports followed by type-inference
--- reports.
-data InferenceResult = InferenceResult
-  { inferredExpr :: Expr,
-    inferredDiagnostics :: [Diagnostic],
-    inferredRuntimeTypeHints :: Map BindingRuntimeHintKey SignatureType,
-    inferredModuleInterface :: ModuleInterface
-  }
-  deriving (Eq, Show)
-
 data InferenceInputs = InferenceInputs
   { inferenceBuiltinMode :: BuiltinResolutionMode,
     inferenceWarningSettings :: WarningSettings,
@@ -224,6 +202,12 @@ data InferenceInputs = InferenceInputs
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
     inferenceImportedClassNames :: Set Text,
     inferenceCurrentModulePath :: Maybe [Text]
+  }
+
+data InferenceRequest = InferenceRequest
+  { requestedInferenceInputs :: InferenceInputs,
+    requestedHiddenStatementIndices :: Set Int,
+    requestedPreludeStatementIndices :: Set Int
   }
 
 -- | The constructor is private so callers can observe, but cannot rewrite, the
@@ -241,27 +225,14 @@ typedCoreProductionValidatedProgram :: TypedCoreProductionResult -> Maybe Valida
 typedCoreProductionValidatedProgram (TypedCoreProductionResult _ outcome) =
   typedCoreProductionOutcomeValidatedProgram outcome
 
--- This currently forwards analyzer diagnostics while the richer inference/type
--- pipeline is still being built in jazz.
-inferExpression :: WarningSettings -> Expr -> IO InferenceResult
-inferExpression = inferExpressionWithBuiltins ResolveKernelOnly
-
 inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO InferenceResult
-inferExpressionWithBuiltins builtinMode =
-  inferExpressionWithBuiltinsAndHiddenStatements builtinMode Set.empty
-
-inferExpressionWithBuiltinsAndHiddenStatements ::
-  BuiltinResolutionMode ->
-  Set Int ->
-  WarningSettings ->
-  Expr ->
-  IO InferenceResult
-inferExpressionWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings =
-  inferExpressionWithBuiltinsAndSourceUnitStatements
-    builtinMode
-    hiddenStatementIndices
-    hiddenStatementIndices
-    settings
+inferExpressionWithBuiltins builtinMode settings =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
+        requestedHiddenStatementIndices = Set.empty,
+        requestedPreludeStatementIndices = Set.empty
+      }
 
 inferExpressionWithBuiltinsAndSourceUnitStatements ::
   BuiltinResolutionMode ->
@@ -271,24 +242,37 @@ inferExpressionWithBuiltinsAndSourceUnitStatements ::
   Expr ->
   IO InferenceResult
 inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode hiddenStatementIndices preludeStatementIndices settings =
-  inferExpressionWithInputsAndSourceUnitStatements
-    (emptyInferenceInputs builtinMode settings)
-    hiddenStatementIndices
-    preludeStatementIndices
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
+        requestedHiddenStatementIndices = hiddenStatementIndices,
+        requestedPreludeStatementIndices = preludeStatementIndices
+      }
 
 inferExpressionWithInputs :: InferenceInputs -> Expr -> IO InferenceResult
 inferExpressionWithInputs inputs =
-  inferExpressionWithInputsAndHiddenStatements inputs Set.empty
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = inputs,
+        requestedHiddenStatementIndices = Set.empty,
+        requestedPreludeStatementIndices = Set.empty
+      }
 
 inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices expr =
-  inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices hiddenStatementIndices expr
+inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = inputs,
+        requestedHiddenStatementIndices = hiddenStatementIndices,
+        requestedPreludeStatementIndices = hiddenStatementIndices
+      }
 
-inferExpressionWithInputsAndSourceUnitStatements :: InferenceInputs -> Set Int -> Set Int -> Expr -> IO InferenceResult
-inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices preludeStatementIndices expr =
+inferExpressionWithRequest :: InferenceRequest -> Expr -> IO InferenceResult
+inferExpressionWithRequest request expr =
   {-# SCC "jazz-stage:type-inference" #-}
-  let (inferredResult, finalState, forwardBindings, inferenceSubject) =
-        inferExpressionWork InferenceOnly inputs preludeStatementIndices expr
+  let inputs = requestedInferenceInputs request
+      (inferredResult, finalState, forwardBindings, inferenceSubject) =
+        inferExpressionWork InferenceOnly inputs (requestedPreludeStatementIndices request) expr
       expression = inferenceSubjectExpr inferenceSubject
       finalizedInference = finalizeInferenceState inputs expression finalState
    in expression `seq`
@@ -296,7 +280,7 @@ inferExpressionWithInputsAndSourceUnitStatements inputs hiddenStatementIndices p
           finishInference
             InferenceOnly
             inputs
-            hiddenStatementIndices
+            (requestedHiddenStatementIndices request)
             inferenceSubject
             inferredResult
             forwardBindings
@@ -405,8 +389,8 @@ finishInference mode inputs hiddenStatementIndices subject inferredResult forwar
 -- producer skips this boundary because its finalizer still needs that state.
 forceFinalizedInferenceContainers :: FinalizedInference -> ()
 forceFinalizedInferenceContainers finalizedInference =
-  forceListWith forceInferenceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
-    forceListWith forceInferenceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
+  forceListWith forceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
+    forceListWith forceDiagnostic (finalizedPatternCoverageDiagnostics finalizedInference) `seq`
       forceMapEntriesWhnf (finalizedRuntimeTypeHints finalizedInference) `seq`
         forceModuleInterfaceContainers (finalizedModuleInterface finalizedInference)
 
@@ -427,28 +411,6 @@ coverageFailureDiagnostic failure =
       mkNonExhaustivePatternMatchError missingPattern
     UnreachablePatternArm armIndex ->
       mkUnreachablePatternArmError armIndex
-
--- This is phase-owned rather than imported from 'Jazz.Compiler.Force': that
--- structural-forcing module already depends on this module through
--- 'InferenceResult'. Keep the two definitions aligned.
-forceInferenceDiagnostic :: Diagnostic -> ()
-forceInferenceDiagnostic diagnostic =
-  diagnosticSeverity diagnostic `seq`
-    diagnosticCode diagnostic `seq`
-      diagnosticWarningCategory diagnostic `seq`
-        diagnosticOrigin diagnostic `seq`
-          diagnosticSummary diagnostic `seq`
-            forceMaybeWith forceInferenceDiagnosticLabel (diagnosticPrimaryLabel diagnostic) `seq`
-              forceListWith forceInferenceDiagnosticLabel (diagnosticSecondaryLabels diagnostic) `seq`
-                forceMaybeWhnf (diagnosticSubject diagnostic) `seq`
-                  forceListWith (\note -> note `seq` ()) (diagnosticNotes diagnostic) `seq`
-                    forceMaybeWhnf (diagnosticHelp diagnostic)
-
-forceInferenceDiagnosticLabel :: DiagnosticLabel -> ()
-forceInferenceDiagnosticLabel diagnosticLabel =
-  labelSpan diagnosticLabel `seq`
-    labelMessage diagnosticLabel `seq`
-      ()
 
 forceModuleInterfaceContainers :: ModuleInterface -> ()
 forceModuleInterfaceContainers moduleInterface =
@@ -472,12 +434,6 @@ forceListWith forceValue values =
   case values of
     [] -> ()
     value : remaining -> forceValue value `seq` forceListWith forceValue remaining
-
-forceMaybeWith :: (value -> ()) -> Maybe value -> ()
-forceMaybeWith = maybe ()
-
-forceMaybeWhnf :: Maybe value -> ()
-forceMaybeWhnf = forceMaybeWith (\value -> value `seq` ())
 
 inferResolvedModuleTypedCoreExpressionDirectCall ::
   InferenceInputs ->
@@ -649,7 +605,13 @@ declaredModuleNames expression =
         _ -> True
 
 inferExpressionDefault :: Expr -> IO InferenceResult
-inferExpressionDefault = inferExpression defaultWarningSettings
+inferExpressionDefault =
+  inferExpressionWithRequest
+    InferenceRequest
+      { requestedInferenceInputs = emptyInferenceInputs ResolveKernelOnly defaultWarningSettings,
+        requestedHiddenStatementIndices = Set.empty,
+        requestedPreludeStatementIndices = Set.empty
+      }
 
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateEnvBinding binding state =

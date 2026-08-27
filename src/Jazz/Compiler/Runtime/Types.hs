@@ -38,7 +38,7 @@ module Jazz.Compiler.Runtime.Types
         VExplicitTypeApplication,
         VDeferredHostBinding
       ),
-    data VExplicitResultHints,
+    pattern VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
@@ -59,8 +59,9 @@ module Jazz.Compiler.Runtime.Types
     RuntimeCell,
     RuntimeEnv,
     ScopeResult (..),
-    ModuleEvaluationMode (..)
-  ) where
+    ModuleEvaluationMode (..),
+  )
+where
 
 import Control.Monad.Trans.State.Strict (StateT)
 import qualified Data.Foldable as Foldable
@@ -73,21 +74,22 @@ import Jazz.Compiler.AST
   ( Expr,
     NumericType,
     SignaturePayload,
-    SignatureType
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan
+    SourceSpan,
   )
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (Name)
 import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
     RuntimeObservationState,
   )
+import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
+import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -114,6 +116,10 @@ data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Dia
 newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq SignatureType)
   deriving (Eq, Show)
 
+instance Semigroup RuntimeExplicitResultHints where
+  RuntimeExplicitResultHints outerHints <> RuntimeExplicitResultHints innerHints =
+    RuntimeExplicitResultHints (outerHints Seq.>< innerHints)
+
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
@@ -123,13 +129,6 @@ data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId (Maybe 
 data DeferredHostBindingState
   = DeferredHostBindingEvaluating
   | DeferredHostBindingEvaluated (Either RuntimeControl RuntimeValue)
-
--- | Interpreter-internal non-local control. Runtime diagnostics and requested
--- process exits share the evaluator's unwind path without conflating exit with
--- an error visible to Jazz programs.
-data RuntimeControl
-  = RuntimeDiagnostic Diagnostic
-  | RuntimeExitRequested Integer
 
 data RuntimeHostEvaluationState = RuntimeHostEvaluationState
   { runtimeHostEvaluationBindingCache :: Map DeferredHostBindingKey DeferredHostBindingState,
@@ -345,15 +344,15 @@ prependRuntimeExplicitResultHint typeHint runtimeValue =
         runtimeValue
 
 attachRuntimeExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
-attachRuntimeExplicitResultHints (RuntimeExplicitResultHints outerHints) runtimeValue =
+attachRuntimeExplicitResultHints outerHints runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints (RuntimeExplicitResultHints innerHints) innerValue ->
+    VRuntimeExplicitResultHints innerHints innerValue ->
       VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints (outerHints Seq.>< innerHints))
+        (outerHints <> innerHints)
         innerValue
     _ ->
       VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints outerHints)
+        outerHints
         runtimeValue
 
 runtimeExplicitResultHintsView :: RuntimeValue -> Maybe (RuntimeExplicitResultHints, RuntimeValue)

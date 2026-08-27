@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.DeepSeq (NFData, rnf)
 import Control.Exception (IOException, evaluate, throw, try)
 import Data.IORef
   ( IORef,
@@ -22,12 +23,15 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
-    SourceSpan (SourceSpan),
+    SourceSpan (SourceSpan, SourceSpanIn),
+    appendDiagnosticSecondaryLabel,
     mkErrorDiagnostic,
+    setDiagnosticPrimaryLabel,
   )
 import Jazz.Compiler.Force
   ( forceCompiledModule,
     forceCompiledProgram,
+    forceDiagnostic,
     forceInferenceResult,
     forceLoweredProgram,
     forceResolvedModule,
@@ -56,6 +60,10 @@ import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     exportInventory,
   )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedModule (..),
+  )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -63,10 +71,6 @@ import Jazz.Compiler.ModuleInterface
     ModuleInterface (..),
     emptyCompiledPrelude,
     emptyModuleInterface,
-  )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    ResolvedModule (..),
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (RuntimeBindingExport),
@@ -86,7 +90,7 @@ import Jazz.Compiler.Profiling
   )
 import Jazz.Compiler.Runtime.Types (RuntimeValue (VConstructor))
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey (ExplicitTypeApplicationRuntimeHintKey))
-import Jazz.Compiler.TypeInference (InferenceResult (..))
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
     ConstructorArgumentType (ConstructorArgumentMonomorphic),
@@ -116,13 +120,35 @@ tests =
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
     ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
     ("compiled-program forcing owns prelude diagnostics", testDeepCompiledProgramForcing),
+    ("diagnostic forcing evaluates nested spans and labels", testDeepDiagnosticForcing),
     ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
     ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
     ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
+    ("lowered programs expose a structural NFData contract", testLoweredProgramNFDataContract),
     ("typed-program forcing evaluates nested artifact payloads", testDeepTypedProgramForcing),
+    ("typed programs expose a structural NFData contract", testTypedProgramNFDataContract),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
+
+requireNFData :: (NFData value) => value -> ()
+requireNFData = rnf
+
+testTypedProgramNFDataContract :: IO ()
+testTypedProgramNFDataContract =
+  assertEqual
+    "typed program NFData contract"
+    ()
+    (requireNFData (Typed.TypedProgram Nothing [] []))
+
+testLoweredProgramNFDataContract :: IO ()
+testLoweredProgramNFDataContract =
+  assertEqual
+    "lowered program NFData contract"
+    ()
+    ( requireNFData
+        (LoweredProgram supportedLoweredIRVersion [] [] [] (LoweredFunctionId "entry"))
+    )
 
 testBenchmarkGroupMetadata :: IO ()
 testBenchmarkGroupMetadata = do
@@ -340,6 +366,28 @@ testDeepCompiledProgramForcing = do
     "compiled prelude diagnostic"
     marker
     (evaluate (forceCompiledProgram compiledProgram))
+
+testDeepDiagnosticForcing :: IO ()
+testDeepDiagnosticForcing =
+  mapM_
+    (\(label, marker, diagnostic) -> assertForcesMarker label marker (evaluate (forceDiagnostic diagnostic)))
+    [ ( "primary label span",
+        "diagnostic primary label span was forced",
+        setDiagnosticPrimaryLabel
+          (SourceSpanIn (throw (userError "diagnostic primary label span was forced")) 1 1)
+          "primary"
+          baseDiagnostic
+      ),
+      ( "secondary label message",
+        "diagnostic secondary label message was forced",
+        appendDiagnosticSecondaryLabel
+          (SourceSpan 2 3)
+          (throw (userError "diagnostic secondary label message was forced"))
+          baseDiagnostic
+      )
+    ]
+  where
+    baseDiagnostic = mkErrorDiagnostic E1001 CompilationOrigin "diagnostic"
 
 testResolvedModuleProductionLaziness :: IO ()
 testResolvedModuleProductionLaziness = do

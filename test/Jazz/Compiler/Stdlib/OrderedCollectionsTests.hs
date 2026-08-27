@@ -1,5 +1,6 @@
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Stdlib.OrderedCollectionsTests
   ( orderedCollectionTests,
@@ -18,7 +19,7 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    data VExplicitResultHints,
+    pattern VExplicitResultHints,
   )
 import Jazz.Compiler.Stdlib.Shared
   ( assertStdlibConstructorPrivate,
@@ -145,8 +146,8 @@ mapProbeInvariantFailures runtimeValue =
           <> " map "
           <> Text.pack (show index)
           <> " violates an AVL invariant"
-        | (index, mapValue) <- zip [0 :: Int ..] maps,
-          not (mapInvariantHolds mapValue)
+      | (index, mapValue) <- zip [0 :: Int ..] maps,
+        not (mapInvariantHolds mapValue)
       ]
 
 mapInvariantHolds :: RuntimeValue -> Bool

@@ -2,9 +2,7 @@
 
 -- | Type-inference diagnostics and error-state operations.
 module Jazz.Compiler.TypeInference.Diagnostics
-  ( InferExprFn,
-    InferExprWithModeFn,
-    addTypeError,
+  ( addTypeError,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
@@ -73,8 +71,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr,
-    NumericType,
+  ( NumericType,
     Pattern,
     SignatureConstraint (..),
     SignaturePayload (..),
@@ -82,8 +79,7 @@ import Jazz.Compiler.AST
     SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode,
-    renderNumericTypeName,
+  ( renderNumericTypeName,
   )
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
@@ -109,10 +105,6 @@ import Jazz.Compiler.PatternCoverage (renderCoveragePattern)
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
-import Jazz.Compiler.TypeInference.Elaboration
-  ( InferredExpr,
-    TypedCoreProductionMode,
-  )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.State
   ( InferState (..),
@@ -126,27 +118,7 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     NumericConstraint,
-    TypeEnv,
   )
-
--- Production-aware traversal results retain the same type result alongside
--- opt-in elaboration data; inference-only callers project the type unchanged.
--- The legacy alias remains the migration boundary for current helper modules.
-
-type InferExprFn =
-  BuiltinResolutionMode ->
-  TypeEnv ->
-  InferState ->
-  Expr ->
-  (Maybe ExpressionType, InferState)
-
-type InferExprWithModeFn =
-  TypedCoreProductionMode ->
-  BuiltinResolutionMode ->
-  TypeEnv ->
-  InferState ->
-  Expr ->
-  (InferredExpr, InferState)
 
 addTypeError :: InferState -> Diagnostic -> InferState
 addTypeError state diagnostic =

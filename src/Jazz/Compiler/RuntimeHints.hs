@@ -1,22 +1,29 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.RuntimeHints
   ( BindingRuntimeHintKey (..),
     bindingRuntimeHintKey,
     bindingRuntimeHintKeyInModule,
-    explicitTypeApplicationRuntimeHintKeyInModule
-  ) where
+    explicitTypeApplicationRuntimeHintKeyInModule,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan
+  ( SourceSpan,
   )
 import Jazz.Compiler.Name (Name)
 
 data BindingRuntimeHintKey
   = BindingRuntimeHintKey (Maybe [Text]) SourceSpan Name
   | ExplicitTypeApplicationRuntimeHintKey (Maybe [Text]) SourceSpan
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 bindingRuntimeHintKey :: Name -> SourceSpan -> BindingRuntimeHintKey
 bindingRuntimeHintKey bindingName bindingSpan =

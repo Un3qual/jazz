@@ -73,8 +73,8 @@ import Jazz.Compiler.Parser.TokenParser
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
-    data EmptyTokens,
-    data (:<),
+    pattern EmptyTokens,
+    pattern (:<),
   )
 import qualified Text.Megaparsec as MP
 

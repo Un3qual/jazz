@@ -4,8 +4,9 @@
 module Jazz.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
     compileResolvedModule,
-    compileResolvedProgram
-  ) where
+    compileResolvedProgram,
+  )
+where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -13,23 +14,23 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignatureType (..),
-    SignatureConstraint (..),
+  ( SignatureConstraint (..),
     SignaturePayload (..),
-    SignatureToken (..)
-  )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (coreModuleExpr),
-    ResolvedImport (..),
-    ResolvedModule (..),
-    ResolvedProgram (..)
+    SignatureToken (..),
+    SignatureType (..),
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleImportMode (..),
     exportNamesInNamespace,
     inventoryHasExport,
-    visibleImportInventory
+    visibleImportInventory,
+  )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (coreModuleExpr),
+    ResolvedImport (..),
+    ResolvedModule (..),
+    ResolvedProgram (..),
   )
 import Jazz.Compiler.ModuleInterface
 import Jazz.Compiler.Name
@@ -37,15 +38,15 @@ import Jazz.Compiler.Name
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace),
     ResolvedNameOrigin (..),
     identifierText,
-    mkIdentifier
+    mkIdentifier,
   )
 import Jazz.Compiler.Prelude (PreparedPrelude (..))
 import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
-    InferenceResult (..),
     inferExpressionWithInputs,
-    inferExpressionWithInputsAndHiddenStatements
+    inferExpressionWithInputsAndHiddenStatements,
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
@@ -58,7 +59,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeScheme (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
@@ -98,14 +99,14 @@ compileResolvedProgram :: CompileInputs -> ResolvedProgram -> IO CompiledProgram
 compileResolvedProgram inputs resolvedProgram =
   {-# SCC "jazz-stage:runtime-preparation" #-}
   do
-  compiledModules <- reverse . fst <$> foldModules [] Map.empty (resolvedProgramModules resolvedProgram)
-  let compiledPrelude = compileInputPrelude inputs
-  pure
-    CompiledProgram
-      { compiledProgramPrelude = compiledPrelude,
-        compiledProgramEntryPath = resolvedProgramEntryPath resolvedProgram,
-        compiledProgramModules = compiledModules
-      }
+    compiledModules <- reverse . fst <$> foldModules [] Map.empty (resolvedProgramModules resolvedProgram)
+    let compiledPrelude = compileInputPrelude inputs
+    pure
+      CompiledProgram
+        { compiledProgramPrelude = compiledPrelude,
+          compiledProgramEntryPath = resolvedProgramEntryPath resolvedProgram,
+          compiledProgramModules = compiledModules
+        }
   where
     ambientInterface = ambientPreludeInterface (compileInputPrelude inputs)
     foldModules compiledReversed compiledByPath remaining =
@@ -128,13 +129,13 @@ compileResolvedModule inputs compiledDependencies =
 compileResolvedModuleWithIndex :: CompileInputs -> ImportedInterface -> Map [Text] CompiledDependency -> ResolvedModule -> IO CompiledModule
 compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPath resolvedModule = do
   let importedInterface =
-        foldl'
-          mergeModuleInterfaces
-          ambientInterface
-          [ dependencyImportInterface importDecl dependency
+        ambientInterface
+          <> foldMap
+            (uncurry dependencyImportInterface)
+            [ (importDecl, dependency)
             | importDecl <- resolvedModuleImports resolvedModule,
               Just dependency <- [Map.lookup (resolvedImportPath importDecl) compiledDependenciesByPath]
-          ]
+            ]
       modulePath = resolvedModulePath resolvedModule
       moduleExpr = coreModuleExpr (resolvedModuleCore resolvedModule)
   inference <-
@@ -216,6 +217,30 @@ data ImportedInterface = ImportedInterface
     importedClassNames :: Set.Set Text
   }
 
+instance Semigroup ImportedInterface where
+  left <> right =
+    ImportedInterface
+      { importedTypes = Map.union (importedTypes left) (importedTypes right),
+        importedDataTypes = Map.union (importedDataTypes left) (importedDataTypes right),
+        importedConstructorWitnessNames =
+          Map.union
+            (importedConstructorWitnessNames left)
+            (importedConstructorWitnessNames right),
+        importedCapabilities =
+          importedCapabilities left <> importedCapabilities right,
+        importedClassNames = Set.union (importedClassNames left) (importedClassNames right)
+      }
+
+instance Monoid ImportedInterface where
+  mempty =
+    ImportedInterface
+      { importedTypes = Map.empty,
+        importedDataTypes = Map.empty,
+        importedConstructorWitnessNames = Map.empty,
+        importedCapabilities = mempty,
+        importedClassNames = Set.empty
+      }
+
 interfaceTypeEnv :: ImportedInterface -> TypeEnv
 interfaceTypeEnv = importedTypes
 
@@ -224,26 +249,6 @@ interfaceCapabilities = importedCapabilities
 
 interfaceConstructorWitnessNames :: ImportedInterface -> Map Name Name
 interfaceConstructorWitnessNames = importedConstructorWitnessNames
-
-mergeModuleInterfaces :: ImportedInterface -> ImportedInterface -> ImportedInterface
-mergeModuleInterfaces left right =
-  ImportedInterface
-    { importedTypes = Map.union (importedTypes left) (importedTypes right),
-      importedDataTypes = Map.union (importedDataTypes left) (importedDataTypes right),
-      importedConstructorWitnessNames =
-        Map.union
-          (importedConstructorWitnessNames left)
-          (importedConstructorWitnessNames right),
-      importedCapabilities =
-        ScopeCapabilityFacts
-          { scopeClassFacts = Map.union (scopeClassFacts (importedCapabilities left)) (scopeClassFacts (importedCapabilities right)),
-            scopeGeneratedEqualityClassFacts = Set.union (scopeGeneratedEqualityClassFacts (importedCapabilities left)) (scopeGeneratedEqualityClassFacts (importedCapabilities right)),
-            scopeConcreteImplFacts = Set.union (scopeConcreteImplFacts (importedCapabilities left)) (scopeConcreteImplFacts (importedCapabilities right)),
-            scopeClassMethodSignatures = Map.union (scopeClassMethodSignatures (importedCapabilities left)) (scopeClassMethodSignatures (importedCapabilities right)),
-            scopeConcreteImplMethods = Map.unionWith (<>) (scopeConcreteImplMethods (importedCapabilities left)) (scopeConcreteImplMethods (importedCapabilities right))
-          },
-      importedClassNames = Set.union (importedClassNames left) (importedClassNames right)
-    }
 
 importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
 importWholeInterface origin moduleInterface =
@@ -262,14 +267,14 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
           [ ( ResolvedName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)),
               rebaseTypeBinding origin dataTypeNames classNames binding
             )
-            | (export, binding) <- Map.toList selectedValueTypes
+          | (export, binding) <- Map.toList selectedValueTypes
           ],
       importedDataTypes =
         Map.fromList
           [ ( qualifiedKey origin dataTypeName,
               rebaseDataTypeBinding origin dataTypeNames classNames dataType
             )
-            | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
+          | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
           ],
       importedConstructorWitnessNames =
         Map.fromList
@@ -428,12 +433,12 @@ rebaseCapabilityFacts origin dataTypeNames classNames facts =
       scopeClassMethodSignatures =
         Map.fromList
           [ (rebaseMethodKey origin classNames methodKey, rebaseClassMethod origin dataTypeNames classNames methodType)
-            | (methodKey, methodType) <- Map.toList (scopeClassMethodSignatures facts)
+          | (methodKey, methodType) <- Map.toList (scopeClassMethodSignatures facts)
           ],
       scopeConcreteImplMethods =
         Map.fromList
           [ (rebaseMethodKey origin classNames methodKey, map (rebaseImplMethod origin dataTypeNames classNames) methodTypes)
-            | (methodKey, methodTypes) <- Map.toList (scopeConcreteImplMethods facts)
+          | (methodKey, methodTypes) <- Map.toList (scopeConcreteImplMethods facts)
           ]
     }
 
@@ -455,7 +460,7 @@ rebaseSignaturePayload origin dataTypeNames classNames payload =
         [ SignatureConstraint
             (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
             (map (rebaseSignatureType origin dataTypeNames classNames) arguments)
-          | SignatureConstraint capabilityName arguments <- constraints
+        | SignatureConstraint capabilityName arguments <- constraints
         ]
         (rebaseSignatureType origin dataTypeNames classNames signatureType)
     UnsupportedSignature tokens ->
@@ -463,7 +468,7 @@ rebaseSignaturePayload origin dataTypeNames classNames payload =
         [ case token of
             SignatureNameToken name -> SignatureNameToken (rebaseKnownName origin TypeNamespace dataTypeNames name)
             _ -> token
-          | token <- tokens
+        | token <- tokens
         ]
 
 rebaseSignatureType :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignatureType -> SignatureType

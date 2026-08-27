@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Canonical core AST shared by lowering, analysis, type inference, and the
@@ -15,15 +18,18 @@ module Jazz.Compiler.AST
     SignaturePayload (..),
     SignatureToken (..),
     SignatureType (..),
-    Statement (..)
-  ) where
+    Statement (..),
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan
+  ( SourceSpan,
   )
 import Jazz.Compiler.FractionalLiteral
-  ( FractionalLiteralSource
+  ( FractionalLiteralSource,
   )
 import Jazz.Compiler.Name (Name)
 
@@ -34,7 +40,8 @@ data Literal
   | LBool Bool
   | LChar Char
   | LText Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Core patterns for the first active-path case-expression slice.
 data Pattern
@@ -47,15 +54,18 @@ data Pattern
   | PTuple [Pattern]
   | PAs Name Pattern
   | POr [Pattern]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | One lowered pattern-match arm.
 data CaseArm = CaseArm Pattern (Maybe Expr) Expr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Core constructor metadata lowered from parser-owned `data` declarations.
 data DataConstructor = DataConstructor Name [SignatureType]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Core expressions after surface syntax has been lowered into the stable
 -- analyzer/runtime representation.
@@ -74,20 +84,23 @@ data Expr
   | ESectionLeft Expr Text
   | ESectionRight Text Expr
   | EBlock [Statement]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Lowered signature payload used by analyzer/type inference.
 data SignaturePayload
   = SignatureType SignatureType
   | ConstrainedSignature [SignatureConstraint] SignatureType
   | UnsupportedSignature [SignatureToken]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Lowered representation for constrained signatures. Type inference rejects
 -- this payload until constraint semantics are defined, but the parser/lowering
 -- pipeline owns its shape.
 data SignatureConstraint = SignatureConstraint Name [SignatureType]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Supported monomorphic signature types.
 data NumericType
@@ -102,7 +115,8 @@ data NumericType
   | NumericFloat16
   | NumericFloat32
   | NumericFloat64
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data SignatureType
   = TypeInt
@@ -117,7 +131,8 @@ data SignatureType
   | TypeList SignatureType
   | TypeTuple [SignatureType]
   | TypeFunction SignatureType SignatureType
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Tokenized fallback for unsupported signature surfaces. Tokens are stored
 -- structurally so diagnostics can remain deterministic without preserving raw
@@ -137,13 +152,16 @@ data SignatureToken
   | SignatureCommaToken
   | SignatureOperatorToken Text
   | SignatureOtherToken Text
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ClassMethodSignature = ClassMethodSignature Name SourceSpan SignaturePayload
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ImplMethod = ImplMethod Name SourceSpan Expr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 -- | Dot-terminated statements that can appear either at the top level or
 -- inside block expressions.
@@ -156,4 +174,5 @@ data Statement
   | SModule SourceSpan [Text]
   | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
   | SExpr SourceSpan Expr
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)

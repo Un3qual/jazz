@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared typed inventory for source and compiled module exports.
@@ -24,10 +27,11 @@ module Jazz.Compiler.ModuleExports
     selectValidatedModuleExportSelectors,
     visibleImportInventory,
     inventoryHasExport,
-    firstExportNamespace
+    firstExportNamespace,
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -37,6 +41,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics (SourceSpan, qualifySourceSpan)
 import Jazz.Compiler.Name (NameNamespace (..))
 
@@ -44,18 +49,21 @@ data LocatedModuleExportName = LocatedModuleExportName
   { locatedModuleExportName :: Text,
     locatedModuleExportSpan :: SourceSpan
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data ModuleTypeConstructorSelector
   = AbstractType
   | AllTypeConstructors SourceSpan
   | SelectedTypeConstructors (NonEmpty LocatedModuleExportName)
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data ModuleExportSelector
   = ModuleExportSelector (Maybe NameNamespace) Text
   | ModuleTypeExportSelector Text SourceSpan ModuleTypeConstructorSelector
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 moduleExportSelectorName :: ModuleExportSelector -> Text
 moduleExportSelectorName selector =
@@ -97,10 +105,19 @@ data ModuleExport = ModuleExport
   { moduleExportNamespace :: NameNamespace,
     moduleExportName :: Text
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 newtype ModuleExportInventory = ModuleExportInventory (Set ModuleExport)
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+instance Semigroup ModuleExportInventory where
+  ModuleExportInventory left <> ModuleExportInventory right =
+    ModuleExportInventory (Set.union left right)
+
+instance Monoid ModuleExportInventory where
+  mempty = ModuleExportInventory Set.empty
 
 data ModuleImportMode
   = UnqualifiedImport
@@ -189,16 +206,16 @@ selectValidatedModuleExportSelectors ::
   ModuleExportInventory ->
   ModuleExportInventory
 selectValidatedModuleExportSelectors constructorOwners selectors inventory =
-  ModuleExportInventory (Set.unions (map selectedEntries selectors))
+  foldMap selectedInventory selectors
   where
-    selectedEntries selector =
+    selectedInventory selector =
       case selector of
         ModuleExportSelector {} ->
-          exportInventoryEntries (selectModuleExportSelectors [selector] inventory)
+          selectModuleExportSelectors [selector] inventory
         ModuleTypeExportSelector typeName _ constructorSelector ->
-          Set.insert
-            (ModuleExport TypeNamespace typeName)
-            (selectedConstructorEntries typeName constructorSelector)
+          exportInventory [ModuleExport TypeNamespace typeName]
+            <> exportInventory
+              (Set.toList (selectedConstructorEntries typeName constructorSelector))
 
     selectedConstructorEntries typeName constructorSelector =
       case constructorSelector of
@@ -208,7 +225,7 @@ selectValidatedModuleExportSelectors constructorOwners selectors inventory =
         SelectedTypeConstructors constructors ->
           Set.fromList
             [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
-              | constructor <- NonEmpty.toList constructors
+            | constructor <- NonEmpty.toList constructors
             ]
 
 moduleExportSelectorMatches :: ModuleExportSelector -> ModuleExport -> Bool

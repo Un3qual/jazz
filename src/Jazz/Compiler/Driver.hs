@@ -19,112 +19,102 @@ module Jazz.Compiler.Driver
     runCompileErrors,
     runRuntimeErrors,
     runWarnings,
-    runExpr,
-    runExprObserved,
-    runExprWithHost,
-    runExprWithHostObserved,
     runSource,
     runSourceObserved,
-    runSourceWithHost,
-    runSourceWithHostObserved,
     runSourceWithPrelude,
     runSourceWithPreludeAndHost,
-    runSourceWithResolvedPrelude,
-    runSourceWithResolvedPreludeAndHost,
     runSourceWithResolvedPreludeAndHostObserved,
     runModuleGraph,
     runModuleGraphObserved,
-    runModuleGraphWithHost,
-    runModuleGraphWithHostObserved,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
     runModuleGraphWithResolvedPrelude,
-    runModuleGraphWithResolvedPreludeAndHost,
-    runModuleGraphWithResolvedPreludeAndHostObserved
-  ) where
+    runModuleGraphWithResolvedPreludeAndHostObserved,
+  )
+where
 
 import Control.Exception (evaluate)
 import Data.Map.Strict (Map)
-import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignatureType (..),
-    Expr (..)
-  )
-import Jazz.Compiler.BundledPrelude
-  ( loadBundledPreludeSource
+  ( Expr (..),
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..)
+  ( BuiltinResolutionMode (..),
+  )
+import Jazz.Compiler.BundledPrelude
+  ( loadBundledPreludeSource,
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     isErrorDiagnostic,
     isRuntimeDiagnostic,
-    isWarningDiagnostic
+    isWarningDiagnostic,
   )
 import Jazz.Compiler.Force
   ( forceCompiledProgramResult,
-    forceInferenceResult
+    forceInferenceResult,
   )
 import Jazz.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
-    compileResolvedProgram
+    compileResolvedProgram,
   )
 import Jazz.Compiler.ModuleInterface
   ( CompiledProgram (..),
     compileInputs,
-    compiledProgramDiagnostics
+    compiledProgramDiagnostics,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
-    resolveProgramWithAmbientExports
+    resolveProgramWithAmbientExports,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
-    evaluateCompiledProgramWithHostObserved
+    evaluateCompiledProgramWithHostObserved,
   )
 import Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
     preparePrelude,
-    resolvedExplicitPrelude
+    resolvedExplicitPrelude,
   )
 import Jazz.Compiler.Profiling
   ( CompilerStage (..),
     withCompilerStage,
-    withCompilerStageResult
+    withCompilerStageResult,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue,
     evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved,
-    renderRuntimeValue
+    renderRuntimeValue,
   )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationReport,
     RuntimeObservationRequest (..),
     RuntimeObservationResult (..),
-    RuntimeOutcome (..)
+    RuntimeOutcome (..),
+  )
+import Jazz.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
-    disabledRuntimeHost
-  )
-import Jazz.Compiler.RuntimeHints
-  ( BindingRuntimeHintKey
+    disabledRuntimeHost,
   )
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
-    scopeStatements
+    scopeStatements,
   )
 import Jazz.Compiler.TypeInference
-  ( InferenceResult (..),
-    inferExpressionWithBuiltinsAndSourceUnitStatements
+  ( inferExpressionWithBuiltinsAndSourceUnitStatements,
   )
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig
-  ( WarningSettings
+  ( WarningSettings,
   )
 
 -- | Result of a compile-only invocation. Severity views are derived from the
@@ -192,7 +182,8 @@ compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeSta
   (diagnostics, _, _) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr
   pure
     CompileResult
-      { compileDiagnostics = diagnostics }
+      { compileDiagnostics = diagnostics
+      }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
 compileSource settings source = do
@@ -209,7 +200,8 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
     Left parseErrorCode ->
       pure
         CompileResult
-          { compileDiagnostics = [parseErrorCode] }
+          { compileDiagnostics = [parseErrorCode]
+          }
     Right loweredProgram ->
       compileExprWithBuiltinsAndSourceUnitStatements
         (parsedHiddenStatementIndices loweredProgram)
@@ -262,44 +254,13 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
     Left diagnostic ->
       pure
         CompileResult
-          { compileDiagnostics = [diagnostic] }
+          { compileDiagnostics = [diagnostic]
+          }
     Right compiledProgram ->
       pure
         CompileResult
-          { compileDiagnostics = compiledProgramDiagnostics compiledProgram }
-
-runExpr :: WarningSettings -> Expr -> IO RunResult
-runExpr = runExprObserved RuntimeObservationDisabled
-
-runExprObserved :: RuntimeObservationRequest -> WarningSettings -> Expr -> IO RunResult
-runExprObserved observationRequest =
-  runExprWithHostObserved observationRequest disabledRuntimeHost
-
-runExprWithHost :: RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
-runExprWithHost = runExprWithHostObserved RuntimeObservationDisabled
-
-runExprWithHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> Expr -> IO RunResult
-runExprWithHostObserved observationRequest host =
-  runExprWithBuiltinsAndHostObserved observationRequest host ResolveKernelOnly
-
-runExprWithBuiltinsAndHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO RunResult
-runExprWithBuiltinsAndHostObserved observationRequest host =
-  runExprWithBuiltinsAndHiddenStatementsAndHostObserved observationRequest host Set.empty
-
-runExprWithBuiltinsAndHiddenStatementsAndHostObserved ::
-  RuntimeObservationRequest ->
-  RuntimeHost IO ->
-  Set Int ->
-  BuiltinResolutionMode ->
-  WarningSettings ->
-  Expr ->
-  IO RunResult
-runExprWithBuiltinsAndHiddenStatementsAndHostObserved observationRequest host hiddenStatementIndices =
-  runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved
-    observationRequest
-    host
-    hiddenStatementIndices
-    hiddenStatementIndices
+          { compileDiagnostics = compiledProgramDiagnostics compiledProgram
+          }
 
 runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
   RuntimeObservationRequest ->
@@ -368,9 +329,6 @@ runSourceObserved :: RuntimeObservationRequest -> WarningSettings -> Text -> IO 
 runSourceObserved observationRequest =
   runSourceWithHostObserved observationRequest disabledRuntimeHost
 
-runSourceWithHost :: RuntimeHost IO -> WarningSettings -> Text -> IO RunResult
-runSourceWithHost = runSourceWithHostObserved RuntimeObservationDisabled
-
 runSourceWithHostObserved :: RuntimeObservationRequest -> RuntimeHost IO -> WarningSettings -> Text -> IO RunResult
 runSourceWithHostObserved observationRequest host settings source = do
   bundledPreludeSource <- loadBundledPreludeSource
@@ -387,9 +345,6 @@ runSourceWithPrelude = runSourceWithPreludeAndHost disabledRuntimeHost
 runSourceWithPreludeAndHost :: RuntimeHost IO -> WarningSettings -> Maybe Text -> Text -> IO RunResult
 runSourceWithPreludeAndHost host settings preludeSource source =
   runSourceWithResolvedPreludeAndHost host settings (resolvedExplicitPrelude preludeSource) source
-
-runSourceWithResolvedPrelude :: WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
-runSourceWithResolvedPrelude = runSourceWithResolvedPreludeAndHost disabledRuntimeHost
 
 runSourceWithResolvedPreludeAndHost :: RuntimeHost IO -> WarningSettings -> ResolvedPrelude -> Text -> IO RunResult
 runSourceWithResolvedPreludeAndHost =
@@ -434,15 +389,6 @@ runModuleGraphObserved ::
   IO RunResult
 runModuleGraphObserved observationRequest =
   runModuleGraphWithHostObserved observationRequest disabledRuntimeHost
-
-runModuleGraphWithHost ::
-  RuntimeHost IO ->
-  WarningSettings ->
-  ModuleResolutionConfig ->
-  [Text] ->
-  (FilePath -> IO (Maybe Text)) ->
-  IO RunResult
-runModuleGraphWithHost = runModuleGraphWithHostObserved RuntimeObservationDisabled
 
 runModuleGraphWithHostObserved ::
   RuntimeObservationRequest ->

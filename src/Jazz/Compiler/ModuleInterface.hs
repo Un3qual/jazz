@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile-time and runtime-facing module boundary records.
@@ -22,34 +25,37 @@ module Jazz.Compiler.ModuleInterface
     emptyModuleInterface,
     lookupCompiledModule,
     moduleExportForBinding,
-    moduleInterfaceExportInventory
-  ) where
+    moduleInterfaceExportInventory,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.AST (SignatureType, Expr)
+import GHC.Generics (Generic)
+import Jazz.Compiler.AST (Expr, SignatureType)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     isErrorDiagnostic,
-    isWarningDiagnostic
+    isWarningDiagnostic,
   )
-import Jazz.Compiler.ModuleGraph (ResolvedImport)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
-    exportInventory
+    exportInventory,
   )
+import Jazz.Compiler.ModuleGraph (ResolvedImport)
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
     ImplMethodType,
-    TypeBinding (..)
+    TypeBinding (..),
   )
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
@@ -73,17 +79,18 @@ data ModuleInterface = ModuleInterface
     interfaceConcreteImplMethods :: Map Text [ImplMethodType],
     interfaceRuntimeHints :: Map BindingRuntimeHintKey SignatureType
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 moduleInterfaceExportInventory :: ModuleInterface -> ModuleExportInventory
 moduleInterfaceExportInventory interface =
   exportInventory
     ( Map.keys (interfaceValueTypes interface)
         <> [ ModuleExport TypeNamespace name
-             | name <- Map.keys (interfaceDataTypes interface)
+           | name <- Map.keys (interfaceDataTypes interface)
            ]
         <> [ ModuleExport CapabilityNamespace name
-             | name <- Map.keys (interfaceClassFacts interface)
+           | name <- Map.keys (interfaceClassFacts interface)
            ]
     )
 
@@ -107,7 +114,8 @@ data CompiledPrelude = CompiledPrelude
     compiledPreludeExpr :: Maybe Expr,
     compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey SignatureType
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 emptyCompiledPrelude :: CompiledPrelude
 emptyCompiledPrelude =
@@ -127,14 +135,16 @@ data CompiledModule = CompiledModule
     compiledModuleDiagnostics :: [Diagnostic],
     compiledModuleExpr :: Expr
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data CompiledProgram = CompiledProgram
   { compiledProgramPrelude :: CompiledPrelude,
     compiledProgramEntryPath :: [Text],
     compiledProgramModules :: [CompiledModule]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
 compiledProgramDiagnostics compiledProgram =

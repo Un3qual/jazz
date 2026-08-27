@@ -49,7 +49,7 @@ import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Word (Word64)
-import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Runtime.Outcome (RuntimeOutcome (..))
 
 data RuntimeObservationRequest
   = RuntimeObservationDisabled
@@ -193,15 +193,6 @@ data RuntimeObservationResult value = RuntimeObservationResult
   { runtimeObservationOutcome :: RuntimeOutcome value,
     runtimeObservationReport :: Maybe RuntimeObservationReport
   }
-  deriving (Eq, Show)
-
--- | A runtime can complete with a value, fail with a diagnostic, or request
--- process termination. Exit is control flow rather than a diagnostic so hosts
--- can finalize observation artifacts before the CLI applies the status.
-data RuntimeOutcome value
-  = RuntimeOutcomeCompleted value
-  | RuntimeOutcomeExited Integer
-  | RuntimeOutcomeFailed Diagnostic
   deriving (Eq, Show)
 
 data RuntimeObservationState = RuntimeObservationState

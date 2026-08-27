@@ -44,14 +44,15 @@ module Jazz.Compiler.Runtime.Semantics
     untypedIntMetadata,
     targetedIntMetadata,
     untypedFloatMetadata,
-    targetedFloatMetadata
-  ) where
+    targetedFloatMetadata,
+  )
+where
 
 import Control.Monad (foldM, zipWithM)
 import Data.Char
   ( isControl,
     ord,
-    toUpper
+    toUpper,
   )
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -65,15 +66,15 @@ import Jazz.Compiler.AST
     NumericType (..),
     Pattern (..),
     SignaturePayload (..),
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     builtinSymbolName,
     numericTypeFloatMax,
-    numericTypeIntegerBounds,
     numericTypeFromName,
-    renderNumericTypeName
+    numericTypeIntegerBounds,
+    renderNumericTypeName,
   )
 import Jazz.Compiler.CapabilityFacts
   ( constraintFunctionArgumentTypes,
@@ -82,47 +83,47 @@ import Jazz.Compiler.CapabilityFacts
     constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
     signaturePayloadConstraintType,
-    substituteClassMethodSignature
+    substituteClassMethodSignature,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
-    mkErrorDiagnostic
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+    mkErrorDiagnostic,
   )
 import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
-    fractionalLiteralIntegralValue
+    fractionalLiteralIntegralValue,
   )
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
-    identifierText
+    identifierText,
   )
 import Jazz.Compiler.Runtime.Types
-  ( RuntimeEnv,
-    RuntimeClosure (..),
+  ( RuntimeClosure (..),
+    RuntimeConstructorArguments,
+    RuntimeConstructorShape,
+    RuntimeEnv,
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
-    RuntimeConstructorArguments,
-    RuntimeConstructorShape,
     RuntimeValue (..),
     attachRuntimeExplicitResultHints,
     constructorApplicationIsSaturated,
     constructorIsSaturated,
-    data VExplicitResultHints,
     prependRuntimeExplicitResultHint,
-    runtimeConstructorArity,
     runtimeConstructorArgumentCount,
+    runtimeConstructorArity,
     runtimeConstructorName,
     runtimeConstructorTypeName,
     runtimeConstructorTypeParameters,
-    runtimeEvidenceTarget
+    runtimeEvidenceTarget,
+    pattern VExplicitResultHints,
   )
 import Numeric (showHex)
 
@@ -378,8 +379,8 @@ runtimeTypeHintAtLeastAsSpecific
   (TypeApplication existingName existingArguments)
   (TypeApplication requestedName requestedArguments) =
     existingName == requestedName
-    && length existingArguments == length requestedArguments
-    && and (zipWith runtimeTypeHintAtLeastAsSpecific existingArguments requestedArguments)
+      && length existingArguments == length requestedArguments
+      && and (zipWith runtimeTypeHintAtLeastAsSpecific existingArguments requestedArguments)
 runtimeTypeHintAtLeastAsSpecific (TypeList existingElement) (TypeList requestedElement) =
   runtimeTypeHintAtLeastAsSpecific existingElement requestedElement
 runtimeTypeHintAtLeastAsSpecific (TypeTuple existingElements) (TypeTuple requestedElements) =
@@ -1143,10 +1144,9 @@ convertFloatToIntegerTarget builtinFunction targetType floatValue literalSource 
       -- `round` is half-to-even, but the equality check below rejects every
       -- non-integral value instead of observing a rounding mode.
       let roundedInteger = round floatValue :: Integer
-       in
-        if fromInteger roundedInteger == floatValue && integerValueWithinBounds roundedInteger bounds
-          then Right (VInt roundedInteger (targetedIntMetadata targetType))
-          else Left (numericConversionFloatToIntegralDiagnostic builtinFunction targetType floatValue bounds)
+       in if fromInteger roundedInteger == floatValue && integerValueWithinBounds roundedInteger bounds
+            then Right (VInt roundedInteger (targetedIntMetadata targetType))
+            else Left (numericConversionFloatToIntegralDiagnostic builtinFunction targetType floatValue bounds)
 
 convertIntegerToFloatTarget :: BuiltinSymbol -> NumericType -> Integer -> Either Diagnostic RuntimeValue
 convertIntegerToFloatTarget builtinFunction targetType integerValue =
@@ -1154,10 +1154,9 @@ convertIntegerToFloatTarget builtinFunction targetType integerValue =
     then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
     else
       let floatValue = fromInteger integerValue :: Double
-       in
-        if isInfinite floatValue || exceedsFloatTarget targetType floatValue
-          then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
-          else Right (VFloat (roundFloatTarget targetType floatValue) (targetedFloatMetadata targetType))
+       in if isInfinite floatValue || exceedsFloatTarget targetType floatValue
+            then Left (numericConversionFloatOverflowDiagnostic builtinFunction targetType)
+            else Right (VFloat (roundFloatTarget targetType floatValue) (targetedFloatMetadata targetType))
 
 integerExceedsFloatTarget :: NumericType -> Integer -> Bool
 integerExceedsFloatTarget targetType integerValue =

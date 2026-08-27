@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Internal type model shared by inference subsystems.
@@ -16,26 +19,29 @@ module Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
-    instantiateConstructorFieldType
-  ) where
+    instantiateConstructorFieldType,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( NumericType,
     SignaturePayload,
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
-    numericTypeFromName
+    numericTypeFromName,
   )
 import Jazz.Compiler.Name
   ( Name,
-    identifierText
+    identifierText,
   )
 
 data ExpressionType
@@ -51,14 +57,16 @@ data ExpressionType
   | TDataType Name [ExpressionType]
   | TFunctionType ExpressionType ExpressionType
   | TVarType Int
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
   | ConstructorArgumentParameter Text
   | ConstructorArgumentStructured SignatureType
   | ConstructorArgumentFresh
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 instantiateConstructorFieldType ::
   Map Text ExpressionType ->
@@ -99,7 +107,8 @@ instantiateConstructorFieldType typeParameterBindings fieldType =
         <*> instantiateConstructorFieldType typeParameterBindings resultType
 
 data IntegerLiteralRange = IntegerLiteralRange Integer Integer
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data NumericConstraint
   = AnyNumericConstraint
@@ -107,7 +116,8 @@ data NumericConstraint
   | RuntimeComparisonNumericConstraint
   | IntegralNumericConstraint
   | IntegralLiteralNumericConstraint IntegerLiteralRange
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data TypeBinding
   = PlainTypeBinding ExpressionType
@@ -116,7 +126,8 @@ data TypeBinding
   | BuiltinOperatorAliasTypeBinding Text
   | OperatorAliasSchemeTypeBinding Text TypeScheme
   | ConstructorTypeBinding Name [Name] [ConstructorArgumentType]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data TypeScheme = TypeScheme
   { schemeQuantifiedVariables :: Set Int,
@@ -126,29 +137,35 @@ data TypeScheme = TypeScheme
     schemeDefiningCapabilities :: ScopeCapabilityFacts,
     schemeResultType :: ExpressionType
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data TypeSchemePrimitiveConstraint
   = TypeSchemeNumericConstraint NumericConstraint ExpressionType
   | TypeSchemeStrictEqualityConstraint ExpressionType
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data TypeSchemeConstraint
   = TypeSchemeConstraint Text ExpressionType
   | TypeSchemeInferredConstraint Text ExpressionType
   | TypeSchemeMethodConstraint Text Text ExpressionType
-  deriving (Eq, Ord, Show)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 type TypeEnv = Map Name TypeBinding
 
 data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ClassMethodType = ClassMethodType Text SignaturePayload
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ImplMethodType = ImplMethodType SignatureType
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map Text Int,
@@ -157,14 +174,41 @@ data ScopeCapabilityFacts = ScopeCapabilityFacts
     scopeClassMethodSignatures :: Map Text ClassMethodType,
     scopeConcreteImplMethods :: Map Text [ImplMethodType]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+instance Semigroup ScopeCapabilityFacts where
+  leftFacts <> rightFacts =
+    ScopeCapabilityFacts
+      { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
+        scopeGeneratedEqualityClassFacts =
+          Set.union
+            (scopeGeneratedEqualityClassFacts leftFacts)
+            (scopeGeneratedEqualityClassFacts rightFacts),
+        scopeConcreteImplFacts =
+          Set.union
+            (scopeConcreteImplFacts leftFacts)
+            (scopeConcreteImplFacts rightFacts),
+        scopeClassMethodSignatures =
+          Map.union
+            (scopeClassMethodSignatures leftFacts)
+            (scopeClassMethodSignatures rightFacts),
+        scopeConcreteImplMethods =
+          Map.unionWith
+            (<>)
+            (scopeConcreteImplMethods leftFacts)
+            (scopeConcreteImplMethods rightFacts)
+      }
+
+instance Monoid ScopeCapabilityFacts where
+  mempty =
+    ScopeCapabilityFacts
+      { scopeClassFacts = Map.empty,
+        scopeGeneratedEqualityClassFacts = Set.empty,
+        scopeConcreteImplFacts = Set.empty,
+        scopeClassMethodSignatures = Map.empty,
+        scopeConcreteImplMethods = Map.empty
+      }
 
 emptyScopeCapabilityFacts :: ScopeCapabilityFacts
-emptyScopeCapabilityFacts =
-  ScopeCapabilityFacts
-    { scopeClassFacts = Map.empty,
-      scopeGeneratedEqualityClassFacts = Set.empty,
-      scopeConcreteImplFacts = Set.empty,
-      scopeClassMethodSignatures = Map.empty,
-      scopeConcreteImplMethods = Map.empty
-    }
+emptyScopeCapabilityFacts = mempty

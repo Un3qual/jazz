@@ -130,7 +130,16 @@ preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValu
 -- runtime lookup cannot fall back to structural expression equality.
 data LambdaCaptureHint = LambdaCaptureHint OrderedNames LambdaCaptureHints
 
+-- | The set contains exactly the names in the list, whose order is their first
+-- occurrence. The 'Semigroup' instance preserves this invariant by reinserting
+-- the right operand's ordered list rather than trusting its cached set.
 data OrderedNames = OrderedNames (Set Name) [Name]
+
+instance Semigroup OrderedNames where
+  left <> OrderedNames _ names = foldl' orderedNamesInsert left names
+
+instance Monoid OrderedNames where
+  mempty = OrderedNames Set.empty []
 
 data LambdaCaptureHints = LambdaCaptureHints
   { lambdaCaptureHintAtRoot :: Maybe LambdaCaptureHint,
@@ -174,22 +183,22 @@ analyzeLambdaCaptures expr =
       analyzeLambdaPatternCase scrutineeExpr caseArms
     EBinary operatorSymbol leftExpr rightExpr ->
       let (freeNames, hints) = analyzeLambdaChildren [leftExpr, rightExpr]
-       in (orderedNamesUnion (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol)) freeNames, hints)
+       in (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
     ESectionLeft leftExpr operatorSymbol ->
       let (freeNames, hints) = analyzeLambdaChildren [leftExpr]
-       in (orderedNamesUnion (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol)) freeNames, hints)
+       in (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
     ESectionRight operatorSymbol rightExpr ->
       let (freeNames, hints) = analyzeLambdaChildren [rightExpr]
-       in (orderedNamesUnion (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol)) freeNames, hints)
+       in (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
     EBlock statements ->
       analyzeLambdaScope statements
 
 emptyCaptureAnalysis :: (OrderedNames, LambdaCaptureHints)
-emptyCaptureAnalysis = (orderedNamesEmpty, emptyLambdaCaptureHints)
+emptyCaptureAnalysis = (mempty, emptyLambdaCaptureHints)
 
 analyzeLambdaChildren :: [Expr] -> (OrderedNames, LambdaCaptureHints)
 analyzeLambdaChildren expressions =
-  ( orderedNamesUnions freeNames,
+  ( mconcat freeNames,
     LambdaCaptureHints Nothing (IntMap.fromList childHints)
   )
   where
@@ -212,7 +221,7 @@ analyzeLambdaPatternCase scrutineeExpr caseArms =
       )
 
     analyzeArm (freeNames, hints) (armIndex, CaseArm pattern guardExpr bodyExpr) =
-      ( orderedNamesUnions
+      ( mconcat
           [ freeNames,
             orderedNamesDifference guardFreeNames boundNames,
             orderedNamesDifference bodyFreeNames boundNames
@@ -235,7 +244,7 @@ analyzeLambdaScope statements =
   (freeNames, LambdaCaptureHints Nothing childHints)
   where
     (_, freeNames, childHints) =
-      foldl' analyzeStatement (Set.empty, orderedNamesEmpty, IntMap.empty) (zip [0 ..] statements)
+      foldl' analyzeStatement (Set.empty, mempty, IntMap.empty) (zip [0 ..] statements)
 
     analyzeStatement (boundNames, accumulatedFreeNames, accumulatedHints) (statementIndex, statement) =
       case statement of
@@ -254,7 +263,7 @@ analyzeLambdaScope statements =
         analyzeValue nextBoundNames valueExpr =
           let (valueFreeNames, valueHints) = analyzeLambdaCaptures valueExpr
            in ( nextBoundNames,
-                orderedNamesUnion accumulatedFreeNames (orderedNamesDifference valueFreeNames boundNames),
+                accumulatedFreeNames <> orderedNamesDifference valueFreeNames boundNames,
                 insertLambdaChildHintMap statementIndex valueHints accumulatedHints
               )
 
@@ -286,9 +295,6 @@ lookupLambdaCapturedNamesOrdered hints =
     Just (LambdaCaptureHint capturedNames nestedHints) -> Just (orderedNamesList capturedNames, nestedHints)
     Nothing -> Nothing
 
-orderedNamesEmpty :: OrderedNames
-orderedNamesEmpty = OrderedNames Set.empty []
-
 orderedNamesSingleton :: Name -> OrderedNames
 orderedNamesSingleton name = OrderedNames (Set.singleton name) [name]
 
@@ -300,13 +306,6 @@ orderedNamesSet (OrderedNames names _) = names
 
 orderedNamesList :: OrderedNames -> [Name]
 orderedNamesList (OrderedNames _ names) = names
-
-orderedNamesUnion :: OrderedNames -> OrderedNames -> OrderedNames
-orderedNamesUnion left (OrderedNames _ names) =
-  foldl' orderedNamesInsert left names
-
-orderedNamesUnions :: [OrderedNames] -> OrderedNames
-orderedNamesUnions = foldl' orderedNamesUnion orderedNamesEmpty
 
 orderedNamesInsert :: OrderedNames -> Name -> OrderedNames
 orderedNamesInsert ordered@(OrderedNames seen names) name

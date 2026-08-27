@@ -28,7 +28,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     instantiateQualifiedMethodTypeWithExplicitTarget,
     deleteTypeEnvFreeVariables,
     insertTypeEnvFreeVariables,
-    mergeCapabilityFacts,
     newInferredClassConstraints,
     qualifiedMethodClassIsVisible,
     resolveTypeEnvFreeVariables,
@@ -40,14 +39,15 @@ module Jazz.Compiler.TypeInference.Capabilities
     typeSchemeReferencedCapabilityFacts,
     structuralRuntimeEqualityType,
     typeEnvFreeVariables,
-    updateRootModuleBaselineFacts
-  ) where
+    updateRootModuleBaselineFacts,
+  )
+where
 
 import Control.Applicative ((<|>))
 import Data.Foldable (toList)
-import Data.List (uncons)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.List (uncons)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -63,43 +63,42 @@ import Jazz.Compiler.AST
     NumericType (..),
     SignaturePayload (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode,
     numericTypeFromName,
-    numericTypeIsIntegral
+    numericTypeIsIntegral,
   )
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     concreteImplFactClassName,
     concreteImplFactKey,
     constraintFunctionArgumentTypes,
-    constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureAliasVariants,
     constraintSignatureTypeContainsClassParameter,
+    constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
     signaturePayloadConstraintType,
     splitQualifiedMethodKey,
-    substituteClassMethodSignature
+    substituteClassMethodSignature,
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
-    setDiagnosticPrimarySpan
+    setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.Name
   ( Name,
     identifierText,
-    qualifiedMemberName
+    qualifiedMemberName,
   )
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType
+  ( renderSignatureType,
   )
 import Jazz.Compiler.TypeInference.Diagnostics
-  ( InferExprFn,
-    addTypeError,
+  ( addTypeError,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
@@ -115,7 +114,17 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkMissingImplMethodBodyError,
     mkNoMatchingQualifiedMethodBodyError,
     mkTypeSchemeNumericConstraintError,
-    mkTypeSchemeStrictEqualityConstraintError
+    mkTypeSchemeStrictEqualityConstraintError,
+  )
+import qualified Jazz.Compiler.TypeInference.Signature as Signature
+import Jazz.Compiler.TypeInference.Solver
+  ( addStrictEqualityTypeVarConstraint,
+    constrainNumericOperatorType,
+    freshTypeVar,
+    integerLiteralRangeFitsNumericType,
+    resolveType,
+    supportsRuntimeEqualityType,
+    unifyTypes,
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -137,23 +146,14 @@ import Jazz.Compiler.TypeInference.State
     inferModuleCapabilityFacts,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState
+    modifyModuleInferenceState,
   )
+import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
     freeTypeVariablesInTypeSchemeConstraints,
-    freeTypeVariablesInTypeSchemePrimitiveConstraints
-  )
-import qualified Jazz.Compiler.TypeInference.Signature as Signature
-import Jazz.Compiler.TypeInference.Solver
-  ( addStrictEqualityTypeVarConstraint,
-    constrainNumericOperatorType,
-    freshTypeVar,
-    integerLiteralRangeFitsNumericType,
-    resolveType,
-    supportsRuntimeEqualityType,
-    unifyTypes
+    freeTypeVariablesInTypeSchemePrimitiveConstraints,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
@@ -166,7 +166,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeScheme (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
   )
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
@@ -195,8 +195,8 @@ typeSchemeDefiningFactsFromState state schemeConstraints =
     inferredStructuralEqualityClasses =
       Set.fromList
         [ capabilityName
-          | TypeSchemeInferredConstraint capabilityName _ <- schemeConstraints,
-            activeEqualityClassName state == Just capabilityName
+        | TypeSchemeInferredConstraint capabilityName _ <- schemeConstraints,
+          activeEqualityClassName state == Just capabilityName
         ]
 
 typeSchemeReferencedCapabilityFacts :: [TypeSchemeConstraint] -> ScopeCapabilityFacts -> ScopeCapabilityFacts
@@ -228,8 +228,8 @@ typeSchemeReferencedCapabilityFacts schemeConstraints facts =
     referencedCapabilityNames =
       Set.fromList
         [ constraintName
-          | schemeConstraint <- schemeConstraints,
-            let constraintName = typeSchemeConstraintCapabilityName schemeConstraint
+        | schemeConstraint <- schemeConstraints,
+          let constraintName = typeSchemeConstraintCapabilityName schemeConstraint
         ]
 
     methodKeyReferencesCapturedCapability methodKey =
@@ -280,29 +280,6 @@ restoreCapabilityFacts previousState nextState =
         nextState
     )
 
-mergeCapabilityFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> ScopeCapabilityFacts
-mergeCapabilityFacts leftFacts rightFacts =
-  ScopeCapabilityFacts
-    { scopeClassFacts = Map.union (scopeClassFacts leftFacts) (scopeClassFacts rightFacts),
-      scopeGeneratedEqualityClassFacts =
-        Set.union
-          (scopeGeneratedEqualityClassFacts leftFacts)
-          (scopeGeneratedEqualityClassFacts rightFacts),
-      scopeConcreteImplFacts =
-        Set.union
-          (scopeConcreteImplFacts leftFacts)
-          (scopeConcreteImplFacts rightFacts),
-      scopeClassMethodSignatures =
-        Map.union
-          (scopeClassMethodSignatures leftFacts)
-          (scopeClassMethodSignatures rightFacts),
-      scopeConcreteImplMethods =
-        Map.unionWith
-          (++)
-          (scopeConcreteImplMethods leftFacts)
-          (scopeConcreteImplMethods rightFacts)
-    }
-
 updateRootModuleBaselineFacts :: ScopeCapabilityFacts -> InferState -> InferState -> ScopeCapabilityFacts
 updateRootModuleBaselineFacts moduleBaselineFacts previousState nextState =
   case inferCurrentModulePath previousState of
@@ -341,9 +318,8 @@ enterModuleCapabilityScope baselineFacts modulePath state =
 importModuleCapabilityFacts :: [Text] -> Maybe Text -> Maybe [Text] -> InferState -> InferState
 importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state =
   applyCapabilityFacts
-    ( mergeCapabilityFacts
-        (capabilityFactsFromState state)
-        (filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state)))
+    ( capabilityFactsFromState state
+        <> filterImportedCapabilityFacts maybeAlias maybeSymbolNames (Map.findWithDefault emptyScopeCapabilityFacts modulePath (inferModuleCapabilityFacts state))
     )
     state
 
@@ -470,7 +446,6 @@ seedImplMethodFacts capabilityName arguments methods facts =
             [ImplMethodType implTarget]
             acc
     _ -> facts
-
 
 builtinDollarOperatorExpr :: TypeEnv -> Expr -> Bool
 builtinDollarOperatorExpr env expr =
@@ -625,10 +600,10 @@ checkImplMethodBodies inferExpected resultType builtinMode env state capabilityN
     currentImplMethodBindings implTarget stateForBindings =
       Map.fromList
         [ (qualifiedMemberName capabilityName methodName, PlainTypeBinding methodType)
-          | ImplMethod methodName _ _ <- methods,
-            let methodKey = qualifiedMethodKey capabilityName methodName,
-            Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
-            Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
+        | ImplMethod methodName _ _ <- methods,
+          let methodKey = qualifiedMethodKey capabilityName methodName,
+          Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
+          Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
         ]
 
 addUnpreservedInferredMethodConstraintErrors ::
@@ -652,38 +627,38 @@ addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState s
     droppedClassConstraints =
       dedupeTypeSchemeConstraints
         [ TypeSchemeInferredConstraint constraintName argumentType
-          | TypeSchemeInferredConstraint constraintName argumentType <-
-              newInferredClassConstraints statementStartState state,
-            not (inferredConstraintTargetPreserved state schemeVariables argumentType),
-            not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
-            inferredConstraintTargetConcrete state argumentType
-              || ( not statementIntroducedErrors
-                     && inferredConstraintTargetEscapesResult state statementResultType argumentType
-                 )
+        | TypeSchemeInferredConstraint constraintName argumentType <-
+            newInferredClassConstraints statementStartState state,
+          not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+          not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
+          inferredConstraintTargetConcrete state argumentType
+            || ( not statementIntroducedErrors
+                   && inferredConstraintTargetEscapesResult state statementResultType argumentType
+               )
         ]
 
     droppedMethodConstraints =
       dedupeTypeSchemeConstraints
         [ TypeSchemeMethodConstraint constraintName methodKey argumentType
-          | TypeSchemeMethodConstraint constraintName methodKey argumentType <-
-              newInferredClassConstraints statementStartState state,
-            not (inferredConstraintTargetPreserved state schemeVariables argumentType),
-            not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
-            not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
+        | TypeSchemeMethodConstraint constraintName methodKey argumentType <-
+            newInferredClassConstraints statementStartState state,
+          not (inferredConstraintTargetPreserved state schemeVariables argumentType),
+          not (inferredConstraintTargetStillVisibleInEnv state env argumentType),
+          not (concreteInferredMethodConstraintSatisfied state constraintName methodKey argumentType)
         ]
 
     droppedConcreteMethodConstraints =
       [ methodConstraint
-        | methodConstraint@(TypeSchemeMethodConstraint _ _ argumentType) <- droppedMethodConstraints,
-          inferredConstraintTargetConcrete state argumentType
+      | methodConstraint@(TypeSchemeMethodConstraint _ _ argumentType) <- droppedMethodConstraints,
+        inferredConstraintTargetConcrete state argumentType
       ]
 
     droppedAmbiguousMethodKeys =
       Set.toList
         ( Set.fromList
             [ methodKey
-              | TypeSchemeMethodConstraint _ methodKey argumentType <- droppedMethodConstraints,
-                not (inferredConstraintTargetConcrete state argumentType)
+            | TypeSchemeMethodConstraint _ methodKey argumentType <- droppedMethodConstraints,
+              not (inferredConstraintTargetConcrete state argumentType)
             ]
         )
 
@@ -770,18 +745,17 @@ concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName me
   where
     satisfyingMethodHints =
       [ argumentHint
-        | argumentHint <- inferredConstraintCandidateRuntimeHints facts state (Just methodKey) argumentType,
-          concreteImplFactExists constraintName argumentHint facts,
-          concreteImplMethodBodyExists methodKey argumentHint facts
+      | argumentHint <- inferredConstraintCandidateRuntimeHints facts state (Just methodKey) argumentType,
+        concreteImplFactExists constraintName argumentHint facts,
+        concreteImplMethodBodyExists methodKey argumentHint facts
       ]
 
 uniqueExactRuntimeCandidateHint :: InferState -> ExpressionType -> [SignatureType] -> Bool
 uniqueExactRuntimeCandidateHint state argumentType candidateHints =
-  case
-      [ candidateHint
-        | candidateHint <- candidateHints,
-          constraintSignatureTypeExactlyMatchesExpressionType state candidateHint argumentType
-      ] of
+  case [ candidateHint
+       | candidateHint <- candidateHints,
+         constraintSignatureTypeExactlyMatchesExpressionType state candidateHint argumentType
+       ] of
     [candidateHint] ->
       not (constraintSignatureTypeContainsList candidateHint)
     _ -> False
@@ -855,14 +829,14 @@ resolveTypeEnvFreeVariables :: InferState -> TypeEnvFreeVariables -> Set Int
 resolveTypeEnvFreeVariables state summary =
   Set.unions
     [ freeTypeVariables (resolveType state (TVarType typeVar))
-      | typeVar <- IntMap.keys (typeEnvFreeVariableReferenceCounts summary)
+    | typeVar <- IntMap.keys (typeEnvFreeVariableReferenceCounts summary)
     ]
 
 freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set Int
 freeTypeVariablesInBinding state binding =
   Set.unions
     [ freeTypeVariables (resolveType state (TVarType typeVar))
-      | typeVar <- Set.toList (freeTypeVariablesInBindingRaw binding)
+    | typeVar <- Set.toList (freeTypeVariablesInBindingRaw binding)
     ]
 
 freeTypeVariablesInBindingRaw :: TypeBinding -> Set Int
@@ -1022,11 +996,9 @@ resolveDeferredExplicitConstraint state deferredConstraint =
         resolveType state argumentType
       resolvedArgumentType =
         defaultLiteralTypes unresolvedArgumentType
-   in
-    if not (Set.null (freeTypeVariables unresolvedArgumentType))
-      then addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
-      else
-        case Map.lookup constraintName (scopeClassFacts facts) of
+   in if not (Set.null (freeTypeVariables unresolvedArgumentType))
+        then addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
+        else case Map.lookup constraintName (scopeClassFacts facts) of
           Nothing ->
             addTypeError state (mkMissingExplicitConstraintClassError constraintName)
           Just classArity
@@ -1132,8 +1104,8 @@ inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType 
         Nothing -> []
         Just methodKey ->
           [ implTarget
-            | ImplMethodType implTarget <- Map.findWithDefault [] methodKey (scopeConcreteImplMethods facts),
-              constraintSignatureTypeMatchesExpressionType state implTarget argumentType
+          | ImplMethodType implTarget <- Map.findWithDefault [] methodKey (scopeConcreteImplMethods facts),
+            constraintSignatureTypeMatchesExpressionType state implTarget argumentType
           ]
 
 dedupeSignatureTypes :: [SignatureType] -> [SignatureType]
@@ -1461,8 +1433,8 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
 
     filterExactMatches candidates =
       [ (matchedType, matchedState)
-        | (implMethodType, matchedType, matchedState) <- candidates,
-          qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType typedArguments
+      | (implMethodType, matchedType, matchedState) <- candidates,
+        qualifiedMethodCandidateExactlyMatchesArguments state env classMethodType implMethodType typedArguments
       ]
 
     resolvedArgumentTypes stateForRendering =
@@ -1915,10 +1887,9 @@ activeEqualityClassName :: InferState -> Maybe Text
 activeEqualityClassName state =
   if classFactIsUnary "Eq"
     then Just "Eq"
-    else
-      case filter importedEqualityClass (Map.toList (inferClassFacts state)) of
-        [(className, _)] -> Just className
-        _ -> Nothing
+    else case filter importedEqualityClass (Map.toList (inferClassFacts state)) of
+      [(className, _)] -> Just className
+      _ -> Nothing
   where
     classFactIsUnary className =
       Map.lookup className (inferClassFacts state) == Just 1

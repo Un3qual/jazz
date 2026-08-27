@@ -5,45 +5,65 @@ module Jazz.Compiler.TypeInference.Pattern
     inferPatternCaseType,
     inferPatternCaseTypeWithResults,
     inferPatternType,
-    instantiateConstructorBinding
-  ) where
+    instantiateConstructorBinding,
+  )
+where
 
-import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
-import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CaseArm (..), Expr, Literal (..), Pattern (..) )
+  ( CaseArm (..),
+    Expr,
+    Literal (..),
+    Pattern (..),
+  )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.Name (Name, identifierText)
 import Jazz.Compiler.Pattern
-  ( commonPatternBinderNames, patternBinderNames )
+  ( commonPatternBinderNames,
+    patternBinderNames,
+  )
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Elaboration (InferredExpr (..))
+import Jazz.Compiler.TypeInference.Elaboration.Types (InferredExpr (..))
 import Jazz.Compiler.TypeInference.Solver
-  ( combineIntegerLiteralRanges, freshTypeVar, integerLiteralRangeFitsNumericType, resolveType, unifyTypes )
+  ( combineIntegerLiteralRanges,
+    freshTypeVar,
+    integerLiteralRangeFitsNumericType,
+    resolveType,
+    unifyTypes,
+  )
 import Jazz.Compiler.TypeInference.State
-  ( InferState (..), InferenceOutput (..), inferErrorCount, inferErrorsRev, modifyInferenceOutput )
+  ( InferState (..),
+    InferenceOutput (..),
+    inferErrorCount,
+    inferErrorsRev,
+    modifyInferenceOutput,
+  )
+import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     ExpressionType (..),
     IntegerLiteralRange (..),
     TypeBinding (..),
     TypeEnv,
-    instantiateConstructorFieldType
+    instantiateConstructorFieldType,
   )
 
-data InferredPatternCaseArm = InferredPatternCaseArm
-  Pattern
-  (Maybe InferredExpr)
-  (Maybe InferredExpr)
+data InferredPatternCaseArm
+  = InferredPatternCaseArm
+      Pattern
+      (Maybe InferredExpr)
+      (Maybe InferredExpr)
   deriving (Eq, Show)
 
-data PatternCaseArmResult result = PatternCaseArmResult
-  Pattern
-  (Maybe result)
-  (Maybe result)
+data PatternCaseArmResult result
+  = PatternCaseArmResult
+      Pattern
+      (Maybe result)
+      (Maybe result)
 
 inferPatternCaseType ::
   InferExprFn ->
@@ -112,42 +132,42 @@ inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initi
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
             rejectDuplicatePatternBinders pattern rawPatternTyping stateAcc stateAfterPatternCheck
-       in
-        if patternSkipsBranchType patternTyping
-          then
-            ( maybeExpectedBodyType,
-              stateAfterPattern,
-              PatternCaseArmResult pattern Nothing Nothing : resultsAcc
-            )
-          else
-            let armEnv =
-                  patternBindings patternTyping `Map.union` env
-                (stateAfterGuard, maybeGuardResult) =
-                  inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
-                (maybeBodyType, stateAfterBody, maybeBodyResult) =
-                  inferExpression builtinMode armEnv stateAfterGuard bodyExpr
-                nextResults =
-                  PatternCaseArmResult pattern maybeGuardResult maybeBodyResult : resultsAcc
-             in
-              case (maybeExpectedBodyType, maybeBodyType) of
-                (Nothing, _) ->
-                  (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody, nextResults)
-                (expectedBodyType, Nothing) ->
-                  (expectedBodyType, stateAfterBody, nextResults)
-                (Just inferredExpectedBodyType, Just inferredBodyType) ->
-                  case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
-                    Just unifiedState ->
-                      (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState, nextResults)
-                    Nothing ->
-                      ( Just inferredExpectedBodyType,
-                        addTypeError
-                          stateAfterBody
-                          ( mkPatternBranchTypeMismatchError
-                              (resolveType stateAfterBody inferredExpectedBodyType)
-                              (resolveType stateAfterBody inferredBodyType)
-                          ),
-                        nextResults
-                      )
+       in if patternSkipsBranchType patternTyping
+            then
+              ( maybeExpectedBodyType,
+                stateAfterPattern,
+                PatternCaseArmResult pattern Nothing Nothing : resultsAcc
+              )
+            else
+              let armEnv =
+                    extendTypeEnvWithPatternBindings
+                      (patternBindings patternTyping)
+                      env
+                  (stateAfterGuard, maybeGuardResult) =
+                    inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
+                  (maybeBodyType, stateAfterBody, maybeBodyResult) =
+                    inferExpression builtinMode armEnv stateAfterGuard bodyExpr
+                  nextResults =
+                    PatternCaseArmResult pattern maybeGuardResult maybeBodyResult : resultsAcc
+               in case (maybeExpectedBodyType, maybeBodyType) of
+                    (Nothing, _) ->
+                      (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody, nextResults)
+                    (expectedBodyType, Nothing) ->
+                      (expectedBodyType, stateAfterBody, nextResults)
+                    (Just inferredExpectedBodyType, Just inferredBodyType) ->
+                      case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
+                        Just unifiedState ->
+                          (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState, nextResults)
+                        Nothing ->
+                          ( Just inferredExpectedBodyType,
+                            addTypeError
+                              stateAfterBody
+                              ( mkPatternBranchTypeMismatchError
+                                  (resolveType stateAfterBody inferredExpectedBodyType)
+                                  (resolveType stateAfterBody inferredBodyType)
+                              ),
+                            nextResults
+                          )
 
     inferCaseGuardType builtinMode' armEnv stateAcc guardExpr =
       case guardExpr of
@@ -168,29 +188,62 @@ inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initi
                     stateAfterGuard
            in (checkedState, maybeGuardResult)
 
+newtype PatternBindings = PatternBindings (Map Name ExpressionType)
+  deriving (Eq, Show)
+
+instance Semigroup PatternBindings where
+  PatternBindings left <> PatternBindings right =
+    PatternBindings (Map.union left right)
+
+instance Monoid PatternBindings where
+  mempty = PatternBindings Map.empty
+
+singletonPatternBinding :: Name -> ExpressionType -> PatternBindings
+singletonPatternBinding name expressionType =
+  PatternBindings (Map.singleton name expressionType)
+
+lookupPatternBinding :: Name -> PatternBindings -> Maybe ExpressionType
+lookupPatternBinding name (PatternBindings bindings) = Map.lookup name bindings
+
+insertPatternBinding :: Name -> ExpressionType -> PatternBindings -> PatternBindings
+insertPatternBinding name expressionType (PatternBindings bindings) =
+  PatternBindings (Map.insert name expressionType bindings)
+
+patternBindingNames :: PatternBindings -> Set Name
+patternBindingNames (PatternBindings bindings) = Map.keysSet bindings
+
+extendTypeEnvWithPatternBindings :: PatternBindings -> TypeEnv -> TypeEnv
+extendTypeEnvWithPatternBindings (PatternBindings bindings) env =
+  Map.foldlWithKey'
+    ( \extended name expressionType ->
+        Map.insert name (PlainTypeBinding expressionType) extended
+    )
+    env
+    bindings
+
 data PatternTyping = PatternTyping
-  { patternBindings :: TypeEnv,
+  { patternBindings :: PatternBindings,
     patternSkipsBranchType :: Bool
   }
 
-emptyPatternTyping :: PatternTyping
-emptyPatternTyping =
-  PatternTyping
-    { patternBindings = Map.empty,
-      patternSkipsBranchType = False
-    }
+instance Semigroup PatternTyping where
+  left <> right =
+    PatternTyping
+      { patternBindings = patternBindings left <> patternBindings right,
+        patternSkipsBranchType =
+          patternSkipsBranchType left || patternSkipsBranchType right
+      }
+
+instance Monoid PatternTyping where
+  mempty =
+    PatternTyping
+      { patternBindings = mempty,
+        patternSkipsBranchType = False
+      }
 
 skipBranchPatternTyping :: PatternTyping
 skipBranchPatternTyping =
-  emptyPatternTyping {patternSkipsBranchType = True}
-
-mergePatternTyping :: PatternTyping -> PatternTyping -> PatternTyping
-mergePatternTyping left right =
-  PatternTyping
-    { patternBindings = patternBindings left `Map.union` patternBindings right,
-      patternSkipsBranchType =
-        patternSkipsBranchType left || patternSkipsBranchType right
-    }
+  mempty {patternSkipsBranchType = True}
 
 rejectDuplicatePatternBinders :: Pattern -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
 rejectDuplicatePatternBinders pattern typing stableState checkedState =
@@ -199,10 +252,9 @@ rejectDuplicatePatternBinders pattern typing stableState checkedState =
     duplicateNames ->
       let stateWithDuplicateErrors =
             foldl' addDuplicateError checkedState duplicateNames
-       in
-        ( typing {patternSkipsBranchType = True},
-          rollbackSkippedPatternState stableState stateWithDuplicateErrors
-        )
+       in ( typing {patternSkipsBranchType = True},
+            rollbackSkippedPatternState stableState stateWithDuplicateErrors
+          )
   where
     addDuplicateError stateAcc duplicateName =
       addTypeError stateAcc (mkDuplicatePatternBinderError duplicateName)
@@ -248,8 +300,8 @@ patternDuplicateBinderNames pattern =
 
     collectNested seen duplicatesAcc =
       foldl'
-        (\(seenAcc, duplicatesAcc') nestedPattern ->
-           collect nestedPattern seenAcc duplicatesAcc'
+        ( \(seenAcc, duplicatesAcc') nestedPattern ->
+            collect nestedPattern seenAcc duplicatesAcc'
         )
         (seen, duplicatesAcc)
 
@@ -257,19 +309,19 @@ inferPatternType :: TypeEnv -> ExpressionType -> Pattern -> InferState -> (Patte
 inferPatternType env scrutineeType pattern state =
   case pattern of
     PVariable name ->
-      ( emptyPatternTyping
+      ( mempty
           { patternBindings =
-              Map.singleton
+              singletonPatternBinding
                 name
-                (PlainTypeBinding (resolveType state scrutineeType))
+                (resolveType state scrutineeType)
           },
         state
       )
-    PWildcard -> (emptyPatternTyping, state)
+    PWildcard -> (mempty, state)
     PLiteral literal ->
       let literalType = literalExpressionType literal
        in case unifyTypes scrutineeType literalType state of
-            Just unifiedState -> (emptyPatternTyping, unifiedState)
+            Just unifiedState -> (mempty, unifiedState)
             Nothing ->
               ( skipBranchPatternTyping,
                 addTypeError
@@ -290,19 +342,18 @@ inferPatternType env scrutineeType pattern state =
     PAs name nestedPattern ->
       let (typing, stateAfterPattern) =
             inferPatternType env scrutineeType nestedPattern state
-       in
-        if patternSkipsBranchType typing
-          then (typing, stateAfterPattern)
-          else
-            ( typing
-                { patternBindings =
-                    Map.insert
-                      name
-                      (PlainTypeBinding (resolveType stateAfterPattern scrutineeType))
-                      (patternBindings typing)
-                },
-              stateAfterPattern
-            )
+       in if patternSkipsBranchType typing
+            then (typing, stateAfterPattern)
+            else
+              ( typing
+                  { patternBindings =
+                      insertPatternBinding
+                        name
+                        (resolveType stateAfterPattern scrutineeType)
+                        (patternBindings typing)
+                  },
+                stateAfterPattern
+              )
     POr alternatives ->
       inferOrPatternType env scrutineeType alternatives state
 
@@ -321,16 +372,15 @@ inferOrPatternType env scrutineeType alternatives initialState =
     firstAlternative : rest ->
       let (firstTyping, stateAfterFirst) =
             inferOrPatternAlternative firstAlternative initialState
-       in
-        if patternSkipsBranchType firstTyping
-          then (firstTyping, rollbackSkippedPatternState initialState stateAfterFirst)
-          else
-            let expectedBinderNames = Map.keysSet (patternBindings firstTyping)
-             in inferRemainingAlternatives
-                  expectedBinderNames
-                  (patternBindings firstTyping)
-                  stateAfterFirst
-                  rest
+       in if patternSkipsBranchType firstTyping
+            then (firstTyping, rollbackSkippedPatternState initialState stateAfterFirst)
+            else
+              let expectedBinderNames = patternBindingNames (patternBindings firstTyping)
+               in inferRemainingAlternatives
+                    expectedBinderNames
+                    (patternBindings firstTyping)
+                    stateAfterFirst
+                    rest
   where
     inferOrPatternAlternative alternativePattern stateAcc =
       let (rawTyping, stateAfterPatternCheck) =
@@ -344,96 +394,80 @@ inferOrPatternType env scrutineeType alternatives initialState =
     inferRemainingAlternatives expectedBinderNames bindingsAcc stateAcc remainingAlternatives =
       case remainingAlternatives of
         [] ->
-          ( emptyPatternTyping
-              {patternBindings = resolvePatternBindings stateAcc bindingsAcc},
+          ( mempty
+              { patternBindings = resolvePatternBindings stateAcc bindingsAcc
+              },
             stateAcc
           )
         alternativePattern : restAlternatives ->
           let (alternativeTyping, stateAfterAlternative) =
                 inferOrPatternAlternative alternativePattern stateAcc
-           in
-            if patternSkipsBranchType alternativeTyping
-              then (alternativeTyping, rollbackSkippedPatternState initialState stateAfterAlternative)
-              else
-                let alternativeBindings = patternBindings alternativeTyping
-                    alternativeBinderNames = Map.keysSet alternativeBindings
-                 in
-                  if alternativeBinderNames /= expectedBinderNames
-                    then
-                      ( skipBranchPatternTyping,
-                        rollbackSkippedPatternState
-                          initialState
-                          ( addTypeError
-                              stateAfterAlternative
-                              (mkOrPatternBinderSetMismatchError expectedBinderNames alternativeBinderNames)
+           in if patternSkipsBranchType alternativeTyping
+                then (alternativeTyping, rollbackSkippedPatternState initialState stateAfterAlternative)
+                else
+                  let alternativeBindings = patternBindings alternativeTyping
+                      alternativeBinderNames = patternBindingNames alternativeBindings
+                   in if alternativeBinderNames /= expectedBinderNames
+                        then
+                          ( skipBranchPatternTyping,
+                            rollbackSkippedPatternState
+                              initialState
+                              ( addTypeError
+                                  stateAfterAlternative
+                                  (mkOrPatternBinderSetMismatchError expectedBinderNames alternativeBinderNames)
+                              )
                           )
-                      )
-                    else
-                      case unifyOrPatternBinders bindingsAcc alternativeBindings stateAfterAlternative of
-                        Left failedState ->
-                          (skipBranchPatternTyping, rollbackSkippedPatternState initialState failedState)
-                        Right (mergedBindings, stateAfterBinders) ->
-                          inferRemainingAlternatives
-                            expectedBinderNames
-                            mergedBindings
-                            stateAfterBinders
-                            restAlternatives
+                        else case unifyOrPatternBinders bindingsAcc alternativeBindings stateAfterAlternative of
+                          Left failedState ->
+                            (skipBranchPatternTyping, rollbackSkippedPatternState initialState failedState)
+                          Right (mergedBindings, stateAfterBinders) ->
+                            inferRemainingAlternatives
+                              expectedBinderNames
+                              mergedBindings
+                              stateAfterBinders
+                              restAlternatives
 
     unifyOrPatternBinders bindingsAcc alternativeBindings stateAcc =
       foldl'
         unifyBinder
         (Right (bindingsAcc, stateAcc))
-        (Set.toList (Map.keysSet bindingsAcc))
+        (Set.toList (patternBindingNames bindingsAcc))
       where
         unifyBinder maybeAcc binderName =
           case maybeAcc of
             Left failedState -> Left failedState
             Right (mergedBindings, stateForBinder) ->
-              case (Map.lookup binderName mergedBindings, Map.lookup binderName alternativeBindings) of
-                (Just leftBinding, Just rightBinding) ->
-                  let leftType = patternBindingExpressionType leftBinding
-                      rightType = patternBindingExpressionType rightBinding
-                   in case unifyTypes leftType rightType stateForBinder of
-                        Just unifiedState ->
-                          Right
-                            ( Map.insert
+              case (lookupPatternBinding binderName mergedBindings, lookupPatternBinding binderName alternativeBindings) of
+                (Just leftType, Just rightType) ->
+                  case unifyTypes leftType rightType stateForBinder of
+                    Just unifiedState ->
+                      Right
+                        ( insertPatternBinding
+                            binderName
+                            (resolveType unifiedState leftType)
+                            mergedBindings,
+                          unifiedState
+                        )
+                    Nothing ->
+                      Left
+                        ( addTypeError
+                            stateForBinder
+                            ( mkOrPatternBinderTypeMismatchError
                                 binderName
-                                (PlainTypeBinding (resolveType unifiedState leftType))
-                                mergedBindings,
-                              unifiedState
+                                (resolveType stateForBinder leftType)
+                                (resolveType stateForBinder rightType)
                             )
-                        Nothing ->
-                          Left
-                            ( addTypeError
-                                stateForBinder
-                                ( mkOrPatternBinderTypeMismatchError
-                                    binderName
-                                    (resolveType stateForBinder leftType)
-                                    (resolveType stateForBinder rightType)
-                                )
-                            )
+                        )
                 _ ->
                   Left
                     ( addTypeError
                         stateForBinder
-                        (mkOrPatternBinderSetMismatchError (Map.keysSet mergedBindings) (Map.keysSet alternativeBindings))
+                        (mkOrPatternBinderSetMismatchError (patternBindingNames mergedBindings) (patternBindingNames alternativeBindings))
                     )
 
-patternBindingExpressionType :: TypeBinding -> ExpressionType
-patternBindingExpressionType binding =
-  case binding of
-    PlainTypeBinding expressionType -> expressionType
-    _ -> error "internal type inference error: non-plain case pattern binding"
-
-resolvePatternBindings :: InferState -> TypeEnv -> TypeEnv
-resolvePatternBindings state bindings =
-  Map.map resolvePatternBinding bindings
-  where
-    resolvePatternBinding binding =
-      case binding of
-        PlainTypeBinding expressionType ->
-          PlainTypeBinding (resolveType state expressionType)
-        _ -> binding
+resolvePatternBindings :: InferState -> PatternBindings -> PatternBindings
+resolvePatternBindings state (PatternBindings bindings) =
+  PatternBindings (Map.map (resolveType state) bindings)
 
 inferConstructorPatternType ::
   TypeEnv ->
@@ -448,16 +482,14 @@ inferConstructorPatternType env scrutineeType constructorName patterns state =
       case instantiateConstructorBinding constructorBinding state of
         Just (argumentTypes, constructorResultType, stateAfterConstructor) ->
           let expectedArity = length argumentTypes
-           in
-            if expectedArity /= length patterns
-              then
-                ( skipBranchPatternTyping,
-                  addTypeError
-                    stateAfterConstructor
-                    (mkConstructorPatternArityError constructorNameText expectedArity (length patterns))
-                )
-              else
-                case unifyTypes scrutineeType constructorResultType stateAfterConstructor of
+           in if expectedArity /= length patterns
+                then
+                  ( skipBranchPatternTyping,
+                    addTypeError
+                      stateAfterConstructor
+                      (mkConstructorPatternArityError constructorNameText expectedArity (length patterns))
+                  )
+                else case unifyTypes scrutineeType constructorResultType stateAfterConstructor of
                   Just stateAfterResultCheck ->
                     inferConstructorArgumentPatterns
                       env
@@ -495,7 +527,7 @@ inferConstructorArgumentPatterns ::
   InferState ->
   (PatternTyping, InferState)
 inferConstructorArgumentPatterns env argumentTypes patterns initialState =
-  go emptyPatternTyping initialState (zip argumentTypes patterns)
+  go mempty initialState (zip argumentTypes patterns)
   where
     go typingAcc stateAcc remainingPatterns =
       case remainingPatterns of
@@ -503,11 +535,10 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
         (argumentType, pattern) : rest ->
           let (typing, stateAfterPattern) =
                 inferPatternType env argumentType pattern stateAcc
-              mergedTyping = mergePatternTyping typing typingAcc
-           in
-            if patternSkipsBranchType mergedTyping
-              then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
-              else go mergedTyping stateAfterPattern rest
+              mergedTyping = typing <> typingAcc
+           in if patternSkipsBranchType mergedTyping
+                then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
+                else go mergedTyping stateAfterPattern rest
 
 inferListPatternType ::
   TypeEnv ->
@@ -527,15 +558,14 @@ inferListPatternType env scrutineeType patterns state =
               ( mkListPatternTypeMismatchError
                   (resolveType stateWithElementType scrutineeType)
               )
-   in
-    if hasNewPatternError stateWithElementType stateAfterListCheck
-      then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
-      else
-        inferListElementPatterns
-          env
-          (resolveType stateAfterListCheck elementType)
-          patterns
-          stateAfterListCheck
+   in if hasNewPatternError stateWithElementType stateAfterListCheck
+        then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
+        else
+          inferListElementPatterns
+            env
+            (resolveType stateAfterListCheck elementType)
+            patterns
+            stateAfterListCheck
 
 inferListElementPatterns ::
   TypeEnv ->
@@ -544,7 +574,7 @@ inferListElementPatterns ::
   InferState ->
   (PatternTyping, InferState)
 inferListElementPatterns env elementType patterns initialState =
-  go emptyPatternTyping initialState patterns
+  go mempty initialState patterns
   where
     go typingAcc stateAcc remainingPatterns =
       case remainingPatterns of
@@ -552,11 +582,10 @@ inferListElementPatterns env elementType patterns initialState =
         pattern : rest ->
           let (typing, stateAfterPattern) =
                 inferPatternType env elementType pattern stateAcc
-              mergedTyping = mergePatternTyping typing typingAcc
-           in
-            if patternSkipsBranchType mergedTyping
-              then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
-              else go mergedTyping stateAfterPattern rest
+              mergedTyping = typing <> typingAcc
+           in if patternSkipsBranchType mergedTyping
+                then (mergedTyping, rollbackSkippedPatternState initialState stateAfterPattern)
+                else go mergedTyping stateAfterPattern rest
 
 inferConsListPatternType ::
   TypeEnv ->
@@ -577,16 +606,15 @@ inferConsListPatternType env scrutineeType headPattern tailPattern state =
               ( mkListPatternTypeMismatchError
                   (resolveType stateWithElementType scrutineeType)
               )
-   in
-    if hasNewPatternError stateWithElementType stateAfterListCheck
-      then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
-      else
-        inferConsListSubpatterns
-          env
-          (resolveType stateAfterListCheck elementType)
-          headPattern
-          tailPattern
-          stateAfterListCheck
+   in if hasNewPatternError stateWithElementType stateAfterListCheck
+        then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
+        else
+          inferConsListSubpatterns
+            env
+            (resolveType stateAfterListCheck elementType)
+            headPattern
+            tailPattern
+            stateAfterListCheck
 
 inferConsListSubpatterns ::
   TypeEnv ->
@@ -598,18 +626,16 @@ inferConsListSubpatterns ::
 inferConsListSubpatterns env elementType headPattern tailPattern initialState =
   let (headTyping, stateAfterHeadPattern) =
         inferPatternType env elementType headPattern initialState
-   in
-    if patternSkipsBranchType headTyping
-      then (headTyping, rollbackSkippedPatternState initialState stateAfterHeadPattern)
-      else
-        let tailListType = TListType (resolveType stateAfterHeadPattern elementType)
-            (tailTyping, stateAfterTailPattern) =
-              inferPatternType env tailListType tailPattern stateAfterHeadPattern
-            mergedTyping = mergePatternTyping tailTyping headTyping
-         in
-          if patternSkipsBranchType mergedTyping
-            then (mergedTyping, rollbackSkippedPatternState initialState stateAfterTailPattern)
-            else (mergedTyping, stateAfterTailPattern)
+   in if patternSkipsBranchType headTyping
+        then (headTyping, rollbackSkippedPatternState initialState stateAfterHeadPattern)
+        else
+          let tailListType = TListType (resolveType stateAfterHeadPattern elementType)
+              (tailTyping, stateAfterTailPattern) =
+                inferPatternType env tailListType tailPattern stateAfterHeadPattern
+              mergedTyping = tailTyping <> headTyping
+           in if patternSkipsBranchType mergedTyping
+                then (mergedTyping, rollbackSkippedPatternState initialState stateAfterTailPattern)
+                else (mergedTyping, stateAfterTailPattern)
 
 inferTuplePatternType ::
   TypeEnv ->
@@ -639,15 +665,14 @@ inferTuplePatternType env scrutineeType patterns state =
                 addTypeError
                   stateWithElementTypes
                   (mkTuplePatternTypeMismatchError resolvedScrutineeType)
-       in
-        if hasNewPatternError stateWithElementTypes stateAfterTupleCheck
-          then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterTupleCheck)
-          else
-            inferConstructorArgumentPatterns
-              env
-              (map (resolveType stateAfterTupleCheck) elementTypes)
-              patterns
-              stateAfterTupleCheck
+       in if hasNewPatternError stateWithElementTypes stateAfterTupleCheck
+            then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterTupleCheck)
+            else
+              inferConstructorArgumentPatterns
+                env
+                (map (resolveType stateAfterTupleCheck) elementTypes)
+                patterns
+                stateAfterTupleCheck
   where
     freshTypeVars count initialState =
       go [] initialState count
@@ -701,11 +726,10 @@ instantiateConstructorType typeName typeParameters argumentTypes state =
         instantiateConstructorTypeParameters typeParameters state
       (constructorArgumentTypesRev, stateAfterArguments) =
         instantiateConstructorArguments typeParameterBindings argumentTypes stateAfterParameters
-   in
-    ( reverse constructorArgumentTypesRev,
-      TDataType typeName (reverse resultParameterTypes),
-      stateAfterArguments
-    )
+   in ( reverse constructorArgumentTypesRev,
+        TDataType typeName (reverse resultParameterTypes),
+        stateAfterArguments
+      )
 
 instantiateConstructorTypeParameters ::
   [Name] ->
@@ -716,11 +740,10 @@ instantiateConstructorTypeParameters typeParameters initialState =
   where
     step (bindings, parameterTypesRev, stateAcc) typeParameter =
       let (parameterType, nextState) = freshTypeVar stateAcc
-       in
-        ( Map.insert (identifierText typeParameter) parameterType bindings,
-          parameterType : parameterTypesRev,
-          nextState
-        )
+       in ( Map.insert (identifierText typeParameter) parameterType bindings,
+            parameterType : parameterTypesRev,
+            nextState
+          )
 
 instantiateConstructorArguments ::
   Map Text ExpressionType ->
@@ -739,22 +762,20 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
             Just parameterType -> (parameterType : argumentTypesRev, stateAcc)
             Nothing ->
               let (freshArgumentType, nextState) = freshTypeVar stateAcc
-               in
-                ( freshArgumentType : argumentTypesRev,
-                  addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
-                )
+               in ( freshArgumentType : argumentTypesRev,
+                    addTypeError nextState (mkMissingConstructorTypeParameterBindingError parameterName)
+                  )
         ConstructorArgumentStructured fieldType ->
           case instantiateConstructorFieldType typeParameterBindings fieldType of
             Just expressionType ->
               (resolveType stateAcc expressionType : argumentTypesRev, stateAcc)
             Nothing ->
               let (freshArgumentType, nextState) = freshTypeVar stateAcc
-               in
-                ( freshArgumentType : argumentTypesRev,
-                  addTypeError
-                    nextState
-                    (mkInvalidConstructorPayloadTypeError "missing structured constructor type-parameter binding")
-                )
+               in ( freshArgumentType : argumentTypesRev,
+                    addTypeError
+                      nextState
+                      (mkInvalidConstructorPayloadTypeError "missing structured constructor type-parameter binding")
+                  )
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc
            in (freshArgumentType : argumentTypesRev, nextState)
