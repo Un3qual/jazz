@@ -9,6 +9,10 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
+  ( orderedManagedLayouts,
+    representationForRecipe,
+  )
 import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     textEqualityOperation,
@@ -36,6 +40,7 @@ emitAnalyzedModule analysis =
         ( LoweredProgram
             supportedLoweredIRVersion
             ( requiredRuntimeLayouts runtimeRequirements
+                <> orderedManagedLayouts managedLayoutCatalog
                 <> orderedClosureLayouts functionShapes
             )
             (orderedRuntimeServices (runtimeRequiredServices runtimeRequirements))
@@ -60,6 +65,7 @@ emitAnalyzedModule analysis =
     functionIndex = analyzedFunctionIndex analysis
     resultRepresentation = analyzedResultRepresentation analysis
     runtimeRequirements = analyzedRuntimeRequirements analysis
+    managedLayoutCatalog = analyzedManagedLayoutCatalog analysis
     entryFunctionId =
       LoweredFunctionId (Text.intercalate "::" (modulePath <> ["$entry"]))
     entryBlockId = LoweredBlockId "entry"
@@ -443,7 +449,7 @@ emitEntry modulePath functions =
     go statementIndex resultOperand state (statement : rest) =
       case statement of
         TypedLetStatement binder _ _ scheme expression
-          | Just (schemeBinder, expectedRepresentation) <- valueSchemeContract scheme,
+          | Just (schemeBinder, expectedRepresentation) <- valueSchemeContract (indexedManagedLayoutCatalog functions) scheme,
             binder == schemeBinder ->
               case lowerExpression
                 modulePath
@@ -582,26 +588,26 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
     TypedVariableExpr info _ binderReference ->
       case binderReference >>= (`Map.lookup` loweringLocalBindings state) of
         Just operand
-          | loweredRepresentation (typedNodeRecipe info) == Just (loweredOperandRepresentation operand) ->
+          | representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe info) == Just (loweredOperandRepresentation operand) ->
               ([], Just operand, state)
         Just _ -> unsupportedExpression path state
         Nothing ->
           case findParameterShape binderReference parameters of
             Just (FunctionParameterShape _ (LoweredParameter parameterId representation))
-              | loweredRepresentation (typedNodeRecipe info) == Just representation ->
+              | representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe info) == Just representation ->
                   ([], Just (LoweredFunctionParameterOperand parameterId representation), state)
             _ ->
               case findFunctionShape binderReference functions of
                 Just function
                   | functionShapeCallableShape function == TypedClosureCallableShape,
-                    loweredRepresentation (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
+                    representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
                       lowerClosureValue path parameters function state
                 _ -> unsupportedExpression path state
     TypedLambdaExpr info parameterBinder _ _ ->
       case findFunctionShape (Just parameterBinder) functions of
         Just function
           | not (functionShapeSourceBinding function),
-            loweredRepresentation (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
+            representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
               lowerClosureValue path parameters function state
         _ -> unsupportedExpression path state
     TypedTupleExpr info [] ->
@@ -734,7 +740,7 @@ lowerConditionalTo destination modulePath statementPath expressionPath path info
         _ -> unsupportedExpression path conditionState
   where
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (typedNodeRecipe info)
+      representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe info)
     (conditionFailures, maybeConditionOperand, conditionState) =
       lowerExpression
         modulePath
@@ -938,7 +944,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
     [] ->
       case (maybeResultRepresentation, maybeScrutineeOperand) of
         (Just resultRepresentation, Just scrutineeOperand)
-          | Just scrutineeRepresentation <- loweredRepresentation (typedNodeRecipe (typedExpressionInfo scrutinee)),
+          | Just scrutineeRepresentation <- representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe (typedExpressionInfo scrutinee)),
             loweredOperandRepresentation scrutineeOperand == scrutineeRepresentation ->
               case destination of
                 ProduceValue -> lowerArmChain resultRepresentation scrutineeOperand
@@ -949,7 +955,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         _ -> unsupportedExpression path scrutineeState
   where
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (typedNodeRecipe info)
+      representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe info)
     (scrutineeFailures, maybeScrutineeOperand, scrutineeState) =
       lowerExpression
         modulePath
@@ -1490,7 +1496,7 @@ lowerBinary modulePath statementPath expressionPath path info operator left righ
             Nothing
           )
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (typedNodeRecipe info)
+      representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe info)
     (leftFailures, maybeLeftOperand, leftState) =
       lowerExpression
         modulePath
@@ -1554,7 +1560,7 @@ lowerTextEquality modulePath statementPath expressionPath path info negateResult
         _ -> unsupportedExpression path rightState
   where
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (typedNodeRecipe info)
+      representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe info)
     (leftFailures, maybeLeftOperand, leftState) =
       lowerExpression
         modulePath
@@ -1715,7 +1721,7 @@ lowerOrdinaryApplication modulePath statementPath expressionPath path functions 
         expression
     (callee, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
+      representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe (typedExpressionInfo expression))
     (reversedArgumentFailureChunks, reversedArgumentCarriers, carriedArgumentState) =
       foldl'
         lowerArgument
@@ -1769,7 +1775,7 @@ lowerTextRuntimeApplication modulePath statementPath expressionPath path functio
   where
     (_, _, arguments) = applicationSpine expressionPath expression
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath path (typedNodeRecipe (typedExpressionInfo expression))
+      representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe (typedExpressionInfo expression))
     (reversedArgumentFailureChunks, reversedArgumentCarriers, carriedArgumentState) =
       foldl'
         lowerArgument
@@ -1882,7 +1888,7 @@ lowerUnaryClosureApplication modulePath statementPath expressionPath path functi
             _ -> unsupportedExpression path argumentState
       where
         (resultRepresentationFailures, maybeResultRepresentation) =
-          representationAtPath path (typedNodeRecipe info)
+          representationAtPath (indexedManagedLayoutCatalog functions) path (typedNodeRecipe info)
         (functionFailures, maybeFunctionOperand, functionState) =
           lowerExpression
             modulePath

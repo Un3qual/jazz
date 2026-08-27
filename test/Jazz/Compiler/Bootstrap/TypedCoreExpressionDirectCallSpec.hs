@@ -31,6 +31,7 @@ tests =
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("retains managed tuple and local-data structure once", testManagedProductVariantRetention),
     ("produces exact managed product and local-variant artifacts", testManagedProductVariantProduction),
+    ("catalogs deterministic managed product and variant layouts", testManagedProductVariantLayoutCatalog),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
     ("produces exact managed Text operations", testManagedTextOperationProduction),

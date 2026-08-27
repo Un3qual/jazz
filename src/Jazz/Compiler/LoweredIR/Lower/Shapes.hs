@@ -14,7 +14,6 @@ module Jazz.Compiler.LoweredIR.Lower.Shapes
     functionEnvironmentParameter,
     loweredPrimitive,
     representationAtPath,
-    loweredRepresentation,
     integerWidth,
     floatWidth,
   )
@@ -27,16 +26,26 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
+  ( collectManagedLayoutCatalog,
+    orderedManagedLayouts,
+    representationForRecipe,
+  )
 import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( collectRuntimeRequirements,
+    requirementsForManagedLayouts,
     textRuntimeServiceApplication,
   )
 import Jazz.Compiler.LoweredIR.Lower.Types
-import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textRepresentation)
 import Jazz.Compiler.TypedCore
 
 analyzeTypedModule :: TypedModule -> Either [LoweredIRLoweringFailure] LoweringAnalysis
-analyzeTypedModule typedModule@(TypedModule modulePath _ imports exports moduleInterface recursiveGroups statements moduleInfo) =
+analyzeTypedModule typedModule = do
+  managedLayoutCatalog <- collectManagedLayoutCatalog typedModule
+  analyzeTypedModuleWithCatalog managedLayoutCatalog typedModule
+
+analyzeTypedModuleWithCatalog :: ManagedLayoutCatalog -> TypedModule -> Either [LoweredIRLoweringFailure] LoweringAnalysis
+analyzeTypedModuleWithCatalog managedLayoutCatalog typedModule@(TypedModule modulePath _ imports exports moduleInterface recursiveGroups statements moduleInfo) =
   case allFailures of
     failures@(_ : _) -> Left failures
     [] ->
@@ -49,7 +58,10 @@ analyzeTypedModule typedModule@(TypedModule modulePath _ imports exports moduleI
                 analyzedFunctionShapes = functionShapes,
                 analyzedFunctionIndex = functionIndex,
                 analyzedResultRepresentation = resultRepresentation,
-                analyzedRuntimeRequirements = collectRuntimeRequirements typedModule
+                analyzedRuntimeRequirements =
+                  collectRuntimeRequirements typedModule
+                    <> requirementsForManagedLayouts (orderedManagedLayouts managedLayoutCatalog),
+                analyzedManagedLayoutCatalog = managedLayoutCatalog
               }
         Nothing ->
           Left
@@ -60,9 +72,9 @@ analyzeTypedModule typedModule@(TypedModule modulePath _ imports exports moduleI
             ]
   where
     (shapeFailures, collectedFunctionShapes, localValueNames) =
-      collectFunctionShapes modulePath statements
+      collectFunctionShapes managedLayoutCatalog modulePath statements
     functionShapes =
-      applyRecursiveClosureGroups recursiveGroups collectedFunctionShapes
+      applyRecursiveClosureGroups managedLayoutCatalog recursiveGroups collectedFunctionShapes
     functionDeclarations = collectFunctionDeclarations statements
     functionIndex =
       FunctionIndex
@@ -87,8 +99,9 @@ analyzeTypedModule typedModule@(TypedModule modulePath _ imports exports moduleI
             Map.fromList
               [ (binder, representation)
               | TypedLetStatement binder _ _ scheme _ <- statements,
-                Just (_, representation) <- [valueSchemeContract scheme]
-              ]
+                Just (_, representation) <- [valueSchemeContract managedLayoutCatalog scheme]
+              ],
+          indexedManagedLayoutCatalog = managedLayoutCatalog
         }
     moduleFailures
       | supportedModuleMetadata imports exports moduleInterface functionShapes =
@@ -100,11 +113,12 @@ analyzeTypedModule typedModule@(TypedModule modulePath _ imports exports moduleI
               LoweredIRNoFailureDetail
           ]
     (resultRepresentationFailures, maybeResultRepresentation) =
-      representationAtPath (TypedModulePath modulePath) (typedNodeRecipe moduleInfo)
+      representationAtPath managedLayoutCatalog (TypedModulePath modulePath) (typedNodeRecipe moduleInfo)
     profileFailures =
-      validateStatementProfiles modulePath functionIndex (Set.fromList localValueNames) statements
+      validateStatementProfiles managedLayoutCatalog modulePath functionIndex (Set.fromList localValueNames) statements
     recursiveFailures =
       recursiveGroupProfileFailures
+        managedLayoutCatalog
         modulePath
         functionIndex
         collectedFunctionShapes
@@ -144,18 +158,37 @@ supportedModuleMetadata ::
   Bool
 supportedModuleMetadata imports exports (TypedModuleInterface values datas classes impls) functions =
   null imports
-    && null datas
     && null classes
     && null impls
     && all supportedExport exports
     && all supportedInterfaceValue values
+    && all supportedDataInterface datas
   where
     sourceFunctions = filter functionShapeSourceBinding functions
     supportedExport (TypedModuleExport namespace identifier) =
-      namespace == TypedValueNamespace
-        && any (matchesIdentifier identifier . functionShapeName) sourceFunctions
+      case namespace of
+        TypedValueNamespace -> any (matchesIdentifier identifier . functionShapeName) sourceFunctions
+        TypedTypeNamespace -> any (dataNameMatches identifier) datas
+        TypedConstructorNamespace -> any (dataConstructorMatches identifier) datas
+        TypedCapabilityNamespace -> False
     supportedInterfaceValue (TypedValueInterface name _) =
       any ((== name) . functionShapeName) sourceFunctions
+    supportedDataInterface (TypedDataInterface (TypedDataDeclaration _ name _ constructors)) =
+      currentTypeName name && all currentConstructor constructors
+    currentTypeName name =
+      case name of
+        TypedResolvedName TypedCurrentModule TypedTypeNamespace _ -> True
+        _ -> False
+    currentConstructor (TypedConstructorDeclaration _ name _ _) =
+      case name of
+        TypedResolvedName TypedCurrentModule TypedConstructorNamespace _ -> True
+        _ -> False
+    dataNameMatches identifier (TypedDataInterface (TypedDataDeclaration _ name _ _)) =
+      name == TypedResolvedName TypedCurrentModule TypedTypeNamespace identifier
+    dataConstructorMatches identifier (TypedDataInterface (TypedDataDeclaration _ _ _ constructors)) =
+      any
+        (\(TypedConstructorDeclaration _ name _ _) -> name == TypedResolvedName TypedCurrentModule TypedConstructorNamespace identifier)
+        constructors
     matchesIdentifier identifier name =
       case name of
         TypedResolvedName TypedCurrentModule TypedValueNamespace candidate ->
@@ -163,14 +196,15 @@ supportedModuleMetadata imports exports (TypedModuleInterface values datas class
         _ -> False
 
 collectFunctionShapes ::
+  ManagedLayoutCatalog ->
   [Text] ->
   [TypedStatement] ->
   ([LoweredIRLoweringFailure], [FunctionShape], [TypedCoreName])
-collectFunctionShapes modulePath statements =
+collectFunctionShapes managedLayoutCatalog modulePath statements =
   (rootFailures, orderedFunctionShapes, localValueNames)
   where
     (rootFailures, rootFunctionShapes, localValueNames) =
-      collectRootFunctionShapes modulePath statements
+      collectRootFunctionShapes managedLayoutCatalog modulePath statements
     rootShapesByStatement =
       Map.fromList
         [ (functionShapeStatementIndex function, function)
@@ -189,9 +223,10 @@ collectFunctionShapes modulePath statements =
     shapesForStatement statementIndex statement =
       case Map.lookup statementIndex rootShapesByStatement of
         Just rootFunction ->
-          let capturedRoot = attachFunctionCaptures rootShapesByBinder rootFunction
+          let capturedRoot = attachFunctionCaptures managedLayoutCatalog rootShapesByBinder rootFunction
            in capturedRoot
                 : collectGeneratedFunctionShapes
+                  managedLayoutCatalog
                   rootShapesByBinder
                   statementIndex
                   (functionShapeReversedBodyPath capturedRoot)
@@ -199,13 +234,13 @@ collectFunctionShapes modulePath statements =
         Nothing ->
           case statement of
             TypedLetStatement _ _ _ _ expression ->
-              collectGeneratedFunctionShapes rootShapesByBinder statementIndex [0] expression
+              collectGeneratedFunctionShapes managedLayoutCatalog rootShapesByBinder statementIndex [0] expression
             TypedExpressionStatement _ expression ->
-              collectGeneratedFunctionShapes rootShapesByBinder statementIndex [0] expression
+              collectGeneratedFunctionShapes managedLayoutCatalog rootShapesByBinder statementIndex [0] expression
             _ -> []
 
-applyRecursiveClosureGroups :: [TypedRecursiveGroup] -> [FunctionShape] -> [FunctionShape]
-applyRecursiveClosureGroups recursiveGroups initialFunctions =
+applyRecursiveClosureGroups :: ManagedLayoutCatalog -> [TypedRecursiveGroup] -> [FunctionShape] -> [FunctionShape]
+applyRecursiveClosureGroups managedLayoutCatalog recursiveGroups initialFunctions =
   foldl' applyGroup initialFunctions recursiveGroups
   where
     applyGroup functions (TypedRecursiveGroup members) =
@@ -217,6 +252,7 @@ applyRecursiveClosureGroups recursiveGroups initialFunctions =
                   sharedCaptures =
                     stableCaptureUnion
                       [ collectCaptureShapes
+                          managedLayoutCatalog
                           functionsByBinder
                           memberSet
                           (Set.fromList (map functionParameterBinder (functionShapeParameters function)))
@@ -272,10 +308,11 @@ orderedClosureLayouts = reverse . snd . foldl' collect (Set.empty, [])
               )
 
 collectRootFunctionShapes ::
+  ManagedLayoutCatalog ->
   [Text] ->
   [TypedStatement] ->
   ([LoweredIRLoweringFailure], [FunctionShape], [TypedCoreName])
-collectRootFunctionShapes modulePath =
+collectRootFunctionShapes managedLayoutCatalog modulePath =
   go 0 [] [] [] Set.empty Set.empty
   where
     go _ reversedFailures reversedFunctions reversedLocalNames _ _ [] =
@@ -285,7 +322,7 @@ collectRootFunctionShapes modulePath =
         TypedSignatureStatement {} ->
           continue reversedFailures reversedFunctions reversedLocalNames seenNames seenGeneratedIdentities
         TypedLetStatement _ name _ scheme expression
-          | Just _ <- valueSchemeContract scheme ->
+          | Just _ <- valueSchemeContract managedLayoutCatalog scheme ->
               continue
                 reversedFailures
                 reversedFunctions
@@ -322,7 +359,7 @@ collectRootFunctionShapes modulePath =
                     (Set.insert name seenNames)
                     seenGeneratedIdentities
                 [] ->
-                  case collectFunctionShape modulePath statementIndex name scheme expression of
+                  case collectFunctionShape managedLayoutCatalog modulePath statementIndex name scheme expression of
                     Just function ->
                       let maybeGeneratedIdentity = functionShapeEnvironmentLayout function
                           duplicateGeneratedIdentity =
@@ -356,6 +393,8 @@ collectRootFunctionShapes modulePath =
                         (Set.insert name seenNames)
                         seenGeneratedIdentities
         TypedExpressionStatement {} ->
+          continue reversedFailures reversedFunctions reversedLocalNames seenNames seenGeneratedIdentities
+        TypedDataStatement {} ->
           continue reversedFailures reversedFunctions reversedLocalNames seenNames seenGeneratedIdentities
         _ ->
           continue
@@ -415,13 +454,14 @@ duplicateLeadingParameters =
         _ -> []
 
 collectFunctionShape ::
+  ManagedLayoutCatalog ->
   [Text] ->
   Int ->
   TypedCoreName ->
   TypedScheme ->
   TypedExpr ->
   Maybe FunctionShape
-collectFunctionShape modulePath statementIndex name scheme expression = do
+collectFunctionShape managedLayoutCatalog modulePath statementIndex name scheme expression = do
   identifier <- localValueIdentifier name
   (schemeBinder, schemeType, schemeRecipe, callableShape) <- monomorphicSchemeContract scheme
   environmentLayout <-
@@ -431,9 +471,9 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
   (parameters, resultRepresentation, reversedBodyPath, body) <-
     case callableShape of
       TypedDirectCallableShape ->
-        flattenLeadingLambdas schemeType schemeRecipe [0] [] expression
+        flattenLeadingLambdas managedLayoutCatalog schemeType schemeRecipe [0] [] expression
       TypedClosureCallableShape ->
-        collectUnaryClosureShape schemeType schemeRecipe [0] expression
+        collectUnaryClosureShape managedLayoutCatalog schemeType schemeRecipe [0] expression
   if null parameters
     then Nothing
     else
@@ -455,12 +495,13 @@ collectFunctionShape modulePath statementIndex name scheme expression = do
             functionShapeSourceBinding = True
           }
 
-attachFunctionCaptures :: Map.Map TypedBinderId FunctionShape -> FunctionShape -> FunctionShape
-attachFunctionCaptures globalFunctions function
+attachFunctionCaptures :: ManagedLayoutCatalog -> Map.Map TypedBinderId FunctionShape -> FunctionShape -> FunctionShape
+attachFunctionCaptures managedLayoutCatalog globalFunctions function
   | functionShapeCallableShape function == TypedClosureCallableShape =
       function
         { functionShapeCaptures =
             collectCaptureShapes
+              managedLayoutCatalog
               globalFunctions
               (Set.singleton (functionShapeBinder function))
               (Set.fromList (map functionParameterBinder (functionShapeParameters function)))
@@ -469,15 +510,17 @@ attachFunctionCaptures globalFunctions function
   | otherwise = function
 
 collectGeneratedFunctionShapes ::
+  ManagedLayoutCatalog ->
   Map.Map TypedBinderId FunctionShape ->
   Int ->
   [Int] ->
   TypedExpr ->
   [FunctionShape]
-collectGeneratedFunctionShapes globalFunctions statementIndex reversedExpressionPath expression =
+collectGeneratedFunctionShapes managedLayoutCatalog globalFunctions statementIndex reversedExpressionPath expression =
   case expression of
     TypedLambdaExpr info parameterBinder parameterName _ ->
       case ( collectUnaryClosureShape
+               managedLayoutCatalog
                (typedNodeType info)
                (typedNodeRecipe info)
                reversedExpressionPath
@@ -497,6 +540,7 @@ collectGeneratedFunctionShapes globalFunctions statementIndex reversedExpression
                     functionShapeParameters = parameters,
                     functionShapeCaptures =
                       collectCaptureShapes
+                        managedLayoutCatalog
                         globalFunctions
                         Set.empty
                         (Set.fromList (map functionParameterBinder parameters))
@@ -508,6 +552,7 @@ collectGeneratedFunctionShapes globalFunctions statementIndex reversedExpression
                   }
            in function
                 : collectGeneratedFunctionShapes
+                  managedLayoutCatalog
                   globalFunctions
                   statementIndex
                   reversedBodyPath
@@ -535,18 +580,20 @@ collectGeneratedFunctionShapes globalFunctions statementIndex reversedExpression
   where
     child childIndex =
       collectGeneratedFunctionShapes
+        managedLayoutCatalog
         globalFunctions
         statementIndex
         (childIndex : reversedExpressionPath)
     children = concatMap (uncurry child)
     childPath pathSuffix =
       collectGeneratedFunctionShapes
+        managedLayoutCatalog
         globalFunctions
         statementIndex
         (reverse pathSuffix <> reversedExpressionPath)
 
-collectCaptureShapes :: Map.Map TypedBinderId FunctionShape -> Set.Set TypedBinderId -> Set.Set TypedBinderId -> TypedExpr -> [CaptureShape]
-collectCaptureShapes globalFunctions initiallyExpanded initiallyBound expression =
+collectCaptureShapes :: ManagedLayoutCatalog -> Map.Map TypedBinderId FunctionShape -> Set.Set TypedBinderId -> Set.Set TypedBinderId -> TypedExpr -> [CaptureShape]
+collectCaptureShapes managedLayoutCatalog globalFunctions initiallyExpanded initiallyBound expression =
   snd (go initiallyExpanded initiallyBound Set.empty expression)
   where
     go expandedFunctions boundBinders seenBinders currentExpression =
@@ -563,7 +610,7 @@ collectCaptureShapes globalFunctions initiallyExpanded initiallyBound expression
                 (functionShapeBody function)
           | Map.member binder globalFunctions -> (seenBinders, [])
           | Set.notMember binder seenBinders,
-            Just representation <- loweredRepresentation (typedNodeRecipe info) ->
+            Just representation <- representationForRecipe managedLayoutCatalog (typedNodeRecipe info) ->
               ( Set.insert binder seenBinders,
                 [CaptureShape binder representation]
               )
@@ -668,23 +715,24 @@ monomorphicSchemeContract (TypedScheme owner typeParameters evidence primitive t
       Just (owner, typeValue, recipe, callableShape)
 monomorphicSchemeContract _ = Nothing
 
-valueSchemeContract :: TypedScheme -> Maybe (TypedBinderId, LoweredRepresentation)
-valueSchemeContract (TypedScheme owner typeParameters evidence primitive typeValue recipe Nothing)
+valueSchemeContract :: ManagedLayoutCatalog -> TypedScheme -> Maybe (TypedBinderId, LoweredRepresentation)
+valueSchemeContract managedLayoutCatalog (TypedScheme owner typeParameters evidence primitive typeValue recipe Nothing)
   | null typeParameters,
     null evidence,
     null primitive =
-      case valueRepresentation typeValue recipe of
+      case valueRepresentation managedLayoutCatalog typeValue recipe of
         Just representation -> Just (owner, representation)
         Nothing -> Nothing
-valueSchemeContract _ = Nothing
+valueSchemeContract _ _ = Nothing
 
 collectUnaryClosureShape ::
+  ManagedLayoutCatalog ->
   TypedType ->
   TypedRepresentationRecipe ->
   [Int] ->
   TypedExpr ->
   Maybe ([FunctionParameterShape], LoweredRepresentation, [Int], TypedExpr)
-collectUnaryClosureShape expectedType expectedRecipe reversedExpressionPath expression =
+collectUnaryClosureShape managedLayoutCatalog expectedType expectedRecipe reversedExpressionPath expression =
   case expression of
     TypedLambdaExpr info parameterBinder _ body -> do
       if typedNodeType info == expectedType && typedNodeRecipe info == expectedRecipe
@@ -698,8 +746,8 @@ collectUnaryClosureShape expectedType expectedRecipe reversedExpressionPath expr
         case expectedRecipe of
           TypedClosureRecipe [argument] result -> Just (argument, result)
           _ -> Nothing
-      parameterRepresentation <- valueRepresentation argumentType argumentRecipe
-      resultRepresentation <- valueRepresentation resultType resultRecipe
+      parameterRepresentation <- valueRepresentation managedLayoutCatalog argumentType argumentRecipe
+      resultRepresentation <- valueRepresentation managedLayoutCatalog resultType resultRecipe
       if typedNodeType (typedExpressionInfo body) == resultType
         && typedNodeRecipe (typedExpressionInfo body) == resultRecipe
         then
@@ -720,13 +768,14 @@ collectUnaryClosureShape expectedType expectedRecipe reversedExpressionPath expr
     _ -> Nothing
 
 flattenLeadingLambdas ::
+  ManagedLayoutCatalog ->
   TypedType ->
   TypedRepresentationRecipe ->
   [Int] ->
   [FunctionParameterShape] ->
   TypedExpr ->
   Maybe ([FunctionParameterShape], LoweredRepresentation, [Int], TypedExpr)
-flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reversedParameters expression =
+flattenLeadingLambdas managedLayoutCatalog expectedType expectedRecipe reversedExpressionPath reversedParameters expression =
   case expression of
     TypedLambdaExpr info parameterBinder _ body -> do
       if typedNodeType info == expectedType && typedNodeRecipe info == expectedRecipe
@@ -746,7 +795,7 @@ flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reverse
                   _ -> TypedClosureRecipe rest result
               )
           _ -> Nothing
-      parameterRepresentation <- valueRepresentation argumentType argumentRecipe
+      parameterRepresentation <- valueRepresentation managedLayoutCatalog argumentType argumentRecipe
       let parameterIndex = length reversedParameters + 1
           parameter =
             FunctionParameterShape
@@ -757,21 +806,22 @@ flattenLeadingLambdas expectedType expectedRecipe reversedExpressionPath reverse
                     parameterRepresentation
               }
       flattenLeadingLambdas
+        managedLayoutCatalog
         resultType
         resultRecipe
         (0 : reversedExpressionPath)
         (parameter : reversedParameters)
         body
     _ -> do
-      resultRepresentation <- valueRepresentation expectedType expectedRecipe
+      resultRepresentation <- valueRepresentation managedLayoutCatalog expectedType expectedRecipe
       if typedNodeType (typedExpressionInfo expression) == expectedType
         && typedNodeRecipe (typedExpressionInfo expression) == expectedRecipe
         then Just (reverse reversedParameters, resultRepresentation, reversedExpressionPath, expression)
         else Nothing
 
-scalarRepresentation :: TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
-scalarRepresentation typeValue recipe =
-  case (typeValue, loweredRepresentation recipe) of
+scalarRepresentation :: ManagedLayoutCatalog -> TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
+scalarRepresentation managedLayoutCatalog typeValue recipe =
+  case (typeValue, representationForRecipe managedLayoutCatalog recipe) of
     (TypedTupleType [], Just LoweredUnitRepresentation) -> Just LoweredUnitRepresentation
     (TypedBoolType, Just LoweredBoolRepresentation) -> Just LoweredBoolRepresentation
     (TypedCharType, Just LoweredCharRepresentation) -> Just LoweredCharRepresentation
@@ -782,20 +832,23 @@ scalarRepresentation typeValue recipe =
     (TypedNumericType _, Just representation@LoweredFloatRepresentation {}) -> Just representation
     _ -> Nothing
 
-valueRepresentation :: TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
-valueRepresentation typeValue recipe =
-  case (typeValue, loweredRepresentation recipe) of
+valueRepresentation :: ManagedLayoutCatalog -> TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
+valueRepresentation managedLayoutCatalog typeValue recipe =
+  case (typeValue, representationForRecipe managedLayoutCatalog recipe) of
     (TypedFunctionType {}, Just representation@LoweredClosureRepresentation {}) -> Just representation
     (TypedTextType, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
-    _ -> scalarRepresentation typeValue recipe
+    (TypedTupleType (_ : _), Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
+    (TypedDataType {}, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
+    _ -> scalarRepresentation managedLayoutCatalog typeValue recipe
 
 validateStatementProfiles ::
+  ManagedLayoutCatalog ->
   [Text] ->
   FunctionIndex ->
   Set.Set TypedCoreName ->
   [TypedStatement] ->
   [LoweredIRLoweringFailure]
-validateStatementProfiles modulePath functions localValueNames statements =
+validateStatementProfiles managedLayoutCatalog modulePath functions localValueNames statements =
   sortOn loweringFailurePath (statementFailures <> generatedFunctionFailures)
   where
     loweringFailurePath (LoweredIRLoweringFailure path _ _) = path
@@ -803,6 +856,7 @@ validateStatementProfiles modulePath functions localValueNames statements =
     generatedFunctionFailures =
       concat
         [ inspectExpression
+            managedLayoutCatalog
             modulePath
             [functionShapeStatementIndex function]
             (functionShapeReversedBodyPath function)
@@ -828,6 +882,7 @@ validateStatementProfiles modulePath functions localValueNames statements =
                 _ ->
                   let check =
                         inspectExpression
+                          managedLayoutCatalog
                           modulePath
                           [statementIndex]
                           [0]
@@ -841,6 +896,7 @@ validateStatementProfiles modulePath functions localValueNames statements =
             Just function ->
               let check =
                     inspectExpression
+                      managedLayoutCatalog
                       modulePath
                       [statementIndex]
                       (functionShapeReversedBodyPath function)
@@ -854,6 +910,7 @@ validateStatementProfiles modulePath functions localValueNames statements =
         TypedExpressionStatement _ expression ->
           let check =
                 inspectExpression
+                  managedLayoutCatalog
                   modulePath
                   [statementIndex]
                   [0]
@@ -871,6 +928,7 @@ validateStatementProfiles modulePath functions localValueNames statements =
           go (statementIndex + 1) nextFailures rest
 
 inspectExpression ::
+  ManagedLayoutCatalog ->
   [Text] ->
   [Int] ->
   [Int] ->
@@ -881,27 +939,27 @@ inspectExpression ::
   [CaptureShape] ->
   TypedExpr ->
   [LoweredIRLoweringFailure]
-inspectExpression modulePath statementPath expressionPath functions localValueNames allowEntryLocals parameters captures expression =
+inspectExpression managedLayoutCatalog modulePath statementPath expressionPath functions localValueNames allowEntryLocals parameters captures expression =
   case expression of
     TypedLiteralExpr info _ ->
       representationCheck info
     TypedVariableExpr info name binderReference ->
       case findParameterShape binderReference parameters of
         Just (FunctionParameterShape _ (LoweredParameter _ expectedRepresentation))
-          | loweredRepresentation (typedNodeRecipe info) == Just expectedRepresentation ->
+          | representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just expectedRepresentation ->
               noExpressionFailures
           | otherwise -> representationCheck info
         Nothing ->
           case findCaptureShape binderReference captures of
             Just capture
-              | loweredRepresentation (typedNodeRecipe info) == Just (captureShapeRepresentation capture) ->
+              | representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (captureShapeRepresentation capture) ->
                   noExpressionFailures
             Just _ -> representationCheck info
             Nothing ->
               case findFunctionShape binderReference functions of
                 Just function
                   | functionShapeCallableShape function == TypedClosureCallableShape,
-                    loweredRepresentation (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
+                    representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
                       noExpressionFailures
                 Just _ ->
                   oneFailure
@@ -910,7 +968,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
                 Nothing
                   | Just expectedRepresentation <- findScalarRepresentation binderReference functions,
                     allowEntryLocals,
-                    loweredRepresentation (typedNodeRecipe info) == Just expectedRepresentation ->
+                    representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just expectedRepresentation ->
                       noExpressionFailures
                   | Just _ <- findScalarRepresentation binderReference functions,
                     allowEntryLocals ->
@@ -927,7 +985,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
       case findFunctionShape (Just parameterBinder) functions of
         Just function
           | not (functionShapeSourceBinding function),
-            loweredRepresentation (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
+            representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
               noExpressionFailures
         _ ->
           oneFailure
@@ -950,16 +1008,17 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
           child 2 elseExpression
         ]
     TypedPatternCaseExpr info scrutinee arms ->
-      case scalarPatternCaseProfileFailures modulePath statementPath expressionPath scrutinee arms of
+      case scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath expressionPath scrutinee arms of
         failures@(_ : _) -> failures
         [] ->
           combineExpressionChecks
             ( representationCheck info
                 : child 0 scrutinee
-                : [ let armParameters = patternArmParameters patternValue <> parameters
+                : [ let armParameters = patternArmParameters managedLayoutCatalog patternValue <> parameters
                      in maybe
                           []
                           ( inspectExpression
+                              managedLayoutCatalog
                               modulePath
                               statementPath
                               (0 : armIndex + 1 : expressionPath)
@@ -971,6 +1030,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
                           )
                           maybeGuard
                           <> inspectExpression
+                            managedLayoutCatalog
                             modulePath
                             statementPath
                             (1 : armIndex + 1 : expressionPath)
@@ -985,6 +1045,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
             )
     TypedApplyExpr {} ->
       inspectApplication
+        managedLayoutCatalog
         modulePath
         statementPath
         expressionPath
@@ -1002,7 +1063,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
     oneFailure kind detail =
       [LoweredIRLoweringFailure path kind detail]
     representationCheck info =
-      case loweredRepresentation (typedNodeRecipe info) of
+      case representationForRecipe managedLayoutCatalog (typedNodeRecipe info) of
         Just _ -> noExpressionFailures
         Nothing ->
           oneFailure
@@ -1017,6 +1078,7 @@ inspectExpression modulePath statementPath expressionPath functions localValueNa
             (LoweredIROperatorFailureDetail operator)
     child childIndex =
       inspectExpression
+        managedLayoutCatalog
         modulePath
         statementPath
         (childIndex : expressionPath)
@@ -1030,18 +1092,20 @@ combineExpressionChecks :: [[LoweredIRLoweringFailure]] -> [LoweredIRLoweringFai
 combineExpressionChecks = concat
 
 scalarPatternCaseProfileFailures ::
+  ManagedLayoutCatalog ->
   [Text] ->
   [Int] ->
   [Int] ->
   TypedExpr ->
   [TypedCaseArm] ->
   [LoweredIRLoweringFailure]
-scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath scrutinee arms =
+scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
   case unsupportedArmFailures of
     failure : _ -> [failure]
     []
       | isNothing
           ( scalarRepresentation
+              managedLayoutCatalog
               (typedNodeType scrutineeInfo)
               (typedNodeRecipe scrutineeInfo)
           ) ->
@@ -1066,7 +1130,7 @@ scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath
         TypedVariablePattern info _ _ -> matchingScrutineeInfo info
         TypedLiteralPattern info _ ->
           matchingScrutineeInfo info
-            && isJust (scalarRepresentation (typedNodeType info) (typedNodeRecipe info))
+            && isJust (scalarRepresentation managedLayoutCatalog (typedNodeType info) (typedNodeRecipe info))
         _ -> False
     matchingScrutineeInfo info =
       typedNodeType info == typedNodeType scrutineeInfo
@@ -1090,11 +1154,11 @@ scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath
         kind
         LoweredIRNoFailureDetail
 
-patternArmParameters :: TypedPattern -> [FunctionParameterShape]
-patternArmParameters patternValue =
+patternArmParameters :: ManagedLayoutCatalog -> TypedPattern -> [FunctionParameterShape]
+patternArmParameters managedLayoutCatalog patternValue =
   case patternValue of
     TypedVariablePattern info binder _ ->
-      case loweredRepresentation (typedNodeRecipe info) of
+      case representationForRecipe managedLayoutCatalog (typedNodeRecipe info) of
         Just representation ->
           [ FunctionParameterShape
               binder
@@ -1119,6 +1183,7 @@ typedPatternBinderIds patternValue =
     _ -> []
 
 inspectApplication ::
+  ManagedLayoutCatalog ->
   [Text] ->
   [Int] ->
   [Int] ->
@@ -1129,7 +1194,7 @@ inspectApplication ::
   [CaptureShape] ->
   TypedExpr ->
   [LoweredIRLoweringFailure]
-inspectApplication modulePath statementPath expressionPath functions localValueNames allowEntryLocals parameters captures expression =
+inspectApplication managedLayoutCatalog modulePath statementPath expressionPath functions localValueNames allowEntryLocals parameters captures expression =
   combineExpressionChecks
     (targetCheck : map (uncurry inspectArgument) arguments)
   where
@@ -1137,6 +1202,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
     (callee, calleePath, arguments) = applicationSpine expressionPath expression
     inspectArgument argumentPath argument =
       inspectExpression
+        managedLayoutCatalog
         modulePath
         statementPath
         argumentPath
@@ -1199,6 +1265,7 @@ inspectApplication modulePath statementPath expressionPath functions localValueN
                   ]
             _ ->
               inspectExpression
+                managedLayoutCatalog
                 modulePath
                 statementPath
                 calleePath
@@ -1268,12 +1335,13 @@ functionEnvironmentParameter function = do
     )
 
 recursiveGroupProfileFailures ::
+  ManagedLayoutCatalog ->
   [Text] ->
   FunctionIndex ->
   [FunctionShape] ->
   [FunctionDeclaration] ->
   [LoweredIRLoweringFailure]
-recursiveGroupProfileFailures modulePath functions unsharedFunctions declarations =
+recursiveGroupProfileFailures managedLayoutCatalog modulePath functions unsharedFunctions declarations =
   [ LoweredIRLoweringFailure
       (TypedStatementPath modulePath [functionDeclarationStatementIndex declaration])
       LoweredIRRecursiveFunctionUnsupported
@@ -1320,6 +1388,7 @@ recursiveGroupProfileFailures modulePath functions unsharedFunctions declaration
           all
             (captureAvailableBefore firstMember)
             ( collectCaptureShapes
+                managedLayoutCatalog
                 unsharedFunctionsByBinder
                 (Set.fromList members)
                 (Set.fromList (map functionParameterBinder (functionShapeParameters member)))
@@ -1391,11 +1460,12 @@ loweredPrimitive operator =
     comparison = Just . LoweredComparisonPrimitive
 
 representationAtPath ::
+  ManagedLayoutCatalog ->
   TypedCoreValidationPath ->
   TypedRepresentationRecipe ->
   ([LoweredIRLoweringFailure], Maybe LoweredRepresentation)
-representationAtPath path recipe =
-  case loweredRepresentation recipe of
+representationAtPath managedLayoutCatalog path recipe =
+  case representationForRecipe managedLayoutCatalog recipe of
     Just representation -> ([], Just representation)
     Nothing ->
       ( [ LoweredIRLoweringFailure
@@ -1405,28 +1475,6 @@ representationAtPath path recipe =
         ],
         Nothing
       )
-
-loweredRepresentation :: TypedRepresentationRecipe -> Maybe LoweredRepresentation
-loweredRepresentation recipe =
-  case recipe of
-    TypedUnitRecipe -> Just LoweredUnitRepresentation
-    TypedBoolRecipe -> Just LoweredBoolRepresentation
-    TypedSignedIntegerRecipe bits ->
-      LoweredSignedIntegerRepresentation <$> integerWidth bits
-    TypedUnsignedIntegerRecipe bits ->
-      LoweredUnsignedIntegerRepresentation <$> integerWidth bits
-    TypedFloatRecipe bits ->
-      LoweredFloatRepresentation <$> floatWidth bits
-    TypedCharRecipe -> Just LoweredCharRepresentation
-    TypedManagedTextRecipe -> Just textRepresentation
-    TypedClosureRecipe arguments result -> do
-      argumentRepresentations <- traverse loweredRepresentation arguments
-      resultRepresentation <- loweredRepresentation result
-      pure
-        ( LoweredClosureRepresentation
-            (LoweredCallSignature argumentRepresentations resultRepresentation)
-        )
-    _ -> Nothing
 
 integerWidth :: Int -> Maybe LoweredIntegerWidth
 integerWidth bits =

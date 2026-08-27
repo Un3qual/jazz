@@ -165,12 +165,7 @@ testScalarPatternCaseLowererBoundary =
 
     expectedResults =
       [ ( "pattern-case-constructor-lowerer",
-          [ LoweredIRLoweringFailure
-              (TypedStatementPath ["App", "Main"] [0])
-              LoweredIRUnsupportedStatement
-              LoweredIRNoFailureDetail,
-            patternFailure [1] [0, 0]
-          ]
+          [patternFailure [1] [0, 0]]
         ),
         unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-tuple-lowerer" [0] [0, 0],

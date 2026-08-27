@@ -31,6 +31,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     managedProductVariantFixture,
     managedProductVariantExpectedPrograms,
     managedProductVariantManifestExpectedPrograms,
+    managedLayoutCatalogProgram,
     lowererBoundaryExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,

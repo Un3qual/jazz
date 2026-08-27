@@ -307,3 +307,167 @@ bareConstructorSource = Text.unlines ["data Box = Box Int.", "Box."]
 partialConstructorSource = Text.unlines ["data Pair a b = Pair a b.", "Pair 1."]
 listFieldSource = Text.unlines ["data Box = Box List(Int).", "Box [1]."]
 unresolvedConstructorSource = Text.unlines ["data Option a = None | Some a.", "None."]
+
+managedLayoutCatalogProgram :: TypedProgram
+managedLayoutCatalogProgram =
+  TypedProgram
+    Nothing
+    [ TypedModule
+        modulePath
+        validSourcePath
+        []
+        []
+        (TypedModuleInterface [] [] [] [])
+        []
+        [ TypedDataStatement leftDeclaration,
+          TypedDataStatement rightDeclaration,
+          TypedDataStatement catalogOptionDeclaration,
+          TypedDataStatement catalogTreeDeclaration,
+          TypedDataStatement evenDeclaration,
+          TypedDataStatement oddDeclaration,
+          expression 7 productExpression,
+          expression 8 productExpression,
+          expression 9 (monomorphicConstructorCall leftBinder leftConstructor leftInfo [boolInfo] [boolExpr True]),
+          expression 10 (monomorphicConstructorCall rightBinder rightConstructor rightInfo [boolInfo] [boolExpr False]),
+          expression 11 (constructorCall catalogSomeBinder catalogSomeName optionBoolInfo [boolInfo] [boolExpr True]),
+          expression 12 (constructorCall catalogSomeBinder catalogSomeName optionTextInfo [textInfo] [textExpr "value"]),
+          expression 13 (constructorCall catalogLeafBinder catalogLeafName catalogTreeIntInfo [intInfo] [intExpr 1]),
+          expression 14 (monomorphicConstructorCall zeroBinder zeroName evenInfo [] [])
+        ]
+        evenInfo
+    ]
+    modulePath
+  where
+    expression line value = TypedExpressionStatement (TypedSpan line 1) value
+    productInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedBoolType, TypedTextType])
+        (TypedManagedProductRecipe [TypedBoolRecipe, TypedManagedTextRecipe])
+        []
+        []
+    productExpression = TypedTupleExpr productInfo [boolExpr True, textExpr "product"]
+
+    leftName = typeName "LeftBox"
+    leftConstructor = constructorName "LeftBox"
+    leftBinder = catalogConstructorBinder 0 0 leftConstructor
+    leftDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 1 1)
+        leftName
+        []
+        [TypedConstructorDeclaration leftBinder leftConstructor [TypedBoolType] [TypedBoolRecipe]]
+    leftInfo = variantInfo leftName []
+
+    rightName = typeName "RightBox"
+    rightConstructor = constructorName "RightBox"
+    rightBinder = catalogConstructorBinder 1 0 rightConstructor
+    rightDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        rightName
+        []
+        [TypedConstructorDeclaration rightBinder rightConstructor [TypedBoolType] [TypedBoolRecipe]]
+    rightInfo = variantInfo rightName []
+
+    catalogParameter = TypedTypeParameterId 0
+    catalogOptionName = typeName "Option"
+    catalogNoneName = constructorName "None"
+    catalogSomeName = constructorName "Some"
+    catalogNoneBinder = catalogConstructorBinder 2 0 catalogNoneName
+    catalogSomeBinder = catalogConstructorBinder 2 1 catalogSomeName
+    catalogOptionDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 3 1)
+        catalogOptionName
+        [catalogParameter]
+        [ TypedConstructorDeclaration catalogNoneBinder catalogNoneName [] [],
+          TypedConstructorDeclaration
+            catalogSomeBinder
+            catalogSomeName
+            [TypedTypeParameterType catalogParameter]
+            [TypedRepresentationParameterRecipe catalogParameter]
+        ]
+    optionBoolInfo = variantInfo catalogOptionName [TypedBoolType]
+    optionTextInfo = variantInfo catalogOptionName [TypedTextType]
+
+    catalogTreeName = typeName "Tree"
+    catalogLeafName = constructorName "Leaf"
+    catalogBranchName = constructorName "Branch"
+    catalogLeafBinder = catalogConstructorBinder 3 0 catalogLeafName
+    catalogBranchBinder = catalogConstructorBinder 3 1 catalogBranchName
+    genericTreeType = TypedDataType catalogTreeName [TypedTypeParameterType catalogParameter]
+    genericTreeRecipe = TypedManagedVariantRecipe catalogTreeName [TypedTypeParameterType catalogParameter]
+    catalogTreeDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 4 1)
+        catalogTreeName
+        [catalogParameter]
+        [ TypedConstructorDeclaration
+            catalogLeafBinder
+            catalogLeafName
+            [TypedTypeParameterType catalogParameter]
+            [TypedRepresentationParameterRecipe catalogParameter],
+          TypedConstructorDeclaration
+            catalogBranchBinder
+            catalogBranchName
+            [genericTreeType, genericTreeType]
+            [genericTreeRecipe, genericTreeRecipe]
+        ]
+    catalogTreeIntInfo = variantInfo catalogTreeName [TypedIntType]
+
+    evenName = typeName "Even"
+    oddName = typeName "Odd"
+    evenConstructorName = constructorName "Even"
+    zeroName = constructorName "Zero"
+    oddConstructorName = constructorName "Odd"
+    evenBinder = catalogConstructorBinder 4 0 evenConstructorName
+    zeroBinder = catalogConstructorBinder 4 1 zeroName
+    oddBinder = catalogConstructorBinder 5 0 oddConstructorName
+    evenDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 5 1)
+        evenName
+        []
+        [ TypedConstructorDeclaration evenBinder evenConstructorName [TypedDataType oddName []] [TypedManagedVariantRecipe oddName []],
+          TypedConstructorDeclaration zeroBinder zeroName [] []
+        ]
+    oddDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 6 1)
+        oddName
+        []
+        [TypedConstructorDeclaration oddBinder oddConstructorName [TypedDataType evenName []] [TypedManagedVariantRecipe evenName []]]
+    evenInfo = variantInfo evenName []
+
+catalogConstructorBinder :: Int -> Int -> TypedCoreName -> TypedBinderId
+catalogConstructorBinder statementIndex constructorIndex name =
+  TypedBinderId (modulePath, [statementIndex, constructorIndex], name)
+
+monomorphicConstructorCall :: TypedBinderId -> TypedCoreName -> TypedNodeInfo -> [TypedNodeInfo] -> [TypedExpr] -> TypedExpr
+monomorphicConstructorCall owner name resultInfo fieldInfos arguments =
+  case fieldInfos of
+    [] -> TypedVariableExpr resultInfo name (Just owner)
+    _ -> saturated constructorExpression fieldInfos arguments
+  where
+    constructorInfo =
+      TypedNodeInfo
+        (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldInfos)
+        (TypedClosureRecipe (map typedExpressionRecipe fieldInfos) (typedExpressionRecipe resultInfo))
+        []
+        []
+    constructorExpression = TypedVariableExpr constructorInfo name (Just owner)
+    saturated function remainingFields remainingArguments =
+      case (remainingFields, remainingArguments) of
+        (_ : fieldRest, argument : argumentRest) ->
+          let applicationInfo =
+                case fieldRest of
+                  [] -> resultInfo
+                  _ ->
+                    TypedNodeInfo
+                      (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldRest)
+                      (TypedClosureRecipe (map typedExpressionRecipe fieldRest) (typedExpressionRecipe resultInfo))
+                      []
+                      []
+           in saturated (TypedApplyExpr applicationInfo function argument) fieldRest argumentRest
+        ([], []) -> function
+        _ -> error "monomorphic constructor fixture must be exactly saturated"
