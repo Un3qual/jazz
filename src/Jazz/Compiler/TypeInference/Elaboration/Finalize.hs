@@ -250,8 +250,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               directArity = maybe (resolvedFunctionArity expressionType) functionArity (Map.lookup name functions)
               infoResult =
                 case defaultScalarLiterals (resolveType state expressionType) of
-                  TFunctionType {} -> callableInfo callableShape directArity statementIndex [] expressionType
-                  _ -> valueInfo statementIndex [] expressionType
+                  TFunctionType {} -> callableInfo structuredCatalog callableShape directArity statementIndex [] expressionType
+                  _ -> valueInfo structuredCatalog statementIndex [] expressionType
            in case infoResult of
                 Left failure -> ([failure], Nothing, scalarBindings)
                 Right info ->
@@ -321,7 +321,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       (FunctionBindingExpression callableShape directArity)
                   )
                   selectedExpression
-              infoResult = callableInfo callableShape directArity statementIndex [] selectedExpressionType
+              infoResult = callableInfo structuredCatalog callableShape directArity statementIndex [] selectedExpressionType
               infoFailures = either (: []) (const []) infoResult
               owningStatementFailures =
                 shapeFailures
@@ -359,7 +359,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   expression
               callableNameCollisionFailures =
                 [statementFailure statementIndex TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail | Map.member name functions]
-              infoResult = valueInfo statementIndex [] selectedExpressionType
+              infoResult = valueInfo structuredCatalog statementIndex [] selectedExpressionType
               infoFailures = either (: []) (const []) infoResult
               (expressionFailures, maybeExpression) =
                 finalizeExpression
@@ -451,9 +451,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalUnitExpression ->
           ([], Just (TypedTupleExpr unitInfo []))
         ProvisionalTupleExpression expressionType elements ->
-          let finalizedElements =
+          let selectedElements =
+                case defaultScalarLiterals (resolveType finalizationState expressionType) of
+                  TTupleType elementTypes
+                    | length elementTypes == length elements ->
+                        zipWith
+                          (\elementType -> specializeProvisionalExpression finalizationState (Just elementType))
+                          elementTypes
+                          elements
+                  _ -> elements
+              finalizedElements =
                 [ finalizeExpression structuredCatalog finalizationEnv (childLocation [elementIndex] ScalarExpression) element
-                | (elementIndex, element) <- zip [0 :: Int ..] elements
+                | (elementIndex, element) <- zip [0 :: Int ..] selectedElements
                 ]
               elementFailures = concatMap fst finalizedElements
            in case elementFailures of
@@ -465,16 +474,23 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       Nothing
                     )
         ProvisionalLiteralExpression literal expressionType ->
-          case scalarInfo statementIndex childPath expressionType of
+          case scalarInfo structuredCatalog statementIndex childPath expressionType of
             Left failure -> ([failure], Nothing)
             Right info ->
               case typedLiteral statementIndex childPath literal info of
                 Left failure -> ([failure], Nothing)
                 Right literalValue -> ([], Just (TypedLiteralExpr info literalValue))
-        ProvisionalBinaryExpression operatorSymbol expressionType _ left right
+        ProvisionalBinaryExpression operatorSymbol expressionType operandType left right
+          | isManagedStructuredEquality operatorSymbol operandType ->
+              let (leftFailures, _) = finalizeExpression structuredCatalog finalizationEnv (childLocation [0] ScalarExpression) left
+                  (rightFailures, _) = finalizeExpression structuredCatalog finalizationEnv (childLocation [1] ScalarExpression) right
+               in ( failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail
+                      : leftFailures <> rightFailures,
+                    Nothing
+                  )
           | isTypedCoreDirectCallOperator operatorSymbol ->
               let (operatorFailures, maybeInfo) =
-                    case scalarInfo statementIndex childPath expressionType of
+                    case scalarInfo structuredCatalog statementIndex childPath expressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just info)
                   (leftFailures, maybeLeft) = finalizeExpression structuredCatalog finalizationEnv (childLocation [0] ScalarExpression) left
@@ -509,10 +525,6 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   ( [failureAt statementIndex childPath TypedCoreCallableValueUnsupported (TypedCoreNameDetail (identifierText name))],
                     Nothing
                   )
-          | TDataType {} <- resolveType finalizationState expressionType ->
-              ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
-                Nothing
-              )
           | Just parameterBinder <- Map.lookup name lexicalBindings ->
               let selectedExpressionType =
                     case Map.lookup parameterBinder scalarCaptureTypes of
@@ -529,9 +541,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       ( [failureAt statementIndex childPath TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))],
                         Nothing
                       )
-                    else case valueInfo statementIndex childPath selectedExpressionType of
+                    else case valueInfo structuredCatalog statementIndex childPath selectedExpressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) (Just parameterBinder)))
+          | TDataType {} <- resolveType finalizationState expressionType ->
+              ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
+                Nothing
+              )
           | Just function <- Map.lookup name functions ->
               let callableShape = shapeFor callableShapes name
                   valueUseSupported = callableShape == TypedClosureCallableShape
@@ -554,7 +570,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalLambdaExpression parameterName expressionType body ->
           case expressionRole of
             FunctionBindingExpression callableShape remainingDirectArity ->
-              case callableInfo callableShape remainingDirectArity statementIndex childPath expressionType of
+              case callableInfo structuredCatalog callableShape remainingDirectArity statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
                 Right info ->
                   let duplicateParameterFailures =
@@ -583,7 +599,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       failures = lambdaConstructionFailures parameterName body <> duplicateParameterFailures <> bodyFailures
                    in (failures, TypedLambdaExpr info parameterBinder (resolvedValueName parameterName) <$> maybeBody)
             _ ->
-              case callableInfo TypedClosureCallableShape (1 :: Int) statementIndex childPath expressionType of
+              case callableInfo structuredCatalog TypedClosureCallableShape (1 :: Int) statementIndex childPath expressionType of
                 Left failure -> ([failure], Nothing)
                 Right info ->
                   let parameterBinder = TypedBinderId (finalizationModulePathValue, statementIndex : childPath, resolvedValueName parameterName)
@@ -604,7 +620,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalApplyExpression _ _ _ ->
           finalizeApplicationSpine structuredCatalog finalizationEnv finalizationLocation expression
         ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
-          let infoResult = valueInfo statementIndex childPath expressionType
+          let infoResult = valueInfo structuredCatalog statementIndex childPath expressionType
               infoFailures = either (: []) (const []) infoResult
               (conditionFailures, maybeCondition) =
                 finalizeExpression structuredCatalog finalizationEnv (childLocation [0] ScalarExpression) condition
@@ -616,7 +632,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               typedExpression = TypedIfExpr <$> either (const Nothing) Just infoResult <*> maybeCondition <*> maybeThenExpression <*> maybeElseExpression
            in (failures, if null failures then typedExpression else Nothing)
         ProvisionalPatternCaseExpression expressionType scrutinee arms ->
-          let infoResult = valueInfo statementIndex childPath expressionType
+          let infoResult = valueInfo structuredCatalog statementIndex childPath expressionType
               infoFailures = either (: []) (const []) infoResult
               (scrutineeFailures, maybeScrutinee) =
                 finalizeExpression
@@ -758,7 +774,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     Nothing
                   )
             _ ->
-              case callableInfo callableShape (functionArity function) statementIndex childPath (functionType function) of
+              case callableInfo structuredCatalog callableShape (functionArity function) statementIndex childPath (functionType function) of
                 Left failure -> ([failure], Nothing)
                 Right info ->
                   let typedName = resolvedValueName name
@@ -824,7 +840,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                         | actualArity /= expectedArity
                         ]
                       (calleeFailures, maybeCallee) =
-                        case callableInfo TypedDirectCallableShape expectedArity statementIndex childPath expressionType of
+                        case callableInfo structuredCatalog TypedDirectCallableShape expectedArity statementIndex childPath expressionType of
                           Left failure -> ([failure], Nothing)
                           Right info ->
                             ( [],
@@ -839,7 +855,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
-                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments selectedResultTypes
+                          finalizeStagedApplications structuredCatalog statementIndex childPath childFailures maybeCallee finalizedArguments selectedResultTypes
             ProvisionalVariableExpression name _
               | Map.member name lexicalBindings ->
                   let expectedArity = 1
@@ -863,7 +879,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
-                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
+                          finalizeStagedApplications structuredCatalog statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
               | Just function <- Map.lookup name functions ->
                   let expectedArity = functionArity function
                       actualArity = length arguments
@@ -883,7 +899,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in case arityFailures of
                         _ : _ -> (arityFailures <> childFailures, Nothing)
                         [] ->
-                          finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments selectedResultTypes
+                          finalizeStagedApplications structuredCatalog statementIndex childPath childFailures maybeCallee finalizedArguments selectedResultTypes
             ProvisionalVariableExpression name _ ->
               ( failureAt statementIndex childPath TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail (identifierText name))
                   : argumentFailures,
@@ -909,7 +925,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   childFailures = calleeFailures <> argumentFailures
                in case arityFailures of
                     _ : _ -> (arityFailures <> childFailures, Nothing)
-                    [] -> finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
+                    [] -> finalizeStagedApplications structuredCatalog statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes
 
     finalizeStructuredConstructorApplication structuredCatalog finalizationEnv finalizationLocation constructor expression finalizedArguments argumentFailures =
       let statementIndex = finalizationStatementIndex finalizationLocation
@@ -1067,11 +1083,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
     withInstantiations (TypedNodeInfo typeValue recipe _ evidence) instantiations =
       TypedNodeInfo typeValue recipe instantiations evidence
 
-    finalizeStagedApplications statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes =
+    finalizeStagedApplications structuredCatalog statementIndex childPath childFailures maybeCallee finalizedArguments resultTypes =
       let (resultInfoFailures, resultInfos) =
             partitionEithers
               ( zipWith
-                  (scalarOrCallableInfo statementIndex)
+                  (scalarOrCallableInfo structuredCatalog statementIndex)
                   [childPath <> replicate remainingApplications 0 | remainingApplications <- reverse [0 .. length resultTypes - 1]]
                   resultTypes
               )
@@ -1372,62 +1388,62 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             TypedFunctionType {} -> Just callableShape
             _ -> Nothing
 
-    callableInfo callableShape directArity statementIndex childPath expressionType =
-      case callableTypeAndRecipe callableShape directArity statementIndex childPath expressionType of
+    callableInfo structuredCatalog callableShape directArity statementIndex childPath expressionType =
+      case callableTypeAndRecipe structuredCatalog callableShape directArity statementIndex childPath expressionType of
         Right (typeValue@TypedFunctionType {}, recipe@TypedClosureRecipe {}) ->
           Right (TypedNodeInfo typeValue recipe [] [])
         Right _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
         Left failure -> Left failure
 
-    scalarOrCallableInfo statementIndex childPath expressionType =
-      valueInfo statementIndex childPath expressionType
+    scalarOrCallableInfo structuredCatalog statementIndex childPath expressionType =
+      valueInfo structuredCatalog statementIndex childPath expressionType
 
-    valueInfo statementIndex childPath expressionType =
-      case valueTypeAndRecipe statementIndex childPath expressionType of
+    valueInfo structuredCatalog statementIndex childPath expressionType =
+      case valueTypeAndRecipe structuredCatalog statementIndex childPath expressionType of
         Right (typeValue, recipe) -> Right (TypedNodeInfo typeValue recipe [] [])
         Left failure -> Left failure
 
-    callableTypeAndRecipe callableShape directArity =
+    callableTypeAndRecipe structuredCatalog callableShape directArity =
       case callableShape of
-        TypedDirectCallableShape -> directTypeAndRecipe directArity
-        TypedClosureCallableShape -> stagedTypeAndRecipe
+        TypedDirectCallableShape -> directTypeAndRecipe structuredCatalog directArity
+        TypedClosureCallableShape -> stagedTypeAndRecipe structuredCatalog
 
-    directTypeAndRecipe remainingDirectArity statementIndex childPath expressionType =
+    directTypeAndRecipe structuredCatalog remainingDirectArity statementIndex childPath expressionType =
       case (remainingDirectArity, defaultScalarLiterals (resolveType state expressionType)) of
         (remaining, TFunctionType argument result)
           | remaining > 0 -> do
-              (argumentType, argumentRecipe) <- valueTypeAndRecipe statementIndex childPath argument
+              (argumentType, argumentRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath argument
               (resultType, resultRecipe) <-
                 if remaining == 1
-                  then valueTypeAndRecipe statementIndex childPath result
-                  else directTypeAndRecipe (remaining - 1) statementIndex childPath result
+                  then valueTypeAndRecipe structuredCatalog statementIndex childPath result
+                  else directTypeAndRecipe structuredCatalog (remaining - 1) statementIndex childPath result
               let recipe =
                     if remaining == 1
                       then TypedClosureRecipe [argumentRecipe] resultRecipe
                       else prependClosureRecipe argumentRecipe resultRecipe
               Right (TypedFunctionType argumentType resultType, recipe)
-        (_, other) -> scalarTypeAndRecipe statementIndex childPath other
+        (_, other) -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
     resolvedFunctionArity expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
         TFunctionType _ result -> 1 + resolvedFunctionArity result
         _ -> 0
 
-    stagedTypeAndRecipe statementIndex childPath expressionType =
+    stagedTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
         TFunctionType argument result -> do
-          (argumentType, argumentRecipe) <- valueTypeAndRecipe statementIndex childPath argument
-          (resultType, resultRecipe) <- valueTypeAndRecipe statementIndex childPath result
+          (argumentType, argumentRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath argument
+          (resultType, resultRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath result
           Right (TypedFunctionType argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe)
-        other -> scalarTypeAndRecipe statementIndex childPath other
+        other -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
-    valueTypeAndRecipe statementIndex childPath expressionType =
+    valueTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
-        resolvedFunctionType@TFunctionType {} -> stagedTypeAndRecipe statementIndex childPath resolvedFunctionType
-        other -> scalarTypeAndRecipe statementIndex childPath other
+        resolvedFunctionType@TFunctionType {} -> stagedTypeAndRecipe structuredCatalog statementIndex childPath resolvedFunctionType
+        other -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
-    scalarTypeAndRecipe statementIndex childPath expressionType =
-      case scalarInfo statementIndex childPath expressionType of
+    scalarTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
+      case scalarInfo structuredCatalog statementIndex childPath expressionType of
         Right (TypedNodeInfo typeValue recipe _ _) -> Right (typeValue, recipe)
         Left failure -> Left failure
 
@@ -1657,7 +1673,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               not (generatedOperatorName name),
               Just PlainTypeBinding {} <- [provisionalCallableBinding declaration],
               let directArity = maybe 0 functionArity (Map.lookup name functions),
-              Right _ <- [callableInfo callableShape directArity statementIndex [] (provisionalCallableType declaration)],
+              Right _ <- [callableInfo structuredCatalog callableShape directArity statementIndex [] (provisionalCallableType declaration)],
               let scalarBindings = Map.findWithDefault Map.empty statementIndex scalarBindingsBeforeStatements,
               let profileFinalizationEnv =
                     FinalizationEnv
@@ -2010,7 +2026,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == name] of
                 [(sourceName, function)] ->
                   let callableShape = shapeFor callableShapes sourceName
-                   in case callableInfo callableShape (functionArity function) (functionStatementIndex function) [] (functionType function) of
+                   in case callableInfo structuredCatalog callableShape (functionArity function) (functionStatementIndex function) [] (functionType function) of
                         Right info ->
                           let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
                               owner = binderAt (functionStatementIndex function) [] typedName
@@ -2119,7 +2135,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               | Set.member export seen = (seen, exports)
               | otherwise = (Set.insert export seen, export : exports)
 
-    scalarInfo statementIndex childPath expressionType =
+    scalarInfo structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
         TIntType -> Right (TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] [])
         TIntegerLiteralType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
@@ -2132,10 +2148,25 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         TTextType -> Right (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [])
         TListType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreListValueDetail)
         TTupleType [] -> Right unitInfo
-        TTupleType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail)
-        TDataType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail)
+        resolvedTupleType@TTupleType {} ->
+          maybe
+            (Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail))
+            Right
+            (structuredNodeInfo structuredCatalog state resolvedTupleType)
+        resolvedDataType@TDataType {} ->
+          maybe
+            (Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail))
+            Right
+            (structuredNodeInfo structuredCatalog state resolvedDataType)
         TFunctionType {} -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail)
         TVarType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
+
+    isManagedStructuredEquality operatorSymbol operandType =
+      operatorSymbol `elem` ["==", "!="]
+        && case defaultScalarLiterals (resolveType state operandType) of
+          TTupleType (_ : _) -> True
+          TDataType {} -> True
+          _ -> False
 
     typedLiteral statementIndex childPath literal info =
       case (literal, typedNodeType info) of

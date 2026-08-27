@@ -39,6 +39,21 @@ testManagedProductVariantRetention = do
   assertBoundary
     "managed-unresolved-constructor-failure"
     [expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreDataValueDetail]
+  assertBoundary
+    "managed-list-construction-failure"
+    [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
+  assertBoundary
+    "managed-tuple-equality-failure"
+    [expressionFailure 0 [] TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail]
+  assertBoundary
+    "managed-variant-equality-failure"
+    [expressionFailure 1 [] TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail]
+  assertBoundary
+    "managed-tuple-pattern-failure"
+    [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+  assertBoundary
+    "managed-constructor-pattern-failure"
+    [expressionFailure 1 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
 
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =
@@ -111,6 +126,25 @@ testManagedConstructionLowererBoundaries =
               1
               LoweredIRUnsupportedRepresentation
               (LoweredIRRecipeFailureDetail (TypedManagedListRecipe (TypedSignedIntegerRecipe 64)))
+          ]
+        ),
+        ( "managed-product-equality-lowerer",
+          [ LoweredIRLoweringFailure
+              (TypedExpressionPath ["App", "Main"] [0] [0])
+              LoweredIRUnsupportedRepresentation
+              (LoweredIRRecipeFailureDetail (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe]))
+          ]
+        ),
+        ( "managed-variant-equality-lowerer",
+          [ lowererExpressionFailure
+              1
+              LoweredIRUnsupportedRepresentation
+              ( LoweredIRRecipeFailureDetail
+                  ( TypedManagedVariantRecipe
+                      (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Option")
+                      [TypedIntType]
+                  )
+              )
           ]
         )
       ]

@@ -395,6 +395,9 @@ specializeExpressionType state expectedType expressionType =
   let resolvedExpected = resolveType state expectedType
       resolvedExpression = resolveType state expressionType
    in case (resolvedExpression, resolvedExpected) of
+        (TTupleType expressionElements, TTupleType expectedElements)
+          | length expressionElements == length expectedElements ->
+              TTupleType (zipWith (specializeExpressionType state) expectedElements expressionElements)
         (TIntegerLiteralType literalRange, TIntType)
           | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
         (TIntegerLiteralType literalRange, numericType@(TNumericType concreteType))

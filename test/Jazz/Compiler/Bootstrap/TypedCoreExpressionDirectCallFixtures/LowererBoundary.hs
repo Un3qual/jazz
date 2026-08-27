@@ -131,7 +131,9 @@ managedConstructionLowererBoundaryPrograms :: [(Text, TypedProgram)]
 managedConstructionLowererBoundaryPrograms =
   [ ("managed-bare-nonnullary-constructor-lowerer", managedBareConstructorLowererProgram),
     ("managed-partial-constructor-lowerer", managedPartialConstructorLowererProgram),
-    ("managed-unsupported-field-recipe-lowerer", managedUnsupportedFieldRecipeLowererProgram)
+    ("managed-unsupported-field-recipe-lowerer", managedUnsupportedFieldRecipeLowererProgram),
+    ("managed-product-equality-lowerer", managedProductEqualityLowererProgram),
+    ("managed-variant-equality-lowerer", managedVariantEqualityLowererProgram)
   ]
 
 managedBareConstructorLowererProgram :: TypedProgram
@@ -219,6 +221,18 @@ managedUnsupportedFieldRecipeLowererProgram =
             [TypedListType TypedIntType]
             [listRecipe]
         ]
+
+managedProductEqualityLowererProgram :: TypedProgram
+managedProductEqualityLowererProgram =
+  rewriteManagedTerminal ManagedProductsVariants.managedTupleProgram equality
+  where
+    equality expression = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") expression expression
+
+managedVariantEqualityLowererProgram :: TypedProgram
+managedVariantEqualityLowererProgram =
+  rewriteManagedTerminal ManagedProductsVariants.managedOptionProgram equality
+  where
+    equality expression = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") expression expression
 
 liftedLambdaFailurePreorderProgram :: TypedProgram
 liftedLambdaFailurePreorderProgram =

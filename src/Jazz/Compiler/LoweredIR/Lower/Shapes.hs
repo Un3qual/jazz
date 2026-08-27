@@ -1013,12 +1013,18 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
               combineExpressionChecks (zipWith child [0 ..] elements)
         _ -> representationCheck info
     TypedBinaryExpr info operator left right ->
-      combineExpressionChecks
-        [ representationCheck info,
-          operatorCheck operator,
-          child 0 left,
-          child 1 right
-        ]
+      case unsupportedManagedEqualityRecipe operator left of
+        Just recipe ->
+          oneFailure
+            LoweredIRUnsupportedRepresentation
+            (LoweredIRRecipeFailureDetail recipe)
+        Nothing ->
+          combineExpressionChecks
+            [ representationCheck info,
+              operatorCheck operator,
+              child 0 left,
+              child 1 right
+            ]
     TypedIfExpr info condition thenExpression elseExpression ->
       combineExpressionChecks
         [ representationCheck info,
@@ -1095,6 +1101,17 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
           oneFailure
             LoweredIRUnsupportedOperator
             (LoweredIROperatorFailureDetail operator)
+    unsupportedManagedEqualityRecipe operator operand
+      | operator `elem` [TypedBuiltinOperator "==", TypedBuiltinOperator "!="],
+        let recipe = typedNodeRecipe (typedExpressionInfo operand),
+        isManagedStructuredRecipe recipe =
+          Just recipe
+      | otherwise = Nothing
+    isManagedStructuredRecipe recipe =
+      case recipe of
+        TypedManagedProductRecipe {} -> True
+        TypedManagedVariantRecipe {} -> True
+        _ -> False
     child childIndex =
       inspectExpression
         managedLayoutCatalog
