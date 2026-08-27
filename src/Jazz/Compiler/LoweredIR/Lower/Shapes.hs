@@ -28,6 +28,7 @@ import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( collectManagedLayoutCatalog,
+    constructorLayoutFor,
     orderedManagedLayouts,
     representationForRecipe,
   )
@@ -944,43 +945,54 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
     TypedLiteralExpr info _ ->
       representationCheck info
     TypedVariableExpr info name binderReference ->
-      case findParameterShape binderReference parameters of
-        Just (FunctionParameterShape _ (LoweredParameter _ expectedRepresentation))
-          | representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just expectedRepresentation ->
+      case binderReference >>= (\binder -> constructorLayoutFor managedLayoutCatalog binder (nodeInstantiations info)) of
+        Just constructor
+          | null (managedConstructorFields constructor),
+            representationForRecipe managedLayoutCatalog (typedNodeRecipe info)
+              == Just (LoweredManagedReferenceRepresentation (managedConstructorLayoutId constructor)) ->
               noExpressionFailures
-          | otherwise -> representationCheck info
+        Just _ ->
+          oneFailure
+            LoweredIRCallableValueUnsupported
+            (LoweredIRNameFailureDetail name)
         Nothing ->
-          case findCaptureShape binderReference captures of
-            Just capture
-              | representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (captureShapeRepresentation capture) ->
+          case findParameterShape binderReference parameters of
+            Just (FunctionParameterShape _ (LoweredParameter _ expectedRepresentation))
+              | representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just expectedRepresentation ->
                   noExpressionFailures
-            Just _ -> representationCheck info
+              | otherwise -> representationCheck info
             Nothing ->
-              case findFunctionShape binderReference functions of
-                Just function
-                  | functionShapeCallableShape function == TypedClosureCallableShape,
-                    representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
+              case findCaptureShape binderReference captures of
+                Just capture
+                  | representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (captureShapeRepresentation capture) ->
                       noExpressionFailures
-                Just _ ->
-                  oneFailure
-                    LoweredIRCallableValueUnsupported
-                    (LoweredIRNameFailureDetail name)
-                Nothing
-                  | Just expectedRepresentation <- findScalarRepresentation binderReference functions,
-                    allowEntryLocals,
-                    representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just expectedRepresentation ->
-                      noExpressionFailures
-                  | Just _ <- findScalarRepresentation binderReference functions,
-                    allowEntryLocals ->
-                      representationCheck info
-                  | Set.member name localValueNames ->
-                      oneFailure
-                        LoweredIRCaptureUnsupported
-                        (LoweredIRNameFailureDetail name)
-                  | otherwise ->
+                Just _ -> representationCheck info
+                Nothing ->
+                  case findFunctionShape binderReference functions of
+                    Just function
+                      | functionShapeCallableShape function == TypedClosureCallableShape,
+                        representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just (functionClosureRepresentation function) ->
+                          noExpressionFailures
+                    Just _ ->
                       oneFailure
                         LoweredIRCallableValueUnsupported
                         (LoweredIRNameFailureDetail name)
+                    Nothing
+                      | Just expectedRepresentation <- findScalarRepresentation binderReference functions,
+                        allowEntryLocals,
+                        representationForRecipe managedLayoutCatalog (typedNodeRecipe info) == Just expectedRepresentation ->
+                          noExpressionFailures
+                      | Just _ <- findScalarRepresentation binderReference functions,
+                        allowEntryLocals ->
+                          representationCheck info
+                      | Set.member name localValueNames ->
+                          oneFailure
+                            LoweredIRCaptureUnsupported
+                            (LoweredIRNameFailureDetail name)
+                      | otherwise ->
+                          oneFailure
+                            LoweredIRCallableValueUnsupported
+                            (LoweredIRNameFailureDetail name)
     TypedLambdaExpr info parameterBinder _ _ ->
       case findFunctionShape (Just parameterBinder) functions of
         Just function
@@ -993,6 +1005,13 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
             LoweredIRNoFailureDetail
     TypedTupleExpr info [] ->
       representationCheck info
+    TypedTupleExpr info elements ->
+      case (representationForRecipe managedLayoutCatalog (typedNodeRecipe info), typedNodeRecipe info) of
+        (Just (LoweredManagedReferenceRepresentation layoutId), TypedManagedProductRecipe fieldRecipes)
+          | length fieldRecipes == length elements,
+            productLayoutFields managedLayoutCatalog layoutId == traverse (representationForRecipe managedLayoutCatalog) fieldRecipes ->
+              combineExpressionChecks (zipWith child [0 ..] elements)
+        _ -> representationCheck info
     TypedBinaryExpr info operator left right ->
       combineExpressionChecks
         [ representationCheck info,
@@ -1213,10 +1232,18 @@ inspectApplication managedLayoutCatalog modulePath statementPath expressionPath 
         captures
         argument
     targetCheck =
-      case textRuntimeServiceApplication expression of
-        Just _ -> []
-        Nothing ->
-          case callee of
+      case constructorApplicationLayout managedLayoutCatalog callee of
+        Just constructor
+          | length arguments == length (managedConstructorFields constructor) -> []
+          | otherwise ->
+              [ LoweredIRLoweringFailure
+                  path
+                  LoweredIRCallArityUnsupported
+                  (LoweredIRArityFailureDetail (length (managedConstructorFields constructor)) (length arguments))
+              ]
+        Nothing -> case textRuntimeServiceApplication expression of
+          Just _ -> []
+          Nothing -> case callee of
             TypedVariableExpr _ name binderReference ->
               case findFunctionShape binderReference functions of
                 Just target
@@ -1277,6 +1304,25 @@ inspectApplication managedLayoutCatalog modulePath statementPath expressionPath 
                 callee
 
     actualArity = length arguments
+
+constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
+constructorApplicationLayout managedLayoutCatalog callee =
+  case callee of
+    TypedVariableExpr info _ (Just binder) ->
+      constructorLayoutFor managedLayoutCatalog binder (nodeInstantiations info)
+    _ -> Nothing
+
+productLayoutFields :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe [LoweredRepresentation]
+productLayoutFields managedLayoutCatalog expectedId =
+  case [ fields
+       | LoweredLayout layoutId (LoweredProductLayout fields) <- orderedManagedLayouts managedLayoutCatalog,
+         layoutId == expectedId
+       ] of
+    [fields] -> Just fields
+    _ -> Nothing
+
+nodeInstantiations :: TypedNodeInfo -> [TypedInstantiation]
+nodeInstantiations (TypedNodeInfo _ _ instantiations _) = instantiations
 
 loweredIRGeneratedIdentityFailureDetail :: LoweredLayoutId -> LoweredIRLoweringDetail
 loweredIRGeneratedIdentityFailureDetail (LoweredLayoutId identityValue) =

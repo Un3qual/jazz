@@ -32,6 +32,8 @@ tests =
     ("retains managed tuple and local-data structure once", testManagedProductVariantRetention),
     ("produces exact managed product and local-variant artifacts", testManagedProductVariantProduction),
     ("catalogs deterministic managed product and variant layouts", testManagedProductVariantLayoutCatalog),
+    ("lowers exact managed product and local-variant construction", testManagedProductVariantLowering),
+    ("keeps arbitrary managed construction failures at the lowerer boundary", testManagedConstructionLowererBoundaries),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
     ("produces exact managed Text operations", testManagedTextOperationProduction),

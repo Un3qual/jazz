@@ -226,6 +226,7 @@ testAcceptedManifestPipeline =
         <> closedCallableExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- lexicalCaptureExpectedLoweredPrograms]
         <> [(name, lowered) | (name, _, lowered) <- curriedApplicationExpectedLoweredPrograms]
+        <> managedProductVariantManifestExpectedLoweredPrograms
     assertAccepted name =
       case lookup name expectedTypedPrograms of
         Just expectedTypedProgram -> do

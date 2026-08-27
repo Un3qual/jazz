@@ -6,6 +6,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProd
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
+import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.TypedCore
 
 managedProductVariantFixtures :: [(Text, Fixture)]
@@ -48,11 +49,339 @@ managedProductVariantExpectedPrograms =
     ("managed-tree", managedTreeProgram)
   ]
 
+managedProductVariantExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+managedProductVariantExpectedLoweredPrograms =
+  [ ("managed-tuple", managedTupleLoweredProgram),
+    ("managed-option", managedOptionLoweredProgram),
+    ("managed-exported-option", managedOptionLoweredProgram),
+    ("managed-tree", managedTreeLoweredProgram)
+  ]
+
+managedProductVariantIndependentExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+managedProductVariantIndependentExpectedLoweredPrograms =
+  [ ("managed-none", managedNoneProgram, managedNoneLoweredProgram),
+    ("managed-tuple-variant", managedTupleVariantProgram, managedTupleVariantLoweredProgram),
+    ("managed-text-variant", managedTextVariantProgram, managedTextVariantLoweredProgram),
+    ("managed-closure-variant", managedClosureVariantProgram, managedClosureVariantLoweredProgram),
+    ("managed-product-variant", managedProductVariantProgram, managedProductVariantLoweredProgram),
+    ("managed-nested-variant", managedNestedVariantProgram, managedNestedVariantLoweredProgram)
+  ]
+
 managedProductVariantManifestExpectedPrograms :: [(Text, TypedProgram)]
 managedProductVariantManifestExpectedPrograms =
   [ ("non-unit-tuple", manifestTupleProgram),
     ("data-value", manifestDataProgram)
   ]
+
+managedProductVariantManifestExpectedLoweredPrograms :: [(Text, LoweredProgram)]
+managedProductVariantManifestExpectedLoweredPrograms =
+  [ ("non-unit-tuple", manifestTupleLoweredProgram),
+    ("data-value", manifestDataLoweredProgram)
+  ]
+
+managedTupleLoweredProgram :: LoweredProgram
+managedTupleLoweredProgram =
+  managedLoweredProgram
+    [textLayout, tupleLayout]
+    tupleRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        textRepresentation
+        (LoweredConstructText textLayoutId "two"),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        tupleRepresentation
+        ( LoweredConstructProduct
+            tupleLayoutId
+            [intOperand 1, temporaryOperand 1 textRepresentation]
+        )
+    ]
+    (temporaryOperand 2 tupleRepresentation)
+
+managedOptionLoweredProgram :: LoweredProgram
+managedOptionLoweredProgram =
+  managedLoweredProgram
+    [optionLayout]
+    optionRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        optionRepresentation
+        (LoweredConstructVariant optionLayoutId 1 [intOperand 7])
+    ]
+    (temporaryOperand 1 optionRepresentation)
+
+managedNoneLoweredProgram :: LoweredProgram
+managedNoneLoweredProgram =
+  managedLoweredProgram
+    [optionLayout]
+    optionRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        optionRepresentation
+        (LoweredConstructVariant optionLayoutId 0 [])
+    ]
+    (temporaryOperand 1 optionRepresentation)
+
+managedTupleVariantLoweredProgram :: LoweredProgram
+managedTupleVariantLoweredProgram =
+  managedLoweredProgram
+    [tupleVariantLayout, optionLayout]
+    tupleVariantRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        optionRepresentation
+        (LoweredConstructVariant optionLayoutId 1 [intOperand 7]),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        tupleVariantRepresentation
+        ( LoweredConstructProduct
+            tupleVariantLayoutId
+            [temporaryOperand 1 optionRepresentation, intOperand 8]
+        )
+    ]
+    (temporaryOperand 2 tupleVariantRepresentation)
+
+managedTextVariantLoweredProgram :: LoweredProgram
+managedTextVariantLoweredProgram =
+  managedLoweredProgram
+    [textLayout, textBoxLayout]
+    textBoxRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        textRepresentation
+        (LoweredConstructText textLayoutId "inside"),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        textBoxRepresentation
+        (LoweredConstructVariant textBoxLayoutId 0 [temporaryOperand 1 textRepresentation])
+    ]
+    (temporaryOperand 2 textBoxRepresentation)
+
+managedClosureVariantLoweredProgram :: LoweredProgram
+managedClosureVariantLoweredProgram =
+  managedLoweredProgramWithFunctions
+    [closureBoxLayout, closureEnvironmentLayout]
+    [ LoweredFunction
+        closureFunctionId
+        ( Just
+            ( LoweredParameter
+                (LoweredParameterId "environment")
+                closureEnvironmentRepresentation
+            )
+        )
+        [LoweredParameter (LoweredParameterId "arg1") LoweredBoolRepresentation]
+        LoweredBoolRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            ( Just
+                ( LoweredReturn
+                    (LoweredFunctionParameterOperand (LoweredParameterId "arg1") LoweredBoolRepresentation)
+                )
+            )
+        ]
+        (LoweredBlockId "entry")
+    ]
+    closureBoxRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        closureEnvironmentRepresentation
+        (LoweredConstructProduct closureEnvironmentLayoutId []),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        boolClosureRepresentation
+        ( LoweredConstructClosure
+            closureFunctionId
+            (temporaryOperand 1 closureEnvironmentRepresentation)
+        ),
+      LoweredInstruction
+        (LoweredTemporaryId "t3")
+        closureBoxRepresentation
+        (LoweredConstructVariant closureBoxLayoutId 0 [temporaryOperand 2 boolClosureRepresentation])
+    ]
+    (temporaryOperand 3 closureBoxRepresentation)
+
+managedProductVariantLoweredProgram :: LoweredProgram
+managedProductVariantLoweredProgram =
+  managedLoweredProgram
+    [textLayout, productBoxLayout, tupleLayout]
+    productBoxRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        textRepresentation
+        (LoweredConstructText textLayoutId "two"),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        tupleRepresentation
+        (LoweredConstructProduct tupleLayoutId [intOperand 1, temporaryOperand 1 textRepresentation]),
+      LoweredInstruction
+        (LoweredTemporaryId "t3")
+        productBoxRepresentation
+        (LoweredConstructVariant productBoxLayoutId 0 [temporaryOperand 2 tupleRepresentation])
+    ]
+    (temporaryOperand 3 productBoxRepresentation)
+
+managedNestedVariantLoweredProgram :: LoweredProgram
+managedNestedVariantLoweredProgram =
+  managedLoweredProgram
+    [outerLayout, optionLayout]
+    outerRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        optionRepresentation
+        (LoweredConstructVariant optionLayoutId 1 [intOperand 7]),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        outerRepresentation
+        (LoweredConstructVariant outerLayoutId 0 [temporaryOperand 1 optionRepresentation])
+    ]
+    (temporaryOperand 2 outerRepresentation)
+
+managedTreeLoweredProgram :: LoweredProgram
+managedTreeLoweredProgram =
+  managedLoweredProgram
+    [treeLayout]
+    treeRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        treeRepresentation
+        (LoweredConstructVariant treeLayoutId 0 [intOperand 1]),
+      LoweredInstruction
+        (LoweredTemporaryId "t2")
+        treeRepresentation
+        (LoweredConstructVariant treeLayoutId 0 [intOperand 2]),
+      LoweredInstruction
+        (LoweredTemporaryId "t3")
+        treeRepresentation
+        ( LoweredConstructVariant
+            treeLayoutId
+            1
+            [temporaryOperand 1 treeRepresentation, temporaryOperand 2 treeRepresentation]
+        )
+    ]
+    (temporaryOperand 3 treeRepresentation)
+
+manifestTupleLoweredProgram :: LoweredProgram
+manifestTupleLoweredProgram =
+  managedLoweredProgram
+    [manifestTupleLayout]
+    manifestTupleRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        manifestTupleRepresentation
+        (LoweredConstructProduct manifestTupleLayoutId [intOperand 1, intOperand 2])
+    ]
+    (temporaryOperand 1 manifestTupleRepresentation)
+
+manifestDataLoweredProgram :: LoweredProgram
+manifestDataLoweredProgram =
+  managedLoweredProgram
+    [manifestDataLayout]
+    manifestDataRepresentation
+    [ LoweredInstruction
+        (LoweredTemporaryId "t1")
+        manifestDataRepresentation
+        (LoweredConstructVariant manifestDataLayoutId 0 [])
+    ]
+    (temporaryOperand 1 manifestDataRepresentation)
+
+managedLoweredProgram :: [LoweredLayout] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+managedLoweredProgram layouts resultRepresentation instructions resultOperand =
+  managedLoweredProgramWithFunctions layouts [] resultRepresentation instructions resultOperand
+
+managedLoweredProgramWithFunctions :: [LoweredLayout] -> [LoweredFunction] -> LoweredRepresentation -> [LoweredInstruction] -> LoweredOperand -> LoweredProgram
+managedLoweredProgramWithFunctions layouts functions resultRepresentation instructions resultOperand =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    layouts
+    []
+    ( functions
+        <> [ LoweredFunction
+               (LoweredFunctionId "App::Main::$entry")
+               Nothing
+               []
+               resultRepresentation
+               [ LoweredBlock
+                   (LoweredBlockId "entry")
+                   []
+                   instructions
+                   (Just (LoweredReturn resultOperand))
+               ]
+               (LoweredBlockId "entry")
+           ]
+    )
+    (LoweredFunctionId "App::Main::$entry")
+
+int64Representation :: LoweredRepresentation
+int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
+
+intOperand :: Integer -> LoweredOperand
+intOperand = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
+
+temporaryOperand :: Int -> LoweredRepresentation -> LoweredOperand
+temporaryOperand index =
+  LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index)))
+
+textLayoutId, tupleLayoutId, optionLayoutId, treeLayoutId, tupleVariantLayoutId, textBoxLayoutId, closureBoxLayoutId, closureEnvironmentLayoutId, productBoxLayoutId, outerLayoutId, manifestTupleLayoutId, manifestDataLayoutId :: LoweredLayoutId
+textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
+tupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$4:text"
+optionLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$3:int"
+treeLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$4:Tree$args1$3:int"
+tupleVariantLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$28:variant$6:Option$args1$3:int$8:signed64"
+textBoxLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$7:TextBox$args0"
+closureBoxLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$10:ClosureBox$args0"
+closureEnvironmentLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p3$1,0,1$n4:flag"
+productBoxLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$10:ProductBox$args0"
+outerLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$5:Outer$args0"
+manifestTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$8:signed64"
+manifestDataLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$3:Box$args0"
+
+textRepresentation, tupleRepresentation, optionRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, manifestTupleRepresentation, manifestDataRepresentation :: LoweredRepresentation
+textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
+tupleRepresentation = LoweredManagedReferenceRepresentation tupleLayoutId
+optionRepresentation = LoweredManagedReferenceRepresentation optionLayoutId
+treeRepresentation = LoweredManagedReferenceRepresentation treeLayoutId
+tupleVariantRepresentation = LoweredManagedReferenceRepresentation tupleVariantLayoutId
+textBoxRepresentation = LoweredManagedReferenceRepresentation textBoxLayoutId
+closureBoxRepresentation = LoweredManagedReferenceRepresentation closureBoxLayoutId
+closureEnvironmentRepresentation = LoweredManagedReferenceRepresentation closureEnvironmentLayoutId
+productBoxRepresentation = LoweredManagedReferenceRepresentation productBoxLayoutId
+outerRepresentation = LoweredManagedReferenceRepresentation outerLayoutId
+manifestTupleRepresentation = LoweredManagedReferenceRepresentation manifestTupleLayoutId
+manifestDataRepresentation = LoweredManagedReferenceRepresentation manifestDataLayoutId
+
+textLayout, tupleLayout, optionLayout, treeLayout, tupleVariantLayout, textBoxLayout, closureBoxLayout, closureEnvironmentLayout, productBoxLayout, outerLayout, manifestTupleLayout, manifestDataLayout :: LoweredLayout
+textLayout = LoweredLayout textLayoutId LoweredTextLayout
+tupleLayout = LoweredLayout tupleLayoutId (LoweredProductLayout [int64Representation, textRepresentation])
+optionLayout =
+  LoweredLayout
+    optionLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [], LoweredVariantLayout 1 [int64Representation]])
+treeLayout =
+  LoweredLayout
+    treeLayoutId
+    ( LoweredVariantLayouts
+        [ LoweredVariantLayout 0 [int64Representation],
+          LoweredVariantLayout 1 [treeRepresentation, treeRepresentation]
+        ]
+    )
+tupleVariantLayout = LoweredLayout tupleVariantLayoutId (LoweredProductLayout [optionRepresentation, int64Representation])
+textBoxLayout = LoweredLayout textBoxLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 [textRepresentation]])
+closureBoxLayout = LoweredLayout closureBoxLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 [boolClosureRepresentation]])
+closureEnvironmentLayout = LoweredLayout closureEnvironmentLayoutId (LoweredClosureEnvironmentLayout [])
+productBoxLayout = LoweredLayout productBoxLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 [tupleRepresentation]])
+outerLayout = LoweredLayout outerLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 [optionRepresentation]])
+manifestTupleLayout = LoweredLayout manifestTupleLayoutId (LoweredProductLayout [int64Representation, int64Representation])
+manifestDataLayout = LoweredLayout manifestDataLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 []])
+
+boolClosureRepresentation :: LoweredRepresentation
+boolClosureRepresentation =
+  LoweredClosureRepresentation
+    (LoweredCallSignature [LoweredBoolRepresentation] LoweredBoolRepresentation)
+
+closureFunctionId :: LoweredFunctionId
+closureFunctionId = LoweredFunctionId "$jz1$lambda-fn$m2$3:App$4:Main$p3$1,0,1$n4:flag"
 
 manifestTupleProgram :: TypedProgram
 manifestTupleProgram =
@@ -109,6 +438,163 @@ managedTupleProgram =
 
 managedOptionProgram :: TypedProgram
 managedOptionProgram = optionProgram [] (TypedModuleInterface [] [] [] [])
+
+managedNoneProgram :: TypedProgram
+managedNoneProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedExpressionStatement (TypedSpan 3 1) noneExpression
+    ]
+    (typedExpressionInfo noneExpression)
+  where
+    noneExpression = constructorCall noneBinder noneName optionIntInfo [] []
+
+managedTupleVariantProgram :: TypedProgram
+managedTupleVariantProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedTupleExpr
+            tupleInfo
+            [constructorCall someBinder someName optionIntInfo [intInfo] [intExpr 7], intExpr 8]
+        )
+    ]
+    tupleInfo
+  where
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [typedExpressionType optionIntInfo, TypedIntType])
+        (TypedManagedProductRecipe [typedExpressionRecipe optionIntInfo, TypedSignedIntegerRecipe 64])
+        []
+        []
+
+managedTextVariantProgram :: TypedProgram
+managedTextVariantProgram =
+  managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        (monomorphicConstructorCall binder constructor boxInfo [textInfo] [textExpr "inside"])
+    ]
+    boxInfo
+  where
+    name = typeName "TextBox"
+    constructor = constructorName "TextBox"
+    binder = constructorBinder 0 constructor
+    boxInfo = variantInfo name []
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        name
+        []
+        [TypedConstructorDeclaration binder constructor [TypedTextType] [TypedManagedTextRecipe]]
+
+managedClosureVariantProgram :: TypedProgram
+managedClosureVariantProgram =
+  managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        (monomorphicConstructorCall binder constructor boxInfo [closureInfo] [closureExpression])
+    ]
+    boxInfo
+  where
+    name = typeName "ClosureBox"
+    constructor = constructorName "ClosureBox"
+    binder = constructorBinder 0 constructor
+    boxInfo = variantInfo name []
+    parameterName = TypedResolvedName TypedCurrentModule TypedValueNamespace "flag"
+    parameterBinder = TypedBinderId (modulePath, [1, 0, 1], parameterName)
+    closureInfo =
+      TypedNodeInfo
+        (TypedFunctionType TypedBoolType TypedBoolType)
+        (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
+        []
+        []
+    closureExpression =
+      TypedLambdaExpr
+        closureInfo
+        parameterBinder
+        parameterName
+        (TypedVariableExpr boolInfo parameterName (Just parameterBinder))
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        name
+        []
+        [ TypedConstructorDeclaration
+            binder
+            constructor
+            [typedExpressionType closureInfo]
+            [typedExpressionRecipe closureInfo]
+        ]
+
+managedProductVariantProgram :: TypedProgram
+managedProductVariantProgram =
+  managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        (monomorphicConstructorCall binder constructor boxInfo [tupleInfo] [tupleExpression])
+    ]
+    boxInfo
+  where
+    name = typeName "ProductBox"
+    constructor = constructorName "ProductBox"
+    binder = constructorBinder 0 constructor
+    boxInfo = variantInfo name []
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedIntType, TypedTextType])
+        (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe])
+        []
+        []
+    tupleExpression = TypedTupleExpr tupleInfo [intExpr 1, textExpr "two"]
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        name
+        []
+        [ TypedConstructorDeclaration
+            binder
+            constructor
+            [typedExpressionType tupleInfo]
+            [typedExpressionRecipe tupleInfo]
+        ]
+
+managedNestedVariantProgram :: TypedProgram
+managedNestedVariantProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedDataStatement outerDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( monomorphicConstructorCall
+            outerBinder
+            outerConstructor
+            outerInfo
+            [optionIntInfo]
+            [constructorCall someBinder someName optionIntInfo [intInfo] [intExpr 7]]
+        )
+    ]
+    outerInfo
+  where
+    outerName = typeName "Outer"
+    outerConstructor = constructorName "Outer"
+    outerBinder = catalogConstructorBinder 1 0 outerConstructor
+    outerInfo = variantInfo outerName []
+    outerDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 3 1)
+        outerName
+        []
+        [ TypedConstructorDeclaration
+            outerBinder
+            outerConstructor
+            [typedExpressionType optionIntInfo]
+            [typedExpressionRecipe optionIntInfo]
+        ]
 
 managedExportedOptionProgram :: TypedProgram
 managedExportedOptionProgram =

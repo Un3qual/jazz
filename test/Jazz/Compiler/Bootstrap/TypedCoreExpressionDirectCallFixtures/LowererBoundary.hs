@@ -7,6 +7,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
+import qualified Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants as ManagedProductsVariants
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
@@ -125,6 +126,99 @@ reviewLowererBoundaryPrograms =
   [ ("lifted-lambda-failure-preorder", liftedLambdaFailurePreorderProgram),
     ("exported-scalar-lifted-lambda-name-collision", exportedScalarLiftedLambdaNameCollisionProgram)
   ]
+
+managedConstructionLowererBoundaryPrograms :: [(Text, TypedProgram)]
+managedConstructionLowererBoundaryPrograms =
+  [ ("managed-bare-nonnullary-constructor-lowerer", managedBareConstructorLowererProgram),
+    ("managed-partial-constructor-lowerer", managedPartialConstructorLowererProgram),
+    ("managed-unsupported-field-recipe-lowerer", managedUnsupportedFieldRecipeLowererProgram)
+  ]
+
+managedBareConstructorLowererProgram :: TypedProgram
+managedBareConstructorLowererProgram =
+  rewriteManagedTerminal ManagedProductsVariants.managedOptionProgram bareConstructor
+  where
+    bareConstructor (TypedApplyExpr _ constructor _) = constructor
+    bareConstructor _ = error "managed-option fixture must end in a unary constructor application"
+
+managedPartialConstructorLowererProgram :: TypedProgram
+managedPartialConstructorLowererProgram =
+  rewriteManagedTerminal ManagedProductsVariants.managedTreeProgram partialConstructor
+  where
+    partialConstructor (TypedApplyExpr _ (TypedApplyExpr partialInfo constructor firstArgument) _) =
+      TypedApplyExpr partialInfo (flattenConstructor constructor) firstArgument
+    partialConstructor _ = error "managed-tree fixture must end in a binary constructor application"
+    flattenConstructor (TypedVariableExpr (TypedNodeInfo typeValue recipe instantiations evidence) name binder) =
+      case recipe of
+        TypedClosureRecipe [firstField, secondField] result ->
+          TypedVariableExpr
+            ( TypedNodeInfo
+                typeValue
+                (TypedClosureRecipe [firstField] (TypedClosureRecipe [secondField] result))
+                instantiations
+                evidence
+            )
+            name
+            binder
+        TypedClosureRecipe [_] (TypedClosureRecipe [_] _) ->
+          TypedVariableExpr
+            (TypedNodeInfo typeValue recipe instantiations evidence)
+            name
+            binder
+        _ -> error "managed-tree Branch fixture must retain two staged fields"
+    flattenConstructor _ = error "managed-tree Branch fixture must retain a constructor variable"
+
+rewriteManagedTerminal :: TypedProgram -> (TypedExpr -> TypedExpr) -> TypedProgram
+rewriteManagedTerminal programValue rewrite =
+  case programValue of
+    TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements _] entryPath ->
+      case reverse statements of
+        TypedExpressionStatement spanValue expression : reversedPrefix ->
+          let rewritten = rewrite expression
+           in TypedProgram
+                prelude
+                [ TypedModule
+                    path
+                    source
+                    imports
+                    exports
+                    interface
+                    recursiveGroups
+                    (reverse reversedPrefix <> [TypedExpressionStatement spanValue rewritten])
+                    (typedExpressionInfo rewritten)
+                ]
+                entryPath
+        _ -> error "managed construction fixture must end in an expression statement"
+    _ -> error "managed construction fixture must contain one module"
+
+managedUnsupportedFieldRecipeLowererProgram :: TypedProgram
+managedUnsupportedFieldRecipeLowererProgram =
+  ManagedProductsVariants.managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 2 1)
+        (ManagedProductsVariants.monomorphicConstructorCall boxBinder boxConstructor boxInfo [listInfo] [listExpression])
+    ]
+    boxInfo
+  where
+    boxName = ManagedProductsVariants.typeName "ListBox"
+    boxConstructor = ManagedProductsVariants.constructorName "ListBox"
+    boxBinder = ManagedProductsVariants.constructorBinder 0 boxConstructor
+    listRecipe = TypedManagedListRecipe (TypedSignedIntegerRecipe 64)
+    listInfo = TypedNodeInfo (TypedListType TypedIntType) listRecipe [] []
+    listExpression = TypedListExpr listInfo [intExpr 1]
+    boxInfo = ManagedProductsVariants.variantInfo boxName []
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 1 1)
+        boxName
+        []
+        [ TypedConstructorDeclaration
+            boxBinder
+            boxConstructor
+            [TypedListType TypedIntType]
+            [listRecipe]
+        ]
 
 liftedLambdaFailurePreorderProgram :: TypedProgram
 liftedLambdaFailurePreorderProgram =

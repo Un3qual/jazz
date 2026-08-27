@@ -7,11 +7,13 @@ import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
 import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     requirementsForManagedLayouts,
   )
+import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
@@ -51,6 +53,72 @@ testManagedProductVariantProduction =
         TypedCoreProductionSucceeded actualProgram ->
           assertEqual (name <> " exact typed program") expectedProgram actualProgram
         status -> failTest (name <> " did not produce typed core: " <> Text.pack (show status))
+
+testManagedProductVariantLowering :: IO ()
+testManagedProductVariantLowering =
+  mapM_ assertProducedLowered managedProductVariantExpectedLoweredPrograms
+    >> mapM_ assertLowered managedProductVariantIndependentExpectedLoweredPrograms
+  where
+    assertProducedLowered (name, expectedLoweredProgram) =
+      case lookup name managedProductVariantExpectedPrograms of
+        Nothing -> failTest (name <> " is missing its typed-program expectation")
+        Just typedProgram -> assertLowered (name, typedProgram, expectedLoweredProgram)
+    assertLowered (name, typedProgram, expectedLoweredProgram) = do
+      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      assertEqual (name <> " repeatable lowering") firstRun secondRun
+      assertEqual
+        (name <> " exact managed product/variant lowering")
+        (LoweredIRSucceeded expectedLoweredProgram)
+        firstRun
+      assertEqual
+        (name <> " valid expected Lowered IR")
+        []
+        (validateLoweredProgram expectedLoweredProgram)
+
+testManagedConstructionLowererBoundaries :: IO ()
+testManagedConstructionLowererBoundaries =
+  mapM_ assertLowererBoundary expectedResults
+  where
+    assertLowererBoundary (name, expectedFailures) =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed construction boundary is missing")
+        Just typedProgram -> do
+          let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
+              secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+          assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
+          assertEqual (name <> " repeatable rejection") firstRun secondRun
+          assertEqual (name <> " exact lowerer boundary") (LoweredIRUnsupported expectedFailures) firstRun
+
+    expectedResults =
+      [ ( "managed-bare-nonnullary-constructor-lowerer",
+          [ lowererExpressionFailure
+              1
+              LoweredIRCallableValueUnsupported
+              (LoweredIRNameFailureDetail (TypedResolvedName TypedCurrentModule TypedConstructorNamespace "Some"))
+          ]
+        ),
+        ( "managed-partial-constructor-lowerer",
+          [ lowererExpressionFailure
+              1
+              LoweredIRCallArityUnsupported
+              (LoweredIRArityFailureDetail 2 1)
+          ]
+        ),
+        ( "managed-unsupported-field-recipe-lowerer",
+          [ lowererExpressionFailure
+              1
+              LoweredIRUnsupportedRepresentation
+              (LoweredIRRecipeFailureDetail (TypedManagedListRecipe (TypedSignedIntegerRecipe 64)))
+          ]
+        )
+      ]
+    lowererExpressionFailure statementIndex kind detail =
+      LoweredIRLoweringFailure
+        (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
+        kind
+        detail
 
 testManagedProductVariantLayoutCatalog :: IO ()
 testManagedProductVariantLayoutCatalog = do
