@@ -171,13 +171,21 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
         statementPath = TypedStatementPath (moduleContextPath context) statementLocation
     step (seen, failures) (path, key, name, identity) =
       case Map.lookup key seen of
-        Just previousIdentity
+        Just (previousPath, previousIdentity)
+          | constructorRebindingAllowed key previousPath path previousIdentity identity ->
+              (Map.insert key (path, identity) seen, failures)
+        Just (_, previousIdentity)
           | previousIdentity /= identity || isNothing identity ->
               ( seen,
                 failures <> [failure path TypedDuplicateDeclaration (TypedNameDetail name)]
               )
         Just _ -> (seen, failures)
-        Nothing -> (Map.insert key identity seen, failures)
+        Nothing -> (Map.insert key (path, identity) seen, failures)
+    constructorRebindingAllowed key previousPath path previousIdentity identity =
+      case key of
+        ResolvedNameKey _ TypedConstructorNamespace _ ->
+          previousPath /= path && isJust previousIdentity && isJust identity
+        _ -> False
     implFailures = snd (foldl' implStep (Set.empty, []) implOccurrences)
     implOccurrences =
       [ ( TypedStatementPath (moduleContextPath context) statementLocation,

@@ -5846,27 +5846,44 @@ module TypedCoreValidate (
     | other -> False
   }.
 
-  duplicateDeclarationsAt :: TypedCoreValidationPath -> [DeclarationEntry] -> [DeclarationEntry] -> ([DeclarationEntry], [TypedCoreValidationFailure]).
-  duplicateDeclarationsAt = \(path, declarations, seen) -> case declarations {
+  constructorDeclarationRebindingAllowed :: TypedCoreName -> Maybe(TypedBinderId) -> Maybe(TypedBinderId) -> Bool.
+  constructorDeclarationRebindingAllowed = \(name, previousBinder, binder) -> case (name, previousBinder, binder) {
+    | (TypedResolvedName origin TypedConstructorNamespace identifier, Just previous, Just current) -> True
+    | other -> False
+  }.
+
+  duplicateDeclarationsAtFrom :: TypedCoreValidationPath -> [DeclarationEntry] -> [DeclarationEntry] -> [DeclarationEntry] -> ([DeclarationEntry], [TypedCoreValidationFailure]).
+  duplicateDeclarationsAtFrom = \(path, declarations, seen, current) -> case declarations {
     | [] -> (seen, [])
     | [first | rest] -> case first {
       | DeclarationEntry nameEntry name binder -> case lookupDeclarationEntry first seen {
-        | Nothing -> duplicateDeclarationsAt path rest (listPrepend first seen)
+        | Nothing -> duplicateDeclarationsAtFrom path rest (listPrepend first seen) (listPrepend first current)
         | Just previous -> case previous {
-          | DeclarationEntry previousName previousCoreName previousBinder -> case duplicateDeclarationsAt path rest seen {
-            | (laterSeen, laterFailures) -> (laterSeen, listAppend (if declarationBinderEqual previousBinder binder then [] else [failure path TypedDuplicateDeclaration (TypedNameDetail name)]) laterFailures)
+          | DeclarationEntry previousName previousCoreName previousBinder -> case (declarationBinderEqual previousBinder binder, lookupDeclarationEntry first current) {
+            | (True, currentEntry) -> duplicateDeclarationsAtFrom path rest seen current
+            | (False, Nothing) -> if constructorDeclarationRebindingAllowed name previousBinder binder
+              then duplicateDeclarationsAtFrom path rest (listPrepend first seen) (listPrepend first current)
+              else case duplicateDeclarationsAtFrom path rest seen current {
+                | (laterSeen, laterFailures) -> (laterSeen, listPrepend (failure path TypedDuplicateDeclaration (TypedNameDetail name)) laterFailures)
+              }
+            | other -> case duplicateDeclarationsAtFrom path rest seen current {
+              | (laterSeen, laterFailures) -> (laterSeen, listPrepend (failure path TypedDuplicateDeclaration (TypedNameDetail name)) laterFailures)
+            }
           }
-          | ImplDeclarationEntry previousImpl previousNormalized -> duplicateDeclarationsAt path rest seen
+          | ImplDeclarationEntry previousImpl previousNormalized -> duplicateDeclarationsAtFrom path rest seen current
         }
       }
       | ImplDeclarationEntry implId normalizedImplId -> case lookupDeclarationEntry first seen {
-        | Nothing -> duplicateDeclarationsAt path rest (listPrepend first seen)
-        | Just previous -> case duplicateDeclarationsAt path rest seen {
+        | Nothing -> duplicateDeclarationsAtFrom path rest (listPrepend first seen) (listPrepend first current)
+        | Just previous -> case duplicateDeclarationsAtFrom path rest seen current {
           | (laterSeen, laterFailures) -> (laterSeen, listPrepend (failure path TypedDuplicateDeclaration (TypedImplDetail implId)) laterFailures)
         }
       }
     }
   }.
+
+  duplicateDeclarationsAt :: TypedCoreValidationPath -> [DeclarationEntry] -> [DeclarationEntry] -> ([DeclarationEntry], [TypedCoreValidationFailure]).
+  duplicateDeclarationsAt = \(path, declarations, seen) -> duplicateDeclarationsAtFrom path declarations seen [].
 
   duplicateBlockDeclarationFailuresFrom :: Bool -> ModuleContext -> [Int] -> [Int] -> [TypedStatement] -> Int -> [DeclarationEntry] -> [TypedCoreValidationFailure].
   duplicateBlockDeclarationFailuresFrom = \(includeNames, context, statementLocation, expressionPath, statements, blockIndex, seen) -> case (context, statements) {

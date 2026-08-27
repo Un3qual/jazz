@@ -203,6 +203,7 @@ reviewRegressionGroups =
     (("rejects fractional literal patterns", testFractionalLiteralPattern), [fractionalPatternProgram]),
     (("enforces constructor-like identifier casing", testConstructorLikeIdentifierCasing), [lowercaseConstructorLikeNamesProgram]),
     (("orders duplicate name failures before impl failures", testDuplicateDeclarationOrdering), [duplicateDeclarationOrderingProgram]),
+    (("rejects duplicate constructors within one declaration", testDuplicateConstructorDeclaration), [duplicateConstructorDeclarationProgram]),
     (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram, builtinDirectCallProgram]),
     (("stages constructor values outside complete calls", testConstructorValueRecipeRole), [constructorValueRecipeProgram]),
     (("stages polymorphic builtin values outside complete calls", testPolymorphicBuiltinRecipeRole), [polymorphicBuiltinRecipeProgram]),
@@ -546,16 +547,23 @@ testDuplicateDeclarationOrdering =
         (TypedNameDetail duplicateOrderingDataName),
       statementFailure
         "review-duplicate-declaration-ordering"
-        4
-        TypedDuplicateDeclaration
-        (TypedNameDetail duplicateOrderingConstructorName),
-      statementFailure
-        "review-duplicate-declaration-ordering"
         2
         TypedDuplicateDeclaration
         (TypedImplDetail duplicateOrderingImplId)
     ]
     (validateTypedProgram duplicateDeclarationOrderingProgram)
+
+testDuplicateConstructorDeclaration :: IO ()
+testDuplicateConstructorDeclaration =
+  assertEqual
+    "constructors may be rebound by later data declarations but not repeated within one declaration"
+    [ statementFailure
+        "review-duplicate-constructor-declaration"
+        0
+        TypedDuplicateDeclaration
+        (TypedNameDetail (resolved TypedCurrentModule TypedConstructorNamespace "Choice"))
+    ]
+    (validateTypedProgram duplicateConstructorDeclarationProgram)
 
 testBuiltinCatalogParity :: IO ()
 testBuiltinCatalogParity = do

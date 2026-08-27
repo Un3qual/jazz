@@ -601,6 +601,7 @@ collectCaptureShapes managedLayoutCatalog globalFunctions initiallyExpanded init
       case currentExpression of
         TypedVariableExpr info _ (Just binder)
           | Set.member binder boundBinders -> (seenBinders, [])
+          | Map.member binder (catalogConstructors managedLayoutCatalog) -> (seenBinders, [])
           | Just function <- Map.lookup binder globalFunctions,
             functionShapeCallableShape function == TypedClosureCallableShape,
             Set.notMember binder expandedFunctions ->

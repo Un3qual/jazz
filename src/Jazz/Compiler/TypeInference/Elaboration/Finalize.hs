@@ -64,7 +64,7 @@ import Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   ( StructuredConstructor (..),
     StructuredValueCatalog,
     buildStructuredValueCatalog,
-    structuredConstructorBySourceName,
+    structuredConstructorAtStatement,
     structuredDataStatement,
     structuredNodeInfo,
   )
@@ -112,7 +112,7 @@ finalizeValidatedTypedCoreExpressionDirectCall ::
 finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
-      let structuredCatalogResult = buildStructuredValueCatalog modulePath state provisionalStatements
+      let (structuredCatalogFailures, structuredCatalog) = buildStructuredValueCatalog modulePath state provisionalStatements
           profile = analyzeFinalizationProfile modulePath provisionalStatements
           baseFunctions = profileBaseFunctions profile
           callableShapes = profileCallableShapes profile
@@ -120,16 +120,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           typedRecursiveGroups = profileTypedRecursiveGroups profile
           recursiveBinders = profileRecursiveBinders profile
           (acceptedRecursiveBinders, recursiveScalarCaptureTypes, unavailableClosureCaptureBinders, eagerClosureCaptureStatements) =
-            case structuredCatalogResult of
-              Left _ -> (Set.empty, Map.empty, Set.empty, Map.empty)
-              Right structuredCatalog ->
-                supportedRecursiveProfile
-                  structuredCatalog
-                  baseFunctions
-                  callableShapes
-                  reboundFunctions
-                  provisionalStatements
-                  typedRecursiveGroups
+            supportedRecursiveProfile
+              structuredCatalog
+              baseFunctions
+              callableShapes
+              reboundFunctions
+              provisionalStatements
+              typedRecursiveGroups
           functions = specializeFunctionProfiles recursiveScalarCaptureTypes provisionalStatements baseFunctions
           unsupportedRecursiveBinders = recursiveBinders Set.\\ acceptedRecursiveBinders
           finalizationEnv =
@@ -142,26 +139,20 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 finalizationEagerClosureCaptureStatements = eagerClosureCaptureStatements
               }
           (statementFailures, typedStatements) =
-            case structuredCatalogResult of
-              Left _ -> ([], [])
-              Right structuredCatalog ->
-                finalizeStatements
-                  structuredCatalog
-                  finalizationEnv
-                  reboundFunctions
-                  unsupportedRecursiveBinders
-                  unavailableClosureCaptureBinders
-                  provisionalStatements
+            finalizeStatements
+              structuredCatalog
+              finalizationEnv
+              reboundFunctions
+              unsupportedRecursiveBinders
+              unavailableClosureCaptureBinders
+              provisionalStatements
           exportResult =
-            case structuredCatalogResult of
-              Left _ -> ([], TypedModuleInterface [] [] [] [])
-              Right structuredCatalog -> finalizeExports structuredCatalog provisionalStatements functions callableShapes
+            finalizeExports structuredCatalog provisionalStatements functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
             | not (hasTerminalResult provisionalStatements)
             ]
           moduleFailures = missingResultFailures <> fst exportResult
-          structuredCatalogFailures = either id (const []) structuredCatalogResult
           productionFailures = structuredCatalogFailures <> moduleFailures <> statementFailures
        in case productionFailures of
             _ : _ -> unsupportedTypedCoreProductionOutcome productionFailures
@@ -401,11 +392,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex _ _ _ _) ->
           case structuredDataStatement structuredCatalog statementIndex of
             Just typedStatement -> ([], Just typedStatement, scalarBindings)
-            Nothing ->
-              ( [statementFailure statementIndex TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
-                Nothing,
-                scalarBindings
-              )
+            Nothing -> ([], Nothing, scalarBindings)
         ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
           ( recursiveFailures
               <> rebindingFailures
@@ -504,7 +491,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (rightFailures, _) = finalizeExpression structuredCatalog finalizationEnv (childLocation [1] ScalarExpression) right
                in (failureAt statementIndex childPath TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail : leftFailures <> rightFailures, Nothing)
         ProvisionalVariableExpression name expressionType
-          | Just constructor <- structuredConstructorBySourceName structuredCatalog name ->
+          | Just constructor <- structuredConstructorAtStatement structuredCatalog statementIndex name ->
               case structuredConstructorFieldContracts constructor of
                 [] ->
                   case concreteConstructorContract structuredCatalog finalizationState constructor expressionType of
@@ -793,9 +780,20 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             Map.union
               (finalizationParameters finalizationLocation)
               (finalizationScalarBindings finalizationLocation)
-          selectedArguments =
+          selectedConstructor =
             case callee of
-              ProvisionalVariableExpression name expressionType
+              ProvisionalVariableExpression name _ ->
+                structuredConstructorAtStatement structuredCatalog statementIndex name
+              _ -> Nothing
+          selectedArguments =
+            case (selectedConstructor, callee) of
+              (Just constructor, _) ->
+                constructorApplicationArguments
+                  (finalizationInferState finalizationEnv)
+                  constructor
+                  expression
+                  arguments
+              (_, ProvisionalVariableExpression name expressionType)
                 | Just function <- Map.lookup name functions ->
                     applicationArguments (functionType function) arguments
                 | Map.notMember name lexicalBindings,
@@ -818,8 +816,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               selectedArguments
           argumentFailures = concatMap fst finalizedArguments
        in case callee of
-            ProvisionalVariableExpression name _
-              | Just constructor <- structuredConstructorBySourceName structuredCatalog name ->
+            ProvisionalVariableExpression _ _
+              | Just constructor <- selectedConstructor ->
                   finalizeStructuredConstructorApplication
                     structuredCatalog
                     finalizationEnv
@@ -1028,6 +1026,47 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           (,)
             <$> substituteStructuredType bindings typeValue
             <*> substituteStructuredRecipe bindings recipe
+
+    constructorApplicationArguments finalizationState constructor expression provisionalArguments =
+      case provisionalExpressionType finalizationState expression >>= concreteConstructorFieldTypes finalizationState constructor of
+        Just fieldTypes ->
+          zipWith
+            ( \fieldType (argumentPath, argument) ->
+                ( argumentPath,
+                  specializeProvisionalExpression finalizationState (Just fieldType) argument
+                )
+            )
+            fieldTypes
+            provisionalArguments
+            <> drop (length fieldTypes) provisionalArguments
+        Nothing -> provisionalArguments
+
+    concreteConstructorFieldTypes finalizationState constructor resultExpressionType = do
+      concreteArguments <-
+        case resolveType finalizationState resultExpressionType of
+          TDataType dataName arguments
+            | dataName == structuredConstructorDataSourceName constructor -> Just arguments
+          _ -> Nothing
+      guard (length concreteArguments == length (structuredConstructorParameters constructor))
+      let parameterVariables =
+            Map.fromList
+              [ (negate index - 1, resolveType finalizationState argument)
+              | (index, argument) <- zip [0 :: Int ..] concreteArguments
+              ]
+      traverse
+        (substituteConstructorExpressionType parameterVariables . resolveType finalizationState)
+        (structuredConstructorFieldTemplates constructor)
+
+    substituteConstructorExpressionType bindings expressionType =
+      case expressionType of
+        TListType elementType -> TListType <$> child elementType
+        TTupleType elementTypes -> TTupleType <$> traverse child elementTypes
+        TDataType dataName arguments -> TDataType dataName <$> traverse child arguments
+        TFunctionType argument result -> TFunctionType <$> child argument <*> child result
+        TVarType variable -> Map.lookup variable bindings
+        _ -> Just expressionType
+      where
+        child = substituteConstructorExpressionType bindings
 
     substituteStructuredType bindings typeValue =
       case typeValue of

@@ -398,6 +398,12 @@ specializeExpressionType state expectedType expressionType =
         (TTupleType expressionElements, TTupleType expectedElements)
           | length expressionElements == length expectedElements ->
               TTupleType (zipWith (specializeExpressionType state) expectedElements expressionElements)
+        (TDataType expressionName expressionArguments, TDataType expectedName expectedArguments)
+          | expressionName == expectedName,
+            length expressionArguments == length expectedArguments ->
+              TDataType
+                expressionName
+                (zipWith (specializeExpressionType state) expectedArguments expressionArguments)
         (TIntegerLiteralType literalRange, TIntType)
           | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
         (TIntegerLiteralType literalRange, numericType@(TNumericType concreteType))

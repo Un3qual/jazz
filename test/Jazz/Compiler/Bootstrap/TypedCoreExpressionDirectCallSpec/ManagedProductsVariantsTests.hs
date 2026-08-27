@@ -5,6 +5,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProducts
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixtureNoExports)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
@@ -35,7 +36,9 @@ testManagedProductVariantRetention = do
     [expressionFailure 1 [] TypedCoreCallArityUnsupported (TypedCoreArityDetail 2 1)]
   assertBoundary
     "managed-list-field-failure"
-    [statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]
+    [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+      expressionFailure 1 [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+    ]
   assertBoundary
     "managed-unresolved-constructor-failure"
     [expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreDataValueDetail]
@@ -153,6 +156,94 @@ testManagedConstructionLowererBoundaries =
         (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
         kind
         detail
+
+testManagedConstructorClosureCapture :: IO ()
+testManagedConstructorClosureCapture =
+  assertCompleteProduction
+    "constructor closure capture"
+    ( sourceFixtureNoExports
+        "constructor-closure-capture"
+        ( Text.unlines
+            [ "data Box = Box Int.",
+              "\\(item) -> Box item."
+            ]
+        )
+    )
+
+testManagedGenericConstructorFieldSpecialization :: IO ()
+testManagedGenericConstructorFieldSpecialization =
+  assertCompleteProduction
+    "generic constructor field specialization"
+    ( sourceFixtureNoExports
+        "generic-constructor-field-specialization"
+        ( Text.unlines
+            [ "data Option a = None | Some a.",
+              "item :: Option(UInt8).",
+              "item = Some 1.",
+              "item."
+            ]
+        )
+    )
+
+testManagedConstructorSourceOrder :: IO ()
+testManagedConstructorSourceOrder =
+  assertCompleteProduction
+    "constructor source order"
+    ( sourceFixtureNoExports
+        "constructor-source-order"
+        ( Text.unlines
+            [ "data A = C Int.",
+              "first = C 1.",
+              "data B = C Text.",
+              "second = C \"two\".",
+              "(first, second)."
+            ]
+        )
+    )
+
+testManagedStructuredFailureAccumulation :: IO ()
+testManagedStructuredFailureAccumulation = do
+  let fixture =
+        sourceFixtureNoExports
+          "structured-failure-accumulation"
+          ( Text.unlines
+              [ "data A = A List(Int).",
+                "data B = B List(Int).",
+                "[1]."
+              ]
+          )
+      expectedFailures =
+        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+          statementFailure 1 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+          expressionFailure 2 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+        ]
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
+  assertEqual "structured failure accumulation is repeatable" firstRun secondRun
+  assertEqual
+    "structured failure accumulation preserves source order"
+    (TypedCoreProductionUnsupported expectedFailures)
+    (typedCoreProductionStatus firstRun)
+
+testManagedStructuredModuleFailureOrder :: IO ()
+testManagedStructuredModuleFailureOrder = do
+  production <-
+    produceFixture
+      ( sourceFixtureNoExports
+          "structured-module-failure-order"
+          "data A = A List(Int)."
+      )
+  assertEqual
+    "structured declaration failures precede missing module result failures"
+    ( TypedCoreProductionUnsupported
+        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail
+        ]
+    )
+    (typedCoreProductionStatus production)
 
 testManagedProductVariantLayoutCatalog :: IO ()
 testManagedProductVariantLayoutCatalog = do

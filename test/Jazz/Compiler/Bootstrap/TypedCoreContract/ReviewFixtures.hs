@@ -1078,6 +1078,37 @@ duplicateDeclarationOrderingProgram =
         expressionStatement 5 trueExpr
       ]
 
+duplicateConstructorDeclarationProgram :: TypedProgram
+duplicateConstructorDeclarationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-duplicate-constructor-declaration"
+    modulePath = fixtureModulePath fixture
+    dataName =
+      resolved TypedCurrentModule TypedTypeNamespace "Choice"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Choice"
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] constructorName)
+            constructorName
+            []
+            [],
+          TypedConstructorDeclaration
+            (binder modulePath [0, 1] constructorName)
+            constructorName
+            []
+            []
+        ]
+    statements =
+      [ TypedDataStatement declaration,
+        expressionStatement 1 trueExpr
+      ]
+
 builtinCatalogProgram :: TypedProgram
 builtinCatalogProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface terminalInfo modulePath

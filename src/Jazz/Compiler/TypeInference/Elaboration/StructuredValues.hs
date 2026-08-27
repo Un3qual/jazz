@@ -5,12 +5,15 @@ module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
     buildStructuredValueCatalog,
     structuredDataStatement,
     structuredNodeInfo,
-    structuredConstructorBySourceName,
+    structuredConstructorAtStatement,
   )
 where
 
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.List (find)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -33,10 +36,13 @@ import Jazz.Compiler.TypedCore
 
 data StructuredConstructor = StructuredConstructor
   { structuredConstructorSourceName :: Name,
+    structuredConstructorStatementIndex :: Int,
     structuredConstructorBinder :: TypedBinderId,
     structuredConstructorName :: TypedCoreName,
+    structuredConstructorDataSourceName :: Name,
     structuredConstructorDataName :: TypedCoreName,
     structuredConstructorParameters :: [TypedTypeParameterId],
+    structuredConstructorFieldTemplates :: [ExpressionType],
     structuredConstructorFieldContracts :: [(TypedType, TypedRepresentationRecipe)]
   }
   deriving (Eq, Show)
@@ -53,7 +59,7 @@ data StructuredDataSkeleton = StructuredDataSkeleton
 
 data StructuredValueCatalog = StructuredValueCatalog
   { catalogDataSkeletons :: Map Name StructuredDataSkeleton,
-    catalogConstructorsBySourceName :: Map Name StructuredConstructor,
+    catalogConstructorsBySourceName :: Map Name (NonEmpty StructuredConstructor),
     catalogStatementsByIndex :: IntMap TypedStatement
   }
   deriving (Eq, Show)
@@ -62,23 +68,34 @@ buildStructuredValueCatalog ::
   [Text] ->
   InferState ->
   [ProvisionalTypedStatement] ->
-  Either [TypedCoreProductionFailure] StructuredValueCatalog
-buildStructuredValueCatalog modulePath state statements = do
+  ([TypedCoreProductionFailure], StructuredValueCatalog)
+buildStructuredValueCatalog modulePath state statements =
   let skeletons = mapMaybeSkeleton statements
       skeletonMap = Map.fromList [(skeletonSourceName skeleton, skeleton) | skeleton <- skeletons]
-  resolvedData <- traverse (resolveData skeletonMap) skeletons
-  let constructors = concatMap snd resolvedData
+      resolvedResults = map (resolveData skeletonMap) skeletons
+      (failures, resolvedData) = foldr collectResolution ([], []) resolvedResults
+      constructors = concatMap snd resolvedData
       constructorsBySourceName =
-        Map.fromList [(structuredConstructorSourceName constructor, constructor) | constructor <- constructors]
+        Map.fromListWith
+          (flip (<>))
+          [ (structuredConstructorSourceName constructor, constructor :| [])
+          | constructor <- constructors
+          ]
       statementsByIndex =
         IntMap.fromList [statementEntry | (statementEntry, _) <- resolvedData]
-  pure
-    StructuredValueCatalog
-      { catalogDataSkeletons = skeletonMap,
-        catalogConstructorsBySourceName = constructorsBySourceName,
-        catalogStatementsByIndex = statementsByIndex
-      }
+   in ( failures,
+        StructuredValueCatalog
+          { catalogDataSkeletons = skeletonMap,
+            catalogConstructorsBySourceName = constructorsBySourceName,
+            catalogStatementsByIndex = statementsByIndex
+          }
+      )
   where
+    collectResolution result (failures, resolvedData) =
+      case result of
+        Left resolutionFailures -> (resolutionFailures <> failures, resolvedData)
+        Right dataEntry -> (failures, dataEntry : resolvedData)
+
     mapMaybeSkeleton = foldr collectSkeleton []
     collectSkeleton statement collected =
       case statement of
@@ -124,10 +141,13 @@ buildStructuredValueCatalog modulePath state statements = do
       pure
         StructuredConstructor
           { structuredConstructorSourceName = sourceName,
+            structuredConstructorStatementIndex = skeletonStatementIndex skeleton,
             structuredConstructorBinder = binder,
             structuredConstructorName = name,
+            structuredConstructorDataSourceName = skeletonSourceName skeleton,
             structuredConstructorDataName = skeletonName skeleton,
             structuredConstructorParameters = skeletonParameters skeleton,
+            structuredConstructorFieldTemplates = fieldTemplates,
             structuredConstructorFieldContracts = fieldContracts
           }
 
@@ -153,8 +173,12 @@ structuredNodeInfo catalog state expressionType = do
   (typeValue, recipe) <- expressionContract (catalogDataSkeletons catalog) Map.empty state expressionType
   pure (TypedNodeInfo typeValue recipe [] [])
 
-structuredConstructorBySourceName :: StructuredValueCatalog -> Name -> Maybe StructuredConstructor
-structuredConstructorBySourceName catalog sourceName = Map.lookup sourceName (catalogConstructorsBySourceName catalog)
+structuredConstructorAtStatement :: StructuredValueCatalog -> Int -> Name -> Maybe StructuredConstructor
+structuredConstructorAtStatement catalog statementIndex sourceName = do
+  constructors <- Map.lookup sourceName (catalogConstructorsBySourceName catalog)
+  find
+    ((<= statementIndex) . structuredConstructorStatementIndex)
+    (reverse (NonEmpty.toList constructors))
 
 expressionContract ::
   Map Name StructuredDataSkeleton ->
