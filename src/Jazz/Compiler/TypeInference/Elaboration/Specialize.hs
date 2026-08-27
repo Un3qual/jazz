@@ -54,6 +54,16 @@ specializeProvisionalExpression :: InferState -> Maybe ExpressionType -> Provisi
 specializeProvisionalExpression state maybeExpected expression =
   case expression of
     ProvisionalUnitExpression -> ProvisionalUnitExpression
+    ProvisionalTupleExpression expressionType elements ->
+      let resultType = specializedType expressionType
+          expectedElements =
+            case resultType of
+              TTupleType elementTypes
+                | length elementTypes == length elements -> map Just elementTypes
+              _ -> replicate (length elements) Nothing
+       in ProvisionalTupleExpression
+            resultType
+            (zipWith (specializeProvisionalExpression state) expectedElements elements)
     ProvisionalLiteralExpression literal expressionType ->
       ProvisionalLiteralExpression literal (specializedType expressionType)
     ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
@@ -155,6 +165,8 @@ specializeProvisionalParameterReferences state parameterName selectedType = expr
     expressionReferences shadowed expression =
       case expression of
         ProvisionalUnitExpression -> ProvisionalUnitExpression
+        ProvisionalTupleExpression expressionType elements ->
+          ProvisionalTupleExpression expressionType (map child elements)
         ProvisionalLiteralExpression {} -> expression
         ProvisionalBinaryExpression operatorSymbol expressionType operandType left right ->
           ProvisionalBinaryExpression
@@ -244,6 +256,7 @@ provisionalParameterApplicationTypes state captureType parameterName = expressio
     expressionApplicationTypes shadowed expression =
       case expression of
         ProvisionalUnitExpression -> []
+        ProvisionalTupleExpression _ elements -> foldMap child elements
         ProvisionalLiteralExpression {} -> []
         ProvisionalBinaryExpression _ _ _ left right -> child left <> child right
         ProvisionalVariableExpression {} -> []
@@ -314,6 +327,7 @@ provisionalParameterReferenceTypes parameterName = expressionReferenceTypes Fals
     expressionReferenceTypes shadowed expression =
       case expression of
         ProvisionalUnitExpression -> []
+        ProvisionalTupleExpression _ elements -> foldMap child elements
         ProvisionalLiteralExpression {} -> []
         ProvisionalBinaryExpression _ _ _ left right -> child left <> child right
         ProvisionalVariableExpression name expressionType
@@ -364,6 +378,7 @@ provisionalExpressionType :: InferState -> ProvisionalTypedExpr -> Maybe Express
 provisionalExpressionType state expression =
   resolveType state <$> case expression of
     ProvisionalUnitExpression -> Just (TTupleType [])
+    ProvisionalTupleExpression expressionType _ -> Just expressionType
     ProvisionalLiteralExpression _ expressionType -> Just expressionType
     ProvisionalBinaryExpression _ expressionType _ _ _ -> Just expressionType
     ProvisionalVariableExpression _ expressionType -> Just expressionType

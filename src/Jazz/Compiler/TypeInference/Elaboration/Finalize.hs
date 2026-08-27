@@ -67,6 +67,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     FunctionProfile (..),
     InferredProductionFailure (..),
     ProvisionalCallableDeclaration (..),
+    ProvisionalDataDeclaration (..),
     ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
@@ -361,6 +362,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (FinalizationLocation statementIndex [] Map.empty scalarBindings EagerExpression ScalarExpression)
                   selectedExpression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression, scalarBindings)
+        ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex _ _ _ _) ->
+          ( [statementFailure statementIndex TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
+            Nothing,
+            scalarBindings
+          )
         ProvisionalUnsupportedCallableBinding declaration kind detail childFailures ->
           ( recursiveFailures
               <> rebindingFailures
@@ -405,6 +411,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       case expression of
         ProvisionalUnitExpression ->
           ([], Just (TypedTupleExpr unitInfo []))
+        ProvisionalTupleExpression _ elements ->
+          let elementFailures =
+                concat
+                  [ fst (finalizeExpression finalizationEnv (childLocation [elementIndex] ScalarExpression) element)
+                  | (elementIndex, element) <- zip [0 :: Int ..] elements
+                  ]
+           in case elementFailures of
+                _ : _ -> (elementFailures, Nothing)
+                [] ->
+                  ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail],
+                    Nothing
+                  )
         ProvisionalLiteralExpression literal expressionType ->
           case scalarInfo statementIndex childPath expressionType of
             Left failure -> ([failure], Nothing)
@@ -998,6 +1016,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     collectExpressionCallProfiles referenceFunctions lexicalNames functions expression =
       case expression of
+        ProvisionalTupleExpression _ elements ->
+          foldl'
+            (collectExpressionCallProfiles referenceFunctions lexicalNames)
+            functions
+            elements
         ProvisionalBinaryExpression _ _ _ left right ->
           collectExpressionCallProfiles
             referenceFunctions
@@ -1525,6 +1548,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ProvisionalFunctionBinding declaration _ -> provisionalCallableStatementIndex declaration
             ProvisionalScalarBinding statementIndex _ _ _ _ -> statementIndex
             ProvisionalTerminalExpression statementIndex _ _ -> statementIndex
+            ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex _ _ _ _) -> statementIndex
             ProvisionalUnsupportedCallableBinding declaration _ _ _ -> provisionalCallableStatementIndex declaration
             ProvisionalUnsupportedStatement statementIndex _ _ _ -> statementIndex
         generatedOperatorName name =
@@ -1537,6 +1561,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         go boundNames expression =
           case expression of
             ProvisionalUnitExpression -> []
+            ProvisionalTupleExpression _ elements -> foldMap child elements
             ProvisionalLiteralExpression {} -> []
             ProvisionalBinaryExpression _ _ _ left right -> child left <> child right
             ProvisionalVariableExpression name expressionType
@@ -1588,6 +1613,14 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         go boundNames maybeExpected expression =
           case expression of
             ProvisionalUnitExpression -> []
+            ProvisionalTupleExpression expressionType elements ->
+              let selectedTupleType = specializedType maybeExpected expressionType
+                  elementExpectations =
+                    case selectedTupleType of
+                      TTupleType elementTypes
+                        | length elementTypes == length elements -> map Just elementTypes
+                      _ -> replicate (length elements) Nothing
+               in concat (zipWith child elementExpectations elements)
             ProvisionalLiteralExpression {} -> []
             ProvisionalBinaryExpression _ expressionType operandType left right ->
               let resultType = specializedType maybeExpected expressionType

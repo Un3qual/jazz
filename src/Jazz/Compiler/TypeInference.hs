@@ -826,9 +826,12 @@ inferExprTypeDetailed builtinMode env state expr =
     ETuple elements ->
       let (expressionType, finalState, elementResults) = inferTupleWithProduction state elements
           failures =
-            InferredProductionFailure [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail
-              : concat (zipWith childFailures [0 ..] elementResults)
-       in (InferredExpr expressionType (Just (ProvisionalRetainedFailures failures)) failures, finalState)
+            concat (zipWith childFailures [0 ..] elementResults)
+          provisional = do
+            tupleType <- expressionType
+            children <- traverse inferredProvisionalExpr elementResults
+            pure (ProvisionalTupleExpression tupleType children)
+       in (InferredExpr expressionType provisional failures, finalState)
     EBlock statements ->
       let (failureKind, failureDetail) =
             blockProductionFailureKindAndDetail statements

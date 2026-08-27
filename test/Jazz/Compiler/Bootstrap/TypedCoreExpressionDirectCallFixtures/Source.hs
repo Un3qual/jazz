@@ -749,6 +749,25 @@ conditionalSource = "if True then 1 else 2."
 patternCaseSource = "case True { | True -> 1 | _ -> 2 }."
 localBlockBindingSource = "{ item = 1. item. }."
 
+managedTupleSource, managedOptionSource, managedTreeSource, retainedTupleChildFailureSource, retainedDataSiblingFailureSource :: Text
+managedTupleSource = "(1, \"two\")."
+managedOptionSource =
+  Text.unlines
+    [ "data Option a = None | Some a.",
+      "Some 7."
+    ]
+managedTreeSource =
+  Text.unlines
+    [ "data Tree a = Leaf a | Branch Tree(a) Tree(a).",
+      "Branch (Leaf 1) (Leaf 2)."
+    ]
+retainedTupleChildFailureSource = "(1, [2])."
+retainedDataSiblingFailureSource =
+  Text.unlines
+    [ "data Box = Box.",
+      "[1]."
+    ]
+
 conditionalFunctionParameterSource, conditionalCapturedScalarSource, conditionalTailCallFunctionSource, conditionalClosureResultApplicationSource, nestedConditionalsSource :: Text
 conditionalFunctionParameterSource =
   Text.unlines

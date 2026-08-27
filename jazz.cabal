@@ -523,6 +523,7 @@ test-suite jazz-lowered-ir-contract-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
@@ -547,6 +548,7 @@ test-suite jazz-typed-core-contract-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
@@ -562,12 +564,14 @@ test-suite jazz-typed-core-expression-direct-call-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 

@@ -5,6 +5,7 @@ module Main (main) where
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
 import Jazz.TestHarness (NamedTest, runTestSuite)
@@ -28,6 +29,8 @@ tests =
     ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
     ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
+    ("retains managed tuple and local-data structure once", testManagedProductVariantRetention),
+    ("keeps retained managed values at the explicit finalization boundary", testManagedProductVariantFinalizationBoundary),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
     ("produces exact managed Text operations", testManagedTextOperationProduction),

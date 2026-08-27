@@ -27,6 +27,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     managedTextKernelBoundaryFixtures,
     managedTextExclusionFixtures,
     managedTextExpectedLoweredPrograms,
+    managedProductVariantFixtures,
+    managedProductVariantFixture,
     lowererBoundaryExpectedLoweredPrograms,
     lexicalCaptureExpectedPrograms,
     lexicalCaptureExpectedLoweredPrograms,
@@ -64,6 +66,7 @@ where
 
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
