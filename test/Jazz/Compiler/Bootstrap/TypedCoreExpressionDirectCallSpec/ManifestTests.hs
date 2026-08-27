@@ -53,7 +53,9 @@ testFixtureManifest = do
           "closure-value-mutual-recursion",
           "closure-value-self-recursion",
           "capturing-self-recursion",
-          "capturing-mutual-recursion"
+          "capturing-mutual-recursion",
+          "non-unit-tuple",
+          "data-value"
         ]
       expectedRejectedNames =
         [ "source-diagnostic",
@@ -62,8 +64,6 @@ testFixtureManifest = do
           "ambient-prelude-input",
           "text-value",
           "list-value",
-          "non-unit-tuple",
-          "data-value",
           "local-block-binding",
           "oversaturated-direct-call",
           "later-capture-mutual-recursion",
@@ -76,8 +76,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 34 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 16 (length rejectedFixtureNames)
+    >> assertEqual "accepted fixture count" 36 (length acceptedFixtureNames)
+    >> assertEqual "rejected fixture count" 14 (length rejectedFixtureNames)
     >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
     >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
@@ -216,6 +216,7 @@ testAcceptedManifestPipeline =
         <> closedCallableExpectedPrograms
         <> lexicalCaptureExpectedPrograms
         <> curriedApplicationExpectedPrograms
+        <> managedProductVariantManifestExpectedPrograms
     expectedLoweredPrograms =
       scalarExpectedLoweredPrograms
         <> [(name, lowered) | (name, _, lowered) <- scalarPatternCaseExpectedLoweredPrograms]
@@ -264,6 +265,12 @@ testAcceptedManifestPipeline =
                       assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
                     _ -> failTest (name <> " did not produce lowered IR")
                 (Nothing, _) -> failTest (name <> " did not retain its validation proof")
-                (_, Nothing) -> failTest (name <> " is missing its lowering expectation")
+                (Just validatedProgram, Nothing) -> do
+                  let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+                      trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
+                  assertEqual (name <> " trusted lowerer boundary matches checked lowering") lowering trustedLowering
+                  case lowering of
+                    LoweredIRUnsupported _ -> pure ()
+                    _ -> failTest (name <> " crossed its pending managed-layout lowerer boundary")
             _ -> failTest (name <> " did not produce typed core")
         Nothing -> failTest (name <> " is missing a typed-program expectation")

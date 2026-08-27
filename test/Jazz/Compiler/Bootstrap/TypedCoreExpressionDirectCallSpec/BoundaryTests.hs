@@ -72,11 +72,7 @@ testRootDataFailureAccumulation = do
           [ TypedCoreProductionFailure
               (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
               TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreStructuredValueUnsupported
-              TypedCoreDataValueDetail
+              TypedCoreListValueDetail
           ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture

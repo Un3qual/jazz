@@ -205,11 +205,7 @@ testScalarPatternCaseProducerBoundaries = do
   where
     expectedSourceFailures =
       [ ("pattern-case-managed-scrutinee", [profileFailure 0]),
-        ( "pattern-case-constructor-pattern",
-          [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
-            profileFailure 1
-          ]
-        ),
+        ("pattern-case-constructor-pattern", [profileFailure 1]),
         ( "pattern-case-list-pattern",
           [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             profileFailure 0
@@ -299,12 +295,6 @@ testScalarPatternCaseProducerBoundaries = do
     expressionFailure statementIndex childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-        kind
-        detail
-
-    statementFailure statementIndex kind detail =
-      TypedCoreProductionFailure
-        (TypedCoreProductionStatementPath ["App", "Main"] statementIndex)
         kind
         detail
 
@@ -1365,7 +1355,7 @@ testManagedTextKernelBoundaries = do
 testManagedTextProfileExclusions :: IO ()
 testManagedTextProfileExclusions = do
   mapM_ assertExcluded exactExclusions
-  mapM_ assertManifestExclusion ["text-value", "non-unit-tuple", "data-value", "resolved-import", "imported-direct-call"]
+  mapM_ assertManifestExclusion ["text-value", "resolved-import", "imported-direct-call"]
   where
     exactExclusions =
       [ ( "managed-text-literal-pattern",

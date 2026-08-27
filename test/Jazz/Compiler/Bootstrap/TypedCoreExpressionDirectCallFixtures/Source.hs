@@ -119,7 +119,9 @@ acceptedFixtures =
     sourceFixtureNoExports "closure-value-mutual-recursion" closureValueMutualRecursionSource,
     sourceFixtureNoExports "closure-value-self-recursion" closureValueSelfRecursionSource,
     sourceFixtureNoExports "capturing-self-recursion" capturingSelfRecursionSource,
-    sourceFixtureNoExports "capturing-mutual-recursion" capturingMutualRecursionSource
+    sourceFixtureNoExports "capturing-mutual-recursion" capturingMutualRecursionSource,
+    sourceFixtureNoExports "non-unit-tuple" nonUnitTupleSource,
+    sourceFixtureNoExports "data-value" dataValueSource
   ]
 
 rejectedFixtures :: [Fixture]
@@ -134,8 +136,6 @@ rejectedFixtures =
       },
     sourceFixtureNoExports "text-value" textValueSource,
     sourceFixtureNoExports "list-value" listValueSource,
-    sourceFixtureNoExports "non-unit-tuple" nonUnitTupleSource,
-    sourceFixtureNoExports "data-value" dataValueSource,
     sourceFixtureNoExports "local-block-binding" localBlockBindingSource,
     sourceFixtureNoExports "oversaturated-direct-call" oversaturatedDirectCallSource,
     sourceFixtureNoExports "later-capture-mutual-recursion" laterCaptureMutualRecursionSource,
@@ -168,7 +168,7 @@ ordinaryForwardVisibilityFixture =
   sourceFixture "ordinary-unsigned-forward-caller-invisibility" ordinaryUnsignedForwardCallerSource
 
 rejectedScalarFixtures :: [Fixture]
-rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "non-unit-tuple", "data-value", "local-block-binding"]
+rejectedScalarFixtures = map fixtureByName ["text-value", "list-value", "local-block-binding"]
 
 explicitNumericTypes :: [Text]
 explicitNumericTypes =
