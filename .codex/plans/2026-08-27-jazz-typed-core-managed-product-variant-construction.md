@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -215,7 +215,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   source order and treats data statements as declaration metadata, not value
   expressions.
 
-- [ ] **Step 1: Add exact RED source cases.** Register these sources under
+- [x] **Step 1: Add exact RED source cases.** Register these sources under
       stable fixture names and add them to the new focused test module:
 
   ```jazz
@@ -237,7 +237,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   keep the existing `non-unit-tuple` and `data-value` rejection entries until
   Tasks 2 and 3 turn them green.
 
-- [ ] **Step 2: Run the focused suite and verify RED.** Run:
+- [x] **Step 2: Run the focused suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=direct --jobs=1
@@ -246,7 +246,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   Expected: the new tuple case reports `TypedCoreTupleValueDetail`; the data
   cases report `TypedCoreDataValueDetail` before finalization exists.
 
-- [ ] **Step 3: Retain tuple children in the shared traversal.** Replace the
+- [x] **Step 3: Retain tuple children in the shared traversal.** Replace the
       unconditional non-unit tuple failure with:
 
   ```haskell
@@ -263,7 +263,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   Keep `EList` unchanged. Preserve child paths and left-to-right state
   threading from `inferTupleWithProduction`.
 
-- [ ] **Step 4: Retain local data declarations from registered bindings.** In
+- [x] **Step 4: Retain local data declarations from registered bindings.** In
       the `SData` branch, build `ProvisionalDataStatement` only after
       `registerDataConstructors` succeeds. Resolve each source constructor by
       name in `nextEnv`. Convert its registered `ConstructorArgumentType`
@@ -274,18 +274,18 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
       failure in `inferExprTypeWithMode`; nested blocks remain rejected by the
       existing nested-scope boundary.
 
-- [ ] **Step 5: Make private traversals total.** Add tuple recursion and data
+- [x] **Step 5: Make private traversals total.** Add tuple recursion and data
       statement handling to specialization, free-name, application-type,
       parameter-reference, capture, and recursive-dependency traversals. Use
       `map child elements` or `foldMap child elements`; never flatten or reorder
       tuple children.
 
-- [ ] **Step 6: Run the focused suite to the expected intermediate boundary.**
+- [x] **Step 6: Run the focused suite to the expected intermediate boundary.**
       Expected: source inference and provisional retention are repeatable;
       finalization still rejects the new nodes through one explicit structured
       failure rather than losing their children.
 
-- [ ] **Step 7: Commit the green retention milestone.** Run:
+- [x] **Step 7: Commit the green retention milestone.** Run:
 
   ```bash
   git add jazz.cabal src/Jazz/Compiler/TypeInference.hs src/Jazz/Compiler/TypeInference/Scope.hs src/Jazz/Compiler/TypeInference/Elaboration/Types.hs src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/Source.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/Support.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs
@@ -350,7 +350,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   `TypedManagedVariantRecipe`. Lists, unresolved variables, or recipes that
   mention excluded values return `Nothing`.
 
-- [ ] **Step 1: Complete exact expected Typed Core fixtures.** Spell out:
+- [x] **Step 1: Complete exact expected Typed Core fixtures.** Spell out:
 
   ```haskell
   TypedDataStatement
@@ -368,25 +368,25 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   nominal variant recipe. Add complete expectations for the recursive tree and
   the structural tuple.
 
-- [ ] **Step 2: Run the focused producer test and verify RED.** Expected: the
+- [x] **Step 2: Run the focused producer test and verify RED.** Expected: the
       exact new programs differ because `Finalize.hs` still accepts only unit,
       scalar, Text, closure, and existing statement forms.
 
-- [ ] **Step 3: Build the catalog without a second inference pass.** Convert
+- [x] **Step 3: Build the catalog without a second inference pass.** Convert
       retained `ExpressionType` templates using declaration parameter IDs and
       already-resolved inference structure. Reject any unresolved template or
       non-concrete required recipe with the original statement path. Reserve
       all declarations before resolving fields so recursive and mutually
       recursive data can refer to each other.
 
-- [ ] **Step 4: Emit data statements and interfaces in source order.** Add
+- [x] **Step 4: Emit data statements and interfaces in source order.** Add
       `ProvisionalDataStatement` to `finalizeStatement`; return the exact
       `TypedDataStatement` and do not add a value binding. Extend
       `finalizeExports` so public local types and constructors produce matching
       `TypedModuleExport` entries and one `TypedDataInterface`, while imported
       data remains blocked at the input profile.
 
-- [ ] **Step 5: Finalize tuple expressions.** Finalize children at
+- [x] **Step 5: Finalize tuple expressions.** Finalize children at
       `childPath <> [elementIndex]`, require the tuple node's type and recipe to
       match every finalized child, and emit:
 
@@ -396,7 +396,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
     typedChildren
   ```
 
-- [ ] **Step 6: Finalize exactly saturated constructors.** Before the generic
+- [x] **Step 6: Finalize exactly saturated constructors.** Before the generic
       named-call branches in `finalizeApplicationSpine`, detect a local
       `StructuredConstructor`. Require `actualArity == fieldCount`, specialize
       its parameter map from the concrete result `TDataType`, finalize fields
@@ -405,13 +405,13 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
       finalizes directly to a bound constructor `TypedVariableExpr` carrying
       the concrete variant node info.
 
-- [ ] **Step 7: Lock producer failures.** Add exact cases for a bare and a
+- [x] **Step 7: Lock producer failures.** Add exact cases for a bare and a
       partial non-nullary constructor (`TypedCoreCallableValueUnsupported` and
       `TypedCoreCallArityUnsupported`), a list field, unresolved recipe, and an
       imported constructor. Keep oversaturation at
       `TypedCoreProductionBlockedByDiagnostics`.
 
-- [ ] **Step 8: Run producer and Typed Core contract suites.** Run:
+- [x] **Step 8: Run producer and Typed Core contract suites.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec --test-show-details=direct --jobs=1
@@ -420,7 +420,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   Expected: exact producer artifacts pass both Haskell and hosted Typed Core
   validation without any schema or mirror change.
 
-- [ ] **Step 9: Commit the green Typed Core milestone.** Run:
+- [x] **Step 9: Commit the green Typed Core milestone.** Run:
 
   ```bash
   git add jazz.cabal src/Jazz/Compiler/TypeInference/Elaboration/Types.hs src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/Support.hs
@@ -480,7 +480,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   encodings; variant encoding includes module segments, resolved type name,
   and ordered concrete typed-argument encodings.
 
-- [ ] **Step 1: Add exact catalog RED tests.** Construct validated Typed Core
+- [x] **Step 1: Add exact catalog RED tests.** Construct validated Typed Core
       programs directly and assert exact `LoweredLayoutId` text plus complete
       `LoweredLayout` order for:
 
@@ -491,11 +491,11 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   - mutually recursive variants terminating; and
   - Text first, managed values in discovery order, closure environments last.
 
-- [ ] **Step 2: Run the focused test and verify RED.** Expected: product and
+- [x] **Step 2: Run the focused test and verify RED.** Expected: product and
       variant recipes still fail `loweredRepresentation` and no managed layouts
       are emitted.
 
-- [ ] **Step 3: Implement the canonical encoder.** Use explicit encoders:
+- [x] **Step 3: Implement the canonical encoder.** Use explicit encoders:
 
   ```haskell
   segment value = decimal (Text.length value) <> ":" <> value
@@ -507,20 +507,20 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   recipe if its declaration cannot be found. Keep product and closure domains
   distinct even when field representations match.
 
-- [ ] **Step 4: Collect first discovery deterministically.** Traverse module
+- [x] **Step 4: Collect first discovery deterministically.** Traverse module
       interface, statements, schemes, expressions, and patterns in stored
       order. Mark an identity before visiting its dependent field recipes.
       Deduplicate with `Set LoweredLayoutId` while retaining an ordered list;
       never iterate a `Map` to establish output order.
 
-- [ ] **Step 5: Build exact variant shapes.** Zip declaration parameters with
+- [x] **Step 5: Build exact variant shapes.** Zip declaration parameters with
       concrete recipe arguments, substitute every constructor field type and
       recipe, and emit `LoweredVariantLayout tag fields` with zero-based
       declaration tags. Reject missing declarations, arity mismatch, unbound
       representation parameters, lists, or imported data without a partial
       catalog.
 
-- [ ] **Step 6: Thread one catalog through analysis and emission.** Replace
+- [x] **Step 6: Thread one catalog through analysis and emission.** Replace
       scalar-only representation lookups in value schemes, callable shapes,
       captures, CFG values, result representations, and emitted operands with
       `representationForRecipe catalog`. Emit layouts as:
@@ -531,7 +531,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
     <> orderedClosureLayouts functionShapes
   ```
 
-- [ ] **Step 7: Run focused and contract verification.** Run:
+- [x] **Step 7: Run focused and contract verification.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
@@ -540,7 +540,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   Expected: catalog tests pass; all existing exact Text/closure layouts retain
   their prior order; Haskell and hosted Lowered IR validation still match.
 
-- [ ] **Step 8: Commit the green catalog milestone.** Run:
+- [x] **Step 8: Commit the green catalog milestone.** Run:
 
   ```bash
   git add jazz.cabal src/Jazz/Compiler/LoweredIR/Lower/Types.hs src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs src/Jazz/Compiler/LoweredIR/Lower/Emit.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs
@@ -581,38 +581,38 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   lookup and arity verification. Nullary construction emits the variant
   instruction with `[]`.
 
-- [ ] **Step 1: Add exact Lowered IR RED expectations.** Cover `(1, "two")`,
+- [x] **Step 1: Add exact Lowered IR RED expectations.** Cover `(1, "two")`,
       `None`, `Some 7`, nested `Branch (Leaf 1) (Leaf 2)`, a tuple containing a
       variant, and a variant containing Text, a closure, a product, and another
       variant. Spell out complete layouts, instructions, operands,
       temporaries, functions, and entry blocks.
 
-- [ ] **Step 2: Add arbitrary Typed Core lowerer boundaries.** Require bare or
+- [x] **Step 2: Add arbitrary Typed Core lowerer boundaries.** Require bare or
       partially applied non-nullary constructors, wrong constructor binder,
       unsupported field recipe, and missing catalog declarations to return one
       ordered `LoweredIRUnsupported` result and no Lowered Program.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Expected: tuple nodes
+- [x] **Step 3: Run the focused suite and verify RED.** Expected: tuple nodes
       and constructor spines reach `LoweredIRUnsupportedExpression` after their
       Typed Core input validates.
 
-- [ ] **Step 4: Admit construction during shape inspection.** Allow non-empty
+- [x] **Step 4: Admit construction during shape inspection.** Allow non-empty
       `TypedTupleExpr` only when its node recipe resolves to the structural
       product layout and every child passes. Recognize a constructor variable
       or application only through binder-based `constructorLayoutFor`; do not
       match constructor spelling.
 
-- [ ] **Step 5: Emit tuple construction.** Lower each element with indexed
+- [x] **Step 5: Emit tuple construction.** Lower each element with indexed
       child paths, stop on the first ordered failure while retaining failures
       already produced by earlier children, verify operand representations
       against the layout fields, then append one `LoweredConstructProduct`.
 
-- [ ] **Step 6: Emit variant construction.** Decompose the full application
+- [x] **Step 6: Emit variant construction.** Decompose the full application
       spine, lower every field left to right, require exact field count and
       representation, and append one `LoweredConstructVariant`. Do not emit a
       closure for the constructor callee or any partially built variant.
 
-- [ ] **Step 7: Run exact lowering and contract suites.** Run:
+- [x] **Step 7: Run exact lowering and contract suites.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
@@ -622,7 +622,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   malformed Typed Core values fail at their owned boundary; contract parity is
   unchanged.
 
-- [ ] **Step 8: Commit the green construction milestone.** Run:
+- [x] **Step 8: Commit the green construction milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs src/Jazz/Compiler/LoweredIR/Lower/Emit.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs
@@ -649,7 +649,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   shapes, `ambientSlots`, carried operands, joins, returns, and tail calls must
   accept catalog-resolved managed references exactly as they accept Text.
 
-- [ ] **Step 1: Add exact RED transport fixtures.** Cover all of these source
+- [x] **Step 1: Add exact RED transport fixtures.** Cover all of these source
       profiles with both exact Typed Core and exact Lowered IR expectations:
 
   ```jazz
@@ -675,23 +675,23 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   returns, and direct/closure tail operands. Include nested construction on
   both conditional branches to prove evaluation order.
 
-- [ ] **Step 2: Run the focused suite and verify RED.** Expected: any remaining
+- [x] **Step 2: Run the focused suite and verify RED.** Expected: any remaining
       scalar-only helper reports `LoweredIRUnsupportedRepresentation` or a
       producer managed-value failure at the exact transport path.
 
-- [ ] **Step 3: Replace remaining scalar-only transport checks.** Route value
+- [x] **Step 3: Replace remaining scalar-only transport checks.** Route value
       schemes, scalar binding indexes, callable flattening, captures, result
       destinations, and operand comparison through the catalog. Preserve
       existing local/shared/carried sort order and block identities.
 
-- [ ] **Step 4: Lock exclusions and failure precedence.** Add repeatable tests
+- [x] **Step 4: Lock exclusions and failure precedence.** Add repeatable tests
       for list fields and list construction, equality on products/variants,
       imported constructors, first-class non-nullary constructors, pattern
       cases that destructure tuples/constructors, pattern lambdas, and
       multi-module programs. Assert source diagnostics still precede producer
       and lowerer failures.
 
-- [ ] **Step 5: Run the complete focused matrix.** Run:
+- [x] **Step 5: Run the complete focused matrix.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
@@ -700,7 +700,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   Expected: construction, transport, failure, and mirrored contract tests all
   pass serially and twice-repeatable fixtures remain byte-for-byte equal.
 
-- [ ] **Step 6: Commit the green transport milestone.** Run:
+- [x] **Step 6: Commit the green transport milestone.** Run:
 
   ```bash
   git add src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs src/Jazz/Compiler/LoweredIR/Lower/Emit.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs
@@ -727,10 +727,10 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` to
   `Next Curation Target`; do not promote it without its own aligned plan.
 
-- [ ] **Step 1: Run focused verification from a clean milestone.** Run the
+- [x] **Step 1: Run focused verification from a clean milestone.** Run the
       three focused suites in the frontmatter command. Expected: pass.
 
-- [ ] **Step 2: Run the full serialized suite.** Run:
+- [x] **Step 2: Run the full serialized suite.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
@@ -738,18 +738,18 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
 
   Expected: every registered suite passes with no parallel runner.
 
-- [ ] **Step 3: Update documentation and durable implementation status.** Add
+- [x] **Step 3: Update documentation and durable implementation status.** Add
       factual product/variant construction and transport capability to the
       compiler pipeline, bootstrapping guide, project status, and RFC 0015.
       Preserve explicit exclusions for managed patterns, lists, modules,
       runtime ABI, native execution, and ordinary compile/run cutover.
 
-- [ ] **Step 4: Close dispatcher state.** Set plan status to `complete`, remove
+- [x] **Step 4: Close dispatcher state.** Set plan status to `complete`, remove
       the Ready row, update the bootstrap blocker with commit/test evidence,
       and register the managed-pattern child as a curation candidate behind a
       new plan and green baseline.
 
-- [ ] **Step 5: Run repository policy checks.** Run:
+- [x] **Step 5: Run repository policy checks.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh
@@ -760,7 +760,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   Expected: documentation, RFC, link, authority, queue, regression, formatting,
   and whitespace checks all pass.
 
-- [ ] **Step 6: Audit repository scope.** Run:
+- [x] **Step 6: Audit repository scope.** Run:
 
   ```bash
   rg -n "ManagedProductsVariants|TypedManagedProductRecipe|TypedManagedVariantRecipe|LoweredConstructProduct|LoweredConstructVariant" src test jazz docs rfcs .codex
@@ -771,7 +771,7 @@ Nothing`, followed by one `TypedApplyExpr` whose result recipe is the exact
   hosted schema mirror changed, no implementation path exists outside the
   active roots, and only intended closeout files are uncommitted.
 
-- [ ] **Step 7: Commit the verified closeout.** Run:
+- [x] **Step 7: Commit the verified closeout.** Run:
 
   ```bash
   git add docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0015-typed-core-managed-products-and-variants.md .codex/plans/2026-08-27-jazz-typed-core-managed-product-variant-construction.md .codex/execution/queue.md .codex/execution/blocker-contracts.md

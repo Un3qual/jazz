@@ -65,14 +65,34 @@ Ordinary `compile` and `run` remain on canonical core and the reference
 interpreter. Public language behavior, Typed Core and Lowered IR schemas,
 mirrored validators, and Lowered IR version 1 remain unchanged.
 
+## Implementation status
+
+The first ordered child completed on 2026-08-27. The opt-in
+`inferResolvedModuleTypedCoreExpressionDirectCall` producer now retains
+non-unit tuples and exactly saturated local constructors, and
+`lowerTypedCoreExpressionDirectCall` emits their deterministic product and
+variant layouts plus `LoweredConstructProduct` and `LoweredConstructVariant`.
+Construction is left-to-right and exactly once. The resulting managed
+references cross bindings, direct and closure parameters and results, calls and
+tail calls, lexical and recursive captures, conditional and scalar-case joins,
+and returns.
+
+This milestone does not implement the later managed-pattern child. Tuple and
+constructor destructuring, independently total managed decision trees, and
+field/tag projection during matching remain accepted design work rather than
+shipped backend behavior. Lists and list fields, product/variant equality,
+first-class non-nullary constructors, pattern lambdas, imported data,
+multi-module lowering, runtime ABI, native execution, and ordinary compile/run
+cutover remain excluded.
+
 ## Context
 
 Typed Core already represents data declarations, products, variants, tuple and
 constructor values, and the complete active pattern surface. Lowered IR already
 represents product and variant layouts, managed construction, projections, and
 switches, and both Haskell and hosted Jazz validators already enforce those
-contracts. The opt-in producer and lowerer currently make only unit tuples
-reachable and reject every ADT value.
+contracts. Before the first implementation child, the opt-in producer and
+lowerer made only unit tuples reachable and rejected every ADT value.
 
 Products and variants are the next coherent managed-data boundary after
 managed `Text`. They materially advance the ADT-heavy Jazz-authored compiler

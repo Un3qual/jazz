@@ -60,15 +60,26 @@ dependencies; inequality reuses equality followed by Boolean-not. Text-only
 transport declares no service, and referenced services are deduplicated in a
 fixed catalog order.
 
-Managed constructor, list, and tuple patterns, managed scrutinees, and Text
-literal patterns remain deferred. Text value transport does not authorize
-uncons, from-chars, concat, Text I/O, or a runtime-host or native ABI. Pattern
-lambdas remain deferred because a parameter mismatch happens at invocation time
-and therefore needs a match-failure contract integrated with closures,
-currying, recursion, and callable parameter identity. Later or interleaved
-external captures, scalar exports, and complete multi-module integration also
-remain outside the profile. Ordinary run mode continues to evaluate canonical
-core with the interpreter.
+Non-unit tuples and exactly saturated local algebraic-data constructors are the
+second managed-data family. The producer retains concrete product and nominal
+variant recipes, including concrete generic, recursive, and mutually recursive
+layouts whose fields stay inside the admitted profile. Lowering assigns stable
+semantic layout identities, emits runtime layouts first, product and variant
+layouts in first semantic discovery order next, and closure environments last,
+then constructs every field exactly once from left to right. The resulting
+managed references cross the same bindings, direct and closure call boundaries,
+captures, control-flow joins, returns, and tail-call operands as managed Text.
+
+Constructor and tuple destructuring patterns, other managed scrutinees, lists
+and list fields, product or variant equality, first-class non-nullary
+constructors, and Text literal patterns remain deferred. Pattern lambdas remain
+deferred because a parameter mismatch happens at invocation time and therefore
+needs a match-failure contract integrated with closures, currying, recursion,
+and callable parameter identity. Imported data and complete multi-module
+integration, later or interleaved external captures, scalar exports, a
+runtime-host or native ABI, and native execution also remain outside the
+profile. Ordinary run mode continues to evaluate canonical core with the
+interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in

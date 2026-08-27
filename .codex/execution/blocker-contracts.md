@@ -245,39 +245,44 @@ Each blocked item should answer these questions:
   length, append, and append-char, deduplicated in catalog order. Inequality
   reuses equality followed by Boolean-not. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001` through
-  the exact accepted plan and verified closeout.
-- Decision needed: none. RFC 0015's layout identity, construction, transport,
-  failure boundary, and child order are accepted.
-- Recommended default: execute the single `Ready Now` child. Do not pre-seed
-  managed pattern implementation until construction and transport close green.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference.hs`,
-  `src/Jazz/Compiler/TypeInference/Scope.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`,
+- Completed child:
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001`
+  completed on `2026-08-27`. Implementation milestone `092897af` closes
+  deterministic non-unit tuple and exactly saturated local ADT construction
+  plus every established managed-value transport boundary. The focused
+  producer, Typed Core contract, and Lowered IR contract suites pass, and
+  `cabal test all --test-show-details=direct --jobs=1` passes inside the
+  checked-in Nix shell.
+- Smallest unblocker: curate
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` into one
+  aligned implementation plan with a green focused baseline; do not promote it
+  during construction closeout.
+- Decision needed: none. RFC 0015's managed-pattern surface, source ordering,
+  projection discipline, independent totality check, and failure boundary are
+  accepted.
+- Recommended default: curate only the single named managed-pattern child.
+  Keep it outside `Ready Now` until its live paths and exact fixtures are
+  captured by a matching plan.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`.
+- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/Source.hs`,
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs`,
   `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/BoundaryTests.hs`,
-  and `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CallTests.hs`.
+  and `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs`.
 - Verification:
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`
   - `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh`
   - `bash scripts/check-execution-queue.sh`
   - `git diff --check`
-- Still not in scope for the candidate child: managed patterns, lists, list
-  patterns or services, Text literal patterns, first-class constructors,
-  pattern lambdas, imported data, multiple modules, Text
-  uncons/from-chars/concat, Text I/O, RuntimeHost changes, native ABI or
-  execution, and normal compile/run cutover.
+- Still not in scope for the candidate child: lists, list patterns or services,
+  Text literal patterns, first-class constructors, pattern lambdas, imported
+  data, multiple modules, Text uncons/from-chars/concat, Text I/O, RuntimeHost
+  changes, native ABI or execution, product/variant equality, and normal
+  compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
