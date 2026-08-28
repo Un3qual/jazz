@@ -5,7 +5,14 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProducts
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixtureNoExports)
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
+  ( optionLayout,
+    optionLayoutId,
+    textRepresentation,
+    treeLayout,
+    tupleLayout,
+  )
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixture, sourceFixtureNoExports)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
@@ -196,10 +203,148 @@ testManagedConstructorSourceOrder =
               "first = C 1.",
               "data B = C Text.",
               "second = C \"two\".",
-              "(first, second)."
+              "data D = C Bool.",
+              "third = C True.",
+              "(first, second, third)."
             ]
         )
     )
+
+testManagedConstructorRebindingExport :: IO ()
+testManagedConstructorRebindingExport = do
+  let fixture =
+        sourceFixture
+          "constructor-rebinding-export"
+          ( Text.unlines
+              [ "module App::Main (constructor C) {",
+                "data A = C Int.",
+                "data B = C Text.",
+                "C \"two\".",
+                "}"
+              ]
+          )
+  assertCompleteProduction "constructor rebinding export" fixture
+  production <- produceFixture fixture
+  case typedCoreProductionStatus production of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual
+        "constructor export retains only its source-visible declaration"
+        [TypedResolvedName TypedCurrentModule TypedTypeNamespace "B"]
+        (interfaceDataNames programValue)
+    status -> failTest ("constructor rebinding export did not produce typed core: " <> Text.pack (show status))
+
+testManagedPrivateDataInterfaceDependencies :: IO ()
+testManagedPrivateDataInterfaceDependencies = do
+  let constructorFixture =
+        sourceFixture
+          "managed-private-data-interface-dependencies"
+          ( Text.unlines
+              [ "module App::Main (type Public(..)) {",
+                "data Hidden = Hidden Int.",
+                "data Public = Public Hidden.",
+                "Public (Hidden 1).",
+                "}"
+              ]
+          )
+      valueFixture =
+        sourceFixture
+          "managed-private-value-interface-dependency"
+          ( Text.unlines
+              [ "module App::Main (value make) {",
+                "data Hidden = Hidden Int.",
+                "make :: Int -> Hidden.",
+                "make = \\(item) -> Hidden item.",
+                "make 1.",
+                "}"
+              ]
+          )
+  assertCompleteProduction "managed private constructor dependency" constructorFixture
+  constructorProduction <- produceFixture constructorFixture
+  case typedCoreProductionStatus constructorProduction of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual
+        "private constructor dependencies remain metadata without becoming exports"
+        [ TypedResolvedName TypedCurrentModule TypedTypeNamespace "Hidden",
+          TypedResolvedName TypedCurrentModule TypedTypeNamespace "Public"
+        ]
+        (interfaceDataNames programValue)
+    status -> failTest ("private constructor dependency fixture did not produce typed core: " <> Text.pack (show status))
+  assertCompleteProduction "managed private value dependency" valueFixture
+  valueProduction <- produceFixture valueFixture
+  case typedCoreProductionStatus valueProduction of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual
+        "private value dependencies remain metadata without becoming exports"
+        [TypedResolvedName TypedCurrentModule TypedTypeNamespace "Hidden"]
+        (interfaceDataNames programValue)
+    status -> failTest ("private value dependency fixture did not produce typed core: " <> Text.pack (show status))
+
+testManagedNestedVariantProductModuleIdentity :: IO ()
+testManagedNestedVariantProductModuleIdentity = do
+  appLayoutIds <- layoutIdsFor ["App", "Main"]
+  libLayoutIds <- layoutIdsFor ["Lib", "Main"]
+  assertEqual
+    "App nested variant product identity"
+    [ LoweredLayoutId "jazz.layout.product.v1$fields2$45:variant$module2$3:App$4:Main$name$3:Box$args0$8:signed64",
+      LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$3:Box$args0"
+    ]
+    appLayoutIds
+  assertEqual
+    "Lib nested variant product identity"
+    [ LoweredLayoutId "jazz.layout.product.v1$fields2$45:variant$module2$3:Lib$4:Main$name$3:Box$args0$8:signed64",
+      LoweredLayoutId "jazz.layout.variant.v1$module2$3:Lib$4:Main$name$3:Box$args0"
+    ]
+    libLayoutIds
+  where
+    layoutIdsFor modulePath = do
+      let programValue = moduleIdentityProgram modulePath
+      assertEqual "module identity fixture validates" [] (validateTypedProgram programValue)
+      case programValue of
+        TypedProgram _ [moduleValue] _ ->
+          case collectManagedLayoutCatalog moduleValue of
+            Left failures -> failTest ("module identity catalog failed: " <> Text.pack (show failures))
+            Right catalog -> pure [layoutId | LoweredLayout layoutId _ <- orderedManagedLayouts catalog]
+        _ -> failTest "module identity fixture must contain exactly one module"
+
+    moduleIdentityProgram modulePath =
+      let boxTypeName = TypedResolvedName TypedCurrentModule TypedTypeNamespace "Box"
+          boxConstructorName = TypedResolvedName TypedCurrentModule TypedConstructorNamespace "Box"
+          boxBinder = TypedBinderId (modulePath, [0, 0], boxConstructorName)
+          boxInfo = TypedNodeInfo (TypedDataType boxTypeName []) (TypedManagedVariantRecipe boxTypeName []) [] []
+          productInfo =
+            TypedNodeInfo
+              (TypedTupleType [TypedDataType boxTypeName [], TypedIntType])
+              (TypedManagedProductRecipe [TypedManagedVariantRecipe boxTypeName [], TypedSignedIntegerRecipe 64])
+              []
+              []
+          declaration =
+            TypedDataDeclaration
+              (TypedSpan 1 1)
+              boxTypeName
+              []
+              [TypedConstructorDeclaration boxBinder boxConstructorName [] []]
+          moduleValue =
+            TypedModule
+              modulePath
+              (TypedSourcePath "src/App/Main.jz")
+              []
+              []
+              (TypedModuleInterface [] [] [] [])
+              []
+              [ TypedDataStatement declaration,
+                TypedExpressionStatement
+                  (TypedSpan 2 1)
+                  ( TypedTupleExpr
+                      productInfo
+                      [ TypedVariableExpr boxInfo boxConstructorName (Just boxBinder),
+                        TypedLiteralExpr
+                          (TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] [])
+                          (TypedIntegerLiteral "1")
+                      ]
+                  )
+              ]
+              productInfo
+       in TypedProgram Nothing [moduleValue] modulePath
 
 testManagedStructuredFailureAccumulation :: IO ()
 testManagedStructuredFailureAccumulation = do
@@ -244,6 +389,11 @@ testManagedStructuredModuleFailureOrder = do
         ]
     )
     (typedCoreProductionStatus production)
+
+interfaceDataNames :: TypedProgram -> [TypedCoreName]
+interfaceDataNames (TypedProgram _ [TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _ _] _) =
+  [name | TypedDataInterface (TypedDataDeclaration _ name _ _) <- datas]
+interfaceDataNames _ = []
 
 testManagedProductVariantLayoutCatalog :: IO ()
 testManagedProductVariantLayoutCatalog = do
@@ -306,31 +456,6 @@ testManagedProductVariantLayoutCatalog = do
     optionSomeBinder (TypedModule _ _ _ _ _ _ (TypedDataStatement (TypedDataDeclaration _ _ _ [_, TypedConstructorDeclaration binder _ _ _]) : _) _) = binder
     optionSomeBinder _ = error "managed-option fixture must retain Some as its second constructor"
 
-    tupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$4:text"
-    optionLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$3:int"
-    treeLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$4:Tree$args1$3:int"
-    textRepresentation = LoweredManagedReferenceRepresentation (LoweredLayoutId "jazz.layout.text.v1")
-    tupleLayout =
-      LoweredLayout
-        tupleLayoutId
-        (LoweredProductLayout [LoweredSignedIntegerRepresentation LoweredIntegerWidth64, textRepresentation])
-    optionLayout =
-      LoweredLayout
-        optionLayoutId
-        ( LoweredVariantLayouts
-            [ LoweredVariantLayout 0 [],
-              LoweredVariantLayout 1 [LoweredSignedIntegerRepresentation LoweredIntegerWidth64]
-            ]
-        )
-    treeRepresentation = LoweredManagedReferenceRepresentation treeLayoutId
-    treeLayout =
-      LoweredLayout
-        treeLayoutId
-        ( LoweredVariantLayouts
-            [ LoweredVariantLayout 0 [LoweredSignedIntegerRepresentation LoweredIntegerWidth64],
-              LoweredVariantLayout 1 [treeRepresentation, treeRepresentation]
-            ]
-        )
     productBoolTextId = LoweredLayoutId "jazz.layout.product.v1$fields2$4:bool$4:text"
     leftBoxId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$7:LeftBox$args0"
     rightBoxId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$8:RightBox$args0"

@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-14
+Updated: 2026-08-27
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.

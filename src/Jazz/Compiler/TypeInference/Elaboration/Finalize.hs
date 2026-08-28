@@ -1111,20 +1111,6 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             <*> representationRecipeForTypedType result
         TypedTypeParameterType {} -> Nothing
 
-    typedNumericRecipe numericType =
-      case numericType of
-        TypedInt8Type -> TypedSignedIntegerRecipe 8
-        TypedInt16Type -> TypedSignedIntegerRecipe 16
-        TypedInt32Type -> TypedSignedIntegerRecipe 32
-        TypedInt64Type -> TypedSignedIntegerRecipe 64
-        TypedUInt8Type -> TypedUnsignedIntegerRecipe 8
-        TypedUInt16Type -> TypedUnsignedIntegerRecipe 16
-        TypedUInt32Type -> TypedUnsignedIntegerRecipe 32
-        TypedUInt64Type -> TypedUnsignedIntegerRecipe 64
-        TypedFloat16Type -> TypedFloatRecipe 16
-        TypedFloat32Type -> TypedFloatRecipe 32
-        TypedFloat64Type -> TypedFloatRecipe 64
-
     withInstantiations (TypedNodeInfo typeValue recipe _ evidence) instantiations =
       TypedNodeInfo typeValue recipe instantiations evidence
 
@@ -2058,13 +2044,98 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
         selectedDataInterfaces =
           [ TypedDataInterface declaration
-          | (typeName, constructorNames, declaration) <- localDataDeclarations,
-            any (selectsData typeName constructorNames) orderedModuleExports
+          | (typeName, _, declaration) <- localDataDeclarations,
+            Set.member typeName selectedDataNames
           ]
 
-        selectsData typeName constructorNames (ModuleExport namespace name) =
-          (namespace == TypeNamespace && name == typeName)
-            || (namespace == ConstructorNamespace && Set.member name constructorNames)
+        localDataByName =
+          Map.fromList
+            [(typeName, declaration) | (typeName, _, declaration) <- localDataDeclarations]
+
+        visibleConstructorOwners =
+          Map.fromList
+            [ (constructorName, typeName)
+            | (typeName, constructorNames, _) <- localDataDeclarations,
+              constructorName <- Set.toList constructorNames
+            ]
+
+        selectedDataNames =
+          closeDataNames
+            ( Set.fromList
+                ( concatMap directlySelectedDataNames orderedModuleExports
+                    <> exportedValueDataNames
+                )
+            )
+
+        directlySelectedDataNames (ModuleExport namespace name) =
+          case namespace of
+            TypeNamespace
+              | Map.member name localDataByName -> [name]
+            ConstructorNamespace ->
+              case Map.lookup name visibleConstructorOwners of
+                Just owner -> [owner]
+                Nothing -> []
+            _ -> []
+
+        exportedValueDataNames =
+          [ dependencyName
+          | ModuleExport ValueNamespace exportName <- orderedModuleExports,
+            (sourceName, function) <- exportedFunctions exportName,
+            let callableShape = shapeFor callableShapes sourceName,
+            Right info <-
+              [ callableInfo
+                  structuredCatalog
+                  callableShape
+                  (functionArity function)
+                  (functionStatementIndex function)
+                  []
+                  (functionType function)
+              ],
+            dependencyName <- localTypedDataIdentifiers (typedNodeType info),
+            Map.member dependencyName localDataByName
+          ]
+
+        exportedFunctions exportName =
+          case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == exportName] of
+            [entry] -> [entry]
+            _ -> []
+
+        closeDataNames initial = go initial initial
+          where
+            go selected pending
+              | Set.null pending = selected
+              | otherwise =
+                  let dependencies =
+                        Set.fromList
+                          [ dependencyName
+                          | selectedName <- Set.toList pending,
+                            declaration <- maybe [] (: []) (Map.lookup selectedName localDataByName),
+                            dependencyName <- dataDeclarationDependencies declaration,
+                            Map.member dependencyName localDataByName
+                          ]
+                      unseen = Set.difference dependencies selected
+                   in go (Set.union selected unseen) unseen
+
+        dataDeclarationDependencies (TypedDataDeclaration _ _ _ constructors) =
+          concat
+            [ concatMap localTypedDataIdentifiers fields
+            | TypedConstructorDeclaration _ _ fields _ <- constructors
+            ]
+
+        localTypedDataIdentifiers typeValue =
+          case typeValue of
+            TypedListType elementType -> localTypedDataIdentifiers elementType
+            TypedTupleType elementTypes -> concatMap localTypedDataIdentifiers elementTypes
+            TypedDataType name arguments ->
+              localIdentifier name <> concatMap localTypedDataIdentifiers arguments
+            TypedFunctionType argument result ->
+              localTypedDataIdentifiers argument <> localTypedDataIdentifiers result
+            _ -> []
+
+        localIdentifier name =
+          case name of
+            TypedResolvedName TypedCurrentModule TypedTypeNamespace identifier -> [identifier]
+            _ -> []
 
         collect (failures, TypedModuleInterface values datas classes impls) (ModuleExport namespace name)
           | namespace == ValueNamespace =
@@ -2078,17 +2149,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                            in (failures, TypedModuleInterface (values <> [TypedValueInterface typedName (scheme owner callableShape info)]) datas classes impls)
                         Left _ -> (failures, TypedModuleInterface values datas classes impls)
                 _ -> (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
-          | namespace == TypeNamespace || namespace == ConstructorNamespace =
-              case [ ()
-                   | (typeName, constructorNames, _) <- localDataDeclarations,
-                     (namespace == TypeNamespace && name == typeName)
-                       || (namespace == ConstructorNamespace && Set.member name constructorNames)
-                   ] of
-                [_] -> (failures, TypedModuleInterface values datas classes impls)
-                _ ->
-                  ( failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)],
-                    TypedModuleInterface values datas classes impls
-                  )
+          | namespace == TypeNamespace,
+            Map.member name localDataByName =
+              (failures, TypedModuleInterface values datas classes impls)
+          | namespace == ConstructorNamespace,
+            Map.member name visibleConstructorOwners =
+              (failures, TypedModuleInterface values datas classes impls)
           | otherwise =
               (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
 
@@ -2182,15 +2248,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     scalarInfo structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals (resolveType state expressionType) of
-        TIntType -> Right (TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] [])
+        TIntType -> typedInfo TypedIntType
         TIntegerLiteralType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
-        TFloatType -> Right (TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] [])
-        TNumericType numericType ->
-          let (numericTypeValue, recipe) = numericInfo numericType
-           in Right (TypedNodeInfo (TypedNumericType numericTypeValue) recipe [] [])
-        TBoolType -> Right (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [])
-        TCharType -> Right (TypedNodeInfo TypedCharType TypedCharRecipe [] [])
-        TTextType -> Right (TypedNodeInfo TypedTextType TypedManagedTextRecipe [] [])
+        TFloatType -> typedInfo TypedFloatType
+        TNumericType numericType -> typedInfo (TypedNumericType (typedNumericType numericType))
+        TBoolType -> typedInfo TypedBoolType
+        TCharType -> typedInfo TypedCharType
+        TTextType -> typedInfo TypedTextType
         TListType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreListValueDetail)
         TTupleType [] -> Right unitInfo
         resolvedTupleType@TTupleType {} ->
@@ -2205,6 +2269,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             (structuredNodeInfo structuredCatalog state resolvedDataType)
         TFunctionType {} -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail)
         TVarType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
+      where
+        typedInfo typeValue =
+          case representationRecipeForTypedType typeValue of
+            Just recipe -> Right (TypedNodeInfo typeValue recipe [] [])
+            Nothing -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
 
     isManagedStructuredEquality operatorSymbol operandType =
       operatorSymbol `elem` ["==", "!="]
@@ -2245,20 +2314,32 @@ isTypedCoreDirectCallOperator operatorSymbol =
 typedSpan :: SourceSpan -> TypedSpan
 typedSpan spanValue = TypedSpan (spanLine spanValue) (spanColumn spanValue)
 
-numericInfo :: NumericType -> (TypedNumericType, TypedRepresentationRecipe)
-numericInfo numericType =
-  case numericType of
-    NumericInt8 -> (TypedInt8Type, TypedSignedIntegerRecipe 8)
-    NumericInt16 -> (TypedInt16Type, TypedSignedIntegerRecipe 16)
-    NumericInt32 -> (TypedInt32Type, TypedSignedIntegerRecipe 32)
-    NumericInt64 -> (TypedInt64Type, TypedSignedIntegerRecipe 64)
-    NumericUInt8 -> (TypedUInt8Type, TypedUnsignedIntegerRecipe 8)
-    NumericUInt16 -> (TypedUInt16Type, TypedUnsignedIntegerRecipe 16)
-    NumericUInt32 -> (TypedUInt32Type, TypedUnsignedIntegerRecipe 32)
-    NumericUInt64 -> (TypedUInt64Type, TypedUnsignedIntegerRecipe 64)
-    NumericFloat16 -> (TypedFloat16Type, TypedFloatRecipe 16)
-    NumericFloat32 -> (TypedFloat32Type, TypedFloatRecipe 32)
-    NumericFloat64 -> (TypedFloat64Type, TypedFloatRecipe 64)
-
 typedNumericType :: NumericType -> TypedNumericType
-typedNumericType = fst . numericInfo
+typedNumericType numericType =
+  case numericType of
+    NumericInt8 -> TypedInt8Type
+    NumericInt16 -> TypedInt16Type
+    NumericInt32 -> TypedInt32Type
+    NumericInt64 -> TypedInt64Type
+    NumericUInt8 -> TypedUInt8Type
+    NumericUInt16 -> TypedUInt16Type
+    NumericUInt32 -> TypedUInt32Type
+    NumericUInt64 -> TypedUInt64Type
+    NumericFloat16 -> TypedFloat16Type
+    NumericFloat32 -> TypedFloat32Type
+    NumericFloat64 -> TypedFloat64Type
+
+typedNumericRecipe :: TypedNumericType -> TypedRepresentationRecipe
+typedNumericRecipe numericType =
+  case numericType of
+    TypedInt8Type -> TypedSignedIntegerRecipe 8
+    TypedInt16Type -> TypedSignedIntegerRecipe 16
+    TypedInt32Type -> TypedSignedIntegerRecipe 32
+    TypedInt64Type -> TypedSignedIntegerRecipe 64
+    TypedUInt8Type -> TypedUnsignedIntegerRecipe 8
+    TypedUInt16Type -> TypedUnsignedIntegerRecipe 16
+    TypedUInt32Type -> TypedUnsignedIntegerRecipe 32
+    TypedUInt64Type -> TypedUnsignedIntegerRecipe 64
+    TypedFloat16Type -> TypedFloatRecipe 16
+    TypedFloat32Type -> TypedFloatRecipe 32
+    TypedFloat64Type -> TypedFloatRecipe 64

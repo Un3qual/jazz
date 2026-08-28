@@ -691,7 +691,7 @@ textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
 tupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$4:text"
 optionLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$3:int"
 treeLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$4:Tree$args1$3:int"
-tupleVariantLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$28:variant$6:Option$args1$3:int$8:signed64"
+tupleVariantLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$54:variant$module2$3:App$4:Main$name$6:Option$args1$3:int$8:signed64"
 textBoxLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$7:TextBox$args0"
 closureBoxLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$10:ClosureBox$args0"
 closureEnvironmentLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p3$1,0,1$n4:flag"
@@ -701,7 +701,7 @@ captureBoxLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Mai
 captureEnvironmentLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p1$3$n7:capture"
 recursivePairEnvironmentLayoutId = LoweredLayoutId "$jz1$recursive-env$m2$3:App$4:Main$p1$2$n5:group"
 manifestTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$8:signed64"
-manifestDataLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$3:Box$args0"
+manifestDataLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$11:ManifestBox$args0"
 
 textRepresentation, tupleRepresentation, optionRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, captureBoxRepresentation, captureEnvironmentRepresentation, recursivePairEnvironmentRepresentation, manifestTupleRepresentation, manifestDataRepresentation :: LoweredRepresentation
 textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
@@ -787,20 +787,20 @@ manifestDataProgram =
     [ TypedDataStatement declaration,
       TypedExpressionStatement
         (TypedSpan 3 1)
-        (TypedVariableExpr boxInfo boxName (Just boxBinder))
+        (TypedVariableExpr manifestBoxInfo manifestBoxName (Just manifestBoxBinder))
     ]
-    boxInfo
+    manifestBoxInfo
   where
-    dataName = typeName "Box"
-    boxName = constructorName "Box"
-    boxBinder = constructorBinder 0 boxName
+    dataName = typeName "ManifestBox"
+    manifestBoxName = constructorName "ManifestBox"
+    manifestBoxBinder = constructorBinder 0 manifestBoxName
     declaration =
       TypedDataDeclaration
         (TypedSpan 2 1)
         dataName
         []
-        [TypedConstructorDeclaration boxBinder boxName [] []]
-    boxInfo = variantInfo dataName []
+        [TypedConstructorDeclaration manifestBoxBinder manifestBoxName [] []]
+    manifestBoxInfo = variantInfo dataName []
 
 managedTupleProgram :: TypedProgram
 managedTupleProgram =
@@ -1462,9 +1462,7 @@ managedProgramWithInterface exports interface statements moduleInfo =
 
 constructorCall :: TypedBinderId -> TypedCoreName -> TypedNodeInfo -> [TypedNodeInfo] -> [TypedExpr] -> TypedExpr
 constructorCall owner name resultInfo fieldInfos arguments =
-  case fieldInfos of
-    [] -> TypedVariableExpr instantiatedResultInfo name (Just owner)
-    _ -> saturated constructorExpression fieldInfos arguments
+  constructorCallWithInstantiations [instantiation] owner name resultInfo fieldInfos arguments
   where
     typeArguments =
       case typedExpressionType resultInfo of
@@ -1472,14 +1470,23 @@ constructorCall owner name resultInfo fieldInfos arguments =
           zipWith TypedTypeArgument [TypedTypeParameterId index | index <- [0 ..]] argumentsValue
         _ -> []
     instantiation = TypedInstantiation owner typeArguments Nothing
-    instantiatedResultInfo = addInstantiation resultInfo instantiation
+
+constructorCallWithInstantiations :: [TypedInstantiation] -> TypedBinderId -> TypedCoreName -> TypedNodeInfo -> [TypedNodeInfo] -> [TypedExpr] -> TypedExpr
+constructorCallWithInstantiations instantiations owner name resultInfo fieldInfos arguments =
+  case fieldInfos of
+    [] -> TypedVariableExpr (withInstantiations resultInfo) name (Just owner)
+    _ -> saturated constructorExpression fieldInfos arguments
+  where
     constructorInfo =
       TypedNodeInfo
         (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldInfos)
         (TypedClosureRecipe (map typedExpressionRecipe fieldInfos) (typedExpressionRecipe resultInfo))
-        [instantiation]
+        instantiations
         []
     constructorExpression = TypedVariableExpr constructorInfo name (Just owner)
+
+    withInstantiations (TypedNodeInfo typeValue recipe _ evidence) =
+      TypedNodeInfo typeValue recipe instantiations evidence
 
     saturated function remainingFields remainingArguments =
       case (remainingFields, remainingArguments) of
@@ -1496,10 +1503,6 @@ constructorCall owner name resultInfo fieldInfos arguments =
            in saturated (TypedApplyExpr applicationInfo function argument) fieldRest argumentRest
         ([], []) -> function
         _ -> error "constructor fixture must be exactly saturated"
-
-addInstantiation :: TypedNodeInfo -> TypedInstantiation -> TypedNodeInfo
-addInstantiation (TypedNodeInfo typeValue recipe _ evidence) instantiation =
-  TypedNodeInfo typeValue recipe [instantiation] evidence
 
 variantInfo :: TypedCoreName -> [TypedType] -> TypedNodeInfo
 variantInfo name arguments =
@@ -1726,30 +1729,4 @@ catalogConstructorBinder statementIndex constructorIndex name =
   TypedBinderId (modulePath, [statementIndex, constructorIndex], name)
 
 monomorphicConstructorCall :: TypedBinderId -> TypedCoreName -> TypedNodeInfo -> [TypedNodeInfo] -> [TypedExpr] -> TypedExpr
-monomorphicConstructorCall owner name resultInfo fieldInfos arguments =
-  case fieldInfos of
-    [] -> TypedVariableExpr resultInfo name (Just owner)
-    _ -> saturated constructorExpression fieldInfos arguments
-  where
-    constructorInfo =
-      TypedNodeInfo
-        (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldInfos)
-        (TypedClosureRecipe (map typedExpressionRecipe fieldInfos) (typedExpressionRecipe resultInfo))
-        []
-        []
-    constructorExpression = TypedVariableExpr constructorInfo name (Just owner)
-    saturated function remainingFields remainingArguments =
-      case (remainingFields, remainingArguments) of
-        (_ : fieldRest, argument : argumentRest) ->
-          let applicationInfo =
-                case fieldRest of
-                  [] -> resultInfo
-                  _ ->
-                    TypedNodeInfo
-                      (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldRest)
-                      (TypedClosureRecipe (map typedExpressionRecipe fieldRest) (typedExpressionRecipe resultInfo))
-                      []
-                      []
-           in saturated (TypedApplyExpr applicationInfo function argument) fieldRest argumentRest
-        ([], []) -> function
-        _ -> error "monomorphic constructor fixture must be exactly saturated"
+monomorphicConstructorCall = constructorCallWithInstantiations []

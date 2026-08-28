@@ -10,9 +10,11 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
-  ( constructorLayoutFor,
-    managedLayoutShapeFor,
+  ( constructorApplicationLayout,
+    constructorLayoutFor,
+    nodeInstantiations,
     orderedManagedLayouts,
+    productLayoutFields,
     representationForRecipe,
   )
 import Jazz.Compiler.LoweredIR.Lower.Requirements
@@ -724,7 +726,6 @@ lowerManagedProduct modulePath statementPath expressionPath path info elements f
           Just fieldRepresentations <- traverse (representationForRecipe managedLayoutCatalog) fieldRecipes,
           productLayoutFields managedLayoutCatalog layoutId == Just fieldRepresentations ->
             case lowerExpressionsLeftToRight
-              managedLayoutCatalog
               modulePath
               statementPath
               expressionPath
@@ -771,7 +772,6 @@ lowerNullaryManagedVariant path managedLayoutCatalog info constructor state
     resultRepresentation = LoweredManagedReferenceRepresentation layoutId
 
 lowerExpressionsLeftToRight ::
-  ManagedLayoutCatalog ->
   [Text] ->
   [Int] ->
   [Int] ->
@@ -780,9 +780,8 @@ lowerExpressionsLeftToRight ::
   LoweringState ->
   [TypedExpr] ->
   ([LoweredIRLoweringFailure], Maybe [LoweredOperand], LoweringState)
-lowerExpressionsLeftToRight managedLayoutCatalog modulePath statementPath expressionPath functions parameters state expressions =
+lowerExpressionsLeftToRight modulePath statementPath expressionPath functions parameters state expressions =
   lowerExpressionsAtPathsLeftToRight
-    managedLayoutCatalog
     modulePath
     statementPath
     functions
@@ -791,7 +790,6 @@ lowerExpressionsLeftToRight managedLayoutCatalog modulePath statementPath expres
     (zipWith (\index expression -> (index : expressionPath, expression)) [0 ..] expressions)
 
 lowerExpressionsAtPathsLeftToRight ::
-  ManagedLayoutCatalog ->
   [Text] ->
   [Int] ->
   FunctionIndex ->
@@ -799,7 +797,7 @@ lowerExpressionsAtPathsLeftToRight ::
   LoweringState ->
   [([Int], TypedExpr)] ->
   ([LoweredIRLoweringFailure], Maybe [LoweredOperand], LoweringState)
-lowerExpressionsAtPathsLeftToRight _ modulePath statementPath functions parameters =
+lowerExpressionsAtPathsLeftToRight modulePath statementPath functions parameters =
   go []
   where
     go reversedCarriers state [] =
@@ -840,15 +838,6 @@ emitManagedConstruction representation operation state =
             loweringInstructions = instruction : loweringInstructions state
           }
    in (LoweredTemporaryOperand temporaryId representation, nextState)
-
-productLayoutFields :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe [LoweredRepresentation]
-productLayoutFields managedLayoutCatalog expectedId =
-  case managedLayoutShapeFor managedLayoutCatalog expectedId of
-    Just (LoweredProductLayout fields) -> Just fields
-    _ -> Nothing
-
-nodeInstantiations :: TypedNodeInfo -> [TypedInstantiation]
-nodeInstantiations (TypedNodeInfo _ _ instantiations _) = instantiations
 
 lowerConditional ::
   [Text] ->
@@ -1838,7 +1827,6 @@ lowerManagedVariantApplication modulePath statementPath expressionPath path func
         ([], Just resultRepresentation)
           | resultRepresentation == expectedResultRepresentation ->
               case lowerExpressionsAtPathsLeftToRight
-                managedLayoutCatalog
                 modulePath
                 statementPath
                 functions
@@ -1862,13 +1850,6 @@ lowerManagedVariantApplication modulePath statementPath expressionPath path func
     fieldRepresentations = managedConstructorFields constructor
     expectedResultRepresentation = LoweredManagedReferenceRepresentation layoutId
     (_, _, arguments) = applicationSpine expressionPath expression
-
-constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
-constructorApplicationLayout managedLayoutCatalog callee =
-  case callee of
-    TypedVariableExpr info _ (Just binder) ->
-      constructorLayoutFor managedLayoutCatalog binder (nodeInstantiations info)
-    _ -> Nothing
 
 lowerOrdinaryApplication ::
   [Text] ->

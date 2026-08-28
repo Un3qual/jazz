@@ -744,7 +744,7 @@ sourceDiagnosticSource = "missing."
 textValueSource = Text.unlines ["\"managed\".", "[1]."]
 listValueSource = "[1]."
 nonUnitTupleSource = "(1, 2)."
-dataValueSource = Text.unlines ["data Box = Box.", "Box."]
+dataValueSource = Text.unlines ["data ManifestBox = ManifestBox.", "ManifestBox."]
 conditionalSource = "if True then 1 else 2."
 patternCaseSource = "case True { | True -> 1 | _ -> 2 }."
 localBlockBindingSource = "{ item = 1. item. }."

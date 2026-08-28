@@ -28,9 +28,11 @@ import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( collectManagedLayoutCatalog,
+    constructorApplicationLayout,
     constructorLayoutFor,
-    managedLayoutShapeFor,
+    nodeInstantiations,
     orderedManagedLayouts,
+    productLayoutFields,
     representationForRecipe,
   )
 import Jazz.Compiler.LoweredIR.Lower.Requirements
@@ -1322,22 +1324,6 @@ inspectApplication managedLayoutCatalog modulePath statementPath expressionPath 
                 callee
 
     actualArity = length arguments
-
-constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
-constructorApplicationLayout managedLayoutCatalog callee =
-  case callee of
-    TypedVariableExpr info _ (Just binder) ->
-      constructorLayoutFor managedLayoutCatalog binder (nodeInstantiations info)
-    _ -> Nothing
-
-productLayoutFields :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe [LoweredRepresentation]
-productLayoutFields managedLayoutCatalog expectedId =
-  case managedLayoutShapeFor managedLayoutCatalog expectedId of
-    Just (LoweredProductLayout fields) -> Just fields
-    _ -> Nothing
-
-nodeInstantiations :: TypedNodeInfo -> [TypedInstantiation]
-nodeInstantiations (TypedNodeInfo _ _ instantiations _) = instantiations
 
 loweredIRGeneratedIdentityFailureDetail :: LoweredLayoutId -> LoweredIRLoweringDetail
 loweredIRGeneratedIdentityFailureDetail (LoweredLayoutId identityValue) =

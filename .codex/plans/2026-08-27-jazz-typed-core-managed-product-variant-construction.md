@@ -13,19 +13,27 @@ target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration/Types.hs
   - src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs
   - src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs
+  - src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs
   - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
   - src/Jazz/Compiler/LoweredIR/Lower/Types.hs
+  - src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs
   - src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs
   - src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs
   - src/Jazz/Compiler/LoweredIR/Lower/Emit.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/Source.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/BoundaryTests.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CallTests.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/Support.hs
   - jazz.cabal
   - docs/compiler/bootstrapping.md
   - docs/compiler/pipeline.md
   - docs/project/status.md
+  - scripts/check-docs.sh
   - rfcs/accepted/0015-typed-core-managed-products-and-variants.md
   - .codex/execution/queue.md
   - .codex/execution/blocker-contracts.md

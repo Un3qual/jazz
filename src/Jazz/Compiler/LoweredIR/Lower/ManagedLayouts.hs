@@ -9,6 +9,9 @@ module Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     managedLayoutShapeFor,
     representationForRecipe,
     constructorLayoutFor,
+    constructorApplicationLayout,
+    productLayoutFields,
+    nodeInstantiations,
   )
 where
 
@@ -124,6 +127,22 @@ constructorLayoutFor catalog binder instantiations = do
             managedConstructorFields = fieldRepresentations
           }
     else Nothing
+
+constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
+constructorApplicationLayout catalog callee =
+  case callee of
+    TypedVariableExpr info _ (Just binder) ->
+      constructorLayoutFor catalog binder (nodeInstantiations info)
+    _ -> Nothing
+
+productLayoutFields :: ManagedLayoutCatalog -> LoweredLayoutId -> Maybe [LoweredRepresentation]
+productLayoutFields catalog layoutId =
+  case managedLayoutShapeFor catalog layoutId of
+    Just (LoweredProductLayout fields) -> Just fields
+    _ -> Nothing
+
+nodeInstantiations :: TypedNodeInfo -> [TypedInstantiation]
+nodeInstantiations (TypedNodeInfo _ _ instantiations _) = instantiations
 
 orderedDataDeclarations :: TypedModuleInterface -> [TypedStatement] -> [TypedDataDeclaration]
 orderedDataDeclarations (TypedModuleInterface _ interfaceDatas _ _) statements =
@@ -390,11 +409,11 @@ managedLayoutId :: [Text] -> TypedRepresentationRecipe -> Maybe LoweredLayoutId
 managedLayoutId modulePath recipe =
   case recipe of
     TypedManagedProductRecipe fields -> do
-      fieldEncodings <- traverse recipeEncoding fields
+      fieldEncodings <- traverse (recipeEncoding modulePath) fields
       pure (LoweredLayoutId ("jazz.layout.product.v1$" <> sequenceValue "fields" fieldEncodings))
     TypedManagedVariantRecipe name arguments -> do
       identifier <- currentTypeIdentifier name
-      argumentEncodings <- traverse typeEncoding arguments
+      argumentEncodings <- traverse (typeEncoding modulePath) arguments
       pure
         ( LoweredLayoutId
             ( "jazz.layout.variant.v1$"
@@ -407,8 +426,8 @@ managedLayoutId modulePath recipe =
         )
     _ -> Nothing
 
-recipeEncoding :: TypedRepresentationRecipe -> Maybe Text
-recipeEncoding recipe =
+recipeEncoding :: [Text] -> TypedRepresentationRecipe -> Maybe Text
+recipeEncoding modulePath recipe =
   case recipe of
     TypedUnitRecipe -> Just "unit"
     TypedBoolRecipe -> Just "bool"
@@ -417,35 +436,49 @@ recipeEncoding recipe =
     TypedFloatRecipe bits -> Just ("float" <> decimal bits)
     TypedCharRecipe -> Just "char"
     TypedManagedTextRecipe -> Just "text"
-    TypedManagedProductRecipe fields -> sequenceValue "product" <$> traverse recipeEncoding fields
+    TypedManagedProductRecipe fields -> sequenceValue "product" <$> traverse (recipeEncoding modulePath) fields
     TypedManagedVariantRecipe name arguments -> do
       identifier <- currentTypeIdentifier name
-      encodedArguments <- traverse typeEncoding arguments
-      pure ("variant$" <> segment identifier <> "$" <> sequenceValue "args" encodedArguments)
+      encodedArguments <- traverse (typeEncoding modulePath) arguments
+      pure
+        ( "variant$"
+            <> sequenceValue "module" modulePath
+            <> "$name$"
+            <> segment identifier
+            <> "$"
+            <> sequenceValue "args" encodedArguments
+        )
     TypedClosureRecipe arguments result -> do
-      encodedArguments <- traverse recipeEncoding arguments
-      encodedResult <- recipeEncoding result
+      encodedArguments <- traverse (recipeEncoding modulePath) arguments
+      encodedResult <- recipeEncoding modulePath result
       pure ("closure$" <> sequenceValue "args" encodedArguments <> "$result$" <> segment encodedResult)
     _ -> Nothing
 
-typeEncoding :: TypedType -> Maybe Text
-typeEncoding typeValue =
+typeEncoding :: [Text] -> TypedType -> Maybe Text
+typeEncoding modulePath typeValue =
   case typeValue of
     TypedIntType -> Just "int"
     TypedFloatType -> Just "float"
-    TypedNumericType numericType -> numericTypeEncoding numericType
+    TypedNumericType numericType -> numericTypeEncoding modulePath numericType
     TypedBoolType -> Just "bool"
     TypedCharType -> Just "char"
     TypedTextType -> Just "text"
-    TypedListType element -> ("list$" <>) . segment <$> typeEncoding element
-    TypedTupleType elements -> sequenceValue "tuple" <$> traverse typeEncoding elements
+    TypedListType element -> ("list$" <>) . segment <$> typeEncoding modulePath element
+    TypedTupleType elements -> sequenceValue "tuple" <$> traverse (typeEncoding modulePath) elements
     TypedDataType name arguments -> do
       identifier <- currentTypeIdentifier name
-      encodedArguments <- traverse typeEncoding arguments
-      pure ("data$" <> segment identifier <> "$" <> sequenceValue "args" encodedArguments)
+      encodedArguments <- traverse (typeEncoding modulePath) arguments
+      pure
+        ( "data$"
+            <> sequenceValue "module" modulePath
+            <> "$name$"
+            <> segment identifier
+            <> "$"
+            <> sequenceValue "args" encodedArguments
+        )
     TypedFunctionType argument result -> do
-      encodedArgument <- typeEncoding argument
-      encodedResult <- typeEncoding result
+      encodedArgument <- typeEncoding modulePath argument
+      encodedResult <- typeEncoding modulePath result
       pure ("function$" <> segment encodedArgument <> "$" <> segment encodedResult)
     TypedTypeParameterType {} -> Nothing
 
@@ -464,10 +497,10 @@ numericRecipe numericType =
     TypedFloat32Type -> Just (TypedFloatRecipe 32)
     TypedFloat64Type -> Just (TypedFloatRecipe 64)
 
-numericTypeEncoding :: TypedNumericType -> Maybe Text
-numericTypeEncoding numericType =
+numericTypeEncoding :: [Text] -> TypedNumericType -> Maybe Text
+numericTypeEncoding modulePath numericType =
   case numericRecipe numericType of
-    Just recipe -> recipeEncoding recipe
+    Just recipe -> recipeEncoding modulePath recipe
     Nothing -> Nothing
 
 dataDeclarationName :: TypedDataDeclaration -> TypedCoreName
