@@ -1181,6 +1181,14 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       where
         go lexicalNames expression =
           case expression of
+            ProvisionalTupleExpression expressionType elements ->
+              let specializedElements = map (go lexicalNames) elements
+                  specializedType =
+                    maybe
+                      expressionType
+                      TTupleType
+                      (traverse (provisionalExpressionType state) specializedElements)
+               in ProvisionalTupleExpression specializedType specializedElements
             ProvisionalVariableExpression name expressionType
               | Set.notMember name lexicalNames,
                 Just function <- Map.lookup name functions ->
@@ -2062,12 +2070,32 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         selectedDataNames =
           closeDataNames
             ( Set.fromList
-                ( concatMap directlySelectedDataNames orderedModuleExports
-                    <> exportedValueDataNames
-                )
+                (directlySelectedDataNames <> exportedValueDataNames)
             )
 
-        directlySelectedDataNames (ModuleExport namespace name) =
+        directlySelectedDataNames =
+          case coreModuleDeclaredExports (resolvedModuleCore resolvedModule) of
+            Nothing -> concatMap dataNamesForExport orderedModuleExports
+            Just declaredExports ->
+              concatMap
+                dataNamesForSelector
+                (declaredModuleExportSelectors declaredExports)
+
+        dataNamesForSelector selector =
+          case selector of
+            ModuleTypeExportSelector typeName _ _
+              | Map.member typeName localDataByName -> [typeName]
+              | otherwise -> []
+            ModuleExportSelector maybeNamespace name ->
+              concatMap
+                dataNamesForExport
+                [ export
+                | export <- orderedModuleExports,
+                  moduleExportName export == name,
+                  maybe True (== moduleExportNamespace export) maybeNamespace
+                ]
+
+        dataNamesForExport (ModuleExport namespace name) =
           case namespace of
             TypeNamespace
               | Map.member name localDataByName -> [name]

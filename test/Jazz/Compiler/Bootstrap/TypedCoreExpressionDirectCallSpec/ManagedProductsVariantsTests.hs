@@ -233,6 +233,29 @@ testManagedConstructorRebindingExport = do
         (interfaceDataNames programValue)
     status -> failTest ("constructor rebinding export did not produce typed core: " <> Text.pack (show status))
 
+testManagedTypeSelectorRebindingExport :: IO ()
+testManagedTypeSelectorRebindingExport = do
+  let fixture =
+        sourceFixture
+          "type-selector-constructor-rebinding-export"
+          ( Text.unlines
+              [ "module App::Main (type A(..)) {",
+                "data A = C Int.",
+                "data B = C Text.",
+                "C \"two\".",
+                "}"
+              ]
+          )
+  assertCompleteProduction "type-selector constructor rebinding export" fixture
+  production <- produceFixture fixture
+  case typedCoreProductionStatus production of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual
+        "type selector retains its declared constructor owner"
+        [TypedResolvedName TypedCurrentModule TypedTypeNamespace "A"]
+        (interfaceDataNames programValue)
+    status -> failTest ("type-selector constructor rebinding export did not produce typed core: " <> Text.pack (show status))
+
 testManagedPrivateDataInterfaceDependencies :: IO ()
 testManagedPrivateDataInterfaceDependencies = do
   let constructorFixture =
