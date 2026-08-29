@@ -6630,12 +6630,24 @@ module TypedCoreValidate (
     }
   }.
 
+  typedModuleExportNamespace :: TypedModuleExport -> TypedNameNamespace.
+  typedModuleExportNamespace = \(export) -> case export {
+    | TypedModuleExport namespace name -> namespace
+    | TypedConstructorExport name owner -> TypedConstructorNamespace
+  }.
+
+  typedModuleExportName :: TypedModuleExport -> Text.
+  typedModuleExportName = \(export) -> case export {
+    | TypedModuleExport namespace name -> name
+    | TypedConstructorExport name owner -> name
+  }.
+
   moduleExportsName :: TypedNameNamespace -> TypedCoreName -> [TypedModuleExport] -> Bool.
   moduleExportsName = \(namespace, name, exports) -> case (coreNameIdentifier name, exports) {
     | (Nothing, other) -> False
     | (Just identifier, []) -> False
-    | (Just identifier, [TypedModuleExport candidateNamespace candidateName | rest]) ->
-      if nameNamespaceEqual namespace candidateNamespace then if identifier == candidateName then True else moduleExportsName namespace name rest else moduleExportsName namespace name rest
+    | (Just identifier, [first | rest]) ->
+      if nameNamespaceEqual namespace (typedModuleExportNamespace first) then if identifier == typedModuleExportName first then True else moduleExportsName namespace name rest else moduleExportsName namespace name rest
   }.
 
   uniqueCoreNames :: [TypedCoreName] -> [TypedCoreName] -> [TypedCoreName].
@@ -6995,37 +7007,36 @@ module TypedCoreValidate (
     }
   }.
 
-  exportedConstructorOwnerCandidates :: [TypedModuleExport] -> [TypedCoreName] -> [TypedCoreName].
-  exportedConstructorOwnerCandidates = \(exports, candidates) -> case candidates {
+  explicitConstructorOwners :: Text -> [TypedModuleExport] -> [TypedCoreName].
+  explicitConstructorOwners = \(constructorIdentifier, exports) -> case exports {
     | [] -> []
-    | [first | rest] ->
-      if moduleExportsName TypedTypeNamespace first exports then
-        listPrepend first (exportedConstructorOwnerCandidates exports rest)
-      else exportedConstructorOwnerCandidates exports rest
-  }.
-
-  latestConstructorOwnerCandidate :: [TypedCoreName] -> Maybe(TypedCoreName).
-  latestConstructorOwnerCandidate = \(candidates) -> case candidates {
-    | [] -> Nothing
-    | [first | rest] -> case rest {
-      | [] -> Just first
-      | other -> latestConstructorOwnerCandidate rest
+    | [first | rest] -> case first {
+      | TypedModuleExport namespace name -> explicitConstructorOwners constructorIdentifier rest
+      | TypedConstructorExport name owner ->
+        if name == constructorIdentifier then listPrepend owner (explicitConstructorOwners constructorIdentifier rest) else explicitConstructorOwners constructorIdentifier rest
     }
   }.
 
   interfaceConstructorOwner :: Text -> [TypedModuleExport] -> [TypedDataInterface] -> Maybe(TypedCoreName).
   interfaceConstructorOwner = \(constructorIdentifier, exports, datas) -> {
     candidates = constructorOwnerCandidates constructorIdentifier datas.
-    case exportedConstructorOwnerCandidates exports candidates {
-      | [owner] -> Just owner
-      | [] -> latestConstructorOwnerCandidate candidates
+    explicitOwners = uniqueCoreNames (explicitConstructorOwners constructorIdentifier exports) [].
+    case explicitOwners {
+      | [owner] -> if coreNameMember owner candidates then Just owner else Nothing
+      | [] -> case candidates {
+        | [owner] -> Just owner
+        | other -> Nothing
+      }
       | other -> Nothing
     }.
   }.
 
   exportPresent :: [TypedModuleExport] -> TypedModuleExport -> TypedModuleInterface -> Bool.
-  exportPresent = \(exports, export, interface) -> case (export, interface) {
-    | (TypedModuleExport namespace name, TypedModuleInterface values datas classes impls) -> case namespace {
+  exportPresent = \(exports, export, interface) -> {
+    namespace = typedModuleExportNamespace export.
+    name = typedModuleExportName export.
+    case interface {
+    | TypedModuleInterface values datas classes impls -> case namespace {
       | TypedValueNamespace -> if valueExportPresent name values then True else classMethodExportPresent name classes
       | TypedTypeNamespace -> dataExportPresent name datas
       | TypedConstructorNamespace -> case interfaceConstructorOwner name exports datas {
@@ -7034,13 +7045,16 @@ module TypedCoreValidate (
       }
       | TypedCapabilityNamespace -> classExportPresent name classes
     }
+    }.
   }.
 
   validateExportsFrom :: TypedCoreValidationPath -> [TypedStatement] -> TypedModuleInterface -> [TypedModuleExport] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
   validateExportsFrom = \(path, statements, interface, allExports, exports) -> case exports {
     | [] -> []
-    | [export | rest] -> case export {
-      | TypedModuleExport namespace name -> listAppend
+    | [export | rest] -> {
+      namespace = typedModuleExportNamespace export.
+      name = typedModuleExportName export.
+      listAppend
         (if nameNamespaceEqual namespace TypedValueNamespace then
           if localValueExportProviderCount name interface statements == 1 then [] else
             [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
@@ -7052,7 +7066,7 @@ module TypedCoreValidate (
         else if exportPresent allExports export interface then
           []
         else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))])
-        (validateExportsFrom path statements interface allExports rest)
+        (validateExportsFrom path statements interface allExports rest).
     }
   }.
 
@@ -7061,10 +7075,8 @@ module TypedCoreValidate (
     validateExportsFrom path statements interface exports exports.
 
   moduleExportEqual :: TypedModuleExport -> TypedModuleExport -> Bool.
-  moduleExportEqual = \(left, right) -> case (left, right) {
-    | (TypedModuleExport leftNamespace leftName, TypedModuleExport rightNamespace rightName) ->
-      if nameNamespaceEqual leftNamespace rightNamespace then leftName == rightName else False
-  }.
+  moduleExportEqual = \(left, right) ->
+    if nameNamespaceEqual (typedModuleExportNamespace left) (typedModuleExportNamespace right) then typedModuleExportName left == typedModuleExportName right else False.
 
   moduleExportMember :: TypedModuleExport -> [TypedModuleExport] -> Bool.
   moduleExportMember = \(candidate, exports) -> case exports {
@@ -7075,12 +7087,14 @@ module TypedCoreValidate (
   duplicateModuleExportFailuresFrom :: TypedCoreValidationPath -> [TypedModuleExport] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
   duplicateModuleExportFailuresFrom = \(path, exports, seen) -> case exports {
     | [] -> []
-    | [export | rest] -> case export {
-      | TypedModuleExport namespace name -> listAppend
+    | [export | rest] -> {
+      namespace = typedModuleExportNamespace export.
+      name = typedModuleExportName export.
+      listAppend
         (if moduleExportMember export seen then
           [failure path TypedDuplicateDeclaration (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
         else [])
-        (duplicateModuleExportFailuresFrom path rest (if moduleExportMember export seen then seen else listPrepend export seen))
+        (duplicateModuleExportFailuresFrom path rest (if moduleExportMember export seen then seen else listPrepend export seen)).
     }
   }.
 
@@ -7318,14 +7332,15 @@ module TypedCoreValidate (
   selectedImportNamePresentInExportsFrom :: Text -> TypedModuleInterface -> [TypedModuleExport] -> [TypedModuleExport] -> Bool.
   selectedImportNamePresentInExportsFrom = \(selectedName, interface, allExports, exports) -> case exports {
     | [] -> False
-    | [first | rest] -> case first {
-      | TypedModuleExport namespace exportedName ->
-        if selectedName == exportedName then
+    | [first | rest] -> {
+      namespace = typedModuleExportNamespace first.
+      exportedName = typedModuleExportName first.
+      if selectedName == exportedName then
           if nameNamespaceEqual namespace TypedValueNamespace then if exportPresent allExports first interface then True else selectedImportNamePresentInExportsFrom selectedName interface allExports rest else
           if nameNamespaceEqual namespace TypedConstructorNamespace then if exportPresent allExports first interface then True else selectedImportNamePresentInExportsFrom selectedName interface allExports rest else
           if nameNamespaceEqual namespace TypedCapabilityNamespace then if exportPresent allExports first interface then True else selectedImportNamePresentInExportsFrom selectedName interface allExports rest else
           selectedImportNamePresentInExportsFrom selectedName interface allExports rest
-        else selectedImportNamePresentInExportsFrom selectedName interface allExports rest
+        else selectedImportNamePresentInExportsFrom selectedName interface allExports rest.
     }
   }.
 

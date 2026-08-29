@@ -14,6 +14,7 @@ import Control.Monad (guard)
 import Data.Either (partitionEithers)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
+import Data.Maybe (maybeToList)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -202,10 +203,81 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
 
-    typedExports _ =
-      [ TypedModuleExport (typedNamespace namespace) name
-      | ModuleExport namespace name <- orderedModuleExports
-      ]
+    typedExports (TypedModuleInterface _ datas _ _) =
+      map typedExport orderedModuleExports
+      where
+        typedExport (ModuleExport ConstructorNamespace name) =
+          case constructorExportOwner name of
+            Just owner -> TypedConstructorExport name owner
+            Nothing -> TypedModuleExport TypedConstructorNamespace name
+        typedExport (ModuleExport namespace name) =
+          TypedModuleExport (typedNamespace namespace) name
+
+        constructorExportOwner constructorIdentifier =
+          case Set.toList (Set.fromList (constructorOwnerClaims constructorIdentifier)) of
+            [owner] -> Just owner
+            _ -> Nothing
+
+        constructorOwnerClaims constructorIdentifier =
+          case coreModuleDeclaredExports (resolvedModuleCore resolvedModule) of
+            Nothing -> maybe [] pure (Map.lookup constructorIdentifier visibleConstructorOwners)
+            Just declaredExports ->
+              concatMap
+                (selectorConstructorOwners constructorIdentifier)
+                (declaredModuleExportSelectors declaredExports)
+
+        selectorConstructorOwners constructorIdentifier selector =
+          case selector of
+            ModuleExportSelector maybeNamespace name
+              | name == constructorIdentifier,
+                maybeNamespace `elem` [Nothing, Just ConstructorNamespace] ->
+                  maybe [] pure (Map.lookup constructorIdentifier visibleConstructorOwners)
+            ModuleTypeExportSelector typeName _ constructorSelector
+              | constructorSelectorIncludes typeName constructorIdentifier constructorSelector ->
+                  maybe [] pure (Map.lookup typeName dataNamesByIdentifier)
+            _ -> []
+
+        constructorSelectorIncludes typeName constructorIdentifier constructorSelector =
+          case constructorSelector of
+            AbstractType -> False
+            AllTypeConstructors _ ->
+              Set.member constructorIdentifier (Map.findWithDefault Set.empty typeName constructorsByDataIdentifier)
+            SelectedTypeConstructors constructors ->
+              any ((== constructorIdentifier) . locatedModuleExportName) (NonEmpty.toList constructors)
+
+        dataNamesByIdentifier =
+          Map.fromList
+            [ (identifier, dataName)
+            | TypedDataInterface (TypedDataDeclaration _ dataName _ _) <- datas,
+              identifier <- maybeToList (typedNameIdentifier dataName)
+            ]
+
+        constructorsByDataIdentifier =
+          Map.fromList
+            [ ( dataIdentifier,
+                Set.fromList
+                  [ constructorIdentifier
+                  | TypedConstructorDeclaration _ constructorName _ _ <- constructors,
+                    constructorIdentifier <- maybeToList (typedNameIdentifier constructorName)
+                  ]
+              )
+            | TypedDataInterface (TypedDataDeclaration _ dataName _ constructors) <- datas,
+              dataIdentifier <- maybeToList (typedNameIdentifier dataName)
+            ]
+
+        visibleConstructorOwners =
+          Map.fromList
+            [ (constructorIdentifier, dataName)
+            | TypedDataInterface (TypedDataDeclaration _ dataName _ constructors) <- datas,
+              TypedConstructorDeclaration _ constructorName _ _ <- constructors,
+              constructorIdentifier <- maybeToList (typedNameIdentifier constructorName)
+            ]
+
+        typedNameIdentifier name =
+          case name of
+            TypedResolvedName _ _ identifier -> Just identifier
+            TypedBuiltinName identifier -> Just identifier
+            _ -> Nothing
 
     typedNamespace namespace =
       case namespace of

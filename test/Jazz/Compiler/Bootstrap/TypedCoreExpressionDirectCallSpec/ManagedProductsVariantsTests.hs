@@ -274,6 +274,18 @@ testManagedStandaloneConstructorDependencyRebindingExport = do
                 "}"
               ]
           )
+      abstractTypeFixture =
+        sourceFixture
+          "abstract-type-standalone-constructor-dependency-rebinding-export"
+          ( Text.unlines
+              [ "module App::Main (type A, constructor C) {",
+                "data A = C Int.",
+                "a = C 1.",
+                "data B = C A.",
+                "C a.",
+                "}"
+              ]
+          )
   assertCompleteProduction "standalone constructor dependency rebinding export" fixture
   production <- produceFixture fixture
   case typedCoreProductionStatus production of
@@ -285,6 +297,23 @@ testManagedStandaloneConstructorDependencyRebindingExport = do
         ]
         (interfaceDataNames programValue)
     status -> failTest ("standalone constructor dependency rebinding export did not produce typed core: " <> Text.pack (show status))
+  assertCompleteProduction "abstract type and standalone constructor dependency rebinding export" abstractTypeFixture
+  abstractTypeProduction <- produceFixture abstractTypeFixture
+  case typedCoreProductionStatus abstractTypeProduction of
+    TypedCoreProductionSucceeded programValue -> do
+      assertEqual
+        "abstract type export retains the standalone constructor's private owner"
+        [ TypedResolvedName TypedCurrentModule TypedTypeNamespace "A",
+          TypedResolvedName TypedCurrentModule TypedTypeNamespace "B"
+        ]
+        (interfaceDataNames programValue)
+      assertEqual
+        "abstract type export does not claim the standalone constructor"
+        [ TypedModuleExport TypedTypeNamespace "A",
+          TypedConstructorExport "C" (TypedResolvedName TypedCurrentModule TypedTypeNamespace "B")
+        ]
+        (moduleExports programValue)
+    status -> failTest ("abstract type and standalone constructor dependency rebinding export did not produce typed core: " <> Text.pack (show status))
 
 testManagedTypeSelectorRebindingExport :: IO ()
 testManagedTypeSelectorRebindingExport = do
@@ -470,6 +499,10 @@ interfaceDataNames :: TypedProgram -> [TypedCoreName]
 interfaceDataNames (TypedProgram _ [TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _ _] _) =
   [name | TypedDataInterface (TypedDataDeclaration _ name _ _) <- datas]
 interfaceDataNames _ = []
+
+moduleExports :: TypedProgram -> [TypedModuleExport]
+moduleExports (TypedProgram _ [TypedModule _ _ _ exports _ _ _ _] _) = exports
+moduleExports _ = []
 
 testManagedProductVariantLayoutCatalog :: IO ()
 testManagedProductVariantLayoutCatalog = do

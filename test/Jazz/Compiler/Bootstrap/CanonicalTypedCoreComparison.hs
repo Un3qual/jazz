@@ -132,6 +132,8 @@ resolvedImportValue (TypedResolvedImport spanValue modulePath alias names) =
 moduleExportValue :: TypedModuleExport -> RuntimeValue
 moduleExportValue (TypedModuleExport namespace name) =
   constructor "TypedModuleExport" [nameNamespaceValue namespace, VText name]
+moduleExportValue (TypedConstructorExport name owner) =
+  constructor "TypedConstructorExport" [VText name, coreNameValue owner]
 
 recursiveGroupValue :: TypedRecursiveGroup -> RuntimeValue
 recursiveGroupValue (TypedRecursiveGroup members) =

@@ -188,7 +188,9 @@ module TypedCoreTypes {
 
   data TypedResolvedImport = TypedResolvedImport TypedSpan [Text] Maybe(Text) Maybe([Text]).
 
-  data TypedModuleExport = TypedModuleExport TypedNameNamespace Text.
+  data TypedModuleExport
+    = TypedModuleExport TypedNameNamespace Text
+    | TypedConstructorExport Text TypedCoreName.
 
   data TypedValueInterface = TypedValueInterface TypedCoreName TypedScheme.
 

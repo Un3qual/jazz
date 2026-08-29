@@ -127,7 +127,7 @@ reviewRegressionGroups =
     (("retains imported data dependencies through exported schemes", testImportedDataDependencyMetadata), [importedDataDependencyProgram]),
     (("closes selected data contracts over field metadata", testTransitiveDataContractDependency), [transitiveDataContractDependencyProgram]),
     (("preserves constructor ownership across private data dependencies", testTransitiveConstructorOwner), [transitiveConstructorOwnerProgram, priorDependencyConstructorOwnerProgram]),
-    (("preserves standalone constructor ownership across private data dependencies", testStandaloneConstructorOwner), [standaloneConstructorOwnerProgram]),
+    (("preserves standalone constructor ownership across private data dependencies", testStandaloneConstructorOwner), [standaloneConstructorOwnerProgram, abstractTypeStandaloneConstructorOwnerProgram]),
     (("rejects ambiguous constructor names in selected imports", testAmbiguousConstructorSelectedImport), [ambiguousConstructorSelectedImportProgram]),
     (("rejects imported capability dependencies that lose identity", testImportedCapabilityDependency), [importedCapabilityDependencyProgram]),
     (("keeps metadata-only impls out of evidence visibility", testMetadataOnlyImplVisibility), [metadataOnlyImplVisibilityProgram]),
@@ -2195,11 +2195,15 @@ testTransitiveConstructorOwner = do
     (validateTypedProgram priorDependencyConstructorOwnerProgram)
 
 testStandaloneConstructorOwner :: IO ()
-testStandaloneConstructorOwner =
+testStandaloneConstructorOwner = do
   assertEqual
     "standalone constructor exports retain the latest source-visible owner"
     []
     (validateTypedProgram standaloneConstructorOwnerProgram)
+  assertEqual
+    "abstract type exports do not claim standalone constructors"
+    []
+    (validateTypedProgram abstractTypeStandaloneConstructorOwnerProgram)
 
 testAmbiguousConstructorSelectedImport :: IO ()
 testAmbiguousConstructorSelectedImport =
