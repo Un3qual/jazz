@@ -7004,15 +7004,21 @@ module TypedCoreValidate (
       else exportedConstructorOwnerCandidates exports rest
   }.
 
+  latestConstructorOwnerCandidate :: [TypedCoreName] -> Maybe(TypedCoreName).
+  latestConstructorOwnerCandidate = \(candidates) -> case candidates {
+    | [] -> Nothing
+    | [first | rest] -> case rest {
+      | [] -> Just first
+      | other -> latestConstructorOwnerCandidate rest
+    }
+  }.
+
   interfaceConstructorOwner :: Text -> [TypedModuleExport] -> [TypedDataInterface] -> Maybe(TypedCoreName).
   interfaceConstructorOwner = \(constructorIdentifier, exports, datas) -> {
     candidates = constructorOwnerCandidates constructorIdentifier datas.
     case exportedConstructorOwnerCandidates exports candidates {
       | [owner] -> Just owner
-      | [] -> case candidates {
-        | [owner] -> Just owner
-        | other -> Nothing
-      }
+      | [] -> latestConstructorOwnerCandidate candidates
       | other -> Nothing
     }.
   }.

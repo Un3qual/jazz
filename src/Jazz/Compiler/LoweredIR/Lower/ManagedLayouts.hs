@@ -401,7 +401,7 @@ recipeForType typeValue =
       case elements of
         [] -> Just TypedUnitRecipe
         _ -> TypedManagedProductRecipe <$> traverse recipeForType elements
-    TypedDataType name arguments -> Just (TypedManagedVariantRecipe name arguments)
+    TypedDataType name arguments -> TypedManagedVariantRecipe name arguments <$ traverse recipeForType arguments
     TypedFunctionType argument result -> TypedClosureRecipe <$> ((: []) <$> recipeForType argument) <*> recipeForType result
     TypedTypeParameterType {} -> Nothing
 

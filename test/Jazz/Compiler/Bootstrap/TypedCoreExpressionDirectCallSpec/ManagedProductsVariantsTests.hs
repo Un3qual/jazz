@@ -150,6 +150,21 @@ testManagedConstructionLowererBoundaries =
               )
           ]
         ),
+        ( "managed-unsupported-nested-phantom-list-argument-lowerer",
+          [ lowererExpressionFailure
+              2
+              LoweredIRUnsupportedRepresentation
+              ( LoweredIRRecipeFailureDetail
+                  ( TypedManagedVariantRecipe
+                      (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Phantom")
+                      [ TypedDataType
+                          (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Inner")
+                          [TypedListType TypedIntType]
+                      ]
+                  )
+              )
+          ]
+        ),
         ( "managed-product-equality-lowerer",
           [ LoweredIRLoweringFailure
               (TypedExpressionPath ["App", "Main"] [0] [0])
@@ -244,6 +259,32 @@ testManagedConstructorRebindingExport = do
         [TypedResolvedName TypedCurrentModule TypedTypeNamespace "B"]
         (interfaceDataNames programValue)
     status -> failTest ("constructor rebinding export did not produce typed core: " <> Text.pack (show status))
+
+testManagedStandaloneConstructorDependencyRebindingExport :: IO ()
+testManagedStandaloneConstructorDependencyRebindingExport = do
+  let fixture =
+        sourceFixture
+          "standalone-constructor-dependency-rebinding-export"
+          ( Text.unlines
+              [ "module App::Main (constructor C) {",
+                "data A = C Int.",
+                "a = C 1.",
+                "data B = C A.",
+                "C a.",
+                "}"
+              ]
+          )
+  assertCompleteProduction "standalone constructor dependency rebinding export" fixture
+  production <- produceFixture fixture
+  case typedCoreProductionStatus production of
+    TypedCoreProductionSucceeded programValue ->
+      assertEqual
+        "standalone constructor export retains its source-visible owner and private dependency"
+        [ TypedResolvedName TypedCurrentModule TypedTypeNamespace "A",
+          TypedResolvedName TypedCurrentModule TypedTypeNamespace "B"
+        ]
+        (interfaceDataNames programValue)
+    status -> failTest ("standalone constructor dependency rebinding export did not produce typed core: " <> Text.pack (show status))
 
 testManagedTypeSelectorRebindingExport :: IO ()
 testManagedTypeSelectorRebindingExport = do

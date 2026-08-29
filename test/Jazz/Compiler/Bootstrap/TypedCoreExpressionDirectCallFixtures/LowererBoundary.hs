@@ -133,6 +133,7 @@ managedConstructionLowererBoundaryPrograms =
     ("managed-partial-constructor-lowerer", managedPartialConstructorLowererProgram),
     ("managed-unsupported-field-recipe-lowerer", managedUnsupportedFieldRecipeLowererProgram),
     ("managed-unsupported-phantom-list-argument-lowerer", managedUnsupportedPhantomListArgumentLowererProgram),
+    ("managed-unsupported-nested-phantom-list-argument-lowerer", managedUnsupportedNestedPhantomListArgumentLowererProgram),
     ("managed-product-equality-lowerer", managedProductEqualityLowererProgram),
     ("managed-variant-equality-lowerer", managedVariantEqualityLowererProgram)
   ]
@@ -245,6 +246,41 @@ managedUnsupportedPhantomListArgumentLowererProgram =
         phantomName
         [parameter]
         [TypedConstructorDeclaration binder constructor [] []]
+
+managedUnsupportedNestedPhantomListArgumentLowererProgram :: TypedProgram
+managedUnsupportedNestedPhantomListArgumentLowererProgram =
+  ManagedProductsVariants.managedProgram
+    [ TypedDataStatement innerDeclaration,
+      TypedDataStatement phantomDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        expression
+    ]
+    (typedExpressionInfo expression)
+  where
+    innerParameter = TypedTypeParameterId 0
+    phantomParameter = TypedTypeParameterId 0
+    innerName = ManagedProductsVariants.typeName "Inner"
+    innerConstructor = ManagedProductsVariants.constructorName "Inner"
+    innerBinder = TypedBinderId (["App", "Main"], [0, 0], innerConstructor)
+    nestedArgument = TypedDataType innerName [TypedListType TypedIntType]
+    phantomName = ManagedProductsVariants.typeName "Phantom"
+    phantomConstructor = ManagedProductsVariants.constructorName "Phantom"
+    phantomBinder = TypedBinderId (["App", "Main"], [1, 0], phantomConstructor)
+    phantomInfo = ManagedProductsVariants.variantInfo phantomName [nestedArgument]
+    expression = ManagedProductsVariants.constructorCall phantomBinder phantomConstructor phantomInfo [] []
+    innerDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 1 1)
+        innerName
+        [innerParameter]
+        [TypedConstructorDeclaration innerBinder innerConstructor [] []]
+    phantomDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        phantomName
+        [phantomParameter]
+        [TypedConstructorDeclaration phantomBinder phantomConstructor [] []]
 
 managedProductEqualityLowererProgram :: TypedProgram
 managedProductEqualityLowererProgram =

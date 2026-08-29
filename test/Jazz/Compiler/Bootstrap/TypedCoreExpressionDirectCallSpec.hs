@@ -38,6 +38,7 @@ tests =
     ("specializes generic constructor fields from concrete result types", testManagedGenericConstructorFieldSpecialization),
     ("resolves rebound constructors at their source positions", testManagedConstructorSourceOrder),
     ("exports only the source-visible rebound constructor", testManagedConstructorRebindingExport),
+    ("preserves standalone constructor ownership across private dependencies", testManagedStandaloneConstructorDependencyRebindingExport),
     ("preserves type-selector ownership across constructor rebinding", testManagedTypeSelectorRebindingExport),
     ("retains private data dependencies in managed interfaces", testManagedPrivateDataInterfaceDependencies),
     ("qualifies nested variant product identities by module", testManagedNestedVariantProductModuleIdentity),

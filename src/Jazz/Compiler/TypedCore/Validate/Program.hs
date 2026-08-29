@@ -10,7 +10,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -380,14 +380,14 @@ moduleExportsImportSelectorName expected (TypedModule _ _ _ exports interface _ 
                    TypedConstructorNamespace,
                    TypedCapabilityNamespace
                  ]
-        && interfaceContainsExport export interface
+        && interfaceContainsExport exports export interface
 
-interfaceContainsExport :: TypedModuleExport -> TypedModuleInterface -> Bool
-interfaceContainsExport (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
+interfaceContainsExport :: [TypedModuleExport] -> TypedModuleExport -> TypedModuleInterface -> Bool
+interfaceContainsExport exports (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
   case namespace of
     TypedValueNamespace -> any (interfaceNameMatches expected) values || any (classInterfaceMethodMatches expected) classes
     TypedTypeNamespace -> any (dataInterfaceNameMatches expected) datas
-    TypedConstructorNamespace -> any (dataInterfaceConstructorMatches expected) datas
+    TypedConstructorNamespace -> interfaceConstructorOwner exports datas expected /= Nothing
     TypedCapabilityNamespace -> any (classInterfaceNameMatches expected) classes
 
 validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
@@ -1098,10 +1098,7 @@ interfaceConstructorOwner :: [TypedModuleExport] -> [TypedDataInterface] -> Text
 interfaceConstructorOwner exports datas constructorIdentifier =
   case exportedCandidates of
     [owner] -> Just owner
-    [] ->
-      case candidates of
-        [owner] -> Just owner
-        _ -> Nothing
+    [] -> listToMaybe (reverse candidates)
     _ -> Nothing
   where
     candidates =
