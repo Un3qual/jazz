@@ -6,7 +6,7 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 2"
+plan_section: "Task 3"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
   - src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs
@@ -176,7 +176,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   binders collected recursively. Pattern node infos carry no constructor
   instantiation/evidence payload beyond the exact existing schema contract.
 
-- [ ] **Step 1: Add RED exact producer fixtures.** Add complete expected
+- [x] **Step 1: Add RED exact producer fixtures.** Add complete expected
       `TypedProgram` values and assertions for:
 
   ```jazz
@@ -203,17 +203,17 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   order, and arm-body binder references. First run must fail with the existing
   `TypedCorePatternCaseUnsupported` profile result.
 
-- [ ] **Step 2: Implement recursive finalization minimally.** Reuse
+- [x] **Step 2: Implement recursive finalization minimally.** Reuse
       `structuredConstructorAtStatement`, `structuredNodeInfo`,
       `concreteConstructorContract`, and existing specialization helpers.
       Do not rerun inference or duplicate constructor resolution.
 
-- [ ] **Step 3: Lock exclusions.** Add focused producer-profile assertions for
+- [x] **Step 3: Lock exclusions.** Add focused producer-profile assertions for
       list/cons patterns, `Text` literal patterns, nested or-patterns, and
       pattern lambdas. Each must fail at its established source or producer
       boundary without producing partial Typed Core.
 
-- [ ] **Step 4: Verify and commit.** Run the focused managed producer tests,
+- [x] **Step 4: Verify and commit.** Run the focused managed producer tests,
       then the complete producer suite, and commit:
 
   ```bash
