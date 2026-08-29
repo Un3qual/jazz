@@ -109,6 +109,7 @@ library jazz-internal
       Jazz.Compiler.LoweredIR
       Jazz.Compiler.LoweredIR.Lower
       Jazz.Compiler.LoweredIR.Lower.Emit
+      Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
       Jazz.Compiler.LoweredIR.Lower.Requirements
       Jazz.Compiler.LoweredIR.Lower.Shapes
       Jazz.Compiler.LoweredIR.Lower.Types
@@ -166,6 +167,7 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Elaboration.Finalize
       Jazz.Compiler.TypeInference.Elaboration.Profiles
       Jazz.Compiler.TypeInference.Elaboration.Specialize
+      Jazz.Compiler.TypeInference.Elaboration.StructuredValues
       Jazz.Compiler.TypeInference.Elaboration.Types
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
@@ -523,6 +525,7 @@ test-suite jazz-lowered-ir-contract-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
@@ -547,6 +550,7 @@ test-suite jazz-typed-core-contract-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Repository.Root
@@ -562,12 +566,14 @@ test-suite jazz-typed-core-expression-direct-call-spec
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
+      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
       Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 

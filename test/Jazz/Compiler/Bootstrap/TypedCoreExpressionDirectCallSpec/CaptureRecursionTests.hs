@@ -22,7 +22,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
   )
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TBoolType, TFunctionType, TIntegerLiteralType, TNumericType),
+  ( ExpressionType (TBoolType, TFunctionType, TIntegerLiteralType, TNumericType, TTupleType),
     IntegerLiteralRange (..),
     TypeBinding (PlainTypeBinding),
   )
@@ -964,6 +964,75 @@ testCapturedNamedCallerSpecialization = do
     "captured named caller specialization"
     [("helper", typedUInt8UnaryType), ("consumer", typedUInt8UnaryType)]
     Nothing
+    provisionalScope
+
+testCapturedNamedApplicationTupleSpecialization :: IO ()
+testCapturedNamedApplicationTupleSpecialization = do
+  let spanValue = SourceSpan 1 1
+      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      uint8Type = TNumericType NumericUInt8
+      unitType = TTupleType []
+      tupleType = TTupleType [literalType, unitType]
+      recursiveFunctionType = TFunctionType uint8Type uint8Type
+      helperFunctionType = TFunctionType literalType literalType
+      loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
+      helperDeclaration =
+        ProvisionalCallableDeclaration
+          2
+          "helper"
+          spanValue
+          helperFunctionType
+          (Just (PlainTypeBinding helperFunctionType))
+          Nothing
+      provisionalScope =
+        ProvisionalScopeStatements
+          [ ProvisionalScalarBinding
+              0
+              "seed"
+              spanValue
+              literalType
+              (ProvisionalLiteralExpression (LInt 1) literalType),
+            ProvisionalFunctionBinding
+              loopDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  recursiveFunctionType
+                  ( ProvisionalApplyExpression
+                      uint8Type
+                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
+                      (ProvisionalVariableExpression "seed" uint8Type)
+                  )
+              ),
+            ProvisionalFunctionBinding
+              helperDeclaration
+              ( ProvisionalLambdaExpression
+                  "item"
+                  helperFunctionType
+                  ( ProvisionalBinaryExpression
+                      "+"
+                      literalType
+                      literalType
+                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression "item" literalType)
+                  )
+              ),
+            ProvisionalTerminalExpression
+              3
+              spanValue
+              ( ProvisionalTupleExpression
+                  tupleType
+                  [ ProvisionalApplyExpression
+                      literalType
+                      (ProvisionalVariableExpression "helper" helperFunctionType)
+                      (ProvisionalLiteralExpression (LInt 1) literalType),
+                    ProvisionalUnitExpression
+                  ]
+              )
+          ]
+  assertProvisionalProductionTypes
+    "captured named application tuple specialization"
+    [("helper", typedUInt8UnaryType)]
+    (Just (TypedTupleType [typedUInt8Type, TypedTupleType []]))
     provisionalScope
 
 testCapturedScalarAliasSourceSpecialization :: IO ()

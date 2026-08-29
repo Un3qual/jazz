@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-14
+Updated: 2026-08-27
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -62,11 +62,19 @@ pure services for equality, length, append, and append-char; inequality reuses
 equality followed by Boolean-not. Text-only transport declares no service, and
 referenced services are deduplicated in fixed catalog order.
 
-Managed patterns and scrutinees remain deferred pending separate matching,
-projection, and ownership contracts. Pattern-lambda backend lowering remains
-deferred pending an invocation contract integrated with closures, currying,
-recursion, and callable identity. Text uncons, from-chars, concat, I/O,
-collections, later or interleaved external captures, scalar exports, and
-complete multi-module integration remain excluded. The Text services are not
-`RuntimeHost` operations or a native ABI. Ordinary compile and run modes remain
-on canonical core and the interpreter.
+Non-unit tuple and exactly saturated local algebraic-data construction and
+transport now span the same complete profile. Concrete generic, recursive, and
+mutually recursive data layouts may contain admitted scalars, Text, closures,
+products, or variants. Lowering gives products structural semantic identities,
+variants nominal semantic identities, and constructors declaration-ordered
+zero-based tags; it emits deduplicated layouts deterministically and evaluates
+every field exactly once from left to right.
+
+Constructor and tuple destructuring patterns and other managed scrutinees remain
+deferred pending the separately ordered RFC 0015 pattern child. Lists and list
+fields, product or variant equality, first-class non-nullary constructors,
+pattern-lambda backend lowering, Text uncons/from-chars/concat/I/O, imported
+data, complete multi-module integration, later or interleaved external
+captures, and scalar exports remain excluded. No managed product or variant
+work adds a `RuntimeHost` operation, runtime ABI, or native execution path.
+Ordinary compile and run modes remain on canonical core and the interpreter.

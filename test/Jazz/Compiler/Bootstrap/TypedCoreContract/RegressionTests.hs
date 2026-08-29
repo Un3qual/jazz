@@ -126,6 +126,9 @@ reviewRegressionGroups =
     (("matches module-qualified method keys to their full capability origin", testModuleQualifiedMethodKey), [moduleQualifiedMethodKeyProgram, forgedModuleQualifiedMethodKeyProgram]),
     (("retains imported data dependencies through exported schemes", testImportedDataDependencyMetadata), [importedDataDependencyProgram]),
     (("closes selected data contracts over field metadata", testTransitiveDataContractDependency), [transitiveDataContractDependencyProgram]),
+    (("preserves constructor ownership across private data dependencies", testTransitiveConstructorOwner), [transitiveConstructorOwnerProgram, priorDependencyConstructorOwnerProgram]),
+    (("preserves standalone constructor ownership across private data dependencies", testStandaloneConstructorOwner), [standaloneConstructorOwnerProgram]),
+    (("rejects ambiguous constructor names in selected imports", testAmbiguousConstructorSelectedImport), [ambiguousConstructorSelectedImportProgram]),
     (("rejects imported capability dependencies that lose identity", testImportedCapabilityDependency), [importedCapabilityDependencyProgram]),
     (("keeps metadata-only impls out of evidence visibility", testMetadataOnlyImplVisibility), [metadataOnlyImplVisibilityProgram]),
     (("rejects expression-only metadata on patterns", testPatternExpressionMetadata), [patternExpressionMetadataProgram]),
@@ -203,6 +206,7 @@ reviewRegressionGroups =
     (("rejects fractional literal patterns", testFractionalLiteralPattern), [fractionalPatternProgram]),
     (("enforces constructor-like identifier casing", testConstructorLikeIdentifierCasing), [lowercaseConstructorLikeNamesProgram]),
     (("orders duplicate name failures before impl failures", testDuplicateDeclarationOrdering), [duplicateDeclarationOrderingProgram]),
+    (("rejects duplicate constructors within one declaration", testDuplicateConstructorDeclaration), [duplicateConstructorDeclarationProgram]),
     (("covers every builtin catalog contract in hosted parity", testBuiltinCatalogParity), [builtinCatalogProgram, builtinDirectCallProgram]),
     (("stages constructor values outside complete calls", testConstructorValueRecipeRole), [constructorValueRecipeProgram]),
     (("stages polymorphic builtin values outside complete calls", testPolymorphicBuiltinRecipeRole), [polymorphicBuiltinRecipeProgram]),
@@ -546,16 +550,23 @@ testDuplicateDeclarationOrdering =
         (TypedNameDetail duplicateOrderingDataName),
       statementFailure
         "review-duplicate-declaration-ordering"
-        4
-        TypedDuplicateDeclaration
-        (TypedNameDetail duplicateOrderingConstructorName),
-      statementFailure
-        "review-duplicate-declaration-ordering"
         2
         TypedDuplicateDeclaration
         (TypedImplDetail duplicateOrderingImplId)
     ]
     (validateTypedProgram duplicateDeclarationOrderingProgram)
+
+testDuplicateConstructorDeclaration :: IO ()
+testDuplicateConstructorDeclaration =
+  assertEqual
+    "constructors may be rebound by later data declarations but not repeated within one declaration"
+    [ statementFailure
+        "review-duplicate-constructor-declaration"
+        0
+        TypedDuplicateDeclaration
+        (TypedNameDetail (resolved TypedCurrentModule TypedConstructorNamespace "Choice"))
+    ]
+    (validateTypedProgram duplicateConstructorDeclarationProgram)
 
 testBuiltinCatalogParity :: IO ()
 testBuiltinCatalogParity = do
@@ -2171,6 +2182,39 @@ testTransitiveDataContractDependency =
     "selected data contracts retain transitive field metadata"
     []
     (validateTypedProgram transitiveDataContractDependencyProgram)
+
+testTransitiveConstructorOwner :: IO ()
+testTransitiveConstructorOwner = do
+  assertEqual
+    "exported constructors retain their selected data owner after dependencies"
+    []
+    (validateTypedProgram transitiveConstructorOwnerProgram)
+  assertEqual
+    "exported constructors retain their selected data owner before dependencies"
+    []
+    (validateTypedProgram priorDependencyConstructorOwnerProgram)
+
+testStandaloneConstructorOwner :: IO ()
+testStandaloneConstructorOwner =
+  assertEqual
+    "standalone constructor exports retain the latest source-visible owner"
+    []
+    (validateTypedProgram standaloneConstructorOwnerProgram)
+
+testAmbiguousConstructorSelectedImport :: IO ()
+testAmbiguousConstructorSelectedImport =
+  assertEqual
+    "selected constructor imports require an unambiguous exported owner"
+    [ TypedCoreValidationFailure
+        (TypedInterfacePath (fixtureLibraryPath "AmbiguousConstructorSelectedImport"))
+        TypedModuleInterfaceMismatch
+        (TypedNameDetail (resolved TypedCurrentModule TypedConstructorNamespace "C")),
+      TypedCoreValidationFailure
+        (TypedModulePath (fixtureModulePath "review-ambiguous-constructor-selected-import"))
+        TypedModuleInterfaceMismatch
+        (TypedTextDetail "C")
+    ]
+    (validateTypedProgram ambiguousConstructorSelectedImportProgram)
 
 testImportedCapabilityDependency :: IO ()
 testImportedCapabilityDependency =

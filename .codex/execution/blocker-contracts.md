@@ -165,6 +165,11 @@ Each blocked item should answer these questions:
   opt-in expression profile plus strict equality, length, append, and
   append-char through one semantic Text layout and exact pure runtime-service
   dependencies.
+- Accepted decision: [RFC 0015: Typed-core managed products and variants](../../rfcs/accepted/0015-typed-core-managed-products-and-variants.md)
+  authorizes local tuple and ADT construction, deterministic product and
+  variant layouts, established-boundary transport, and a separately delivered
+  independently total managed-pattern decision tree. Its detailed design is
+  recorded in [the managed products and variants design](../plans/2026-08-27-jazz-typed-core-managed-products-variants-design.md).
 - Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
   completed on `2026-07-30`. It produces the verified opt-in single-pass
   scalar/direct-call typed-core profile and deterministic validated lowering;
@@ -240,24 +245,44 @@ Each blocked item should answer these questions:
   length, append, and append-char, deduplicated in catalog order. Inequality
   reuses equality followed by Boolean-not. Normal compile/run remains on
   canonical core and the reference interpreter.
-- Smallest unblocker: none. RFC 0014 is complete, and no accepted source-backed
-  bootstrap successor exists.
-- Decision needed: a separate durable contract before promoting another
-  managed-value, hosted semantic-compiler, module-execution, or native child.
-- Recommended default: leave the umbrella blocked and the curation target empty
-  until such a contract exists.
-- Candidate child: none.
-- Target paths: none.
+- Completed child:
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001`
+  completed on `2026-08-27`. Implementation milestone `092897af` closes
+  deterministic non-unit tuple and exactly saturated local ADT construction
+  plus every established managed-value transport boundary. The focused
+  producer, Typed Core contract, and Lowered IR contract suites pass, and
+  `cabal test all --test-show-details=direct --jobs=1` passes inside the
+  checked-in Nix shell.
+- Smallest unblocker: curate
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` into one
+  aligned implementation plan with a green focused baseline; do not promote it
+  during construction closeout.
+- Decision needed: none. RFC 0015's managed-pattern surface, source ordering,
+  projection discipline, independent totality check, and failure boundary are
+  accepted.
+- Recommended default: curate only the single named managed-pattern child.
+  Keep it outside `Ready Now` until its live paths and exact fixtures are
+  captured by a matching plan.
+- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`.
+- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`,
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs`,
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs`,
+  and `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs`.
 - Verification:
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`
   - `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh`
   - `bash scripts/check-execution-queue.sh`
   - `git diff --check`
-- Still not in scope: module-entry tail transfer, source tail-recursion
-  diagnostics, native stack guarantees, managed patterns, lists, tuples, ADTs,
-  Text uncons/from-chars/concat, Text I/O, RuntimeHost services, imported-module
-  execution, native ABI, or normal compile/run cutover.
+- Still not in scope for the candidate child: lists, list patterns or services,
+  Text literal patterns, first-class constructors, pattern lambdas, imported
+  data, multiple modules, Text uncons/from-chars/concat, Text I/O, RuntimeHost
+  changes, native ABI or execution, product/variant equality, and normal
+  compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

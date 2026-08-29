@@ -85,6 +85,8 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     InferredProductionFailure (..),
     ProvisionalCallableDeclaration (..),
+    ProvisionalConstructorDeclaration (..),
+    ProvisionalDataDeclaration (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     TypedCoreProductionFailureDetail (..),
@@ -142,6 +144,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeScheme (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
+    instantiateConstructorFieldType,
   )
 
 inferExprTypeWithExpected ::
@@ -718,12 +721,16 @@ inferScopeTypeInternal
                         provisional =
                           case mode of
                             ProduceTypedCoreExpressionDirectCall ->
-                              ProvisionalUnsupportedStatement
-                                statementIndex
-                                TypedCoreStructuredValueUnsupported
-                                TypedCoreDataValueDetail
-                                []
-                                : provisionalRest
+                              case retainedDataDeclaration statementIndex spanValue typeName typeParameters constructors nextEnv of
+                                Just declaration
+                                  | not dataTypeAlreadyDeclared -> ProvisionalDataStatement declaration : provisionalRest
+                                _ ->
+                                  ProvisionalUnsupportedStatement
+                                    statementIndex
+                                    TypedCoreStructuredValueUnsupported
+                                    TypedCoreDataValueDetail
+                                    []
+                                    : provisionalRest
                             InferenceOnly -> provisionalRest
                      in (scopeResultType, resultState, provisional, productionFailures)
                   SSignature name signatureSpan signaturePayload ->
@@ -2324,6 +2331,37 @@ registerDataConstructors predeclaredDataTypes spanValue typeName typeParameters 
             nextState,
             argumentTypes : constructorPayloadsAcc
           )
+
+retainedDataDeclaration :: Int -> SourceSpan -> Name -> [Name] -> [DataConstructor] -> TypeEnv -> Maybe ProvisionalDataDeclaration
+retainedDataDeclaration statementIndex spanValue typeName typeParameters constructors env = do
+  retainedConstructors <- traverse retainedConstructor constructors
+  pure
+    ( ProvisionalDataDeclaration
+        statementIndex
+        spanValue
+        typeName
+        typeParameters
+        retainedConstructors
+    )
+  where
+    parameterTypes =
+      Map.fromList
+        [ (identifierText parameterName, TVarType (negate position - 1))
+        | (position, parameterName) <- zip [0 :: Int ..] typeParameters
+        ]
+
+    retainedConstructor (DataConstructor constructorName _) = do
+      ConstructorTypeBinding registeredTypeName registeredParameters argumentTypes <- Map.lookup constructorName env
+      if registeredTypeName == typeName && registeredParameters == typeParameters
+        then ProvisionalConstructorDeclaration constructorName <$> traverse retainedFieldType argumentTypes
+        else Nothing
+
+    retainedFieldType argumentType =
+      case argumentType of
+        ConstructorArgumentMonomorphic expressionType -> Just expressionType
+        ConstructorArgumentParameter parameterName -> Map.lookup parameterName parameterTypes
+        ConstructorArgumentStructured signatureType -> instantiateConstructorFieldType parameterTypes signatureType
+        ConstructorArgumentFresh -> Nothing
 
 constructorArgumentTypes :: Map Text DataTypeBinding -> [Name] -> [SignatureType] -> InferState -> ([ConstructorArgumentType], InferState)
 constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialState =

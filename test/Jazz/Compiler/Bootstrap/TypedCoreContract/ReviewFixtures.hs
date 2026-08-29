@@ -1078,6 +1078,37 @@ duplicateDeclarationOrderingProgram =
         expressionStatement 5 trueExpr
       ]
 
+duplicateConstructorDeclarationProgram :: TypedProgram
+duplicateConstructorDeclarationProgram =
+  singleModuleProgram fixture relativeSource [] statements emptyInterface boolInfo modulePath
+  where
+    fixture = "review-duplicate-constructor-declaration"
+    modulePath = fixtureModulePath fixture
+    dataName =
+      resolved TypedCurrentModule TypedTypeNamespace "Choice"
+    constructorName =
+      resolved TypedCurrentModule TypedConstructorNamespace "Choice"
+    declaration =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            (binder modulePath [0, 0] constructorName)
+            constructorName
+            []
+            [],
+          TypedConstructorDeclaration
+            (binder modulePath [0, 1] constructorName)
+            constructorName
+            []
+            []
+        ]
+    statements =
+      [ TypedDataStatement declaration,
+        expressionStatement 1 trueExpr
+      ]
+
 builtinCatalogProgram :: TypedProgram
 builtinCatalogProgram =
   singleModuleProgram fixture relativeSource [] statements emptyInterface terminalInfo modulePath
@@ -6035,6 +6066,209 @@ transitiveDataContractDependencyProgram =
         emptyInterface
         [expressionStatement 1 (fixtureVariableExpr entryInfo importedValueName)]
         entryInfo
+
+transitiveConstructorOwnerProgram :: TypedProgram
+transitiveConstructorOwnerProgram =
+  constructorOwnerProgram "TransitiveConstructorOwner" "review-transitive-constructor-owner" False
+
+priorDependencyConstructorOwnerProgram :: TypedProgram
+priorDependencyConstructorOwnerProgram =
+  constructorOwnerProgram "PriorDependencyConstructorOwner" "review-prior-dependency-constructor-owner" True
+
+standaloneConstructorOwnerProgram :: TypedProgram
+standaloneConstructorOwnerProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = fixtureLibraryPath "StandaloneConstructorOwner"
+    entryPath = fixtureModulePath "review-standalone-constructor-owner"
+    firstName = resolved TypedCurrentModule TypedTypeNamespace "A"
+    secondName = resolved TypedCurrentModule TypedTypeNamespace "B"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
+    firstOwner = binder libraryPath [0, 0] constructorName
+    secondOwner = binder libraryPath [1, 0] constructorName
+    firstType = TypedDataType firstName []
+    firstRecipe = TypedManagedVariantRecipe firstName []
+    firstDeclaration =
+      TypedDataDeclaration
+        span1
+        firstName
+        []
+        [TypedConstructorDeclaration firstOwner constructorName [TypedIntType] [TypedSignedIntegerRecipe 64]]
+    secondDeclaration =
+      TypedDataDeclaration
+        span1
+        secondName
+        []
+        [TypedConstructorDeclaration secondOwner constructorName [firstType] [firstRecipe]]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/StandaloneConstructorOwner.jz")
+        []
+        [TypedModuleExport TypedConstructorNamespace "C"]
+        ( TypedModuleInterface
+            []
+            [ TypedDataInterface firstDeclaration,
+              TypedDataInterface secondDeclaration
+            ]
+            []
+            []
+        )
+        [ TypedDataStatement firstDeclaration,
+          TypedDataStatement secondDeclaration
+        ]
+        unitInfo
+    importedFirstName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "A"
+    importedSecondName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "B"
+    importedConstructorName = resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "C"
+    constructorInfo =
+      info
+        (TypedFunctionType (TypedDataType importedFirstName []) (TypedDataType importedSecondName []))
+        ( TypedClosureRecipe
+            [TypedManagedVariantRecipe importedFirstName []]
+            (TypedManagedVariantRecipe importedSecondName [])
+        )
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["C"])]
+        []
+        emptyInterface
+        [expressionStatement 1 (fixtureBoundVariableExpr secondOwner constructorInfo importedConstructorName)]
+        constructorInfo
+
+ambiguousConstructorSelectedImportProgram :: TypedProgram
+ambiguousConstructorSelectedImportProgram =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = fixtureLibraryPath "AmbiguousConstructorSelectedImport"
+    entryPath = fixtureModulePath "review-ambiguous-constructor-selected-import"
+    firstName = resolved TypedCurrentModule TypedTypeNamespace "A"
+    secondName = resolved TypedCurrentModule TypedTypeNamespace "B"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
+    declaration statementIndex dataName =
+      TypedDataDeclaration
+        span1
+        dataName
+        []
+        [ TypedConstructorDeclaration
+            (binder libraryPath [statementIndex, 0] constructorName)
+            constructorName
+            [TypedIntType]
+            [TypedSignedIntegerRecipe 64]
+        ]
+    firstDeclaration = declaration 0 firstName
+    secondDeclaration = declaration 1 secondName
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/AmbiguousConstructorSelectedImport.jz")
+        []
+        [ TypedModuleExport TypedTypeNamespace "A",
+          TypedModuleExport TypedTypeNamespace "B",
+          TypedModuleExport TypedConstructorNamespace "C"
+        ]
+        ( TypedModuleInterface
+            []
+            [ TypedDataInterface firstDeclaration,
+              TypedDataInterface secondDeclaration
+            ]
+            []
+            []
+        )
+        [ TypedDataStatement firstDeclaration,
+          TypedDataStatement secondDeclaration
+        ]
+        unitInfo
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["C"])]
+        []
+        emptyInterface
+        [expressionStatement 1 trueExpr]
+        boolInfo
+
+constructorOwnerProgram :: Text -> Text -> Bool -> TypedProgram
+constructorOwnerProgram libraryName fixtureName dependencyFirst =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = fixtureLibraryPath libraryName
+    entryPath = fixtureModulePath fixtureName
+    firstName = resolved TypedCurrentModule TypedTypeNamespace "A"
+    secondName = resolved TypedCurrentModule TypedTypeNamespace "B"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
+    firstOwner = binder libraryPath [if dependencyFirst then 1 else 0, 0] constructorName
+    secondOwner = binder libraryPath [if dependencyFirst then 0 else 1, 0] constructorName
+    secondType = TypedDataType secondName []
+    secondRecipe = TypedManagedVariantRecipe secondName []
+    firstDeclaration =
+      TypedDataDeclaration
+        span1
+        firstName
+        []
+        [ TypedConstructorDeclaration
+            firstOwner
+            constructorName
+            [secondType]
+            [secondRecipe]
+        ]
+    secondDeclaration =
+      TypedDataDeclaration
+        span1
+        secondName
+        []
+        [ TypedConstructorDeclaration
+            secondOwner
+            constructorName
+            [TypedTextType]
+            [TypedManagedTextRecipe]
+        ]
+    declarations
+      | dependencyFirst = [secondDeclaration, firstDeclaration]
+      | otherwise = [firstDeclaration, secondDeclaration]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/TransitiveConstructorOwner.jz")
+        []
+        [ TypedModuleExport TypedTypeNamespace "A",
+          TypedModuleExport TypedConstructorNamespace "C"
+        ]
+        ( TypedModuleInterface
+            []
+            (map TypedDataInterface declarations)
+            []
+            []
+        )
+        (map TypedDataStatement declarations)
+        unitInfo
+    importedFirstName =
+      resolved (TypedImportedModule libraryPath) TypedTypeNamespace "A"
+    importedSecondName =
+      resolved (TypedImportedModule libraryPath) TypedTypeNamespace "B"
+    importedConstructorName =
+      resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "C"
+    importedFirstType = TypedDataType importedFirstName []
+    importedSecondType = TypedDataType importedSecondName []
+    importedFirstRecipe = TypedManagedVariantRecipe importedFirstName []
+    importedSecondRecipe = TypedManagedVariantRecipe importedSecondName []
+    constructorInfo =
+      info
+        (TypedFunctionType importedSecondType importedFirstType)
+        (TypedClosureRecipe [importedSecondRecipe] importedFirstRecipe)
+    expression = fixtureBoundVariableExpr firstOwner constructorInfo importedConstructorName
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["C"])]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        constructorInfo
 
 importedCapabilityFacadePath :: [Text]
 importedCapabilityFacadePath = (fixtureLibraryPath "ImportedCapabilityFacade")

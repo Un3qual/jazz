@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.LoweredIR.Lower.Requirements
   ( collectRuntimeRequirements,
+    requirementsForManagedLayouts,
     requiredRuntimeLayouts,
     textEqualityOperation,
     textRuntimeServiceApplication,
@@ -14,11 +15,18 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolArity,
     lookupBuiltinSymbolInMode,
   )
-import Jazz.Compiler.LoweredIR (LoweredLayout)
+import Jazz.Compiler.LoweredIR
+  ( LoweredCallSignature (..),
+    LoweredLayout (..),
+    LoweredLayoutShape (..),
+    LoweredRepresentation (..),
+    LoweredVariantLayout (..),
+  )
 import Jazz.Compiler.LoweredIR.Lower.Types (RuntimeRequirements (..))
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
   ( RuntimeServiceKey (TextEqualService),
     textLayout,
+    textLayoutId,
     textOperationService,
   )
 import Jazz.Compiler.TypedCore
@@ -32,6 +40,24 @@ collectRuntimeRequirements (TypedModule _ _ _ _ moduleInterface _ statements mod
 requiredRuntimeLayouts :: RuntimeRequirements -> [LoweredLayout]
 requiredRuntimeLayouts requirements =
   [textLayout | runtimeRequiresTextLayout requirements]
+
+requirementsForManagedLayouts :: [LoweredLayout] -> RuntimeRequirements
+requirementsForManagedLayouts = foldMap requirementsForLayout
+  where
+    requirementsForLayout (LoweredLayout _ shape) =
+      case shape of
+        LoweredProductLayout fields -> foldMap requirementsForRepresentation fields
+        LoweredVariantLayouts variants -> foldMap requirementsForVariant variants
+        _ -> mempty
+    requirementsForVariant (LoweredVariantLayout _ fields) =
+      foldMap requirementsForRepresentation fields
+    requirementsForRepresentation representation =
+      case representation of
+        LoweredManagedReferenceRepresentation layoutId
+          | layoutId == textLayoutId -> RuntimeRequirements True Set.empty
+        LoweredClosureRepresentation (LoweredCallSignature arguments result) ->
+          foldMap requirementsForRepresentation arguments <> requirementsForRepresentation result
+        _ -> mempty
 
 requirementsForInterface :: TypedModuleInterface -> RuntimeRequirements
 requirementsForInterface (TypedModuleInterface values _ _ _) =
@@ -65,6 +91,8 @@ requirementsForRecipe recipe =
     TypedManagedTextRecipe -> RuntimeRequirements True Set.empty
     TypedClosureRecipe arguments result ->
       requirementsForRecipe result <> foldMap requirementsForRecipe arguments
+    TypedManagedProductRecipe fields -> foldMap requirementsForRecipe fields
+    TypedManagedListRecipe element -> requirementsForRecipe element
     _ -> mempty
 
 requirementsForExpression :: TypedExpr -> RuntimeRequirements

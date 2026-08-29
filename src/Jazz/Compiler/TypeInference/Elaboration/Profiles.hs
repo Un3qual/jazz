@@ -179,6 +179,7 @@ provisionalFreeNames = freeNames Set.empty
   where
     freeNames boundNames expression =
       case expression of
+        ProvisionalTupleExpression _ elements -> foldMap (freeNames boundNames) elements
         ProvisionalVariableExpression name _
           | Set.member name boundNames -> Set.empty
           | otherwise -> Set.singleton name
@@ -240,6 +241,11 @@ collectExpressionCallableUses ::
   Map.Map Name TypedCallableShape
 collectExpressionCallableUses functions lexicalNames callableShapes expression =
   case expression of
+    ProvisionalTupleExpression _ elements ->
+      foldl'
+        (collectExpressionCallableUses functions lexicalNames)
+        callableShapes
+        elements
     ProvisionalVariableExpression name _
       | Set.notMember name lexicalNames,
         Map.member name functions ->

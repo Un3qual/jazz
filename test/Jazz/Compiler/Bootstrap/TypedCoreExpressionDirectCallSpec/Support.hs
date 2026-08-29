@@ -96,13 +96,6 @@ rejectedManifestExpectedStatuses =
         [expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
     ),
     ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
-    ("non-unit-tuple", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail]),
-    ( "data-value",
-      unsupported
-        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
-          expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
-        ]
-    ),
     ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
     ( "oversaturated-direct-call",
       unsupported

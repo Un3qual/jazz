@@ -80,13 +80,25 @@ and append-char use exact pure runtime-service dependencies; inequality calls
 equality and then Boolean-not. The lowerer emits only referenced services in a
 fixed order and does not expose them through `RuntimeHost` or a native ABI.
 
-Managed constructor, list, and tuple patterns, managed scrutinees, and Text
-literal patterns remain outside the path. Pattern lambdas remain outside it
-because invocation-time mismatch must be defined across closure construction,
-currying, recursion, and callable identity. Text uncons, from-chars, concat,
-I/O, and collection transport also remain separate contracts. Source-level
+The same opt-in producer now admits non-unit tuples and exactly saturated local
+algebraic-data constructors. Concrete product layouts have structural semantic
+identity; concrete generic, recursive, and mutually recursive variant layouts
+have nominal semantic identity and declaration-ordered zero-based constructor
+tags. Layouts are deduplicated and emitted after catalog-owned runtime layouts
+and before closure environments. Tuple elements and constructor fields are
+evaluated exactly once from left to right, and their managed references cross
+the complete established binding, callable, capture, control-flow, return, and
+tail-operand profile.
+
+Constructor and tuple destructuring patterns, other managed scrutinees, lists
+and list fields, product or variant equality, first-class non-nullary
+constructors, and Text literal patterns remain outside the path. Pattern
+lambdas remain outside it because invocation-time mismatch must be defined
+across closure construction, currying, recursion, and callable identity. Text
+uncons, from-chars, concat, and I/O also remain separate contracts. Source-level
 exhaustiveness and unreachable-arm diagnostics are implemented under RFC 0012;
-the backend profile's final-catch-all requirement is a separate lowering
-boundary. Later or interleaved external captures, scalar exports, complete
-multi-module integration, native emission, linking, and a native runtime also
-remain outside this path.
+the backend profile's scalar-case final-catch-all requirement is a separate
+lowering boundary. Imported data, complete multi-module integration, later or
+interleaved external captures, scalar exports, native emission, linking, a
+runtime ABI, and a native runtime also remain outside this path. Ordinary
+compile and run modes continue to use canonical core and the interpreter.

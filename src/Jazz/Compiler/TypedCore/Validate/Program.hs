@@ -10,7 +10,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -380,14 +380,14 @@ moduleExportsImportSelectorName expected (TypedModule _ _ _ exports interface _ 
                    TypedConstructorNamespace,
                    TypedCapabilityNamespace
                  ]
-        && interfaceContainsExport export interface
+        && interfaceContainsExport exports export interface
 
-interfaceContainsExport :: TypedModuleExport -> TypedModuleInterface -> Bool
-interfaceContainsExport (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
+interfaceContainsExport :: [TypedModuleExport] -> TypedModuleExport -> TypedModuleInterface -> Bool
+interfaceContainsExport exports (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
   case namespace of
     TypedValueNamespace -> any (interfaceNameMatches expected) values || any (classInterfaceMethodMatches expected) classes
     TypedTypeNamespace -> any (dataInterfaceNameMatches expected) datas
-    TypedConstructorNamespace -> any (dataInterfaceConstructorMatches expected) datas
+    TypedConstructorNamespace -> interfaceConstructorOwner exports datas expected /= Nothing
     TypedCapabilityNamespace -> any (classInterfaceNameMatches expected) classes
 
 validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
@@ -764,6 +764,8 @@ interfaceConstructorEntries (modulePath, selectedNames, TypedModule _ _ _ export
     TypedConstructorDeclaration binderId constructorName fields _ <- constructors,
     importAllows selectedNames constructorName,
     moduleExportsName TypedConstructorNamespace constructorName exports,
+    constructorIdentifier <- maybeToList (coreNameIdentifier constructorName),
+    interfaceConstructorOwner exports datas constructorIdentifier == Just dataName,
     constructorKey <- maybeToList (definitionNameKey modulePath constructorName)
   ]
 
@@ -994,7 +996,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         TypedTypeNamespace
           | any (dataInterfaceNameMatches exportedName) datas -> []
         TypedConstructorNamespace
-          | any (dataInterfaceConstructorMatches exportedName) datas -> []
+          | interfaceConstructorOwner exports datas exportedName /= Nothing -> []
         TypedCapabilityNamespace
           | any (localClassInterfaceMatches exportedName) classes ->
               []
@@ -1091,3 +1093,21 @@ dataInterfaceConstructorMatches expected (TypedDataInterface (TypedDataDeclarati
   any constructorMatches constructors
   where
     constructorMatches (TypedConstructorDeclaration _ name _ _) = coreNameIdentifier name == Just expected
+
+interfaceConstructorOwner :: [TypedModuleExport] -> [TypedDataInterface] -> Text -> Maybe TypedCoreName
+interfaceConstructorOwner exports datas constructorIdentifier =
+  case exportedCandidates of
+    [owner] -> Just owner
+    [] -> listToMaybe (reverse candidates)
+    _ -> Nothing
+  where
+    candidates =
+      [ dataName
+      | dataInterface@(TypedDataInterface (TypedDataDeclaration _ dataName _ _)) <- datas,
+        dataInterfaceConstructorMatches constructorIdentifier dataInterface
+      ]
+    exportedCandidates =
+      [ dataName
+      | dataName <- candidates,
+        moduleExportsName TypedTypeNamespace dataName exports
+      ]

@@ -5,6 +5,7 @@ module Main (main) where
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
 import Jazz.TestHarness (NamedTest, runTestSuite)
@@ -28,6 +29,21 @@ tests =
     ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
     ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
+    ("retains managed tuple and local-data structure once", testManagedProductVariantRetention),
+    ("produces exact managed product and local-variant artifacts", testManagedProductVariantProduction),
+    ("catalogs deterministic managed product and variant layouts", testManagedProductVariantLayoutCatalog),
+    ("lowers exact managed product and local-variant construction", testManagedProductVariantLowering),
+    ("keeps arbitrary managed construction failures at the lowerer boundary", testManagedConstructionLowererBoundaries),
+    ("does not capture constructor binders in closures", testManagedConstructorClosureCapture),
+    ("specializes generic constructor fields from concrete result types", testManagedGenericConstructorFieldSpecialization),
+    ("resolves rebound constructors at their source positions", testManagedConstructorSourceOrder),
+    ("exports only the source-visible rebound constructor", testManagedConstructorRebindingExport),
+    ("preserves standalone constructor ownership across private dependencies", testManagedStandaloneConstructorDependencyRebindingExport),
+    ("preserves type-selector ownership across constructor rebinding", testManagedTypeSelectorRebindingExport),
+    ("retains private data dependencies in managed interfaces", testManagedPrivateDataInterfaceDependencies),
+    ("qualifies nested variant product identities by module", testManagedNestedVariantProductModuleIdentity),
+    ("retains independent structured-value failures", testManagedStructuredFailureAccumulation),
+    ("orders structured declaration failures before module failures", testManagedStructuredModuleFailureOrder),
     ("produces concrete scalar bindings in source order", testScalarBindingProduction),
     ("produces managed Text literals and bindings exactly", testManagedTextProduction),
     ("produces exact managed Text operations", testManagedTextOperationProduction),
@@ -84,6 +100,7 @@ tests =
     ("specializes forwarded higher-order profiles from callable arguments", testCapturedForwardedHigherOrderCallableArgumentSpecialization),
     ("specializes terminal anonymous callable bodies", testCapturedTerminalAnonymousCallableSpecialization),
     ("respecializes callers of specialized named functions", testCapturedNamedCallerSpecialization),
+    ("specializes named applications nested in tuples", testCapturedNamedApplicationTupleSpecialization),
     ("specializes scalar alias sources captured by recursive closures", testCapturedScalarAliasSourceSpecialization),
     ("specializes recursive scalar alias captures across omitted source statements", testRecordedScalarStatementIndices),
     ("rejects eager recursive closure calls before their captures exist", testEagerRecursiveClosureCaptureAvailability),
