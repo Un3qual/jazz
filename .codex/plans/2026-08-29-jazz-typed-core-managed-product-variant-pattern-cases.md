@@ -37,7 +37,7 @@ last_verified: 2026-08-29
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > superpowers:subagent-driven-development to implement this plan task-by-task.
-> Keep `.superpowers/managed-pattern-cases/ledger.md` current after every
+> Keep this plan's SDD `progress.md` ledger current after every
 > implementation and review handoff. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Complete RFC 0015's second child by making the opt-in Typed Core
