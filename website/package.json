@@ -42,7 +42,7 @@
     "pagefind": "1.5.2",
     "remark-parse": "11.0.0",
     "sharp": "0.35.3",
-    "typescript": "6.0.2",
+    "typescript": "7.0.2",
     "unified": "11.0.5"
   },
   "browserslist": {
