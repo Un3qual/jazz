@@ -6984,26 +6984,54 @@ module TypedCoreValidate (
     | [TypedConstructorDeclaration binder name fields recipes | rest] -> if coreNameIdentifierEqual expected name then True else constructorExportPresentIn expected rest
   }.
 
-  constructorExportPresent :: Text -> [TypedDataInterface] -> Bool.
-  constructorExportPresent = \(expected, interfaces) -> case interfaces {
-    | [] -> False
+  constructorOwnerCandidates :: Text -> [TypedDataInterface] -> [TypedCoreName].
+  constructorOwnerCandidates = \(constructorIdentifier, datas) -> case datas {
+    | [] -> []
     | [TypedDataInterface declaration | rest] -> case declaration {
-      | TypedDataDeclaration span name parameters constructors -> if constructorExportPresentIn expected constructors then True else constructorExportPresent expected rest
+      | TypedDataDeclaration span name parameters constructors ->
+        if constructorExportPresentIn constructorIdentifier constructors then
+          listPrepend name (constructorOwnerCandidates constructorIdentifier rest)
+        else constructorOwnerCandidates constructorIdentifier rest
     }
   }.
 
-  exportPresent :: TypedModuleExport -> TypedModuleInterface -> Bool.
-  exportPresent = \(export, interface) -> case (export, interface) {
+  exportedConstructorOwnerCandidates :: [TypedModuleExport] -> [TypedCoreName] -> [TypedCoreName].
+  exportedConstructorOwnerCandidates = \(exports, candidates) -> case candidates {
+    | [] -> []
+    | [first | rest] ->
+      if moduleExportsName TypedTypeNamespace first exports then
+        listPrepend first (exportedConstructorOwnerCandidates exports rest)
+      else exportedConstructorOwnerCandidates exports rest
+  }.
+
+  interfaceConstructorOwner :: Text -> [TypedModuleExport] -> [TypedDataInterface] -> Maybe(TypedCoreName).
+  interfaceConstructorOwner = \(constructorIdentifier, exports, datas) -> {
+    candidates = constructorOwnerCandidates constructorIdentifier datas.
+    case exportedConstructorOwnerCandidates exports candidates {
+      | [owner] -> Just owner
+      | [] -> case candidates {
+        | [owner] -> Just owner
+        | other -> Nothing
+      }
+      | other -> Nothing
+    }.
+  }.
+
+  exportPresent :: [TypedModuleExport] -> TypedModuleExport -> TypedModuleInterface -> Bool.
+  exportPresent = \(exports, export, interface) -> case (export, interface) {
     | (TypedModuleExport namespace name, TypedModuleInterface values datas classes impls) -> case namespace {
       | TypedValueNamespace -> if valueExportPresent name values then True else classMethodExportPresent name classes
       | TypedTypeNamespace -> dataExportPresent name datas
-      | TypedConstructorNamespace -> constructorExportPresent name datas
+      | TypedConstructorNamespace -> case interfaceConstructorOwner name exports datas {
+        | Nothing -> False
+        | Just owner -> True
+      }
       | TypedCapabilityNamespace -> classExportPresent name classes
     }
   }.
 
-  validateExports :: TypedCoreValidationPath -> [TypedStatement] -> TypedModuleInterface -> [TypedModuleExport] -> [TypedCoreValidationFailure].
-  validateExports = \(path, statements, interface, exports) -> case exports {
+  validateExportsFrom :: TypedCoreValidationPath -> [TypedStatement] -> TypedModuleInterface -> [TypedModuleExport] -> [TypedModuleExport] -> [TypedCoreValidationFailure].
+  validateExportsFrom = \(path, statements, interface, allExports, exports) -> case exports {
     | [] -> []
     | [export | rest] -> case export {
       | TypedModuleExport namespace name -> listAppend
@@ -7015,12 +7043,16 @@ module TypedCoreValidate (
             if localClassExportPresent name statements classes then [] else
               [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))]
         }
-        else if exportPresent export interface then
+        else if exportPresent allExports export interface then
           []
         else [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace name))])
-        (validateExports path statements interface rest)
+        (validateExportsFrom path statements interface allExports rest)
     }
   }.
+
+  validateExports :: TypedCoreValidationPath -> [TypedStatement] -> TypedModuleInterface -> [TypedModuleExport] -> [TypedCoreValidationFailure].
+  validateExports = \(path, statements, interface, exports) ->
+    validateExportsFrom path statements interface exports exports.
 
   moduleExportEqual :: TypedModuleExport -> TypedModuleExport -> Bool.
   moduleExportEqual = \(left, right) -> case (left, right) {
@@ -7277,19 +7309,23 @@ module TypedCoreValidate (
   moduleOrderFailures = \(reachability, completeModules) ->
     moduleOrderFailuresFrom reachability completeModules [] completeModules.
 
-  selectedImportNamePresentInExports :: Text -> TypedModuleInterface -> [TypedModuleExport] -> Bool.
-  selectedImportNamePresentInExports = \(selectedName, interface, exports) -> case exports {
+  selectedImportNamePresentInExportsFrom :: Text -> TypedModuleInterface -> [TypedModuleExport] -> [TypedModuleExport] -> Bool.
+  selectedImportNamePresentInExportsFrom = \(selectedName, interface, allExports, exports) -> case exports {
     | [] -> False
     | [first | rest] -> case first {
       | TypedModuleExport namespace exportedName ->
         if selectedName == exportedName then
-          if nameNamespaceEqual namespace TypedValueNamespace then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else
-          if nameNamespaceEqual namespace TypedConstructorNamespace then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else
-          if nameNamespaceEqual namespace TypedCapabilityNamespace then if exportPresent first interface then True else selectedImportNamePresentInExports selectedName interface rest else
-          selectedImportNamePresentInExports selectedName interface rest
-        else selectedImportNamePresentInExports selectedName interface rest
+          if nameNamespaceEqual namespace TypedValueNamespace then if exportPresent allExports first interface then True else selectedImportNamePresentInExportsFrom selectedName interface allExports rest else
+          if nameNamespaceEqual namespace TypedConstructorNamespace then if exportPresent allExports first interface then True else selectedImportNamePresentInExportsFrom selectedName interface allExports rest else
+          if nameNamespaceEqual namespace TypedCapabilityNamespace then if exportPresent allExports first interface then True else selectedImportNamePresentInExportsFrom selectedName interface allExports rest else
+          selectedImportNamePresentInExportsFrom selectedName interface allExports rest
+        else selectedImportNamePresentInExportsFrom selectedName interface allExports rest
     }
   }.
+
+  selectedImportNamePresentInExports :: Text -> TypedModuleInterface -> [TypedModuleExport] -> Bool.
+  selectedImportNamePresentInExports = \(selectedName, interface, exports) ->
+    selectedImportNamePresentInExportsFrom selectedName interface exports exports.
 
   selectedImportNamePresent :: Text -> TypedModule -> Bool.
   selectedImportNamePresent = \(selectedName, moduleValue) -> case moduleValue {
@@ -7764,15 +7800,19 @@ module TypedCoreValidate (
     | [SchemeEntry binder scheme | rest] -> listAppend (schemeDataNameEntries (binderModulePathValue binder) scheme) (schemeEntryDataNameEntries rest)
   }.
 
-  interfaceConstructorEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> Text -> [TypedTypeParameterId] -> [TypedConstructorDeclaration] -> [DataEntry].
-  interfaceConstructorEntriesFrom = \(modulePath, selectedNames, exports, dataIdentifier, parameters, constructors) -> case constructors {
+  interfaceConstructorEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedDataInterface] -> TypedCoreName -> Text -> [TypedTypeParameterId] -> [TypedConstructorDeclaration] -> [DataEntry].
+  interfaceConstructorEntriesFrom = \(modulePath, selectedNames, exports, datas, dataName, dataIdentifier, parameters, constructors) -> case constructors {
     | [] -> []
     | [TypedConstructorDeclaration binder name fields recipes | rest] -> case coreNameIdentifier name {
-      | Nothing -> interfaceConstructorEntriesFrom modulePath selectedNames exports dataIdentifier parameters rest
-      | Just constructorIdentifier -> if selectedNameAllowed selectedNames name then if moduleExportsName TypedConstructorNamespace name exports then listPrepend
-        (ConstructorEntry modulePath constructorIdentifier binder dataIdentifier parameters (listMap (\(field) -> qualifyExternalType modulePath field) fields))
-        (interfaceConstructorEntriesFrom modulePath selectedNames exports dataIdentifier parameters rest)
-      else interfaceConstructorEntriesFrom modulePath selectedNames exports dataIdentifier parameters rest else interfaceConstructorEntriesFrom modulePath selectedNames exports dataIdentifier parameters rest
+      | Nothing -> interfaceConstructorEntriesFrom modulePath selectedNames exports datas dataName dataIdentifier parameters rest
+      | Just constructorIdentifier -> case interfaceConstructorOwner constructorIdentifier exports datas {
+        | Nothing -> interfaceConstructorEntriesFrom modulePath selectedNames exports datas dataName dataIdentifier parameters rest
+        | Just ownerName -> if coreNameEqual ownerName dataName then if selectedNameAllowed selectedNames name then if moduleExportsName TypedConstructorNamespace name exports then listPrepend
+          (ConstructorEntry modulePath constructorIdentifier binder dataIdentifier parameters (listMap (\(field) -> qualifyExternalType modulePath field) fields))
+          (interfaceConstructorEntriesFrom modulePath selectedNames exports datas dataName dataIdentifier parameters rest)
+        else interfaceConstructorEntriesFrom modulePath selectedNames exports datas dataName dataIdentifier parameters rest else interfaceConstructorEntriesFrom modulePath selectedNames exports datas dataName dataIdentifier parameters rest
+      else interfaceConstructorEntriesFrom modulePath selectedNames exports datas dataName dataIdentifier parameters rest
+      }
     }
   }.
 
@@ -7844,18 +7884,22 @@ module TypedCoreValidate (
     }
   }.
 
-  interfaceConstructorEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedDataInterface] -> [DataEntry].
-  interfaceConstructorEntries = \(modulePath, selectedNames, exports, datas) -> case datas {
+  interfaceConstructorEntriesFromDatas :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedDataInterface] -> [TypedDataInterface] -> [DataEntry].
+  interfaceConstructorEntriesFromDatas = \(modulePath, selectedNames, exports, allDatas, datas) -> case datas {
     | [] -> []
     | [TypedDataInterface declaration | rest] -> case declaration {
       | TypedDataDeclaration span name parameters constructors -> case coreNameIdentifier name {
-        | Nothing -> interfaceConstructorEntries modulePath selectedNames exports rest
+        | Nothing -> interfaceConstructorEntriesFromDatas modulePath selectedNames exports allDatas rest
         | Just identifier -> listAppend
-          (interfaceConstructorEntriesFrom modulePath selectedNames exports identifier parameters constructors)
-          (interfaceConstructorEntries modulePath selectedNames exports rest)
+          (interfaceConstructorEntriesFrom modulePath selectedNames exports allDatas name identifier parameters constructors)
+          (interfaceConstructorEntriesFromDatas modulePath selectedNames exports allDatas rest)
       }
     }
   }.
+
+  interfaceConstructorEntries :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [TypedDataInterface] -> [DataEntry].
+  interfaceConstructorEntries = \(modulePath, selectedNames, exports, datas) ->
+    interfaceConstructorEntriesFromDatas modulePath selectedNames exports datas datas.
 
   interfaceImplMethodEntriesFrom :: [Text] -> Maybe([Text]) -> [TypedModuleExport] -> [NameEntry] -> [TypedClassInterface] -> [TypedImplInterface] -> [TypedStatement] -> [DataEntry].
   interfaceImplMethodEntriesFrom = \(modulePath, selectedNames, exports, requiredCapabilities, classes, impls, statements) -> case impls {

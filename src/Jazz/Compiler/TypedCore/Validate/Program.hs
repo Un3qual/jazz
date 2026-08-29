@@ -764,6 +764,8 @@ interfaceConstructorEntries (modulePath, selectedNames, TypedModule _ _ _ export
     TypedConstructorDeclaration binderId constructorName fields _ <- constructors,
     importAllows selectedNames constructorName,
     moduleExportsName TypedConstructorNamespace constructorName exports,
+    constructorIdentifier <- maybeToList (coreNameIdentifier constructorName),
+    interfaceConstructorOwner exports datas constructorIdentifier == Just dataName,
     constructorKey <- maybeToList (definitionNameKey modulePath constructorName)
   ]
 
@@ -994,7 +996,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         TypedTypeNamespace
           | any (dataInterfaceNameMatches exportedName) datas -> []
         TypedConstructorNamespace
-          | any (dataInterfaceConstructorMatches exportedName) datas -> []
+          | interfaceConstructorOwner exports datas exportedName /= Nothing -> []
         TypedCapabilityNamespace
           | any (localClassInterfaceMatches exportedName) classes ->
               []
@@ -1091,3 +1093,24 @@ dataInterfaceConstructorMatches expected (TypedDataInterface (TypedDataDeclarati
   any constructorMatches constructors
   where
     constructorMatches (TypedConstructorDeclaration _ name _ _) = coreNameIdentifier name == Just expected
+
+interfaceConstructorOwner :: [TypedModuleExport] -> [TypedDataInterface] -> Text -> Maybe TypedCoreName
+interfaceConstructorOwner exports datas constructorIdentifier =
+  case exportedCandidates of
+    [owner] -> Just owner
+    [] ->
+      case candidates of
+        [owner] -> Just owner
+        _ -> Nothing
+    _ -> Nothing
+  where
+    candidates =
+      [ dataName
+      | dataInterface@(TypedDataInterface (TypedDataDeclaration _ dataName _ _)) <- datas,
+        dataInterfaceConstructorMatches constructorIdentifier dataInterface
+      ]
+    exportedCandidates =
+      [ dataName
+      | dataName <- candidates,
+        moduleExportsName TypedTypeNamespace dataName exports
+      ]

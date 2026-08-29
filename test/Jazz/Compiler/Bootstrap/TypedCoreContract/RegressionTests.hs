@@ -126,6 +126,7 @@ reviewRegressionGroups =
     (("matches module-qualified method keys to their full capability origin", testModuleQualifiedMethodKey), [moduleQualifiedMethodKeyProgram, forgedModuleQualifiedMethodKeyProgram]),
     (("retains imported data dependencies through exported schemes", testImportedDataDependencyMetadata), [importedDataDependencyProgram]),
     (("closes selected data contracts over field metadata", testTransitiveDataContractDependency), [transitiveDataContractDependencyProgram]),
+    (("preserves constructor ownership across private data dependencies", testTransitiveConstructorOwner), [transitiveConstructorOwnerProgram, priorDependencyConstructorOwnerProgram]),
     (("rejects imported capability dependencies that lose identity", testImportedCapabilityDependency), [importedCapabilityDependencyProgram]),
     (("keeps metadata-only impls out of evidence visibility", testMetadataOnlyImplVisibility), [metadataOnlyImplVisibilityProgram]),
     (("rejects expression-only metadata on patterns", testPatternExpressionMetadata), [patternExpressionMetadataProgram]),
@@ -2179,6 +2180,17 @@ testTransitiveDataContractDependency =
     "selected data contracts retain transitive field metadata"
     []
     (validateTypedProgram transitiveDataContractDependencyProgram)
+
+testTransitiveConstructorOwner :: IO ()
+testTransitiveConstructorOwner = do
+  assertEqual
+    "exported constructors retain their selected data owner after dependencies"
+    []
+    (validateTypedProgram transitiveConstructorOwnerProgram)
+  assertEqual
+    "exported constructors retain their selected data owner before dependencies"
+    []
+    (validateTypedProgram priorDependencyConstructorOwnerProgram)
 
 testImportedCapabilityDependency :: IO ()
 testImportedCapabilityDependency =

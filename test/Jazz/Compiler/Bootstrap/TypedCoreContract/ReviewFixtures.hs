@@ -6067,6 +6067,93 @@ transitiveDataContractDependencyProgram =
         [expressionStatement 1 (fixtureVariableExpr entryInfo importedValueName)]
         entryInfo
 
+transitiveConstructorOwnerProgram :: TypedProgram
+transitiveConstructorOwnerProgram =
+  constructorOwnerProgram "TransitiveConstructorOwner" "review-transitive-constructor-owner" False
+
+priorDependencyConstructorOwnerProgram :: TypedProgram
+priorDependencyConstructorOwnerProgram =
+  constructorOwnerProgram "PriorDependencyConstructorOwner" "review-prior-dependency-constructor-owner" True
+
+constructorOwnerProgram :: Text -> Text -> Bool -> TypedProgram
+constructorOwnerProgram libraryName fixtureName dependencyFirst =
+  TypedProgram Nothing [libraryModule, entryModule] entryPath
+  where
+    libraryPath = fixtureLibraryPath libraryName
+    entryPath = fixtureModulePath fixtureName
+    firstName = resolved TypedCurrentModule TypedTypeNamespace "A"
+    secondName = resolved TypedCurrentModule TypedTypeNamespace "B"
+    constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
+    firstOwner = binder libraryPath [if dependencyFirst then 1 else 0, 0] constructorName
+    secondOwner = binder libraryPath [if dependencyFirst then 0 else 1, 0] constructorName
+    secondType = TypedDataType secondName []
+    secondRecipe = TypedManagedVariantRecipe secondName []
+    firstDeclaration =
+      TypedDataDeclaration
+        span1
+        firstName
+        []
+        [ TypedConstructorDeclaration
+            firstOwner
+            constructorName
+            [secondType]
+            [secondRecipe]
+        ]
+    secondDeclaration =
+      TypedDataDeclaration
+        span1
+        secondName
+        []
+        [ TypedConstructorDeclaration
+            secondOwner
+            constructorName
+            [TypedTextType]
+            [TypedManagedTextRecipe]
+        ]
+    declarations
+      | dependencyFirst = [secondDeclaration, firstDeclaration]
+      | otherwise = [firstDeclaration, secondDeclaration]
+    libraryModule =
+      typedModule
+        libraryPath
+        (TypedSourcePath "src/Library/TransitiveConstructorOwner.jz")
+        []
+        [ TypedModuleExport TypedTypeNamespace "A",
+          TypedModuleExport TypedConstructorNamespace "C"
+        ]
+        ( TypedModuleInterface
+            []
+            (map TypedDataInterface declarations)
+            []
+            []
+        )
+        (map TypedDataStatement declarations)
+        unitInfo
+    importedFirstName =
+      resolved (TypedImportedModule libraryPath) TypedTypeNamespace "A"
+    importedSecondName =
+      resolved (TypedImportedModule libraryPath) TypedTypeNamespace "B"
+    importedConstructorName =
+      resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "C"
+    importedFirstType = TypedDataType importedFirstName []
+    importedSecondType = TypedDataType importedSecondName []
+    importedFirstRecipe = TypedManagedVariantRecipe importedFirstName []
+    importedSecondRecipe = TypedManagedVariantRecipe importedSecondName []
+    constructorInfo =
+      info
+        (TypedFunctionType importedSecondType importedFirstType)
+        (TypedClosureRecipe [importedSecondRecipe] importedFirstRecipe)
+    expression = fixtureBoundVariableExpr firstOwner constructorInfo importedConstructorName
+    entryModule =
+      typedModule
+        entryPath
+        relativeSource
+        [TypedResolvedImport span1 libraryPath Nothing (Just ["C"])]
+        []
+        emptyInterface
+        [expressionStatement 1 expression]
+        constructorInfo
+
 importedCapabilityFacadePath :: [Text]
 importedCapabilityFacadePath = (fixtureLibraryPath "ImportedCapabilityFacade")
 
