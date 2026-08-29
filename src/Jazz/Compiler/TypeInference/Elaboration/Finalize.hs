@@ -14,7 +14,7 @@ import Control.Monad (guard)
 import Data.Either (partitionEithers)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import Data.Maybe (maybeToList)
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -203,81 +203,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
 
-    typedExports (TypedModuleInterface _ datas _ _) =
-      map typedExport orderedModuleExports
-      where
-        typedExport (ModuleExport ConstructorNamespace name) =
-          case constructorExportOwner name of
-            Just owner -> TypedConstructorExport name owner
-            Nothing -> TypedModuleExport TypedConstructorNamespace name
-        typedExport (ModuleExport namespace name) =
-          TypedModuleExport (typedNamespace namespace) name
-
-        constructorExportOwner constructorIdentifier =
-          case Set.toList (Set.fromList (constructorOwnerClaims constructorIdentifier)) of
-            [owner] -> Just owner
-            _ -> Nothing
-
-        constructorOwnerClaims constructorIdentifier =
-          case coreModuleDeclaredExports (resolvedModuleCore resolvedModule) of
-            Nothing -> maybe [] pure (Map.lookup constructorIdentifier visibleConstructorOwners)
-            Just declaredExports ->
-              concatMap
-                (selectorConstructorOwners constructorIdentifier)
-                (declaredModuleExportSelectors declaredExports)
-
-        selectorConstructorOwners constructorIdentifier selector =
-          case selector of
-            ModuleExportSelector maybeNamespace name
-              | name == constructorIdentifier,
-                maybeNamespace `elem` [Nothing, Just ConstructorNamespace] ->
-                  maybe [] pure (Map.lookup constructorIdentifier visibleConstructorOwners)
-            ModuleTypeExportSelector typeName _ constructorSelector
-              | constructorSelectorIncludes typeName constructorIdentifier constructorSelector ->
-                  maybe [] pure (Map.lookup typeName dataNamesByIdentifier)
-            _ -> []
-
-        constructorSelectorIncludes typeName constructorIdentifier constructorSelector =
-          case constructorSelector of
-            AbstractType -> False
-            AllTypeConstructors _ ->
-              Set.member constructorIdentifier (Map.findWithDefault Set.empty typeName constructorsByDataIdentifier)
-            SelectedTypeConstructors constructors ->
-              any ((== constructorIdentifier) . locatedModuleExportName) (NonEmpty.toList constructors)
-
-        dataNamesByIdentifier =
-          Map.fromList
-            [ (identifier, dataName)
-            | TypedDataInterface (TypedDataDeclaration _ dataName _ _) <- datas,
-              identifier <- maybeToList (typedNameIdentifier dataName)
-            ]
-
-        constructorsByDataIdentifier =
-          Map.fromList
-            [ ( dataIdentifier,
-                Set.fromList
-                  [ constructorIdentifier
-                  | TypedConstructorDeclaration _ constructorName _ _ <- constructors,
-                    constructorIdentifier <- maybeToList (typedNameIdentifier constructorName)
-                  ]
-              )
-            | TypedDataInterface (TypedDataDeclaration _ dataName _ constructors) <- datas,
-              dataIdentifier <- maybeToList (typedNameIdentifier dataName)
-            ]
-
-        visibleConstructorOwners =
-          Map.fromList
-            [ (constructorIdentifier, dataName)
-            | TypedDataInterface (TypedDataDeclaration _ dataName _ constructors) <- datas,
-              TypedConstructorDeclaration _ constructorName _ _ <- constructors,
-              constructorIdentifier <- maybeToList (typedNameIdentifier constructorName)
-            ]
-
-        typedNameIdentifier name =
-          case name of
-            TypedResolvedName _ _ identifier -> Just identifier
-            TypedBuiltinName identifier -> Just identifier
-            _ -> Nothing
+    typedExports _ =
+      [ TypedModuleExport (typedNamespace namespace) name
+      | ModuleExport namespace name <- orderedModuleExports
+      ]
 
     typedNamespace namespace =
       case namespace of
@@ -2139,6 +2068,62 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               constructorName <- Set.toList constructorNames
             ]
 
+        constructorExportRepresentable constructorName =
+          case selectedConstructorOwner constructorName of
+            Just owner -> flattenedConstructorOwner constructorName == Just owner
+            Nothing -> False
+
+        selectedConstructorOwner constructorName =
+          case coreModuleDeclaredExports (resolvedModuleCore resolvedModule) of
+            Nothing -> Map.lookup constructorName visibleConstructorOwners
+            Just declaredExports ->
+              case Set.toList (Set.fromList (concatMap selectorOwners (declaredModuleExportSelectors declaredExports))) of
+                [owner] -> Just owner
+                _ -> Nothing
+          where
+            selectorOwners selector =
+              case selector of
+                ModuleExportSelector maybeNamespace name
+                  | name == constructorName,
+                    maybeNamespace `elem` [Nothing, Just ConstructorNamespace] ->
+                      maybe [] pure (Map.lookup constructorName visibleConstructorOwners)
+                ModuleTypeExportSelector typeName _ constructorSelector
+                  | constructorSelectorIncludes typeName constructorName constructorSelector ->
+                      [typeName]
+                _ -> []
+
+        constructorSelectorIncludes typeName constructorName constructorSelector =
+          case constructorSelector of
+            AbstractType -> False
+            AllTypeConstructors _ ->
+              Set.member constructorName (Map.findWithDefault Set.empty typeName constructorsByDataName)
+            SelectedTypeConstructors constructors ->
+              any ((== constructorName) . locatedModuleExportName) (NonEmpty.toList constructors)
+
+        constructorsByDataName =
+          Map.fromList
+            [ (typeName, constructorNames)
+            | (typeName, constructorNames, _) <- localDataDeclarations
+            ]
+
+        flattenedConstructorOwner constructorName =
+          case exportedCandidates of
+            [owner] -> Just owner
+            [] -> listToMaybe (reverse candidates)
+            _ -> Nothing
+          where
+            candidates =
+              [ typeName
+              | (typeName, constructorNames, _) <- localDataDeclarations,
+                Set.member typeName selectedDataNames,
+                Set.member constructorName constructorNames
+              ]
+            exportedCandidates =
+              [ typeName
+              | typeName <- candidates,
+                ModuleExport TypeNamespace typeName `elem` orderedModuleExports
+              ]
+
         selectedDataNames =
           closeDataNames
             ( Set.fromList
@@ -2253,7 +2238,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             Map.member name localDataByName =
               (failures, TypedModuleInterface values datas classes impls)
           | namespace == ConstructorNamespace,
-            Map.member name visibleConstructorOwners =
+            Map.member name visibleConstructorOwners,
+            constructorExportRepresentable name =
               (failures, TypedModuleInterface values datas classes impls)
           | otherwise =
               (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)

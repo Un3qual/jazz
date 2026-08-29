@@ -10,7 +10,7 @@ import Data.Graph (SCC (..), stronglyConnComp)
 import Data.List (nub)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -373,25 +373,22 @@ moduleExportsImportSelectorName :: Text -> TypedModule -> Bool
 moduleExportsImportSelectorName expected (TypedModule _ _ _ exports interface _ _ _) =
   any matchesExport exports
   where
-    matchesExport export =
-      let (namespace, exportedName) = moduleExportName export
-       in exportedName == expected
-            && namespace
-              `elem` [ TypedValueNamespace,
-                       TypedConstructorNamespace,
-                       TypedCapabilityNamespace
-                     ]
-            && interfaceContainsExport exports export interface
+    matchesExport export@(TypedModuleExport namespace exportedName) =
+      exportedName == expected
+        && namespace
+          `elem` [ TypedValueNamespace,
+                   TypedConstructorNamespace,
+                   TypedCapabilityNamespace
+                 ]
+        && interfaceContainsExport exports export interface
 
 interfaceContainsExport :: [TypedModuleExport] -> TypedModuleExport -> TypedModuleInterface -> Bool
-interfaceContainsExport exports export (TypedModuleInterface values datas classes _) =
+interfaceContainsExport exports (TypedModuleExport namespace expected) (TypedModuleInterface values datas classes _) =
   case namespace of
     TypedValueNamespace -> any (interfaceNameMatches expected) values || any (classInterfaceMethodMatches expected) classes
     TypedTypeNamespace -> any (dataInterfaceNameMatches expected) datas
     TypedConstructorNamespace -> interfaceConstructorOwner exports datas expected /= Nothing
     TypedCapabilityNamespace -> any (classInterfaceNameMatches expected) classes
-  where
-    (namespace, expected) = moduleExportName export
 
 validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateModuleResult compareMetadata modulePath statements moduleInfo =
@@ -844,7 +841,7 @@ moduleExportsName :: TypedNameNamespace -> TypedCoreName -> [TypedModuleExport] 
 moduleExportsName namespace name exports =
   case coreNameIdentifier name of
     Nothing -> False
-    Just identifier -> any ((== (namespace, identifier)) . moduleExportName) exports
+    Just identifier -> TypedModuleExport namespace identifier `elem` exports
 
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
 validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) _ statements _) =
@@ -863,6 +860,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         [ (name, scheme)
         | TypedLetStatement _ name _ scheme _ <- statements
         ]
+    exportSet = Set.fromList exports
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
@@ -938,8 +936,8 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
       resolvedNameKey modulePath name == resolvedNameKey modulePath capability
     duplicateExportFailures =
       snd (foldl' checkExport (Set.empty, []) exports)
-    checkExport (seen, failures) export
-      | Set.member exportName seen =
+    checkExport (seen, failures) export@(TypedModuleExport namespace exportedName)
+      | Set.member export seen =
           ( seen,
             failures
               <> [ failure
@@ -950,9 +948,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
                      )
                  ]
           )
-      | otherwise = (Set.insert exportName seen, failures)
-      where
-        exportName@(namespace, exportedName) = moduleExportName export
+      | otherwise = (Set.insert export seen, failures)
     duplicateInterfaceFailures =
       duplicateParameterFailures
         path
@@ -992,7 +988,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
            ]
     constructorDependencies (TypedConstructorDeclaration _ _ fields _) =
       concatMap (localDataDependencies modulePath) fields
-    validateExport export =
+    validateExport (TypedModuleExport namespace exportedName) =
       case namespace of
         TypedValueNamespace
           | valueExportProviderCount exportedName == 1 ->
@@ -1005,13 +1001,13 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           | any (localClassInterfaceMatches exportedName) classes ->
               []
         _ -> [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace exportedName))]
-      where
-        (namespace, exportedName) = moduleExportName export
     localClassInterfaceMatches exportedName (TypedClassInterface declaration) =
       declaration `elem` declaredClasses
         && classDeclarationMatches exportedName declaration
     interfaceExportsName namespace name =
-      moduleExportsName namespace name exports
+      case coreNameIdentifier name of
+        Nothing -> False
+        Just identifier -> Set.member (TypedModuleExport namespace identifier) exportSet
     valueExportProviders =
       Map.fromListWith
         Set.union
@@ -1100,13 +1096,9 @@ dataInterfaceConstructorMatches expected (TypedDataInterface (TypedDataDeclarati
 
 interfaceConstructorOwner :: [TypedModuleExport] -> [TypedDataInterface] -> Text -> Maybe TypedCoreName
 interfaceConstructorOwner exports datas constructorIdentifier =
-  case explicitOwners of
-    [owner]
-      | owner `elem` candidates -> Just owner
-    [] ->
-      case candidates of
-        [owner] -> Just owner
-        _ -> Nothing
+  case exportedCandidates of
+    [owner] -> Just owner
+    [] -> listToMaybe (reverse candidates)
     _ -> Nothing
   where
     candidates =
@@ -1114,17 +1106,8 @@ interfaceConstructorOwner exports datas constructorIdentifier =
       | dataInterface@(TypedDataInterface (TypedDataDeclaration _ dataName _ _)) <- datas,
         dataInterfaceConstructorMatches constructorIdentifier dataInterface
       ]
-    explicitOwners =
-      Set.toList
-        ( Set.fromList
-            [ owner
-            | TypedConstructorExport exportedIdentifier owner <- exports,
-              exportedIdentifier == constructorIdentifier
-            ]
-        )
-
-moduleExportName :: TypedModuleExport -> (TypedNameNamespace, Text)
-moduleExportName export =
-  case export of
-    TypedModuleExport namespace name -> (namespace, name)
-    TypedConstructorExport name _ -> (TypedConstructorNamespace, name)
+    exportedCandidates =
+      [ dataName
+      | dataName <- candidates,
+        moduleExportsName TypedTypeNamespace dataName exports
+      ]

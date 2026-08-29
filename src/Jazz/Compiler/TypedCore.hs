@@ -348,9 +348,7 @@ data TypedResolvedImport = TypedResolvedImport TypedSpan [Text] (Maybe Text) (Ma
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data TypedModuleExport
-  = TypedModuleExport TypedNameNamespace Text
-  | TypedConstructorExport Text TypedCoreName
+data TypedModuleExport = TypedModuleExport TypedNameNamespace Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

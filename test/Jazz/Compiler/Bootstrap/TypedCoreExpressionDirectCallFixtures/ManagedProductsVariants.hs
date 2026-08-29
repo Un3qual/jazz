@@ -982,8 +982,8 @@ managedExportedOptionProgram :: TypedProgram
 managedExportedOptionProgram =
   optionProgram
     [ TypedModuleExport TypedTypeNamespace "Option",
-      TypedConstructorExport "None" optionName,
-      TypedConstructorExport "Some" optionName
+      TypedModuleExport TypedConstructorNamespace "None",
+      TypedModuleExport TypedConstructorNamespace "Some"
     ]
     (TypedModuleInterface [] [TypedDataInterface optionDeclaration] [] [])
 

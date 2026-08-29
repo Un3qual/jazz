@@ -6077,26 +6077,10 @@ priorDependencyConstructorOwnerProgram =
 
 standaloneConstructorOwnerProgram :: TypedProgram
 standaloneConstructorOwnerProgram =
-  standaloneConstructorOwnerProgramWithExports
-    "StandaloneConstructorOwner"
-    "review-standalone-constructor-owner"
-    [TypedConstructorExport "C" (resolved TypedCurrentModule TypedTypeNamespace "B")]
-
-abstractTypeStandaloneConstructorOwnerProgram :: TypedProgram
-abstractTypeStandaloneConstructorOwnerProgram =
-  standaloneConstructorOwnerProgramWithExports
-    "AbstractTypeStandaloneConstructorOwner"
-    "review-abstract-type-standalone-constructor-owner"
-    [ TypedModuleExport TypedTypeNamespace "A",
-      TypedConstructorExport "C" (resolved TypedCurrentModule TypedTypeNamespace "B")
-    ]
-
-standaloneConstructorOwnerProgramWithExports :: Text -> Text -> [TypedModuleExport] -> TypedProgram
-standaloneConstructorOwnerProgramWithExports libraryName fixtureName exports =
   TypedProgram Nothing [libraryModule, entryModule] entryPath
   where
-    libraryPath = fixtureLibraryPath libraryName
-    entryPath = fixtureModulePath fixtureName
+    libraryPath = fixtureLibraryPath "StandaloneConstructorOwner"
+    entryPath = fixtureModulePath "review-standalone-constructor-owner"
     firstName = resolved TypedCurrentModule TypedTypeNamespace "A"
     secondName = resolved TypedCurrentModule TypedTypeNamespace "B"
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
@@ -6119,9 +6103,9 @@ standaloneConstructorOwnerProgramWithExports libraryName fixtureName exports =
     libraryModule =
       typedModule
         libraryPath
-        (TypedSourcePath ("src/Library/" <> libraryName <> ".jz"))
+        (TypedSourcePath "src/Library/StandaloneConstructorOwner.jz")
         []
-        exports
+        [TypedModuleExport TypedConstructorNamespace "C"]
         ( TypedModuleInterface
             []
             [ TypedDataInterface firstDeclaration,
@@ -6251,7 +6235,7 @@ constructorOwnerProgram libraryName fixtureName dependencyFirst =
         (TypedSourcePath "src/Library/TransitiveConstructorOwner.jz")
         []
         [ TypedModuleExport TypedTypeNamespace "A",
-          TypedConstructorExport "C" firstName
+          TypedModuleExport TypedConstructorNamespace "C"
         ]
         ( TypedModuleInterface
             []

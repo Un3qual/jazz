@@ -174,8 +174,6 @@ supportedModuleMetadata imports exports (TypedModuleInterface values datas class
         TypedTypeNamespace -> any (dataNameMatches identifier) datas
         TypedConstructorNamespace -> any (dataConstructorMatches identifier) datas
         TypedCapabilityNamespace -> False
-    supportedExport (TypedConstructorExport identifier owner) =
-      any (ownedDataConstructorMatches owner identifier) datas
     supportedInterfaceValue (TypedValueInterface name _) =
       any ((== name) . functionShapeName) sourceFunctions
     supportedDataInterface (TypedDataInterface (TypedDataDeclaration _ name _ constructors)) =
@@ -194,11 +192,6 @@ supportedModuleMetadata imports exports (TypedModuleInterface values datas class
       any
         (\(TypedConstructorDeclaration _ name _ _) -> name == TypedResolvedName TypedCurrentModule TypedConstructorNamespace identifier)
         constructors
-    ownedDataConstructorMatches owner identifier (TypedDataInterface (TypedDataDeclaration _ name _ constructors)) =
-      name == owner
-        && any
-          (\(TypedConstructorDeclaration _ constructorName _ _) -> constructorName == TypedResolvedName TypedCurrentModule TypedConstructorNamespace identifier)
-          constructors
     matchesIdentifier identifier name =
       case name of
         TypedResolvedName TypedCurrentModule TypedValueNamespace candidate ->
