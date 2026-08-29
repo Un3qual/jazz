@@ -200,13 +200,11 @@ testScalarPatternCaseProducerBoundaries = do
   where
     expectedSourceFailures =
       [ ("pattern-case-managed-scrutinee", [profileFailure 0]),
-        ("pattern-case-constructor-pattern", [profileFailure 1]),
         ( "pattern-case-list-pattern",
           [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             profileFailure 0
           ]
         ),
-        ("pattern-case-tuple-pattern", [profileFailure 0]),
         ("pattern-case-as-pattern", [profileFailure 0]),
         ("pattern-case-or-pattern", [profileFailure 0])
       ]

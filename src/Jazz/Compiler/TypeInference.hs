@@ -947,6 +947,7 @@ inferExprTypeDetailed builtinMode env state expr =
         <> maybe [] (prefixFailures [armIndex + 1, 1]) maybeBodyResult
 
     scalarPatternCaseProfileFailures finalState scrutineeType caseArms
+      | managedPatternCaseScrutinee finalState scrutineeType = []
       | supportedScalarScrutinee finalState scrutineeType
           && supportedScalarArms caseArms =
           []
@@ -956,6 +957,12 @@ inferExprTypeDetailed builtinMode env state expr =
               TypedCorePatternCaseUnsupported
               TypedCorePatternCaseDetail
           ]
+
+    managedPatternCaseScrutinee finalState scrutineeType =
+      case resolveType finalState scrutineeType of
+        TDataType {} -> True
+        TTupleType (_ : _) -> True
+        _ -> False
 
     supportedScalarScrutinee finalState scrutineeType =
       case resolveType finalState scrutineeType of

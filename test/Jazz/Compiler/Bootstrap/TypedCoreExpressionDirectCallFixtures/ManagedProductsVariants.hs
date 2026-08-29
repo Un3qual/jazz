@@ -22,6 +22,27 @@ managedProductVariantFixtures =
     ("managed-pair-conditional-join", sourceFixtureNoExports "managed-pair-conditional-join" managedPairConditionalJoinSource),
     ("managed-pair-scalar-case-join", sourceFixtureNoExports "managed-pair-scalar-case-join" managedPairScalarCaseJoinSource),
     ("managed-box-capture", sourceFixtureNoExports "managed-box-capture" managedBoxCaptureSource),
+    ( "managed-as-constructor-tuple-pattern",
+      sourceFixtureNoExports "managed-as-constructor-tuple-pattern" managedAsConstructorTuplePatternSource
+    ),
+    ( "managed-top-level-or-pattern",
+      sourceFixtureNoExports "managed-top-level-or-pattern" managedTopLevelOrPatternSource
+    ),
+    ( "managed-list-pattern-boundary",
+      sourceFixtureNoExports "managed-list-pattern-boundary" managedListPatternBoundarySource
+    ),
+    ( "managed-cons-pattern-boundary",
+      sourceFixtureNoExports "managed-cons-pattern-boundary" managedConsPatternBoundarySource
+    ),
+    ( "managed-text-literal-pattern-boundary",
+      sourceFixtureNoExports "managed-text-literal-pattern-boundary" managedTextLiteralPatternBoundarySource
+    ),
+    ( "managed-nested-or-pattern-boundary",
+      sourceFixtureNoExports "managed-nested-or-pattern-boundary" managedNestedOrPatternBoundarySource
+    ),
+    ( "managed-pattern-lambda-boundary",
+      sourceFixtureNoExports "managed-pattern-lambda-boundary" managedPatternLambdaBoundarySource
+    ),
     ( "managed-tuple-child-failure",
       sourceFixtureNoExports "managed-tuple-child-failure" retainedTupleChildFailureSource
     ),
@@ -75,7 +96,9 @@ managedProductVariantExpectedPrograms =
     ("managed-pair-recursive-capture", managedPairRecursiveCaptureProgram),
     ("managed-pair-conditional-join", managedPairConditionalJoinProgram),
     ("managed-pair-scalar-case-join", managedPairScalarCaseJoinProgram),
-    ("managed-box-capture", managedBoxCaptureProgram)
+    ("managed-box-capture", managedBoxCaptureProgram),
+    ("managed-as-constructor-tuple-pattern", managedAsConstructorTuplePatternProgram),
+    ("managed-top-level-or-pattern", managedTopLevelOrPatternProgram)
   ]
 
 managedProductVariantExpectedLoweredPrograms :: [(Text, LoweredProgram)]
@@ -818,6 +841,148 @@ managedTupleProgram =
         []
         []
 
+managedAsConstructorTuplePatternProgram :: TypedProgram
+managedAsConstructorTuplePatternProgram =
+  managedProgram
+    [ TypedDataStatement maybeDeclaration,
+      TypedLetStatement
+        subjectBinder
+        subjectName
+        (TypedSpan 3 1)
+        (valueScheme subjectBinder maybeTupleInfo)
+        (constructorCall justBinder justName maybeTupleInfo [tupleInfo] [subjectTuple]),
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (TypedVariableExpr maybeTupleInfo subjectName (Just subjectBinder))
+            [ TypedCaseArm
+                ( TypedAsPattern
+                    maybeTupleInfo
+                    wholeBinder
+                    wholeName
+                    ( TypedConstructorPattern
+                        maybeTupleInfo
+                        justName
+                        [ TypedTuplePattern
+                            tupleInfo
+                            [ TypedVariablePattern int64Info itemBinder itemName,
+                              TypedLiteralPattern boolInfo (TypedBooleanLiteral True)
+                            ]
+                        ]
+                    )
+                )
+                Nothing
+                (TypedVariableExpr int64Info itemName (Just itemBinder)),
+              TypedCaseArm
+                (TypedConstructorPattern maybeTupleInfo nothingName [])
+                Nothing
+                (int64Expr 0),
+              TypedCaseArm
+                ( TypedConstructorPattern
+                    maybeTupleInfo
+                    justName
+                    [ TypedTuplePattern
+                        tupleInfo
+                        [ TypedWildcardPattern int64Info,
+                          TypedLiteralPattern boolInfo (TypedBooleanLiteral False)
+                        ]
+                    ]
+                )
+                Nothing
+                (int64Expr 1)
+            ]
+        )
+    ]
+    int64Info
+  where
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    maybeName = typeName "Maybe"
+    nothingName = constructorName "Nothing"
+    justName = constructorName "Just"
+    nothingBinder = constructorBinder 0 nothingName
+    justBinder = constructorBinder 1 justName
+    maybeDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        maybeName
+        [parameter]
+        [ TypedConstructorDeclaration nothingBinder nothingName [] [],
+          TypedConstructorDeclaration justBinder justName [parameterType] [TypedRepresentationParameterRecipe parameter]
+        ]
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedNumericType TypedInt64Type, TypedBoolType])
+        (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedBoolRecipe])
+        []
+        []
+    maybeTupleInfo = variantInfo maybeName [typedExpressionType tupleInfo]
+    subjectName = valueName "subject"
+    subjectBinder = statementBinder 1 subjectName
+    subjectTuple = TypedTupleExpr tupleInfo [int64Expr 41, boolExpr True]
+    wholeName = valueName "whole"
+    wholeBinder = TypedBinderId (modulePath, [2, 0], wholeName)
+    itemName = valueName "item"
+    itemBinder = TypedBinderId (modulePath, [2, 0, 0, 0, 0], itemName)
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedTopLevelOrPatternProgram :: TypedProgram
+managedTopLevelOrPatternProgram =
+  managedProgram
+    [ TypedDataStatement choiceDeclaration,
+      TypedLetStatement
+        subjectBinder
+        subjectName
+        (TypedSpan 3 1)
+        (valueScheme subjectBinder choiceIntInfo)
+        (constructorCall rightBinder rightName choiceIntInfo [int64Info] [int64Expr 7]),
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (TypedVariableExpr choiceIntInfo subjectName (Just subjectBinder))
+            [ TypedCaseArm
+                ( TypedOrPattern
+                    choiceIntInfo
+                    [ TypedConstructorPattern choiceIntInfo leftName [TypedVariablePattern int64Info leftItemBinder itemName],
+                      TypedConstructorPattern choiceIntInfo rightName [TypedVariablePattern int64Info rightItemBinder itemName]
+                    ]
+                )
+                Nothing
+                (TypedVariableExpr int64Info itemName (Just leftItemBinder))
+            ]
+        )
+    ]
+    int64Info
+  where
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    choiceName = typeName "Choice"
+    leftName = constructorName "Left"
+    rightName = constructorName "Right"
+    leftBinder = constructorBinder 0 leftName
+    rightBinder = constructorBinder 1 rightName
+    choiceDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        choiceName
+        [parameter]
+        [ TypedConstructorDeclaration leftBinder leftName [parameterType] [TypedRepresentationParameterRecipe parameter],
+          TypedConstructorDeclaration rightBinder rightName [parameterType] [TypedRepresentationParameterRecipe parameter]
+        ]
+    choiceIntInfo = variantInfo choiceName [TypedNumericType TypedInt64Type]
+    subjectName = valueName "subject"
+    subjectBinder = statementBinder 1 subjectName
+    itemName = valueName "item"
+    leftItemBinder = TypedBinderId (modulePath, [2, 0, 0, 0], itemName)
+    rightItemBinder = TypedBinderId (modulePath, [2, 0, 1, 0], itemName)
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
 managedOptionProgram :: TypedProgram
 managedOptionProgram = optionProgram [] (TypedModuleInterface [] [] [] [])
 
@@ -1528,6 +1693,42 @@ managedExportedOptionSource =
       "data Option a = None | Some a.",
       "Some 7.",
       "}"
+    ]
+
+managedAsConstructorTuplePatternSource, managedTopLevelOrPatternSource, managedListPatternBoundarySource, managedConsPatternBoundarySource, managedTextLiteralPatternBoundarySource, managedNestedOrPatternBoundarySource, managedPatternLambdaBoundarySource :: Text
+managedAsConstructorTuplePatternSource =
+  Text.unlines
+    [ "data Maybe a = Nothing | Just a.",
+      "subject = Just (41, True).",
+      "case subject {",
+      "  | whole @ Just (item, True) -> item",
+      "  | Nothing -> 0",
+      "  | Just (_, False) -> 1",
+      "}."
+    ]
+managedTopLevelOrPatternSource =
+  Text.unlines
+    [ "data Choice a = Left a | Right a.",
+      "subject = Right 7.",
+      "case subject {",
+      "  | Left item | Right item -> item",
+      "}."
+    ]
+managedListPatternBoundarySource = "case [1] { | [item] -> item | _ -> 0 }."
+managedConsPatternBoundarySource = "case [1, 2] { | [head | tail] -> head | _ -> 0 }."
+managedTextLiteralPatternBoundarySource = "case \"managed\" { | \"managed\" -> 1 | _ -> 0 }."
+managedNestedOrPatternBoundarySource =
+  Text.unlines
+    [ "data Choice a = Left a | Right a.",
+      "data Holder a = Holder Choice(a).",
+      "subject = Holder (Right 7).",
+      "case subject { | Holder (Left item | Right item) -> item }."
+    ]
+managedPatternLambdaBoundarySource =
+  Text.unlines
+    [ "data Choice a = Left a | Right a.",
+      "choose = \\|(Left item) -> item | (Right item) -> item.",
+      "choose (Right 7)."
     ]
 
 managedPairBindingSource, managedPairIdentitySource, managedPairDirectTailSource, managedPairRecursiveCaptureSource, managedPairConditionalJoinSource, managedPairScalarCaseJoinSource, managedBoxCaptureSource :: Text

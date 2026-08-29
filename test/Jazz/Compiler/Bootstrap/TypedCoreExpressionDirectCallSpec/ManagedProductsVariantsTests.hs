@@ -14,6 +14,8 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProd
   )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixture, sourceFixtureNoExports)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
+import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
+import Jazz.Compiler.Diagnostics (diagnosticCode)
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
@@ -58,13 +60,44 @@ testManagedProductVariantRetention = do
   assertBoundary
     "managed-variant-equality-failure"
     [expressionFailure 1 [] TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail]
-  assertBoundary
-    "managed-tuple-pattern-failure"
-    [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
-  assertBoundary
-    "managed-constructor-pattern-failure"
-    [expressionFailure 1 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+  testManagedPatternProducerBoundaries
 
+testManagedPatternProducerBoundaries :: IO ()
+testManagedPatternProducerBoundaries = do
+  assertNestedOrSourceBoundary
+  mapM_ (uncurry assertBoundary) producerBoundaryExpectations
+  where
+    producerBoundaryExpectations =
+      [ ( "managed-list-pattern-boundary",
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
+          ]
+        ),
+        ( "managed-cons-pattern-boundary",
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
+          ]
+        ),
+        ( "managed-text-literal-pattern-boundary",
+          [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+        ),
+        ( "managed-pattern-lambda-boundary",
+          [ statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "choose"),
+            expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+            expressionFailure 1 [0] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+            expressionFailure 2 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
+          ]
+        )
+      ]
+    assertNestedOrSourceBoundary = do
+      resolution <- resolveFixture (managedProductVariantFixture "managed-nested-or-pattern-boundary")
+      case resolution of
+        Left diagnostic ->
+          assertEqual
+            "managed-nested-or-pattern boundary code"
+            "E4004"
+            (diagnosticCodeText (diagnosticCode diagnostic))
+        Right _ -> failTest "managed-nested-or-pattern-boundary unexpectedly resolved"
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =
   mapM_ assertProduced managedProductVariantExpectedPrograms
