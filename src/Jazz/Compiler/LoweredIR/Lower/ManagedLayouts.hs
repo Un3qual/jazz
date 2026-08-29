@@ -396,7 +396,7 @@ recipeForType typeValue =
     TypedBoolType -> Just TypedBoolRecipe
     TypedCharType -> Just TypedCharRecipe
     TypedTextType -> Just TypedManagedTextRecipe
-    TypedListType element -> TypedManagedListRecipe <$> recipeForType element
+    TypedListType _ -> Nothing
     TypedTupleType elements ->
       case elements of
         [] -> Just TypedUnitRecipe

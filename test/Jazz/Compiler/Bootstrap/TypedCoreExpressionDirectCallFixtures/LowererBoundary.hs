@@ -132,6 +132,7 @@ managedConstructionLowererBoundaryPrograms =
   [ ("managed-bare-nonnullary-constructor-lowerer", managedBareConstructorLowererProgram),
     ("managed-partial-constructor-lowerer", managedPartialConstructorLowererProgram),
     ("managed-unsupported-field-recipe-lowerer", managedUnsupportedFieldRecipeLowererProgram),
+    ("managed-unsupported-phantom-list-argument-lowerer", managedUnsupportedPhantomListArgumentLowererProgram),
     ("managed-product-equality-lowerer", managedProductEqualityLowererProgram),
     ("managed-variant-equality-lowerer", managedVariantEqualityLowererProgram)
   ]
@@ -221,6 +222,29 @@ managedUnsupportedFieldRecipeLowererProgram =
             [TypedListType TypedIntType]
             [listRecipe]
         ]
+
+managedUnsupportedPhantomListArgumentLowererProgram :: TypedProgram
+managedUnsupportedPhantomListArgumentLowererProgram =
+  ManagedProductsVariants.managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 2 1)
+        expression
+    ]
+    (typedExpressionInfo expression)
+  where
+    parameter = TypedTypeParameterId 0
+    phantomName = ManagedProductsVariants.typeName "Phantom"
+    constructor = ManagedProductsVariants.constructorName "Phantom"
+    binder = ManagedProductsVariants.constructorBinder 0 constructor
+    phantomListInfo = ManagedProductsVariants.variantInfo phantomName [TypedListType TypedIntType]
+    expression = ManagedProductsVariants.constructorCall binder constructor phantomListInfo [] []
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 1 1)
+        phantomName
+        [parameter]
+        [TypedConstructorDeclaration binder constructor [] []]
 
 managedProductEqualityLowererProgram :: TypedProgram
 managedProductEqualityLowererProgram =

@@ -138,6 +138,18 @@ testManagedConstructionLowererBoundaries =
               (LoweredIRRecipeFailureDetail (TypedManagedListRecipe (TypedSignedIntegerRecipe 64)))
           ]
         ),
+        ( "managed-unsupported-phantom-list-argument-lowerer",
+          [ lowererExpressionFailure
+              1
+              LoweredIRUnsupportedRepresentation
+              ( LoweredIRRecipeFailureDetail
+                  ( TypedManagedVariantRecipe
+                      (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Phantom")
+                      [TypedListType TypedIntType]
+                  )
+              )
+          ]
+        ),
         ( "managed-product-equality-lowerer",
           [ LoweredIRLoweringFailure
               (TypedExpressionPath ["App", "Main"] [0] [0])
