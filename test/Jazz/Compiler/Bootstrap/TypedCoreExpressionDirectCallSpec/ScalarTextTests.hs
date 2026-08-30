@@ -16,6 +16,7 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
+import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule)
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
@@ -148,8 +149,27 @@ testScalarPatternCaseProduction =
 
 testScalarPatternCaseLowererBoundary :: IO ()
 testScalarPatternCaseLowererBoundary =
-  mapM_ assertBoundary expectedResults
+  mapM_
+    assertManagedSuccess
+    [ "pattern-case-constructor-lowerer",
+      "pattern-case-tuple-lowerer"
+    ]
+    >> mapM_ assertBoundary expectedResults
   where
+    assertManagedSuccess name =
+      case lookup name scalarPatternCaseLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " pattern-case lowerer boundary program is missing")
+        Just programValue -> do
+          let firstLowering = lowerTypedCoreExpressionDirectCall programValue
+              secondLowering = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable lowerer success") firstLowering secondLowering
+          case firstLowering of
+            LoweredIRSucceeded loweredProgram ->
+              assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
+            lowering ->
+              failTest (name <> " did not lower: " <> Text.pack (show lowering))
+
     assertBoundary (name, expectedFailures) =
       case lookup name scalarPatternCaseLowererBoundaryPrograms of
         Nothing -> failTest (name <> " pattern-case lowerer boundary program is missing")
@@ -157,6 +177,17 @@ testScalarPatternCaseLowererBoundary =
           let firstLowering = lowerTypedCoreExpressionDirectCall programValue
               secondLowering = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
+          case programValue of
+            TypedProgram _ [moduleValue] _ ->
+              case analyzeTypedModule moduleValue of
+                Left analysisFailures ->
+                  assertEqual
+                    (name <> " exact analysis rejection")
+                    expectedFailures
+                    analysisFailures
+                Right _ ->
+                  failTest (name <> " unexpectedly passed lowering analysis")
+            _ -> failTest (name <> " must contain exactly one typed module")
           assertEqual (name <> " repeatable lowerer rejection") firstLowering secondLowering
           assertEqual
             (name <> " exact lowerer rejection")
@@ -164,11 +195,7 @@ testScalarPatternCaseLowererBoundary =
             firstLowering
 
     expectedResults =
-      [ ( "pattern-case-constructor-lowerer",
-          [patternFailure [1] [0, 0]]
-        ),
-        unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
-        unsupportedPattern "pattern-case-tuple-lowerer" [0] [0, 0],
+      [ unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-as-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-or-lowerer" [0] [0, 0],
         incompleteCase "pattern-case-final-literal-lowerer",
@@ -200,13 +227,11 @@ testScalarPatternCaseProducerBoundaries = do
   where
     expectedSourceFailures =
       [ ("pattern-case-managed-scrutinee", [profileFailure 0]),
-        ("pattern-case-constructor-pattern", [profileFailure 1]),
         ( "pattern-case-list-pattern",
           [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
             profileFailure 0
           ]
         ),
-        ("pattern-case-tuple-pattern", [profileFailure 0]),
         ("pattern-case-as-pattern", [profileFailure 0]),
         ("pattern-case-or-pattern", [profileFailure 0])
       ]

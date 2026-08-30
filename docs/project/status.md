@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-27
+Updated: 2026-08-29
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -70,11 +70,17 @@ variants nominal semantic identities, and constructors declaration-ordered
 zero-based tags; it emits deduplicated layouts deterministically and evaluates
 every field exactly once from left to right.
 
-Constructor and tuple destructuring patterns and other managed scrutinees remain
-deferred pending the separately ordered RFC 0015 pattern child. Lists and list
-fields, product or variant equality, first-class non-nullary constructors,
-pattern-lambda backend lowering, Text uncons/from-chars/concat/I/O, imported
-data, complete multi-module integration, later or interleaved external
-captures, and scalar exports remain excluded. No managed product or variant
-work adds a `RuntimeHost` operation, runtime ABI, or native execution path.
-Ordinary compile and run modes remain on canonical core and the interpreter.
+The same opt-in path now supports wildcard, variable, immediate scalar literal,
+constructor, tuple, as-, and top-level or-pattern cases, including nested
+constructor and tuple patterns. It independently proves totality from Typed
+Core: guarded rows do not cover, complete local constructor sets need no
+synthetic wildcard, and incomplete arbitrary Typed Core fails closed. Emission
+retains source arm order, tests a variant tag before projecting any field, and
+keeps matched binders local to the selected guard and body.
+
+Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
+imported or multi-module data, product or variant equality, runtime ABI/native
+execution, and ordinary compile/run cutover remain unshipped. No managed
+product or variant work adds a `RuntimeHost` operation, runtime ABI, or native
+execution path; ordinary compile and run modes remain on canonical core and the
+reference interpreter.

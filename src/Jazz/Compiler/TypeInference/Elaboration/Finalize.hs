@@ -60,6 +60,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Specialize
     specializeProvisionalCallableCapture,
     specializeProvisionalExpression,
     specializeProvisionalParameterReferences,
+    specializeProvisionalParameterReferencesByName,
   )
 import Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   ( StructuredConstructor (..),
@@ -100,6 +101,8 @@ import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgramOnce,
   )
+
+data PatternBinding = PatternBinding Name TypedBinderId ExpressionType
 
 -- | Finalize once while retaining the opaque validation proof for a trusted
 -- downstream lowering handoff. The public status keeps exposing the exact raw
@@ -629,13 +632,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (childLocation [0] ScalarExpression)
                   scrutinee
               (armFailures, maybeArms) =
-                case maybeScrutinee of
-                  Just typedScrutinee ->
-                    finalizePatternCaseArms
-                      (defaultScalarLiterals <$> provisionalExpressionType finalizationState scrutinee)
-                      (typedExpressionInfo typedScrutinee)
-                      arms
-                  Nothing -> ([], Nothing)
+                finalizePatternCaseArms
+                  (defaultScalarLiterals <$> provisionalExpressionType finalizationState scrutinee)
+                  arms
               failures =
                 infoFailures
                   <> scrutineeFailures
@@ -671,30 +670,17 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               finalizationExpressionRole = role
             }
 
-        finalizePatternCaseArms maybeScrutineeType scrutineeInfo arms' =
-          let finalized = zipWith (finalizePatternCaseArm maybeScrutineeType scrutineeInfo) [0 ..] arms'
+        finalizePatternCaseArms maybeScrutineeType arms' =
+          let finalized = zipWith (finalizePatternCaseArm maybeScrutineeType) [0 ..] arms'
               failures = concatMap fst finalized
               maybeArms = traverse snd finalized
            in (failures, maybeArms)
 
-        finalizePatternCaseArm maybeScrutineeType scrutineeInfo armIndex (ProvisionalPatternCaseArm pattern maybeGuard body) =
+        finalizePatternCaseArm maybeScrutineeType armIndex (ProvisionalPatternCaseArm pattern maybeGuard body) =
           let patternPath = childPath <> [armIndex]
-              (patternFailures, maybePattern, armParameters) =
-                case pattern of
-                  PWildcard -> ([], Just (TypedWildcardPattern scrutineeInfo), parameterBindings)
-                  PVariable name ->
-                    let typedName = resolvedValueName name
-                        owner = binderAt statementIndex patternPath typedName
-                     in ( [],
-                          Just (TypedVariablePattern scrutineeInfo owner typedName),
-                          Map.insert name owner parameterBindings
-                        )
-                  PLiteral literal ->
-                    case typedLiteral statementIndex patternPath literal scrutineeInfo of
-                      Left failure -> ([failure], Nothing, parameterBindings)
-                      Right literalValue ->
-                        ([], Just (TypedLiteralPattern scrutineeInfo literalValue), parameterBindings)
-                  _ ->
+              (patternFailures, maybePattern, armParameters, canonicalBindings) =
+                case maybeScrutineeType of
+                  Nothing ->
                     ( [ failureAt
                           statementIndex
                           patternPath
@@ -702,47 +688,168 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           TypedCorePatternCaseDetail
                       ],
                       Nothing,
-                      parameterBindings
+                      parameterBindings,
+                      []
                     )
+                  Just scrutineeType ->
+                    case finalizeTopLevelPattern patternPath scrutineeType pattern of
+                      Left failure -> ([failure], Nothing, parameterBindings, [])
+                      Right (typedPattern, patternBindings) ->
+                        ( [],
+                          Just typedPattern,
+                          foldl'
+                            (\bindings (PatternBinding name owner _) -> Map.insert name owner bindings)
+                            parameterBindings
+                            patternBindings,
+                          patternBindings
+                        )
               specializeArmExpression armExpression =
-                case (pattern, maybeScrutineeType) of
-                  (PVariable name, Just scrutineeType) ->
-                    specializeProvisionalParameterReferences
-                      finalizationState
-                      name
-                      scrutineeType
-                      armExpression
-                  _ -> armExpression
+                specializeProvisionalParameterReferencesByName
+                  finalizationState
+                  ( Map.fromList
+                      [ (name, patternType)
+                      | PatternBinding name _ patternType <- canonicalBindings
+                      ]
+                  )
+                  armExpression
+              armExpressionAvailable armExpression =
+                case maybePattern of
+                  Just _ -> True
+                  Nothing ->
+                    Set.disjoint
+                      (patternBinderNames pattern)
+                      (provisionalFreeNames armExpression)
               (guardFailures, maybeTypedGuard) =
                 case maybeGuard of
                   Nothing -> ([], Just Nothing)
-                  Just guardExpression ->
-                    let (childGuardFailures, typedGuard) =
-                          finalizeExpression
-                            structuredCatalog
-                            finalizationEnv
-                            ( finalizationLocation
-                                { finalizationChildPath = childPath <> [armIndex + 1, 0],
-                                  finalizationParameters = armParameters,
-                                  finalizationExpressionRole = ScalarExpression
-                                }
-                            )
-                            (specializeArmExpression guardExpression)
-                     in (childGuardFailures, Just <$> typedGuard)
+                  Just guardExpression
+                    | armExpressionAvailable guardExpression ->
+                        let (childGuardFailures, typedGuard) =
+                              finalizeExpression
+                                structuredCatalog
+                                finalizationEnv
+                                ( finalizationLocation
+                                    { finalizationChildPath = childPath <> [armIndex + 1, 0],
+                                      finalizationParameters = armParameters,
+                                      finalizationExpressionRole = ScalarExpression
+                                    }
+                                )
+                                (specializeArmExpression guardExpression)
+                         in (childGuardFailures, Just <$> typedGuard)
+                  Just _ -> ([], Nothing)
               (bodyFailures, maybeTypedBody) =
-                finalizeExpression
-                  structuredCatalog
-                  finalizationEnv
-                  ( finalizationLocation
-                      { finalizationChildPath = childPath <> [armIndex + 1, 1],
-                        finalizationParameters = armParameters,
-                        finalizationExpressionRole = ScalarExpression
-                      }
-                  )
-                  (specializeArmExpression body)
+                if armExpressionAvailable body
+                  then
+                    finalizeExpression
+                      structuredCatalog
+                      finalizationEnv
+                      ( finalizationLocation
+                          { finalizationChildPath = childPath <> [armIndex + 1, 1],
+                            finalizationParameters = armParameters,
+                            finalizationExpressionRole = ScalarExpression
+                          }
+                      )
+                      (specializeArmExpression body)
+                  else ([], Nothing)
               failures = patternFailures <> guardFailures <> bodyFailures
               typedArm = TypedCaseArm <$> maybePattern <*> maybeTypedGuard <*> maybeTypedBody
            in (failures, if null failures then typedArm else Nothing)
+
+        finalizeTopLevelPattern patternPath expressionType patternValue =
+          case patternValue of
+            POr alternatives -> do
+              patternInfo <- patternNodeInfo patternPath expressionType
+              alternativesWithBindings <- traverse (uncurry finalizeAlternative) (zip [0 ..] alternatives)
+              case alternativesWithBindings of
+                [] -> Left (unsupportedPatternFailure patternPath)
+                (_, canonicalBindings) : _ ->
+                  Right
+                    ( TypedOrPattern patternInfo (map fst alternativesWithBindings),
+                      canonicalBindings
+                    )
+            _ -> finalizePattern structuredCatalog finalizationState patternPath expressionType patternValue
+          where
+            finalizeAlternative alternativeIndex alternative =
+              finalizePattern structuredCatalog finalizationState (patternPath <> [alternativeIndex]) expressionType alternative
+
+        finalizePattern :: StructuredValueCatalog -> InferState -> [Int] -> ExpressionType -> Pattern -> Either TypedCoreProductionFailure (TypedPattern, [PatternBinding])
+        finalizePattern catalog inferState patternPath expressionType patternValue = do
+          patternInfo <- nodeInfoFor patternPath expressionType
+          case patternValue of
+            PWildcard -> Right (TypedWildcardPattern patternInfo, [])
+            PVariable name ->
+              let typedName = resolvedValueName name
+                  owner = binderAt statementIndex patternPath typedName
+               in Right
+                    ( TypedVariablePattern patternInfo owner typedName,
+                      [PatternBinding name owner expressionType]
+                    )
+            PLiteral LText {} -> Left (unsupportedPatternFailure patternPath)
+            PLiteral literal -> do
+              literalValue <- typedLiteral statementIndex patternPath literal patternInfo
+              Right (TypedLiteralPattern patternInfo literalValue, [])
+            PConstructor sourceName nestedPatterns -> do
+              constructor <-
+                maybe
+                  (Left (unsupportedPatternFailure patternPath))
+                  Right
+                  (structuredConstructorAtStatement catalog statementIndex sourceName)
+              fieldTypes <-
+                maybe
+                  (Left (unsupportedPatternFailure patternPath))
+                  Right
+                  (concreteConstructorFieldTypes inferState constructor expressionType)
+              if length nestedPatterns == length fieldTypes
+                then do
+                  childrenWithBindings <-
+                    traverse
+                      (\(fieldIndex, fieldType, nestedPattern) -> finalizePattern catalog inferState (patternPath <> [fieldIndex]) fieldType nestedPattern)
+                      (zip3 [0 ..] fieldTypes nestedPatterns)
+                  Right
+                    ( TypedConstructorPattern patternInfo (structuredConstructorName constructor) (map fst childrenWithBindings),
+                      concatMap snd childrenWithBindings
+                    )
+                else Left (unsupportedPatternFailure patternPath)
+            PTuple nestedPatterns ->
+              case resolveType inferState expressionType of
+                TTupleType elementTypes
+                  | length nestedPatterns == length elementTypes -> do
+                      childrenWithBindings <-
+                        traverse
+                          (\(elementIndex, elementType, nestedPattern) -> finalizePattern catalog inferState (patternPath <> [elementIndex]) elementType nestedPattern)
+                          (zip3 [0 ..] elementTypes nestedPatterns)
+                      Right
+                        ( TypedTuplePattern patternInfo (map fst childrenWithBindings),
+                          concatMap snd childrenWithBindings
+                        )
+                _ -> Left (unsupportedPatternFailure patternPath)
+            PAs name nestedPattern -> do
+              let typedName = resolvedValueName name
+                  owner = binderAt statementIndex patternPath typedName
+              (typedNestedPattern, nestedBindings) <-
+                finalizePattern catalog inferState (patternPath <> [0]) expressionType nestedPattern
+              Right
+                ( TypedAsPattern patternInfo owner typedName typedNestedPattern,
+                  PatternBinding name owner expressionType : nestedBindings
+                )
+            PList {} -> Left (unsupportedPatternFailure patternPath)
+            PConsList {} -> Left (unsupportedPatternFailure patternPath)
+            POr {} -> Left (unsupportedPatternFailure patternPath)
+          where
+            nodeInfoFor patternPath' patternType =
+              maybe
+                (Left (unsupportedPatternFailure patternPath'))
+                Right
+                (structuredNodeInfo catalog inferState patternType)
+
+        patternNodeInfo patternPath expressionType =
+          maybe
+            (Left (unsupportedPatternFailure patternPath))
+            Right
+            (structuredNodeInfo structuredCatalog finalizationState expressionType)
+
+        unsupportedPatternFailure patternPath =
+          failureAt statementIndex patternPath TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
 
         lambdaConstructionFailures parameterName body =
           case expressionEvaluation of

@@ -9,6 +9,7 @@ module Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     managedLayoutShapeFor,
     representationForRecipe,
     constructorLayoutFor,
+    constructorPatternLayoutFor,
     constructorApplicationLayout,
     productLayoutFields,
     nodeInstantiations,
@@ -18,6 +19,7 @@ where
 import Control.Monad (foldM, join)
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq, (|>))
@@ -62,6 +64,7 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
     ManagedLayoutCatalog
       { catalogModulePath = modulePath,
         catalogConstructors = constructors,
+        catalogPatternConstructors = patternConstructors,
         catalogLayoutShapes =
           Map.fromList
             [ (layoutId, shape)
@@ -72,19 +75,28 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
   where
     declarationValues = orderedDataDeclarations moduleInterface statements
     declarations = Map.fromList [(dataDeclarationName declaration, declaration) | declaration <- declarationValues]
-    constructors =
-      Map.fromList
-        [ ( binder,
-            ConstructorTemplate
-              { constructorTemplateDataName = dataDeclarationName declaration,
-                constructorTemplateParameters = dataDeclarationParameters declaration,
-                constructorTemplateTag = tag,
-                constructorTemplateFieldRecipes = fieldRecipes
-              }
+    constructors = Map.fromList constructorEntries
+    patternConstructors =
+      Map.fromListWith
+        (<>)
+        [ ( (constructorTemplateDataName constructor, constructorTemplateName constructor),
+            (binder, constructor) :| []
           )
-        | declaration <- declarationValues,
-          (tag, TypedConstructorDeclaration binder _ _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+        | (binder, constructor) <- Map.toList constructors
         ]
+    constructorEntries =
+      [ ( binder,
+          ConstructorTemplate
+            { constructorTemplateName = name,
+              constructorTemplateDataName = dataDeclarationName declaration,
+              constructorTemplateParameters = dataDeclarationParameters declaration,
+              constructorTemplateTag = tag,
+              constructorTemplateFieldRecipes = fieldRecipes
+            }
+        )
+      | declaration <- declarationValues,
+        (tag, TypedConstructorDeclaration binder name _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+      ]
 
     emptyBuild = CatalogBuild Seq.empty Map.empty
 
@@ -127,6 +139,32 @@ constructorLayoutFor catalog binder instantiations = do
             managedConstructorFields = fieldRepresentations
           }
     else Nothing
+
+constructorPatternLayoutFor :: ManagedLayoutCatalog -> TypedNodeInfo -> TypedCoreName -> Maybe ManagedConstructorLayout
+constructorPatternLayoutFor catalog info constructorName = do
+  (dataName, arguments) <-
+    case (typedNodeType info, typedNodeRecipe info) of
+      (TypedDataType typeName typeArguments, TypedManagedVariantRecipe recipeName recipeArguments)
+        | typeName == recipeName,
+          typeArguments == recipeArguments ->
+            Just (recipeName, recipeArguments)
+      _ -> Nothing
+  (binder, constructor) <-
+    case Map.lookup (dataName, constructorName) (catalogPatternConstructors catalog) of
+      Just (candidate :| []) -> Just candidate
+      _ -> Nothing
+  let parameters = constructorTemplateParameters constructor
+  if length parameters == length arguments then pure () else Nothing
+  let instantiations =
+        case parameters of
+          [] -> []
+          _ ->
+            [ TypedInstantiation
+                binder
+                (zipWith TypedTypeArgument parameters arguments)
+                Nothing
+            ]
+  constructorLayoutFor catalog binder instantiations
 
 constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
 constructorApplicationLayout catalog callee =

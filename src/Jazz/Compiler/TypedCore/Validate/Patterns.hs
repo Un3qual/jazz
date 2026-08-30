@@ -10,7 +10,6 @@ module Jazz.Compiler.TypedCore.Validate.Patterns
     nodeValueContract,
     patternBinderContract,
     patternBinderContractEqual,
-    patternBinderContractsEqual,
     patternBinderOccurrences,
     patternBoundContracts,
     patternChildrenWithContracts,
@@ -27,7 +26,6 @@ module Jazz.Compiler.TypedCore.Validate.Patterns
 where
 
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Evidence
@@ -192,12 +190,10 @@ validateOrPattern path [_] = [failure path TypedPatternShapeMismatch (TypedArity
 validateOrPattern path (firstAlternative : rest) = concatMap compareAlternative rest
   where
     expected = patternBinderContract firstAlternative
-    compareAlternative alternative
-      | patternBinderContractsEqual expected actual = []
-      | otherwise =
-          case firstMismatchedBinder expected actual of
-            Just binderId -> [failure path TypedOrPatternBinderMismatch (TypedBinderDetail binderId)]
-            Nothing -> [failure path TypedOrPatternBinderMismatch TypedNoValidationDetail]
+    compareAlternative alternative =
+      case firstMismatchedBinder expected actual of
+        Nothing -> []
+        Just binderId -> [failure path TypedOrPatternBinderMismatch (TypedBinderDetail binderId)]
       where
         actual = patternBinderContract alternative
 
@@ -233,19 +229,21 @@ binderContractFromInfo :: TypedBinderId -> TypedCoreName -> TypedNodeInfo -> Bin
 binderContractFromInfo binderId name info =
   BinderContract binderId name (typedNodeType info) (typedNodeRecipe info)
 
-patternBinderContractsEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool
-patternBinderContractsEqual expected actual =
-  length expected == length actual
-    && isNothing (firstMismatchedBinder expected actual)
-
 firstMismatchedBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe TypedBinderId
-firstMismatchedBinder [] [] = Nothing
-firstMismatchedBinder (PatternBinderContract binderId _ _ _ : _) [] = Just binderId
-firstMismatchedBinder [] (PatternBinderContract binderId _ _ _ : _) = Just binderId
-firstMismatchedBinder (expected : expectedRest) (actual@(PatternBinderContract binderId _ _ _) : actualRest)
-  | patternBinderContractEqual expected actual =
-      firstMismatchedBinder expectedRest actualRest
-  | otherwise = Just binderId
+firstMismatchedBinder expected actual = go expected actual
+  where
+    go [] [] = Nothing
+    go [] (PatternBinderContract binderId _ _ _ : _) = Just binderId
+    go (PatternBinderContract binderId _ _ _ : _) [] = Just binderId
+    go remainingExpected (candidate@(PatternBinderContract binderId _ _ _) : remainingActual) =
+      case removeMatching candidate remainingExpected of
+        Just unmatchedExpected -> go unmatchedExpected remainingActual
+        Nothing -> Just binderId
+
+    removeMatching _ [] = Nothing
+    removeMatching candidate (expectedContract : remainingExpected)
+      | patternBinderContractEqual expectedContract candidate = Just remainingExpected
+      | otherwise = (expectedContract :) <$> removeMatching candidate remainingExpected
 
 patternBinderContractEqual :: PatternBinderContract -> PatternBinderContract -> Bool
 patternBinderContractEqual

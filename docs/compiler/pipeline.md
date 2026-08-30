@@ -90,15 +90,21 @@ evaluated exactly once from left to right, and their managed references cross
 the complete established binding, callable, capture, control-flow, return, and
 tail-operand profile.
 
-Constructor and tuple destructuring patterns, other managed scrutinees, lists
-and list fields, product or variant equality, first-class non-nullary
-constructors, and Text literal patterns remain outside the path. Pattern
-lambdas remain outside it because invocation-time mismatch must be defined
-across closure construction, currying, recursion, and callable identity. Text
-uncons, from-chars, concat, and I/O also remain separate contracts. Source-level
-exhaustiveness and unreachable-arm diagnostics are implemented under RFC 0012;
-the backend profile's scalar-case final-catch-all requirement is a separate
-lowering boundary. Imported data, complete multi-module integration, later or
-interleaved external captures, scalar exports, native emission, linking, a
-runtime ABI, and a native runtime also remain outside this path. Ordinary
-compile and run modes continue to use canonical core and the interpreter.
+The same opt-in path supports wildcard, variable, immediate scalar literal,
+constructor, tuple, as-, and top-level or-pattern cases over managed products
+and variants, including nested constructor and tuple patterns. Its lowerer
+independently proves totality from Typed Core: guarded rows do not contribute
+coverage, complete local constructor sets need no synthetic wildcard, and
+incomplete arbitrary Typed Core fails before emission. Decision trees retain
+source order and test a variant tag before projecting its fields.
+
+Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
+imported or multi-module data, product or variant equality, runtime ABI/native
+execution, and ordinary compile/run cutover remain unshipped. Pattern lambdas
+remain outside this path because invocation-time mismatch still needs a
+match-failure contract across closure construction, currying, recursion, and
+callable identity. Text uncons, from-chars, concat, and I/O also remain separate
+contracts. Source-level exhaustiveness and unreachable-arm diagnostics are
+implemented under RFC 0012; the scalar-case final-catch-all requirement remains
+a separate lowering boundary. Ordinary compile and run modes continue to use
+canonical core and the reference interpreter.

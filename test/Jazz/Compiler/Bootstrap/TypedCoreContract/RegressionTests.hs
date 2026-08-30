@@ -1579,12 +1579,8 @@ testCurrentReviewRegressions = do
     ]
     (validateTypedProgram ownerAmbiguousEvidenceProgram)
   assertEqual
-    "or-pattern contracts preserve positional binder associations"
-    [ patternFailure
-        "review-reordered-or-pattern"
-        TypedOrPatternBinderMismatch
-        (TypedBinderDetail reorderedOrPatternMismatchBinder)
-    ]
+    "or-pattern contracts associate binders by name"
+    []
     (validateTypedProgram reorderedOrPatternProgram)
   assertEqual
     "pattern cases require at least one arm"

@@ -4,16 +4,27 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProducts
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.AST (Literal (..), Pattern (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-  ( optionLayout,
+  ( managedAsConstructorTuplePatternProgram,
+    managedPatternEmissionExpectedLoweredPrograms,
+    managedPatternEmissionSourceExpectedLoweredPrograms,
+    managedReorderedOrPatternBinderSource,
+    managedTopLevelOrPatternProgram,
+    managedTotalFirstOrPatternProgram,
+    optionIntInfo,
+    optionLayout,
     optionLayoutId,
+    someName,
     textRepresentation,
     treeLayout,
     tupleLayout,
   )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixture, sourceFixtureNoExports)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
+import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
+import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticCode)
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
@@ -21,8 +32,20 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     requirementsForManagedLayouts,
   )
+import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule, patternArmParameters)
+import Jazz.Compiler.LoweredIR.Lower.Types (FunctionParameterShape (..))
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
+import Jazz.Compiler.ModuleGraph (ResolvedModule)
 import Jazz.Compiler.TypeInference
+import Jazz.Compiler.TypeInference.Elaboration
+  ( ProvisionalPatternCaseArm (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    finalizeValidatedTypedCoreExpressionDirectCall,
+    typedCoreProductionOutcomeStatus,
+  )
+import Jazz.Compiler.TypeInference.State (initialInferState)
+import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.TestHarness (assertEqual, failTest)
@@ -58,12 +81,44 @@ testManagedProductVariantRetention = do
   assertBoundary
     "managed-variant-equality-failure"
     [expressionFailure 1 [] TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail]
-  assertBoundary
-    "managed-tuple-pattern-failure"
-    [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
-  assertBoundary
-    "managed-constructor-pattern-failure"
-    [expressionFailure 1 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+  testManagedPatternProducerBoundaries
+
+testManagedPatternProducerBoundaries :: IO ()
+testManagedPatternProducerBoundaries = do
+  assertNestedOrSourceBoundary
+  mapM_ (uncurry assertBoundary) producerBoundaryExpectations
+  where
+    producerBoundaryExpectations =
+      [ ( "managed-list-pattern-boundary",
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
+          ]
+        ),
+        ( "managed-cons-pattern-boundary",
+          [ expressionFailure 0 [0] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+            expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail
+          ]
+        ),
+        ( "managed-text-literal-pattern-boundary",
+          [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+        ),
+        ( "managed-pattern-lambda-boundary",
+          [ statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "choose"),
+            expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+            expressionFailure 1 [0] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+            expressionFailure 2 [] TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail
+          ]
+        )
+      ]
+    assertNestedOrSourceBoundary = do
+      resolution <- resolveFixture (managedProductVariantFixture "managed-nested-or-pattern-boundary")
+      case resolution of
+        Left diagnostic ->
+          assertEqual
+            "managed-nested-or-pattern boundary code"
+            "E4004"
+            (diagnosticCodeText (diagnosticCode diagnostic))
+        Right _ -> failTest "managed-nested-or-pattern-boundary unexpectedly resolved"
 
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =
@@ -83,6 +138,8 @@ testManagedProductVariantLowering :: IO ()
 testManagedProductVariantLowering =
   mapM_ assertProducedLowered managedProductVariantExpectedLoweredPrograms
     >> mapM_ assertLowered managedProductVariantIndependentExpectedLoweredPrograms
+    >> mapM_ assertLowered managedPatternEmissionExpectedLoweredPrograms
+    >> mapM_ assertSourceLowered managedPatternEmissionSourceExpectedLoweredPrograms
   where
     assertProducedLowered (name, expectedLoweredProgram) =
       case lookup name managedProductVariantExpectedPrograms of
@@ -101,6 +158,117 @@ testManagedProductVariantLowering =
         (name <> " valid expected Lowered IR")
         []
         (validateLoweredProgram expectedLoweredProgram)
+    assertSourceLowered (name, fixture, expectedLoweredProgram) = do
+      production <- produceFixture fixture
+      case typedCoreProductionStatus production of
+        TypedCoreProductionSucceeded typedProgram ->
+          assertLowered (name, typedProgram, expectedLoweredProgram)
+        status -> failTest (name <> " did not produce Typed Core for managed pattern lowering: " <> Text.pack (show status))
+
+testManagedReorderedOrPatternBinders :: IO ()
+testManagedReorderedOrPatternBinders = do
+  let name = "managed-reordered-or-pattern-binders"
+  production <- produceFixture (sourceFixtureNoExports name managedReorderedOrPatternBinderSource)
+  case typedCoreProductionStatus production of
+    TypedCoreProductionSucceeded typedProgram -> do
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      case lowerTypedCoreExpressionDirectCall typedProgram of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
+        lowering -> failTest (name <> " did not lower: " <> Text.pack (show lowering))
+    status -> failTest (name <> " did not produce Typed Core: " <> Text.pack (show status))
+
+testManagedTotalFirstOrPatternCFG :: IO ()
+testManagedTotalFirstOrPatternCFG = do
+  let name = "managed-total-first-or-pattern-cfg"
+  assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram managedTotalFirstOrPatternProgram)
+  case lowerTypedCoreExpressionDirectCall managedTotalFirstOrPatternProgram of
+    LoweredIRSucceeded loweredProgram -> do
+      assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
+      assertEqual
+        (name <> " omits unreachable later-alternative test blocks")
+        []
+        (laterAlternativeBlockIds loweredProgram)
+    lowering -> failTest (name <> " did not lower: " <> Text.pack (show lowering))
+  where
+    laterAlternativeBlockIds (LoweredProgram _ _ _ functions _) =
+      [ blockId
+      | LoweredFunction _ _ _ _ blocks _ <- functions,
+        LoweredBlock (LoweredBlockId blockId) _ _ _ <- blocks,
+        "$alt1$" `Text.isInfixOf` blockId
+      ]
+
+testManagedScrutineeFailureAccumulation :: IO ()
+testManagedScrutineeFailureAccumulation = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let independentArmFailures =
+        ProvisionalPatternCaseExpression
+          TBoolType
+          (ProvisionalVariableExpression "missing" TBoolType)
+          [ ProvisionalPatternCaseArm
+              PWildcard
+              ( Just
+                  ( ProvisionalUnsupportedExpression
+                      TypedCoreUserDefinedOperatorUnsupported
+                      TypedCoreUnsupportedRootDetail
+                  )
+              )
+              ( ProvisionalUnsupportedExpression
+                  TypedCoreNestedBlockUnsupported
+                  TypedCoreLocalBlockDetail
+              )
+          ]
+  assertEqual
+    "scrutinee construction failure retains independent arm failures"
+    ( TypedCoreProductionUnsupported
+        [ expressionFailure 0 [0] TypedCoreCaptureUnsupported (TypedCoreNameDetail "missing"),
+          expressionFailure 0 [1, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+          expressionFailure 0 [1, 1] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+        ]
+    )
+    (finalizationStatus resolvedModule independentArmFailures)
+
+testManagedUnavailablePatternBinder :: IO ()
+testManagedUnavailablePatternBinder = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let unavailablePatternBinder =
+        ProvisionalLambdaExpression
+          "item"
+          (TFunctionType TBoolType TBoolType)
+          ( ProvisionalPatternCaseExpression
+              TBoolType
+              (ProvisionalLiteralExpression (LBool True) TBoolType)
+              [ ProvisionalPatternCaseArm
+                  (PAs "item" (PList []))
+                  Nothing
+                  ( ProvisionalTupleExpression
+                      (TTupleType [TBoolType, TBoolType])
+                      [ ProvisionalVariableExpression "item" TBoolType,
+                        ProvisionalUnsupportedExpression
+                          TypedCoreNestedBlockUnsupported
+                          TypedCoreLocalBlockDetail
+                      ]
+                  )
+              ]
+          )
+  assertEqual
+    "failed pattern does not expose its unavailable binder to the arm body"
+    ( TypedCoreProductionUnsupported
+        [expressionFailure 0 [0, 0, 0] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+    )
+    (finalizationStatus resolvedModule unavailablePatternBinder)
+
+finalizationStatus :: ResolvedModule -> ProvisionalTypedExpr -> TypedCoreProductionStatus
+finalizationStatus resolvedModule expression =
+  typedCoreProductionOutcomeStatus
+    ( finalizeValidatedTypedCoreExpressionDirectCall
+        (TypedSourcePath "src/App/Main.jz")
+        resolvedModule
+        initialInferState
+        ( ProvisionalScopeStatements
+            [ProvisionalTerminalExpression 0 (SourceSpan 1 1) expression]
+        )
+    )
 
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =
@@ -190,6 +358,142 @@ testManagedConstructionLowererBoundaries =
         (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
         kind
         detail
+
+testManagedPatternLowererProfile :: IO ()
+testManagedPatternLowererProfile = do
+  mapM_ assertAccepted acceptedNames
+  mapM_ assertRejected expectedRejections
+  mapM_ assertRejectedLowering recursiveRejections
+  where
+    assertAccepted name =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed pattern acceptance fixture is missing")
+        Just typedProgram -> do
+          assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
+          case analyzeTypedModule (onlyModule typedProgram) of
+            Left failures -> failTest (name <> " did not enter the managed pattern profile: " <> Text.pack (show failures))
+            Right _ -> pure ()
+
+    assertRejected (name, expectedFailure) =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed pattern rejection fixture is missing")
+        Just typedProgram -> do
+          assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
+          assertEqual
+            (name <> " exact managed pattern profile rejection")
+            (Left [expectedFailure])
+            (case analyzeTypedModule (onlyModule typedProgram) of Left failures -> Left failures; Right _ -> Right ())
+
+    assertRejectedLowering (name, expectedFailure) =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed recursive pattern rejection fixture is missing")
+        Just typedProgram ->
+          assertEqual
+            (name <> " exact incomplete recursive lowering")
+            (LoweredIRUnsupported [expectedFailure])
+            (lowerTypedCoreExpressionDirectCall typedProgram)
+
+    acceptedNames =
+      [ "managed-closed-variant-pattern-profile",
+        "managed-total-tuple-pattern-profile",
+        "managed-recursive-complete-pattern-profile",
+        "managed-mutually-recursive-complete-pattern-profile"
+      ]
+
+    expectedRejections =
+      [ incomplete "managed-missing-constructor-pattern-profile" 2,
+        incomplete "managed-other-missing-constructor-pattern-profile" 2,
+        incomplete "managed-guarded-constructors-pattern-profile" 2,
+        incomplete "managed-incomplete-tuple-pattern-profile" 0,
+        incomplete "managed-bool-literals-without-catch-all-pattern-profile" 0,
+        incomplete "managed-nested-constructor-tuple-pattern-profile" 2,
+        unsupported "managed-list-pattern-profile" 0 [0, 0],
+        unsupported "managed-nested-or-pattern-profile" 1 [0, 0, 0],
+        unsupported "managed-text-literal-pattern-profile" 1 [0, 0, 0]
+      ]
+        <> recursiveRejections
+
+    recursiveRejections =
+      [ incomplete "managed-recursive-incomplete-pattern-profile" 1,
+        incomplete "managed-mutually-recursive-incomplete-pattern-profile" 2
+      ]
+
+    incomplete name statementIndex =
+      ( name,
+        LoweredIRLoweringFailure
+          (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
+          LoweredIRIncompletePatternCase
+          LoweredIRNoFailureDetail
+      )
+    unsupported name statementIndex patternPath =
+      ( name,
+        LoweredIRLoweringFailure
+          (TypedPatternPath ["App", "Main"] [statementIndex] patternPath)
+          LoweredIRUnsupportedPattern
+          LoweredIRNoFailureDetail
+      )
+    onlyModule (TypedProgram _ [moduleValue] _) = moduleValue
+    onlyModule _ = error "managed pattern profile fixture must contain exactly one module"
+
+testManagedPatternParameterShapes :: IO ()
+testManagedPatternParameterShapes = do
+  assertPatternParameters
+    "managed as-pattern parameter order"
+    managedAsConstructorTuplePatternProgram
+    [ ( TypedBinderId
+          ( ["App", "Main"],
+            [2, 0],
+            TypedResolvedName TypedCurrentModule TypedValueNamespace "whole"
+          ),
+        LoweredParameter
+          (LoweredParameterId "pattern")
+          ( LoweredManagedReferenceRepresentation
+              (LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$5:Maybe$args1$24:tuple2$8:signed64$4:bool")
+          )
+      ),
+      ( TypedBinderId
+          ( ["App", "Main"],
+            [2, 0, 0, 0, 0],
+            TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+          ),
+        LoweredParameter
+          (LoweredParameterId "pattern1")
+          (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)
+      )
+    ]
+  assertPatternParameters
+    "managed or-pattern canonical parameter ownership"
+    managedTopLevelOrPatternProgram
+    [ ( TypedBinderId
+          ( ["App", "Main"],
+            [2, 0, 0, 0],
+            TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+          ),
+        LoweredParameter
+          (LoweredParameterId "pattern")
+          (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)
+      )
+    ]
+  where
+    assertPatternParameters name typedProgram expected =
+      case onlyModule typedProgram of
+        typedModule ->
+          case collectManagedLayoutCatalog typedModule of
+            Left failures -> failTest (name <> " catalog failed: " <> Text.pack (show failures))
+            Right catalog ->
+              assertEqual
+                name
+                expected
+                [ (functionParameterBinder shape, functionParameter shape)
+                | shape <- patternArmParameters catalog (firstArmPattern typedProgram)
+                ]
+    firstArmPattern (TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _) =
+      case reverse statements of
+        TypedExpressionStatement _ (TypedPatternCaseExpr _ _ (TypedCaseArm patternValue _ _ : _)) : _ -> patternValue
+        _ -> error "managed parameter-shape fixture must end in a pattern case"
+    firstArmPattern _ = error "managed parameter-shape fixture must contain exactly one module"
+    onlyModule (TypedProgram _ [moduleValue] _) = moduleValue
+    onlyModule _ = error "managed parameter-shape fixture must contain exactly one module"
 
 testManagedConstructorClosureCapture :: IO ()
 testManagedConstructorClosureCapture =
@@ -536,6 +840,16 @@ testManagedProductVariantLayoutCatalog = do
                 Nothing
             ]
         )
+        >> assertEqual
+          "managed-option Some constructor pattern layout"
+          ( Just
+              ManagedConstructorLayout
+                { managedConstructorLayoutId = optionLayoutId,
+                  managedConstructorTag = 1,
+                  managedConstructorFields = [LoweredSignedIntegerRepresentation LoweredIntegerWidth64]
+                }
+          )
+          (constructorPatternLayoutFor catalog optionIntInfo someName)
   where
     assertCatalog name expectedLayouts = do
       let programValue = expectedProgram name

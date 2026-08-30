@@ -2,6 +2,9 @@
 
 module Jazz.Compiler.LoweredIR.Lower.Shapes
   ( analyzeTypedModule,
+    patternArmBindings,
+    patternArmParameters,
+    patternCaseTotalPrefixLength,
     orderedClosureLayouts,
     valueSchemeContract,
     loweredIRGeneratedIdentityFailureDetail,
@@ -21,7 +24,8 @@ where
 
 import Data.List (find, sortOn)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, isNothing)
+import Data.Sequence ((|>))
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -30,6 +34,8 @@ import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( collectManagedLayoutCatalog,
     constructorApplicationLayout,
     constructorLayoutFor,
+    constructorPatternLayoutFor,
+    managedLayoutShapeFor,
     nodeInstantiations,
     orderedManagedLayouts,
     productLayoutFields,
@@ -1036,7 +1042,7 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
           child 2 elseExpression
         ]
     TypedPatternCaseExpr info scrutinee arms ->
-      case scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath expressionPath scrutinee arms of
+      case patternCaseProfileFailures managedLayoutCatalog modulePath statementPath expressionPath scrutinee arms of
         failures@(_ : _) -> failures
         [] ->
           combineExpressionChecks
@@ -1130,7 +1136,15 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
 combineExpressionChecks :: [[LoweredIRLoweringFailure]] -> [LoweredIRLoweringFailure]
 combineExpressionChecks = concat
 
-scalarPatternCaseProfileFailures ::
+data LowererCoveragePattern
+  = LowererCoverageCatchAll
+  | LowererCoverageLiteral
+  | LowererCoverageConstructor Integer [LowererCoveragePattern]
+  | LowererCoverageTuple [LowererCoveragePattern]
+  | LowererCoverageOr [LowererCoveragePattern]
+  deriving (Eq)
+
+patternCaseProfileFailures ::
   ManagedLayoutCatalog ->
   [Text] ->
   [Int] ->
@@ -1138,38 +1152,41 @@ scalarPatternCaseProfileFailures ::
   TypedExpr ->
   [TypedCaseArm] ->
   [LoweredIRLoweringFailure]
-scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
+patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
+  case scalarRepresentation managedLayoutCatalog (typedNodeType scrutineeInfo) (typedNodeRecipe scrutineeInfo) of
+    Just _ -> scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath scrutineeInfo arms
+    Nothing -> managedPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms
+  where
+    scrutineeInfo = typedExpressionInfo scrutinee
+
+scalarPatternCaseProfileFailures ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedNodeInfo ->
+  [TypedCaseArm] ->
+  [LoweredIRLoweringFailure]
+scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath scrutineeInfo arms =
   case unsupportedArmFailures of
     failure : _ -> [failure]
     []
-      | isNothing
-          ( scalarRepresentation
-              managedLayoutCatalog
-              (typedNodeType scrutineeInfo)
-              (typedNodeRecipe scrutineeInfo)
-          ) ->
-          [expressionFailure LoweredIRUnsupportedPattern]
-      | not (totalArmChain arms) ->
-          [expressionFailure LoweredIRIncompletePatternCase]
+      | not (totalArmChain arms) -> [expressionFailure LoweredIRIncompletePatternCase]
       | otherwise -> []
   where
     expressionPath = reverse reversedExpressionPath
-    scrutineeInfo = typedExpressionInfo scrutinee
     unsupportedArmFailures =
       [ LoweredIRLoweringFailure
           (TypedPatternPath modulePath statementPath (expressionPath <> [armIndex]))
           LoweredIRUnsupportedPattern
           LoweredIRNoFailureDetail
-      | (armIndex, TypedCaseArm patternValue _ _) <- zip [0 ..] arms,
+      | (armIndex, TypedCaseArm patternValue _ _) <- zip [0 :: Int ..] arms,
         not (supportedPattern patternValue)
       ]
     supportedPattern patternValue =
       case patternValue of
         TypedWildcardPattern info -> matchingScrutineeInfo info
         TypedVariablePattern info _ _ -> matchingScrutineeInfo info
-        TypedLiteralPattern info _ ->
-          matchingScrutineeInfo info
-            && isJust (scalarRepresentation managedLayoutCatalog (typedNodeType info) (typedNodeRecipe info))
+        TypedLiteralPattern info _ -> matchingScrutineeInfo info
         _ -> False
     matchingScrutineeInfo info =
       typedNodeType info == typedNodeType scrutineeInfo
@@ -1181,7 +1198,9 @@ scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath r
             && all supportedPrecedingArm precedingArms
         _ -> False
     supportedPrecedingArm (TypedCaseArm patternValue maybeGuard _) =
-      not (catchAllPattern patternValue) || isJust maybeGuard
+      case maybeGuard of
+        Just _ -> True
+        Nothing -> not (catchAllPattern patternValue)
     catchAllPattern patternValue =
       case patternValue of
         TypedWildcardPattern {} -> True
@@ -1193,18 +1212,258 @@ scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath r
         kind
         LoweredIRNoFailureDetail
 
-patternArmParameters :: ManagedLayoutCatalog -> TypedPattern -> [FunctionParameterShape]
-patternArmParameters managedLayoutCatalog patternValue =
+managedPatternCaseProfileFailures ::
+  ManagedLayoutCatalog ->
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedExpr ->
+  [TypedCaseArm] ->
+  [LoweredIRLoweringFailure]
+managedPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
+  case patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressionPath scrutinee arms of
+    Left failure -> [failure]
+    Right maybeTotalPrefixLength
+      | not (admittedScrutinee scrutineeInfo scrutineeRepresentation) ->
+          [expressionFailure LoweredIRUnsupportedPattern]
+      | maybeTotalPrefixLength == Nothing ->
+          [expressionFailure LoweredIRIncompletePatternCase]
+      | otherwise -> []
+  where
+    expressionPath = reverse reversedExpressionPath
+    scrutineeInfo = typedExpressionInfo scrutinee
+    scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe scrutineeInfo)
+    admittedScrutinee info maybeRepresentation =
+      case (typedNodeRecipe info, maybeRepresentation) of
+        (TypedManagedProductRecipe _, Just (LoweredManagedReferenceRepresentation layoutId)) ->
+          case managedLayoutShapeFor managedLayoutCatalog layoutId of
+            Just LoweredProductLayout {} -> True
+            _ -> False
+        (TypedManagedVariantRecipe _ _, Just (LoweredManagedReferenceRepresentation layoutId)) ->
+          case managedLayoutShapeFor managedLayoutCatalog layoutId of
+            Just LoweredVariantLayouts {} -> True
+            _ -> False
+        _ -> False
+    expressionFailure kind =
+      LoweredIRLoweringFailure
+        (TypedExpressionPath modulePath statementPath expressionPath)
+        kind
+        LoweredIRNoFailureDetail
+
+patternCaseTotalPrefixLength ::
+  ManagedLayoutCatalog ->
+  [Int] ->
+  [Int] ->
+  TypedExpr ->
+  [TypedCaseArm] ->
+  Either LoweredIRLoweringFailure (Maybe Int)
+patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressionPath scrutinee arms =
+  admitPrefix Seq.empty (zip [0 :: Int ..] arms)
+  where
+    expressionPath = reverse reversedExpressionPath
+    scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe (typedExpressionInfo scrutinee))
+    admitArm (armIndex, TypedCaseArm patternValue maybeGuard _) = do
+      admittedPattern <-
+        admitPattern
+          managedLayoutCatalog
+          statementPath
+          scrutineeRepresentation
+          True
+          (expressionPath <> [armIndex])
+          patternValue
+      pure (admittedPattern, maybeGuard)
+    admitPrefix admittedArms remainingArms =
+      case remainingArms of
+        [] -> Right (earliestTotalPrefix admittedArms)
+        arm : rest ->
+          case admitArm arm of
+            Right admittedArm -> admitPrefix (admittedArms |> admittedArm) rest
+            Left failure ->
+              case earliestTotalPrefix admittedArms of
+                Just prefixLength -> Right (Just prefixLength)
+                Nothing -> Left failure
+    earliestTotalPrefix admittedArms
+      | Seq.null admittedArms = Nothing
+      | not (prefixIsTotal (Seq.length admittedArms)) = Nothing
+      | otherwise = Just (search 1 (Seq.length admittedArms))
+      where
+        search lower upper
+          | lower == upper = lower
+          | prefixIsTotal midpoint = search lower midpoint
+          | otherwise = search (midpoint + 1) upper
+          where
+            midpoint = lower + (upper - lower) `div` 2
+        prefixIsTotal prefixLength =
+          coverageMatrixTotal
+            managedLayoutCatalog
+            [scrutineeRepresentation]
+            (coverageRows (Seq.take prefixLength admittedArms))
+    coverageRows = foldMap armCoverageRows
+    armCoverageRows (patternValue, maybeGuard) =
+      case maybeGuard of
+        Just _ -> []
+        Nothing -> [[alternative] | alternative <- expandTopLevelAlternative patternValue]
+
+admitPattern ::
+  ManagedLayoutCatalog ->
+  [Int] ->
+  Maybe LoweredRepresentation ->
+  Bool ->
+  [Int] ->
+  TypedPattern ->
+  Either LoweredIRLoweringFailure LowererCoveragePattern
+admitPattern managedLayoutCatalog statementPath expectedRepresentation allowTopLevelOr patternPath patternValue =
   case patternValue of
-    TypedVariablePattern info binder _ ->
-      case representationForRecipe managedLayoutCatalog (typedNodeRecipe info) of
-        Just representation ->
-          [ FunctionParameterShape
-              binder
-              (LoweredParameter (LoweredParameterId "pattern") representation)
-          ]
-        Nothing -> []
-    _ -> []
+    TypedWildcardPattern info
+      | matchingRepresentation info -> Right LowererCoverageCatchAll
+    TypedVariablePattern info _ _
+      | matchingRepresentation info -> Right LowererCoverageCatchAll
+    TypedLiteralPattern info literal
+      | matchingRepresentation info ->
+          case (expectedRepresentation, literal) of
+            (Just representation, _)
+              | scalarRepresentation managedLayoutCatalog (typedNodeType info) (typedNodeRecipe info) == Just representation ->
+                  Right LowererCoverageLiteral
+            _ -> unsupported
+    TypedConstructorPattern info constructorName fields
+      | matchingRepresentation info ->
+          case constructorPatternLayoutFor managedLayoutCatalog info constructorName of
+            Just constructorLayout
+              | expectedRepresentation
+                  == Just (LoweredManagedReferenceRepresentation (managedConstructorLayoutId constructorLayout)),
+                length fields == length (managedConstructorFields constructorLayout) ->
+                  LowererCoverageConstructor (toInteger (managedConstructorTag constructorLayout))
+                    <$> traverseChildPatterns (managedConstructorFields constructorLayout) fields
+            _ -> unsupported
+    TypedTuplePattern info fields
+      | matchingRepresentation info ->
+          case expectedRepresentation of
+            Just (LoweredManagedReferenceRepresentation layoutId) ->
+              case productLayoutFields managedLayoutCatalog layoutId of
+                Just fieldRepresentations
+                  | length fields == length fieldRepresentations ->
+                      LowererCoverageTuple <$> traverseChildPatterns fieldRepresentations fields
+                _ -> unsupported
+            _ -> unsupported
+    TypedAsPattern info _ _ nestedPattern
+      | matchingRepresentation info ->
+          admitPattern managedLayoutCatalog statementPath expectedRepresentation False (patternPath <> [0]) nestedPattern
+    TypedOrPattern info alternatives
+      | allowTopLevelOr,
+        matchingRepresentation info ->
+          LowererCoverageOr
+            <$> traverse
+              (uncurry (admitPattern managedLayoutCatalog statementPath expectedRepresentation False))
+              [ (patternPath <> [alternativeIndex], alternative)
+              | (alternativeIndex, alternative) <- zip [0 :: Int ..] alternatives
+              ]
+    _ -> unsupported
+  where
+    matchingRepresentation info =
+      case (representationForRecipe managedLayoutCatalog (typedNodeRecipe info), expectedRepresentation) of
+        (Just actual, Just expected) -> actual == expected
+        _ -> False
+    traverseChildPatterns representations patterns =
+      traverse
+        (\(childIndex, representation, patternChild) -> admitPattern managedLayoutCatalog statementPath (Just representation) False (patternPath <> [childIndex]) patternChild)
+        [ (childIndex, representation, patternChild)
+        | (childIndex, (representation, patternChild)) <- zip [0 :: Int ..] (zip representations patterns)
+        ]
+    unsupported =
+      Left
+        ( LoweredIRLoweringFailure
+            (TypedPatternPath (catalogModulePath managedLayoutCatalog) statementPath patternPath)
+            LoweredIRUnsupportedPattern
+            LoweredIRNoFailureDetail
+        )
+
+expandTopLevelAlternative :: LowererCoveragePattern -> [LowererCoveragePattern]
+expandTopLevelAlternative patternValue =
+  case patternValue of
+    LowererCoverageOr alternatives -> alternatives
+    _ -> [patternValue]
+
+coverageMatrixTotal :: ManagedLayoutCatalog -> [Maybe LoweredRepresentation] -> [[LowererCoveragePattern]] -> Bool
+coverageMatrixTotal _ [] rows = any null rows
+coverageMatrixTotal _ (Nothing : _) _ = False
+coverageMatrixTotal managedLayoutCatalog (Just representation : remainingRepresentations) rows =
+  case traverse catchAllRemainder rows of
+    Just remainingRows ->
+      coverageMatrixTotal managedLayoutCatalog remainingRepresentations remainingRows
+    Nothing ->
+      case representation of
+        LoweredManagedReferenceRepresentation layoutId ->
+          case managedLayoutShapeFor managedLayoutCatalog layoutId of
+            Just (LoweredProductLayout fields) ->
+              coverageMatrixTotal managedLayoutCatalog (map Just fields <> remainingRepresentations) (specializeProduct fields rows)
+            Just (LoweredVariantLayouts variants) ->
+              all
+                (\(LoweredVariantLayout tag fields) -> coverageMatrixTotal managedLayoutCatalog (map Just fields <> remainingRepresentations) (specializeVariant tag fields rows))
+                variants
+            _ -> openRepresentationTotal
+        _ -> openRepresentationTotal
+  where
+    catchAllRemainder row =
+      case row of
+        LowererCoverageCatchAll : remaining -> Just remaining
+        _ -> Nothing
+    openRepresentationTotal =
+      coverageMatrixTotal
+        managedLayoutCatalog
+        remainingRepresentations
+        [remainingPatterns | LowererCoverageCatchAll : remainingPatterns <- rows]
+
+specializeProduct :: [LoweredRepresentation] -> [[LowererCoveragePattern]] -> [[LowererCoveragePattern]]
+specializeProduct fields = foldMap specialize
+  where
+    specialize row =
+      case row of
+        LowererCoverageCatchAll : remaining -> [replicate (length fields) LowererCoverageCatchAll <> remaining]
+        LowererCoverageTuple patterns : remaining
+          | length patterns == length fields -> [patterns <> remaining]
+        _ -> []
+
+specializeVariant :: Integer -> [LoweredRepresentation] -> [[LowererCoveragePattern]] -> [[LowererCoveragePattern]]
+specializeVariant tag fields = foldMap specialize
+  where
+    specialize row =
+      case row of
+        LowererCoverageCatchAll : remaining -> [replicate (length fields) LowererCoverageCatchAll <> remaining]
+        LowererCoverageConstructor patternTag patterns : remaining
+          | patternTag == tag,
+            length patterns == length fields ->
+              [patterns <> remaining]
+        _ -> []
+
+patternArmParameters :: ManagedLayoutCatalog -> TypedPattern -> [FunctionParameterShape]
+patternArmParameters managedLayoutCatalog = map snd . patternArmBindings managedLayoutCatalog
+
+patternArmBindings :: ManagedLayoutCatalog -> TypedPattern -> [(TypedCoreName, FunctionParameterShape)]
+patternArmBindings managedLayoutCatalog patternValue =
+  [ ( name,
+      FunctionParameterShape
+        binder
+        (LoweredParameter (patternParameterId parameterIndex) representation)
+    )
+  | (parameterIndex, (binder, name, info)) <- zip [0 :: Int ..] (patternBindings patternValue),
+    Just representation <- [representationForRecipe managedLayoutCatalog (typedNodeRecipe info)]
+  ]
+  where
+    patternParameterId parameterIndex =
+      LoweredParameterId
+        ( if parameterIndex == 0
+            then "pattern"
+            else "pattern" <> Text.pack (show parameterIndex)
+        )
+    patternBindings patternNode =
+      case patternNode of
+        TypedVariablePattern info binder name -> [(binder, name, info)]
+        TypedConstructorPattern _ _ patterns -> concatMap patternBindings patterns
+        TypedTuplePattern _ patterns -> concatMap patternBindings patterns
+        TypedAsPattern info binder name nestedPattern -> (binder, name, info) : patternBindings nestedPattern
+        TypedOrPattern _ [] -> []
+        TypedOrPattern _ (alternative : _) -> patternBindings alternative
+        _ -> []
 
 typedPatternBinderIds :: TypedPattern -> [TypedBinderId]
 typedPatternBinderIds patternValue =

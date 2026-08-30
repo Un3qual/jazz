@@ -253,36 +253,30 @@ Each blocked item should answer these questions:
   producer, Typed Core contract, and Lowered IR contract suites pass, and
   `cabal test all --test-show-details=direct --jobs=1` passes inside the
   checked-in Nix shell.
-- Smallest unblocker: curate
-  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` into one
-  aligned implementation plan with a green focused baseline; do not promote it
-  during construction closeout.
-- Decision needed: none. RFC 0015's managed-pattern surface, source ordering,
-  projection discipline, independent totality check, and failure boundary are
-  accepted.
-- Recommended default: curate only the single named managed-pattern child.
-  Keep it outside `Ready Now` until its live paths and exact fixtures are
-  captured by a matching plan.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs`,
-  and `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs`.
-- Verification:
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh`
-  - `bash scripts/check-execution-queue.sh`
-  - `git diff --check`
-- Still not in scope for the candidate child: lists, list patterns or services,
-  Text literal patterns, first-class constructors, pattern lambdas, imported
-  data, multiple modules, Text uncons/from-chars/concat, Text I/O, RuntimeHost
-  changes, native ABI or execution, product/variant equality, and normal
-  compile/run cutover.
+- Completed child:
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` completed
+  on `2026-08-29` in implementation commits `65cdd9da`, `213e9228`, and
+  final-review fix `29954b82`.
+  Fresh serialized focused producer/Typed Core/Lowered IR verification and
+  `cabal test all --test-show-details=direct --jobs=1` passed with the
+  prescribed store-backed GHC 9.14.1/Cabal fallback. The scoped final
+  re-review found both branch findings addressed with no new Critical or
+  Important issue. It closes recursive producer finalization, terminating
+  independent backend totality, managed total-prefix handling, and
+  source-ordered decision-tree emission with tag-before-field projection.
+- Smallest unblocker: none currently. There is no accepted next RFC 0015 child
+  or other source-backed next target after the managed-pattern evidence.
+- Decision needed: none.
+- Recommended default: do not speculate about a replacement child. Keep lists,
+  cons, Text literal patterns, nested or-patterns, pattern lambdas, imported or
+  multi-module data, equality, runtime ABI/native execution, and normal
+  compile/run cutover behind separate accepted contracts.
+- Candidate child: none currently.
+- Target paths: not set; no independent next child is accepted.
+- Verification: completed with the focused and full serialized Cabal gates,
+  plus the documentation, dispatcher, RFC, and whitespace checks.
+- Not in scope: reopening this completed child or inferring a list-related
+  successor without a new accepted contract.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

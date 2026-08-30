@@ -7523,13 +7523,6 @@ reorderedOrPatternProgram =
     scrutinee = TypedTupleExpr pairInfo [trueExpr, falseExpr]
     expression = TypedPatternCaseExpr boolInfo scrutinee [TypedCaseArm patternValue Nothing trueExpr]
 
-reorderedOrPatternMismatchBinder :: TypedBinderId
-reorderedOrPatternMismatchBinder =
-  binder
-    (fixtureModulePath "review-reordered-or-pattern")
-    [1, 0]
-    (fixtureValueName "right")
-
 emptyPatternCaseProgram :: TypedProgram
 emptyPatternCaseProgram =
   expressionFixtureProgram
