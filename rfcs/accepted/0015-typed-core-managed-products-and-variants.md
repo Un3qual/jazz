@@ -77,13 +77,21 @@ references cross bindings, direct and closure parameters and results, calls and
 tail calls, lexical and recursive captures, conditional and scalar-case joins,
 and returns.
 
-This milestone does not implement the later managed-pattern child. Tuple and
-constructor destructuring, independently total managed decision trees, and
-field/tag projection during matching remain accepted design work rather than
-shipped backend behavior. Lists and list fields, product/variant equality,
-first-class non-nullary constructors, pattern lambdas, imported data,
-multi-module lowering, runtime ABI, native execution, and ordinary compile/run
-cutover remain excluded.
+The second ordered child completed on 2026-08-29. The same opt-in producer and
+lowerer now support wildcard, variable, immediate scalar literal, constructor,
+tuple, as-, and top-level or-pattern cases over managed products and variants,
+including nested constructor and tuple patterns. The lowerer independently
+proves totality from admitted Typed Core: guarded rows do not cover, complete
+local constructor sets need no synthetic wildcard, and incomplete arbitrary
+Typed Core fails with `LoweredIRIncompletePatternCase` before emission. Decision
+trees preserve source arm order, test a variant tag before any field projection,
+and carry matched binders only into the selected guard and body.
+
+Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
+imported or multi-module data, product/variant equality, runtime ABI/native
+execution, and ordinary compile/run cutover remain excluded. The second child
+does not change Typed Core or Lowered IR schemas, validators, runtime services,
+or the ordinary canonical-core/reference-interpreter path.
 
 ## Context
 

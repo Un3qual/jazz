@@ -76,7 +76,7 @@ done
 require_file "docs/project/status.md"
 require_file "docs/project/governance.md"
 require_file ".codex/execution/blocker-contracts.md"
-require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-08-27$'
+require_pattern "docs/project/status.md" "verification date" '^Updated: 2026-08-29$'
 require_pattern ".codex/execution/blocker-contracts.md" "blocker contract template" '^## Promotion Contract Template'
 
 removed_paths=(

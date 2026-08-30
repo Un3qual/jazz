@@ -48,9 +48,9 @@ ordinary call/join/return lowering. These terminators record intent only: they
 do not change the Lowered IR contract or validator, runtime ABI, public
 language behavior, hosted compiler, or promise native stack optimization.
 
-The required final unguarded catch-all makes this opt-in lowering profile total.
-It is separate from source-level static exhaustiveness and unreachable-arm
-analysis, which shipped under RFC 0012.
+For scalar pattern cases, the required final unguarded catch-all makes this
+opt-in lowering profile total. It is separate from source-level static
+exhaustiveness and unreachable-arm analysis, which shipped under RFC 0012.
 
 Managed `Text` is the first non-closure managed value in this profile. Text
 literals, bindings, parameters, results, captures, calls, control-flow joins,
@@ -70,16 +70,18 @@ then constructs every field exactly once from left to right. The resulting
 managed references cross the same bindings, direct and closure call boundaries,
 captures, control-flow joins, returns, and tail-call operands as managed Text.
 
-Constructor and tuple destructuring patterns, other managed scrutinees, lists
-and list fields, product or variant equality, first-class non-nullary
-constructors, and Text literal patterns remain deferred. Pattern lambdas remain
-deferred because a parameter mismatch happens at invocation time and therefore
-needs a match-failure contract integrated with closures, currying, recursion,
-and callable parameter identity. Imported data and complete multi-module
-integration, later or interleaved external captures, scalar exports, a
-runtime-host or native ABI, and native execution also remain outside the
-profile. Ordinary run mode continues to evaluate canonical core with the
-interpreter.
+The same opt-in path now supports wildcard, variable, immediate scalar literal,
+constructor, tuple, as-, and top-level or-pattern cases over managed products
+and variants, including nested constructor and tuple patterns. The lowerer
+independently proves totality, treats guarded rows as non-covering, and emits
+source-ordered decision trees that test a tag before projecting its fields.
+
+Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
+imported or multi-module data, product or variant equality, runtime ABI/native
+execution, and ordinary compile/run cutover remain unshipped. Pattern lambdas
+still need an invocation-time match-failure contract integrated with closures,
+currying, recursion, and callable identity. Ordinary run mode continues to
+evaluate canonical core with the reference interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in

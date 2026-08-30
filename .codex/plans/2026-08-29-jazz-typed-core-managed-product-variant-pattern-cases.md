@@ -1,12 +1,12 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 5"
+plan_section: "Full closeout"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
   - src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs
@@ -370,12 +370,12 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 - Modify: `.codex/execution/queue.md`
 - Modify: `.codex/execution/blocker-contracts.md`
 
-- [ ] **Step 1: Audit the acceptance matrix.** Confirm every positive and
+- [x] **Step 1: Audit the acceptance matrix.** Confirm every positive and
       negative RFC 0015 second-child fixture is assigned exactly once and that
       the existing scalar pattern and managed-construction fixture families
       remain unchanged.
 
-- [ ] **Step 2: Run fresh full verification.** Prefer the checked-in Nix shell:
+- [x] **Step 2: Run fresh full verification.** Prefer the checked-in Nix shell:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
@@ -391,18 +391,18 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   documentation checks directly. Record that environmental substitution in
   the final handoff.
 
-- [ ] **Step 3: Update durable status accurately.** State that the opt-in
+- [x] **Step 3: Update durable status accurately.** State that the opt-in
       Typed Core/Lowered IR path now supports managed product/variant patterns,
       independent backend totality, and source-ordered decision trees. Keep
       lists, pattern lambdas, imported/multi-module data, runtime ABI/native
       execution, and ordinary compile/run cutover explicitly unshipped.
 
-- [ ] **Step 4: Close plan and queue only after green evidence.** Set plan
+- [x] **Step 4: Close plan and queue only after green evidence.** Set plan
       `status: complete` and `plan_section: "Full closeout"`; remove its Ready
       Now row; update the umbrella blocker with the verified commit and next
       source-backed state; leave no speculative replacement row.
 
-- [ ] **Step 5: Commit closeout.** Run the dispatcher, RFC, docs, and diff
+- [x] **Step 5: Commit closeout.** Run the dispatcher, RFC, docs, and diff
       checks again after the closure edits, then commit:
 
   ```bash
@@ -415,3 +415,6 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
       then use `superpowers:finishing-a-development-branch` to present the
       integration choices. Do not push or open a pull request without explicit
       authorization.
+
+> Step 6 is controller-owned after this plan's verified closeout commit; it is
+> intentionally not part of the completed dispatcher child.
