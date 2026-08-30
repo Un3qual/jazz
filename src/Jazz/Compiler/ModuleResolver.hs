@@ -17,7 +17,6 @@ module Jazz.Compiler.ModuleResolver
 where
 
 import Control.Monad (foldM)
-import Data.Char (isAlpha, isAlphaNum)
 import Data.Functor.Identity
   ( Identity (..),
     runIdentity,
@@ -92,6 +91,8 @@ import Jazz.Compiler.Name
     NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
+    isIdentifierContinuationCharacter,
+    isIdentifierStartCharacter,
     isOperatorBindingIdentifierText,
     mkIdentifier,
     renderName,
@@ -224,10 +225,7 @@ parseModulePathText rawModulePath
       case Text.uncons segment of
         Nothing -> False
         Just (firstChar, restChars) ->
-          isIdentifierStart firstChar && Text.all isIdentifierRest restChars
-
-    isIdentifierStart ch = isAlpha ch || ch == '_'
-    isIdentifierRest ch = isAlphaNum ch || ch == '_' || ch == '\'' || ch == '!'
+          isIdentifierStartCharacter firstChar && Text.all isIdentifierContinuationCharacter restChars
 
 resolveModuleGraph ::
   ModuleResolutionConfig ->

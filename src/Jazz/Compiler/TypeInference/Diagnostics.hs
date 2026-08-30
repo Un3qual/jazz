@@ -83,8 +83,9 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
-    constraintImplFactKey,
+    concreteImplFact,
     identifierLooksLikeTypeVariable,
+    renderConcreteImplFact,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -600,9 +601,9 @@ concreteConstraintFailureSummary state constraints
             )
       | [argument] <- arguments,
         concreteConstraintArgument argument,
-        let implFactKey = constraintImplFactKey constraintName argument,
-        Set.notMember implFactKey (inferConcreteImplFacts state) =
-          Just ("missing impl fact '" <> implFactKey <> "'")
+        Just implFact <- concreteImplFact constraintName [argument],
+        Set.notMember implFact (inferConcreteImplFacts state) =
+          Just ("missing impl fact '" <> renderConcreteImplFact implFact <> "'")
       | otherwise =
           Nothing
       where

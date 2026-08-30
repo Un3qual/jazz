@@ -51,6 +51,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST (SignatureType)
+import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (Name)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
@@ -80,7 +81,7 @@ data DeclarationState = DeclarationState
   { declarationDataTypes :: Map Text DataTypeBinding,
     declarationClassFacts :: Map Text Int,
     declarationGeneratedEqualityClassFacts :: Set Text,
-    declarationConcreteImplFacts :: Set Text,
+    declarationConcreteImplFacts :: Set ConcreteImplFact,
     declarationClassMethodSignatures :: Map Text ClassMethodType,
     declarationConcreteImplMethods :: Map Text [ImplMethodType]
   }
@@ -205,7 +206,7 @@ inferClassFacts = declarationClassFacts . inferDeclarations
 inferGeneratedEqualityClassFacts :: InferState -> Set Text
 inferGeneratedEqualityClassFacts = declarationGeneratedEqualityClassFacts . inferDeclarations
 
-inferConcreteImplFacts :: InferState -> Set Text
+inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
 inferConcreteImplFacts = declarationConcreteImplFacts . inferDeclarations
 
 inferClassMethodSignatures :: InferState -> Map Text ClassMethodType

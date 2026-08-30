@@ -38,6 +38,7 @@ import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST (Expr, SignatureType)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     isErrorDiagnostic,
@@ -74,7 +75,7 @@ data ModuleInterface = ModuleInterface
     interfaceDataTypes :: Map Text DataTypeBinding,
     interfaceClassFacts :: Map Text Int,
     interfaceGeneratedEqualityClassFacts :: Set Text,
-    interfaceConcreteImplFacts :: Set Text,
+    interfaceConcreteImplFacts :: Set ConcreteImplFact,
     interfaceClassMethods :: Map Text ClassMethodType,
     interfaceConcreteImplMethods :: Map Text [ImplMethodType],
     interfaceRuntimeHints :: Map BindingRuntimeHintKey SignatureType

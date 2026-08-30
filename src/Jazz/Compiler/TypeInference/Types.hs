@@ -39,6 +39,7 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
     numericTypeFromName,
   )
+import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Name
   ( Name,
     identifierText,
@@ -170,7 +171,7 @@ data ImplMethodType = ImplMethodType SignatureType
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map Text Int,
     scopeGeneratedEqualityClassFacts :: Set Text,
-    scopeConcreteImplFacts :: Set Text,
+    scopeConcreteImplFacts :: Set ConcreteImplFact,
     scopeClassMethodSignatures :: Map Text ClassMethodType,
     scopeConcreteImplMethods :: Map Text [ImplMethodType]
   }

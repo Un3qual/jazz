@@ -7,6 +7,8 @@
 module Jazz.Compiler.Name
   ( Identifier,
     IdentifierLike (..),
+    isIdentifierContinuationCharacter,
+    isIdentifierStartCharacter,
     mkIdentifier,
     mkOperatorBindingIdentifier,
     mkQualifiedIdentifier,
@@ -34,7 +36,9 @@ where
 
 import Control.DeepSeq (NFData)
 import Data.Char
-  ( ord,
+  ( isAlpha,
+    isAlphaNum,
+    ord,
     toUpper,
   )
 import Data.String (IsString (..))
@@ -60,6 +64,13 @@ instance IdentifierLike Identifier where
 
 mkIdentifier :: Text -> Identifier
 mkIdentifier name = Identifier name (Purity.namePurity name)
+
+isIdentifierStartCharacter :: Char -> Bool
+isIdentifierStartCharacter character = isAlpha character || character == '_'
+
+isIdentifierContinuationCharacter :: Char -> Bool
+isIdentifierContinuationCharacter character =
+  isAlphaNum character || character == '_' || character == '\'' || character == '!'
 
 operatorBindingIdentifierText :: Text -> Text
 operatorBindingIdentifierText operatorSymbol =

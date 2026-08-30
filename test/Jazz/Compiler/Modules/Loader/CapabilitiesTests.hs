@@ -74,6 +74,7 @@ capabilitiesTests =
     , ("run module graph keeps imported ADT names in type positions", testRunModuleGraphKeepsImportedAdtNamesInTypePositions)
     , ("run module graph rebases dependency class method result hints", testRunModuleGraphRebasesDependencyClassMethodResultHints)
     , ("run module graph rebases imported class method result hints from the class origin", testRunModuleGraphRebasesImportedClassMethodResultHintsFromClassOrigin)
+    , ("run module graph rebases punctuated concrete impl facts", testRunModuleGraphRebasesPunctuatedConcreteImplFacts)
     , ("compile module graph rejects classes that collide with the ambient prelude", testCompileModuleGraphRejectsAmbientClassCollision)
     , ("compile module graph rejects classes that collide with visible imported classes", testCompileModuleGraphRejectsImportedClassCollision)
     , ("compile module graph does not re-export imported classes", testCompileModuleGraphDoesNotReexportImportedClasses)
@@ -81,6 +82,43 @@ capabilitiesTests =
     , ("compile module graph rejects private explicit class import", testCompileModuleGraphRejectsPrivateExplicitClassImport)
     , ("compile module graph allows local class matching private dependency class", testCompileModuleGraphAllowsLocalClassMatchingPrivateDependencyClass)
   ]
+
+testRunModuleGraphRebasesPunctuatedConcreteImplFacts :: IO ()
+testRunModuleGraphRebasesPunctuatedConcreteImplFacts = do
+  result <-
+    runModuleGraphWithPrelude
+      defaultWarningSettings
+      Nothing
+      resolverConfig
+      ["App", "Main"]
+      lookupSource
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "Tagged'") (runOutput result)
+  where
+    sourceMap =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Marked (Tagged', markedIdentity).
+            markedIdentity Tagged'.
+            }
+            """
+          ),
+          ( "src/Lib/Marked.jz",
+            """
+            module Lib::Marked {
+            data Tagged' = Tagged'.
+            class Marked!(a) { }.
+            impl Marked!(Tagged') { }.
+            markedIdentity :: @{Marked!(a)}: a -> a.
+            markedIdentity = \\(candidate) -> candidate.
+            }
+            """
+          )
+        ]
+    lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules :: IO ()
 testCompileModuleGraphDefaultExposesBundledCapabilityFactsInModules = do

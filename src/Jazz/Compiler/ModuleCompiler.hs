@@ -19,6 +19,10 @@ import Jazz.Compiler.AST
     SignatureToken (..),
     SignatureType (..),
   )
+import Jazz.Compiler.CapabilityFacts
+  ( ConcreteImplFact (..),
+    concreteImplFactClassName,
+  )
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleImportMode (..),
@@ -341,8 +345,8 @@ qualifiedKey origin name =
     ImportedModule modulePath -> Text.intercalate "::" (modulePath <> [name])
     _ -> name
 
-factUsesClass :: Set.Set Text -> Text -> Bool
-factUsesClass classNames fact = Set.member (fst (Text.breakOn "(" fact)) classNames
+factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
+factUsesClass classNames fact = Set.member (concreteImplFactClassName fact) classNames
 
 methodUsesClass :: Set.Set Text -> Text -> value -> Bool
 methodUsesClass classNames methodKey _ =
@@ -379,7 +383,7 @@ rebaseConstructorArgument origin dataTypeNames argument =
     ConstructorArgumentParameter {} -> argument
     ConstructorArgumentStructured fieldType ->
       ConstructorArgumentStructured
-        (rebaseSignatureType origin dataTypeNames Set.empty fieldType)
+        (rebaseSignatureTypeNames origin dataTypeNames fieldType)
     ConstructorArgumentFresh -> argument
 
 rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> ExpressionType -> ExpressionType
@@ -429,7 +433,7 @@ rebaseCapabilityFacts origin dataTypeNames classNames facts =
   ScopeCapabilityFacts
     { scopeClassFacts = Map.mapKeys (rebaseKnownText origin classNames) (scopeClassFacts facts),
       scopeGeneratedEqualityClassFacts = Set.map (rebaseKnownText origin classNames) (scopeGeneratedEqualityClassFacts facts),
-      scopeConcreteImplFacts = Set.map (rebaseFact origin dataTypeNames classNames) (scopeConcreteImplFacts facts),
+      scopeConcreteImplFacts = Set.map (rebaseConcreteImplFact origin dataTypeNames classNames) (scopeConcreteImplFacts facts),
       scopeClassMethodSignatures =
         Map.fromList
           [ (rebaseMethodKey origin classNames methodKey, rebaseClassMethod origin dataTypeNames classNames methodType)
@@ -447,22 +451,22 @@ rebaseClassMethod origin dataTypeNames classNames (ClassMethodType parameter pay
   ClassMethodType parameter (rebaseSignaturePayload origin dataTypeNames classNames payload)
 
 rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMethodType -> ImplMethodType
-rebaseImplMethod origin dataTypeNames classNames (ImplMethodType target) =
-  ImplMethodType (rebaseSignatureType origin dataTypeNames classNames target)
+rebaseImplMethod origin dataTypeNames _ (ImplMethodType target) =
+  ImplMethodType (rebaseSignatureTypeNames origin dataTypeNames target)
 
 rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload -> SignaturePayload
 rebaseSignaturePayload origin dataTypeNames classNames payload =
   case payload of
     SignatureType signatureType ->
-      SignatureType (rebaseSignatureType origin dataTypeNames classNames signatureType)
+      SignatureType (rebaseSignatureTypeNames origin dataTypeNames signatureType)
     ConstrainedSignature constraints signatureType ->
       ConstrainedSignature
         [ SignatureConstraint
             (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
-            (map (rebaseSignatureType origin dataTypeNames classNames) arguments)
+            (map (rebaseSignatureTypeNames origin dataTypeNames) arguments)
         | SignatureConstraint capabilityName arguments <- constraints
         ]
-        (rebaseSignatureType origin dataTypeNames classNames signatureType)
+        (rebaseSignatureTypeNames origin dataTypeNames signatureType)
     UnsupportedSignature tokens ->
       UnsupportedSignature
         [ case token of
@@ -471,22 +475,38 @@ rebaseSignaturePayload origin dataTypeNames classNames payload =
         | token <- tokens
         ]
 
-rebaseSignatureType :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignatureType -> SignatureType
-rebaseSignatureType origin dataTypeNames _ signatureType =
+rebaseConcreteImplFact ::
+  ResolvedNameOrigin ->
+  Set.Set Text ->
+  Set.Set Text ->
+  ConcreteImplFact ->
+  ConcreteImplFact
+rebaseConcreteImplFact origin dataTypeNames classNames (ConcreteImplFact capabilityName argument) =
+  ConcreteImplFact
+    (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
+    (rebaseSignatureTypeNames origin dataTypeNames argument)
+
+rebaseSignatureTypeNames :: ResolvedNameOrigin -> Set.Set Text -> SignatureType -> SignatureType
+rebaseSignatureTypeNames origin dataTypeNames signatureType =
   case signatureType of
-    TypeVariable typeName -> TypeVariable typeName
+    TypeInt -> TypeInt
+    TypeFloat -> TypeFloat
+    TypeNumeric numericType -> TypeNumeric numericType
+    TypeBool -> TypeBool
+    TypeChar -> TypeChar
+    TypeText -> TypeText
+    TypeVariable typeName -> TypeVariable (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
     TypeName typeName -> TypeName (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
     TypeApplication typeName arguments ->
       TypeApplication
         (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
-        (map (rebaseSignatureType origin dataTypeNames Set.empty) arguments)
-    TypeList elementType -> TypeList (rebaseSignatureType origin dataTypeNames Set.empty elementType)
-    TypeTuple elementTypes -> TypeTuple (map (rebaseSignatureType origin dataTypeNames Set.empty) elementTypes)
+        (map (rebaseSignatureTypeNames origin dataTypeNames) arguments)
+    TypeList elementType -> TypeList (rebaseSignatureTypeNames origin dataTypeNames elementType)
+    TypeTuple elementTypes -> TypeTuple (map (rebaseSignatureTypeNames origin dataTypeNames) elementTypes)
     TypeFunction argumentType resultType ->
       TypeFunction
-        (rebaseSignatureType origin dataTypeNames Set.empty argumentType)
-        (rebaseSignatureType origin dataTypeNames Set.empty resultType)
-    _ -> signatureType
+        (rebaseSignatureTypeNames origin dataTypeNames argumentType)
+        (rebaseSignatureTypeNames origin dataTypeNames resultType)
 
 rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> Name -> Name
 rebaseKnownName origin namespace knownNames name =
@@ -509,15 +529,3 @@ rebaseMethodKey origin classNames methodKey =
   case [className | className <- Set.toList classNames, (className <> "::") `Text.isPrefixOf` methodKey] of
     className : _ -> qualifiedKey origin className <> Text.drop (Text.length className) methodKey
     [] -> methodKey
-
-rebaseFact :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> Text -> Text
-rebaseFact origin dataTypeNames classNames =
-  Text.concat . map rebaseToken . Text.groupBy sameTokenKind
-  where
-    knownNames = Set.union dataTypeNames classNames
-    rebaseToken token
-      | Text.all identifierCharacter token = rebaseKnownText origin knownNames token
-      | otherwise = token
-    sameTokenKind left right = identifierCharacter left == identifierCharacter right
-    identifierCharacter character =
-      character == ':' || character == '_' || ('0' <= character && character <= '9') || ('A' <= character && character <= 'Z') || ('a' <= character && character <= 'z')

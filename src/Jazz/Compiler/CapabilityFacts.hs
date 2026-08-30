@@ -1,11 +1,14 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared helpers for the first class/impl environment-validation slice.
 module Jazz.Compiler.CapabilityFacts
-  ( concreteConstraintArgument,
-    concreteImplFactKey,
+  ( ConcreteImplFact (..),
+    concreteConstraintArgument,
+    concreteImplFact,
     concreteImplFactClassName,
-    constraintImplFactKey,
     constraintSignatureAliasNames,
     constraintSignatureAliasVariants,
     constraintSignatureTypeContainsClassParameter,
@@ -14,15 +17,18 @@ module Jazz.Compiler.CapabilityFacts
     identifierLooksLikeTypeVariable,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
+    renderConcreteImplFact,
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
     substituteClassMethodSignature,
     constraintFunctionArgumentTypes
   ) where
 
+import Control.DeepSeq (NFData)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( NumericType (..),
     SignaturePayload (..),
@@ -42,21 +48,24 @@ import Jazz.Compiler.SignatureRendering
   ( renderSignatureType
   )
 
-concreteImplFactKey :: Name -> [SignatureType] -> Maybe Text
-concreteImplFactKey capabilityName arguments =
+data ConcreteImplFact = ConcreteImplFact Name SignatureType
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+concreteImplFact :: Name -> [SignatureType] -> Maybe ConcreteImplFact
+concreteImplFact capabilityName arguments =
   case arguments of
     [argument]
       | concreteConstraintArgument argument ->
-          Just (constraintImplFactKey capabilityName argument)
+          Just (ConcreteImplFact capabilityName argument)
     _ -> Nothing
 
-constraintImplFactKey :: Name -> SignatureType -> Text
-constraintImplFactKey constraintName argument =
-  renderName constraintName <> "(" <> renderSignatureType argument <> ")"
+renderConcreteImplFact :: ConcreteImplFact -> Text
+renderConcreteImplFact (ConcreteImplFact capabilityName argument) =
+  renderName capabilityName <> "(" <> renderSignatureType argument <> ")"
 
-concreteImplFactClassName :: Text -> Text
-concreteImplFactClassName implKey =
-  fst (Text.breakOn "(" implKey)
+concreteImplFactClassName :: ConcreteImplFact -> Text
+concreteImplFactClassName (ConcreteImplFact capabilityName _) = renderName capabilityName
 
 qualifiedMethodKey :: Name -> Name -> Text
 qualifiedMethodKey capabilityName methodName =

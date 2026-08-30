@@ -43,7 +43,9 @@ import Jazz.Compiler.Analyzer.UnusedBindings
   ( collectUnusedBindingWarnings
   )
 import Jazz.Compiler.CapabilityFacts
-  ( concreteImplFactKey,
+  ( ConcreteImplFact,
+    concreteImplFact,
+    renderConcreteImplFact,
     splitQualifiedMethodKey
   )
 import Jazz.Compiler.Diagnostics
@@ -487,9 +489,9 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
       foldl' step (Map.empty, Map.empty, Set.empty, Map.empty, Nothing, mempty) indexedStatements
 
     step ::
-      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, CollectedDiagnostics) ->
+      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map ConcreteImplFact SourceSpan, Maybe PendingSignature, CollectedDiagnostics) ->
       (Int, Statement) ->
-      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map Text SourceSpan, Maybe PendingSignature, CollectedDiagnostics)
+      (Map Name VisibleBinding, Map Text SourceSpan, Set Text, Map ConcreteImplFact SourceSpan, Maybe PendingSignature, CollectedDiagnostics)
     step (scopeBindings, classDeclarations, importedClassNames, implDeclarations, pendingSignature, diagnostics) (statementIndex, statement) =
       case statement of
         SExpr exprSpan expr ->
@@ -565,17 +567,17 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
               visible = currentVisibleBindings scopeBindings
               (nextImplDeclarations, implErrors) =
-                case concreteImplFactKey capabilityName arguments of
+                case concreteImplFact capabilityName arguments of
                   Nothing ->
                     (implDeclarations, [])
-                  Just implFactKey ->
-                    case Map.lookup implFactKey implDeclarations of
+                  Just implFact ->
+                    case Map.lookup implFact implDeclarations of
                       Just previousSpan ->
                         ( implDeclarations,
-                          [mkDuplicateImplDeclarationError implFactKey implSpan previousSpan]
+                          [mkDuplicateImplDeclarationError (renderConcreteImplFact implFact) implSpan previousSpan]
                         )
                       Nothing ->
-                        (Map.insert implFactKey implSpan implDeclarations, [])
+                        (Map.insert implFact implSpan implDeclarations, [])
               methodErrors = duplicateImplMethodErrors capabilityName arguments methods
               methodBodyDiagnostics =
                 collectImplMethodDiagnostics
@@ -893,8 +895,8 @@ duplicateImplMethodErrors capabilityName arguments methods =
   reverse errorsRev
   where
     implLabel =
-      case concreteImplFactKey capabilityName arguments of
-        Just implFactKey -> implFactKey
+      case concreteImplFact capabilityName arguments of
+        Just implFact -> renderConcreteImplFact implFact
         Nothing -> identifierText capabilityName
     (_, errorsRev) = foldl' step (Map.empty, []) methods
     step (seenMethods, acc) (ImplMethod methodName methodSpan _) =

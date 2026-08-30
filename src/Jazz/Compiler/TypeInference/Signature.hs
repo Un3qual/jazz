@@ -32,7 +32,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
-    constraintImplFactKey,
+    concreteImplFact,
     constraintSignatureTypeVariableNamesInOrder,
     identifierLooksLikeTypeVariable
   )
@@ -278,9 +278,7 @@ supportedConcreteConstraint state (SignatureConstraint constraintName arguments)
   case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
     (Just 1, [argument]) ->
       concreteConstraintArgument argument
-        && Set.member
-          (constraintImplFactKey constraintName argument)
-          (inferConcreteImplFacts state)
+        && maybe False (`Set.member` inferConcreteImplFacts state) (concreteImplFact constraintName [argument])
     _ -> False
 
 supportedVariableConstraint :: InferState -> SignatureConstraint -> Bool

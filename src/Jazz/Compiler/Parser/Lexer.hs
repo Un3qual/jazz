@@ -20,7 +20,7 @@ where
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (void)
-import Data.Char (chr, isAlpha, isAlphaNum, isDigit, isHexDigit, isSpace, ord)
+import Data.Char (chr, isDigit, isHexDigit, isSpace, ord)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -36,6 +36,10 @@ import Jazz.Compiler.Diagnostics
     SourceSpan (..),
     mkErrorDiagnostic,
     setDiagnosticPrimarySpan,
+  )
+import Jazz.Compiler.Name
+  ( isIdentifierContinuationCharacter,
+    isIdentifierStartCharacter,
   )
 import Jazz.Compiler.Parser.Operator
   ( isStage2OperatorSymbolChar,
@@ -176,7 +180,7 @@ tokenParser = do
     '"' -> textToken spanValue
     _
       | isDigit nextChar -> intToken spanValue
-      | isIdentifierStart nextChar -> identifierToken spanValue
+      | isIdentifierStartCharacter nextChar -> identifierToken spanValue
       | otherwise -> symbolToken spanValue nextChar
 
 charToken :: SourceSpan -> LexerParser Token
@@ -297,8 +301,8 @@ intToken spanValue = do
 
 identifierToken :: SourceSpan -> LexerParser Token
 identifierToken spanValue = do
-  firstChar <- MP.satisfy isIdentifierStart
-  rest <- MP.takeWhileP (Just "identifier character") isIdentifierContinuation
+  firstChar <- MP.satisfy isIdentifierStartCharacter
+  rest <- MP.takeWhileP (Just "identifier character") isIdentifierContinuationCharacter
   let ident = Text.cons firstChar rest
   pure
     Token
@@ -405,13 +409,6 @@ identifierKind ident =
     "else" -> TElse
     "case" -> TCase
     _ -> TIdentifier ident
-
-isIdentifierStart :: Char -> Bool
-isIdentifierStart charValue = isAlpha charValue || charValue == '_'
-
-isIdentifierContinuation :: Char -> Bool
-isIdentifierContinuation charValue =
-  isAlphaNum charValue || charValue == '_' || charValue == '\'' || charValue == '!'
 
 sourcePosSpan :: MP.SourcePos -> SourceSpan
 sourcePosSpan sourcePosition =

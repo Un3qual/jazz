@@ -9,6 +9,9 @@ import Jazz.Compiler.AST
   ( SignaturePayload (SignatureType),
     SignatureType (TypeBool, TypeInt),
   )
+import Jazz.Compiler.CapabilityFacts
+  ( ConcreteImplFact (ConcreteImplFact),
+  )
 import Jazz.Compiler.LoweredIR.Lower.Types
   ( RuntimeRequirements (..),
   )
@@ -111,7 +114,7 @@ testScopeCapabilityFacts = do
           scopeConcreteImplMethods =
             Map.singleton "Comparable" [ImplMethodType TypeBool],
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
-          scopeConcreteImplFacts = Set.singleton "Comparable"
+          scopeConcreteImplFacts = Set.singleton (ConcreteImplFact "Comparable" TypeInt)
         }
 
 testModuleExportInventory :: IO ()

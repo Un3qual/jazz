@@ -71,9 +71,10 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIsIntegral,
   )
 import Jazz.Compiler.CapabilityFacts
-  ( concreteConstraintArgument,
+  ( ConcreteImplFact (..),
+    concreteConstraintArgument,
+    concreteImplFact,
     concreteImplFactClassName,
-    concreteImplFactKey,
     constraintFunctionArgumentTypes,
     constraintSignatureAliasVariants,
     constraintSignatureTypeContainsClassParameter,
@@ -389,9 +390,9 @@ seedFacts facts (_, statement) =
           }
     SImpl _ capabilityName arguments methods ->
       seedImplMethodFacts capabilityName arguments methods $
-        case concreteImplFactKey capabilityName arguments of
-          Just implFactKey ->
-            facts {scopeConcreteImplFacts = Set.insert implFactKey (scopeConcreteImplFacts facts)}
+        case concreteImplFact capabilityName arguments of
+          Just implFact ->
+            facts {scopeConcreteImplFacts = Set.insert implFact (scopeConcreteImplFacts facts)}
           Nothing ->
             facts
     _ -> facts
@@ -1086,9 +1087,7 @@ constraintImplFactExistsForDeferred :: ScopeCapabilityFacts -> Bool -> Text -> S
 constraintImplFactExistsForDeferred facts inferredConstraint constraintName argumentHint =
   if inferredConstraint
     then concreteImplFactExists constraintName argumentHint facts
-    else Set.member implFactKey (scopeConcreteImplFacts facts)
-  where
-    implFactKey = constraintName <> "(" <> renderSignatureType argumentHint <> ")"
+    else concreteImplFactExistsExactly constraintName argumentHint facts
 
 inferredConstraintCandidateRuntimeHints :: ScopeCapabilityFacts -> InferState -> Maybe Text -> ExpressionType -> [SignatureType]
 inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType =
@@ -1159,8 +1158,15 @@ numericTypeFromConstraintSignatureName =
 concreteImplFactExists :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool
 concreteImplFactExists constraintName argumentHint facts =
   any
-    (\candidateHint -> Set.member (constraintName <> "(" <> renderSignatureType candidateHint <> ")") (scopeConcreteImplFacts facts))
+    (\candidateHint -> concreteImplFactExistsExactly constraintName candidateHint facts)
     (constraintSignatureAliasVariants argumentHint)
+
+concreteImplFactExistsExactly :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool
+concreteImplFactExistsExactly constraintName argumentHint facts =
+  any matches (Set.toList (scopeConcreteImplFacts facts))
+  where
+    matches (ConcreteImplFact capabilityName factArgument) =
+      identifierText capabilityName == constraintName && factArgument == argumentHint
 
 concreteImplMethodBodyExists :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool
 concreteImplMethodBodyExists methodKey argumentHint facts =

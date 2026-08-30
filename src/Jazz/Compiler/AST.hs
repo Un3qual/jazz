@@ -131,7 +131,7 @@ data SignatureType
   | TypeList SignatureType
   | TypeTuple [SignatureType]
   | TypeFunction SignatureType SignatureType
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 -- | Tokenized fallback for unsupported signature surfaces. Tokens are stored
