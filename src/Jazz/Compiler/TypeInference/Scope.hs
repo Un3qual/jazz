@@ -139,6 +139,7 @@ import Jazz.Compiler.TypeInference.Types
     DataTypeBinding (..),
     ExpressionType (..),
     NumericConstraint,
+    ScopeCapabilityFacts,
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -475,6 +476,18 @@ data ScopeInferenceRequest = ScopeInferenceRequest
     scopePreparedInference :: PreparedInferenceScope
   }
 
+data ScopeWalkState = ScopeWalkState
+  { scopeWalkEnv :: !TypeEnv,
+    scopeWalkEnvFreeVariables :: !TypeEnvFreeVariables,
+    scopeWalkLastExprType :: !(Maybe ExpressionType),
+    scopeWalkPendingSignature :: !(Maybe PendingSignatureType),
+    scopeWalkPendingSignaturesByStatement :: !(Map Int PendingSignatureType),
+    scopeWalkRecursiveGroupStartStates :: !(Map Int InferState),
+    scopeWalkRecursiveGroupPreviewCache :: !RecursiveGroupPreviewCache,
+    scopeWalkModuleBaselineFacts :: !ScopeCapabilityFacts,
+    scopeWalkInferState :: !InferState
+  }
+
 preparedInferenceScope :: Set Name -> PreparedRecursiveScope -> PreparedInferenceScope
 preparedInferenceScope expectedOuterBindingNames preparedScope =
   PreparedInferenceScope
@@ -497,8 +510,20 @@ inferScopeTypeInternal
       scopeInitialState,
       scopePreparedInference = PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement
     } =
-    let (scopeType, finalState, provisionalStatements, productionFailures) =
-          go initialEnv (typeEnvFreeVariables initialEnv) Nothing Nothing Map.empty Map.empty Map.empty initialModuleBaselineFacts stateAfterBindingSeeds indexedStatements
+    let initialWalkState =
+          ScopeWalkState
+            { scopeWalkEnv = initialEnv,
+              scopeWalkEnvFreeVariables = typeEnvFreeVariables initialEnv,
+              scopeWalkLastExprType = Nothing,
+              scopeWalkPendingSignature = Nothing,
+              scopeWalkPendingSignaturesByStatement = Map.empty,
+              scopeWalkRecursiveGroupStartStates = Map.empty,
+              scopeWalkRecursiveGroupPreviewCache = Map.empty,
+              scopeWalkModuleBaselineFacts = initialModuleBaselineFacts,
+              scopeWalkInferState = stateAfterBindingSeeds
+            }
+        (scopeType, finalState, provisionalStatements, productionFailures) =
+          go initialWalkState indexedStatements
         stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
         provisionalExpr =
           case scopeProductionMode of
@@ -628,16 +653,35 @@ inferScopeTypeInternal
       stateAfterBindingSeeds = preparedScopeState scopePreparation
       initialModuleBaselineFacts = capabilityFactsFromState initialState
 
-      go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates recursiveGroupPreviewCache moduleBaselineFacts state remainingStatements =
+      go :: ScopeWalkState -> [(Int, Statement)] -> (Maybe ExpressionType, InferState, [ProvisionalTypedStatement], [InferredProductionFailure])
+      go walkState remainingStatements =
         case remainingStatements of
-          [] -> (lastExprType, publishVisibleTypes env state, [], [])
+          [] -> (scopeWalkLastExprType walkState, publishVisibleTypes (scopeWalkEnv walkState) (scopeWalkInferState walkState), [], [])
           (statementIndex, statement) : rest ->
-            let stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
+            let env = scopeWalkEnv walkState
+                envFreeVariables = scopeWalkEnvFreeVariables walkState
+                pendingSignatureType = scopeWalkPendingSignature walkState
+                pendingSignaturesByStatement = scopeWalkPendingSignaturesByStatement walkState
+                recursiveGroupStartStates = scopeWalkRecursiveGroupStartStates walkState
+                recursiveGroupPreviewCache = scopeWalkRecursiveGroupPreviewCache walkState
+                moduleBaselineFacts = scopeWalkModuleBaselineFacts walkState
+                state = scopeWalkInferState walkState
+                stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
              in case statement of
                   SModule _ modulePath ->
-                    go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts (enterModuleCapabilityScope moduleBaselineFacts modulePath state) rest
+                    go
+                      walkState
+                        { scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                          scopeWalkInferState = enterModuleCapabilityScope moduleBaselineFacts modulePath state
+                        }
+                      rest
                   SImport _ modulePath maybeAlias maybeSymbolNames ->
-                    go env envFreeVariables lastExprType pendingSignatureType pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts (importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state) rest
+                    go
+                      walkState
+                        { scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                          scopeWalkInferState = importModuleCapabilityFacts modulePath maybeAlias maybeSymbolNames state
+                        }
+                      rest
                   SClass classSpan capabilityName parameters methods ->
                     let validationState =
                           seedStatementCapabilityFact
@@ -652,7 +696,14 @@ inferScopeTypeInternal
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState, provisionalRest, productionFailures) =
-                          go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty nextModuleBaselineFacts nextState rest
+                          go
+                            walkState
+                              { scopeWalkPendingSignature = Nothing,
+                                scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                                scopeWalkModuleBaselineFacts = nextModuleBaselineFacts,
+                                scopeWalkInferState = nextState
+                              }
+                            rest
                         provisional =
                           case mode of
                             ProduceTypedCoreExpressionDirectCall ->
@@ -688,7 +739,14 @@ inferScopeTypeInternal
                         nextModuleBaselineFacts =
                           updateRootModuleBaselineFacts moduleBaselineFacts state nextState
                         (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                          go env envFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty nextModuleBaselineFacts nextState rest
+                          go
+                            walkState
+                              { scopeWalkPendingSignature = Nothing,
+                                scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                                scopeWalkModuleBaselineFacts = nextModuleBaselineFacts,
+                                scopeWalkInferState = nextState
+                              }
+                            rest
                         provisional =
                           case mode of
                             ProduceTypedCoreExpressionDirectCall ->
@@ -717,7 +775,15 @@ inferScopeTypeInternal
                                 envFreeVariables
                                 constructors
                         (scopeResultType, resultState, provisionalRest, productionFailures) =
-                          go nextEnv nextEnvFreeVariables lastExprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts nextState rest
+                          go
+                            walkState
+                              { scopeWalkEnv = nextEnv,
+                                scopeWalkEnvFreeVariables = nextEnvFreeVariables,
+                                scopeWalkPendingSignature = Nothing,
+                                scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                                scopeWalkInferState = nextState
+                              }
+                            rest
                         provisional =
                           case mode of
                             ProduceTypedCoreExpressionDirectCall ->
@@ -746,7 +812,13 @@ inferScopeTypeInternal
                               )
                         signatureState = state
                         (scopeResultType, resultState, provisionalRest, productionFailures) =
-                          go env envFreeVariables lastExprType nextPendingSignature pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts nextState rest
+                          go
+                            walkState
+                              { scopeWalkPendingSignature = nextPendingSignature,
+                                scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                                scopeWalkInferState = nextState
+                              }
+                            rest
                         provisional =
                           case (mode, nextPendingSignature) of
                             (ProduceTypedCoreExpressionDirectCall, Just pendingSignature)
@@ -983,7 +1055,17 @@ inferScopeTypeInternal
                         recursiveGroupPreviewCacheAfterStatement =
                           dropAdvancedRecursiveGroupPreview statementIndex recursiveGroupPreviewCacheForStatement
                         (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                          go nextEnv nextEnvFreeVariables lastExprType Nothing nextPendingSignaturesByStatement recursiveGroupStartStatesForStatement recursiveGroupPreviewCacheAfterStatement moduleBaselineFacts stateAfterRecursiveGroupPrune rest
+                          go
+                            walkState
+                              { scopeWalkEnv = nextEnv,
+                                scopeWalkEnvFreeVariables = nextEnvFreeVariables,
+                                scopeWalkPendingSignature = Nothing,
+                                scopeWalkPendingSignaturesByStatement = nextPendingSignaturesByStatement,
+                                scopeWalkRecursiveGroupStartStates = recursiveGroupStartStatesForStatement,
+                                scopeWalkRecursiveGroupPreviewCache = recursiveGroupPreviewCacheAfterStatement,
+                                scopeWalkInferState = stateAfterRecursiveGroupPrune
+                              }
+                            rest
                         canonicalRecursiveGroupMembers =
                           Map.lookup statementIndex recursiveGroupsByStatement
                         callableDeclaration =
@@ -1071,7 +1153,14 @@ inferScopeTypeInternal
                                 Set.empty
                             Nothing -> stateAfterExplicitConstraintCheck
                         (scopeResultType, resultState, provisionalRest, restProductionFailures) =
-                          go env envFreeVariables exprType Nothing pendingSignaturesByStatement recursiveGroupStartStates Map.empty moduleBaselineFacts stateAfterDroppedInferredMethodCheck rest
+                          go
+                            walkState
+                              { scopeWalkLastExprType = exprType,
+                                scopeWalkPendingSignature = Nothing,
+                                scopeWalkRecursiveGroupPreviewCache = Map.empty,
+                                scopeWalkInferState = stateAfterDroppedInferredMethodCheck
+                              }
+                            rest
                         provisional =
                           case (mode, expressionProductionFailures, inferredProvisionalExpr exprResult) of
                             (ProduceTypedCoreExpressionDirectCall, failures@(_ : _), Just ProvisionalScopeStatements {}) ->
