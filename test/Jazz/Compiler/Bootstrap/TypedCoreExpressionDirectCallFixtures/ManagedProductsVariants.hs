@@ -104,15 +104,17 @@ managedProductVariantExpectedPrograms =
 managedPatternProfileAcceptedPrograms :: [(Text, TypedProgram)]
 managedPatternProfileAcceptedPrograms =
   [ ("managed-closed-variant-pattern-profile", managedTopLevelOrPatternProgram),
-    ("managed-nested-constructor-tuple-pattern-profile", managedAsConstructorTuplePatternProgram),
     ("managed-total-tuple-pattern-profile", managedTotalTuplePatternProgram)
   ]
 
 managedPatternProfileRejectedPrograms :: [(Text, TypedProgram)]
 managedPatternProfileRejectedPrograms =
   [ ("managed-missing-constructor-pattern-profile", managedMissingConstructorPatternProgram),
+    ("managed-other-missing-constructor-pattern-profile", managedOtherMissingConstructorPatternProgram),
     ("managed-guarded-constructors-pattern-profile", managedGuardedConstructorsPatternProgram),
     ("managed-incomplete-tuple-pattern-profile", managedIncompleteTuplePatternProgram),
+    ("managed-bool-literals-without-catch-all-pattern-profile", managedBoolLiteralPatternProgram),
+    ("managed-nested-constructor-tuple-pattern-profile", managedAsConstructorTuplePatternProgram),
     ("managed-list-pattern-profile", managedListPatternProgram),
     ("managed-nested-or-pattern-profile", managedNestedOrPatternProgram),
     ("managed-text-literal-pattern-profile", managedTextLiteralPatternProgram)
@@ -1008,6 +1010,19 @@ managedMissingConstructorPatternProgram =
       [TypedCaseArm firstAlternative maybeGuard body]
     retainFirstAlternative _ = error "managed top-level or-pattern fixture must retain one or-pattern arm"
 
+managedOtherMissingConstructorPatternProgram :: TypedProgram
+managedOtherMissingConstructorPatternProgram =
+  rewriteTerminalPatternArms retainSecondAlternative managedTopLevelOrPatternProgram
+  where
+    retainSecondAlternative [TypedCaseArm (TypedOrPattern _ (_ : secondAlternative : _)) maybeGuard body] =
+      case (secondAlternative, body) of
+        ( TypedConstructorPattern _ _ [TypedVariablePattern _ binder _],
+          TypedVariableExpr info name _
+          ) ->
+            [TypedCaseArm secondAlternative maybeGuard (TypedVariableExpr info name (Just binder))]
+        _ -> error "managed second constructor alternative must bind the arm result"
+    retainSecondAlternative _ = error "managed top-level or-pattern fixture must retain one or-pattern arm"
+
 managedGuardedConstructorsPatternProgram :: TypedProgram
 managedGuardedConstructorsPatternProgram =
   rewriteTerminalPatternArms guardOnlyArm managedTopLevelOrPatternProgram
@@ -1021,6 +1036,31 @@ managedTotalTuplePatternProgram = managedTuplePatternProfileProgram True
 
 managedIncompleteTuplePatternProgram :: TypedProgram
 managedIncompleteTuplePatternProgram = managedTuplePatternProfileProgram False
+
+managedBoolLiteralPatternProgram :: TypedProgram
+managedBoolLiteralPatternProgram =
+  managedProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (boolExpr True)
+            [ TypedCaseArm
+                (TypedLiteralPattern boolInfo (TypedBooleanLiteral True))
+                Nothing
+                (int64Expr 1),
+              TypedCaseArm
+                (TypedLiteralPattern boolInfo (TypedBooleanLiteral False))
+                Nothing
+                (int64Expr 0)
+            ]
+        )
+    ]
+    int64Info
+  where
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
 
 managedTuplePatternProfileProgram :: Bool -> TypedProgram
 managedTuplePatternProfileProgram totalNestedFields =

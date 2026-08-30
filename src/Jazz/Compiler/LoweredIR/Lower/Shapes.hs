@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.LoweredIR.Lower.Shapes
   ( analyzeTypedModule,
+    patternArmParameters,
     orderedClosureLayouts,
     valueSchemeContract,
     loweredIRGeneratedIdentityFailureDetail,
@@ -1133,7 +1134,6 @@ combineExpressionChecks = concat
 
 data LowererCoveragePattern
   = LowererCoverageCatchAll
-  | LowererCoverageBool Bool
   | LowererCoverageLiteral
   | LowererCoverageConstructor Integer [LowererCoveragePattern]
   | LowererCoverageTuple [LowererCoveragePattern]
@@ -1225,7 +1225,6 @@ admitPattern managedLayoutCatalog statementPath expectedRepresentation allowTopL
     TypedLiteralPattern info literal
       | matchingRepresentation info ->
           case (expectedRepresentation, literal) of
-            (Just LoweredBoolRepresentation, TypedBooleanLiteral value) -> Right (LowererCoverageBool value)
             (Just representation, _)
               | scalarRepresentation managedLayoutCatalog (typedNodeType info) (typedNodeRecipe info) == Just representation ->
                   Right LowererCoverageLiteral
@@ -1293,10 +1292,6 @@ coverageMatrixTotal _ [] rows = any null rows
 coverageMatrixTotal _ (Nothing : _) _ = False
 coverageMatrixTotal managedLayoutCatalog (Just representation : remainingRepresentations) rows =
   case representation of
-    LoweredBoolRepresentation ->
-      all
-        (\value -> coverageMatrixTotal managedLayoutCatalog remainingRepresentations (specializeBool value rows))
-        [False, True]
     LoweredManagedReferenceRepresentation layoutId ->
       case managedLayoutShapeFor managedLayoutCatalog layoutId of
         Just (LoweredProductLayout fields) ->
@@ -1313,16 +1308,6 @@ coverageMatrixTotal managedLayoutCatalog (Just representation : remainingReprese
         managedLayoutCatalog
         remainingRepresentations
         [remainingPatterns | LowererCoverageCatchAll : remainingPatterns <- rows]
-
-specializeBool :: Bool -> [[LowererCoveragePattern]] -> [[LowererCoveragePattern]]
-specializeBool value = foldMap specialize
-  where
-    specialize row =
-      case row of
-        LowererCoverageCatchAll : remaining -> [remaining]
-        LowererCoverageBool patternValue : remaining
-          | patternValue == value -> [remaining]
-        _ -> []
 
 specializeProduct :: [LoweredRepresentation] -> [[LowererCoveragePattern]] -> [[LowererCoveragePattern]]
 specializeProduct fields = foldMap specialize

@@ -6,7 +6,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-  ( optionIntInfo,
+  ( managedAsConstructorTuplePatternProgram,
+    managedTopLevelOrPatternProgram,
+    optionIntInfo,
     optionLayout,
     optionLayoutId,
     someName,
@@ -25,7 +27,8 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     requirementsForManagedLayouts,
   )
-import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule)
+import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule, patternArmParameters)
+import Jazz.Compiler.LoweredIR.Lower.Types (FunctionParameterShape (..))
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypedCore
@@ -233,6 +236,7 @@ testManagedPatternLowererProfile :: IO ()
 testManagedPatternLowererProfile = do
   mapM_ assertAccepted acceptedNames
   mapM_ assertRejected expectedRejections
+  testManagedPatternParameterShapes
   where
     assertAccepted name =
       case lookup name managedConstructionLowererBoundaryPrograms of
@@ -255,14 +259,16 @@ testManagedPatternLowererProfile = do
 
     acceptedNames =
       [ "managed-closed-variant-pattern-profile",
-        "managed-nested-constructor-tuple-pattern-profile",
         "managed-total-tuple-pattern-profile"
       ]
 
     expectedRejections =
       [ incomplete "managed-missing-constructor-pattern-profile" 2,
+        incomplete "managed-other-missing-constructor-pattern-profile" 2,
         incomplete "managed-guarded-constructors-pattern-profile" 2,
         incomplete "managed-incomplete-tuple-pattern-profile" 0,
+        incomplete "managed-bool-literals-without-catch-all-pattern-profile" 0,
+        incomplete "managed-nested-constructor-tuple-pattern-profile" 2,
         unsupported "managed-list-pattern-profile" 0 [0, 0],
         unsupported "managed-nested-or-pattern-profile" 1 [0, 0, 0],
         unsupported "managed-text-literal-pattern-profile" 1 [0, 0, 0]
@@ -284,6 +290,66 @@ testManagedPatternLowererProfile = do
       )
     onlyModule (TypedProgram _ [moduleValue] _) = moduleValue
     onlyModule _ = error "managed pattern profile fixture must contain exactly one module"
+
+testManagedPatternParameterShapes :: IO ()
+testManagedPatternParameterShapes = do
+  assertPatternParameters
+    "managed as-pattern parameter order"
+    managedAsConstructorTuplePatternProgram
+    [ ( TypedBinderId
+          ( ["App", "Main"],
+            [2, 0],
+            TypedResolvedName TypedCurrentModule TypedValueNamespace "whole"
+          ),
+        LoweredParameter
+          (LoweredParameterId "pattern")
+          ( LoweredManagedReferenceRepresentation
+              (LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$5:Maybe$args1$24:tuple2$8:signed64$4:bool")
+          )
+      ),
+      ( TypedBinderId
+          ( ["App", "Main"],
+            [2, 0, 0, 0, 0],
+            TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+          ),
+        LoweredParameter
+          (LoweredParameterId "pattern1")
+          (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)
+      )
+    ]
+  assertPatternParameters
+    "managed or-pattern canonical parameter ownership"
+    managedTopLevelOrPatternProgram
+    [ ( TypedBinderId
+          ( ["App", "Main"],
+            [2, 0, 0, 0],
+            TypedResolvedName TypedCurrentModule TypedValueNamespace "item"
+          ),
+        LoweredParameter
+          (LoweredParameterId "pattern")
+          (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)
+      )
+    ]
+  where
+    assertPatternParameters name typedProgram expected =
+      case onlyModule typedProgram of
+        typedModule ->
+          case collectManagedLayoutCatalog typedModule of
+            Left failures -> failTest (name <> " catalog failed: " <> Text.pack (show failures))
+            Right catalog ->
+              assertEqual
+                name
+                expected
+                [ (functionParameterBinder shape, functionParameter shape)
+                | shape <- patternArmParameters catalog (firstArmPattern typedProgram)
+                ]
+    firstArmPattern (TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _) =
+      case reverse statements of
+        TypedExpressionStatement _ (TypedPatternCaseExpr _ _ (TypedCaseArm patternValue _ _ : _)) : _ -> patternValue
+        _ -> error "managed parameter-shape fixture must end in a pattern case"
+    firstArmPattern _ = error "managed parameter-shape fixture must contain exactly one module"
+    onlyModule (TypedProgram _ [moduleValue] _) = moduleValue
+    onlyModule _ = error "managed parameter-shape fixture must contain exactly one module"
 
 testManagedConstructorClosureCapture :: IO ()
 testManagedConstructorClosureCapture =
