@@ -8,19 +8,11 @@ module Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     modulePathToRelativeFile,
     parseModulePathText,
-    resolveModuleGraph,
-    resolveModuleGraphWithLookup,
-    resolveModuleGraphWithLookupAndVisibleSymbols,
-    resolveProgram,
     resolveProgramWithAmbientExports,
   )
 where
 
 import Control.Monad (foldM)
-import Data.Functor.Identity
-  ( Identity (..),
-    runIdentity,
-  )
 import Data.List (find, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
@@ -95,7 +87,6 @@ import Jazz.Compiler.Name
     isIdentifierStartCharacter,
     isOperatorBindingIdentifierText,
     mkIdentifier,
-    renderName,
     splitQualifiedIdentifierText,
   )
 import Jazz.Compiler.Parser
@@ -226,78 +217,6 @@ parseModulePathText rawModulePath
         Nothing -> False
         Just (firstChar, restChars) ->
           isIdentifierStartCharacter firstChar && Text.all isIdentifierContinuationCharacter restChars
-
-resolveModuleGraph ::
-  ModuleResolutionConfig ->
-  Map FilePath Text ->
-  [Text] ->
-  Either Diagnostic [ModuleGraph.ResolvedModule]
-resolveModuleGraph config sources entryModulePath =
-  runIdentity $
-    resolveModuleGraphWithLookup
-      config
-      (\path -> pure (Map.lookup path sources))
-      entryModulePath
-
--- | Resolve an entry module and all of its imports using an abstract source
--- lookup function so tests and CLI can share the same resolver logic.
-resolveModuleGraphWithLookup ::
-  (Monad m) =>
-  ModuleResolutionConfig ->
-  (FilePath -> m (Maybe Text)) ->
-  [Text] ->
-  m (Either Diagnostic [ModuleGraph.ResolvedModule])
-resolveModuleGraphWithLookup config =
-  resolveModuleGraphWithLookupAndVisibleSymbols config Set.empty Set.empty
-
-resolveModuleGraphWithLookupAndVisibleSymbols ::
-  (Monad m) =>
-  ModuleResolutionConfig ->
-  Set Text ->
-  Set Text ->
-  (FilePath -> m (Maybe Text)) ->
-  [Text] ->
-  m (Either Diagnostic [ModuleGraph.ResolvedModule])
-resolveModuleGraphWithLookupAndVisibleSymbols config ambientVisibleSymbols ambientVisibleClassNames loadSource entryModulePath =
-  fmap
-    (fmap (reverse . resolvedModulesRevState))
-    ( resolveStateWithLookupAndVisibleSymbols
-        config
-        ResolveKernelOnly
-        ( exportInventory
-            ( [ ModuleExport namespace name
-              | name <- Set.toList ambientVisibleSymbols,
-                namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
-              ]
-                <> [ModuleExport CapabilityNamespace name | name <- Set.toList ambientVisibleClassNames]
-            )
-        )
-        loadSource
-        entryModulePath
-    )
-
-resolveProgram ::
-  ModuleResolutionConfig ->
-  BuiltinResolutionMode ->
-  Set Name ->
-  Set Name ->
-  (FilePath -> IO (Maybe Text)) ->
-  [Text] ->
-  IO (Either Diagnostic ModuleGraph.ResolvedProgram)
-resolveProgram config builtinMode ambientValues ambientClasses loadSource entryModulePath =
-  resolveProgramWithAmbientExports
-    config
-    builtinMode
-    ( exportInventory
-        ( [ ModuleExport namespace (renderName name)
-          | name <- Set.toList ambientValues,
-            namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace]
-          ]
-            <> [ModuleExport CapabilityNamespace (renderName name) | name <- Set.toList ambientClasses]
-        )
-    )
-    loadSource
-    entryModulePath
 
 resolveProgramWithAmbientExports ::
   ModuleResolutionConfig ->

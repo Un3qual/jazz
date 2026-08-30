@@ -11,10 +11,11 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.ModuleExports (exportInventory)
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    resolveProgram,
+    resolveProgramWithAmbientExports,
   )
 import Jazz.Compiler.TypeInference (InferenceInputs (..))
 import Jazz.Compiler.TypeInference.Types
@@ -212,11 +213,10 @@ resolveFixture fixture =
 resolveFixtureWithLookup :: Fixture -> (FilePath -> IO (Maybe Text)) -> IO (Either Diagnostic ModuleGraph.ResolvedModule)
 resolveFixtureWithLookup fixture loadSource =
   fmap (fmap resolverEntryModule) $
-    resolveProgram
+    resolveProgramWithAmbientExports
       fixtureResolverConfig
       (inferenceBuiltinMode (fixtureInputs fixture))
-      Set.empty
-      Set.empty
+      (exportInventory [])
       loadSource
       modulePath
   where

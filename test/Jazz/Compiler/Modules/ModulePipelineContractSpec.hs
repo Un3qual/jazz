@@ -43,7 +43,7 @@ import Jazz.Compiler.Driver
     runRuntimeErrors
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
-import Jazz.Compiler.ModuleResolver (resolveProgram)
+import Jazz.Compiler.ModuleResolver (resolveProgramWithAmbientExports)
 import Jazz.Compiler.ModuleCompiler
   ( compileResolvedModule,
     compileResolvedProgram
@@ -798,11 +798,10 @@ recordingHost callsRef =
 compileFixtureProgram :: Map.Map FilePath Text -> IO CompiledProgram
 compileFixtureProgram sources = do
   resolvedResult <-
-    resolveProgram
+    resolveProgramWithAmbientExports
       resolverConfig
       ResolveKernelOnly
-      Set.empty
-      Set.empty
+      (exportInventory [])
       (\path -> pure (Map.lookup path sources))
       ["App", "Main"]
   case resolvedResult of
@@ -826,11 +825,10 @@ dependencyExpressionSources =
 testCompiledInterfacesExposeOnlyDeclaredExports :: IO ()
 testCompiledInterfacesExposeOnlyDeclaredExports = do
   resolvedResult <-
-    resolveProgram
+    resolveProgramWithAmbientExports
       resolverConfig
       ResolveKernelOnly
-      Set.empty
-      Set.empty
+      (exportInventory [])
       lookupSource
       ["App", "Main"]
   case resolvedResult of

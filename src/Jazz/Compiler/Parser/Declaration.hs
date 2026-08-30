@@ -6,12 +6,9 @@
 module Jazz.Compiler.Parser.Declaration
   ( collectImportAliasesUntilBrace,
     collectImportAliasesUntilEnd,
-    parseCapabilityDeclarationTokens,
     parseCapabilityDeclarationTokensDetailed,
     parseDataStatementParser,
-    parseDataStatementTokens,
     parseImportStatementParser,
-    parseImportStatementTokens,
     parseStatementParser,
   )
 where
@@ -29,10 +26,7 @@ import Data.Text
   ( Text,
   )
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan,
-  )
+import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
     ModuleExportSelector (..),
@@ -77,7 +71,6 @@ import Jazz.Compiler.Parser.Failure
     ParserUnsupportedFeature (..),
     parserFailure,
     parserFailureAt,
-    parserFailureDiagnostic,
   )
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
@@ -110,10 +103,7 @@ import Jazz.Compiler.Parser.TokenParser
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
-    tokenStreamDrop,
-    tokenStreamFromList,
     tokenStreamLength,
-    tokenStreamToList,
     pattern EmptyTokens,
     pattern (:<),
   )
@@ -141,33 +131,6 @@ capabilityDeclarationKind declarationKind =
     "impl" -> ImplDeclaration
     _ -> ClassDeclaration
 
-parseImportStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseImportStatementTokens tokens =
-  fmap
-    (fmap tokenStreamToList)
-    (mapLeft parserFailureDiagnostic (parseImportStatementFromTokens (tokenStreamFromList tokens)))
-
-parseDataStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseDataStatementTokens tokens =
-  fmap
-    (fmap tokenStreamToList)
-    (mapLeft parserFailureDiagnostic (parseDataStatementFromTokens (tokenStreamFromList tokens)))
-
-parseCapabilityDeclarationTokens ::
-  ([Token] -> Either Diagnostic (SurfaceExpr, [Token])) ->
-  [Token] ->
-  Either Diagnostic (SurfaceStatement, [Token])
-parseCapabilityDeclarationTokens parseImplExpression tokens =
-  fmap
-    (fmap tokenStreamToList)
-    ( mapLeft
-        capabilityFailureDiagnostic
-        ( parseCapabilityDeclarationFromTokens
-            (adaptListExpressionParser parseImplExpression)
-            (tokenStreamFromList tokens)
-        )
-    )
-
 parseCapabilityDeclarationTokensDetailed ::
   ImplExpressionParser ParserFailure ->
   TokenStream ->
@@ -175,23 +138,6 @@ parseCapabilityDeclarationTokensDetailed ::
 parseCapabilityDeclarationTokensDetailed parseImplExpression =
   mapLeft capabilityFailureDetailed
     . parseCapabilityDeclarationFromTokens parseImplExpression
-
--- | Bridge for list-based expression parsers. The wrapped parser must return
--- the unconsumed suffix of its input list in the original order because the
--- cursor advance is derived from the suffix length.
-adaptListExpressionParser ::
-  ([Token] -> Either failure (SurfaceExpr, [Token])) ->
-  ImplExpressionParser failure
-adaptListExpressionParser parseExpression tokens = do
-  (expression, remaining) <- parseExpression (tokenStreamToList tokens)
-  let consumedCount = tokenStreamLength tokens - length remaining
-  pure (expression, tokenStreamDrop consumedCount tokens)
-
-capabilityFailureDiagnostic :: CapabilityFailure Diagnostic -> Diagnostic
-capabilityFailureDiagnostic capabilityFailure =
-  case capabilityFailure of
-    CapabilityParserFailure failure -> parserFailureDiagnostic failure
-    CapabilityExpressionFailure diagnostic -> diagnostic
 
 capabilityFailureDetailed :: CapabilityFailure ParserFailure -> ParserFailure
 capabilityFailureDetailed capabilityFailure =
