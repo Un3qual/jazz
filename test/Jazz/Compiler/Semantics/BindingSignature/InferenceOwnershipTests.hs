@@ -487,19 +487,23 @@ testProductionScopeElaboratesSignatureOnce =
         ]
 
     syntheticProductionInfer :: InferExprWithModeFn
-    syntheticProductionInfer _ _ env state expression =
-      case expression of
-        EVar name ->
-          case Map.lookup name env of
-            Just (PlainTypeBinding expressionType) ->
-              ( InferredExpr
-                  (Just expressionType)
-                  (Just (ProvisionalVariableExpression name expressionType))
-                  [],
-                state
-              )
+    syntheticProductionInfer mode _ env state expression =
+      case mode of
+        ProduceTypedCoreExpressionDirectCall ->
+          case expression of
+            EVar name ->
+              case Map.lookup name env of
+                Just (PlainTypeBinding expressionType) ->
+                  ( InferredExpr
+                      (Just expressionType)
+                      (Just (ProvisionalVariableExpression name expressionType))
+                      [],
+                    state
+                  )
+                _ -> (InferredExpr Nothing Nothing [], state)
             _ -> (InferredExpr Nothing Nothing [], state)
-        _ -> (InferredExpr Nothing Nothing [], state)
+        InferenceOnly ->
+          error "expected production callback invocation"
 
 testPreparedInferenceScopeRederivesForOuterBindings :: IO ()
 testPreparedInferenceScopeRederivesForOuterBindings = do
@@ -534,19 +538,23 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
         initialInferState
 
     syntheticProductionInfer :: InferExprWithModeFn
-    syntheticProductionInfer _ _ env state expression =
-      case expression of
-        EVar name ->
-          case Map.lookup name env of
-            Just (PlainTypeBinding expressionType) ->
-              (InferredExpr (Just expressionType) Nothing [], state)
-            _ ->
-              ( InferredExpr Nothing Nothing [],
-                modifyInferenceOutput
-                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                  state
-              )
-        _ -> (InferredExpr Nothing Nothing [], state)
+    syntheticProductionInfer mode _ env state expression =
+      case mode of
+        InferenceOnly ->
+          case expression of
+            EVar name ->
+              case Map.lookup name env of
+                Just (PlainTypeBinding expressionType) ->
+                  (InferredExpr (Just expressionType) Nothing [], state)
+                _ ->
+                  ( InferredExpr Nothing Nothing [],
+                    modifyInferenceOutput
+                      (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                      state
+                  )
+            _ -> (InferredExpr Nothing Nothing [], state)
+        ProduceTypedCoreExpressionDirectCall ->
+          error "expected inference-only callback invocation"
 
 testRecursivePreviewSolverStateIsTransactional :: IO ()
 testRecursivePreviewSolverStateIsTransactional =
