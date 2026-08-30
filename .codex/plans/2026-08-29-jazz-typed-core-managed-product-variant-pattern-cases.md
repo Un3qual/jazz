@@ -409,12 +409,14 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   git commit -m "docs: close managed product and variant patterns"
   ```
 
-- [ ] **Step 6: Request whole-branch review and finish the branch.** Review the
+- [x] **Step 6: Request whole-branch review and finish the branch.** Review the
       complete diff against RFC 0015, repair only validated findings through
       new RED/GREEN cycles, rerun affected focused tests and the full gate, and
       then use `superpowers:finishing-a-development-branch` to present the
       integration choices. Do not push or open a pull request without explicit
       authorization.
 
-> Step 6 is controller-owned after this plan's verified closeout commit; it is
-> intentionally not part of the completed dispatcher child.
+> Step 6 completed after final-review fix `29954b82`: recursive and mutually
+> recursive coverage now terminates, managed wildcard/variable total prefixes
+> lower safely, the fresh focused/full/repository gates pass, and the scoped
+> re-review found no new Critical or Important issue.

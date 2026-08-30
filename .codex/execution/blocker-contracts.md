@@ -255,12 +255,15 @@ Each blocked item should answer these questions:
   checked-in Nix shell.
 - Completed child:
   `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` completed
-  on `2026-08-29` in implementation commits `65cdd9da` and `213e9228`.
+  on `2026-08-29` in implementation commits `65cdd9da`, `213e9228`, and
+  final-review fix `29954b82`.
   Fresh serialized focused producer/Typed Core/Lowered IR verification and
   `cabal test all --test-show-details=direct --jobs=1` passed with the
-  prescribed store-backed GHC 9.14.1/Cabal fallback. It closes recursive
-  producer finalization, independent backend totality, and source-ordered
-  managed decision-tree emission with tag-before-field projection.
+  prescribed store-backed GHC 9.14.1/Cabal fallback. The scoped final
+  re-review found both branch findings addressed with no new Critical or
+  Important issue. It closes recursive producer finalization, terminating
+  independent backend totality, managed total-prefix handling, and
+  source-ordered decision-tree emission with tag-before-field projection.
 - Smallest unblocker: none currently. There is no accepted next RFC 0015 child
   or other source-backed next target after the managed-pattern evidence.
 - Decision needed: none.
