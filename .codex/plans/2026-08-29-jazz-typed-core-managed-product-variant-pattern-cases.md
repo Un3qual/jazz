@@ -6,7 +6,7 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 3"
+plan_section: "Task 4"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
   - src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs
@@ -260,7 +260,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   runtime service. Change it only if a failing test exposes a missing existing
   dependency traversal.
 
-- [ ] **Step 1: Add RED boundary fixtures.** Turn the established managed
+- [x] **Step 1: Add RED boundary fixtures.** Turn the established managed
       pattern boundary case into positive profile expectations. Add arbitrary
       structurally valid Typed Core cases proving:
 
@@ -273,16 +273,16 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 
   First run must fail at the old scalar-only profile boundary.
 
-- [ ] **Step 2: Add the centralized layout lookup and recursive profile.** Keep
+- [x] **Step 2: Add the centralized layout lookup and recursive profile.** Keep
       nominal variant identity module-qualified and reuse the deterministic
       catalog ordering already established by the construction child.
 
-- [ ] **Step 3: Implement independent totality.** Do not import or call the
+- [x] **Step 3: Implement independent totality.** Do not import or call the
       source `PatternCoverage` proof. Add mutation-oriented assertions that
       would fail if guarded rows counted as coverage or a closed tag were
       omitted.
 
-- [ ] **Step 4: Verify and commit.** Run the managed tests plus Typed Core and
+- [x] **Step 4: Verify and commit.** Run the managed tests plus Typed Core and
       Lowered IR contract suites, then commit:
 
   ```bash
