@@ -246,6 +246,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   Resolve by current concrete variant identity plus constructor name, specialize
   the retained constructor template, and reuse `constructorLayoutFor`. Do not
   read catalog internals from `Shapes.hs` or `Emit.hs`.
+
 - Replace the scalar-only profile check with recursive managed-pattern
   admission. Every scrutinee and projected child must have one exact admitted
   representation recipe and catalog layout.
