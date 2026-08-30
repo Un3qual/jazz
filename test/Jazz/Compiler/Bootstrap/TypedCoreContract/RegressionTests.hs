@@ -7,7 +7,9 @@ module Jazz.Compiler.Bootstrap.TypedCoreContract.RegressionTests
   )
 where
 
+import Control.DeepSeq (force)
 import Control.Exception (evaluate)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreContract.Fixtures
@@ -21,7 +23,61 @@ import Jazz.TestHarness
 import System.Timeout (timeout)
 
 tests :: [NamedTest]
-tests = map fst reviewRegressionGroups <> [("uses nearest-prior dependencies through rebinding", testNearestPriorBindingDependencies), ("preserves source-ordered recursive visibility", testSourceOrderedRecursiveVisibility)]
+tests =
+  map fst reviewRegressionGroups
+    <> [ ("uses nearest-prior dependencies through rebinding", testNearestPriorBindingDependencies),
+         ("preserves source-ordered recursive visibility", testSourceOrderedRecursiveVisibility),
+         ("preserves high-cardinality duplicate evidence order", testHighCardinalityDuplicateEvidence)
+       ]
+
+testHighCardinalityDuplicateEvidence :: IO ()
+testHighCardinalityDuplicateEvidence = do
+  let failures = validateTypedProgram highCardinalityDuplicateEvidenceProgram
+  _ <- evaluate (force (map show failures))
+  assertEqual "high-cardinality duplicate failure count" 1999 (length failures)
+  assertEqual
+    "high-cardinality first duplicate"
+    ( Just
+        ( TypedCoreValidationFailure
+            (TypedStatementPath ["Fixture", "review_high_cardinality_duplicate_evidence"] [0])
+            TypedDuplicateEvidenceParameter
+            (TypedEvidenceParameterDetail (TypedEvidenceParameterId 1))
+        )
+    )
+    (listToMaybe failures)
+  assertEqual
+    "high-cardinality last duplicate"
+    ( Just
+        ( TypedCoreValidationFailure
+            (TypedStatementPath ["Fixture", "review_high_cardinality_duplicate_evidence"] [0])
+            TypedDuplicateEvidenceParameter
+            (TypedEvidenceParameterDetail (TypedEvidenceParameterId 1999))
+        )
+    )
+    (listToMaybe (reverse failures))
+
+highCardinalityDuplicateEvidenceProgram :: TypedProgram
+highCardinalityDuplicateEvidenceProgram =
+  withFixturePrelude (signatureProgram fixture valueOwner valueName valueScheme)
+  where
+    fixture = "review-high-cardinality-duplicate-evidence"
+    valueName = fixtureValueName "item"
+    valueOwner = fixtureBinder fixture 0 valueName
+    constraint =
+      TypedCapabilityConstraint
+        (preludeCapability "Equal")
+        Nothing
+        TypedBoolType
+    valueScheme =
+      fixtureScheme
+        valueOwner
+        []
+        [ TypedEvidenceParameter (TypedEvidenceParameterId index) constraint
+        | index <- [0 .. 1999]
+        ]
+        []
+        TypedBoolType
+        TypedBoolRecipe
 
 testRecursiveGroupContracts :: IO ()
 testRecursiveGroupContracts =

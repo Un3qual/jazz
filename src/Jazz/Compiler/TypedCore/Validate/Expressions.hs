@@ -113,7 +113,7 @@ module Jazz.Compiler.TypedCore.Validate.Expressions
 where
 
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (find, nub, sort)
+import Data.List (find, sort)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, isNothing, mapMaybe)
@@ -137,25 +137,19 @@ import Jazz.Compiler.TypedCore.Validate.Patterns
 import Jazz.Compiler.TypedCore.Validate.TypeRecipes
 
 duplicateBinderFailures :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
-duplicateBinderFailures context statements = snd (foldl' step (Set.empty, []) occurrences)
+duplicateBinderFailures context statements =
+  collectDuplicateFailuresBy occurrenceBinder duplicateFailure occurrences
   where
     occurrences = concatMap (statementBinderOccurrences context) statements
-    step (seen, failures) (BinderOccurrence path binderId)
-      | Set.member binderId seen =
-          ( seen,
-            failures
-              <> [ failure
-                     path
-                     TypedDuplicateBinder
-                     (TypedBinderDetail binderId)
-                 ]
-          )
-      | otherwise = (Set.insert binderId seen, failures)
+    occurrenceBinder (BinderOccurrence _ binderId) = binderId
+    duplicateFailure (BinderOccurrence path binderId) =
+      failure path TypedDuplicateBinder (TypedBinderDetail binderId)
 
 duplicateDeclarationFailures :: ModuleContext -> [([Int], TypedStatement)] -> [TypedCoreValidationFailure]
 duplicateDeclarationFailures context statements = nameFailures <> implFailures
   where
-    nameFailures = snd (foldl' step (Map.empty, []) occurrences)
+    nameFailures = reverse nameFailuresRev
+    (_, nameFailuresRev) = foldl' step (Map.empty, []) occurrences
     occurrences = concat (zipWith declarationOccurrences statements nextStatements)
     nextStatements = map (Just . snd) (drop 1 statements) <> [Nothing]
     declarationOccurrences (statementLocation, statement) maybeNextStatement =
@@ -169,24 +163,24 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
       ]
       where
         statementPath = TypedStatementPath (moduleContextPath context) statementLocation
-    step (seen, failures) (path, key, name, identity) =
+    step (seen, failuresRev) (path, key, name, identity) =
       case Map.lookup key seen of
         Just (previousPath, previousIdentity)
           | constructorRebindingAllowed key previousPath path previousIdentity identity ->
-              (Map.insert key (path, identity) seen, failures)
+              (Map.insert key (path, identity) seen, failuresRev)
         Just (_, previousIdentity)
           | previousIdentity /= identity || isNothing identity ->
               ( seen,
-                failures <> [failure path TypedDuplicateDeclaration (TypedNameDetail name)]
+                failure path TypedDuplicateDeclaration (TypedNameDetail name) : failuresRev
               )
-        Just _ -> (seen, failures)
-        Nothing -> (Map.insert key (path, identity) seen, failures)
+        Just _ -> (seen, failuresRev)
+        Nothing -> (Map.insert key (path, identity) seen, failuresRev)
     constructorRebindingAllowed key previousPath path previousIdentity identity =
       case key of
         ResolvedNameKey _ TypedConstructorNamespace _ ->
           previousPath /= path && isJust previousIdentity && isJust identity
         _ -> False
-    implFailures = snd (foldl' implStep (Set.empty, []) implOccurrences)
+    implFailures = collectDuplicateFailuresBy implOccurrenceKey implDuplicateFailure implOccurrences
     implOccurrences =
       [ ( TypedStatementPath (moduleContextPath context) statementLocation,
           implId,
@@ -194,10 +188,9 @@ duplicateDeclarationFailures context statements = nameFailures <> implFailures
         )
       | (statementLocation, TypedImplStatement (TypedImplDeclaration _ implId _)) <- statements
       ]
-    implStep (seen, failures) (path, implId, normalizedImplId)
-      | Set.member normalizedImplId seen =
-          (seen, failures <> [failure path TypedDuplicateDeclaration (TypedImplDetail implId)])
-      | otherwise = (Set.insert normalizedImplId seen, failures)
+    implOccurrenceKey (_, _, normalizedImplId) = normalizedImplId
+    implDuplicateFailure (path, implId, _) =
+      failure path TypedDuplicateDeclaration (TypedImplDetail implId)
 
 duplicateCheckedDeclarations :: TypedStatement -> Maybe TypedStatement -> [(TypedCoreName, Maybe TypedBinderId)]
 duplicateCheckedDeclarations statement maybeNextStatement =
@@ -508,33 +501,33 @@ rootRecursiveGroupFailures modulePath statements declaredGroups
     collectCallableBinder (seen, ambiguous) (_, binderId, _, _)
       | Set.member binderId seen = (seen, True)
       | otherwise = (Set.insert binderId seen, ambiguous)
-    (_, basicFailures) =
+    basicFailures = reverse basicFailuresRev
+    (_, basicFailuresRev) =
       foldl' validateBasicGroup (Set.empty, []) (zip [0 :: Int ..] declaredGroups)
-    validateBasicGroup (seen, failures) (groupIndex, TypedRecursiveGroup members)
+    validateBasicGroup (seen, failuresRev) (groupIndex, TypedRecursiveGroup members)
       | null members =
           ( seen,
-            failures
-              <> [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)]
+            failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)
+              : failuresRev
           )
-      | otherwise = foldl' validateBasicMember (seen, failures) members
-    validateBasicMember (seen, failures) binderId =
+      | otherwise = foldl' validateBasicMember (seen, failuresRev) members
+    validateBasicMember (seen, failuresRev) binderId =
       case Map.lookup binderId callableByBinder of
         Nothing ->
           ( seen,
-            failures
-              <> [failure (TypedModulePath modulePath) TypedUnknownBinder (TypedBinderDetail binderId)]
+            failure (TypedModulePath modulePath) TypedUnknownBinder (TypedBinderDetail binderId)
+              : failuresRev
           )
         Just (statementIndex, _)
           | Set.member binderId seen ->
               ( seen,
-                failures
-                  <> [ failure
-                         (TypedStatementPath modulePath [statementIndex])
-                         TypedDuplicateBinder
-                         (TypedBinderDetail binderId)
-                     ]
+                failure
+                  (TypedStatementPath modulePath [statementIndex])
+                  TypedDuplicateBinder
+                  (TypedBinderDetail binderId)
+                  : failuresRev
               )
-          | otherwise -> (Set.insert binderId seen, failures)
+          | otherwise -> (Set.insert binderId seen, failuresRev)
     orderingFailures = memberOrderingFailures <> groupOrderingFailures
     memberOrderingFailures =
       [ failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)
@@ -542,7 +535,8 @@ rootRecursiveGroupFailures modulePath statements declaredGroups
         Just memberIndices <- [memberStatementIndices members],
         memberIndices /= sort memberIndices
       ]
-    groupOrderingFailures = snd (foldl' validateGroupOrder (Nothing, []) indexedFirstMembers)
+    groupOrderingFailures = reverse groupOrderingFailuresRev
+    (_, groupOrderingFailuresRev) = foldl' validateGroupOrder (Nothing, []) indexedFirstMembers
     indexedFirstMembers =
       mapMaybe
         ( \(groupIndex, TypedRecursiveGroup members) ->
@@ -554,15 +548,15 @@ rootRecursiveGroupFailures modulePath statements declaredGroups
       case indices of
         [] -> Nothing
         _ -> Just indices
-    validateGroupOrder (previousIndex, failures) (groupIndex, statementIndex) =
+    validateGroupOrder (previousIndex, failuresRev) (groupIndex, statementIndex) =
       case previousIndex of
         Just previous
           | statementIndex <= previous ->
               ( Just statementIndex,
-                failures
-                  <> [failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)]
+                failure (TypedModulePath modulePath) TypedRecursiveGroupMismatch (TypedIndexDetail groupIndex)
+                  : failuresRev
               )
-        _ -> (Just statementIndex, failures)
+        _ -> (Just statementIndex, failuresRev)
     declaredBinderGroups = [members | TypedRecursiveGroup members <- declaredGroups]
     actualBinderGroups = rootCyclicBinderGroups callableDeclarations
     reachabilityFailure = firstGroupMismatch declaredBinderGroups actualBinderGroups
@@ -1323,7 +1317,7 @@ validateExplicitTypeApplication context path info function explicitSpan typeArgu
           | any
               ( \instantiation ->
                   matchingExplicitInstantiation owner firstParameter instantiation
-                    && instantiation `elem` nodeInfoInstantiations functionInfo
+                    && Set.member instantiation functionInstantiations
               )
               instantiations ->
               validateInstantiatedResult scheme
@@ -1331,6 +1325,8 @@ validateExplicitTypeApplication context path info function explicitSpan typeArgu
         Just (TypedScheme owner [] _ _ _ _ _) ->
           [failure path TypedInstantiationMismatch (TypedBinderDetail owner)]
         Nothing -> [failure path TypedInstantiationMismatch TypedNoValidationDetail]
+      where
+        functionInstantiations = Set.fromList (nodeInfoInstantiations functionInfo)
     matchingExplicitInstantiation owner firstParameter (TypedInstantiation candidateOwner arguments maybeSpan) =
       owner == candidateOwner
         && maybeSpan == Just explicitSpan
@@ -1476,7 +1472,7 @@ qualifiedMethodValueContracts :: ModuleContext -> Text -> TypedNodeInfo -> [(Typ
 qualifiedMethodValueContracts context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
   mapMaybe
     (qualifiedMethodConstraintContract context methodKey)
-    (nub (map selectionConstraint evidenceSelections))
+    (stableNub (map selectionConstraint evidenceSelections))
   where
     selectionConstraint selection =
       case selection of
@@ -1487,7 +1483,7 @@ qualifiedMethodSelectedSchemes :: ModuleContext -> Text -> TypedNodeInfo -> [Typ
 qualifiedMethodSelectedSchemes context methodKey (TypedNodeInfo _ _ _ evidenceSelections) =
   mapMaybe
     (fmap fst . qualifiedMethodConstraintContract context methodKey)
-    (nub selectedConstraints)
+    (stableNub selectedConstraints)
   where
     selectedConstraints =
       [ constraint
@@ -1997,8 +1993,9 @@ validateApplication path (TypedNodeInfo resultType resultRecipe _ resultSelectio
     selectedEvidenceProgressionFailures =
       [ failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)
       | selection@(TypedSelectedEvidence (TypedEvidenceUse _ _ selectedImpl _)) <- functionSelections,
-        selection `notElem` resultSelections
+        Set.notMember selection resultSelectionSet
       ]
+    resultSelectionSet = Set.fromList resultSelections
     invalidCandidateSelectionFailures =
       [ failure path TypedMethodSelectionMismatch (TypedImplDetail selectedImpl)
       | TypedSelectedEvidence
@@ -2007,12 +2004,12 @@ validateApplication path (TypedNodeInfo resultType resultRecipe _ resultSelectio
         let selectedCandidate =
               TypedEvidenceCandidate selectedImpl maybeSelectedMethod,
         let matchingCandidateSets =
-              [ candidates
+              [ Set.fromList candidates
               | TypedEvidenceCandidates candidateConstraint candidates <- functionSelections,
                 candidateConstraint == constraint
               ],
         not (null matchingCandidateSets),
-        any (selectedCandidate `notElem`) matchingCandidateSets
+        any (Set.notMember selectedCandidate) matchingCandidateSets
       ]
 
 applicationResultRecipe :: TypedRepresentationRecipe -> Maybe TypedRepresentationRecipe
@@ -2109,17 +2106,16 @@ validateCase context statementLocation expressionPath path resultInfo@(TypedNode
         <> guardFailures armIndex maybeGuard
         <> resultFailures armIndex resultExpression
     duplicatePatternNameFailures armIndex =
-      snd . foldl' duplicateNameStep (Set.empty, []) . patternBinderContract
+      collectDuplicateFailuresBy contractName duplicateNameFailure . patternBinderContract
       where
         armPath =
           TypedPatternPath
             (moduleContextPath context)
             statementLocation
             (expressionPath <> [armIndex])
-        duplicateNameStep (seen, failures) (PatternBinderContract binderId name _ _)
-          | Set.member name seen =
-              (seen, failures <> [failure armPath TypedDuplicateBinder (TypedBinderDetail binderId)])
-          | otherwise = (Set.insert name seen, failures)
+        contractName (PatternBinderContract _ name _ _) = name
+        duplicateNameFailure (PatternBinderContract binderId _ _ _) =
+          failure armPath TypedDuplicateBinder (TypedBinderDetail binderId)
     guardFailures _ Nothing = []
     guardFailures armIndex (Just guard)
       | typedNodeType (typedExpressionInfo guard) == TypedBoolType = []

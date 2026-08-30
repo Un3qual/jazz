@@ -259,25 +259,25 @@ validateOrderedEvidenceParameters path parameters =
   where
     parameterIds = [parameterId | TypedEvidenceParameter parameterId _ <- parameters]
     duplicateFailures = duplicateParameterFailures path TypedDuplicateEvidenceParameter TypedEvidenceParameterDetail parameterIds
-    (_, _, duplicateConstraintFailures) =
+    (_, _, duplicateConstraintFailuresRev) =
       foldl' checkConstraint (Set.empty, Set.empty, []) parameters
-    checkConstraint (seenIds, seenConstraints, failures) (TypedEvidenceParameter parameterId constraint)
+    duplicateConstraintFailures = reverse duplicateConstraintFailuresRev
+    checkConstraint (seenIds, seenConstraints, failuresRev) (TypedEvidenceParameter parameterId constraint)
       | Set.member parameterId seenIds =
-          (seenIds, seenConstraints, failures)
+          (seenIds, seenConstraints, failuresRev)
       | Set.member constraint seenConstraints =
           ( Set.insert parameterId seenIds,
             seenConstraints,
-            failures
-              <> [ failure
-                     path
-                     TypedDuplicateEvidenceParameter
-                     (TypedEvidenceParameterDetail parameterId)
-                 ]
+            failure
+              path
+              TypedDuplicateEvidenceParameter
+              (TypedEvidenceParameterDetail parameterId)
+              : failuresRev
           )
       | otherwise =
           ( Set.insert parameterId seenIds,
             Set.insert constraint seenConstraints,
-            failures
+            failuresRev
           )
     orderFailures =
       [ failure path TypedInvalidEvidenceParameterOrder (TypedIndexDetail index)
@@ -368,12 +368,12 @@ implMethodRequiresStagedLeadingLambdaRecipe context implId methodKey =
     _ -> True
 
 duplicateImplMethodFailures :: TypedCoreValidationPath -> [TypedMethodDefinition] -> [TypedCoreValidationFailure]
-duplicateImplMethodFailures path methods = snd (foldl' step (Set.empty, []) methods)
+duplicateImplMethodFailures path =
+  collectDuplicateFailuresBy methodKey duplicateFailure
   where
-    step (seen, failures) (TypedMethodDefinition (TypedMethodId _ methodKey) _ name _ _)
-      | Set.member methodKey seen =
-          (seen, failures <> [failure path TypedDuplicateDeclaration (TypedNameDetail name)])
-      | otherwise = (Set.insert methodKey seen, failures)
+    methodKey (TypedMethodDefinition (TypedMethodId _ key) _ _ _ _) = key
+    duplicateFailure (TypedMethodDefinition _ _ name _ _) =
+      failure path TypedDuplicateDeclaration (TypedNameDetail name)
 
 missingImplMethodFailures :: ModuleContext -> TypedCoreValidationPath -> TypedImplId -> [TypedMethodDefinition] -> [TypedCoreValidationFailure]
 missingImplMethodFailures context path (TypedImplId _ capability targets) methods =

@@ -38,6 +38,8 @@ module Jazz.Compiler.TypedCore.Validate.Internal
     binderDefinitionKey,
     renderModulePath,
     failure,
+    stableNub,
+    collectDuplicateFailuresBy,
     maybeToList,
     firstJust,
   )
@@ -177,6 +179,22 @@ renderModulePath = Text.intercalate "::"
 
 failure :: TypedCoreValidationPath -> TypedCoreValidationKind -> TypedCoreValidationDetail -> TypedCoreValidationFailure
 failure = TypedCoreValidationFailure
+
+stableNub :: (Ord value) => [value] -> [value]
+stableNub = reverse . snd . foldl' step (Set.empty, [])
+  where
+    step (seen, valuesRev) value
+      | Set.member value seen = (seen, valuesRev)
+      | otherwise = (Set.insert value seen, value : valuesRev)
+
+collectDuplicateFailuresBy :: (Ord key) => (value -> key) -> (value -> failureValue) -> [value] -> [failureValue]
+collectDuplicateFailuresBy keyOf makeFailure = reverse . snd . foldl' step (Set.empty, [])
+  where
+    step (seen, failuresRev) value
+      | Set.member key seen = (seen, makeFailure value : failuresRev)
+      | otherwise = (Set.insert key seen, failuresRev)
+      where
+        key = keyOf value
 
 firstJust :: [Maybe value] -> Maybe value
 firstJust = asum

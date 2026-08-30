@@ -536,6 +536,8 @@ test-suite jazz-typed-core-contract-spec
   import: test-common
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
+  build-depends:
+      deepseq >= 1.5 && < 1.6
   other-modules:
       Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
       Jazz.Compiler.Bootstrap.CanonicalValue

@@ -778,12 +778,8 @@ recipeMentionsParameter parameter recipe =
     _ -> False
 
 duplicateParameterFailures :: (Ord identifier) => TypedCoreValidationPath -> TypedCoreValidationKind -> (identifier -> TypedCoreValidationDetail) -> [identifier] -> [TypedCoreValidationFailure]
-duplicateParameterFailures path kind detailOf = snd . foldl' step (Set.empty, [])
-  where
-    step (seen, failures) identifier
-      | Set.member identifier seen =
-          (seen, failures <> [failure path kind (detailOf identifier)])
-      | otherwise = (Set.insert identifier seen, failures)
+duplicateParameterFailures path kind detailOf =
+  collectDuplicateFailuresBy id (\identifier -> failure path kind (detailOf identifier))
 
 directCallableRecipeArity :: TypedRepresentationRecipe -> Maybe Int
 directCallableRecipeArity recipe =

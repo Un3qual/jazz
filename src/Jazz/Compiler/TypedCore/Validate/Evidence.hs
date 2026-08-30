@@ -51,7 +51,7 @@ module Jazz.Compiler.TypedCore.Validate.Evidence
   )
 where
 
-import Data.List (find, nub, sort)
+import Data.List (find, sort)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isNothing, mapMaybe)
 import Data.Set (Set)
@@ -110,12 +110,12 @@ validateNodeInfo context path parameterScope requireSelectedConsumer selectedMet
     <> concatMap (validateEvidenceSelectionDataTypes context path) evidenceSelections
 
 duplicateInstantiationFailures :: TypedCoreValidationPath -> [TypedInstantiation] -> [TypedCoreValidationFailure]
-duplicateInstantiationFailures path instantiations = snd (foldl' step (Set.empty, []) instantiations)
+duplicateInstantiationFailures path =
+  collectDuplicateFailuresBy instantiationOwner duplicateFailure
   where
-    step (seen, failures) (TypedInstantiation owner _ _)
-      | Set.member owner seen =
-          (seen, failures <> [failure path TypedInstantiationMismatch (TypedBinderDetail owner)])
-      | otherwise = (Set.insert owner seen, failures)
+    instantiationOwner (TypedInstantiation owner _ _) = owner
+    duplicateFailure instantiation =
+      failure path TypedInstantiationMismatch (TypedBinderDetail (instantiationOwner instantiation))
 
 validateEvidenceSelectionDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedEvidenceSelection -> [TypedCoreValidationFailure]
 validateEvidenceSelectionDataTypes context path selection =
@@ -394,27 +394,28 @@ validateEvidenceSelections context path requireSelectedConsumer selectedMethodKe
         _ -> False
 
 duplicateEvidenceCandidateFailures :: TypedCoreValidationPath -> [TypedEvidenceCandidate] -> [TypedCoreValidationFailure]
-duplicateEvidenceCandidateFailures path candidates = snd (foldl' step ([], []) candidates)
+duplicateEvidenceCandidateFailures path =
+  collectDuplicateFailuresBy id duplicateFailure
   where
-    step (seen, failures) candidate@(TypedEvidenceCandidate implId _)
-      | candidate `elem` seen =
-          (seen, failures <> [failure path TypedDuplicateEvidence (TypedImplDetail implId)])
-      | otherwise = (candidate : seen, failures)
+    duplicateFailure (TypedEvidenceCandidate implId _) =
+      failure path TypedDuplicateEvidence (TypedImplDetail implId)
 
 validateEvidenceParameterBindings :: ModuleContext -> TypedCoreValidationPath -> [TypedInstantiation] -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
 validateEvidenceParameterBindings context path instantiations selections =
   missingBindingFailures <> orderedBindingFailures <> concatMap validateSelection selections
   where
     expectedBindings = concatMap expectedBindingsFor instantiations
-    orderedExpectedBindings = nub expectedBindings
+    orderedExpectedBindings = stableNub expectedBindings
+    expectedBindingSet = Set.fromList expectedBindings
+    suppliedBindingSet = Set.fromList suppliedBindings
     suppliedBindings =
       [ (parameterRef, constraint)
       | TypedSelectedEvidence (TypedEvidenceUse (Just parameterRef) constraint _ _) <- selections
       ]
     missingBindingFailures =
       [ failure path TypedMissingEvidence (TypedEvidenceParameterDetail (evidenceParameterRefId parameterRef))
-      | (parameterRef, constraint) <- nub expectedBindings,
-        (parameterRef, constraint) `notElem` suppliedBindings
+      | binding@(parameterRef, _) <- orderedExpectedBindings,
+        Set.notMember binding suppliedBindingSet
       ]
     orderedBindingFailures
       | sort orderedExpectedBindings == sort suppliedBindings =
@@ -430,7 +431,7 @@ validateEvidenceParameterBindings context path instantiations selections =
     validateSelection selection =
       case selection of
         TypedSelectedEvidence (TypedEvidenceUse (Just parameterRef) constraint _ _)
-          | (parameterRef, constraint) `elem` expectedBindings -> []
+          | Set.member (parameterRef, constraint) expectedBindingSet -> []
           | otherwise ->
               [ failure
                   path
@@ -464,8 +465,8 @@ evidenceParameterRefId (TypedEvidenceParameterRef _ parameterId) = parameterId
 
 duplicateEvidenceUseFailures :: TypedCoreValidationPath -> [TypedEvidenceSelection] -> [TypedCoreValidationFailure]
 duplicateEvidenceUseFailures path selections =
-  snd (foldl' parameterStep (Set.empty, []) parameterRefs)
-    <> snd (foldl' constraintStep (Set.empty, []) unboundConstraints)
+  collectDuplicateFailuresBy id parameterFailure parameterRefs
+    <> collectDuplicateFailuresBy id constraintFailure unboundConstraints
   where
     parameterRefs =
       [ parameterRef
@@ -478,28 +479,16 @@ duplicateEvidenceUseFailures path selections =
         TypedSelectedEvidence (TypedEvidenceUse Nothing constraint _ _) -> Just constraint
         TypedEvidenceCandidates constraint _ -> Just constraint
         _ -> Nothing
-    parameterStep (seen, failures) parameterRef
-      | Set.member parameterRef seen =
-          ( seen,
-            failures
-              <> [ failure
-                     path
-                     TypedDuplicateEvidence
-                     (TypedEvidenceParameterDetail (evidenceParameterRefId parameterRef))
-                 ]
-          )
-      | otherwise = (Set.insert parameterRef seen, failures)
-    constraintStep (seen, failures) constraint
-      | Set.member constraint seen =
-          ( seen,
-            failures
-              <> [ failure
-                     path
-                     TypedDuplicateEvidence
-                     (TypedTextDetail (capabilityConstraintLabel constraint))
-                 ]
-          )
-      | otherwise = (Set.insert constraint seen, failures)
+    parameterFailure parameterRef =
+      failure
+        path
+        TypedDuplicateEvidence
+        (TypedEvidenceParameterDetail (evidenceParameterRefId parameterRef))
+    constraintFailure constraint =
+      failure
+        path
+        TypedDuplicateEvidence
+        (TypedTextDetail (capabilityConstraintLabel constraint))
 
 capabilityConstraintLabel :: TypedCapabilityConstraint -> Text
 capabilityConstraintLabel (TypedCapabilityConstraint capability maybeMethod _) =

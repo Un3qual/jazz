@@ -7,7 +7,6 @@ module Jazz.Compiler.TypedCore.Validate.Program
 where
 
 import Data.Graph (SCC (..), stronglyConnComp)
-import Data.List (nub)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -68,7 +67,7 @@ importCycleFailures moduleTable modules =
       TypedModuleInterfaceMismatch
       (TypedTextDetail (renderModulePath importPath))
   | TypedModule modulePath _ imports _ _ _ _ _ <- modules,
-    importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
+    importPath <- stableNub [path | TypedResolvedImport _ path _ _ <- imports],
     pathsShareCyclicComponent modulePath importPath
   ]
   where
@@ -84,7 +83,7 @@ importCycleFailures moduleTable modules =
       | TypedModule modulePath _ imports _ _ _ _ _ <- Map.elems moduleTable
       ]
     knownImports imports =
-      nub
+      stableNub
         [ importPath
         | TypedResolvedImport _ importPath _ _ <- imports,
           Map.member importPath moduleTable
@@ -120,7 +119,7 @@ moduleOrderFailures moduleTable = go Set.empty
           (TypedModulePath modulePath)
           TypedModuleInterfaceMismatch
           (TypedTextDetail (renderModulePath importPath))
-      | importPath <- nub [path | TypedResolvedImport _ path _ _ <- imports],
+      | importPath <- stableNub [path | TypedResolvedImport _ path _ _ <- imports],
         Map.member importPath moduleTable,
         Set.notMember importPath precedingPaths,
         not (modulePathReachable moduleTable importPath modulePath)
@@ -315,48 +314,48 @@ importBindingCollisionFailures moduleTable modulePath imports =
     <> collisionFailures valueBindingIdentifier
     <> collisionFailures typeBindingIdentifier
   where
-    aliasCollisionFailures =
-      snd (foldl' checkAlias (Map.empty, []) imports)
-    checkAlias (origins, failures) (TypedResolvedImport _ importPath alias _) =
+    aliasCollisionFailures = reverse aliasCollisionFailuresRev
+    (_, aliasCollisionFailuresRev) = foldl' checkAlias (Map.empty, []) imports
+    checkAlias (origins, failuresRev) (TypedResolvedImport _ importPath alias _) =
       case alias of
-        Nothing -> (origins, failures)
+        Nothing -> (origins, failuresRev)
         Just aliasName ->
           case Map.lookup aliasName origins of
-            Nothing -> (Map.insert aliasName importPath origins, failures)
+            Nothing -> (Map.insert aliasName importPath origins, failuresRev)
             Just _ ->
               ( origins,
-                failures
-                  <> [ failure
-                         (TypedModulePath modulePath)
-                         TypedDuplicateDeclaration
-                         (TypedTextDetail aliasName)
-                     ]
+                failure
+                  (TypedModulePath modulePath)
+                  TypedDuplicateDeclaration
+                  (TypedTextDetail aliasName)
+                  : failuresRev
               )
     collisionFailures identifierFor =
-      snd (foldl' (checkImport identifierFor) (Map.empty, []) imports)
-    checkImport identifierFor (origins, failures) (TypedResolvedImport _ importPath alias selectedNames)
-      | Just _ <- alias = (origins, failures)
+      reverse failuresRev
+      where
+        (_, failuresRev) = foldl' (checkImport identifierFor) (Map.empty, []) imports
+    checkImport identifierFor (origins, failuresRev) (TypedResolvedImport _ importPath alias selectedNames)
+      | Just _ <- alias = (origins, failuresRev)
       | otherwise =
           case Map.lookup importPath moduleTable of
-            Nothing -> (origins, failures)
+            Nothing -> (origins, failuresRev)
             Just importedModule ->
               foldl'
                 (checkIdentifier importPath)
-                (origins, failures)
-                (nub (mapMaybe identifierFor (interfaceNameKeys (importPath, selectedNames, importedModule))))
-    checkIdentifier importPath (origins, failures) identifier =
+                (origins, failuresRev)
+                (stableNub (mapMaybe identifierFor (interfaceNameKeys (importPath, selectedNames, importedModule))))
+    checkIdentifier importPath (origins, failuresRev) identifier =
       case Map.lookup identifier origins of
-        Nothing -> (Map.insert identifier importPath origins, failures)
+        Nothing -> (Map.insert identifier importPath origins, failuresRev)
         Just originalPath
-          | originalPath == importPath -> (origins, failures)
+          | originalPath == importPath -> (origins, failuresRev)
           | otherwise ->
               ( origins,
-                failures
-                  <> [ failure
-                         (TypedModulePath modulePath)
-                         TypedDuplicateDeclaration
-                         (TypedTextDetail identifier)
-                     ]
+                failure
+                  (TypedModulePath modulePath)
+                  TypedDuplicateDeclaration
+                  (TypedTextDetail identifier)
+                  : failuresRev
               )
     valueBindingIdentifier key =
       case key of
@@ -387,7 +386,7 @@ interfaceContainsExport exports (TypedModuleExport namespace expected) (TypedMod
   case namespace of
     TypedValueNamespace -> any (interfaceNameMatches expected) values || any (classInterfaceMethodMatches expected) classes
     TypedTypeNamespace -> any (dataInterfaceNameMatches expected) datas
-    TypedConstructorNamespace -> interfaceConstructorOwner exports datas expected /= Nothing
+    TypedConstructorNamespace -> interfaceConstructorOwner (Set.fromList exports) datas expected /= Nothing
     TypedCapabilityNamespace -> any (classInterfaceNameMatches expected) classes
 
 validateModuleResult :: Bool -> [Text] -> [TypedStatement] -> TypedNodeInfo -> [TypedCoreValidationFailure]
@@ -443,36 +442,34 @@ validateSourcePath modulePath sourcePath@(TypedSourcePath sourcePathText)
       ]
 
 duplicateModuleFailures :: [TypedModule] -> [TypedCoreValidationFailure]
-duplicateModuleFailures = snd . foldl' step (Set.empty, [])
+duplicateModuleFailures =
+  collectDuplicateFailuresBy typedModulePath duplicateFailure
   where
-    step (seen, failures) moduleValue =
-      let modulePath = typedModulePath moduleValue
-       in if Set.member modulePath seen
-            then
-              ( seen,
-                failures
-                  <> [ failure
-                         (TypedModulePath modulePath)
-                         TypedDuplicateModule
-                         (TypedTextDetail (renderModulePath modulePath))
-                     ]
-              )
-            else (Set.insert modulePath seen, failures)
+    duplicateFailure moduleValue =
+      failure
+        (TypedModulePath modulePath)
+        TypedDuplicateModule
+        (TypedTextDetail (renderModulePath modulePath))
+      where
+        modulePath = typedModulePath moduleValue
 
 interfaceSchemeEntries :: ([Text], Maybe [Text], TypedModule) -> [(TypedBinderId, TypedScheme)]
 interfaceSchemeEntries (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface values _ classes _) _ _ _) =
   [ (binderId, qualifyExternalScheme modulePath scheme)
   | TypedValueInterface name scheme@(TypedScheme binderId _ _ _ _ _ _) <- values,
-    importAllows selectedNames name,
-    moduleExportsName TypedValueNamespace name exports
+    importAllows selectedNameSet name,
+    moduleExportsName TypedValueNamespace name exportSet
   ]
     <> [ (binderId, qualifyExternalScheme modulePath (generalizeImportedClassMethodScheme className classParameters name scheme))
        | TypedClassInterface (TypedClassDeclaration _ className classParameters methods) <- classes,
          moduleOwnedCapabilityName modulePath className,
          TypedMethodSignature name _ scheme@(TypedScheme binderId _ _ _ _ _ _) <- methods,
-         importAllows selectedNames name,
-         moduleExportsName TypedValueNamespace name exports
+         importAllows selectedNameSet name,
+         moduleExportsName TypedValueNamespace name exportSet
        ]
+  where
+    selectedNameSet = Set.fromList <$> selectedNames
+    exportSet = Set.fromList exports
 
 generalizeClassMethodScheme :: [TypedTypeParameterId] -> TypedScheme -> TypedScheme
 generalizeClassMethodScheme classParameters (TypedScheme owner methodParameters evidence primitive resultType resultRecipe callableShape) =
@@ -481,9 +478,10 @@ generalizeClassMethodScheme classParameters (TypedScheme owner methodParameters 
     usedClassParameters =
       [ parameter
       | parameter <- classParameters,
-        parameter `notElem` methodParameters,
+        Set.notMember parameter methodParameterSet,
         schemeMentionsTypeParameter parameter evidence primitive resultType resultRecipe
       ]
+    methodParameterSet = Set.fromList methodParameters
 
 generalizeImportedClassMethodScheme :: TypedCoreName -> [TypedTypeParameterId] -> TypedCoreName -> TypedScheme -> TypedScheme
 generalizeImportedClassMethodScheme className classParameters methodName scheme =
@@ -500,10 +498,11 @@ generalizeImportedClassMethodScheme className classParameters methodName scheme 
       where
         importedParameters =
           classParameters
-            <> filter (`notElem` classParameters) parameters
+            <> filter (`Set.notMember` classParameterSet) parameters
   where
+    classParameterSet = Set.fromList classParameters
     dispatchEvidence parameters evidence =
-      case ( filter (`elem` parameters) classParameters,
+      case ( filter (`Set.member` parameterSet) classParameters,
              coreNameIdentifier className,
              coreNameIdentifier methodName
            ) of
@@ -517,6 +516,8 @@ generalizeImportedClassMethodScheme className classParameters methodName scheme 
               )
           ]
         _ -> []
+      where
+        parameterSet = Set.fromList parameters
 
 qualifyExternalScheme :: [Text] -> TypedScheme -> TypedScheme
 qualifyExternalScheme modulePath (TypedScheme owner parameters evidence primitive resultType resultRecipe callableShape) =
@@ -638,7 +639,7 @@ interfaceDataMetadataDeclarations moduleTable visibleModules =
     sourceVisibleDataKeys (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _ _) =
       [ key
       | TypedDataInterface (TypedDataDeclaration _ name _ constructors) <- datas,
-        sourceVisibleDataIncluded selectedNames exports name constructors,
+        sourceVisibleDataIncluded (Set.fromList <$> selectedNames) (Set.fromList exports) name constructors,
         key <- maybeToList (definitionNameKey modulePath name)
       ]
     selectedSchemeDataKeys visibleModule =
@@ -649,8 +650,8 @@ interfaceDataMetadataDeclarations moduleTable visibleModules =
             <> interfaceCapabilitySchemes visibleModule
 
 sourceVisibleDataIncluded ::
-  Maybe [Text] ->
-  [TypedModuleExport] ->
+  Maybe (Set Text) ->
+  Set TypedModuleExport ->
   TypedCoreName ->
   [TypedConstructorDeclaration] ->
   Bool
@@ -724,21 +725,21 @@ interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ ex
   concat
     [ [ key
       | TypedValueInterface name _ <- values,
-        importAllows selectedNames name,
-        moduleExportsName TypedValueNamespace name exports,
+        importAllows selectedNameSet name,
+        moduleExportsName TypedValueNamespace name exportSet,
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
       | TypedDataInterface (TypedDataDeclaration _ name _ _) <- datas,
-        importAllows selectedNames name,
-        moduleExportsName TypedTypeNamespace name exports,
+        importAllows selectedNameSet name,
+        moduleExportsName TypedTypeNamespace name exportSet,
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
       | TypedDataInterface (TypedDataDeclaration _ _ _ constructors) <- datas,
         TypedConstructorDeclaration _ name _ _ <- constructors,
-        importAllows selectedNames name,
-        moduleExportsName TypedConstructorNamespace name exports,
+        importAllows selectedNameSet name,
+        moduleExportsName TypedConstructorNamespace name exportSet,
         key <- maybeToList (definitionNameKey modulePath name)
       ],
       [ key
@@ -750,11 +751,14 @@ interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ ex
       | TypedClassInterface (TypedClassDeclaration _ className _ methods) <- classes,
         moduleOwnedCapabilityName modulePath className,
         TypedMethodSignature name _ _ <- methods,
-        importAllows selectedNames name,
-        moduleExportsName TypedValueNamespace name exports,
+        importAllows selectedNameSet name,
+        moduleExportsName TypedValueNamespace name exportSet,
         key <- maybeToList (definitionNameKey modulePath name)
       ]
     ]
+  where
+    selectedNameSet = Set.fromList <$> selectedNames
+    exportSet = Set.fromList exports
 
 interfaceConstructorEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, ConstructorContract)]
 interfaceConstructorEntries (modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface _ datas _ _) _ _ _) =
@@ -762,12 +766,15 @@ interfaceConstructorEntries (modulePath, selectedNames, TypedModule _ _ _ export
   | TypedDataInterface (TypedDataDeclaration _ dataName parameters constructors) <- datas,
     dataKey <- maybeToList (definitionNameKey modulePath dataName),
     TypedConstructorDeclaration binderId constructorName fields _ <- constructors,
-    importAllows selectedNames constructorName,
-    moduleExportsName TypedConstructorNamespace constructorName exports,
+    importAllows selectedNameSet constructorName,
+    moduleExportsName TypedConstructorNamespace constructorName exportSet,
     constructorIdentifier <- maybeToList (coreNameIdentifier constructorName),
-    interfaceConstructorOwner exports datas constructorIdentifier == Just dataName,
+    interfaceConstructorOwner exportSet datas constructorIdentifier == Just dataName,
     constructorKey <- maybeToList (definitionNameKey modulePath constructorName)
   ]
+  where
+    selectedNameSet = Set.fromList <$> selectedNames
+    exportSet = Set.fromList exports
 
 interfaceCapabilityEntries :: ([Text], Maybe [Text], TypedModule) -> [(ResolvedNameKey, CapabilityContract)]
 interfaceCapabilityEntries visibleModule@(modulePath, _, TypedModule _ _ _ _ (TypedModuleInterface _ _ classes _) _ _ _) =
@@ -808,13 +815,15 @@ interfaceCapabilityNameIncluded visibleModule@(modulePath, selectedNames, TypedM
     || (moduleOwnedCapabilityName modulePath name && any methodImported methods)
   where
     methodImported (TypedMethodSignature methodName _ _) =
-      importAllows selectedNames methodName && moduleExportsName TypedValueNamespace methodName exports
+      importAllows selectedNameSet methodName && moduleExportsName TypedValueNamespace methodName exportSet
+    selectedNameSet = Set.fromList <$> selectedNames
+    exportSet = Set.fromList exports
 
 interfaceCapabilityNameDirectlyIncluded :: ([Text], Maybe [Text], TypedModule) -> TypedCoreName -> Bool
 interfaceCapabilityNameDirectlyIncluded (modulePath, selectedNames, TypedModule _ _ _ exports _ _ _ _) name =
   moduleOwnedCapabilityName modulePath name
-    && importAllows selectedNames name
-    && moduleExportsName TypedCapabilityNamespace name exports
+    && importAllows (Set.fromList <$> selectedNames) name
+    && moduleExportsName TypedCapabilityNamespace name (Set.fromList exports)
 
 moduleOwnedCapabilityName :: [Text] -> TypedCoreName -> Bool
 moduleOwnedCapabilityName modulePath name =
@@ -833,15 +842,15 @@ requiredCapabilityKeys visibleModule@(modulePath, _, _) =
       key <- maybeToList (resolvedNameKey modulePath capability)
     ]
 
-importAllows :: Maybe [Text] -> TypedCoreName -> Bool
+importAllows :: Maybe (Set Text) -> TypedCoreName -> Bool
 importAllows Nothing _ = True
-importAllows (Just selectedNames) name = maybe False (`elem` selectedNames) (coreNameIdentifier name)
+importAllows (Just selectedNames) name = maybe False (`Set.member` selectedNames) (coreNameIdentifier name)
 
-moduleExportsName :: TypedNameNamespace -> TypedCoreName -> [TypedModuleExport] -> Bool
+moduleExportsName :: TypedNameNamespace -> TypedCoreName -> Set TypedModuleExport -> Bool
 moduleExportsName namespace name exports =
   case coreNameIdentifier name of
     Nothing -> False
-    Just identifier -> TypedModuleExport namespace identifier `elem` exports
+    Just identifier -> Set.member (TypedModuleExport namespace identifier) exports
 
 validateModuleInterface :: Map [Text] TypedModule -> TypedModule -> [TypedCoreValidationFailure]
 validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (TypedModuleInterface values datas classes impls) _ statements _) =
@@ -864,9 +873,14 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     declaredDatas = [declaration | TypedDataStatement declaration <- statements]
     declaredClasses = [declaration | TypedClassStatement declaration <- statements]
     declaredImpls = [implId | TypedImplStatement (TypedImplDeclaration _ implId _) <- statements]
+    declaredDataSet = Set.fromList declaredDatas
+    declaredClassSet = Set.fromList declaredClasses
+    declaredImplSet = Set.fromList declaredImpls
+    implInterfaceSet = Set.fromList impls
     visibleExternalModules = preludeModules <> importedModules
     externalClassDeclarations =
       concatMap interfaceClassDeclarations visibleExternalModules
+    externalClassDeclarationSet = Set.fromList externalClassDeclarations
     externalCapabilityContracts =
       Map.fromList (concatMap interfaceCapabilityEntries visibleExternalModules)
     externalVisibleImpls =
@@ -899,14 +913,14 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           validateValueInterfaceDependencies scheme
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateDataInterface (TypedDataInterface declaration@(TypedDataDeclaration _ name _ constructors))
-      | declaration `elem` declaredDatas =
+      | Set.member declaration declaredDataSet =
           [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
-          | dependencyName <- nub (concatMap constructorDependencies constructors),
+          | dependencyName <- stableNub (concatMap constructorDependencies constructors),
             not (any (dataInterfaceMatches dependencyName) datas)
           ]
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedNameDetail name)]
     validateClassInterface (TypedClassInterface declaration@(TypedClassDeclaration _ name _ methods))
-      | declaration `elem` declaredClasses =
+      | Set.member declaration declaredClassSet =
           concatMap
             (\(TypedMethodSignature _ _ scheme) -> validateValueInterfaceDependencies scheme)
             methods
@@ -915,40 +929,34 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
     validateImplInterface (TypedImplInterface implId)
       | not (any (classInterfaceMatchesImpl implId) classes) =
           [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)]
-      | implId `elem` declaredImpls =
+      | Set.member implId declaredImplSet =
           [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
           | dependencyName <-
-              nub
+              stableNub
                 (concatMap (localDataDependencies modulePath) (implTargetTypes implId)),
             not (any (dataInterfaceMatches dependencyName) datas)
           ]
       | Set.member implId externalVisibleImpls = []
       | otherwise = [failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)]
     retainedClassInterfaceMatches declaration =
-      declaration `elem` externalClassDeclarations
+      Set.member declaration externalClassDeclarationSet
     missingImplInterfaceFailures =
       [ failure path TypedModuleInterfaceMismatch (TypedImplDetail implId)
       | implId <- declaredImpls,
         any (classInterfaceMatchesImpl implId) classes,
-        TypedImplInterface implId `notElem` impls
+        Set.notMember (TypedImplInterface implId) implInterfaceSet
       ]
     classInterfaceMatchesImpl (TypedImplId _ capability _) (TypedClassInterface (TypedClassDeclaration _ name _ _)) =
       resolvedNameKey modulePath name == resolvedNameKey modulePath capability
     duplicateExportFailures =
-      snd (foldl' checkExport (Set.empty, []) exports)
-    checkExport (seen, failures) export@(TypedModuleExport namespace exportedName)
-      | Set.member export seen =
-          ( seen,
-            failures
-              <> [ failure
-                     path
-                     TypedDuplicateDeclaration
-                     ( TypedNameDetail
-                         (TypedResolvedName TypedCurrentModule namespace exportedName)
-                     )
-                 ]
-          )
-      | otherwise = (Set.insert export seen, failures)
+      collectDuplicateFailuresBy id duplicateExportFailure exports
+    duplicateExportFailure (TypedModuleExport namespace exportedName) =
+      failure
+        path
+        TypedDuplicateDeclaration
+        ( TypedNameDetail
+            (TypedResolvedName TypedCurrentModule namespace exportedName)
+        )
     duplicateInterfaceFailures =
       duplicateParameterFailures
         path
@@ -972,7 +980,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           [implId | TypedImplInterface implId <- impls]
     validateValueInterfaceDependencies scheme =
       [ failure path TypedModuleInterfaceMismatch (TypedNameDetail dependencyName)
-      | dependencyName <- nub (schemeLocalDataDependencies modulePath scheme),
+      | dependencyName <- stableNub (schemeLocalDataDependencies modulePath scheme),
         not (any (dataInterfaceMatches dependencyName) datas)
       ]
         <> [ failure
@@ -980,7 +988,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
                TypedModuleInterfaceMismatch
                (TypedNameDetail capability)
            | (capabilityKey, capability) <-
-               nub (schemeCapabilityDependencies modulePath scheme),
+               stableNub (schemeCapabilityDependencies modulePath scheme),
              Set.member
                capabilityKey
                (Set.union declaredCapabilityKeys (Map.keysSet externalCapabilityContracts)),
@@ -996,13 +1004,13 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
         TypedTypeNamespace
           | any (dataInterfaceNameMatches exportedName) datas -> []
         TypedConstructorNamespace
-          | interfaceConstructorOwner exports datas exportedName /= Nothing -> []
+          | interfaceConstructorOwner exportSet datas exportedName /= Nothing -> []
         TypedCapabilityNamespace
           | any (localClassInterfaceMatches exportedName) classes ->
               []
         _ -> [failure path TypedModuleInterfaceMismatch (TypedNameDetail (TypedResolvedName TypedCurrentModule namespace exportedName))]
     localClassInterfaceMatches exportedName (TypedClassInterface declaration) =
-      declaration `elem` declaredClasses
+      Set.member declaration declaredClassSet
         && classDeclarationMatches exportedName declaration
     interfaceExportsName namespace name =
       case coreNameIdentifier name of
@@ -1017,7 +1025,7 @@ validateModuleInterface moduleTable (TypedModule modulePath _ imports exports (T
           ]
             <> [ (identifier, Set.singleton owner)
                | TypedClassInterface declaration@(TypedClassDeclaration _ _ _ methods) <- classes,
-                 declaration `elem` declaredClasses,
+                 Set.member declaration declaredClassSet,
                  TypedMethodSignature name _ (TypedScheme owner _ _ _ _ _ _) <- methods,
                  identifier <- maybeToList (coreNameIdentifier name)
                ]
@@ -1094,7 +1102,7 @@ dataInterfaceConstructorMatches expected (TypedDataInterface (TypedDataDeclarati
   where
     constructorMatches (TypedConstructorDeclaration _ name _ _) = coreNameIdentifier name == Just expected
 
-interfaceConstructorOwner :: [TypedModuleExport] -> [TypedDataInterface] -> Text -> Maybe TypedCoreName
+interfaceConstructorOwner :: Set TypedModuleExport -> [TypedDataInterface] -> Text -> Maybe TypedCoreName
 interfaceConstructorOwner exports datas constructorIdentifier =
   case exportedCandidates of
     [owner] -> Just owner
