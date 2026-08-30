@@ -9,6 +9,7 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProd
   ( managedAsConstructorTuplePatternProgram,
     managedPatternEmissionExpectedLoweredPrograms,
     managedPatternEmissionSourceExpectedLoweredPrograms,
+    managedReorderedOrPatternBinderSource,
     managedTopLevelOrPatternProgram,
     optionIntInfo,
     optionLayout,
@@ -151,6 +152,19 @@ testManagedProductVariantLowering =
         TypedCoreProductionSucceeded typedProgram ->
           assertLowered (name, typedProgram, expectedLoweredProgram)
         status -> failTest (name <> " did not produce Typed Core for managed pattern lowering: " <> Text.pack (show status))
+
+testManagedReorderedOrPatternBinders :: IO ()
+testManagedReorderedOrPatternBinders = do
+  let name = "managed-reordered-or-pattern-binders"
+  production <- produceFixture (sourceFixtureNoExports name managedReorderedOrPatternBinderSource)
+  case typedCoreProductionStatus production of
+    TypedCoreProductionSucceeded typedProgram -> do
+      assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+      case lowerTypedCoreExpressionDirectCall typedProgram of
+        LoweredIRSucceeded loweredProgram ->
+          assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
+        lowering -> failTest (name <> " did not lower: " <> Text.pack (show lowering))
+    status -> failTest (name <> " did not produce Typed Core: " <> Text.pack (show status))
 
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =

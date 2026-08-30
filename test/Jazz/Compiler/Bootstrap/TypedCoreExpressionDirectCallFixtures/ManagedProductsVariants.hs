@@ -178,6 +178,10 @@ managedPatternEmissionExpectedLoweredPrograms =
       managedWildcardPrefixWithSuffixProgram,
       managedWildcardPrefixLoweredProgram
     ),
+    ( "managed-wildcard-prefix-nested-or-suffix",
+      managedWildcardPrefixWithNestedOrSuffixProgram,
+      managedWildcardPrefixLoweredProgram
+    ),
     ( "managed-exhaustive-constructor-product-prefix-literal-suffix",
       managedExhaustiveConstructorProductPrefixLiteralSuffixProgram,
       managedGuardedAsConstructorTuplePatternLoweredProgram
@@ -478,11 +482,7 @@ managedRecursiveCompletePatternLoweredProgram =
             [ LoweredInstruction
                 (LoweredTemporaryId "t1")
                 patternChainRepresentation
-                (LoweredConstructVariant patternChainLayoutId 0 []),
-              LoweredInstruction
-                (LoweredTemporaryId "t2")
-                uint64Representation
-                (LoweredProjectVariantTag patternChainLayoutId (temporaryOperand 1 patternChainRepresentation))
+                (LoweredConstructVariant patternChainLayoutId 0 [])
             ]
             ( Just
                 ( LoweredSwitch
@@ -522,11 +522,7 @@ managedRecursiveCompletePatternLoweredProgram =
           LoweredBlock
             (LoweredBlockId "case$s1$1$e1$0$a1$test")
             [blockParameter "live1" patternChainRepresentation]
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                uint64Representation
-                (LoweredProjectVariantTag patternChainLayoutId (blockOperand "live1" patternChainRepresentation))
-            ]
+            []
             ( Just
                 ( LoweredSwitch
                     (blockOperand "live1" patternChainRepresentation)
@@ -595,11 +591,7 @@ managedMutuallyRecursiveCompletePatternLoweredProgram =
             [ LoweredInstruction
                 (LoweredTemporaryId "t1")
                 patternEvenRepresentation
-                (LoweredConstructVariant patternEvenLayoutId 1 []),
-              LoweredInstruction
-                (LoweredTemporaryId "t2")
-                uint64Representation
-                (LoweredProjectVariantTag patternEvenLayoutId (temporaryOperand 1 patternEvenRepresentation))
+                (LoweredConstructVariant patternEvenLayoutId 1 [])
             ]
             ( Just
                 ( LoweredSwitch
@@ -639,11 +631,7 @@ managedMutuallyRecursiveCompletePatternLoweredProgram =
           LoweredBlock
             (LoweredBlockId "case$s1$2$e1$0$a1$test")
             [blockParameter "live1" patternEvenRepresentation]
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                uint64Representation
-                (LoweredProjectVariantTag patternEvenLayoutId (blockOperand "live1" patternEvenRepresentation))
-            ]
+            []
             ( Just
                 ( LoweredSwitch
                     (blockOperand "live1" patternEvenRepresentation)
@@ -672,11 +660,7 @@ managedMutuallyRecursiveCompletePatternLoweredProgram =
             [ LoweredInstruction
                 (LoweredTemporaryId "t1")
                 patternOddRepresentation
-                (LoweredProjectVariantField patternEvenLayoutId 0 0 (blockOperand "match1" patternEvenRepresentation)),
-              LoweredInstruction
-                (LoweredTemporaryId "t2")
-                uint64Representation
-                (LoweredProjectVariantTag patternOddLayoutId (temporaryOperand 1 patternOddRepresentation))
+                (LoweredProjectVariantField patternEvenLayoutId 0 0 (blockOperand "match1" patternEvenRepresentation))
             ]
             ( Just
                 ( LoweredSwitch
@@ -811,11 +795,7 @@ managedGuardedAsConstructorTuplePatternLoweredProgram =
               LoweredInstruction
                 (LoweredTemporaryId "t2")
                 patternMaybeRepresentation
-                (LoweredConstructVariant patternMaybeLayoutId 1 [temporaryOperand 1 patternTupleRepresentation]),
-              LoweredInstruction
-                (LoweredTemporaryId "t3")
-                uint64Representation
-                (LoweredProjectVariantTag patternMaybeLayoutId (temporaryOperand 2 patternMaybeRepresentation))
+                (LoweredConstructVariant patternMaybeLayoutId 1 [temporaryOperand 1 patternTupleRepresentation])
             ]
             ( Just
                 ( LoweredSwitch
@@ -925,11 +905,7 @@ managedGuardedAsConstructorTuplePatternLoweredProgram =
             [ blockParameter "live1" patternMaybeRepresentation,
               blockParameter "live2" patternMaybeRepresentation
             ]
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                uint64Representation
-                (LoweredProjectVariantTag patternMaybeLayoutId (blockOperand "live2" patternMaybeRepresentation))
-            ]
+            []
             ( Just
                 ( LoweredSwitch
                     (blockOperand "live2" patternMaybeRepresentation)
@@ -981,11 +957,7 @@ managedGuardedAsConstructorTuplePatternLoweredProgram =
             [ blockParameter "live1" patternMaybeRepresentation,
               blockParameter "live2" patternMaybeRepresentation
             ]
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                uint64Representation
-                (LoweredProjectVariantTag patternMaybeLayoutId (blockOperand "live2" patternMaybeRepresentation))
-            ]
+            []
             ( Just
                 ( LoweredSwitch
                     (blockOperand "live2" patternMaybeRepresentation)
@@ -1074,11 +1046,7 @@ managedTopLevelOrPatternLoweredProgram =
             [ LoweredInstruction
                 (LoweredTemporaryId "t1")
                 patternChoiceRepresentation
-                (LoweredConstructVariant patternChoiceLayoutId 1 [intOperand 7]),
-              LoweredInstruction
-                (LoweredTemporaryId "t2")
-                uint64Representation
-                (LoweredProjectVariantTag patternChoiceLayoutId (temporaryOperand 1 patternChoiceRepresentation))
+                (LoweredConstructVariant patternChoiceLayoutId 1 [intOperand 7])
             ]
             ( Just
                 ( LoweredSwitch
@@ -1126,11 +1094,7 @@ managedTopLevelOrPatternLoweredProgram =
             [ blockParameter "live1" patternChoiceRepresentation,
               blockParameter "live2" patternChoiceRepresentation
             ]
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                uint64Representation
-                (LoweredProjectVariantTag patternChoiceLayoutId (blockOperand "live2" patternChoiceRepresentation))
-            ]
+            []
             ( Just
                 ( LoweredSwitch
                     (blockOperand "live2" patternChoiceRepresentation)
@@ -1224,11 +1188,7 @@ managedRepeatedGuardedConstructorTailPatternLoweredProgram =
         [ LoweredBlock
             (LoweredBlockId "entry")
             []
-            [ LoweredInstruction
-                (LoweredTemporaryId "t1")
-                uint64Representation
-                (LoweredProjectVariantTag patternChoiceLayoutId (functionOperand "arg1" patternChoiceRepresentation))
-            ]
+            []
             ( Just
                 ( LoweredSwitch
                     (functionOperand "arg1" patternChoiceRepresentation)
@@ -1337,11 +1297,7 @@ managedRepeatedGuardedConstructorTailPatternLoweredProgram =
       LoweredBlock
         (testBlock armIndex)
         []
-        [ LoweredInstruction
-            (LoweredTemporaryId "t1")
-            uint64Representation
-            (LoweredProjectVariantTag patternChoiceLayoutId (functionOperand "arg1" patternChoiceRepresentation))
-        ]
+        []
         ( Just
             ( LoweredSwitch
                 (functionOperand "arg1" patternChoiceRepresentation)
@@ -1353,11 +1309,7 @@ managedRepeatedGuardedConstructorTailPatternLoweredProgram =
       LoweredBlock
         (testBlock 3)
         []
-        [ LoweredInstruction
-            (LoweredTemporaryId "t1")
-            uint64Representation
-            (LoweredProjectVariantTag patternChoiceLayoutId (functionOperand "arg1" patternChoiceRepresentation))
-        ]
+        []
         ( Just
             ( LoweredSwitch
                 (functionOperand "arg1" patternChoiceRepresentation)
@@ -1771,9 +1723,6 @@ managedLoweredProgramWithFunctions layouts functions resultRepresentation instru
 int64Representation :: LoweredRepresentation
 int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
 
-uint64Representation :: LoweredRepresentation
-uint64Representation = LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64
-
 intOperand :: Integer -> LoweredOperand
 intOperand = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
 
@@ -2108,6 +2057,34 @@ managedWildcardPrefixProgram = managedChoiceCatchAllPrefixProgram False False
 
 managedWildcardPrefixWithSuffixProgram :: TypedProgram
 managedWildcardPrefixWithSuffixProgram = managedChoiceCatchAllPrefixProgram False True
+
+managedWildcardPrefixWithNestedOrSuffixProgram :: TypedProgram
+managedWildcardPrefixWithNestedOrSuffixProgram =
+  rewriteTerminalPatternArms replaceFinalField managedWildcardPrefixWithSuffixProgram
+  where
+    replaceFinalField arms =
+      case reverse arms of
+        TypedCaseArm
+          (TypedConstructorPattern constructorInfo constructor [TypedWildcardPattern fieldInfo])
+          maybeGuard
+          body
+          : preceding ->
+            reverse preceding
+              <> [ TypedCaseArm
+                     ( TypedConstructorPattern
+                         constructorInfo
+                         constructor
+                         [ TypedOrPattern
+                             fieldInfo
+                             [ TypedLiteralPattern fieldInfo (TypedIntegerLiteral "7"),
+                               TypedLiteralPattern fieldInfo (TypedIntegerLiteral "8")
+                             ]
+                         ]
+                     )
+                     maybeGuard
+                     body
+                 ]
+        _ -> error "managed wildcard-prefix fixture must end in a unary constructor pattern"
 
 managedVariablePrefixProgram :: TypedProgram
 managedVariablePrefixProgram = managedChoiceCatchAllPrefixProgram True False
@@ -3367,7 +3344,7 @@ managedExportedOptionSource =
       "}"
     ]
 
-managedAsConstructorTuplePatternSource, managedTopLevelOrPatternSource, managedListPatternBoundarySource, managedConsPatternBoundarySource, managedTextLiteralPatternBoundarySource, managedNestedOrPatternBoundarySource, managedPatternLambdaBoundarySource :: Text
+managedAsConstructorTuplePatternSource, managedTopLevelOrPatternSource, managedReorderedOrPatternBinderSource, managedListPatternBoundarySource, managedConsPatternBoundarySource, managedTextLiteralPatternBoundarySource, managedNestedOrPatternBoundarySource, managedPatternLambdaBoundarySource :: Text
 managedAsConstructorTuplePatternSource =
   Text.unlines
     [ "data Maybe a = Nothing | Just a.",
@@ -3384,6 +3361,14 @@ managedTopLevelOrPatternSource =
       "subject = Right 7.",
       "case subject {",
       "  | Left item | Right item -> item",
+      "}."
+    ]
+managedReorderedOrPatternBinderSource =
+  Text.unlines
+    [ "data Choice = Left Int64 Bool | Right Bool Int64.",
+      "subject = Right True 7.",
+      "case subject {",
+      "  | Left x y | Right y x -> x",
       "}."
     ]
 

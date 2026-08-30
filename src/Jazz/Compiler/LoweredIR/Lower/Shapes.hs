@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.LoweredIR.Lower.Shapes
   ( analyzeTypedModule,
+    patternArmBindings,
     patternArmParameters,
     patternCaseTotalPrefixLength,
     orderedClosureLayouts,
@@ -23,6 +24,8 @@ where
 
 import Data.List (find, sortOn)
 import qualified Data.Map.Strict as Map
+import Data.Sequence ((|>))
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -1255,7 +1258,7 @@ patternCaseTotalPrefixLength ::
   [TypedCaseArm] ->
   Either LoweredIRLoweringFailure (Maybe Int)
 patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressionPath scrutinee arms =
-  earliestTotalPrefix <$> traverse admitArm (zip [0 :: Int ..] arms)
+  admitPrefix Seq.empty (zip [0 :: Int ..] arms)
   where
     expressionPath = reverse reversedExpressionPath
     scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe (typedExpressionInfo scrutinee))
@@ -1269,22 +1272,37 @@ patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressi
           (expressionPath <> [armIndex])
           patternValue
       pure (admittedPattern, maybeGuard)
-    earliestTotalPrefix = go 0 []
+    admitPrefix admittedArms remainingArms =
+      case remainingArms of
+        [] -> Right (earliestTotalPrefix admittedArms)
+        arm : rest ->
+          case admitArm arm of
+            Right admittedArm -> admitPrefix (admittedArms |> admittedArm) rest
+            Left failure ->
+              case earliestTotalPrefix admittedArms of
+                Just prefixLength -> Right (Just prefixLength)
+                Nothing -> Left failure
+    earliestTotalPrefix admittedArms
+      | Seq.null admittedArms = Nothing
+      | not (prefixIsTotal (Seq.length admittedArms)) = Nothing
+      | otherwise = Just (search 1 (Seq.length admittedArms))
       where
-        go _ _ [] = Nothing
-        go prefixLength coverageRows ((patternValue, maybeGuard) : remainingArms) =
-          let nextPrefixLength = prefixLength + 1
-              nextCoverageRows =
-                case maybeGuard of
-                  Just _ -> coverageRows
-                  Nothing ->
-                    coverageRows
-                      <> [ [alternative]
-                         | alternative <- expandTopLevelAlternative patternValue
-                         ]
-           in if coverageMatrixTotal managedLayoutCatalog [scrutineeRepresentation] nextCoverageRows
-                then Just nextPrefixLength
-                else go nextPrefixLength nextCoverageRows remainingArms
+        search lower upper
+          | lower == upper = lower
+          | prefixIsTotal midpoint = search lower midpoint
+          | otherwise = search (midpoint + 1) upper
+          where
+            midpoint = lower + (upper - lower) `div` 2
+        prefixIsTotal prefixLength =
+          coverageMatrixTotal
+            managedLayoutCatalog
+            [scrutineeRepresentation]
+            (coverageRows (Seq.take prefixLength admittedArms))
+    coverageRows = foldMap armCoverageRows
+    armCoverageRows (patternValue, maybeGuard) =
+      case maybeGuard of
+        Just _ -> []
+        Nothing -> [[alternative] | alternative <- expandTopLevelAlternative patternValue]
 
 admitPattern ::
   ManagedLayoutCatalog ->
@@ -1418,11 +1436,16 @@ specializeVariant tag fields = foldMap specialize
         _ -> []
 
 patternArmParameters :: ManagedLayoutCatalog -> TypedPattern -> [FunctionParameterShape]
-patternArmParameters managedLayoutCatalog patternValue =
-  [ FunctionParameterShape
-      binder
-      (LoweredParameter (patternParameterId parameterIndex) representation)
-  | (parameterIndex, (binder, info)) <- zip [0 :: Int ..] (patternBindings patternValue),
+patternArmParameters managedLayoutCatalog = map snd . patternArmBindings managedLayoutCatalog
+
+patternArmBindings :: ManagedLayoutCatalog -> TypedPattern -> [(TypedCoreName, FunctionParameterShape)]
+patternArmBindings managedLayoutCatalog patternValue =
+  [ ( name,
+      FunctionParameterShape
+        binder
+        (LoweredParameter (patternParameterId parameterIndex) representation)
+    )
+  | (parameterIndex, (binder, name, info)) <- zip [0 :: Int ..] (patternBindings patternValue),
     Just representation <- [representationForRecipe managedLayoutCatalog (typedNodeRecipe info)]
   ]
   where
@@ -1434,10 +1457,10 @@ patternArmParameters managedLayoutCatalog patternValue =
         )
     patternBindings patternNode =
       case patternNode of
-        TypedVariablePattern info binder _ -> [(binder, info)]
+        TypedVariablePattern info binder name -> [(binder, name, info)]
         TypedConstructorPattern _ _ patterns -> concatMap patternBindings patterns
         TypedTuplePattern _ patterns -> concatMap patternBindings patterns
-        TypedAsPattern info binder _ nestedPattern -> (binder, info) : patternBindings nestedPattern
+        TypedAsPattern info binder name nestedPattern -> (binder, name, info) : patternBindings nestedPattern
         TypedOrPattern _ [] -> []
         TypedOrPattern _ (alternative : _) -> patternBindings alternative
         _ -> []

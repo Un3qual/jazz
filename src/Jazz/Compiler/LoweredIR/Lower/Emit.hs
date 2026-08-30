@@ -1159,6 +1159,45 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         (TypedVariablePattern {}, Nothing) -> True
         _ -> False
 
+    lowerArmChainWith lowerProfileArms selectedArms resultRepresentation scrutineeOperand =
+      let outerSlots = ambientSlots scrutineeState
+          outerParameters = ambientParameters outerSlots
+          (scrutineeCarrier, carriedState) = carryOperand scrutineeOperand scrutineeState
+          controlSlots = ambientSlots carriedState
+          controlParameters = ambientParameters controlSlots
+       in case lowerProfileArms
+            resultRepresentation
+            scrutineeCarrier
+            outerSlots
+            controlSlots
+            controlParameters
+            0
+            selectedArms
+            carriedState of
+            (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
+            ([], finalArmState) ->
+              case destination of
+                FinishFunction _ -> ([], Nothing, finalArmState)
+                ProduceValue ->
+                  let joinBase =
+                        scrutineeState
+                          { loweringNextCarrier = loweringNextCarrier finalArmState,
+                            loweringCompletedBlocks = loweringCompletedBlocks finalArmState
+                          }
+                      joinParameters =
+                        outerParameters
+                          <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
+                      joinState =
+                        remapAmbient
+                          outerSlots
+                          outerParameters
+                          (startBlock joinBlockId joinParameters joinBase)
+                      resultOperand =
+                        LoweredBlockParameterOperand
+                          (LoweredParameterId "result")
+                          resultRepresentation
+                   in ([], Just resultOperand, joinState)
+
     lowerManagedArmChain resultRepresentation scrutineeOperand =
       case patternCaseTotalPrefixLength managedLayoutCatalog statementPath expressionPath scrutinee arms of
         Left failure -> ([failure], Nothing, scrutineeState)
@@ -1172,43 +1211,11 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
             scrutineeState
           )
         Right (Just totalPrefixLength) ->
-          let outerSlots = ambientSlots scrutineeState
-              outerParameters = ambientParameters outerSlots
-              (scrutineeCarrier, carriedState) = carryOperand scrutineeOperand scrutineeState
-              controlSlots = ambientSlots carriedState
-              controlParameters = ambientParameters controlSlots
-           in case lowerManagedArms
-                resultRepresentation
-                scrutineeCarrier
-                outerSlots
-                controlSlots
-                controlParameters
-                0
-                (take totalPrefixLength arms)
-                carriedState of
-                (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
-                ([], finalArmState) ->
-                  case destination of
-                    FinishFunction _ -> ([], Nothing, finalArmState)
-                    ProduceValue ->
-                      let joinBase =
-                            scrutineeState
-                              { loweringNextCarrier = loweringNextCarrier finalArmState,
-                                loweringCompletedBlocks = loweringCompletedBlocks finalArmState
-                              }
-                          joinParameters =
-                            outerParameters
-                              <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
-                          joinState =
-                            remapAmbient
-                              outerSlots
-                              outerParameters
-                              (startBlock joinBlockId joinParameters joinBase)
-                          resultOperand =
-                            LoweredBlockParameterOperand
-                              (LoweredParameterId "result")
-                              resultRepresentation
-                       in ([], Just resultOperand, joinState)
+          lowerArmChainWith
+            lowerManagedArms
+            (take totalPrefixLength arms)
+            resultRepresentation
+            scrutineeOperand
 
     lowerManagedArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex remainingArms currentState =
       case remainingArms of
@@ -1224,7 +1231,8 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
           case scrutineeAt scrutineeCarrier currentState of
             Nothing -> ([unsupportedFailure path], currentState)
             Just _ ->
-              let canonicalShapes = patternArmParameters managedLayoutCatalog patternValue
+              let canonicalBindings = patternArmBindings managedLayoutCatalog patternValue
+                  canonicalShapes = map snd canonicalBindings
                   canonicalParameters = map functionParameter canonicalShapes
                   successBlockId = matchedArmEntry armIndex arm
                   rowFailureBlockId = nextManagedArmEntry armIndex laterArms
@@ -1232,7 +1240,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                   (matcherFailures, matcherState) =
                     lowerManagedAlternatives
                       armIndex
-                      canonicalShapes
+                      canonicalBindings
                       successBlockId
                       rowFailureBlockId
                       controlSlots
@@ -1267,7 +1275,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                             currentState
                             successInitial
 
-    lowerManagedAlternatives armIndex canonicalShapes successBlockId rowFailureBlockId controlSlots controlParameters rowTemplate scrutineeCarrier alternatives initialState =
+    lowerManagedAlternatives armIndex canonicalBindings successBlockId rowFailureBlockId controlSlots controlParameters rowTemplate scrutineeCarrier alternatives initialState =
       go alternatives initialState
       where
         go [] currentState = ([unsupportedFailure path], currentState)
@@ -1284,7 +1292,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                     lowerManagedPatternQueue
                       armIndex
                       alternativeIndex
-                      canonicalShapes
+                      canonicalBindings
                       successBlockId
                       alternativeFailureBlockId
                       controlSlots
@@ -1307,21 +1315,21 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                               )
                        in go remaining nextInitial
 
-    lowerManagedPatternQueue armIndex alternativeIndex canonicalShapes successBlockId failureBlockId controlSlots controlParameters matchedOperands pendingPatterns currentState =
+    lowerManagedPatternQueue armIndex alternativeIndex canonicalBindings successBlockId failureBlockId controlSlots controlParameters matchedOperands pendingPatterns currentState =
       case pendingPatterns of
-        [] -> finishManagedPatternSuccess canonicalShapes successBlockId controlSlots matchedOperands currentState
+        [] -> finishManagedPatternSuccess canonicalBindings successBlockId controlSlots matchedOperands currentState
         (patternValue, patternPath, operand) : rest ->
           case patternValue of
             TypedWildcardPattern patternInfo
               | managedPatternOperandMatches patternInfo operand ->
                   recurse matchedOperands rest currentState
-            TypedVariablePattern patternInfo _ _
+            TypedVariablePattern patternInfo _ name
               | managedPatternOperandMatches patternInfo operand ->
-                  recurse (matchedOperands |> operand) rest currentState
-            TypedAsPattern patternInfo _ _ nestedPattern
+                  recurse (matchedOperands |> (name, operand)) rest currentState
+            TypedAsPattern patternInfo _ name nestedPattern
               | managedPatternOperandMatches patternInfo operand ->
                   recurse
-                    (matchedOperands |> operand)
+                    (matchedOperands |> (name, operand))
                     ((nestedPattern, patternPath <> [0], operand) : rest)
                     currentState
             TypedTuplePattern patternInfo fields
@@ -1351,7 +1359,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                   lowerManagedConstructorPattern
                     armIndex
                     alternativeIndex
-                    canonicalShapes
+                    canonicalBindings
                     successBlockId
                     failureBlockId
                     controlSlots
@@ -1368,7 +1376,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                   lowerManagedLiteralPattern
                     armIndex
                     alternativeIndex
-                    canonicalShapes
+                    canonicalBindings
                     successBlockId
                     failureBlockId
                     controlSlots
@@ -1386,7 +1394,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
           lowerManagedPatternQueue
             armIndex
             alternativeIndex
-            canonicalShapes
+            canonicalBindings
             successBlockId
             failureBlockId
             controlSlots
@@ -1395,13 +1403,13 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
             nextPending
             nextState
 
-    lowerManagedConstructorPattern armIndex alternativeIndex canonicalShapes successBlockId failureBlockId controlSlots controlParameters matchedOperands patternPath operand fields constructor rest currentState =
-      case ambientArguments controlSlots tagState of
-        Nothing -> ([unsupportedFailure path], tagState)
+    lowerManagedConstructorPattern armIndex alternativeIndex canonicalBindings successBlockId failureBlockId controlSlots controlParameters matchedOperands patternPath operand fields constructor rest currentState =
+      case ambientArguments controlSlots currentState of
+        Nothing -> ([unsupportedFailure path], currentState)
         Just controlArguments ->
           let matchBlockId = managedPatternBlock armIndex alternativeIndex patternPath "fields"
               queuedOperands = [pendingOperand | (_, _, pendingOperand) <- rest]
-              transportedOperands = toList matchedOperands <> (operand : queuedOperands)
+              transportedOperands = map snd (toList matchedOperands) <> (operand : queuedOperands)
               matchParameters = managedMatchParameters transportedOperands
               matchArguments = controlArguments <> transportedOperands
               defaultTarget =
@@ -1419,7 +1427,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                       ]
                       (Just defaultTarget)
                   )
-                  tagState
+                  currentState
               matchInitial =
                 remapAmbient
                   controlSlots
@@ -1427,6 +1435,10 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                   (startBlock matchBlockId (controlParameters <> matchParameters) switchedState)
               remappedTransported = managedMatchOperands matchParameters
               (remappedMatched, remappedQueued) = splitAt (Seq.length matchedOperands) remappedTransported
+              remappedMatchedBindings =
+                Seq.zip
+                  (fmap fst matchedOperands)
+                  (Seq.fromList remappedMatched)
            in case remappedQueued of
                 remappedOperand : remappedRestOperands ->
                   let (fieldOperands, projectedState) =
@@ -1452,23 +1464,16 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                    in lowerManagedPatternQueue
                         armIndex
                         alternativeIndex
-                        canonicalShapes
+                        canonicalBindings
                         successBlockId
                         failureBlockId
                         controlSlots
                         controlParameters
-                        (Seq.fromList remappedMatched)
+                        remappedMatchedBindings
                         (fieldPatterns <> remappedRest)
                         projectedState
                 [] -> ([unsupportedFailure path], matchInitial)
-      where
-        (_, tagState) =
-          emitManagedPatternOperation
-            uint64Representation
-            (LoweredProjectVariantTag (managedConstructorLayoutId constructor) operand)
-            currentState
-
-    lowerManagedLiteralPattern armIndex alternativeIndex canonicalShapes successBlockId failureBlockId controlSlots controlParameters matchedOperands patternPath operand patternInfo literal rest currentState =
+    lowerManagedLiteralPattern armIndex alternativeIndex canonicalBindings successBlockId failureBlockId controlSlots controlParameters matchedOperands patternPath operand patternInfo literal rest currentState =
       case lowerLiteral (managedTypedPatternPath armIndex patternPath) patternInfo literal currentState of
         (failures@(_ : _), _, literalState) -> (failures, literalState)
         ([], Just literalOperand, literalState)
@@ -1491,7 +1496,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                in lowerManagedLiteralContinuation
                     armIndex
                     alternativeIndex
-                    canonicalShapes
+                    canonicalBindings
                     successBlockId
                     failureBlockId
                     controlSlots
@@ -1503,12 +1508,12 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                     comparisonState
         ([], _, literalState) -> ([managedPatternFailure armIndex patternPath], literalState)
 
-    lowerManagedLiteralContinuation armIndex alternativeIndex canonicalShapes successBlockId failureBlockId controlSlots controlParameters matchedOperands patternPath rest comparisonOperand comparisonState =
+    lowerManagedLiteralContinuation armIndex alternativeIndex canonicalBindings successBlockId failureBlockId controlSlots controlParameters matchedOperands patternPath rest comparisonOperand comparisonState =
       case (ambientArguments controlSlots comparisonState, failureBlockId) of
         (Just controlArguments, Just failureTarget) ->
           case rest of
             [] ->
-              case managedSuccessArguments canonicalShapes controlArguments matchedOperands of
+              case managedSuccessArguments canonicalBindings controlArguments matchedOperands of
                 Just successArguments ->
                   ( [],
                     finishCurrentBlock
@@ -1525,7 +1530,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
             _ ->
               let continuationBlockId = managedPatternBlock armIndex alternativeIndex patternPath "next"
                   queuedOperands = [pendingOperand | (_, _, pendingOperand) <- rest]
-                  transportedOperands = toList matchedOperands <> queuedOperands
+                  transportedOperands = map snd (toList matchedOperands) <> queuedOperands
                   matchParameters = managedMatchParameters transportedOperands
                   continuationArguments = controlArguments <> transportedOperands
                   branchState =
@@ -1545,6 +1550,10 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                       (startBlock continuationBlockId (controlParameters <> matchParameters) branchState)
                   remappedTransported = managedMatchOperands matchParameters
                   (remappedMatched, remappedQueued) = splitAt (Seq.length matchedOperands) remappedTransported
+                  remappedMatchedBindings =
+                    Seq.zip
+                      (fmap fst matchedOperands)
+                      (Seq.fromList remappedMatched)
                   remappedRest =
                     [ (pendingPattern, pendingPath, pendingOperand)
                     | ((pendingPattern, pendingPath, _), pendingOperand) <- zip rest remappedQueued
@@ -1552,29 +1561,35 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                in lowerManagedPatternQueue
                     armIndex
                     alternativeIndex
-                    canonicalShapes
+                    canonicalBindings
                     successBlockId
                     failureBlockId
                     controlSlots
                     controlParameters
-                    (Seq.fromList remappedMatched)
+                    remappedMatchedBindings
                     remappedRest
                     continuationInitial
         _ -> ([unsupportedFailure path], comparisonState)
 
-    finishManagedPatternSuccess canonicalShapes successBlockId controlSlots matchedOperands currentState =
+    finishManagedPatternSuccess canonicalBindings successBlockId controlSlots matchedOperands currentState =
       case ambientArguments controlSlots currentState of
         Just controlArguments ->
-          case managedSuccessArguments canonicalShapes controlArguments matchedOperands of
+          case managedSuccessArguments canonicalBindings controlArguments matchedOperands of
             Just successArguments ->
               ([], finishCurrentBlock (LoweredJump successBlockId successArguments) currentState)
             Nothing -> ([unsupportedFailure path], currentState)
         Nothing -> ([unsupportedFailure path], currentState)
 
-    managedSuccessArguments canonicalShapes controlArguments matchedOperands =
-      if fmap loweredOperandRepresentation matchedOperands
-        == Seq.fromList [representation | FunctionParameterShape _ (LoweredParameter _ representation) <- canonicalShapes]
-        then Just (controlArguments <> toList matchedOperands)
+    managedSuccessArguments canonicalBindings controlArguments matchedOperands = do
+      if Seq.length matchedOperands == length canonicalBindings then pure () else Nothing
+      let operandsByName = Map.fromList (toList matchedOperands)
+      orderedOperands <- traverse (flip Map.lookup operandsByName . fst) canonicalBindings
+      let expectedRepresentations =
+            [ representation
+            | (_, FunctionParameterShape _ (LoweredParameter _ representation)) <- canonicalBindings
+            ]
+      if map loweredOperandRepresentation orderedOperands == expectedRepresentations
+        then Just (controlArguments <> orderedOperands)
         else Nothing
 
     lowerManagedMatchedArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters canonicalShapes armIndex arm@(TypedCaseArm _ maybeGuard _) laterArms continuationTemplate matchedState =
@@ -1817,46 +1832,9 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         LoweredIRNoFailureDetail
 
     managedLayoutCatalog = indexedManagedLayoutCatalog functions
-    uint64Representation = LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64
 
     lowerArmChain resultRepresentation scrutineeOperand =
-      let outerSlots = ambientSlots scrutineeState
-          outerParameters = ambientParameters outerSlots
-          (scrutineeCarrier, carriedState) = carryOperand scrutineeOperand scrutineeState
-          controlSlots = ambientSlots carriedState
-          controlParameters = ambientParameters controlSlots
-       in case lowerArms
-            resultRepresentation
-            scrutineeCarrier
-            outerSlots
-            controlSlots
-            controlParameters
-            0
-            arms
-            carriedState of
-            (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
-            ([], finalArmState) ->
-              case destination of
-                FinishFunction _ -> ([], Nothing, finalArmState)
-                ProduceValue ->
-                  let joinBase =
-                        scrutineeState
-                          { loweringNextCarrier = loweringNextCarrier finalArmState,
-                            loweringCompletedBlocks = loweringCompletedBlocks finalArmState
-                          }
-                      joinParameters =
-                        outerParameters
-                          <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
-                      joinState =
-                        remapAmbient
-                          outerSlots
-                          outerParameters
-                          (startBlock joinBlockId joinParameters joinBase)
-                      resultOperand =
-                        LoweredBlockParameterOperand
-                          (LoweredParameterId "result")
-                          resultRepresentation
-                   in ([], Just resultOperand, joinState)
+      lowerArmChainWith lowerArms arms resultRepresentation scrutineeOperand
 
     lowerArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex remainingArms currentState =
       case remainingArms of

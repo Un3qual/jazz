@@ -2775,17 +2775,30 @@ module TypedCoreValidate (
     | (PatternBinderContract leftBinder leftName leftType leftRecipe, PatternBinderContract rightBinder rightName rightType rightRecipe) -> if coreNameEqual leftName rightName then if typeEqual leftType rightType then recipeEqual leftRecipe rightRecipe else False else False
   }.
 
+  removeMatchingPatternBinderContract :: PatternBinderContract -> [PatternBinderContract] -> Maybe([PatternBinderContract]).
+  removeMatchingPatternBinderContract = \(candidate, expected) -> case expected {
+    | [] -> Nothing
+    | [first | rest] ->
+      if patternBinderContractEqual first candidate then
+        Just rest
+      else case removeMatchingPatternBinderContract candidate rest {
+        | Nothing -> Nothing
+        | Just remaining -> Just (listPrepend first remaining)
+      }
+  }.
+
   mismatchedPatternBinder :: [PatternBinderContract] -> [PatternBinderContract] -> Maybe(TypedBinderId).
-  mismatchedPatternBinder = \(expected, actual) -> case (expected, actual) {
-    | ([], []) -> Nothing
-    | ([PatternBinderContract binder name typeValue recipe | rest], []) -> Just binder
-    | ([], [PatternBinderContract binder name typeValue recipe | rest]) -> Just binder
-    | ([expectedFirst | expectedRest], [actualFirst | actualRest]) ->
-      if patternBinderContractEqual expectedFirst actualFirst then
-        mismatchedPatternBinder expectedRest actualRest
-      else case actualFirst {
+  mismatchedPatternBinder = \(expected, actual) -> case actual {
+    | [] -> case expected {
+      | [] -> Nothing
+      | [PatternBinderContract binder name typeValue recipe | rest] -> Just binder
+    }
+    | [candidate | rest] -> case removeMatchingPatternBinderContract candidate expected {
+      | Just remainingExpected -> mismatchedPatternBinder remainingExpected rest
+      | Nothing -> case candidate {
         | PatternBinderContract binder name typeValue recipe -> Just binder
       }
+    }
   }.
 
   patternBinderContractListEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool.
