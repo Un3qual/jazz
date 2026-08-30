@@ -82,6 +82,7 @@ import Jazz.Compiler.CapabilityFacts
     constraintSignatureTypesCompatible,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
+    renderConcreteImplFact,
     signaturePayloadConstraintType,
     splitQualifiedMethodKey,
     substituteClassMethodSignature,
@@ -93,7 +94,9 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Name
   ( Name,
     identifierText,
+    mkIdentifier,
     qualifiedMemberName,
+    sourceName,
   )
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
@@ -1025,7 +1028,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
-                          constraintName <> "(" <> renderSignatureType firstArgumentHint <> ")"
+                          renderConcreteImplFact (concreteImplFactForRenderedName constraintName firstArgumentHint)
                      in case maybeMethodKey of
                           Nothing
                             | not (null implFactHints) ->
@@ -1163,10 +1166,13 @@ concreteImplFactExists constraintName argumentHint facts =
 
 concreteImplFactExistsExactly :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool
 concreteImplFactExistsExactly constraintName argumentHint facts =
-  any matches (Set.toList (scopeConcreteImplFacts facts))
-  where
-    matches (ConcreteImplFact capabilityName factArgument) =
-      identifierText capabilityName == constraintName && factArgument == argumentHint
+  Set.member
+    (concreteImplFactForRenderedName constraintName argumentHint)
+    (scopeConcreteImplFacts facts)
+
+concreteImplFactForRenderedName :: Text -> SignatureType -> ConcreteImplFact
+concreteImplFactForRenderedName constraintName argumentHint =
+  ConcreteImplFact (sourceName (mkIdentifier constraintName)) argumentHint
 
 concreteImplMethodBodyExists :: Text -> SignatureType -> ScopeCapabilityFacts -> Bool
 concreteImplMethodBodyExists methodKey argumentHint facts =

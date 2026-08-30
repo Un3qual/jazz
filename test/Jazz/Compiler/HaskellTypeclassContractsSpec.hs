@@ -25,7 +25,9 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (TypeNamespace, ValueNamespace),
+  ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
+    mkIdentifier,
+    resolvedImportedName,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
@@ -45,6 +47,7 @@ tests :: [NamedTest]
 tests =
   [ ("runtime requirements form their intended monoid", testRuntimeRequirements),
     ("scope capability facts preserve collision order", testScopeCapabilityFacts),
+    ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
     ("module export inventories union without duplicates", testModuleExportInventory)
   ]
 
@@ -116,6 +119,17 @@ testScopeCapabilityFacts = do
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
           scopeConcreteImplFacts = Set.singleton (ConcreteImplFact "Comparable" TypeInt)
         }
+
+testConcreteImplFactsUseRenderedIdentity :: IO ()
+testConcreteImplFactsUseRenderedIdentity = do
+  assertEqual "rendered capability facts compare equal" True (sourceFact == importedFact)
+  assertEqual "rendered capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
+  where
+    sourceFact = ConcreteImplFact "Lib::Marked::Marked!" TypeInt
+    importedFact =
+      ConcreteImplFact
+        (resolvedImportedName ["Lib", "Marked"] CapabilityNamespace (mkIdentifier "Marked!"))
+        TypeInt
 
 testModuleExportInventory :: IO ()
 testModuleExportInventory = do

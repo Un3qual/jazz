@@ -49,8 +49,21 @@ import Jazz.Compiler.SignatureRendering
   )
 
 data ConcreteImplFact = ConcreteImplFact Name SignatureType
-  deriving stock (Eq, Generic, Ord, Show)
+  deriving stock (Generic, Show)
   deriving anyclass (NFData)
+
+-- | Concrete facts preserve the legacy text-key collision semantics: names
+-- compare by their rendered module-qualified identity, rather than the
+-- implementation-specific 'Name' origin used to construct them.
+instance Eq ConcreteImplFact where
+  leftFact == rightFact = concreteImplFactIdentity leftFact == concreteImplFactIdentity rightFact
+
+instance Ord ConcreteImplFact where
+  compare leftFact rightFact = compare (concreteImplFactIdentity leftFact) (concreteImplFactIdentity rightFact)
+
+concreteImplFactIdentity :: ConcreteImplFact -> (Text, SignatureType)
+concreteImplFactIdentity (ConcreteImplFact capabilityName argument) =
+  (renderName capabilityName, argument)
 
 concreteImplFact :: Name -> [SignatureType] -> Maybe ConcreteImplFact
 concreteImplFact capabilityName arguments =
