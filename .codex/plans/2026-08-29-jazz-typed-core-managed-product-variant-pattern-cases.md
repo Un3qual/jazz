@@ -6,7 +6,7 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 4"
+plan_section: "Task 5"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
   - src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs
@@ -318,7 +318,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   function-result tail lowering. Do not synthesize a wildcard, trap, or runtime
   match failure after a total matrix.
 
-- [ ] **Step 1: Add RED exact Lowered IR fixtures.** Assert complete
+- [x] **Step 1: Add RED exact Lowered IR fixtures.** Assert complete
       `LoweredProgram` values for constructor selection, tuple selection,
       nested constructor/tuple matching, as-patterns, top-level alternatives,
       repeated guarded constructors, false-guard fallthrough, arm-local
@@ -335,20 +335,20 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 
   First run must fail at the existing unsupported-pattern emission branch.
 
-- [ ] **Step 2: Implement tuple and constructor matching.** Reuse the catalog
+- [x] **Step 2: Implement tuple and constructor matching.** Reuse the catalog
       lookup from Task 3 and existing block/ambient remapping helpers. Preserve
       deterministic block/temporary allocation.
 
-- [ ] **Step 3: Implement binders, as-patterns, alternatives, and guards.** Add
+- [x] **Step 3: Implement binders, as-patterns, alternatives, and guards.** Add
       mutation-oriented exact assertions for wrong alternative binder mapping,
       field projection before tag selection, and nested failure accidentally
       entering a guard.
 
-- [ ] **Step 4: Preserve result and tail paths.** Run existing scalar pattern
+- [x] **Step 4: Preserve result and tail paths.** Run existing scalar pattern
       case fixtures unchanged and add managed tail-body assertions. No managed
       row may introduce an unnecessary result join in true tail position.
 
-- [ ] **Step 5: Verify and commit.** Run the focused managed suite and all
+- [x] **Step 5: Verify and commit.** Run the focused managed suite and all
       producer/lowerer contract suites, then commit:
 
   ```bash
