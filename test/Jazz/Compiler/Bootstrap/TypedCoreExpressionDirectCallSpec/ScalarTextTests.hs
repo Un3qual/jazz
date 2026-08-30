@@ -148,8 +148,27 @@ testScalarPatternCaseProduction =
 
 testScalarPatternCaseLowererBoundary :: IO ()
 testScalarPatternCaseLowererBoundary =
-  mapM_ assertBoundary expectedResults
+  mapM_
+    assertManagedSuccess
+    [ "pattern-case-constructor-lowerer",
+      "pattern-case-tuple-lowerer"
+    ]
+    >> mapM_ assertBoundary expectedResults
   where
+    assertManagedSuccess name =
+      case lookup name scalarPatternCaseLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " pattern-case lowerer boundary program is missing")
+        Just programValue -> do
+          let firstLowering = lowerTypedCoreExpressionDirectCall programValue
+              secondLowering = lowerTypedCoreExpressionDirectCall programValue
+          assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
+          assertEqual (name <> " repeatable lowerer success") firstLowering secondLowering
+          case firstLowering of
+            LoweredIRSucceeded loweredProgram ->
+              assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
+            lowering ->
+              failTest (name <> " did not lower: " <> Text.pack (show lowering))
+
     assertBoundary (name, expectedFailures) =
       case lookup name scalarPatternCaseLowererBoundaryPrograms of
         Nothing -> failTest (name <> " pattern-case lowerer boundary program is missing")
@@ -164,11 +183,7 @@ testScalarPatternCaseLowererBoundary =
             firstLowering
 
     expectedResults =
-      [ ( "pattern-case-constructor-lowerer",
-          [patternFailure [1] [0, 0]]
-        ),
-        unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
-        unsupportedPattern "pattern-case-tuple-lowerer" [0] [0, 0],
+      [ unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-as-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-or-lowerer" [0] [0, 0],
         incompleteCase "pattern-case-final-literal-lowerer",

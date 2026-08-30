@@ -145,6 +145,21 @@ managedProductVariantIndependentExpectedLoweredPrograms =
     ("managed-nested-variant", managedNestedVariantProgram, managedNestedVariantLoweredProgram)
   ]
 
+managedPatternEmissionExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredProgram)]
+managedPatternEmissionExpectedLoweredPrograms =
+  [ ("managed-tuple-selection-pattern", managedTupleSelectionPatternProgram, managedTupleSelectionPatternLoweredProgram),
+    ("managed-guarded-as-constructor-tuple-pattern", managedGuardedAsConstructorTuplePatternProgram, managedGuardedAsConstructorTuplePatternLoweredProgram),
+    ("managed-top-level-or-pattern", managedTopLevelOrPatternProgram, managedTopLevelOrPatternLoweredProgram)
+  ]
+
+managedPatternEmissionSourceExpectedLoweredPrograms :: [(Text, Fixture, LoweredProgram)]
+managedPatternEmissionSourceExpectedLoweredPrograms =
+  [ ( "managed-repeated-guarded-constructor-tail-pattern",
+      sourceFixtureNoExports "managed-repeated-guarded-constructor-tail-pattern" managedRepeatedGuardedConstructorTailPatternSource,
+      managedRepeatedGuardedConstructorTailPatternLoweredProgram
+    )
+  ]
+
 managedProductVariantManifestExpectedPrograms :: [(Text, TypedProgram)]
 managedProductVariantManifestExpectedPrograms =
   [ ("non-unit-tuple", manifestTupleProgram),
@@ -315,6 +330,643 @@ managedNestedVariantLoweredProgram =
         (LoweredConstructVariant outerLayoutId 0 [temporaryOperand 1 optionRepresentation])
     ]
     (temporaryOperand 2 outerRepresentation)
+
+managedTupleSelectionPatternLoweredProgram :: LoweredProgram
+managedTupleSelectionPatternLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternTupleLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternTupleRepresentation
+                ( LoweredConstructProduct
+                    patternTupleLayoutId
+                    [intOperand 1, LoweredImmediateOperand (LoweredBoolImmediate True)]
+                ),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                int64Representation
+                (LoweredProjectField patternTupleLayoutId 0 (temporaryOperand 1 patternTupleRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t3")
+                LoweredBoolRepresentation
+                (LoweredProjectField patternTupleLayoutId 1 (temporaryOperand 1 patternTupleRepresentation))
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$0$e1$0$a0$body")
+                    [temporaryOperand 1 patternTupleRepresentation, temporaryOperand 2 int64Representation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$0$e1$0$a0$body")
+            [ blockParameter "live1" patternTupleRepresentation,
+              blockParameter "pattern" int64Representation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$0$e1$0$join")
+                    [blockOperand "pattern" int64Representation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$0$e1$0$join")
+            [blockParameter "result" int64Representation]
+            []
+            (Just (LoweredReturn (blockOperand "result" int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+
+managedGuardedAsConstructorTuplePatternLoweredProgram :: LoweredProgram
+managedGuardedAsConstructorTuplePatternLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternMaybeLayout, patternTupleLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternTupleRepresentation
+                ( LoweredConstructProduct
+                    patternTupleLayoutId
+                    [intOperand 41, LoweredImmediateOperand (LoweredBoolImmediate True)]
+                ),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                patternMaybeRepresentation
+                (LoweredConstructVariant patternMaybeLayoutId 1 [temporaryOperand 1 patternTupleRepresentation]),
+              LoweredInstruction
+                (LoweredTemporaryId "t3")
+                uint64Representation
+                (LoweredProjectVariantTag patternMaybeLayoutId (temporaryOperand 2 patternMaybeRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (temporaryOperand 2 patternMaybeRepresentation)
+                    [ LoweredSwitchCase
+                        1
+                        (LoweredBlockId "case$s1$2$e1$0$a0$alt0$p0$fields")
+                        [ temporaryOperand 2 patternMaybeRepresentation,
+                          temporaryOperand 2 patternMaybeRepresentation,
+                          temporaryOperand 2 patternMaybeRepresentation,
+                          temporaryOperand 2 patternMaybeRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a1$test")
+                            [ temporaryOperand 2 patternMaybeRepresentation,
+                              temporaryOperand 2 patternMaybeRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$alt0$p0$fields")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation,
+              blockParameter "match1" patternMaybeRepresentation,
+              blockParameter "match2" patternMaybeRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternTupleRepresentation
+                (LoweredProjectVariantField patternMaybeLayoutId 1 0 (blockOperand "match2" patternMaybeRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                int64Representation
+                (LoweredProjectField patternTupleLayoutId 0 (temporaryOperand 1 patternTupleRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t3")
+                LoweredBoolRepresentation
+                (LoweredProjectField patternTupleLayoutId 1 (temporaryOperand 1 patternTupleRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t4")
+                LoweredBoolRepresentation
+                ( LoweredPrimitiveOperation
+                    (LoweredComparisonPrimitive LoweredEqual)
+                    [ temporaryOperand 3 LoweredBoolRepresentation,
+                      LoweredImmediateOperand (LoweredBoolImmediate True)
+                    ]
+                )
+            ]
+            ( Just
+                ( LoweredBranch
+                    (temporaryOperand 4 LoweredBoolRepresentation)
+                    (LoweredBlockId "case$s1$2$e1$0$a0$guard")
+                    [ blockOperand "live1" patternMaybeRepresentation,
+                      blockOperand "live2" patternMaybeRepresentation,
+                      blockOperand "match1" patternMaybeRepresentation,
+                      temporaryOperand 2 int64Representation
+                    ]
+                    (LoweredBlockId "case$s1$2$e1$0$a1$test")
+                    [ blockOperand "live1" patternMaybeRepresentation,
+                      blockOperand "live2" patternMaybeRepresentation
+                    ]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$guard")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation,
+              blockParameter "pattern" patternMaybeRepresentation,
+              blockParameter "pattern1" int64Representation
+            ]
+            []
+            ( Just
+                ( LoweredBranch
+                    (LoweredImmediateOperand (LoweredBoolImmediate False))
+                    (LoweredBlockId "case$s1$2$e1$0$a0$body")
+                    [ blockOperand "live1" patternMaybeRepresentation,
+                      blockOperand "live2" patternMaybeRepresentation,
+                      blockOperand "pattern" patternMaybeRepresentation,
+                      blockOperand "pattern1" int64Representation
+                    ]
+                    (LoweredBlockId "case$s1$2$e1$0$a1$test")
+                    [ blockOperand "live1" patternMaybeRepresentation,
+                      blockOperand "live2" patternMaybeRepresentation
+                    ]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$body")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation,
+              blockParameter "pattern" patternMaybeRepresentation,
+              blockParameter "pattern1" int64Representation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$join")
+                    [blockOperand "live1" patternMaybeRepresentation, blockOperand "pattern1" int64Representation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$test")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                uint64Representation
+                (LoweredProjectVariantTag patternMaybeLayoutId (blockOperand "live2" patternMaybeRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (blockOperand "live2" patternMaybeRepresentation)
+                    [ LoweredSwitchCase
+                        0
+                        (LoweredBlockId "case$s1$2$e1$0$a1$alt0$proot$fields")
+                        [ blockOperand "live1" patternMaybeRepresentation,
+                          blockOperand "live2" patternMaybeRepresentation,
+                          blockOperand "live2" patternMaybeRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a2$test")
+                            [ blockOperand "live1" patternMaybeRepresentation,
+                              blockOperand "live2" patternMaybeRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$alt0$proot$fields")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation,
+              blockParameter "match1" patternMaybeRepresentation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$a1$body")
+                    [blockOperand "live1" patternMaybeRepresentation, blockOperand "live2" patternMaybeRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$body")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$join")
+                    [blockOperand "live1" patternMaybeRepresentation, intOperand 0]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a2$test")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                uint64Representation
+                (LoweredProjectVariantTag patternMaybeLayoutId (blockOperand "live2" patternMaybeRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (blockOperand "live2" patternMaybeRepresentation)
+                    [ LoweredSwitchCase
+                        1
+                        (LoweredBlockId "case$s1$2$e1$0$a2$alt0$proot$fields")
+                        [ blockOperand "live1" patternMaybeRepresentation,
+                          blockOperand "live2" patternMaybeRepresentation,
+                          blockOperand "live2" patternMaybeRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a2$alt0$proot$fields")
+                            [ blockOperand "live1" patternMaybeRepresentation,
+                              blockOperand "live2" patternMaybeRepresentation,
+                              blockOperand "live2" patternMaybeRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a2$alt0$proot$fields")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation,
+              blockParameter "match1" patternMaybeRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternTupleRepresentation
+                (LoweredProjectVariantField patternMaybeLayoutId 1 0 (blockOperand "match1" patternMaybeRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                int64Representation
+                (LoweredProjectField patternTupleLayoutId 0 (temporaryOperand 1 patternTupleRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t3")
+                LoweredBoolRepresentation
+                (LoweredProjectField patternTupleLayoutId 1 (temporaryOperand 1 patternTupleRepresentation))
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$a2$body")
+                    [blockOperand "live1" patternMaybeRepresentation, blockOperand "live2" patternMaybeRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a2$body")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "live2" patternMaybeRepresentation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$join")
+                    [blockOperand "live1" patternMaybeRepresentation, intOperand 1]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$join")
+            [ blockParameter "live1" patternMaybeRepresentation,
+              blockParameter "result" int64Representation
+            ]
+            []
+            (Just (LoweredReturn (blockOperand "result" int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+
+managedTopLevelOrPatternLoweredProgram :: LoweredProgram
+managedTopLevelOrPatternLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternChoiceLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternChoiceRepresentation
+                (LoweredConstructVariant patternChoiceLayoutId 1 [intOperand 7]),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                uint64Representation
+                (LoweredProjectVariantTag patternChoiceLayoutId (temporaryOperand 1 patternChoiceRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (temporaryOperand 1 patternChoiceRepresentation)
+                    [ LoweredSwitchCase
+                        0
+                        (LoweredBlockId "case$s1$2$e1$0$a0$alt0$p0$fields")
+                        [ temporaryOperand 1 patternChoiceRepresentation,
+                          temporaryOperand 1 patternChoiceRepresentation,
+                          temporaryOperand 1 patternChoiceRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a0$alt1$test")
+                            [ temporaryOperand 1 patternChoiceRepresentation,
+                              temporaryOperand 1 patternChoiceRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$alt0$p0$fields")
+            [ blockParameter "live1" patternChoiceRepresentation,
+              blockParameter "live2" patternChoiceRepresentation,
+              blockParameter "match1" patternChoiceRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                int64Representation
+                (LoweredProjectVariantField patternChoiceLayoutId 0 0 (blockOperand "match1" patternChoiceRepresentation))
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$a0$body")
+                    [ blockOperand "live1" patternChoiceRepresentation,
+                      blockOperand "live2" patternChoiceRepresentation,
+                      temporaryOperand 1 int64Representation
+                    ]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$alt1$test")
+            [ blockParameter "live1" patternChoiceRepresentation,
+              blockParameter "live2" patternChoiceRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                uint64Representation
+                (LoweredProjectVariantTag patternChoiceLayoutId (blockOperand "live2" patternChoiceRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (blockOperand "live2" patternChoiceRepresentation)
+                    [ LoweredSwitchCase
+                        1
+                        (LoweredBlockId "case$s1$2$e1$0$a0$alt1$p1$fields")
+                        [ blockOperand "live1" patternChoiceRepresentation,
+                          blockOperand "live2" patternChoiceRepresentation,
+                          blockOperand "live2" patternChoiceRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a0$alt1$p1$fields")
+                            [ blockOperand "live1" patternChoiceRepresentation,
+                              blockOperand "live2" patternChoiceRepresentation,
+                              blockOperand "live2" patternChoiceRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$alt1$p1$fields")
+            [ blockParameter "live1" patternChoiceRepresentation,
+              blockParameter "live2" patternChoiceRepresentation,
+              blockParameter "match1" patternChoiceRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                int64Representation
+                (LoweredProjectVariantField patternChoiceLayoutId 1 0 (blockOperand "match1" patternChoiceRepresentation))
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$a0$body")
+                    [ blockOperand "live1" patternChoiceRepresentation,
+                      blockOperand "live2" patternChoiceRepresentation,
+                      temporaryOperand 1 int64Representation
+                    ]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$body")
+            [ blockParameter "live1" patternChoiceRepresentation,
+              blockParameter "live2" patternChoiceRepresentation,
+              blockParameter "pattern" int64Representation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$join")
+                    [blockOperand "live1" patternChoiceRepresentation, blockOperand "pattern" int64Representation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$join")
+            [ blockParameter "live1" patternChoiceRepresentation,
+              blockParameter "result" int64Representation
+            ]
+            []
+            (Just (LoweredReturn (blockOperand "result" int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+
+managedRepeatedGuardedConstructorTailPatternLoweredProgram :: LoweredProgram
+managedRepeatedGuardedConstructorTailPatternLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternChoiceLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::identity")
+        Nothing
+        [blockParameter "arg1" int64Representation]
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            []
+            (Just (LoweredReturn (functionOperand "arg1" int64Representation)))
+        ]
+        (LoweredBlockId "entry"),
+      LoweredFunction
+        (LoweredFunctionId "App::Main::select")
+        Nothing
+        [blockParameter "arg1" patternChoiceRepresentation]
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                uint64Representation
+                (LoweredProjectVariantTag patternChoiceLayoutId (functionOperand "arg1" patternChoiceRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (functionOperand "arg1" patternChoiceRepresentation)
+                    [ LoweredSwitchCase
+                        0
+                        (LoweredBlockId "case$s1$4$e2$0,0$a0$alt0$proot$fields")
+                        [functionOperand "arg1" patternChoiceRepresentation]
+                    ]
+                    (Just (LoweredSwitchDefault (LoweredBlockId "case$s1$4$e2$0,0$a1$test") []))
+                )
+            ),
+          guardedTailFields 0 0,
+          guardedTailGuard 0 1,
+          guardedTailBody 0,
+          guardedTailTest 1 0 2,
+          guardedTailFields 1 0,
+          guardedTailBody 1,
+          guardedTailTest 2 1 3,
+          guardedTailFields 2 1,
+          guardedTailGuard 2 3,
+          guardedTailBody 2,
+          guardedTailFinalTest,
+          guardedTailFields 3 1,
+          guardedTailBody 3
+        ]
+        (LoweredBlockId "entry"),
+      LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternChoiceRepresentation
+                (LoweredConstructVariant patternChoiceLayoutId 0 [intOperand 7]),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                int64Representation
+                (LoweredDirectCall (LoweredFunctionId "App::Main::select") [temporaryOperand 1 patternChoiceRepresentation])
+            ]
+            (Just (LoweredReturn (temporaryOperand 2 int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+  where
+    prefix = "case$s1$4$e2$0,0$a"
+    rowBlock :: Int -> Text -> LoweredBlockId
+    rowBlock armIndex role = LoweredBlockId (prefix <> Text.pack (show armIndex) <> "$" <> role)
+    fieldsBlock :: Int -> LoweredBlockId
+    fieldsBlock armIndex = rowBlock armIndex "alt0$proot$fields"
+    bodyBlock :: Int -> LoweredBlockId
+    bodyBlock armIndex = rowBlock armIndex "body"
+    guardBlock :: Int -> LoweredBlockId
+    guardBlock armIndex = rowBlock armIndex "guard"
+    testBlock :: Int -> LoweredBlockId
+    testBlock armIndex = rowBlock armIndex "test"
+    guardedTailFields :: Int -> Integer -> LoweredBlock
+    guardedTailFields armIndex tag =
+      LoweredBlock
+        (fieldsBlock armIndex)
+        [blockParameter "match1" patternChoiceRepresentation]
+        [ LoweredInstruction
+            (LoweredTemporaryId "t1")
+            int64Representation
+            (LoweredProjectVariantField patternChoiceLayoutId tag 0 (blockOperand "match1" patternChoiceRepresentation))
+        ]
+        ( Just
+            ( LoweredJump
+                (if armIndex == 0 || armIndex == 2 then guardBlock armIndex else bodyBlock armIndex)
+                [temporaryOperand 1 int64Representation]
+            )
+        )
+    guardedTailGuard :: Int -> Int -> LoweredBlock
+    guardedTailGuard armIndex nextArmIndex =
+      LoweredBlock
+        (guardBlock armIndex)
+        [blockParameter "pattern" int64Representation]
+        []
+        ( Just
+            ( LoweredBranch
+                (LoweredImmediateOperand (LoweredBoolImmediate False))
+                (bodyBlock armIndex)
+                [blockOperand "pattern" int64Representation]
+                (testBlock nextArmIndex)
+                []
+            )
+        )
+    guardedTailBody :: Int -> LoweredBlock
+    guardedTailBody armIndex =
+      LoweredBlock
+        (bodyBlock armIndex)
+        [blockParameter "pattern" int64Representation]
+        []
+        ( Just
+            ( LoweredDirectTailCall
+                (LoweredFunctionId "App::Main::identity")
+                [blockOperand "pattern" int64Representation]
+            )
+        )
+    guardedTailTest :: Int -> Integer -> Int -> LoweredBlock
+    guardedTailTest armIndex tag nextArmIndex =
+      LoweredBlock
+        (testBlock armIndex)
+        []
+        [ LoweredInstruction
+            (LoweredTemporaryId "t1")
+            uint64Representation
+            (LoweredProjectVariantTag patternChoiceLayoutId (functionOperand "arg1" patternChoiceRepresentation))
+        ]
+        ( Just
+            ( LoweredSwitch
+                (functionOperand "arg1" patternChoiceRepresentation)
+                [LoweredSwitchCase tag (fieldsBlock armIndex) [functionOperand "arg1" patternChoiceRepresentation]]
+                (Just (LoweredSwitchDefault (testBlock nextArmIndex) []))
+            )
+        )
+    guardedTailFinalTest =
+      LoweredBlock
+        (testBlock 3)
+        []
+        [ LoweredInstruction
+            (LoweredTemporaryId "t1")
+            uint64Representation
+            (LoweredProjectVariantTag patternChoiceLayoutId (functionOperand "arg1" patternChoiceRepresentation))
+        ]
+        ( Just
+            ( LoweredSwitch
+                (functionOperand "arg1" patternChoiceRepresentation)
+                [LoweredSwitchCase 1 (fieldsBlock 3) [functionOperand "arg1" patternChoiceRepresentation]]
+                (Just (LoweredSwitchDefault (fieldsBlock 3) [functionOperand "arg1" patternChoiceRepresentation]))
+            )
+        )
 
 managedTreeLoweredProgram :: LoweredProgram
 managedTreeLoweredProgram =
@@ -721,6 +1373,9 @@ managedLoweredProgramWithFunctions layouts functions resultRepresentation instru
 int64Representation :: LoweredRepresentation
 int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
 
+uint64Representation :: LoweredRepresentation
+uint64Representation = LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64
+
 intOperand :: Integer -> LoweredOperand
 intOperand = LoweredImmediateOperand . LoweredSignedIntegerImmediate LoweredIntegerWidth64
 
@@ -728,7 +1383,16 @@ temporaryOperand :: Int -> LoweredRepresentation -> LoweredOperand
 temporaryOperand index =
   LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index)))
 
-textLayoutId, tupleLayoutId, optionLayoutId, treeLayoutId, tupleVariantLayoutId, textBoxLayoutId, closureBoxLayoutId, closureEnvironmentLayoutId, productBoxLayoutId, outerLayoutId, captureBoxLayoutId, captureEnvironmentLayoutId, recursivePairEnvironmentLayoutId, manifestTupleLayoutId, manifestDataLayoutId :: LoweredLayoutId
+blockParameter :: Text -> LoweredRepresentation -> LoweredParameter
+blockParameter name = LoweredParameter (LoweredParameterId name)
+
+blockOperand :: Text -> LoweredRepresentation -> LoweredOperand
+blockOperand name = LoweredBlockParameterOperand (LoweredParameterId name)
+
+functionOperand :: Text -> LoweredRepresentation -> LoweredOperand
+functionOperand name = LoweredFunctionParameterOperand (LoweredParameterId name)
+
+textLayoutId, tupleLayoutId, optionLayoutId, treeLayoutId, tupleVariantLayoutId, textBoxLayoutId, closureBoxLayoutId, closureEnvironmentLayoutId, productBoxLayoutId, outerLayoutId, captureBoxLayoutId, captureEnvironmentLayoutId, recursivePairEnvironmentLayoutId, manifestTupleLayoutId, manifestDataLayoutId, patternTupleLayoutId, patternMaybeLayoutId, patternChoiceLayoutId :: LoweredLayoutId
 textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
 tupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$4:text"
 optionLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$3:int"
@@ -744,8 +1408,11 @@ captureEnvironmentLayoutId = LoweredLayoutId "$jz1$closure-env$m2$3:App$4:Main$p
 recursivePairEnvironmentLayoutId = LoweredLayoutId "$jz1$recursive-env$m2$3:App$4:Main$p1$2$n5:group"
 manifestTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$8:signed64"
 manifestDataLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$11:ManifestBox$args0"
+patternTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$4:bool"
+patternMaybeLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$5:Maybe$args1$24:tuple2$8:signed64$4:bool"
+patternChoiceLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Choice$args1$8:signed64"
 
-textRepresentation, tupleRepresentation, optionRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, captureBoxRepresentation, captureEnvironmentRepresentation, recursivePairEnvironmentRepresentation, manifestTupleRepresentation, manifestDataRepresentation :: LoweredRepresentation
+textRepresentation, tupleRepresentation, optionRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, captureBoxRepresentation, captureEnvironmentRepresentation, recursivePairEnvironmentRepresentation, manifestTupleRepresentation, manifestDataRepresentation, patternTupleRepresentation, patternMaybeRepresentation, patternChoiceRepresentation :: LoweredRepresentation
 textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
 tupleRepresentation = LoweredManagedReferenceRepresentation tupleLayoutId
 optionRepresentation = LoweredManagedReferenceRepresentation optionLayoutId
@@ -761,8 +1428,11 @@ captureEnvironmentRepresentation = LoweredManagedReferenceRepresentation capture
 recursivePairEnvironmentRepresentation = LoweredManagedReferenceRepresentation recursivePairEnvironmentLayoutId
 manifestTupleRepresentation = LoweredManagedReferenceRepresentation manifestTupleLayoutId
 manifestDataRepresentation = LoweredManagedReferenceRepresentation manifestDataLayoutId
+patternTupleRepresentation = LoweredManagedReferenceRepresentation patternTupleLayoutId
+patternMaybeRepresentation = LoweredManagedReferenceRepresentation patternMaybeLayoutId
+patternChoiceRepresentation = LoweredManagedReferenceRepresentation patternChoiceLayoutId
 
-textLayout, tupleLayout, optionLayout, treeLayout, tupleVariantLayout, textBoxLayout, closureBoxLayout, closureEnvironmentLayout, productBoxLayout, outerLayout, captureBoxLayout, captureEnvironmentLayout, recursivePairEnvironmentLayout, manifestTupleLayout, manifestDataLayout :: LoweredLayout
+textLayout, tupleLayout, optionLayout, treeLayout, tupleVariantLayout, textBoxLayout, closureBoxLayout, closureEnvironmentLayout, productBoxLayout, outerLayout, captureBoxLayout, captureEnvironmentLayout, recursivePairEnvironmentLayout, manifestTupleLayout, manifestDataLayout, patternTupleLayout, patternMaybeLayout, patternChoiceLayout :: LoweredLayout
 textLayout = LoweredLayout textLayoutId LoweredTextLayout
 tupleLayout = LoweredLayout tupleLayoutId (LoweredProductLayout [int64Representation, textRepresentation])
 optionLayout =
@@ -788,6 +1458,15 @@ captureEnvironmentLayout = LoweredLayout captureEnvironmentLayoutId (LoweredClos
 recursivePairEnvironmentLayout = LoweredLayout recursivePairEnvironmentLayoutId (LoweredClosureEnvironmentLayout [tupleRepresentation])
 manifestTupleLayout = LoweredLayout manifestTupleLayoutId (LoweredProductLayout [int64Representation, int64Representation])
 manifestDataLayout = LoweredLayout manifestDataLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 []])
+patternTupleLayout = LoweredLayout patternTupleLayoutId (LoweredProductLayout [int64Representation, LoweredBoolRepresentation])
+patternMaybeLayout =
+  LoweredLayout
+    patternMaybeLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [], LoweredVariantLayout 1 [patternTupleRepresentation]])
+patternChoiceLayout =
+  LoweredLayout
+    patternChoiceLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [int64Representation], LoweredVariantLayout 1 [int64Representation]])
 
 boolClosureRepresentation :: LoweredRepresentation
 boolClosureRepresentation =
@@ -1001,6 +1680,69 @@ managedTopLevelOrPatternProgram =
     int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
     int64Expr :: Integer -> TypedExpr
     int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedTupleSelectionPatternProgram :: TypedProgram
+managedTupleSelectionPatternProgram =
+  managedProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (TypedTupleExpr tupleInfo [int64Expr 1, boolExpr True])
+            [ TypedCaseArm
+                ( TypedTuplePattern
+                    tupleInfo
+                    [ TypedVariablePattern int64Info itemBinder itemName,
+                      TypedWildcardPattern boolInfo
+                    ]
+                )
+                Nothing
+                (TypedVariableExpr int64Info itemName (Just itemBinder))
+            ]
+        )
+    ]
+    int64Info
+  where
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedNumericType TypedInt64Type, TypedBoolType])
+        (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedBoolRecipe])
+        []
+        []
+    itemName = valueName "item"
+    itemBinder = TypedBinderId (modulePath, [0, 0, 0], itemName)
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedGuardedAsConstructorTuplePatternProgram :: TypedProgram
+managedGuardedAsConstructorTuplePatternProgram =
+  rewriteTerminalPatternArms guardFirstAndTotal managedAsConstructorTuplePatternProgram
+  where
+    guardFirstAndTotal
+      [ TypedCaseArm firstPattern Nothing firstBody,
+        secondArm,
+        TypedCaseArm
+          ( TypedConstructorPattern
+              constructorInfo
+              constructorValue
+              [TypedTuplePattern tupleInfo [firstField, TypedLiteralPattern secondFieldInfo _]]
+            )
+          Nothing
+          finalBody
+        ] =
+        [ TypedCaseArm firstPattern (Just (boolExpr False)) firstBody,
+          secondArm,
+          TypedCaseArm
+            ( TypedConstructorPattern
+                constructorInfo
+                constructorValue
+                [TypedTuplePattern tupleInfo [firstField, TypedWildcardPattern secondFieldInfo]]
+            )
+            Nothing
+            finalBody
+        ]
+    guardFirstAndTotal _ = error "managed guarded as-pattern fixture must retain three canonical arms"
 
 managedMissingConstructorPatternProgram :: TypedProgram
 managedMissingConstructorPatternProgram =
@@ -1964,9 +2706,29 @@ managedTopLevelOrPatternSource =
       "  | Left item | Right item -> item",
       "}."
     ]
+
+managedRepeatedGuardedConstructorTailPatternSource :: Text
+managedRepeatedGuardedConstructorTailPatternSource =
+  Text.unlines
+    [ "data Choice a = Left a | Right a.",
+      "identity :: Int64 -> Int64.",
+      "identity = \\(item) -> item.",
+      "select :: Choice(Int64) -> Int64.",
+      "select = \\(subject) -> case subject {",
+      "  | Left item if False -> identity item",
+      "  | Left item -> identity item",
+      "  | Right item if False -> identity item",
+      "  | Right item -> identity item",
+      "}.",
+      "select (Left 7)."
+    ]
+
 managedListPatternBoundarySource = "case [1] { | [item] -> item | _ -> 0 }."
+
 managedConsPatternBoundarySource = "case [1, 2] { | [head | tail] -> head | _ -> 0 }."
+
 managedTextLiteralPatternBoundarySource = "case \"managed\" { | \"managed\" -> 1 | _ -> 0 }."
+
 managedNestedOrPatternBoundarySource =
   Text.unlines
     [ "data Choice a = Left a | Right a.",
@@ -1974,6 +2736,7 @@ managedNestedOrPatternBoundarySource =
       "subject = Holder (Right 7).",
       "case subject { | Holder (Left item | Right item) -> item }."
     ]
+
 managedPatternLambdaBoundarySource =
   Text.unlines
     [ "data Choice a = Left a | Right a.",

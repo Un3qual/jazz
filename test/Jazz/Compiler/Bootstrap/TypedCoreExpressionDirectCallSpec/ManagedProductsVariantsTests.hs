@@ -7,6 +7,8 @@ import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
   ( managedAsConstructorTuplePatternProgram,
+    managedPatternEmissionExpectedLoweredPrograms,
+    managedPatternEmissionSourceExpectedLoweredPrograms,
     managedTopLevelOrPatternProgram,
     optionIntInfo,
     optionLayout,
@@ -123,6 +125,8 @@ testManagedProductVariantLowering :: IO ()
 testManagedProductVariantLowering =
   mapM_ assertProducedLowered managedProductVariantExpectedLoweredPrograms
     >> mapM_ assertLowered managedProductVariantIndependentExpectedLoweredPrograms
+    >> mapM_ assertLowered managedPatternEmissionExpectedLoweredPrograms
+    >> mapM_ assertSourceLowered managedPatternEmissionSourceExpectedLoweredPrograms
   where
     assertProducedLowered (name, expectedLoweredProgram) =
       case lookup name managedProductVariantExpectedPrograms of
@@ -141,6 +145,12 @@ testManagedProductVariantLowering =
         (name <> " valid expected Lowered IR")
         []
         (validateLoweredProgram expectedLoweredProgram)
+    assertSourceLowered (name, fixture, expectedLoweredProgram) = do
+      production <- produceFixture fixture
+      case typedCoreProductionStatus production of
+        TypedCoreProductionSucceeded typedProgram ->
+          assertLowered (name, typedProgram, expectedLoweredProgram)
+        status -> failTest (name <> " did not produce Typed Core for managed pattern lowering: " <> Text.pack (show status))
 
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =
