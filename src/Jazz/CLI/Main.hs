@@ -526,20 +526,7 @@ resolvePreludeSource options envLookup fileLookup = do
 runCompile :: WarningSettings -> ResolvedPrelude -> Text -> IO CliOutput
 runCompile settings resolvedPrelude source = do
   result <- compileSourceWithResolvedPrelude settings resolvedPrelude source
-  let stderrOutput = renderLines (map renderDiagnostic (compileDiagnostics result))
-      -- Compile mode is diagnostics-only; evaluated program output belongs to
-      -- `--run`.
-      stdoutOutput = ""
-      exitCode =
-        if null (compileErrors result)
-          then 0
-          else 1
-  pure
-    CliOutput
-      { cliExitCode = exitCode,
-        cliStdout = stdoutOutput,
-        cliStderr = stderrOutput
-      }
+  pure (renderCompileResult result)
 
 runExecute ::
   RuntimeProfileWriter ->
@@ -576,20 +563,15 @@ runCompileModuleGraph settings options resolvedPrelude entryModulePath sourceLoo
       (cliModuleConfig options)
       entryModulePath
       sourceLookup
-  let stderrOutput = renderLines (map renderDiagnostic (compileDiagnostics result))
-      -- Keep module-graph compile output aligned with standalone compile mode:
-      -- success is quiet unless warnings or errors need to be reported.
-      stdoutOutput = ""
-      exitCode =
-        if null (compileErrors result)
-          then 0
-          else 1
-  pure
-    CliOutput
-      { cliExitCode = exitCode,
-        cliStdout = stdoutOutput,
-        cliStderr = stderrOutput
-      }
+  pure (renderCompileResult result)
+
+renderCompileResult :: CompileResult -> CliOutput
+renderCompileResult result =
+  CliOutput
+    { cliExitCode = if null (compileErrors result) then 0 else 1,
+      cliStdout = "",
+      cliStderr = renderLines (map renderDiagnostic (compileDiagnostics result))
+    }
 
 runExecuteModuleGraph ::
   RuntimeProfileWriter ->

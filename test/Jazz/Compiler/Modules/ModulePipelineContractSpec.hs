@@ -57,7 +57,11 @@ import Jazz.Compiler.ModuleRuntime
     evaluateCompiledProgramWithHostObserved,
     lookupRuntimeModule
   )
-import Jazz.Compiler.Runtime (renderRuntimeValue)
+import Jazz.Compiler.Runtime
+  ( RuntimeCell,
+    renderRuntimeValue,
+    runtimeExprRequiresHost
+  )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationRequest (RuntimeObservationStatistics),
     RuntimeObservationResult (runtimeObservationOutcome),
@@ -131,6 +135,7 @@ tests =
     ("grouped exports publish selected constructors through interface and runtime inventories", testGroupedExportsPublishSelectedConstructor),
     ("compiled generic constructor fields remain module-stable", testCompiledGenericConstructorFieldsRemainModuleStable),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
+    ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
     ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
@@ -753,6 +758,84 @@ testCompiledDependencyTerminalExpressionIsSkipped = do
         "entry output"
         (Just "1")
         (renderRuntimeValue <$> runtimeProgramOutput runtime)
+
+testModuleRuntimePathParity :: IO ()
+testModuleRuntimePathParity = do
+  hostFreeProgram <- compileFixtureProgram hostFreeParitySources
+  hostCapableProgram <- compileFixtureProgram hostCapableParitySources
+  assertAbsentCompiledPrelude "host-free program" hostFreeProgram
+  assertAbsentCompiledPrelude "host-capable program" hostCapableProgram
+  assertEqual
+    "host-free module requirements select the pure path"
+    [False, False]
+    (map (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules hostFreeProgram))
+  assertEqual
+    "unselected host call selects the host-capable path"
+    [False, True]
+    (map (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules hostCapableProgram))
+  case (evaluateCompiledProgram hostFreeProgram, evaluateCompiledProgram hostCapableProgram) of
+    (Right hostFreeRuntime, Right hostCapableRuntime) -> do
+      let hostFreeProjection = observableRuntimeProgram hostFreeRuntime
+          hostCapableProjection = observableRuntimeProgram hostCapableRuntime
+          expectedProjection =
+            ( ["Lib::Value", "App::Main"],
+              [ ( "Lib::Value",
+                  [ (RuntimeBindingExport (ModuleExport ConstructorNamespace "Other"), "Other"),
+                    (RuntimeBindingExport (ModuleExport ConstructorNamespace "Shared"), "Shared")
+                  ]
+                ),
+                ("App::Main", [])
+              ],
+              Just "(Shared, Other)"
+            )
+      assertEqual "host-free observable module result" expectedProjection hostFreeProjection
+      assertEqual "host-capable observable module result" expectedProjection hostCapableProjection
+      assertEqual "pure and host-capable observable module parity" hostFreeProjection hostCapableProjection
+    (Left diagnostic, _) -> fail ("host-free runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
+    (_, Left diagnostic) -> fail ("host-capable runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
+
+assertAbsentCompiledPrelude :: String -> CompiledProgram -> IO ()
+assertAbsentCompiledPrelude label compiledProgram =
+  case compiledPreludeExpr (compiledProgramPrelude compiledProgram) of
+    Nothing -> pure ()
+    Just _ -> fail (label <> " unexpectedly compiled a prelude")
+
+observableRuntimeProgram :: RuntimeProgram -> ([Text], [(Text, [(RuntimeExport, Text)])], Maybe Text)
+observableRuntimeProgram runtimeProgram =
+  ( map (renderModulePath . runtimeModulePath) runtimeModules,
+    map renderModuleExports runtimeModules,
+    renderRuntimeValue <$> runtimeProgramOutput runtimeProgram
+  )
+  where
+    runtimeModules = runtimeProgramModules runtimeProgram
+    renderModuleExports runtimeModule =
+      ( renderModulePath (runtimeModulePath runtimeModule),
+        [(runtimeExport, renderRuntimeCell cell) | (runtimeExport, cell) <- Map.toAscList (runtimeModuleExports runtimeModule)]
+      )
+
+renderModulePath :: [Text] -> Text
+renderModulePath = Text.intercalate "::"
+
+renderRuntimeCell :: RuntimeCell -> Text
+renderRuntimeCell cell =
+  case cell of
+    Left diagnostic -> renderDiagnostic diagnostic
+    Right value -> renderRuntimeValue value
+
+hostFreeParitySources :: Map.Map FilePath Text
+hostFreeParitySources = moduleRuntimeParitySources "(Shared, Other)"
+
+hostCapableParitySources :: Map.Map FilePath Text
+hostCapableParitySources =
+  moduleRuntimeParitySources
+    "if True then (Shared, Other) else (\\(ignored) -> (Shared, Other)) (__kernel_arguments! ())"
+
+moduleRuntimeParitySources :: Text -> Map.Map FilePath Text
+moduleRuntimeParitySources entryExpression =
+  Map.fromList
+    [ ("src/App/Main.jz", "module App::Main { import Lib::Value. " <> entryExpression <> ". }"),
+      ("src/Lib/Value.jz", "module Lib::Value { data Marker = Shared | Other. }")
+    ]
 
 testModuleGraphInjectsRuntimeHost :: IO ()
 testModuleGraphInjectsRuntimeHost = do

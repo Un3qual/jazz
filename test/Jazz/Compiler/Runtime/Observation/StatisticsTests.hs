@@ -27,7 +27,10 @@ import Jazz.Compiler.BuiltinCatalog
     BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
     builtinSymbolKernelName,
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.Diagnostics
+  ( Diagnostic,
+    SourceSpan (..),
+  )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeAbsent),
     RunResult (..),
@@ -50,8 +53,8 @@ import Jazz.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScopeWithRequiredEvaluationHost,
     evaluateRuntimeExprObserved,
+    renderRuntimeValue,
     runRuntimeHostEvaluation,
-    untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity (..),
@@ -123,7 +126,7 @@ testDisabledBehavior = do
   source <- readFixture "literal-success.jz"
   ordinary <- runSource defaultWarningSettings source
   observed <- runSourceObserved RuntimeObservationDisabled defaultWarningSettings source
-  assertEqual "disabled result" ordinary observed
+  assertEqual "disabled result" (observableRunResult ordinary) (observableRunResult observed)
   assertEqual "disabled report" Nothing (runRuntimeObservation observed)
 
 testDriverTransport :: IO ()
@@ -168,8 +171,8 @@ testLiteralTransitions = do
   let observed = evaluateRuntimeExprObserved RuntimeObservationStatistics (ELit (LInt 1))
   assertEqual
     "literal result"
-    (RuntimeOutcomeCompleted (Just (VInt 1 untypedIntMetadata)))
-    (runtimeObservationOutcome observed)
+    (RuntimeOutcomeCompleted (Just "1"))
+    (renderRuntimeOutcome (runtimeObservationOutcome observed))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "literal transitions" 2 (runtimeEvaluatorTransitions statistics)
@@ -183,8 +186,8 @@ testNestedApplicationAccounting = do
       observed = evaluateRuntimeExprObserved RuntimeObservationStatisticsAndProfile expression
   assertEqual
     "nested application result"
-    (RuntimeOutcomeCompleted (Just (VInt 7 untypedIntMetadata)))
-    (runtimeObservationOutcome observed)
+    (RuntimeOutcomeCompleted (Just "7"))
+    (renderRuntimeOutcome (runtimeObservationOutcome observed))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "nested application transitions" 450 (runtimeEvaluatorTransitions statistics)
@@ -524,6 +527,22 @@ testCompileFailureHasNoReport = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "compile failure stream" (runCompileErrors result) (runDiagnostics result)
   assertEqual "runtime report" Nothing (runRuntimeObservation result)
+
+observableRunResult :: RunResult -> ([Diagnostic], Maybe Text, Maybe Text, Maybe Integer, Maybe RuntimeObservationReport)
+observableRunResult result =
+  ( runDiagnostics result,
+    runOutput result,
+    renderRuntimeValue <$> runRuntimeValue result,
+    runExitStatus result,
+    runRuntimeObservation result
+  )
+
+renderRuntimeOutcome :: RuntimeOutcome (Maybe RuntimeValue) -> RuntimeOutcome (Maybe Text)
+renderRuntimeOutcome outcome =
+  case outcome of
+    RuntimeOutcomeCompleted value -> RuntimeOutcomeCompleted (renderRuntimeValue <$> value)
+    RuntimeOutcomeFailed diagnostic -> RuntimeOutcomeFailed diagnostic
+    RuntimeOutcomeExited status -> RuntimeOutcomeExited status
 
 requireReport :: RunResult -> IO RuntimeObservationReport
 requireReport result =

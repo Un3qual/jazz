@@ -110,6 +110,12 @@ data RuntimeModuleAccumulator = RuntimeModuleAccumulator
     accumulatedRuntimeModulesByPath :: !(Map [Text] RuntimeModule)
   }
 
+data PreparedModuleEvaluation = PreparedModuleEvaluation
+  { preparedModulePath :: [Text],
+    preparedModuleEvaluationMode :: ModuleEvaluationMode,
+    preparedModuleImportedEnvironment :: RuntimeEnv
+  }
+
 lookupRuntimeModule :: [Text] -> RuntimeProgram -> Maybe RuntimeModule
 lookupRuntimeModule modulePath =
   go . runtimeProgramModules
@@ -146,39 +152,19 @@ evaluateCompiledProgramPureUnchecked compiledProgram = do
           Right
             (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
-          let modulePath = compiledModulePath compiledModule
-              evaluationMode =
-                if modulePath == entryPath
-                  then EvaluateEntryModule
-                  else EvaluateDependencyModule
-              importedEnv =
-                foldr
-                  (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
-                  ambientEnv
-                  (compiledModuleImports compiledModule)
+          let preparedModule =
+                prepareModuleEvaluation entryPath compiledModules ambientEnv runtimeModules compiledModule
           scopeResult <-
             evaluateModuleScope
-              (Just modulePath)
-              evaluationMode
+              (Just (preparedModulePath preparedModule))
+              (preparedModuleEvaluationMode preparedModule)
               (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
               (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-              importedEnv
+              (preparedModuleImportedEnvironment preparedModule)
               (scopeStatements (compiledModuleExpr compiledModule))
-          let runtimeModule =
-                RuntimeModule
-                  { runtimeModulePath = modulePath,
-                    runtimeModuleExports =
-                      publishExports
-                        CurrentModule
-                        (compiledModuleExportInventory compiledModule)
-                        (compiledModuleInterface compiledModule)
-                        (scopeResultEnvironment scopeResult)
-                  }
-              nextOutput =
-                if modulePath == entryPath
-                  then scopeResultValue scopeResult
-                  else output
-          evaluateModules compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
+          let (nextRuntimeModules, nextOutput) =
+                completeModuleEvaluation preparedModule compiledModule scopeResult runtimeModules output
+          evaluateModules compiledModules ambientEnv nextRuntimeModules nextOutput rest
 
 evaluatePrelude :: CompiledPrelude -> Either Diagnostic RuntimeEnv
 evaluatePrelude compiledPrelude =
@@ -266,42 +252,70 @@ evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgra
           pure
             (finishRuntimeProgram runtimeModules output)
         compiledModule : rest -> do
-          let modulePath = compiledModulePath compiledModule
-              evaluationMode =
-                if modulePath == entryPath
-                  then EvaluateEntryModule
-                  else EvaluateDependencyModule
-              importedEnv =
-                foldr
-                  (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
-                  ambientEnv
-                  (compiledModuleImports compiledModule)
+          let preparedModule =
+                prepareModuleEvaluation entryPath compiledModules ambientEnv runtimeModules compiledModule
           scopeResult <-
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
-                  (Just modulePath)
-                  evaluationMode
+                  (Just (preparedModulePath preparedModule))
+                  (preparedModuleEvaluationMode preparedModule)
                   (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
                   (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-                  importedEnv
+                  (preparedModuleImportedEnvironment preparedModule)
                   (scopeStatements (compiledModuleExpr compiledModule))
               )
-          let runtimeModule =
-                RuntimeModule
-                  { runtimeModulePath = modulePath,
-                    runtimeModuleExports =
-                      publishExports
-                        CurrentModule
-                        (compiledModuleExportInventory compiledModule)
-                        (compiledModuleInterface compiledModule)
-                        (scopeResultEnvironment scopeResult)
-                  }
-              nextOutput =
-                if modulePath == entryPath
-                  then scopeResultValue scopeResult
-                  else output
-          evaluateModules compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
+          let (nextRuntimeModules, nextOutput) =
+                completeModuleEvaluation preparedModule compiledModule scopeResult runtimeModules output
+          evaluateModules compiledModules ambientEnv nextRuntimeModules nextOutput rest
+
+prepareModuleEvaluation ::
+  [Text] ->
+  Map [Text] CompiledModule ->
+  RuntimeEnv ->
+  RuntimeModuleAccumulator ->
+  CompiledModule ->
+  PreparedModuleEvaluation
+prepareModuleEvaluation entryPath compiledModules ambientEnv runtimeModules compiledModule =
+  PreparedModuleEvaluation
+    { preparedModulePath = modulePath,
+      preparedModuleEvaluationMode =
+        if modulePath == entryPath
+          then EvaluateEntryModule
+          else EvaluateDependencyModule,
+      preparedModuleImportedEnvironment =
+        foldr
+          (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
+          ambientEnv
+          (compiledModuleImports compiledModule)
+    }
+  where
+    modulePath = compiledModulePath compiledModule
+
+completeModuleEvaluation ::
+  PreparedModuleEvaluation ->
+  CompiledModule ->
+  ScopeResult ->
+  RuntimeModuleAccumulator ->
+  Maybe RuntimeValue ->
+  (RuntimeModuleAccumulator, Maybe RuntimeValue)
+completeModuleEvaluation preparedModule compiledModule scopeResult runtimeModules output =
+  ( accumulateRuntimeModule runtimeModule runtimeModules,
+    case preparedModuleEvaluationMode preparedModule of
+      EvaluateEntryModule -> scopeResultValue scopeResult
+      EvaluateDependencyModule -> output
+  )
+  where
+    runtimeModule =
+      RuntimeModule
+        { runtimeModulePath = preparedModulePath preparedModule,
+          runtimeModuleExports =
+            publishExports
+              CurrentModule
+              (compiledModuleExportInventory compiledModule)
+              (compiledModuleInterface compiledModule)
+              (scopeResultEnvironment scopeResult)
+        }
 
 compiledProgramRequiresHost :: CompiledProgram -> Bool
 compiledProgramRequiresHost compiledProgram =
