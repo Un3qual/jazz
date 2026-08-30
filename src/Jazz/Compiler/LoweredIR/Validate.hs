@@ -87,13 +87,13 @@ duplicateFunctionFailures =
     functionIdText
 
 duplicateFailures :: Ord identifier => (value -> identifier) -> (identifier -> LoweredIRValidationPath) -> LoweredIRValidationKind -> (identifier -> Text) -> [value] -> [LoweredIRValidationFailure]
-duplicateFailures identifierOf pathOf kind renderIdentifier values = snd (foldl' step (Set.empty, []) values)
+duplicateFailures identifierOf pathOf kind renderIdentifier values = reverse (snd (foldl' step (Set.empty, []) values))
   where
-    step (seen, failures) value =
+    step (seen, reversedFailures) value =
       let identifier = identifierOf value
        in if Set.member identifier seen
-            then (seen, failures <> [failure (pathOf identifier) kind (identifierDetail (renderIdentifier identifier))])
-            else (Set.insert identifier seen, failures)
+            then (seen, failure (pathOf identifier) kind (identifierDetail (renderIdentifier identifier)) : reversedFailures)
+            else (Set.insert identifier seen, reversedFailures)
 
 validateLayout :: ProgramContext -> LoweredLayout -> [LoweredIRValidationFailure]
 validateLayout programContext (LoweredLayout layoutId shape) =
@@ -108,12 +108,12 @@ validateLayout programContext (LoweredLayout layoutId shape) =
         _ -> []
     duplicateVariantTagFailures =
       case shape of
-        LoweredVariantLayouts variants -> snd (foldl' collectDuplicateTag (Set.empty, []) variants)
+        LoweredVariantLayouts variants -> reverse (snd (foldl' collectDuplicateTag (Set.empty, []) variants))
         _ -> []
-    collectDuplicateTag (seen, failures) (LoweredVariantLayout tag _)
+    collectDuplicateTag (seen, reversedFailures) (LoweredVariantLayout tag _)
       | Set.member tag seen =
-          (seen, failures <> [failure path LoweredDuplicateVariantTag (LoweredTagDetail tag)])
-      | otherwise = (Set.insert tag seen, failures)
+          (seen, failure path LoweredDuplicateVariantTag (LoweredTagDetail tag) : reversedFailures)
+      | otherwise = (Set.insert tag seen, reversedFailures)
     variantTag (LoweredVariantLayout tag _) = tag
 
 layoutRepresentations :: LoweredLayoutShape -> [LoweredRepresentation]
@@ -236,11 +236,11 @@ zipWithInstructionPaths functionId blockId instructions failures =
       LoweredIRValidationFailure (LoweredInstructionPath functionId blockId instructionIndex) kind detail
 
 duplicateInstructionIndices :: [LoweredInstruction] -> [Int]
-duplicateInstructionIndices instructions = snd (foldl' step (Set.empty, []) (zip [0 ..] instructions))
+duplicateInstructionIndices instructions = reverse (snd (foldl' step (Set.empty, []) (zip [0 ..] instructions)))
   where
-    step (seen, indices) (instructionIndex, LoweredInstruction temporaryId _ _)
-      | Set.member temporaryId seen = (seen, indices <> [instructionIndex])
-      | otherwise = (Set.insert temporaryId seen, indices)
+    step (seen, reversedIndices) (instructionIndex, LoweredInstruction temporaryId _ _)
+      | Set.member temporaryId seen = (seen, instructionIndex : reversedIndices)
+      | otherwise = (Set.insert temporaryId seen, reversedIndices)
 
 validateInstruction :: FunctionContext -> LoweredBlockId -> Map LoweredParameterId LoweredRepresentation -> (Set LoweredTemporaryId, [LoweredIRValidationFailure]) -> (Int, LoweredInstruction) -> (Set LoweredTemporaryId, [LoweredIRValidationFailure])
 validateInstruction functionContext blockId blockParameters (seenTemporaries, accumulatedFailures) (instructionIndex, LoweredInstruction temporaryId resultRepresentation operation) =
@@ -506,11 +506,11 @@ validateSwitchDefault :: FunctionContext -> LoweredIRValidationPath -> LoweredSw
 validateSwitchDefault functionContext path (LoweredSwitchDefault targetBlock operands) = validateEdge functionContext path targetBlock operands
 
 duplicateSwitchTagFailures :: LoweredIRValidationPath -> [LoweredSwitchCase] -> [LoweredIRValidationFailure]
-duplicateSwitchTagFailures path cases = snd (foldl' step (Set.empty, []) cases)
+duplicateSwitchTagFailures path cases = reverse (snd (foldl' step (Set.empty, []) cases))
   where
-    step (seen, failures) (LoweredSwitchCase tag _ _)
-      | Set.member tag seen = (seen, failures <> [failure path LoweredDuplicateSwitchCaseTag (LoweredTagDetail tag)])
-      | otherwise = (Set.insert tag seen, failures)
+    step (seen, reversedFailures) (LoweredSwitchCase tag _ _)
+      | Set.member tag seen = (seen, failure path LoweredDuplicateSwitchCaseTag (LoweredTagDetail tag) : reversedFailures)
+      | otherwise = (Set.insert tag seen, reversedFailures)
 
 validateDirectTailCall :: FunctionContext -> LoweredIRValidationPath -> LoweredRepresentation -> LoweredFunctionId -> [LoweredOperand] -> [LoweredIRValidationFailure]
 validateDirectTailCall functionContext path resultRepresentation targetFunction operands =
@@ -663,16 +663,16 @@ switchShapeFailures functionContext path operand cases maybeDefault =
     switchCoverageFailures variants =
       case maybeDefault of
         Just _ -> []
-        Nothing -> snd (foldl' collectMissingTag (Set.empty, []) variants)
+        Nothing -> reverse (snd (foldl' collectMissingTag (Set.empty, []) variants))
       where
         caseTags = Set.fromList [tag | LoweredSwitchCase tag _ _ <- cases]
-        collectMissingTag (seen, failures) (LoweredVariantLayout tag _)
-          | Set.member tag seen = (seen, failures)
-          | not (tagWithinSharedCarrier tag) = (Set.insert tag seen, failures)
-          | Set.member tag caseTags = (Set.insert tag seen, failures)
+        collectMissingTag (seen, reversedFailures) (LoweredVariantLayout tag _)
+          | Set.member tag seen = (seen, reversedFailures)
+          | not (tagWithinSharedCarrier tag) = (Set.insert tag seen, reversedFailures)
+          | Set.member tag caseTags = (Set.insert tag seen, reversedFailures)
           | otherwise =
               ( Set.insert tag seen,
-                failures <> [failure path LoweredMissingSwitchCaseTag (LoweredTagDetail tag)]
+                failure path LoweredMissingSwitchCaseTag (LoweredTagDetail tag) : reversedFailures
               )
 
 validateTag :: LoweredIRValidationPath -> Integer -> [LoweredIRValidationFailure]

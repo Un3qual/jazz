@@ -2037,10 +2037,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         methodReferencesBinder (TypedMethodDefinition _ _ _ _ body) = child body
 
     finalizeExports structuredCatalog provisionalStatements functions callableShapes =
-      foldl'
-        collect
-        ([], TypedModuleInterface [] selectedDataInterfaces [] [])
-        orderedModuleExports
+      let (reversedFailures, TypedModuleInterface reversedValues datas classes impls) =
+            foldl'
+              collect
+              ([], TypedModuleInterface [] selectedDataInterfaces [] [])
+              orderedModuleExports
+       in (reverse reversedFailures, TypedModuleInterface (reverse reversedValues) datas classes impls)
       where
         localDataDeclarations =
           [ ( identifierText sourceName,
@@ -2222,7 +2224,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             TypedResolvedName TypedCurrentModule TypedTypeNamespace identifier -> [identifier]
             _ -> []
 
-        collect (failures, TypedModuleInterface values datas classes impls) (ModuleExport namespace name)
+        collect (reversedFailures, TypedModuleInterface reversedValues datas classes impls) (ModuleExport namespace name)
           | namespace == ValueNamespace =
               case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == name] of
                 [(sourceName, function)] ->
@@ -2231,18 +2233,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                         Right info ->
                           let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
                               owner = binderAt (functionStatementIndex function) [] typedName
-                           in (failures, TypedModuleInterface (values <> [TypedValueInterface typedName (scheme owner callableShape info)]) datas classes impls)
-                        Left _ -> (failures, TypedModuleInterface values datas classes impls)
-                _ -> (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
+                           in (reversedFailures, TypedModuleInterface (TypedValueInterface typedName (scheme owner callableShape info) : reversedValues) datas classes impls)
+                        Left _ -> (reversedFailures, TypedModuleInterface reversedValues datas classes impls)
+                _ -> (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name) : reversedFailures, TypedModuleInterface reversedValues datas classes impls)
           | namespace == TypeNamespace,
             Map.member name localDataByName =
-              (failures, TypedModuleInterface values datas classes impls)
+              (reversedFailures, TypedModuleInterface reversedValues datas classes impls)
           | namespace == ConstructorNamespace,
             Map.member name visibleConstructorOwners,
             constructorExportRepresentable name =
-              (failures, TypedModuleInterface values datas classes impls)
+              (reversedFailures, TypedModuleInterface reversedValues datas classes impls)
           | otherwise =
-              (failures <> [TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name)], TypedModuleInterface values datas classes impls)
+              (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name) : reversedFailures, TypedModuleInterface reversedValues datas classes impls)
 
     orderedModuleExports =
       stableUniqueExports

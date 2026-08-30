@@ -118,21 +118,21 @@ callableShapeTable functions statements =
     transitiveCaptureFunctions = propagateCaptureDependencies directCaptureFunctions
     transitiveShapes = Map.mapWithKey promoteTransitiveCapture baseShapes
     orderedRecursiveGroupNames =
-      snd (foldl' collectRecursiveGroup (Set.empty, []) (callableDeclarations statements))
+      reverse (snd (foldl' collectRecursiveGroup (Set.empty, []) (callableDeclarations statements)))
     namesByStatement =
       Map.fromList
         [ (provisionalCallableStatementIndex declaration, provisionalCallableName declaration)
         | declaration <- callableDeclarations statements
         ]
-    collectRecursiveGroup (seenGroups, groups) declaration =
+    collectRecursiveGroup (seenGroups, reversedGroups) declaration =
       case provisionalCallableRecursiveGroupMembers declaration of
         Just memberStatements
           | Set.notMember memberStatements seenGroups ->
               case traverse (`Map.lookup` namesByStatement) memberStatements of
                 Just memberNames ->
-                  (Set.insert memberStatements seenGroups, groups <> [memberNames])
-                Nothing -> (Set.insert memberStatements seenGroups, groups)
-        _ -> (seenGroups, groups)
+                  (Set.insert memberStatements seenGroups, memberNames : reversedGroups)
+                Nothing -> (Set.insert memberStatements seenGroups, reversedGroups)
+        _ -> (seenGroups, reversedGroups)
     promoteRecursiveGroup shapes memberNames
       | any ((== TypedClosureCallableShape) . shapeFor shapes) memberNames =
           foldl' (flip markClosure) shapes memberNames
@@ -365,7 +365,7 @@ recursiveDeclarationBinders modulePath declarations =
 
 orderedTypedRecursiveGroups :: [Text] -> [ProvisionalCallableDeclaration] -> [TypedRecursiveGroup]
 orderedTypedRecursiveGroups modulePath declarations =
-  snd (foldl' collect (Set.empty, []) declarations)
+  reverse (snd (foldl' collect (Set.empty, []) declarations))
   where
     declarationBindersByStatement =
       Map.fromList
@@ -378,17 +378,17 @@ orderedTypedRecursiveGroups modulePath declarations =
           )
         | declaration <- declarations
         ]
-    collect (seenGroups, groups) declaration =
+    collect (seenGroups, reversedGroups) declaration =
       case provisionalCallableRecursiveGroupMembers declaration of
         Just memberStatements
           | Set.notMember memberStatements seenGroups ->
               case traverse (`Map.lookup` declarationBindersByStatement) memberStatements of
                 Just memberBinders ->
                   ( Set.insert memberStatements seenGroups,
-                    groups <> [TypedRecursiveGroup memberBinders]
+                    TypedRecursiveGroup memberBinders : reversedGroups
                   )
-                Nothing -> (Set.insert memberStatements seenGroups, groups)
-        _ -> (seenGroups, groups)
+                Nothing -> (Set.insert memberStatements seenGroups, reversedGroups)
+        _ -> (seenGroups, reversedGroups)
 
 binderAt :: [Text] -> Int -> [Int] -> TypedCoreName -> TypedBinderId
 binderAt modulePath statementIndex suffix name =

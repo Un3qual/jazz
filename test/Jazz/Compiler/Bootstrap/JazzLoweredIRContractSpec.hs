@@ -2,7 +2,9 @@
 
 module Main (main) where
 
+import Control.Exception (evaluate)
 import Data.List (nub)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
@@ -67,6 +69,7 @@ tests =
     ("duplicate blocks retain last-block temporary lookup", testDuplicateBlockTemporaryRepresentation),
     ("preserves temporary validation failure order", testTemporaryValidationFailureOrder),
     ("preserves every duplicate variant tag in order", testDuplicateVariantTagOrder),
+    ("preserves high-cardinality duplicate layout order", testHighCardinalityDuplicateLayoutOrder),
     ("preserves complete program failure order", testCompleteFailureOrder),
     ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
     ("rejects unknown validation constructors", testCheckedValidationAdapterUnknownConstructor),
@@ -506,6 +509,32 @@ testDuplicateVariantTagOrder =
       layoutFailure "choice" LoweredDuplicateVariantTag (LoweredTagDetail 2)
     ]
     (validateLoweredProgram duplicateVariantTagsProgram)
+
+testHighCardinalityDuplicateLayoutOrder :: IO ()
+testHighCardinalityDuplicateLayoutOrder = do
+  let failures = validateLoweredProgram highCardinalityDuplicateLayoutProgram
+  _ <- evaluate (sum (map (length . show) failures))
+  assertEqual "high-cardinality duplicate layout failure count" 1999 (length failures)
+  assertEqual
+    "high-cardinality first duplicate layout"
+    ( Just
+        ( LoweredIRValidationFailure
+            (LoweredLayoutPath (LoweredLayoutId "duplicate-large"))
+            LoweredDuplicateLayout
+            (LoweredIdentifierDetail "duplicate-large")
+        )
+    )
+    (listToMaybe failures)
+  assertEqual
+    "high-cardinality last duplicate layout"
+    ( Just
+        ( LoweredIRValidationFailure
+            (LoweredLayoutPath (LoweredLayoutId "duplicate-large"))
+            LoweredDuplicateLayout
+            (LoweredIdentifierDetail "duplicate-large")
+        )
+    )
+    (listToMaybe (reverse failures))
 
 testCompleteFailureOrder :: IO ()
 testCompleteFailureOrder =
@@ -1195,6 +1224,10 @@ duplicateVariantTagsProgram =
         )
     ]
     []
+
+highCardinalityDuplicateLayoutProgram :: LoweredProgram
+highCardinalityDuplicateLayoutProgram =
+  unitProgram (replicate 2000 (productLayout "duplicate-large" [])) []
 
 completeFailureOrderProgram :: LoweredProgram
 completeFailureOrderProgram =

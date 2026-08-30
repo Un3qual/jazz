@@ -26,6 +26,7 @@ module Jazz.Compiler.CapabilityFacts
 
 import Control.DeepSeq (NFData)
 import Data.Char (isLower)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
@@ -339,7 +340,7 @@ identifierLooksLikeTypeVariable name =
 
 constraintSignatureTypeVariableNamesInOrder :: SignatureType -> [Text]
 constraintSignatureTypeVariableNamesInOrder =
-  dedupe . go
+  stableUnique . go
   where
     go signatureType =
       case signatureType of
@@ -359,10 +360,8 @@ constraintSignatureTypeVariableNamesInOrder =
           go argumentType ++ go resultType
         _ -> []
 
-    dedupe =
-      goDedupe []
-
-    goDedupe _ [] = []
-    goDedupe seen (name : rest)
-      | name `elem` seen = goDedupe seen rest
-      | otherwise = name : goDedupe (name : seen) rest
+    stableUnique = reverse . snd . foldl' keep (Set.empty, [])
+      where
+        keep (seen, reversedNames) name
+          | Set.member name seen = (seen, reversedNames)
+          | otherwise = (Set.insert name seen, name : reversedNames)
