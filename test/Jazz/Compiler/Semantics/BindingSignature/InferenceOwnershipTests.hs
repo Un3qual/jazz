@@ -83,8 +83,7 @@ import Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState,
   )
 import Jazz.Compiler.TypeInference.Traversal
-  ( InferExprFn,
-    InferExprWithModeFn,
+  ( InferExprWithModeFn,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
@@ -568,11 +567,13 @@ testRecursivePreviewSolverStateIsTransactional =
           SLet "right" (SourceSpan 3 1) (EVar "left")
         ]
 
-    syntheticPreviewInfer :: InferExprFn
-    syntheticPreviewInfer _ _ state expression =
+    syntheticPreviewInfer :: InferExprWithModeFn
+    syntheticPreviewInfer mode _ _ state expression =
       case expression of
         EVar "left" ->
-          ( Just TBoolType,
+          inferenceOnlyResult
+            mode
+            (Just TBoolType)
             state
               { inferSolver =
                   (inferSolver state)
@@ -580,15 +581,16 @@ testRecursivePreviewSolverStateIsTransactional =
                         IntMap.insert previewSentinel TIntType (solverSubstitution (inferSolver state))
                     }
               }
-          )
         EVar "probe"
           | IntMap.member previewSentinel (solverSubstitution (inferSolver state)) ->
-              ( Just TBoolType,
-                modifyInferenceOutput
-                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                  state
-              )
-        _ -> (Just TBoolType, state)
+              inferenceOnlyResult
+                mode
+                (Just TBoolType)
+                ( modifyInferenceOutput
+                    (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                    state
+                )
+        _ -> inferenceOnlyResult mode (Just TBoolType) state
 
     previewSentinel = 1000000
 
@@ -612,29 +614,36 @@ testRecursivePreviewRefreshesAfterSolverChange =
           SLet "right" (SourceSpan 4 1) (EApply (EVar "left") (EVar "shared"))
         ]
 
-    syntheticPreviewInfer :: InferExprFn
-    syntheticPreviewInfer _ env state expression =
+    syntheticPreviewInfer :: InferExprWithModeFn
+    syntheticPreviewInfer mode _ env state expression =
       case expression of
         EVar "right" ->
-          (bindingType =<< Map.lookup "right" env, state)
+          inferenceOnlyResult mode (bindingType =<< Map.lookup "right" env) state
         EApply (EVar "left") (EVar "shared") ->
-          (resolveType state <$> (bindingType =<< Map.lookup "shared" env), state)
+          inferenceOnlyResult
+            mode
+            (resolveType state <$> (bindingType =<< Map.lookup "shared" env))
+            state
         EVar "advanceSolver" ->
-          ( Just TBoolType,
-            case bindTypeVar sharedTypeVar TBoolType state of
-              Just nextState -> nextState
-              Nothing -> state
-          )
+          inferenceOnlyResult
+            mode
+            (Just TBoolType)
+            ( case bindTypeVar sharedTypeVar TBoolType state of
+                Just nextState -> nextState
+                Nothing -> state
+            )
         EVar "probeLeft" ->
-          ( Just TBoolType,
-            case Map.lookup "left" env of
-              Just (PlainTypeBinding TBoolType) -> state
-              _ ->
-                modifyInferenceOutput
-                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                  state
-          )
-        _ -> (Just TBoolType, state)
+          inferenceOnlyResult
+            mode
+            (Just TBoolType)
+            ( case Map.lookup "left" env of
+                Just (PlainTypeBinding TBoolType) -> state
+                _ ->
+                  modifyInferenceOutput
+                    (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                    state
+            )
+        _ -> inferenceOnlyResult mode (Just TBoolType) state
 
     bindingType binding =
       case binding of
@@ -681,31 +690,35 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
           SLet "right" (SourceSpan 4 1) (EApply (EVar "left") (EVar "constraintSensitive"))
         ]
 
-    syntheticPreviewInfer :: InferExprFn
-    syntheticPreviewInfer _ env state expression =
+    syntheticPreviewInfer :: InferExprWithModeFn
+    syntheticPreviewInfer mode _ env state expression =
       case expression of
         EVar "right" ->
-          (bindingType =<< Map.lookup "right" env, state)
+          inferenceOnlyResult mode (bindingType =<< Map.lookup "right" env) state
         EApply (EVar "left") (EVar "constraintSensitive") ->
-          ( Just
-              ( if hasConstraint sharedTypeVar state
-                  then TBoolType
-                  else TVarType sharedTypeVar
-              ),
+          inferenceOnlyResult
+            mode
+            ( Just
+                ( if hasConstraint sharedTypeVar state
+                    then TBoolType
+                    else TVarType sharedTypeVar
+                )
+            )
             state
-          )
         EVar "advanceConstraint" ->
-          (Just TBoolType, addConstraint sharedTypeVar state)
+          inferenceOnlyResult mode (Just TBoolType) (addConstraint sharedTypeVar state)
         EVar "probeLeft" ->
-          ( Just TBoolType,
-            case Map.lookup "left" env of
-              Just (PlainTypeBinding TBoolType) -> state
-              _ ->
-                modifyInferenceOutput
-                  (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                  state
-          )
-        _ -> (Just TBoolType, state)
+          inferenceOnlyResult
+            mode
+            (Just TBoolType)
+            ( case Map.lookup "left" env of
+                Just (PlainTypeBinding TBoolType) -> state
+                _ ->
+                  modifyInferenceOutput
+                    (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                    state
+            )
+        _ -> inferenceOnlyResult mode (Just TBoolType) state
 
     bindingType binding =
       case binding of
@@ -735,10 +748,17 @@ testRecursivePreviewReuseAtSameFrontier =
           SLet "right" (SourceSpan 5 1) (EVar "left")
         ]
 
-    allocatingInfer :: InferExprFn
-    allocatingInfer _ _ state _ =
+    allocatingInfer :: InferExprWithModeFn
+    allocatingInfer mode _ _ state _ =
       let (_, nextState) = freshTypeVar state
-       in (Just TBoolType, nextState)
+       in inferenceOnlyResult mode (Just TBoolType) nextState
+
+inferenceOnlyResult :: TypedCoreProductionMode -> Maybe ExpressionType -> InferState -> (InferredExpr, InferState)
+inferenceOnlyResult mode expressionType state =
+  case mode of
+    InferenceOnly -> (InferredExpr expressionType Nothing [], state)
+    ProduceTypedCoreExpressionDirectCall ->
+      error "expected inference-only callback invocation"
 
 testOperatorRulePresenceAndSectionSupport :: IO ()
 testOperatorRulePresenceAndSectionSupport = do

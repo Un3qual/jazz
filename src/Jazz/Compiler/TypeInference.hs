@@ -655,7 +655,7 @@ inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices b
               )
     EBlock statements ->
       inferBlock mode statements
-    _ -> inferExprTypeDetailed builtinMode env state expr
+    _ -> inferExprTypeDetailedWithMode mode builtinMode env state expr
   where
     inferBlock blockMode statements =
       (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
@@ -672,6 +672,15 @@ inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices b
 -- | The shared traversal infers every expression once. Production consumes the
 -- provisional nodes it can lower and keeps ordered failures for the rest;
 -- ordinary inference projects only the inferred type and state.
+inferExprTypeDetailedWithMode ::
+  TypedCoreProductionMode ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr ->
+  (InferredExpr, InferState)
+inferExprTypeDetailedWithMode _mode = inferExprTypeDetailed
+
 inferExprTypeDetailed ::
   BuiltinResolutionMode ->
   TypeEnv ->
@@ -782,7 +791,8 @@ inferExprTypeDetailed builtinMode env state expr =
               Nothing -> freshTypeVar stateAfterScrutinee
           (expressionType, inferredFinalState, armResults) =
             inferPatternCaseTypeWithResults
-              inferExprTypeDetailed
+              inferExprTypeDetailedWithMode
+              ProduceTypedCoreExpressionDirectCall
               builtinMode
               env
               scrutineeType
@@ -872,8 +882,8 @@ inferExprTypeDetailed builtinMode env state expr =
         Map.notMember methodName env ->
           let (expressionType, finalState, argumentResults) =
                 inferQualifiedMethodApplicationWithResults
-                  inferExprTypeDetailed
-                  inferredExpressionType
+                  inferExprTypeDetailedWithMode
+                  ProduceTypedCoreExpressionDirectCall
                   builtinMode
                   env
                   state
@@ -1348,7 +1358,8 @@ inferExprTypeDetailed builtinMode env state expr =
         ETypeApplication functionExpr typeArgumentSpan typeArgument ->
           let (expressionType, finalState, maybeFunctionResult) =
                 inferExplicitTypeApplicationWithResult
-                  inferExprTypeDetailed
+                  inferExprTypeDetailedWithMode
+                  ProduceTypedCoreExpressionDirectCall
                   builtinMode
                   env
                   state
@@ -1389,7 +1400,8 @@ inferExprTypeDetailed builtinMode env state expr =
                     freshTypeVar stateAfterScrutinee
               (expressionType, inferredFinalState, armResults) =
                 inferPatternCaseTypeWithResults
-                  inferExprTypeDetailed
+                  inferExprTypeDetailedWithMode
+                  ProduceTypedCoreExpressionDirectCall
                   builtinMode
                   env
                   scrutineeType

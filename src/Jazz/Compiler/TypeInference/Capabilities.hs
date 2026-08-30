@@ -120,6 +120,10 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
   )
+import Jazz.Compiler.TypeInference.Elaboration.Types
+  ( InferredExpr (..),
+    TypedCoreProductionMode (InferenceOnly),
+  )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
@@ -152,7 +156,7 @@ import Jazz.Compiler.TypeInference.State
     modifyInferenceOutput,
     modifyModuleInferenceState,
   )
-import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
+import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn)
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
@@ -469,7 +473,7 @@ qualifiedMethodClassIsVisible methodKey state =
     Nothing -> False
 
 inferQualifiedMethodApplication ::
-  InferExprFn ->
+  InferExprWithModeFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -480,7 +484,7 @@ inferQualifiedMethodApplication inferExpression builtinMode env state methodKey 
   let (expressionType, finalState, _) =
         inferQualifiedMethodApplicationWithResults
           inferExpression
-          id
+          InferenceOnly
           builtinMode
           env
           state
@@ -489,18 +493,18 @@ inferQualifiedMethodApplication inferExpression builtinMode env state methodKey 
    in (expressionType, finalState)
 
 inferQualifiedMethodApplicationWithResults ::
-  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (result, InferState)) ->
-  (result -> Maybe ExpressionType) ->
+  InferExprWithModeFn ->
+  TypedCoreProductionMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Text ->
   [Expr] ->
-  (Maybe ExpressionType, InferState, [result])
-inferQualifiedMethodApplicationWithResults inferExpression resultType builtinMode env state methodKey argumentExprs =
+  (Maybe ExpressionType, InferState, [InferredExpr])
+inferQualifiedMethodApplicationWithResults inferExpression mode builtinMode env state methodKey argumentExprs =
   let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
       results = reverse reversedResults
-   in case traverse resultType results of
+   in case traverse inferredExpressionType results of
         Nothing -> (Nothing, stateAfterArguments, results)
         Just typedArgumentTypes ->
           let (expressionType, finalState) =
@@ -513,7 +517,7 @@ inferQualifiedMethodApplicationWithResults inferExpression resultType builtinMod
   where
     step (resultsAcc, stateAcc) argumentExpr =
       let (result, stateAfterArgument) =
-            inferExpression builtinMode env stateAcc argumentExpr
+            inferExpression mode builtinMode env stateAcc argumentExpr
        in (result : resultsAcc, stateAfterArgument)
 
 checkImplMethodBodies ::

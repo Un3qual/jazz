@@ -122,8 +122,7 @@ import Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState,
   )
 import Jazz.Compiler.TypeInference.Traversal
-  ( InferExprFn,
-    InferExprWithModeFn,
+  ( InferExprWithModeFn,
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
@@ -148,45 +147,6 @@ import Jazz.Compiler.TypeInference.Types
     instantiateConstructorFieldType,
   )
 
-inferExprTypeWithExpected ::
-  InferExprFn ->
-  BuiltinResolutionMode ->
-  TypeEnv ->
-  InferState ->
-  ExpressionType ->
-  Expr ->
-  (Maybe ExpressionType, InferState)
-inferExprTypeWithExpected inferExpression builtinMode env state expectedType expr =
-  case (resolveType state expectedType, expr) of
-    (_, EVar name)
-      | Map.notMember name env,
-        Just qualifiedMethodResult <-
-          instantiateQualifiedMethodTypeWithExpected
-            (identifierText name)
-            expectedType
-            state ->
-          qualifiedMethodResult
-    (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
-      let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
-          (bodyType, stateAfterBody) =
-            inferExprTypeWithExpected inferExpression builtinMode extendedEnv state resultType bodyExpr
-       in case bodyType of
-            Just inferredBodyType ->
-              ( Just
-                  ( TFunctionType
-                      (resolveType stateAfterBody argumentType)
-                      inferredBodyType
-                  ),
-                stateAfterBody
-              )
-            Nothing -> (Nothing, stateAfterBody)
-    (TNumericType numericType, ELit (LFloat literalValue literalSource Nothing))
-      | Just _ <- numericTypeFloatMax numericType ->
-          ( Just (TNumericType numericType),
-            maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
-          )
-    _ -> inferExpression builtinMode env state expr
-
 inferExprTypeWithExpectedMode ::
   InferExprWithModeFn ->
   TypedCoreProductionMode ->
@@ -197,81 +157,105 @@ inferExprTypeWithExpectedMode ::
   Expr ->
   (InferredExpr, InferState)
 inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expectedType expr =
-  if mode == InferenceOnly
-    then
-      let (expressionType, nextState) =
-            inferExprTypeWithExpected
-              ( \builtin childEnv childState childExpr ->
-                  let (result, resultState) = inferExpression InferenceOnly builtin childEnv childState childExpr
-                   in (inferredExpressionType result, resultState)
+  case mode of
+    InferenceOnly -> inferInferenceOnly
+    ProduceTypedCoreExpressionDirectCall -> inferProduction
+  where
+    inferInferenceOnly =
+      case (resolveType state expectedType, expr) of
+        (_, EVar name)
+          | Map.notMember name env,
+            Just (expressionType, nextState) <-
+              instantiateQualifiedMethodTypeWithExpected
+                (identifierText name)
+                expectedType
+                state ->
+              (InferredExpr expressionType Nothing [], nextState)
+        (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
+          let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
+              (bodyResult, stateAfterBody) =
+                inferExprTypeWithExpectedMode
+                  inferExpression
+                  InferenceOnly
+                  builtinMode
+                  extendedEnv
+                  state
+                  resultType
+                  bodyExpr
+              expressionType =
+                TFunctionType
+                  (resolveType stateAfterBody argumentType)
+                  <$> inferredExpressionType bodyResult
+           in (InferredExpr expressionType Nothing [], stateAfterBody)
+        (TNumericType numericType, ELit (LFloat literalValue literalSource Nothing))
+          | Just _ <- numericTypeFloatMax numericType ->
+              ( InferredExpr (Just (TNumericType numericType)) Nothing [],
+                maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
               )
-              builtinMode
-              env
-              state
-              expectedType
-              expr
-       in (InferredExpr expressionType Nothing [], nextState)
-    else case (resolveType state expectedType, expr) of
-      (_, EVar name)
-        | Map.notMember name env,
-          Just (expressionType, nextState) <-
-            instantiateQualifiedMethodTypeWithExpected
-              (identifierText name)
-              expectedType
-              state ->
-            ( InferredExpr
-                expressionType
-                (if mode == ProduceTypedCoreExpressionDirectCall then ProvisionalVariableExpression name <$> expressionType else Nothing)
-                [],
-              nextState
-            )
-      (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
-        let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
-            (bodyResult, stateAfterBody) =
-              inferExprTypeWithExpectedMode inferExpression mode builtinMode extendedEnv state resultType bodyExpr
-            functionType =
-              TFunctionType
-                (resolveType stateAfterBody argumentType)
-                (maybe resultType id (inferredExpressionType bodyResult))
-            provisional =
-              ProvisionalLambdaExpression parameterName functionType
-                <$> inferredProvisionalExpr bodyResult
-            failures =
-              [ InferredProductionFailure (0 : childPath) kind detail
-              | InferredProductionFailure childPath kind detail <- inferredProductionFailures bodyResult
-              ]
-         in (InferredExpr (Just functionType) provisional failures, stateAfterBody)
-      (TNumericType _, ELit literal@(LInt _)) ->
-        let (literalResult, nextState) = inferExpression mode builtinMode env state (ELit literal)
-         in case inferredExpressionType literalResult of
-              Just literalType
-                | Just checkedState <- unifyTypes expectedType literalType nextState ->
-                    let concreteType = resolveType checkedState expectedType
-                     in ( InferredExpr
-                            (Just concreteType)
-                            (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
-                            [],
-                          checkedState
-                        )
-              _ -> (literalResult, nextState)
-      (TNumericType numericType, ELit literal@(LFloat literalValue literalSource Nothing))
-        | Just _ <- numericTypeFloatMax numericType ->
-            let nextState =
-                  maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
-                concreteType = TNumericType numericType
-             in ( InferredExpr
-                    (Just concreteType)
-                    (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
-                    [],
-                  nextState
-                )
-      _ ->
-        let (inferred, nextState) = inferExpression mode builtinMode env state expr
-         in case inferredExpressionType inferred of
-              Just expressionType
-                | Just checkedState <- unifyTypes expectedType expressionType nextState ->
-                    (specializeInferredExpression checkedState expectedType inferred, checkedState)
-              _ -> (inferred, nextState)
+        _ -> inferExpression InferenceOnly builtinMode env state expr
+
+    inferProduction =
+      case (resolveType state expectedType, expr) of
+        (_, EVar name)
+          | Map.notMember name env,
+            Just (expressionType, nextState) <-
+              instantiateQualifiedMethodTypeWithExpected
+                (identifierText name)
+                expectedType
+                state ->
+              ( InferredExpr
+                  expressionType
+                  (if mode == ProduceTypedCoreExpressionDirectCall then ProvisionalVariableExpression name <$> expressionType else Nothing)
+                  [],
+                nextState
+              )
+        (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
+          let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
+              (bodyResult, stateAfterBody) =
+                inferExprTypeWithExpectedMode inferExpression mode builtinMode extendedEnv state resultType bodyExpr
+              functionType =
+                TFunctionType
+                  (resolveType stateAfterBody argumentType)
+                  (maybe resultType id (inferredExpressionType bodyResult))
+              provisional =
+                ProvisionalLambdaExpression parameterName functionType
+                  <$> inferredProvisionalExpr bodyResult
+              failures =
+                [ InferredProductionFailure (0 : childPath) kind detail
+                | InferredProductionFailure childPath kind detail <- inferredProductionFailures bodyResult
+                ]
+           in (InferredExpr (Just functionType) provisional failures, stateAfterBody)
+        (TNumericType _, ELit literal@(LInt _)) ->
+          let (literalResult, nextState) = inferExpression mode builtinMode env state (ELit literal)
+           in case inferredExpressionType literalResult of
+                Just literalType
+                  | Just checkedState <- unifyTypes expectedType literalType nextState ->
+                      let concreteType = resolveType checkedState expectedType
+                       in ( InferredExpr
+                              (Just concreteType)
+                              (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
+                              [],
+                            checkedState
+                          )
+                _ -> (literalResult, nextState)
+        (TNumericType numericType, ELit literal@(LFloat literalValue literalSource Nothing))
+          | Just _ <- numericTypeFloatMax numericType ->
+              let nextState =
+                    maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
+                  concreteType = TNumericType numericType
+               in ( InferredExpr
+                      (Just concreteType)
+                      (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
+                      [],
+                    nextState
+                  )
+        _ ->
+          let (inferred, nextState) = inferExpression mode builtinMode env state expr
+           in case inferredExpressionType inferred of
+                Just expressionType
+                  | Just checkedState <- unifyTypes expectedType expressionType nextState ->
+                      (specializeInferredExpression checkedState expectedType inferred, checkedState)
+                _ -> (inferred, nextState)
 
 setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
 setStatementRuntimeHintPath preludeStatementIndices statementIndex state =
@@ -419,24 +403,17 @@ inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builti
             }
    in (inferredResult, finalState)
 
-inferScopeType :: Set Int -> InferExprFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
+inferScopeType :: Set Int -> InferExprWithModeFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement] -> (Maybe ExpressionType, InferState)
 inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
-  let (inferredResult, finalState, _) =
-        inferScopeTypeInternal
-          ScopeInferenceRequest
-            { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
-              scopePreludeStatementIndices = preludeStatementIndices,
-              scopeInferExpression =
-                ( \_mode builtin env state expr ->
-                    let (expressionType, nextState) = inferExpression builtin env state expr
-                     in (InferredExpr expressionType Nothing [], nextState)
-                ),
-              scopeProductionMode = InferenceOnly,
-              scopeBuiltinMode = builtinMode,
-              scopeInitialEnv = initialEnv,
-              scopeInitialState = initialState,
-              scopePreparedInference = prepareInferenceScope builtinMode initialEnv statements
-            }
+  let (inferredResult, finalState) =
+        inferNestedScopeTypeWithMode
+          preludeStatementIndices
+          inferExpression
+          InferenceOnly
+          builtinMode
+          initialEnv
+          initialState
+          statements
    in (inferredExpressionType inferredResult, finalState)
 
 prepareInferenceScope :: BuiltinResolutionMode -> TypeEnv -> [Statement] -> PreparedInferenceScope
@@ -540,10 +517,6 @@ inferScopeTypeInternal
       builtinMode = scopeBuiltinMode
       initialEnv = scopeInitialEnv
       initialState = scopeInitialState
-
-      inferPlain builtin env state expr =
-        let (result, nextState) = scopeInferExpression scopeProductionMode builtin env state expr
-         in (inferredExpressionType result, nextState)
 
       indexedStatements = zip [0 ..] statements
       recursiveGroups =
@@ -1642,8 +1615,9 @@ inferScopeTypeInternal
                         (True, Just bindingSeed) ->
                           Map.insert bindingName (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                         _ -> envWithRecursiveBindings
-                    (valueType, rawStateAfterValue) =
-                      inferPlain builtinMode envWithBindingSeed stateAcc valueExpr
+                    (valueResult, rawStateAfterValue) =
+                      inferExpression InferenceOnly builtinMode envWithBindingSeed stateAcc valueExpr
+                    valueType = inferredExpressionType valueResult
                     stateAfterValue =
                       annotateNewErrorsWithPrimarySpan bindingSpan stateAcc rawStateAfterValue
                  in case (Map.lookup memberIndex bindingSeedsByStatement, valueType) of
@@ -2551,7 +2525,7 @@ instantiateTypeScheme typeScheme state =
        in (Map.insert typeVar freshType bindings, nextState)
 
 inferExplicitTypeApplication ::
-  InferExprFn ->
+  InferExprWithModeFn ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -2562,11 +2536,8 @@ inferExplicitTypeApplication ::
 inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
   let (expressionType, finalState, _) =
         inferExplicitTypeApplicationInternal
-          ( \builtin childEnv childState childExpr ->
-              let (childType, nextState) =
-                    inferExpression builtin childEnv childState childExpr
-               in (childType, nextState, Nothing)
-          )
+          inferExpression
+          InferenceOnly
           builtinMode
           env
           state
@@ -2576,7 +2547,8 @@ inferExplicitTypeApplication inferExpression builtinMode env state functionExpr 
    in (expressionType, finalState)
 
 inferExplicitTypeApplicationWithResult ::
-  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (InferredExpr, InferState)) ->
+  InferExprWithModeFn ->
+  TypedCoreProductionMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
@@ -2584,13 +2556,10 @@ inferExplicitTypeApplicationWithResult ::
   SourceSpan ->
   SignatureType ->
   (Maybe ExpressionType, InferState, Maybe InferredExpr)
-inferExplicitTypeApplicationWithResult inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplicationWithResult inferExpression mode builtinMode env state functionExpr typeArgumentSpan typeArgument =
   inferExplicitTypeApplicationInternal
-    ( \builtin childEnv childState childExpr ->
-        let (childResult, nextState) =
-              inferExpression builtin childEnv childState childExpr
-         in (inferredExpressionType childResult, nextState, Just childResult)
-    )
+    inferExpression
+    mode
     builtinMode
     env
     state
@@ -2599,15 +2568,16 @@ inferExplicitTypeApplicationWithResult inferExpression builtinMode env state fun
     typeArgument
 
 inferExplicitTypeApplicationInternal ::
-  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (Maybe ExpressionType, InferState, Maybe result)) ->
+  InferExprWithModeFn ->
+  TypedCoreProductionMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr ->
   SourceSpan ->
   SignatureType ->
-  (Maybe ExpressionType, InferState, Maybe result)
-inferExplicitTypeApplicationInternal inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
+  (Maybe ExpressionType, InferState, Maybe InferredExpr)
+inferExplicitTypeApplicationInternal inferExpression mode builtinMode env state functionExpr typeArgumentSpan typeArgument =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (_, Just explicitArgumentType)
       | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr ->
@@ -2627,12 +2597,12 @@ inferExplicitTypeApplicationInternal inferExpression builtinMode env state funct
     (Just _, Nothing) ->
       (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument), Nothing)
     (Nothing, _) ->
-      let (maybeFunctionType, stateAfterFunction, maybeFunctionResult) =
-            inferExpression builtinMode env state functionExpr
-       in case maybeFunctionType of
+      let (functionResult, stateAfterFunction) =
+            inferExpression mode builtinMode env state functionExpr
+       in case inferredExpressionType functionResult of
             Just _ ->
-              (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError, maybeFunctionResult)
-            Nothing -> (Nothing, stateAfterFunction, maybeFunctionResult)
+              (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError, Just functionResult)
+            Nothing -> (Nothing, stateAfterFunction, Just functionResult)
 
 explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr -> Maybe Text
 explicitQualifiedMethodTypeApplicationKey env state functionExpr =
