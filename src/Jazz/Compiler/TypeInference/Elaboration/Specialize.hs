@@ -2,6 +2,7 @@ module Jazz.Compiler.TypeInference.Elaboration.Specialize
   ( specializeInferredExpression,
     specializeProvisionalExpression,
     specializeProvisionalParameterReferences,
+    specializeProvisionalParameterReferencesByName,
     specializeCompatibleType,
     specializeProvisionalCallableCapture,
     provisionalParameterReferenceTypes,
@@ -14,6 +15,7 @@ module Jazz.Compiler.TypeInference.Elaboration.Specialize
 where
 
 import Control.Applicative ((<|>))
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Jazz.Compiler.AST (NumericType (..), Pattern (..))
 import Jazz.Compiler.BuiltinCatalog
@@ -160,9 +162,13 @@ specializeProvisionalExpression state maybeExpected expression =
         Nothing -> resolveType state expressionType
 
 specializeProvisionalParameterReferences :: InferState -> Name -> ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
-specializeProvisionalParameterReferences state parameterName selectedType = expressionReferences False
+specializeProvisionalParameterReferences state parameterName selectedType =
+  specializeProvisionalParameterReferencesByName state (Map.singleton parameterName selectedType)
+
+specializeProvisionalParameterReferencesByName :: InferState -> Map.Map Name ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
+specializeProvisionalParameterReferencesByName state = expressionReferences
   where
-    expressionReferences shadowed expression =
+    expressionReferences selectedTypes expression =
       case expression of
         ProvisionalUnitExpression -> ProvisionalUnitExpression
         ProvisionalTupleExpression expressionType elements ->
@@ -175,16 +181,16 @@ specializeProvisionalParameterReferences state parameterName selectedType = expr
             operandType
             (child left)
             (child right)
-        ProvisionalVariableExpression name expressionType
-          | not shadowed,
-            name == parameterName ->
+        ProvisionalVariableExpression name expressionType ->
+          case Map.lookup name selectedTypes of
+            Just selectedType ->
               ProvisionalVariableExpression name (specializeCompatibleType state selectedType expressionType)
-          | otherwise -> expression
+            Nothing -> expression
         ProvisionalLambdaExpression nestedParameterName expressionType body ->
           ProvisionalLambdaExpression
             nestedParameterName
             expressionType
-            (expressionReferences (shadowed || nestedParameterName == parameterName) body)
+            (expressionReferences (Map.delete nestedParameterName selectedTypes) body)
         ProvisionalApplyExpression expressionType function argument ->
           ProvisionalApplyExpression expressionType (child function) (child argument)
         ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
@@ -197,19 +203,19 @@ specializeProvisionalParameterReferences state parameterName selectedType = expr
           ProvisionalPatternCaseExpression
             expressionType
             (child scrutinee)
-            [ let armShadowed =
-                    shadowed || Set.member parameterName (patternBinderNames pattern)
+            [ let armSelectedTypes =
+                    Map.withoutKeys selectedTypes (patternBinderNames pattern)
                in ProvisionalPatternCaseArm
                     pattern
-                    (expressionReferences armShadowed <$> maybeGuard)
-                    (expressionReferences armShadowed body)
+                    (expressionReferences armSelectedTypes <$> maybeGuard)
+                    (expressionReferences armSelectedTypes body)
             | ProvisionalPatternCaseArm pattern maybeGuard body <- arms
             ]
         ProvisionalScopeStatements statements -> ProvisionalScopeStatements statements
         ProvisionalUnsupportedExpression {} -> expression
         ProvisionalRetainedFailures {} -> expression
       where
-        child = expressionReferences shadowed
+        child = expressionReferences selectedTypes
 
 specializeCompatibleType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 specializeCompatibleType state expectedType expressionType =

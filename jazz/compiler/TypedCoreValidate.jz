@@ -2801,15 +2801,6 @@ module TypedCoreValidate (
     }
   }.
 
-  patternBinderContractListEqual :: [PatternBinderContract] -> [PatternBinderContract] -> Bool.
-  patternBinderContractListEqual = \(left, right) ->
-    if listLength left == listLength right then
-      case mismatchedPatternBinder left right {
-        | Nothing -> True
-        | Just binder -> False
-      }
-    else False.
-
   patternContractNameMember :: TypedCoreName -> [PatternBinderContract] -> Bool.
   patternContractNameMember = \(candidate, contracts) -> case contracts {
     | [] -> False
@@ -2829,12 +2820,15 @@ module TypedCoreValidate (
   validateOrAlternatives :: TypedCoreValidationPath -> [PatternBinderContract] -> [TypedPattern] -> [TypedCoreValidationFailure].
   validateOrAlternatives = \(path, expected, alternatives) -> case alternatives {
     | [] -> []
-    | [first | rest] -> listAppend
-      (if patternBinderContractListEqual expected (patternBinderContract first) then [] else case mismatchedPatternBinder expected (patternBinderContract first) {
-        | Nothing -> [failure path TypedOrPatternBinderMismatch TypedNoValidationDetail]
+    | [first | rest] -> {
+      actual = patternBinderContract first.
+      listAppend
+      (case mismatchedPatternBinder expected actual {
+        | Nothing -> []
         | Just binder -> [failure path TypedOrPatternBinderMismatch (TypedBinderDetail binder)]
       })
-      (validateOrAlternatives path expected rest)
+      (validateOrAlternatives path expected rest).
+    }
   }.
 
   validateOrPattern :: TypedCoreValidationPath -> [TypedPattern] -> [TypedCoreValidationFailure].

@@ -34,6 +34,7 @@ tests =
     ("catalogs deterministic managed product and variant layouts", testManagedProductVariantLayoutCatalog),
     ("lowers exact managed product and local-variant construction", testManagedProductVariantLowering),
     ("maps reordered or-pattern binders by name", testManagedReorderedOrPatternBinders),
+    ("omits managed or-pattern alternatives after a total first match", testManagedTotalFirstOrPatternCFG),
     ("keeps arbitrary managed construction failures at the lowerer boundary", testManagedConstructionLowererBoundaries),
     ("does not capture constructor binders in closures", testManagedConstructorClosureCapture),
     ("specializes generic constructor fields from concrete result types", testManagedGenericConstructorFieldSpecialization),

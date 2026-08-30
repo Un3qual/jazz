@@ -60,6 +60,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Specialize
     specializeProvisionalCallableCapture,
     specializeProvisionalExpression,
     specializeProvisionalParameterReferences,
+    specializeProvisionalParameterReferencesByName,
   )
 import Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   ( StructuredConstructor (..),
@@ -706,10 +707,14 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           patternBindings
                         )
               specializeArmExpression armExpression =
-                foldl'
-                  (\currentExpression (PatternBinding name _ patternType) -> specializeProvisionalParameterReferences finalizationState name patternType currentExpression)
+                specializeProvisionalParameterReferencesByName
+                  finalizationState
+                  ( Map.fromList
+                      [ (name, patternType)
+                      | PatternBinding name _ patternType <- canonicalBindings
+                      ]
+                  )
                   armExpression
-                  canonicalBindings
               (guardFailures, maybeTypedGuard) =
                 case maybeGuard of
                   Nothing -> ([], Just Nothing)
@@ -780,24 +785,19 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (Left (unsupportedPatternFailure patternPath))
                   Right
                   (structuredConstructorAtStatement catalog statementIndex sourceName)
-              (fieldInfos, resultInfo, _) <-
-                maybe
-                  (Left (unsupportedPatternFailure patternPath))
-                  Right
-                  (concreteConstructorContract catalog inferState constructor expressionType)
               fieldTypes <-
                 maybe
                   (Left (unsupportedPatternFailure patternPath))
                   Right
                   (concreteConstructorFieldTypes inferState constructor expressionType)
-              if length nestedPatterns == length fieldInfos && length fieldInfos == length fieldTypes
+              if length nestedPatterns == length fieldTypes
                 then do
                   childrenWithBindings <-
                     traverse
                       (\(fieldIndex, fieldType, nestedPattern) -> finalizePattern catalog inferState (patternPath <> [fieldIndex]) fieldType nestedPattern)
                       (zip3 [0 ..] fieldTypes nestedPatterns)
                   Right
-                    ( TypedConstructorPattern resultInfo (structuredConstructorName constructor) (map fst childrenWithBindings),
+                    ( TypedConstructorPattern patternInfo (structuredConstructorName constructor) (map fst childrenWithBindings),
                       concatMap snd childrenWithBindings
                     )
                 else Left (unsupportedPatternFailure patternPath)

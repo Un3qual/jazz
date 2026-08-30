@@ -61,9 +61,11 @@ tuple and exactly saturated constructor production, canonical layout
 collection, construction, and transport. A later child owns managed pattern
 decision trees and projections. Only one child is promoted at a time.
 
-Ordinary `compile` and `run` remain on canonical core and the reference
-interpreter. Public language behavior, Typed Core and Lowered IR schemas,
-mirrored validators, and Lowered IR version 1 remain unchanged.
+Public language behavior, Typed Core and Lowered IR schemas, Lowered IR
+version 1, runtime services, and the ordinary `compile`/`run`
+canonical-core/reference-interpreter path remain unchanged. The mirrored
+validator contract treats reordered or-pattern binders with the same names,
+types, and recipes as equivalent.
 
 ## Implementation status
 
@@ -90,8 +92,11 @@ and carry matched binders only into the selected guard and body.
 Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
 imported or multi-module data, product/variant equality, runtime ABI/native
 execution, and ordinary compile/run cutover remain excluded. The second child
-does not change Typed Core or Lowered IR schemas, validators, runtime services,
-or the ordinary canonical-core/reference-interpreter path.
+does not change Typed Core or Lowered IR schemas, Lowered IR version 1, runtime
+services, or the ordinary canonical-core/reference-interpreter path. Its
+mirrored validator contract adjustment accepts equivalent reordered
+or-pattern binders by matching their names, types, and recipes
+order-independently.
 
 ## Context
 

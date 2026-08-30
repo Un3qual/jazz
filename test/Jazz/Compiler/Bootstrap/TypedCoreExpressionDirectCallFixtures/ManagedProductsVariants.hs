@@ -2052,6 +2052,31 @@ managedTopLevelOrPatternProgram =
     int64Expr :: Integer -> TypedExpr
     int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
 
+managedTotalFirstOrPatternProgram :: TypedProgram
+managedTotalFirstOrPatternProgram =
+  rewriteTerminalPatternArms totalFirstAlternative managedTopLevelOrPatternProgram
+  where
+    totalFirstAlternative
+      [ TypedCaseArm
+          ( TypedOrPattern
+              patternInfo
+              (_ : TypedConstructorPattern constructorInfo constructorValue [TypedVariablePattern fieldInfo _ _] : _)
+            )
+          Nothing
+          (TypedVariableExpr bodyInfo _ _)
+        ] =
+        [ TypedCaseArm
+            ( TypedOrPattern
+                patternInfo
+                [ TypedWildcardPattern patternInfo,
+                  TypedConstructorPattern constructorInfo constructorValue [TypedWildcardPattern fieldInfo]
+                ]
+            )
+            Nothing
+            (TypedLiteralExpr bodyInfo (TypedIntegerLiteral "41"))
+        ]
+    totalFirstAlternative _ = error "managed total-first or-pattern fixture must retain one binary or-pattern arm"
+
 managedWildcardPrefixProgram :: TypedProgram
 managedWildcardPrefixProgram = managedChoiceCatchAllPrefixProgram False False
 

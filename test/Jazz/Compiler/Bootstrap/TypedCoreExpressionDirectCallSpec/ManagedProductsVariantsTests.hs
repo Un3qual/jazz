@@ -11,6 +11,7 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProd
     managedPatternEmissionSourceExpectedLoweredPrograms,
     managedReorderedOrPatternBinderSource,
     managedTopLevelOrPatternProgram,
+    managedTotalFirstOrPatternProgram,
     optionIntInfo,
     optionLayout,
     optionLayoutId,
@@ -165,6 +166,26 @@ testManagedReorderedOrPatternBinders = do
           assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
         lowering -> failTest (name <> " did not lower: " <> Text.pack (show lowering))
     status -> failTest (name <> " did not produce Typed Core: " <> Text.pack (show status))
+
+testManagedTotalFirstOrPatternCFG :: IO ()
+testManagedTotalFirstOrPatternCFG = do
+  let name = "managed-total-first-or-pattern-cfg"
+  assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram managedTotalFirstOrPatternProgram)
+  case lowerTypedCoreExpressionDirectCall managedTotalFirstOrPatternProgram of
+    LoweredIRSucceeded loweredProgram -> do
+      assertEqual (name <> " valid Lowered IR") [] (validateLoweredProgram loweredProgram)
+      assertEqual
+        (name <> " omits unreachable later-alternative test blocks")
+        []
+        (laterAlternativeBlockIds loweredProgram)
+    lowering -> failTest (name <> " did not lower: " <> Text.pack (show lowering))
+  where
+    laterAlternativeBlockIds (LoweredProgram _ _ _ functions _) =
+      [ blockId
+      | LoweredFunction _ _ _ _ blocks _ <- functions,
+        LoweredBlock (LoweredBlockId blockId) _ _ _ <- blocks,
+        "$alt1$" `Text.isInfixOf` blockId
+      ]
 
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =
