@@ -3,6 +3,7 @@
 module Jazz.Compiler.LoweredIR.Lower.Shapes
   ( analyzeTypedModule,
     patternArmParameters,
+    patternCaseTotalPrefixLength,
     orderedClosureLayouts,
     valueSchemeContract,
     loweredIRGeneratedIdentityFailureDetail,
@@ -1149,35 +1150,20 @@ patternCaseProfileFailures ::
   [TypedCaseArm] ->
   [LoweredIRLoweringFailure]
 patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
-  case traverse admitArm (zip [0 :: Int ..] arms) of
+  case patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressionPath scrutinee arms of
     Left failure -> [failure]
-    Right admittedArms
+    Right maybeTotalPrefixLength
       | not (admittedScrutinee scrutineeInfo scrutineeRepresentation) ->
           [expressionFailure LoweredIRUnsupportedPattern]
       | earlyUnguardedCatchAll arms ->
           [expressionFailure LoweredIRIncompletePatternCase]
-      | not (coverageMatrixTotal managedLayoutCatalog [scrutineeRepresentation] (coverageRows admittedArms)) ->
+      | maybeTotalPrefixLength == Nothing ->
           [expressionFailure LoweredIRIncompletePatternCase]
       | otherwise -> []
   where
     expressionPath = reverse reversedExpressionPath
     scrutineeInfo = typedExpressionInfo scrutinee
     scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe scrutineeInfo)
-    admitArm (armIndex, TypedCaseArm patternValue maybeGuard _) = do
-      admittedPattern <-
-        admitPattern
-          managedLayoutCatalog
-          statementPath
-          scrutineeRepresentation
-          True
-          (expressionPath <> [armIndex])
-          patternValue
-      pure (admittedPattern, maybeGuard)
-    coverageRows admittedArms =
-      [ [alternative]
-      | (patternValue, Nothing) <- admittedArms,
-        alternative <- expandTopLevelAlternative patternValue
-      ]
     earlyUnguardedCatchAll caseArms =
       case reverse caseArms of
         [] -> False
@@ -1207,6 +1193,45 @@ patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reverse
         (TypedExpressionPath modulePath statementPath expressionPath)
         kind
         LoweredIRNoFailureDetail
+
+patternCaseTotalPrefixLength ::
+  ManagedLayoutCatalog ->
+  [Int] ->
+  [Int] ->
+  TypedExpr ->
+  [TypedCaseArm] ->
+  Either LoweredIRLoweringFailure (Maybe Int)
+patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressionPath scrutinee arms =
+  earliestTotalPrefix <$> traverse admitArm (zip [0 :: Int ..] arms)
+  where
+    expressionPath = reverse reversedExpressionPath
+    scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe (typedExpressionInfo scrutinee))
+    admitArm (armIndex, TypedCaseArm patternValue maybeGuard _) = do
+      admittedPattern <-
+        admitPattern
+          managedLayoutCatalog
+          statementPath
+          scrutineeRepresentation
+          True
+          (expressionPath <> [armIndex])
+          patternValue
+      pure (admittedPattern, maybeGuard)
+    earliestTotalPrefix = go 0 []
+      where
+        go _ _ [] = Nothing
+        go prefixLength coverageRows ((patternValue, maybeGuard) : remainingArms) =
+          let nextPrefixLength = prefixLength + 1
+              nextCoverageRows =
+                case maybeGuard of
+                  Just _ -> coverageRows
+                  Nothing ->
+                    coverageRows
+                      <> [ [alternative]
+                         | alternative <- expandTopLevelAlternative patternValue
+                         ]
+           in if coverageMatrixTotal managedLayoutCatalog [scrutineeRepresentation] nextCoverageRows
+                then Just nextPrefixLength
+                else go nextPrefixLength nextCoverageRows remainingArms
 
 admitPattern ::
   ManagedLayoutCatalog ->

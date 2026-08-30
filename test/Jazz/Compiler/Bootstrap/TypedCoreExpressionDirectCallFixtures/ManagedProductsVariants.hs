@@ -149,7 +149,15 @@ managedPatternEmissionExpectedLoweredPrograms :: [(Text, TypedProgram, LoweredPr
 managedPatternEmissionExpectedLoweredPrograms =
   [ ("managed-tuple-selection-pattern", managedTupleSelectionPatternProgram, managedTupleSelectionPatternLoweredProgram),
     ("managed-guarded-as-constructor-tuple-pattern", managedGuardedAsConstructorTuplePatternProgram, managedGuardedAsConstructorTuplePatternLoweredProgram),
-    ("managed-top-level-or-pattern", managedTopLevelOrPatternProgram, managedTopLevelOrPatternLoweredProgram)
+    ("managed-top-level-or-pattern", managedTopLevelOrPatternProgram, managedTopLevelOrPatternLoweredProgram),
+    ( "managed-exhaustive-constructor-product-prefix-literal-suffix",
+      managedExhaustiveConstructorProductPrefixLiteralSuffixProgram,
+      managedGuardedAsConstructorTuplePatternLoweredProgram
+    ),
+    ( "managed-exhaustive-constructor-prefix-guarded-suffix",
+      managedExhaustiveConstructorPrefixGuardedSuffixProgram,
+      managedTopLevelOrPatternLoweredProgram
+    )
   ]
 
 managedPatternEmissionSourceExpectedLoweredPrograms :: [(Text, Fixture, LoweredProgram)]
@@ -1743,6 +1751,53 @@ managedGuardedAsConstructorTuplePatternProgram =
             finalBody
         ]
     guardFirstAndTotal _ = error "managed guarded as-pattern fixture must retain three canonical arms"
+
+managedExhaustiveConstructorPrefixGuardedSuffixProgram :: TypedProgram
+managedExhaustiveConstructorPrefixGuardedSuffixProgram =
+  rewriteTerminalPatternArms appendGuardedSuffix managedTopLevelOrPatternProgram
+  where
+    appendGuardedSuffix
+      [ prefixArm@(TypedCaseArm (TypedOrPattern _ (TypedConstructorPattern constructorInfo constructorValue [TypedVariablePattern fieldInfo _ _] : _)) Nothing _)
+        ] =
+        [ prefixArm,
+          TypedCaseArm
+            (TypedConstructorPattern constructorInfo constructorValue [TypedWildcardPattern fieldInfo])
+            (Just (boolExpr True))
+            (TypedLiteralExpr fieldInfo (TypedIntegerLiteral "99"))
+        ]
+    appendGuardedSuffix _ = error "managed exhaustive constructor prefix fixture must retain one total or-pattern arm"
+
+managedExhaustiveConstructorProductPrefixLiteralSuffixProgram :: TypedProgram
+managedExhaustiveConstructorProductPrefixLiteralSuffixProgram =
+  rewriteTerminalPatternArms appendLiteralSuffix managedGuardedAsConstructorTuplePatternProgram
+  where
+    appendLiteralSuffix arms =
+      case reverse arms of
+        TypedCaseArm
+          ( TypedConstructorPattern
+              constructorInfo
+              constructorValue
+              [TypedTuplePattern tupleInfo [TypedWildcardPattern firstFieldInfo, TypedWildcardPattern secondFieldInfo]]
+            )
+          Nothing
+          finalBody
+          : _ ->
+            arms
+              <> [ TypedCaseArm
+                     ( TypedConstructorPattern
+                         constructorInfo
+                         constructorValue
+                         [ TypedTuplePattern
+                             tupleInfo
+                             [ TypedWildcardPattern firstFieldInfo,
+                               TypedLiteralPattern secondFieldInfo (TypedBooleanLiteral True)
+                             ]
+                         ]
+                     )
+                     Nothing
+                     finalBody
+                 ]
+        _ -> error "managed exhaustive constructor/product prefix fixture must end in a total nested product arm"
 
 managedMissingConstructorPatternProgram :: TypedProgram
 managedMissingConstructorPatternProgram =

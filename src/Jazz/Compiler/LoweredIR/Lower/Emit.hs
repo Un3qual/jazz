@@ -1136,43 +1136,55 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         _ -> False
 
     lowerManagedArmChain resultRepresentation scrutineeOperand =
-      let outerSlots = ambientSlots scrutineeState
-          outerParameters = ambientParameters outerSlots
-          (scrutineeCarrier, carriedState) = carryOperand scrutineeOperand scrutineeState
-          controlSlots = ambientSlots carriedState
-          controlParameters = ambientParameters controlSlots
-       in case lowerManagedArms
-            resultRepresentation
-            scrutineeCarrier
-            outerSlots
-            controlSlots
-            controlParameters
-            0
-            arms
-            carriedState of
-            (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
-            ([], finalArmState) ->
-              case destination of
-                FinishFunction _ -> ([], Nothing, finalArmState)
-                ProduceValue ->
-                  let joinBase =
-                        scrutineeState
-                          { loweringNextCarrier = loweringNextCarrier finalArmState,
-                            loweringCompletedBlocks = loweringCompletedBlocks finalArmState
-                          }
-                      joinParameters =
-                        outerParameters
-                          <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
-                      joinState =
-                        remapAmbient
-                          outerSlots
-                          outerParameters
-                          (startBlock joinBlockId joinParameters joinBase)
-                      resultOperand =
-                        LoweredBlockParameterOperand
-                          (LoweredParameterId "result")
-                          resultRepresentation
-                   in ([], Just resultOperand, joinState)
+      case patternCaseTotalPrefixLength managedLayoutCatalog statementPath expressionPath scrutinee arms of
+        Left failure -> ([failure], Nothing, scrutineeState)
+        Right Nothing ->
+          ( [ LoweredIRLoweringFailure
+                path
+                LoweredIRIncompletePatternCase
+                LoweredIRNoFailureDetail
+            ],
+            Nothing,
+            scrutineeState
+          )
+        Right (Just totalPrefixLength) ->
+          let outerSlots = ambientSlots scrutineeState
+              outerParameters = ambientParameters outerSlots
+              (scrutineeCarrier, carriedState) = carryOperand scrutineeOperand scrutineeState
+              controlSlots = ambientSlots carriedState
+              controlParameters = ambientParameters controlSlots
+           in case lowerManagedArms
+                resultRepresentation
+                scrutineeCarrier
+                outerSlots
+                controlSlots
+                controlParameters
+                0
+                (take totalPrefixLength arms)
+                carriedState of
+                (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
+                ([], finalArmState) ->
+                  case destination of
+                    FinishFunction _ -> ([], Nothing, finalArmState)
+                    ProduceValue ->
+                      let joinBase =
+                            scrutineeState
+                              { loweringNextCarrier = loweringNextCarrier finalArmState,
+                                loweringCompletedBlocks = loweringCompletedBlocks finalArmState
+                              }
+                          joinParameters =
+                            outerParameters
+                              <> [LoweredParameter (LoweredParameterId "result") resultRepresentation]
+                          joinState =
+                            remapAmbient
+                              outerSlots
+                              outerParameters
+                              (startBlock joinBlockId joinParameters joinBase)
+                          resultOperand =
+                            LoweredBlockParameterOperand
+                              (LoweredParameterId "result")
+                              resultRepresentation
+                       in ([], Just resultOperand, joinState)
 
     lowerManagedArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex remainingArms currentState =
       case remainingArms of
