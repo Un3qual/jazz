@@ -1344,7 +1344,7 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
           ResolveKernelOnly
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           (runtimeTypedCallableArgumentHintExpr (EVar (qualifiedName "RuntimePick" "pick")))
-  assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "typed callable argument hint runtime result" False result
 
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar = do
@@ -1353,7 +1353,7 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar =
           ResolveKernelOnly
           (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar (qualifiedName "RuntimePick" "pick")))
-  assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "typed callable argument hint through prefix dollar runtime result" False result
 
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
@@ -1364,7 +1364,7 @@ testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
           ( runtimeTypedCallableArgumentHintExpr
               (ELambda "itemValue" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue")))
           )
-  assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "closure argument signature hint runtime result" False result
 
 testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata :: IO ()
 testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata = do
@@ -1841,7 +1841,7 @@ testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
                 SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "tag"))
               ]
           )
-  assertEqual "phantom ADT application hint runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "phantom ADT application hint runtime result" False result
 
 testQualifiedMethodDispatchPreservesAdtConcretePayloadHint :: IO ()
 testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
@@ -1879,7 +1879,7 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
                 SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
               ]
           )
-  assertEqual "ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "ADT concrete payload hint runtime result" False result
 
 testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint :: IO ()
 testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
@@ -1912,7 +1912,7 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
                      ]
               )
           )
-  assertEqual "monomorphic ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "monomorphic ADT concrete payload hint runtime result" False result
 
 testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName :: IO ()
 testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
@@ -1950,7 +1950,7 @@ testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
                 SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
               ]
           )
-  assertEqual "unknown constructor field hint runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "unknown constructor field hint runtime result" False result
 
 testQualifiedMethodDispatchKeepsNestedInferredHintsScoped :: IO ()
 testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
@@ -2047,7 +2047,7 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
                   ]
               )
           )
-  assertEqual "alias binding runtime result" (Right (Just (VBool True))) result
+  assertRuntimeBool "alias binding runtime result" True result
 
 testQualifiedZeroArgumentMethodDispatchReturnsValue :: IO ()
 testQualifiedZeroArgumentMethodDispatchReturnsValue = do

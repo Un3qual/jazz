@@ -63,6 +63,7 @@ import Jazz.Compiler.Runtime.Observation
   )
 import Jazz.Compiler.Runtime.Types (RuntimeClosure (..))
 import Jazz.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
+import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
 import Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
@@ -172,7 +173,10 @@ testHostAwareEvaluatorPreservesPureExpressions = do
     assertPreserved expression = do
       let expected = evaluateRuntimeExpr expression
           actual = runIdentity (evaluateRuntimeExprWithHost deterministicHost expression)
-      assertEqual "host-aware pure result" expected actual
+      assertEqual
+        "host-aware pure result"
+        (fmap (fmap renderRuntimeValue) expected)
+        (fmap (fmap renderRuntimeValue) actual)
 
 deterministicHost :: RuntimeHost Identity
 deterministicHost =
@@ -208,18 +212,17 @@ testHostIntrinsicsReturnRawValues = do
           hostCall "__kernel_exit!" [ELit (LInt 7)]
         ]
       (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
-      success payload = Right (Just (rawSuccess payload))
   assertEqual
     "host intrinsic raw values"
-    [ success "file text",
-      success "",
-      success "stdin text",
-      success "",
-      success "",
-      Right (Just (VList [VText "one", VText "two"] (Just (TypeList TypeText)))),
-      Right (Just (VTuple []))
+    [ Right (Just "(True, \"file text\", \"\", \"\")"),
+      Right (Just "(True, \"\", \"\", \"\")"),
+      Right (Just "(True, \"stdin text\", \"\", \"\")"),
+      Right (Just "(True, \"\", \"\", \"\")"),
+      Right (Just "(True, \"\", \"\", \"\")"),
+      Right (Just "[\"one\", \"two\"]"),
+      Right (Just "()")
     ]
-    results
+    (map (fmap (fmap renderRuntimeValue)) results)
   assertEqual
     "host call order"
     [ ReadTextCall "source.jz",
@@ -252,7 +255,10 @@ testHostFailuresNormalizeEveryCategory =
           expression = hostCall "__kernel_readTextRaw!" [ELit (LText "missing.jz")]
           actual = runIdentity (evaluateRuntimeExprWithHost host expression)
           expected = Right (Just (rawFailure category))
-      assertEqual "normalized host failure category" expected actual
+      assertEqual
+        "normalized host failure category"
+        (fmap (fmap renderRuntimeValue) expected)
+        (fmap (fmap renderRuntimeValue) actual)
 
 testHostEffectsExecuteAtSelectedExpressionDepth :: IO ()
 testHostEffectsExecuteAtSelectedExpressionDepth = do
@@ -274,7 +280,10 @@ testHostEffectsExecuteAtSelectedExpressionDepth = do
             ]
         ]
       (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
-  assertEqual "nested effect results" (replicate 4 (Right (Just (rawSuccess "")))) results
+  assertEqual
+    "nested effect results"
+    (replicate 4 (Right (Just "(True, \"\", \"\", \"\")")))
+    (map (fmap (fmap renderRuntimeValue)) results)
   assertEqual
     "only selected nested effects run"
     [ WriteStdoutCall "closure",
@@ -325,7 +334,7 @@ testHostScopePreservesMutualRecursion = do
             SExpr (SourceSpan 4 1) (EApply (EVar "even") (ELit (LInt 4)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
-  assertEqual "mutually recursive result" (Right (Just (VBool True))) result
+  assertRuntimeBool "mutually recursive result" True result
   assertEqual "unrelated host call" [WriteStdoutCall "once"] calls
 
 testHostScopePreservesHostfulRecursivePeers :: IO ()
@@ -356,7 +365,7 @@ testHostScopePreservesHostfulRecursivePeers = do
             SExpr (SourceSpan 5 1) (EApply (EVar "even!") (ELit (LInt 2)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
-  assertEqual "hostful mutually recursive result" (Right (Just (VBool True))) result
+  assertRuntimeBool "hostful mutually recursive result" True result
   assertEqual "hostful recursive call" [WriteStdoutCall "even"] calls
 
 testHostImplMethodSelector :: IO ()
@@ -395,7 +404,7 @@ testHostImplMethodSelector = do
               (EApply (EVar (qualifiedName "RuntimePick" "pick")) (ELit (LInt 1)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
-  assertEqual "host-selected impl method result" (Right (Just (VBool True))) result
+  assertRuntimeBool "host-selected impl method result" True result
   assertEqual "host-selected impl method call" [ArgumentsCall] calls
 
 testHostScopePreservesBindingSignatureHints :: IO ()
@@ -531,8 +540,8 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
     Right scopeResult ->
       assertEqual
         "host map callback returns the shared raw stdin result for each element"
-        (Just (VList [rawSuccess "stdin text", rawSuccess "stdin text"] Nothing))
-        (scopeResultValue scopeResult)
+        (Just "[(True, \"stdin text\", \"\", \"\"), (True, \"stdin text\", \"\", \"\")]")
+        (fmap renderRuntimeValue (scopeResultValue scopeResult))
     Left _ -> assertEqual "host map callback evaluates" True False
   assertEqual
     "host map callback keeps effects ordered and caches the deferred stdin read"
@@ -574,8 +583,8 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
     Right scopeResult ->
       assertEqual
         "public host scope imported binding result"
-        (Just (rawSuccess "stdin text"))
-        (scopeResultValue scopeResult)
+        (Just "(True, \"stdin text\", \"\", \"\")")
+        (fmap renderRuntimeValue (scopeResultValue scopeResult))
     Left _ -> assertEqual "public host scope imported binding evaluates" True False
   assertEqual "public host scope imported binding call" [ReadStdinCall] calls
 
@@ -624,8 +633,8 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
     Right scopeResult ->
       assertEqual
         "mixed host/pure dependency result"
-        (Just (rawSuccess "stdin text"))
-        (scopeResultValue scopeResult)
+        (Just "(True, \"stdin text\", \"\", \"\")")
+        (fmap renderRuntimeValue (scopeResultValue scopeResult))
     Left _ -> assertEqual "mixed host/pure dependency evaluation succeeds" True False
   assertEqual "mixed host/pure dependency call" [ReadStdinCall] calls
 
@@ -733,11 +742,15 @@ testHostDependencyBindingRetainsRuntimeHints = do
     Left _ -> assertEqual "dependency hint evaluation succeeds" True False
 
 testDirectRuntimeWrapperUsesDisabledHost :: IO ()
-testDirectRuntimeWrapperUsesDisabledHost =
+testDirectRuntimeWrapperUsesDisabledHost = do
+  let result =
+        fmap
+          (fmap renderRuntimeValue)
+          (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [ELit (LText "disabled.jz")]))
   assertEqual
     "disabled host raw failure"
-    (Right (Just (rawFailure HostUnsupported)))
-    (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [ELit (LText "disabled.jz")]))
+    (fmap (fmap renderRuntimeValue) (Right (Just (rawFailure HostUnsupported))))
+    result
 
 testHostBindingCacheSeparatesDynamicScopeInvocations :: IO ()
 testHostBindingCacheSeparatesDynamicScopeInvocations = do
@@ -774,8 +787,8 @@ testHostBindingCacheSeparatesDynamicScopeInvocations = do
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertEqual
     "dynamic host binding values"
-    (Right (Just (VTuple [VText "first", VText "second"])))
-    result
+    (Right (Just "(\"first\", \"second\")"))
+    (fmap (fmap renderRuntimeValue) result)
   assertEqual
     "dynamic host binding calls"
     [WriteStdoutCall "first", WriteStdoutCall "second"]
@@ -814,7 +827,7 @@ testHostZeroArgumentImplMethod = do
               (EVar (qualifiedName "RuntimeFlag" "enabled!"))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
-  assertEqual "zero-argument host method result" (Right (Just (VBool True))) result
+  assertRuntimeBool "zero-argument host method result" True result
   assertEqual "zero-argument host method call" [WriteStdoutCall "enabled"] calls
 
 testDirectRuntimeWrapperRejectsDisabledExit :: IO ()
@@ -930,9 +943,6 @@ statefulHost =
 
 hostCall :: Name -> [Expr] -> Expr
 hostCall name = foldl EApply (EVar name)
-
-rawSuccess :: Text -> RuntimeValue
-rawSuccess payload = VTuple [VBool True, VText payload, VText "", VText ""]
 
 rawFailure :: HostIOCategory -> RuntimeValue
 rawFailure category =

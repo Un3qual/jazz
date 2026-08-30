@@ -60,10 +60,10 @@ import Jazz.Compiler.Runtime
   )
 
 newtype CanonicalParserResult = CanonicalParserResult RuntimeValue
-  deriving (Eq, Show)
+  deriving (Show)
 
 newtype CanonicalSourceResult = CanonicalSourceResult RuntimeValue
-  deriving (Eq, Show)
+  deriving (Show)
 
 canonicalizeParserResult :: CanonicalSourcePath -> Either ParserFailure SurfaceExpr -> CanonicalParserResult
 canonicalizeParserResult sourcePath result =

@@ -38,6 +38,12 @@ import Jazz.Compiler.Runtime
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithBuiltinsAndBindingHints
   )
+import Jazz.Compiler.Runtime.Semantics
+  ( runtimeValueMatchesLiteral
+  )
+import Jazz.Compiler.Runtime.Types
+  ( RuntimeIntMetadata (..)
+  )
 import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
   )
@@ -63,6 +69,7 @@ renderingTests =
     , ("Char and Text literals evaluate and render", testCharTextLiteralRendering)
     , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
     , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
+    , ("literal matching strips wrappers without comparing callables", testRuntimeValueMatchesLiteral)
     , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
     , ("private itemValue rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess)
     , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
@@ -143,6 +150,25 @@ testCharTextLiteralPatterns = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(1, 1)") (runOutput result)
 
+testRuntimeValueMatchesLiteral :: IO ()
+testRuntimeValueMatchesLiteral = do
+  assertEqual
+    "typed integer literal matches"
+    True
+    (runtimeValueMatchesLiteral (VTyped TypeInt (VInt 7 (RuntimeIntMetadata Nothing))) (LInt 7))
+  assertEqual
+    "different text literal does not match"
+    False
+    (runtimeValueMatchesLiteral (VText "Jazz") (LText "jazz"))
+  case evaluateRuntimeExpr (runtimeExpr (ELambda "item" (EVar "item"))) of
+    Right (Just closureRuntimeValue) ->
+      assertEqual
+        "closure is never a literal match"
+        False
+        (runtimeValueMatchesLiteral closureRuntimeValue (LBool True))
+    otherResult ->
+      failTest ("expected closure runtime value, got " <> Text.pack (show otherResult))
+
 testPrivateTextTraversalRuntimeSuccess :: IO ()
 testPrivateTextTraversalRuntimeSuccess = do
   result <-
@@ -154,18 +180,22 @@ testPrivateTextTraversalRuntimeSuccess = do
   assertEqual "runtime output" (Just "(0, 3, [], [('🙂', \"x\")])") (runOutput result)
 
 testPrivateValueRenderingRuntimeSuccess :: IO ()
-testPrivateValueRenderingRuntimeSuccess =
-  assertEqual
-    "private itemValue renderer"
-    (Right (Just (VText "('a', \"\\n\")")))
-    ( evaluateRuntimeExpr
-        ( runtimeExpr
-            ( EApply
-                (EVar "__kernel_renderValue")
-                (ETuple [ELit (LChar 'a'), ELit (LText "\n")])
-            )
-        )
-    )
+testPrivateValueRenderingRuntimeSuccess = do
+  let result =
+        evaluateRuntimeExpr
+          ( runtimeExpr
+              ( EApply
+                  (EVar "__kernel_renderValue")
+                  (ETuple [ELit (LChar 'a'), ELit (LText "\n")])
+              )
+          )
+  case result of
+    Right (Just (VText renderedValue)) ->
+      assertEqual "private itemValue renderer" "('a', \"\\n\")" renderedValue
+    Right otherValue ->
+      failTest ("expected rendered Text value, got " <> Text.pack (show otherValue))
+    Left runtimeError ->
+      failTest ("expected rendered Text value, got " <> Text.pack (show runtimeError))
 
 testRuntimeFallbackRejectsNonTextTraversalArguments :: IO ()
 testRuntimeFallbackRejectsNonTextTraversalArguments = do
@@ -637,7 +667,7 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
                 SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
               ]
           )
-  assertEqual "typed ADT structural equality runtime result" (Right (Just (VBool True))) result
+  assertRuntimeBool "typed ADT structural equality runtime result" True result
 
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
@@ -656,7 +686,7 @@ testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
                 SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
               ]
           )
-  assertEqual "incompatible typed ADT structural equality runtime result" (Right (Just (VBool False))) result
+  assertRuntimeBool "incompatible typed ADT structural equality runtime result" False result
 
 testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do

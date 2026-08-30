@@ -27,6 +27,7 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
+    renderRuntimeValue,
   )
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
@@ -85,8 +86,8 @@ testOutcomeEncoding = do
         ]
   assertEqual
     "typed-core outcome encoding"
-    expected
-    (map canonicalTypedCoreOutcomeRuntimeValue outcomes)
+    (map renderRuntimeValue expected)
+    (map (renderRuntimeValue . canonicalTypedCoreOutcomeRuntimeValue) outcomes)
 
 testValidPrograms :: IO ()
 testValidPrograms =

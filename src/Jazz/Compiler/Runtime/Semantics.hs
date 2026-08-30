@@ -14,6 +14,7 @@ module Jazz.Compiler.Runtime.Semantics
     runtimeConstructorArgument,
     runtimeConstraintType,
     literalRuntimeValue,
+    runtimeValueMatchesLiteral,
     attachRuntimeTypeHint,
     applyRuntimeTypeHint,
     applyRuntimeFunctionArgumentHint,
@@ -254,6 +255,19 @@ literalRuntimeValue literal =
     LChar value -> VChar value
     LText value -> VText value
 
+runtimeValueMatchesLiteral :: RuntimeValue -> Literal -> Bool
+runtimeValueMatchesLiteral runtimeValue literal =
+  case runtimeValue of
+    VTyped _ innerValue -> runtimeValueMatchesLiteral innerValue literal
+    VExplicitTypeApplication _ innerValue -> runtimeValueMatchesLiteral innerValue literal
+    VExplicitResultHints _ innerValue -> runtimeValueMatchesLiteral innerValue literal
+    VInt actual _ -> case literal of LInt expected -> actual == expected; _ -> False
+    VFloat actual _ -> case literal of LFloat expected _ _ -> actual == expected; _ -> False
+    VBool actual -> case literal of LBool expected -> actual == expected; _ -> False
+    VChar actual -> case literal of LChar expected -> actual == expected; _ -> False
+    VText actual -> case literal of LText expected -> actual == expected; _ -> False
+    _ -> False
+
 attachRuntimeTypeHint :: Maybe SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
 attachRuntimeTypeHint maybeTypeHint runtimeValue =
   case maybeTypeHint of
@@ -489,7 +503,7 @@ matchPattern currentModulePath scrutineeValue casePattern =
       Just
         (Map.singleton name (Right scrutineeValue))
     PLiteral literal
-      | scrutineeValue == literalRuntimeValue literal ->
+      | runtimeValueMatchesLiteral scrutineeValue literal ->
           Just Map.empty
       | otherwise ->
           Nothing

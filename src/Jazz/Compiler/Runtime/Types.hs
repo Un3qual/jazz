@@ -159,7 +159,6 @@ data RuntimeConstructorShape = RuntimeConstructorShape Name [Name] Name !Int [Si
 -- | Append-efficient constructor arguments. 'Seq.length' is constant time, so
 -- keeping a second cached count would only duplicate an invariant.
 newtype RuntimeConstructorArguments = RuntimeConstructorArguments (Seq RuntimeValue)
-  deriving (Eq)
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -188,35 +187,6 @@ data RuntimeValue
       (Map BindingRuntimeHintKey SignatureType)
       (Maybe NumericType)
       (Maybe SignatureType)
-
-instance Eq RuntimeValue where
-  leftValue == rightValue =
-    case (leftValue, rightValue) of
-      (VTyped _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VTyped _ rightInner) -> leftInner == rightInner
-      (VExplicitTypeApplication _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VExplicitTypeApplication _ rightInner) -> leftInner == rightInner
-      (VRuntimeExplicitResultHints _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VRuntimeExplicitResultHints _ rightInner) -> leftInner == rightInner
-      (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
-      (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
-      (VBool leftBool, VBool rightBool) -> leftBool == rightBool
-      (VChar leftChar, VChar rightChar) -> leftChar == rightChar
-      (VText leftText, VText rightText) -> leftText == rightText
-      (VList leftElements _, VList rightElements _) -> leftElements == rightElements
-      (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
-      ( VConstructorApplication leftShape leftArgs,
-        VConstructorApplication rightShape rightArgs
-        )
-          | constructorApplicationIsSaturated leftShape leftArgs,
-            constructorApplicationIsSaturated rightShape rightArgs ->
-              leftShape == rightShape
-                && leftArgs == rightArgs
-      _ -> False
-
-instance Eq RuntimeMethodCandidate where
-  RuntimeMethodCandidate leftEvidence leftCell == RuntimeMethodCandidate rightEvidence rightCell =
-    leftEvidence == rightEvidence && leftCell == rightCell
 
 instance Show RuntimeValue where
   show value =

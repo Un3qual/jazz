@@ -139,7 +139,7 @@ data RunResult = RunResult
     runExitStatus :: Maybe Integer,
     runRuntimeObservation :: Maybe RuntimeObservationReport
   }
-  deriving (Eq, Show)
+  deriving (Show)
 
 runWarnings :: RunResult -> [Diagnostic]
 runWarnings = filter isWarningDiagnostic . runDiagnostics
