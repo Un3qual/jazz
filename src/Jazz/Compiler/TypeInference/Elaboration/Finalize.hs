@@ -632,12 +632,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (childLocation [0] ScalarExpression)
                   scrutinee
               (armFailures, maybeArms) =
-                case maybeScrutinee of
-                  Just _ ->
-                    finalizePatternCaseArms
-                      (defaultScalarLiterals <$> provisionalExpressionType finalizationState scrutinee)
-                      arms
-                  Nothing -> ([], Nothing)
+                finalizePatternCaseArms
+                  (defaultScalarLiterals <$> provisionalExpressionType finalizationState scrutinee)
+                  arms
               failures =
                 infoFailures
                   <> scrutineeFailures
@@ -715,33 +712,45 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       ]
                   )
                   armExpression
+              armExpressionAvailable armExpression =
+                case maybePattern of
+                  Just _ -> True
+                  Nothing ->
+                    Set.disjoint
+                      (patternBinderNames pattern)
+                      (provisionalFreeNames armExpression)
               (guardFailures, maybeTypedGuard) =
                 case maybeGuard of
                   Nothing -> ([], Just Nothing)
-                  Just guardExpression ->
-                    let (childGuardFailures, typedGuard) =
-                          finalizeExpression
-                            structuredCatalog
-                            finalizationEnv
-                            ( finalizationLocation
-                                { finalizationChildPath = childPath <> [armIndex + 1, 0],
-                                  finalizationParameters = armParameters,
-                                  finalizationExpressionRole = ScalarExpression
-                                }
-                            )
-                            (specializeArmExpression guardExpression)
-                     in (childGuardFailures, Just <$> typedGuard)
+                  Just guardExpression
+                    | armExpressionAvailable guardExpression ->
+                        let (childGuardFailures, typedGuard) =
+                              finalizeExpression
+                                structuredCatalog
+                                finalizationEnv
+                                ( finalizationLocation
+                                    { finalizationChildPath = childPath <> [armIndex + 1, 0],
+                                      finalizationParameters = armParameters,
+                                      finalizationExpressionRole = ScalarExpression
+                                    }
+                                )
+                                (specializeArmExpression guardExpression)
+                         in (childGuardFailures, Just <$> typedGuard)
+                  Just _ -> ([], Nothing)
               (bodyFailures, maybeTypedBody) =
-                finalizeExpression
-                  structuredCatalog
-                  finalizationEnv
-                  ( finalizationLocation
-                      { finalizationChildPath = childPath <> [armIndex + 1, 1],
-                        finalizationParameters = armParameters,
-                        finalizationExpressionRole = ScalarExpression
-                      }
-                  )
-                  (specializeArmExpression body)
+                if armExpressionAvailable body
+                  then
+                    finalizeExpression
+                      structuredCatalog
+                      finalizationEnv
+                      ( finalizationLocation
+                          { finalizationChildPath = childPath <> [armIndex + 1, 1],
+                            finalizationParameters = armParameters,
+                            finalizationExpressionRole = ScalarExpression
+                          }
+                      )
+                      (specializeArmExpression body)
+                  else ([], Nothing)
               failures = patternFailures <> guardFailures <> bodyFailures
               typedArm = TypedCaseArm <$> maybePattern <*> maybeTypedGuard <*> maybeTypedBody
            in (failures, if null failures then typedArm else Nothing)

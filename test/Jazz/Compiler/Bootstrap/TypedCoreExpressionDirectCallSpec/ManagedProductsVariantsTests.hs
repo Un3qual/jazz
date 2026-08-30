@@ -4,6 +4,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProducts
 
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.AST (Literal (..), Pattern (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
   ( managedAsConstructorTuplePatternProgram,
@@ -23,7 +24,7 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProd
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixture, sourceFixtureNoExports)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
-import Jazz.Compiler.Diagnostics (diagnosticCode)
+import Jazz.Compiler.Diagnostics (SourceSpan (..), diagnosticCode)
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
@@ -34,7 +35,17 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
 import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule, patternArmParameters)
 import Jazz.Compiler.LoweredIR.Lower.Types (FunctionParameterShape (..))
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
+import Jazz.Compiler.ModuleGraph (ResolvedModule)
 import Jazz.Compiler.TypeInference
+import Jazz.Compiler.TypeInference.Elaboration
+  ( ProvisionalPatternCaseArm (..),
+    ProvisionalTypedExpr (..),
+    ProvisionalTypedStatement (..),
+    finalizeValidatedTypedCoreExpressionDirectCall,
+    typedCoreProductionOutcomeStatus,
+  )
+import Jazz.Compiler.TypeInference.State (initialInferState)
+import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.TestHarness (assertEqual, failTest)
@@ -187,10 +198,81 @@ testManagedTotalFirstOrPatternCFG = do
         "$alt1$" `Text.isInfixOf` blockId
       ]
 
+testManagedScrutineeFailureAccumulation :: IO ()
+testManagedScrutineeFailureAccumulation = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let independentArmFailures =
+        ProvisionalPatternCaseExpression
+          TBoolType
+          (ProvisionalVariableExpression "missing" TBoolType)
+          [ ProvisionalPatternCaseArm
+              PWildcard
+              ( Just
+                  ( ProvisionalUnsupportedExpression
+                      TypedCoreUserDefinedOperatorUnsupported
+                      TypedCoreUnsupportedRootDetail
+                  )
+              )
+              ( ProvisionalUnsupportedExpression
+                  TypedCoreNestedBlockUnsupported
+                  TypedCoreLocalBlockDetail
+              )
+          ]
+  assertEqual
+    "scrutinee construction failure retains independent arm failures"
+    ( TypedCoreProductionUnsupported
+        [ expressionFailure 0 [0] TypedCoreCaptureUnsupported (TypedCoreNameDetail "missing"),
+          expressionFailure 0 [1, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
+          expressionFailure 0 [1, 1] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail
+        ]
+    )
+    (finalizationStatus resolvedModule independentArmFailures)
+
+testManagedUnavailablePatternBinder :: IO ()
+testManagedUnavailablePatternBinder = do
+  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
+  let unavailablePatternBinder =
+        ProvisionalLambdaExpression
+          "item"
+          (TFunctionType TBoolType TBoolType)
+          ( ProvisionalPatternCaseExpression
+              TBoolType
+              (ProvisionalLiteralExpression (LBool True) TBoolType)
+              [ ProvisionalPatternCaseArm
+                  (PAs "item" (PList []))
+                  Nothing
+                  ( ProvisionalTupleExpression
+                      (TTupleType [TBoolType, TBoolType])
+                      [ ProvisionalVariableExpression "item" TBoolType,
+                        ProvisionalUnsupportedExpression
+                          TypedCoreNestedBlockUnsupported
+                          TypedCoreLocalBlockDetail
+                      ]
+                  )
+              ]
+          )
+  assertEqual
+    "failed pattern does not expose its unavailable binder to the arm body"
+    ( TypedCoreProductionUnsupported
+        [expressionFailure 0 [0, 0, 0] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+    )
+    (finalizationStatus resolvedModule unavailablePatternBinder)
+
+finalizationStatus :: ResolvedModule -> ProvisionalTypedExpr -> TypedCoreProductionStatus
+finalizationStatus resolvedModule expression =
+  typedCoreProductionOutcomeStatus
+    ( finalizeValidatedTypedCoreExpressionDirectCall
+        (TypedSourcePath "src/App/Main.jz")
+        resolvedModule
+        initialInferState
+        ( ProvisionalScopeStatements
+            [ProvisionalTerminalExpression 0 (SourceSpan 1 1) expression]
+        )
+    )
+
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =
   mapM_ assertLowererBoundary expectedResults
-    >> testManagedPatternLowererProfile
   where
     assertLowererBoundary (name, expectedFailures) =
       case lookup name managedConstructionLowererBoundaryPrograms of
@@ -282,7 +364,6 @@ testManagedPatternLowererProfile = do
   mapM_ assertAccepted acceptedNames
   mapM_ assertRejected expectedRejections
   mapM_ assertRejectedLowering recursiveRejections
-  testManagedPatternParameterShapes
   where
     assertAccepted name =
       case lookup name managedConstructionLowererBoundaryPrograms of
