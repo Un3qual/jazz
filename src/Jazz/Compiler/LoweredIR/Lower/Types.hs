@@ -19,6 +19,7 @@ module Jazz.Compiler.LoweredIR.Lower.Types
   )
 where
 
+import Data.List.NonEmpty (NonEmpty)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -168,6 +169,7 @@ data ConstructorTemplate = ConstructorTemplate
 data ManagedLayoutCatalog = ManagedLayoutCatalog
   { catalogModulePath :: [Text],
     catalogConstructors :: Map.Map TypedBinderId ConstructorTemplate,
+    catalogPatternConstructors :: Map.Map (TypedCoreName, TypedCoreName) (NonEmpty (TypedBinderId, ConstructorTemplate)),
     catalogLayoutShapes :: Map.Map LoweredLayoutId LoweredLayoutShape,
     catalogLayouts :: [LoweredLayout]
   }

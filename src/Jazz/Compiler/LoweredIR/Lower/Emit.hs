@@ -5,7 +5,10 @@ module Jazz.Compiler.LoweredIR.Lower.Emit
   )
 where
 
+import Data.Foldable (toList)
 import qualified Data.Map.Strict as Map
+import Data.Sequence ((|>))
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.LoweredIR
@@ -1286,7 +1289,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                       alternativeFailureBlockId
                       controlSlots
                       controlParameters
-                      []
+                      Seq.empty
                       [(alternative, patternPath, scrutineeOperand)]
                       currentState
                in case (alternativeFailures, remaining) of
@@ -1314,11 +1317,11 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                   recurse matchedOperands rest currentState
             TypedVariablePattern patternInfo _ _
               | managedPatternOperandMatches patternInfo operand ->
-                  recurse (matchedOperands <> [operand]) rest currentState
+                  recurse (matchedOperands |> operand) rest currentState
             TypedAsPattern patternInfo _ _ nestedPattern
               | managedPatternOperandMatches patternInfo operand ->
                   recurse
-                    (matchedOperands <> [operand])
+                    (matchedOperands |> operand)
                     ((nestedPattern, patternPath <> [0], operand) : rest)
                     currentState
             TypedTuplePattern patternInfo fields
@@ -1398,7 +1401,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         Just controlArguments ->
           let matchBlockId = managedPatternBlock armIndex alternativeIndex patternPath "fields"
               queuedOperands = [pendingOperand | (_, _, pendingOperand) <- rest]
-              transportedOperands = matchedOperands <> (operand : queuedOperands)
+              transportedOperands = toList matchedOperands <> (operand : queuedOperands)
               matchParameters = managedMatchParameters transportedOperands
               matchArguments = controlArguments <> transportedOperands
               defaultTarget =
@@ -1423,7 +1426,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                   controlParameters
                   (startBlock matchBlockId (controlParameters <> matchParameters) switchedState)
               remappedTransported = managedMatchOperands matchParameters
-              (remappedMatched, remappedQueued) = splitAt (length matchedOperands) remappedTransported
+              (remappedMatched, remappedQueued) = splitAt (Seq.length matchedOperands) remappedTransported
            in case remappedQueued of
                 remappedOperand : remappedRestOperands ->
                   let (fieldOperands, projectedState) =
@@ -1454,7 +1457,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                         failureBlockId
                         controlSlots
                         controlParameters
-                        remappedMatched
+                        (Seq.fromList remappedMatched)
                         (fieldPatterns <> remappedRest)
                         projectedState
                 [] -> ([unsupportedFailure path], matchInitial)
@@ -1522,7 +1525,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
             _ ->
               let continuationBlockId = managedPatternBlock armIndex alternativeIndex patternPath "next"
                   queuedOperands = [pendingOperand | (_, _, pendingOperand) <- rest]
-                  transportedOperands = matchedOperands <> queuedOperands
+                  transportedOperands = toList matchedOperands <> queuedOperands
                   matchParameters = managedMatchParameters transportedOperands
                   continuationArguments = controlArguments <> transportedOperands
                   branchState =
@@ -1541,7 +1544,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                       controlParameters
                       (startBlock continuationBlockId (controlParameters <> matchParameters) branchState)
                   remappedTransported = managedMatchOperands matchParameters
-                  (remappedMatched, remappedQueued) = splitAt (length matchedOperands) remappedTransported
+                  (remappedMatched, remappedQueued) = splitAt (Seq.length matchedOperands) remappedTransported
                   remappedRest =
                     [ (pendingPattern, pendingPath, pendingOperand)
                     | ((pendingPattern, pendingPath, _), pendingOperand) <- zip rest remappedQueued
@@ -1554,7 +1557,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                     failureBlockId
                     controlSlots
                     controlParameters
-                    remappedMatched
+                    (Seq.fromList remappedMatched)
                     remappedRest
                     continuationInitial
         _ -> ([unsupportedFailure path], comparisonState)
@@ -1569,9 +1572,9 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         Nothing -> ([unsupportedFailure path], currentState)
 
     managedSuccessArguments canonicalShapes controlArguments matchedOperands =
-      if map loweredOperandRepresentation matchedOperands
-        == [representation | FunctionParameterShape _ (LoweredParameter _ representation) <- canonicalShapes]
-        then Just (controlArguments <> matchedOperands)
+      if fmap loweredOperandRepresentation matchedOperands
+        == Seq.fromList [representation | FunctionParameterShape _ (LoweredParameter _ representation) <- canonicalShapes]
+        then Just (controlArguments <> toList matchedOperands)
         else Nothing
 
     lowerManagedMatchedArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters canonicalShapes armIndex arm@(TypedCaseArm _ maybeGuard _) laterArms continuationTemplate matchedState =

@@ -19,6 +19,7 @@ where
 import Control.Monad (foldM, join)
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq, (|>))
@@ -63,6 +64,7 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
     ManagedLayoutCatalog
       { catalogModulePath = modulePath,
         catalogConstructors = constructors,
+        catalogPatternConstructors = patternConstructors,
         catalogLayoutShapes =
           Map.fromList
             [ (layoutId, shape)
@@ -73,20 +75,28 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
   where
     declarationValues = orderedDataDeclarations moduleInterface statements
     declarations = Map.fromList [(dataDeclarationName declaration, declaration) | declaration <- declarationValues]
-    constructors =
-      Map.fromList
-        [ ( binder,
-            ConstructorTemplate
-              { constructorTemplateName = name,
-                constructorTemplateDataName = dataDeclarationName declaration,
-                constructorTemplateParameters = dataDeclarationParameters declaration,
-                constructorTemplateTag = tag,
-                constructorTemplateFieldRecipes = fieldRecipes
-              }
+    constructors = Map.fromList constructorEntries
+    patternConstructors =
+      Map.fromListWith
+        (<>)
+        [ ( (constructorTemplateDataName constructor, constructorTemplateName constructor),
+            (binder, constructor) :| []
           )
-        | declaration <- declarationValues,
-          (tag, TypedConstructorDeclaration binder name _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+        | (binder, constructor) <- Map.toList constructors
         ]
+    constructorEntries =
+      [ ( binder,
+          ConstructorTemplate
+            { constructorTemplateName = name,
+              constructorTemplateDataName = dataDeclarationName declaration,
+              constructorTemplateParameters = dataDeclarationParameters declaration,
+              constructorTemplateTag = tag,
+              constructorTemplateFieldRecipes = fieldRecipes
+            }
+        )
+      | declaration <- declarationValues,
+        (tag, TypedConstructorDeclaration binder name _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+      ]
 
     emptyBuild = CatalogBuild Seq.empty Map.empty
 
@@ -140,12 +150,9 @@ constructorPatternLayoutFor catalog info constructorName = do
             Just (recipeName, recipeArguments)
       _ -> Nothing
   (binder, constructor) <-
-    single
-      [ (candidateBinder, candidate)
-      | (candidateBinder, candidate) <- Map.toList (catalogConstructors catalog),
-        constructorTemplateDataName candidate == dataName,
-        constructorTemplateName candidate == constructorName
-      ]
+    case Map.lookup (dataName, constructorName) (catalogPatternConstructors catalog) of
+      Just (candidate :| []) -> Just candidate
+      _ -> Nothing
   let parameters = constructorTemplateParameters constructor
   if length parameters == length arguments then pure () else Nothing
   let instantiations =
