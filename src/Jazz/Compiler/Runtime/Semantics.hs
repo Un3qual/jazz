@@ -262,7 +262,11 @@ runtimeValueMatchesLiteral runtimeValue literal =
     VExplicitTypeApplication _ innerValue -> runtimeValueMatchesLiteral innerValue literal
     VExplicitResultHints _ innerValue -> runtimeValueMatchesLiteral innerValue literal
     VInt actual _ -> case literal of LInt expected -> actual == expected; _ -> False
-    VFloat actual _ -> case literal of LFloat expected _ _ -> actual == expected; _ -> False
+    VFloat actual _ ->
+      case literal of
+        LFloat expected _ (Just targetType) -> actual == roundFloatTarget targetType expected
+        LFloat expected _ Nothing -> actual == expected
+        _ -> False
     VBool actual -> case literal of LBool expected -> actual == expected; _ -> False
     VChar actual -> case literal of LChar expected -> actual == expected; _ -> False
     VText actual -> case literal of LText expected -> actual == expected; _ -> False

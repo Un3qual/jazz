@@ -33,16 +33,22 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSource
   )
+import Jazz.Compiler.FractionalLiteral
+  ( mkFractionalLiteralSource
+  )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithBuiltinsAndBindingHints
   )
 import Jazz.Compiler.Runtime.Semantics
-  ( runtimeValueMatchesLiteral
+  ( literalRuntimeValue,
+    roundFloatTarget,
+    runtimeValueMatchesLiteral
   )
 import Jazz.Compiler.Runtime.Types
-  ( RuntimeIntMetadata (..)
+  ( RuntimeIntMetadata (..),
+    prependRuntimeExplicitResultHint
   )
 import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKey
@@ -157,9 +163,31 @@ testRuntimeValueMatchesLiteral = do
     True
     (runtimeValueMatchesLiteral (VTyped TypeInt (VInt 7 (RuntimeIntMetadata Nothing))) (LInt 7))
   assertEqual
+    "nested type wrappers preserve literal matching"
+    True
+    ( runtimeValueMatchesLiteral
+        ( VTyped
+            TypeInt
+            ( VExplicitTypeApplication
+                TypeInt
+                (prependRuntimeExplicitResultHint TypeInt (VInt 7 (RuntimeIntMetadata Nothing)))
+            )
+        )
+        (LInt 7)
+    )
+  assertEqual
     "different text literal does not match"
     False
     (runtimeValueMatchesLiteral (VText "Jazz") (LText "jazz"))
+  let float32Literal = LFloat 1.1 (mkFractionalLiteralSource 1 1 1) (Just NumericFloat32)
+  assertEqual
+    "targeted Float32 test value rounds away from source Double"
+    False
+    (1.1 == roundFloatTarget NumericFloat32 1.1)
+  assertEqual
+    "targeted Float32 literal matches its rounded runtime value"
+    True
+    (runtimeValueMatchesLiteral (literalRuntimeValue float32Literal) float32Literal)
   case evaluateRuntimeExpr (runtimeExpr (ELambda "item" (EVar "item"))) of
     Right (Just closureRuntimeValue) ->
       assertEqual
