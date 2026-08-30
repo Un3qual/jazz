@@ -16,6 +16,7 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
+import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule)
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
@@ -176,6 +177,17 @@ testScalarPatternCaseLowererBoundary =
           let firstLowering = lowerTypedCoreExpressionDirectCall programValue
               secondLowering = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
+          case programValue of
+            TypedProgram _ [moduleValue] _ ->
+              case analyzeTypedModule moduleValue of
+                Left analysisFailures ->
+                  assertEqual
+                    (name <> " exact analysis rejection")
+                    expectedFailures
+                    analysisFailures
+                Right _ ->
+                  failTest (name <> " unexpectedly passed lowering analysis")
+            _ -> failTest (name <> " must contain exactly one typed module")
           assertEqual (name <> " repeatable lowerer rejection") firstLowering secondLowering
           assertEqual
             (name <> " exact lowerer rejection")

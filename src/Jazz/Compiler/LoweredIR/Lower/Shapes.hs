@@ -1150,6 +1150,74 @@ patternCaseProfileFailures ::
   [TypedCaseArm] ->
   [LoweredIRLoweringFailure]
 patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
+  case scalarRepresentation managedLayoutCatalog (typedNodeType scrutineeInfo) (typedNodeRecipe scrutineeInfo) of
+    Just _ -> scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath scrutineeInfo arms
+    Nothing -> managedPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms
+  where
+    scrutineeInfo = typedExpressionInfo scrutinee
+
+scalarPatternCaseProfileFailures ::
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedNodeInfo ->
+  [TypedCaseArm] ->
+  [LoweredIRLoweringFailure]
+scalarPatternCaseProfileFailures modulePath statementPath reversedExpressionPath scrutineeInfo arms =
+  case unsupportedArmFailures of
+    failure : _ -> [failure]
+    []
+      | not (totalArmChain arms) -> [expressionFailure LoweredIRIncompletePatternCase]
+      | otherwise -> []
+  where
+    expressionPath = reverse reversedExpressionPath
+    unsupportedArmFailures =
+      [ LoweredIRLoweringFailure
+          (TypedPatternPath modulePath statementPath (expressionPath <> [armIndex]))
+          LoweredIRUnsupportedPattern
+          LoweredIRNoFailureDetail
+      | (armIndex, TypedCaseArm patternValue _ _) <- zip [0 :: Int ..] arms,
+        not (supportedPattern patternValue)
+      ]
+    supportedPattern patternValue =
+      case patternValue of
+        TypedWildcardPattern info -> matchingScrutineeInfo info
+        TypedVariablePattern info _ _ -> matchingScrutineeInfo info
+        TypedLiteralPattern info _ -> matchingScrutineeInfo info
+        _ -> False
+    matchingScrutineeInfo info =
+      typedNodeType info == typedNodeType scrutineeInfo
+        && typedNodeRecipe info == typedNodeRecipe scrutineeInfo
+    totalArmChain caseArms =
+      case reverse caseArms of
+        TypedCaseArm finalPattern Nothing _ : precedingArms ->
+          catchAllPattern finalPattern
+            && all supportedPrecedingArm precedingArms
+        _ -> False
+    supportedPrecedingArm (TypedCaseArm patternValue maybeGuard _) =
+      case maybeGuard of
+        Just _ -> True
+        Nothing -> not (catchAllPattern patternValue)
+    catchAllPattern patternValue =
+      case patternValue of
+        TypedWildcardPattern {} -> True
+        TypedVariablePattern {} -> True
+        _ -> False
+    expressionFailure kind =
+      LoweredIRLoweringFailure
+        (TypedExpressionPath modulePath statementPath expressionPath)
+        kind
+        LoweredIRNoFailureDetail
+
+managedPatternCaseProfileFailures ::
+  ManagedLayoutCatalog ->
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedExpr ->
+  [TypedCaseArm] ->
+  [LoweredIRLoweringFailure]
+managedPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
   case patternCaseTotalPrefixLength managedLayoutCatalog statementPath reversedExpressionPath scrutinee arms of
     Left failure -> [failure]
     Right maybeTotalPrefixLength
@@ -1164,9 +1232,6 @@ patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reverse
     scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe scrutineeInfo)
     admittedScrutinee info maybeRepresentation =
       case (typedNodeRecipe info, maybeRepresentation) of
-        (_, Just representation)
-          | scalarRepresentation managedLayoutCatalog (typedNodeType info) (typedNodeRecipe info) == Just representation ->
-              True
         (TypedManagedProductRecipe _, Just (LoweredManagedReferenceRepresentation layoutId)) ->
           case managedLayoutShapeFor managedLayoutCatalog layoutId of
             Just LoweredProductLayout {} -> True
