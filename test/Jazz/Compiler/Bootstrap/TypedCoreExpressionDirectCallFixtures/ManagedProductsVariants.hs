@@ -104,7 +104,9 @@ managedProductVariantExpectedPrograms =
 managedPatternProfileAcceptedPrograms :: [(Text, TypedProgram)]
 managedPatternProfileAcceptedPrograms =
   [ ("managed-closed-variant-pattern-profile", managedTopLevelOrPatternProgram),
-    ("managed-total-tuple-pattern-profile", managedTotalTuplePatternProgram)
+    ("managed-total-tuple-pattern-profile", managedTotalTuplePatternProgram),
+    ("managed-recursive-complete-pattern-profile", managedRecursiveCompletePatternProgram),
+    ("managed-mutually-recursive-complete-pattern-profile", managedMutuallyRecursiveCompletePatternProgram)
   ]
 
 managedPatternProfileRejectedPrograms :: [(Text, TypedProgram)]
@@ -117,7 +119,9 @@ managedPatternProfileRejectedPrograms =
     ("managed-nested-constructor-tuple-pattern-profile", managedAsConstructorTuplePatternProgram),
     ("managed-list-pattern-profile", managedListPatternProgram),
     ("managed-nested-or-pattern-profile", managedNestedOrPatternProgram),
-    ("managed-text-literal-pattern-profile", managedTextLiteralPatternProgram)
+    ("managed-text-literal-pattern-profile", managedTextLiteralPatternProgram),
+    ("managed-recursive-incomplete-pattern-profile", managedRecursiveIncompletePatternProgram),
+    ("managed-mutually-recursive-incomplete-pattern-profile", managedMutuallyRecursiveIncompletePatternProgram)
   ]
 
 managedProductVariantExpectedLoweredPrograms :: [(Text, LoweredProgram)]
@@ -150,6 +154,30 @@ managedPatternEmissionExpectedLoweredPrograms =
   [ ("managed-tuple-selection-pattern", managedTupleSelectionPatternProgram, managedTupleSelectionPatternLoweredProgram),
     ("managed-guarded-as-constructor-tuple-pattern", managedGuardedAsConstructorTuplePatternProgram, managedGuardedAsConstructorTuplePatternLoweredProgram),
     ("managed-top-level-or-pattern", managedTopLevelOrPatternProgram, managedTopLevelOrPatternLoweredProgram),
+    ( "managed-recursive-complete-constructor-pattern",
+      managedRecursiveCompletePatternProgram,
+      managedRecursiveCompletePatternLoweredProgram
+    ),
+    ( "managed-mutually-recursive-complete-constructor-pattern",
+      managedMutuallyRecursiveCompletePatternProgram,
+      managedMutuallyRecursiveCompletePatternLoweredProgram
+    ),
+    ( "managed-wildcard-prefix-only",
+      managedWildcardPrefixProgram,
+      managedWildcardPrefixLoweredProgram
+    ),
+    ( "managed-variable-prefix-only",
+      managedVariablePrefixProgram,
+      managedVariablePrefixLoweredProgram
+    ),
+    ( "managed-variable-prefix-constructor-literal-guarded-suffix",
+      managedVariablePrefixWithSuffixProgram,
+      managedVariablePrefixLoweredProgram
+    ),
+    ( "managed-wildcard-prefix-constructor-literal-guarded-suffix",
+      managedWildcardPrefixWithSuffixProgram,
+      managedWildcardPrefixLoweredProgram
+    ),
     ( "managed-exhaustive-constructor-product-prefix-literal-suffix",
       managedExhaustiveConstructorProductPrefixLiteralSuffixProgram,
       managedGuardedAsConstructorTuplePatternLoweredProgram
@@ -338,6 +366,368 @@ managedNestedVariantLoweredProgram =
         (LoweredConstructVariant outerLayoutId 0 [temporaryOperand 1 optionRepresentation])
     ]
     (temporaryOperand 2 outerRepresentation)
+
+managedWildcardPrefixLoweredProgram :: LoweredProgram
+managedWildcardPrefixLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternChoiceLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternChoiceRepresentation
+                (LoweredConstructVariant patternChoiceLayoutId 1 [intOperand 7])
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$1$e1$0$a0$body")
+                    [temporaryOperand 1 patternChoiceRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a0$body")
+            [blockParameter "live1" patternChoiceRepresentation]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$1$e1$0$join")
+                    [intOperand 41]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$join")
+            [blockParameter "result" int64Representation]
+            []
+            (Just (LoweredReturn (blockOperand "result" int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+
+managedVariablePrefixLoweredProgram :: LoweredProgram
+managedVariablePrefixLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternChoiceLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        patternChoiceRepresentation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternChoiceRepresentation
+                (LoweredConstructVariant patternChoiceLayoutId 1 [intOperand 7])
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$1$e1$0$a0$body")
+                    [ temporaryOperand 1 patternChoiceRepresentation,
+                      temporaryOperand 1 patternChoiceRepresentation
+                    ]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a0$body")
+            [ blockParameter "live1" patternChoiceRepresentation,
+              blockParameter "pattern" patternChoiceRepresentation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$1$e1$0$join")
+                    [blockOperand "pattern" patternChoiceRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$join")
+            [blockParameter "result" patternChoiceRepresentation]
+            []
+            (Just (LoweredReturn (blockOperand "result" patternChoiceRepresentation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+
+managedRecursiveCompletePatternLoweredProgram :: LoweredProgram
+managedRecursiveCompletePatternLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternChainLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternChainRepresentation
+                (LoweredConstructVariant patternChainLayoutId 0 []),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                uint64Representation
+                (LoweredProjectVariantTag patternChainLayoutId (temporaryOperand 1 patternChainRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (temporaryOperand 1 patternChainRepresentation)
+                    [ LoweredSwitchCase
+                        0
+                        (LoweredBlockId "case$s1$1$e1$0$a0$alt0$proot$fields")
+                        [ temporaryOperand 1 patternChainRepresentation,
+                          temporaryOperand 1 patternChainRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$1$e1$0$a1$test")
+                            [temporaryOperand 1 patternChainRepresentation]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a0$alt0$proot$fields")
+            [ blockParameter "live1" patternChainRepresentation,
+              blockParameter "match1" patternChainRepresentation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$1$e1$0$a0$body")
+                    [blockOperand "live1" patternChainRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a0$body")
+            [blockParameter "live1" patternChainRepresentation]
+            []
+            (Just (LoweredJump (LoweredBlockId "case$s1$1$e1$0$join") [intOperand 0])),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a1$test")
+            [blockParameter "live1" patternChainRepresentation]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                uint64Representation
+                (LoweredProjectVariantTag patternChainLayoutId (blockOperand "live1" patternChainRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (blockOperand "live1" patternChainRepresentation)
+                    [ LoweredSwitchCase
+                        1
+                        (LoweredBlockId "case$s1$1$e1$0$a1$alt0$proot$fields")
+                        [ blockOperand "live1" patternChainRepresentation,
+                          blockOperand "live1" patternChainRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$1$e1$0$a1$alt0$proot$fields")
+                            [ blockOperand "live1" patternChainRepresentation,
+                              blockOperand "live1" patternChainRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a1$alt0$proot$fields")
+            [ blockParameter "live1" patternChainRepresentation,
+              blockParameter "match1" patternChainRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternChainRepresentation
+                (LoweredProjectVariantField patternChainLayoutId 1 0 (blockOperand "match1" patternChainRepresentation))
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$1$e1$0$a1$body")
+                    [blockOperand "live1" patternChainRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$a1$body")
+            [blockParameter "live1" patternChainRepresentation]
+            []
+            (Just (LoweredJump (LoweredBlockId "case$s1$1$e1$0$join") [intOperand 1])),
+          LoweredBlock
+            (LoweredBlockId "case$s1$1$e1$0$join")
+            [blockParameter "result" int64Representation]
+            []
+            (Just (LoweredReturn (blockOperand "result" int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
+
+managedMutuallyRecursiveCompletePatternLoweredProgram :: LoweredProgram
+managedMutuallyRecursiveCompletePatternLoweredProgram =
+  LoweredProgram
+    (LoweredIRVersion 1)
+    [patternEvenLayout, patternOddLayout]
+    []
+    [ LoweredFunction
+        (LoweredFunctionId "App::Main::$entry")
+        Nothing
+        []
+        int64Representation
+        [ LoweredBlock
+            (LoweredBlockId "entry")
+            []
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternEvenRepresentation
+                (LoweredConstructVariant patternEvenLayoutId 1 []),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                uint64Representation
+                (LoweredProjectVariantTag patternEvenLayoutId (temporaryOperand 1 patternEvenRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (temporaryOperand 1 patternEvenRepresentation)
+                    [ LoweredSwitchCase
+                        1
+                        (LoweredBlockId "case$s1$2$e1$0$a0$alt0$proot$fields")
+                        [ temporaryOperand 1 patternEvenRepresentation,
+                          temporaryOperand 1 patternEvenRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a1$test")
+                            [temporaryOperand 1 patternEvenRepresentation]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$alt0$proot$fields")
+            [ blockParameter "live1" patternEvenRepresentation,
+              blockParameter "match1" patternEvenRepresentation
+            ]
+            []
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$a0$body")
+                    [blockOperand "live1" patternEvenRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a0$body")
+            [blockParameter "live1" patternEvenRepresentation]
+            []
+            (Just (LoweredJump (LoweredBlockId "case$s1$2$e1$0$join") [intOperand 0])),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$test")
+            [blockParameter "live1" patternEvenRepresentation]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                uint64Representation
+                (LoweredProjectVariantTag patternEvenLayoutId (blockOperand "live1" patternEvenRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (blockOperand "live1" patternEvenRepresentation)
+                    [ LoweredSwitchCase
+                        0
+                        (LoweredBlockId "case$s1$2$e1$0$a1$alt0$proot$fields")
+                        [ blockOperand "live1" patternEvenRepresentation,
+                          blockOperand "live1" patternEvenRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a1$alt0$proot$fields")
+                            [ blockOperand "live1" patternEvenRepresentation,
+                              blockOperand "live1" patternEvenRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$alt0$proot$fields")
+            [ blockParameter "live1" patternEvenRepresentation,
+              blockParameter "match1" patternEvenRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternOddRepresentation
+                (LoweredProjectVariantField patternEvenLayoutId 0 0 (blockOperand "match1" patternEvenRepresentation)),
+              LoweredInstruction
+                (LoweredTemporaryId "t2")
+                uint64Representation
+                (LoweredProjectVariantTag patternOddLayoutId (temporaryOperand 1 patternOddRepresentation))
+            ]
+            ( Just
+                ( LoweredSwitch
+                    (temporaryOperand 1 patternOddRepresentation)
+                    [ LoweredSwitchCase
+                        0
+                        (LoweredBlockId "case$s1$2$e1$0$a1$alt0$p0$fields")
+                        [ blockOperand "live1" patternEvenRepresentation,
+                          temporaryOperand 1 patternOddRepresentation
+                        ]
+                    ]
+                    ( Just
+                        ( LoweredSwitchDefault
+                            (LoweredBlockId "case$s1$2$e1$0$a1$alt0$p0$fields")
+                            [ blockOperand "live1" patternEvenRepresentation,
+                              temporaryOperand 1 patternOddRepresentation
+                            ]
+                        )
+                    )
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$alt0$p0$fields")
+            [ blockParameter "live1" patternEvenRepresentation,
+              blockParameter "match1" patternOddRepresentation
+            ]
+            [ LoweredInstruction
+                (LoweredTemporaryId "t1")
+                patternEvenRepresentation
+                (LoweredProjectVariantField patternOddLayoutId 0 0 (blockOperand "match1" patternOddRepresentation))
+            ]
+            ( Just
+                ( LoweredJump
+                    (LoweredBlockId "case$s1$2$e1$0$a1$body")
+                    [blockOperand "live1" patternEvenRepresentation]
+                )
+            ),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$a1$body")
+            [blockParameter "live1" patternEvenRepresentation]
+            []
+            (Just (LoweredJump (LoweredBlockId "case$s1$2$e1$0$join") [intOperand 1])),
+          LoweredBlock
+            (LoweredBlockId "case$s1$2$e1$0$join")
+            [blockParameter "result" int64Representation]
+            []
+            (Just (LoweredReturn (blockOperand "result" int64Representation)))
+        ]
+        (LoweredBlockId "entry")
+    ]
+    (LoweredFunctionId "App::Main::$entry")
 
 managedTupleSelectionPatternLoweredProgram :: LoweredProgram
 managedTupleSelectionPatternLoweredProgram =
@@ -1476,6 +1866,30 @@ patternChoiceLayout =
     patternChoiceLayoutId
     (LoweredVariantLayouts [LoweredVariantLayout 0 [int64Representation], LoweredVariantLayout 1 [int64Representation]])
 
+patternChainLayoutId, patternEvenLayoutId, patternOddLayoutId :: LoweredLayoutId
+patternChainLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$5:Chain$args0"
+patternEvenLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$4:Even$args0"
+patternOddLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$3:Odd$args0"
+
+patternChainRepresentation, patternEvenRepresentation, patternOddRepresentation :: LoweredRepresentation
+patternChainRepresentation = LoweredManagedReferenceRepresentation patternChainLayoutId
+patternEvenRepresentation = LoweredManagedReferenceRepresentation patternEvenLayoutId
+patternOddRepresentation = LoweredManagedReferenceRepresentation patternOddLayoutId
+
+patternChainLayout, patternEvenLayout, patternOddLayout :: LoweredLayout
+patternChainLayout =
+  LoweredLayout
+    patternChainLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [], LoweredVariantLayout 1 [patternChainRepresentation]])
+patternEvenLayout =
+  LoweredLayout
+    patternEvenLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [patternOddRepresentation], LoweredVariantLayout 1 []])
+patternOddLayout =
+  LoweredLayout
+    patternOddLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [patternEvenRepresentation]])
+
 boolClosureRepresentation :: LoweredRepresentation
 boolClosureRepresentation =
   LoweredClosureRepresentation
@@ -1685,6 +2099,217 @@ managedTopLevelOrPatternProgram =
     itemName = valueName "item"
     leftItemBinder = TypedBinderId (modulePath, [2, 0, 0, 0], itemName)
     rightItemBinder = TypedBinderId (modulePath, [2, 0, 1, 0], itemName)
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedWildcardPrefixProgram :: TypedProgram
+managedWildcardPrefixProgram = managedChoiceCatchAllPrefixProgram False False
+
+managedWildcardPrefixWithSuffixProgram :: TypedProgram
+managedWildcardPrefixWithSuffixProgram = managedChoiceCatchAllPrefixProgram False True
+
+managedVariablePrefixProgram :: TypedProgram
+managedVariablePrefixProgram = managedChoiceCatchAllPrefixProgram True False
+
+managedVariablePrefixWithSuffixProgram :: TypedProgram
+managedVariablePrefixWithSuffixProgram = managedChoiceCatchAllPrefixProgram True True
+
+managedChoiceCatchAllPrefixProgram :: Bool -> Bool -> TypedProgram
+managedChoiceCatchAllPrefixProgram variablePrefix includeSuffix =
+  managedProgram
+    [ TypedDataStatement choiceDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            resultInfo
+            (constructorCall rightBinder rightName choiceIntInfo [int64Info] [int64Expr 7])
+            (prefixArm : suffixArms)
+        )
+    ]
+    resultInfo
+  where
+    parameter = TypedTypeParameterId 0
+    parameterType = TypedTypeParameterType parameter
+    choiceName = typeName "Choice"
+    leftName = constructorName "Left"
+    rightName = constructorName "Right"
+    leftBinder = constructorBinder 0 leftName
+    rightBinder = constructorBinder 1 rightName
+    choiceDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        choiceName
+        [parameter]
+        [ TypedConstructorDeclaration leftBinder leftName [parameterType] [TypedRepresentationParameterRecipe parameter],
+          TypedConstructorDeclaration rightBinder rightName [parameterType] [TypedRepresentationParameterRecipe parameter]
+        ]
+    choiceIntInfo = variantInfo choiceName [TypedNumericType TypedInt64Type]
+    wholeName = valueName "whole"
+    wholeBinder = TypedBinderId (modulePath, [1, 0], wholeName)
+    resultInfo
+      | variablePrefix = choiceIntInfo
+      | otherwise = int64Info
+    prefixArm =
+      TypedCaseArm
+        ( if variablePrefix
+            then TypedVariablePattern choiceIntInfo wholeBinder wholeName
+            else TypedWildcardPattern choiceIntInfo
+        )
+        Nothing
+        ( if variablePrefix
+            then TypedVariableExpr choiceIntInfo wholeName (Just wholeBinder)
+            else int64Expr 41
+        )
+    suffixArms
+      | includeSuffix =
+          [ TypedCaseArm
+              ( TypedConstructorPattern
+                  choiceIntInfo
+                  leftName
+                  [TypedLiteralPattern int64Info (TypedIntegerLiteral "0")]
+              )
+              Nothing
+              (suffixBody leftBinder leftName 1),
+            TypedCaseArm
+              (TypedConstructorPattern choiceIntInfo rightName [TypedWildcardPattern int64Info])
+              (Just (boolExpr True))
+              (suffixBody rightBinder rightName 2)
+          ]
+      | otherwise = []
+    suffixBody binder name value
+      | variablePrefix = constructorCall binder name choiceIntInfo [int64Info] [int64Expr value]
+      | otherwise = int64Expr value
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedRecursiveCompletePatternProgram :: TypedProgram
+managedRecursiveCompletePatternProgram = managedRecursivePatternProgram True
+
+managedRecursiveIncompletePatternProgram :: TypedProgram
+managedRecursiveIncompletePatternProgram = managedRecursivePatternProgram False
+
+managedRecursivePatternProgram :: Bool -> TypedProgram
+managedRecursivePatternProgram complete =
+  managedProgram
+    [ TypedDataStatement chainDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (monomorphicConstructorCall endBinder endName chainInfo [] [])
+            [ TypedCaseArm
+                (TypedConstructorPattern chainInfo endName [])
+                Nothing
+                (int64Expr 0),
+              TypedCaseArm
+                (TypedConstructorPattern chainInfo nextName [nextFieldPattern])
+                Nothing
+                (int64Expr 1)
+            ]
+        )
+    ]
+    int64Info
+  where
+    chainName = typeName "Chain"
+    endName = constructorName "End"
+    nextName = constructorName "Next"
+    endBinder = constructorBinder 0 endName
+    nextBinder = constructorBinder 1 nextName
+    chainInfo = variantInfo chainName []
+    chainDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        chainName
+        []
+        [ TypedConstructorDeclaration endBinder endName [] [],
+          TypedConstructorDeclaration
+            nextBinder
+            nextName
+            [typedExpressionType chainInfo]
+            [typedExpressionRecipe chainInfo]
+        ]
+    nextFieldPattern
+      | complete = TypedWildcardPattern chainInfo
+      | otherwise = TypedConstructorPattern chainInfo endName []
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedMutuallyRecursiveCompletePatternProgram :: TypedProgram
+managedMutuallyRecursiveCompletePatternProgram = managedMutuallyRecursivePatternProgram True
+
+managedMutuallyRecursiveIncompletePatternProgram :: TypedProgram
+managedMutuallyRecursiveIncompletePatternProgram = managedMutuallyRecursivePatternProgram False
+
+managedMutuallyRecursivePatternProgram :: Bool -> TypedProgram
+managedMutuallyRecursivePatternProgram complete =
+  managedProgram
+    [ TypedDataStatement evenDeclaration,
+      TypedDataStatement oddDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (monomorphicConstructorCall zeroBinder zeroName evenInfo [] [])
+            [ TypedCaseArm
+                (TypedConstructorPattern evenInfo zeroName [])
+                Nothing
+                (int64Expr 0),
+              TypedCaseArm
+                ( TypedConstructorPattern
+                    evenInfo
+                    evenConstructorName
+                    [ TypedConstructorPattern
+                        oddInfo
+                        oddConstructorName
+                        [nestedEvenPattern]
+                    ]
+                )
+                Nothing
+                (int64Expr 1)
+            ]
+        )
+    ]
+    int64Info
+  where
+    evenName = typeName "Even"
+    oddName = typeName "Odd"
+    evenConstructorName = constructorName "Even"
+    zeroName = constructorName "Zero"
+    oddConstructorName = constructorName "Odd"
+    evenBinder = catalogConstructorBinder 0 0 evenConstructorName
+    zeroBinder = catalogConstructorBinder 0 1 zeroName
+    oddBinder = catalogConstructorBinder 1 0 oddConstructorName
+    evenInfo = variantInfo evenName []
+    oddInfo = variantInfo oddName []
+    evenDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        evenName
+        []
+        [ TypedConstructorDeclaration
+            evenBinder
+            evenConstructorName
+            [typedExpressionType oddInfo]
+            [typedExpressionRecipe oddInfo],
+          TypedConstructorDeclaration zeroBinder zeroName [] []
+        ]
+    oddDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 3 1)
+        oddName
+        []
+        [ TypedConstructorDeclaration
+            oddBinder
+            oddConstructorName
+            [typedExpressionType evenInfo]
+            [typedExpressionRecipe evenInfo]
+        ]
+    nestedEvenPattern
+      | complete = TypedWildcardPattern evenInfo
+      | otherwise = TypedConstructorPattern evenInfo zeroName []
     int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
     int64Expr :: Integer -> TypedExpr
     int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))

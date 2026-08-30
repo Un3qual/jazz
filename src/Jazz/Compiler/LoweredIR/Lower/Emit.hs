@@ -1127,12 +1127,33 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
 
     lowerSelectedArmChain resultRepresentation scrutineeOperand
       | managedPatternCase = lowerManagedArmChain resultRepresentation scrutineeOperand
+      | earlyUnguardedCatchAll arms =
+          ( [ LoweredIRLoweringFailure
+                path
+                LoweredIRIncompletePatternCase
+                LoweredIRNoFailureDetail
+            ],
+            Nothing,
+            scrutineeState
+          )
       | otherwise = lowerArmChain resultRepresentation scrutineeOperand
 
     managedPatternCase =
       case typedNodeRecipe (typedExpressionInfo scrutinee) of
         TypedManagedProductRecipe {} -> True
         TypedManagedVariantRecipe {} -> True
+        _ -> False
+
+    earlyUnguardedCatchAll caseArms =
+      case reverse caseArms of
+        [] -> False
+        _ : reversedPreceding ->
+          any unsupportedPrecedingCatchAll reversedPreceding
+
+    unsupportedPrecedingCatchAll (TypedCaseArm patternValue maybeGuard _) =
+      case (patternValue, maybeGuard) of
+        (TypedWildcardPattern {}, Nothing) -> True
+        (TypedVariablePattern {}, Nothing) -> True
         _ -> False
 
     lowerManagedArmChain resultRepresentation scrutineeOperand =

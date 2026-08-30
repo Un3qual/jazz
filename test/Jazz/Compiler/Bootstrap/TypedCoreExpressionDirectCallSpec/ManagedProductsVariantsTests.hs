@@ -246,6 +246,7 @@ testManagedPatternLowererProfile :: IO ()
 testManagedPatternLowererProfile = do
   mapM_ assertAccepted acceptedNames
   mapM_ assertRejected expectedRejections
+  mapM_ assertRejectedLowering recursiveRejections
   testManagedPatternParameterShapes
   where
     assertAccepted name =
@@ -267,9 +268,20 @@ testManagedPatternLowererProfile = do
             (Left [expectedFailure])
             (case analyzeTypedModule (onlyModule typedProgram) of Left failures -> Left failures; Right _ -> Right ())
 
+    assertRejectedLowering (name, expectedFailure) =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed recursive pattern rejection fixture is missing")
+        Just typedProgram ->
+          assertEqual
+            (name <> " exact incomplete recursive lowering")
+            (LoweredIRUnsupported [expectedFailure])
+            (lowerTypedCoreExpressionDirectCall typedProgram)
+
     acceptedNames =
       [ "managed-closed-variant-pattern-profile",
-        "managed-total-tuple-pattern-profile"
+        "managed-total-tuple-pattern-profile",
+        "managed-recursive-complete-pattern-profile",
+        "managed-mutually-recursive-complete-pattern-profile"
       ]
 
     expectedRejections =
@@ -282,6 +294,12 @@ testManagedPatternLowererProfile = do
         unsupported "managed-list-pattern-profile" 0 [0, 0],
         unsupported "managed-nested-or-pattern-profile" 1 [0, 0, 0],
         unsupported "managed-text-literal-pattern-profile" 1 [0, 0, 0]
+      ]
+        <> recursiveRejections
+
+    recursiveRejections =
+      [ incomplete "managed-recursive-incomplete-pattern-profile" 1,
+        incomplete "managed-mutually-recursive-incomplete-pattern-profile" 2
       ]
 
     incomplete name statementIndex =

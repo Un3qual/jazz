@@ -1155,8 +1155,6 @@ patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reverse
     Right maybeTotalPrefixLength
       | not (admittedScrutinee scrutineeInfo scrutineeRepresentation) ->
           [expressionFailure LoweredIRUnsupportedPattern]
-      | earlyUnguardedCatchAll arms ->
-          [expressionFailure LoweredIRIncompletePatternCase]
       | maybeTotalPrefixLength == Nothing ->
           [expressionFailure LoweredIRIncompletePatternCase]
       | otherwise -> []
@@ -1164,16 +1162,6 @@ patternCaseProfileFailures managedLayoutCatalog modulePath statementPath reverse
     expressionPath = reverse reversedExpressionPath
     scrutineeInfo = typedExpressionInfo scrutinee
     scrutineeRepresentation = representationForRecipe managedLayoutCatalog (typedNodeRecipe scrutineeInfo)
-    earlyUnguardedCatchAll caseArms =
-      case reverse caseArms of
-        [] -> False
-        _ : reversedPreceding ->
-          any unsupportedPrecedingCatchAll reversedPreceding
-    unsupportedPrecedingCatchAll (TypedCaseArm patternValue maybeGuard _) =
-      case (patternValue, maybeGuard) of
-        (TypedWildcardPattern {}, Nothing) -> True
-        (TypedVariablePattern {}, Nothing) -> True
-        _ -> False
     admittedScrutinee info maybeRepresentation =
       case (typedNodeRecipe info, maybeRepresentation) of
         (_, Just representation)
@@ -1316,18 +1304,26 @@ coverageMatrixTotal :: ManagedLayoutCatalog -> [Maybe LoweredRepresentation] -> 
 coverageMatrixTotal _ [] rows = any null rows
 coverageMatrixTotal _ (Nothing : _) _ = False
 coverageMatrixTotal managedLayoutCatalog (Just representation : remainingRepresentations) rows =
-  case representation of
-    LoweredManagedReferenceRepresentation layoutId ->
-      case managedLayoutShapeFor managedLayoutCatalog layoutId of
-        Just (LoweredProductLayout fields) ->
-          coverageMatrixTotal managedLayoutCatalog (map Just fields <> remainingRepresentations) (specializeProduct fields rows)
-        Just (LoweredVariantLayouts variants) ->
-          all
-            (\(LoweredVariantLayout tag fields) -> coverageMatrixTotal managedLayoutCatalog (map Just fields <> remainingRepresentations) (specializeVariant tag fields rows))
-            variants
+  case traverse catchAllRemainder rows of
+    Just remainingRows ->
+      coverageMatrixTotal managedLayoutCatalog remainingRepresentations remainingRows
+    Nothing ->
+      case representation of
+        LoweredManagedReferenceRepresentation layoutId ->
+          case managedLayoutShapeFor managedLayoutCatalog layoutId of
+            Just (LoweredProductLayout fields) ->
+              coverageMatrixTotal managedLayoutCatalog (map Just fields <> remainingRepresentations) (specializeProduct fields rows)
+            Just (LoweredVariantLayouts variants) ->
+              all
+                (\(LoweredVariantLayout tag fields) -> coverageMatrixTotal managedLayoutCatalog (map Just fields <> remainingRepresentations) (specializeVariant tag fields rows))
+                variants
+            _ -> openRepresentationTotal
         _ -> openRepresentationTotal
-    _ -> openRepresentationTotal
   where
+    catchAllRemainder row =
+      case row of
+        LowererCoverageCatchAll : remaining -> Just remaining
+        _ -> Nothing
     openRepresentationTotal =
       coverageMatrixTotal
         managedLayoutCatalog
