@@ -158,7 +158,8 @@ data ManagedConstructorLayout = ManagedConstructorLayout
   deriving (Eq, Show)
 
 data ConstructorTemplate = ConstructorTemplate
-  { constructorTemplateDataName :: TypedCoreName,
+  { constructorTemplateName :: TypedCoreName,
+    constructorTemplateDataName :: TypedCoreName,
     constructorTemplateParameters :: [TypedTypeParameterId],
     constructorTemplateTag :: Natural,
     constructorTemplateFieldRecipes :: [TypedRepresentationRecipe]

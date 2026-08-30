@@ -137,6 +137,8 @@ managedConstructionLowererBoundaryPrograms =
     ("managed-product-equality-lowerer", managedProductEqualityLowererProgram),
     ("managed-variant-equality-lowerer", managedVariantEqualityLowererProgram)
   ]
+    <> ManagedProductsVariants.managedPatternProfileAcceptedPrograms
+    <> ManagedProductsVariants.managedPatternProfileRejectedPrograms
 
 managedBareConstructorLowererProgram :: TypedProgram
 managedBareConstructorLowererProgram =

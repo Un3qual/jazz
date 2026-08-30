@@ -6,8 +6,10 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-  ( optionLayout,
+  ( optionIntInfo,
+    optionLayout,
     optionLayoutId,
+    someName,
     textRepresentation,
     treeLayout,
     tupleLayout,
@@ -23,6 +25,7 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     requirementsForManagedLayouts,
   )
+import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule)
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypedCore
@@ -98,6 +101,7 @@ testManagedPatternProducerBoundaries = do
             "E4004"
             (diagnosticCodeText (diagnosticCode diagnostic))
         Right _ -> failTest "managed-nested-or-pattern-boundary unexpectedly resolved"
+
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =
   mapM_ assertProduced managedProductVariantExpectedPrograms
@@ -138,6 +142,7 @@ testManagedProductVariantLowering =
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =
   mapM_ assertLowererBoundary expectedResults
+    >> testManagedPatternLowererProfile
   where
     assertLowererBoundary (name, expectedFailures) =
       case lookup name managedConstructionLowererBoundaryPrograms of
@@ -223,6 +228,62 @@ testManagedConstructionLowererBoundaries =
         (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
         kind
         detail
+
+testManagedPatternLowererProfile :: IO ()
+testManagedPatternLowererProfile = do
+  mapM_ assertAccepted acceptedNames
+  mapM_ assertRejected expectedRejections
+  where
+    assertAccepted name =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed pattern acceptance fixture is missing")
+        Just typedProgram -> do
+          assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
+          case analyzeTypedModule (onlyModule typedProgram) of
+            Left failures -> failTest (name <> " did not enter the managed pattern profile: " <> Text.pack (show failures))
+            Right _ -> pure ()
+
+    assertRejected (name, expectedFailure) =
+      case lookup name managedConstructionLowererBoundaryPrograms of
+        Nothing -> failTest (name <> " managed pattern rejection fixture is missing")
+        Just typedProgram -> do
+          assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
+          assertEqual
+            (name <> " exact managed pattern profile rejection")
+            (Left [expectedFailure])
+            (case analyzeTypedModule (onlyModule typedProgram) of Left failures -> Left failures; Right _ -> Right ())
+
+    acceptedNames =
+      [ "managed-closed-variant-pattern-profile",
+        "managed-nested-constructor-tuple-pattern-profile",
+        "managed-total-tuple-pattern-profile"
+      ]
+
+    expectedRejections =
+      [ incomplete "managed-missing-constructor-pattern-profile" 2,
+        incomplete "managed-guarded-constructors-pattern-profile" 2,
+        incomplete "managed-incomplete-tuple-pattern-profile" 0,
+        unsupported "managed-list-pattern-profile" 0 [0, 0],
+        unsupported "managed-nested-or-pattern-profile" 1 [0, 0, 0],
+        unsupported "managed-text-literal-pattern-profile" 1 [0, 0, 0]
+      ]
+
+    incomplete name statementIndex =
+      ( name,
+        LoweredIRLoweringFailure
+          (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
+          LoweredIRIncompletePatternCase
+          LoweredIRNoFailureDetail
+      )
+    unsupported name statementIndex patternPath =
+      ( name,
+        LoweredIRLoweringFailure
+          (TypedPatternPath ["App", "Main"] [statementIndex] patternPath)
+          LoweredIRUnsupportedPattern
+          LoweredIRNoFailureDetail
+      )
+    onlyModule (TypedProgram _ [moduleValue] _) = moduleValue
+    onlyModule _ = error "managed pattern profile fixture must contain exactly one module"
 
 testManagedConstructorClosureCapture :: IO ()
 testManagedConstructorClosureCapture =
@@ -569,6 +630,16 @@ testManagedProductVariantLayoutCatalog = do
                 Nothing
             ]
         )
+        >> assertEqual
+          "managed-option Some constructor pattern layout"
+          ( Just
+              ManagedConstructorLayout
+                { managedConstructorLayoutId = optionLayoutId,
+                  managedConstructorTag = 1,
+                  managedConstructorFields = [LoweredSignedIntegerRepresentation LoweredIntegerWidth64]
+                }
+          )
+          (constructorPatternLayoutFor catalog optionIntInfo someName)
   where
     assertCatalog name expectedLayouts = do
       let programValue = expectedProgram name

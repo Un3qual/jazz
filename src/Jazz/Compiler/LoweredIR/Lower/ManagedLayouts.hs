@@ -9,6 +9,7 @@ module Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     managedLayoutShapeFor,
     representationForRecipe,
     constructorLayoutFor,
+    constructorPatternLayoutFor,
     constructorApplicationLayout,
     productLayoutFields,
     nodeInstantiations,
@@ -76,14 +77,15 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
       Map.fromList
         [ ( binder,
             ConstructorTemplate
-              { constructorTemplateDataName = dataDeclarationName declaration,
+              { constructorTemplateName = name,
+                constructorTemplateDataName = dataDeclarationName declaration,
                 constructorTemplateParameters = dataDeclarationParameters declaration,
                 constructorTemplateTag = tag,
                 constructorTemplateFieldRecipes = fieldRecipes
               }
           )
         | declaration <- declarationValues,
-          (tag, TypedConstructorDeclaration binder _ _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+          (tag, TypedConstructorDeclaration binder name _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
         ]
 
     emptyBuild = CatalogBuild Seq.empty Map.empty
@@ -127,6 +129,35 @@ constructorLayoutFor catalog binder instantiations = do
             managedConstructorFields = fieldRepresentations
           }
     else Nothing
+
+constructorPatternLayoutFor :: ManagedLayoutCatalog -> TypedNodeInfo -> TypedCoreName -> Maybe ManagedConstructorLayout
+constructorPatternLayoutFor catalog info constructorName = do
+  (dataName, arguments) <-
+    case (typedNodeType info, typedNodeRecipe info) of
+      (TypedDataType typeName typeArguments, TypedManagedVariantRecipe recipeName recipeArguments)
+        | typeName == recipeName,
+          typeArguments == recipeArguments ->
+            Just (recipeName, recipeArguments)
+      _ -> Nothing
+  (binder, constructor) <-
+    single
+      [ (candidateBinder, candidate)
+      | (candidateBinder, candidate) <- Map.toList (catalogConstructors catalog),
+        constructorTemplateDataName candidate == dataName,
+        constructorTemplateName candidate == constructorName
+      ]
+  let parameters = constructorTemplateParameters constructor
+  if length parameters == length arguments then pure () else Nothing
+  let instantiations =
+        case parameters of
+          [] -> []
+          _ ->
+            [ TypedInstantiation
+                binder
+                (zipWith TypedTypeArgument parameters arguments)
+                Nothing
+            ]
+  constructorLayoutFor catalog binder instantiations
 
 constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
 constructorApplicationLayout catalog callee =

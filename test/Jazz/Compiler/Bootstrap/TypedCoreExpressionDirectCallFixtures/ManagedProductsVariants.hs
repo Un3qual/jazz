@@ -101,6 +101,23 @@ managedProductVariantExpectedPrograms =
     ("managed-top-level-or-pattern", managedTopLevelOrPatternProgram)
   ]
 
+managedPatternProfileAcceptedPrograms :: [(Text, TypedProgram)]
+managedPatternProfileAcceptedPrograms =
+  [ ("managed-closed-variant-pattern-profile", managedTopLevelOrPatternProgram),
+    ("managed-nested-constructor-tuple-pattern-profile", managedAsConstructorTuplePatternProgram),
+    ("managed-total-tuple-pattern-profile", managedTotalTuplePatternProgram)
+  ]
+
+managedPatternProfileRejectedPrograms :: [(Text, TypedProgram)]
+managedPatternProfileRejectedPrograms =
+  [ ("managed-missing-constructor-pattern-profile", managedMissingConstructorPatternProgram),
+    ("managed-guarded-constructors-pattern-profile", managedGuardedConstructorsPatternProgram),
+    ("managed-incomplete-tuple-pattern-profile", managedIncompleteTuplePatternProgram),
+    ("managed-list-pattern-profile", managedListPatternProgram),
+    ("managed-nested-or-pattern-profile", managedNestedOrPatternProgram),
+    ("managed-text-literal-pattern-profile", managedTextLiteralPatternProgram)
+  ]
+
 managedProductVariantExpectedLoweredPrograms :: [(Text, LoweredProgram)]
 managedProductVariantExpectedLoweredPrograms =
   [ ("managed-tuple", managedTupleLoweredProgram),
@@ -982,6 +999,199 @@ managedTopLevelOrPatternProgram =
     int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
     int64Expr :: Integer -> TypedExpr
     int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedMissingConstructorPatternProgram :: TypedProgram
+managedMissingConstructorPatternProgram =
+  rewriteTerminalPatternArms retainFirstAlternative managedTopLevelOrPatternProgram
+  where
+    retainFirstAlternative [TypedCaseArm (TypedOrPattern _ (firstAlternative : _)) maybeGuard body] =
+      [TypedCaseArm firstAlternative maybeGuard body]
+    retainFirstAlternative _ = error "managed top-level or-pattern fixture must retain one or-pattern arm"
+
+managedGuardedConstructorsPatternProgram :: TypedProgram
+managedGuardedConstructorsPatternProgram =
+  rewriteTerminalPatternArms guardOnlyArm managedTopLevelOrPatternProgram
+  where
+    guardOnlyArm [TypedCaseArm patternValue Nothing body] =
+      [TypedCaseArm patternValue (Just (boolExpr True)) body]
+    guardOnlyArm _ = error "managed top-level or-pattern fixture must retain one unguarded arm"
+
+managedTotalTuplePatternProgram :: TypedProgram
+managedTotalTuplePatternProgram = managedTuplePatternProfileProgram True
+
+managedIncompleteTuplePatternProgram :: TypedProgram
+managedIncompleteTuplePatternProgram = managedTuplePatternProfileProgram False
+
+managedTuplePatternProfileProgram :: Bool -> TypedProgram
+managedTuplePatternProfileProgram totalNestedFields =
+  managedProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (TypedTupleExpr tupleInfo [int64Expr 1, boolExpr True])
+            [ TypedCaseArm
+                ( TypedTuplePattern
+                    tupleInfo
+                    [ if totalNestedFields
+                        then TypedWildcardPattern int64Info
+                        else TypedLiteralPattern int64Info (TypedIntegerLiteral "1"),
+                      TypedWildcardPattern boolInfo
+                    ]
+                )
+                Nothing
+                (int64Expr 1)
+            ]
+        )
+    ]
+    int64Info
+  where
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedNumericType TypedInt64Type, TypedBoolType])
+        (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedBoolRecipe])
+        []
+        []
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedListPatternProgram :: TypedProgram
+managedListPatternProgram =
+  managedProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (TypedListExpr listInfo [int64Expr 1])
+            [ TypedCaseArm
+                (TypedListPattern listInfo [TypedWildcardPattern int64Info])
+                Nothing
+                (int64Expr 1),
+              TypedCaseArm
+                (TypedWildcardPattern listInfo)
+                Nothing
+                (int64Expr 2)
+            ]
+        )
+    ]
+    int64Info
+  where
+    listInfo =
+      TypedNodeInfo
+        (TypedListType (TypedNumericType TypedInt64Type))
+        (TypedManagedListRecipe (TypedSignedIntegerRecipe 64))
+        []
+        []
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedNestedOrPatternProgram :: TypedProgram
+managedNestedOrPatternProgram =
+  managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (monomorphicConstructorCall boxBinder boxConstructor boxInfo [boolInfo] [boolExpr True])
+            [ TypedCaseArm
+                ( TypedConstructorPattern
+                    boxInfo
+                    boxConstructor
+                    [ TypedOrPattern
+                        boolInfo
+                        [ TypedLiteralPattern boolInfo (TypedBooleanLiteral True),
+                          TypedLiteralPattern boolInfo (TypedBooleanLiteral False)
+                        ]
+                    ]
+                )
+                Nothing
+                (int64Expr 1),
+              TypedCaseArm (TypedWildcardPattern boxInfo) Nothing (int64Expr 2)
+            ]
+        )
+    ]
+    int64Info
+  where
+    boxName = typeName "BoolBox"
+    boxConstructor = constructorName "BoolBox"
+    boxBinder = constructorBinder 0 boxConstructor
+    boxInfo = variantInfo boxName []
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        boxName
+        []
+        [TypedConstructorDeclaration boxBinder boxConstructor [TypedBoolType] [TypedBoolRecipe]]
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+managedTextLiteralPatternProgram :: TypedProgram
+managedTextLiteralPatternProgram =
+  managedProgram
+    [ TypedDataStatement declaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            int64Info
+            (monomorphicConstructorCall boxBinder boxConstructor boxInfo [textInfo] [textExpr "inside"])
+            [ TypedCaseArm
+                ( TypedConstructorPattern
+                    boxInfo
+                    boxConstructor
+                    [TypedLiteralPattern textInfo (TypedTextLiteral "inside")]
+                )
+                Nothing
+                (int64Expr 1),
+              TypedCaseArm (TypedWildcardPattern boxInfo) Nothing (int64Expr 2)
+            ]
+        )
+    ]
+    int64Info
+  where
+    boxName = typeName "TextBox"
+    boxConstructor = constructorName "TextBox"
+    boxBinder = constructorBinder 0 boxConstructor
+    boxInfo = variantInfo boxName []
+    declaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        boxName
+        []
+        [TypedConstructorDeclaration boxBinder boxConstructor [TypedTextType] [TypedManagedTextRecipe]]
+    int64Info = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+    int64Expr :: Integer -> TypedExpr
+    int64Expr value = TypedLiteralExpr int64Info (TypedIntegerLiteral (Text.pack (show value)))
+
+rewriteTerminalPatternArms :: ([TypedCaseArm] -> [TypedCaseArm]) -> TypedProgram -> TypedProgram
+rewriteTerminalPatternArms rewriteArms programValue =
+  case programValue of
+    TypedProgram prelude [TypedModule path source imports exports interface recursiveGroups statements moduleInfo] entryPath ->
+      case reverse statements of
+        TypedExpressionStatement spanValue (TypedPatternCaseExpr info scrutinee arms) : reversedPrefix ->
+          TypedProgram
+            prelude
+            [ TypedModule
+                path
+                source
+                imports
+                exports
+                interface
+                recursiveGroups
+                ( reverse reversedPrefix
+                    <> [ TypedExpressionStatement
+                           spanValue
+                           (TypedPatternCaseExpr info scrutinee (rewriteArms arms))
+                       ]
+                )
+                moduleInfo
+            ]
+            entryPath
+        _ -> error "managed pattern fixture must end in a pattern-case expression"
+    _ -> error "managed pattern fixture must contain one module"
 
 managedOptionProgram :: TypedProgram
 managedOptionProgram = optionProgram [] (TypedModuleInterface [] [] [] [])
