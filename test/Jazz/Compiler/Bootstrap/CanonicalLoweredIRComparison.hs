@@ -13,11 +13,21 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalValue
   ( canonicalConstructor,
+    canonicalList,
+    canonicalMaybe,
     canonicalNullaryConstructor,
+    decodeInt,
+    decodeInteger,
+    decodeList,
+    decodeText,
+    expectArity,
+    expectConstructor,
+    expectNamedConstructor,
+    expectNullary,
     runtimeIntValue,
+    runtimeValueCategory,
   )
 import Jazz.Compiler.LoweredIR
-import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     untypedIntMetadata,
@@ -525,77 +535,8 @@ decodeTextConstructor name value = do
     [textValue] -> decodeText (name <> " value") textValue
     _ -> impossibleArity name
 
-decodeList :: Text -> (RuntimeValue -> Either Text value) -> RuntimeValue -> Either Text [value]
-decodeList label decodeElement value =
-  case value of
-    VList elements _ -> traverse decodeElement elements
-    _ -> Left (label <> " expected a List, got " <> runtimeValueCategory value)
-
-decodeText :: Text -> RuntimeValue -> Either Text Text
-decodeText label value =
-  case value of
-    VText textValue -> Right textValue
-    _ -> Left (label <> " expected Text, got " <> runtimeValueCategory value)
-
-decodeInteger :: Text -> RuntimeValue -> Either Text Integer
-decodeInteger label value =
-  case value of
-    VInt integer _ -> Right integer
-    _ -> Left (label <> " expected Int, got " <> runtimeValueCategory value)
-
-decodeInt :: Text -> RuntimeValue -> Either Text Int
-decodeInt label value = do
-  integer <- decodeInteger label value
-  if integer < toInteger (minBound :: Int) || integer > toInteger (maxBound :: Int)
-    then Left (label <> " is outside the host Int range: " <> Text.pack (show integer))
-    else Right (fromInteger integer)
-
-expectConstructor :: Text -> RuntimeValue -> Either Text (Text, [RuntimeValue])
-expectConstructor label value =
-  case value of
-    VConstructor _ _ constructorName _ arguments -> Right (identifierText constructorName, arguments)
-    _ -> Left (label <> " expected a constructor, got " <> runtimeValueCategory value)
-
-expectNamedConstructor :: Text -> Text -> Int -> RuntimeValue -> Either Text [RuntimeValue]
-expectNamedConstructor label expectedName expectedArity value = do
-  (actualName, arguments) <- expectConstructor label value
-  if actualName /= expectedName
-    then Left (label <> " expected constructor '" <> expectedName <> "', got '" <> actualName <> "'")
-    else expectArity expectedName expectedArity arguments
-
-expectArity :: Text -> Int -> [RuntimeValue] -> Either Text [RuntimeValue]
-expectArity name expected arguments
-  | length arguments == expected = Right arguments
-  | otherwise = Left (name <> " expected " <> Text.pack (show expected) <> " field(s), got " <> Text.pack (show (length arguments)))
-
-expectNullary :: Text -> [RuntimeValue] -> value -> Either Text value
-expectNullary name arguments value = do
-  _ <- expectArity name 0 arguments
-  Right value
-
 impossibleArity :: Text -> Either Text value
 impossibleArity name = Left ("internal checked-adapter arity mismatch for '" <> name <> "'")
-
-runtimeValueCategory :: RuntimeValue -> Text
-runtimeValueCategory value =
-  case value of
-    VInt {} -> "Int"
-    VFloat {} -> "Float"
-    VBool {} -> "Bool"
-    VChar {} -> "Char"
-    VText {} -> "Text"
-    VList {} -> "List"
-    VTuple {} -> "Tuple"
-    VConstructor {} -> "constructor"
-    VClosure {} -> "closure"
-    VBuiltin {} -> "builtin"
-    VOperator {} -> "operator"
-    VSectionLeft {} -> "left section"
-    VSectionRight {} -> "right section"
-    VQualifiedMethod {} -> "qualified method"
-    VTyped {} -> "typed value"
-    VExplicitTypeApplication {} -> "explicit type application"
-    _ -> "runtime value"
 
 versionValue :: LoweredIRVersion -> RuntimeValue
 versionValue (LoweredIRVersion version) = constructor "LoweredIRVersion" [integerValue version]
@@ -887,13 +828,10 @@ nullary :: Text -> RuntimeValue
 nullary = canonicalNullaryConstructor
 
 listValue :: (value -> RuntimeValue) -> [value] -> RuntimeValue
-listValue render values = VList (map render values) Nothing
+listValue = canonicalList
 
 maybeValue :: (value -> RuntimeValue) -> Maybe value -> RuntimeValue
-maybeValue render maybeInput =
-  case maybeInput of
-    Nothing -> nullary "Nothing"
-    Just value -> constructor "Just" [render value]
+maybeValue = canonicalMaybe
 
 integerValue :: Integer -> RuntimeValue
 integerValue value = VInt value untypedIntMetadata
