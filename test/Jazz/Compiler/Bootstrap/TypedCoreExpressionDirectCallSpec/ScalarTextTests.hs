@@ -1262,9 +1262,9 @@ testScalarBindingProduction = do
     assertFailedBindingHidden = do
       let fixture = producerEdgeFixture "scalar-binding-failed-initializer-hidden"
           expectedFailures =
-            [ expressionFailure 0 [0] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toFloat64"),
-              expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "failed")
-            ]
+              [ expressionFailure 0 [0] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toFloat64"),
+                expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "failed")
+              ]
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual "failed scalar binding repeatable rejection" firstRun secondRun
@@ -1343,11 +1343,11 @@ testManagedTextKernelBoundaries = do
     assertKernelUnsupported (name, kind, detail) = do
       let fixture = producerEdgeFixture name
           expectedFailures =
-            [ TypedCoreProductionFailure
-                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                kind
-                detail
-            ]
+              [ TypedCoreProductionFailure
+                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                  kind
+                  detail
+              ]
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture

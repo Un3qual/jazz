@@ -295,11 +295,11 @@ testLiftedLambdaMetadataAlias =
       assertEqual "metadata collision fixture is valid typed core" [] (validateTypedProgram programValue)
       assertUnsupportedLowering
         "lifted lambda names cannot satisfy scalar module metadata"
-        [ LoweredIRLoweringFailure
-            (TypedModulePath ["App", "Main"])
-            LoweredIRUnsupportedModule
-            LoweredIRNoFailureDetail
-        ]
+            [ LoweredIRLoweringFailure
+                (TypedModulePath ["App", "Main"])
+                LoweredIRUnsupportedModule
+                LoweredIRNoFailureDetail
+            ]
         (lowerTypedCoreExpressionDirectCall programValue)
     Nothing -> failTest "metadata collision regression fixture is missing"
 
@@ -674,11 +674,11 @@ testNonLocalCallArgumentFailureAccumulation :: IO ()
 testNonLocalCallArgumentFailureAccumulation = do
   let fixture = producerEdgeFixture "non-local-call-argument-capture"
       expectedFailures =
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
-            TypedCoreNonLocalCallUnsupported
-            (TypedCoreNameDetail "__kernel_toFloat64")
-        ]
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+              TypedCoreNonLocalCallUnsupported
+              (TypedCoreNameDetail "__kernel_toFloat64")
+          ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -696,11 +696,11 @@ testClosureUseArgumentFailureOrder :: IO ()
 testClosureUseArgumentFailureOrder = do
   let fixture = producerEdgeFixture "closure-use-argument-failure-order"
       expectedFailures =
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionExpressionPath ["App", "Main"] 7 [])
-            TypedCoreStructuredValueUnsupported
-            TypedCoreListValueDetail
-        ]
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 7 [])
+              TypedCoreStructuredValueUnsupported
+              TypedCoreListValueDetail
+          ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture

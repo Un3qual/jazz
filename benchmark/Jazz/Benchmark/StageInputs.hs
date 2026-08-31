@@ -30,8 +30,8 @@ import Jazz.Benchmark.Force
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
-    forceTokens,
     forceTypedProgram,
+    forceTokens,
   )
 import Jazz.Benchmark.ScaleCases
   ( CompilerScaleCase,
@@ -427,8 +427,7 @@ runParseLower source = do
 
 analyzerDiagnosticChainExpression :: Int -> Expr
 analyzerDiagnosticChainExpression expressionCount =
-  foldl1
-    EApply
+  foldl1 EApply
     [ EVar (sourceName (mkIdentifier ("missing" <> Text.pack (show index))))
     | index <- [0 .. expressionCount - 1]
     ]
@@ -1015,7 +1014,7 @@ fromDirectArtifact benchmarkGroup programCase result =
     Left reason -> unsupportedCompilerScaleGroup benchmarkGroup programCase reason
     Right value -> pure value
 
-prepareFully :: (NFData prepared) => prepared -> IO prepared
+prepareFully :: NFData prepared => prepared -> IO prepared
 prepareFully prepared = evaluate (rnf prepared) >> pure prepared
 
 expectedProgramBehavior :: ProgramCase -> ExpectedProgramBehavior

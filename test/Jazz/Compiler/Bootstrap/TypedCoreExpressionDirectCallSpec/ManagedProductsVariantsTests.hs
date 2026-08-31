@@ -303,11 +303,11 @@ testManagedStandaloneConstructorDependencyRebindingExport = do
   abstractTypeProduction <- produceFixture abstractTypeFixture
   assertProductionUnsupported
     "abstract type and standalone constructor reject ownership that the unchanged schema cannot represent"
-    [ TypedCoreProductionFailure
-        (TypedCoreProductionModulePath ["App", "Main"])
-        TypedCoreUnsupportedExport
-        (TypedCoreNameDetail "C")
-    ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "C")
+        ]
     (typedCoreProductionStatus abstractTypeProduction)
 
 testManagedTypeSelectorRebindingExport :: IO ()
@@ -480,12 +480,12 @@ testManagedStructuredModuleFailureOrder = do
       )
   assertProductionUnsupported
     "structured declaration failures precede missing module result failures"
-    [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
-      TypedCoreProductionFailure
-        (TypedCoreProductionModulePath ["App", "Main"])
-        TypedCoreUnsupportedRootExpression
-        TypedCoreUnsupportedRootDetail
-    ]
+        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail
+        ]
     (typedCoreProductionStatus production)
 
 interfaceDataNames :: TypedProgram -> [TypedCoreName]

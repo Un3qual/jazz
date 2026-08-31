@@ -69,11 +69,11 @@ testEarlierCallerTransitiveCaptureAvailability :: IO ()
 testEarlierCallerTransitiveCaptureAvailability = do
   let fixture = producerEdgeFixture "earlier-caller-transitive-recursive-capture"
       expectedFailures =
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionStatementPath ["App", "Main"] 1)
-            TypedCoreCaptureUnsupported
-            (TypedCoreNameDetail "caller")
-        ]
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionStatementPath ["App", "Main"] 1)
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "caller")
+          ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "earlier caller transitive capture repeatability" firstRun secondRun
@@ -1170,11 +1170,11 @@ testEagerRecursiveClosureCaptureAvailability = do
               ProvisionalUnitExpression
           ]
       expectedFailures =
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-            TypedCoreCaptureUnsupported
-            (TypedCoreNameDetail "loop")
-        ]
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
       status =
         typedCoreProductionOutcomeStatus
           ( finalizeValidatedTypedCoreExpressionDirectCall
@@ -1256,11 +1256,11 @@ testEagerNestedClosureCaptureAvailability = do
               ProvisionalUnitExpression
           ]
       expectedFailures =
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 1])
-            TypedCoreCaptureUnsupported
-            (TypedCoreNameDetail "loop")
-        ]
+          [ TypedCoreProductionFailure
+              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 1])
+              TypedCoreCaptureUnsupported
+              (TypedCoreNameDetail "loop")
+          ]
       status =
         typedCoreProductionOutcomeStatus
           ( finalizeValidatedTypedCoreExpressionDirectCall
