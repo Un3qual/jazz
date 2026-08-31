@@ -1217,29 +1217,44 @@ git commit -m "refactor: make run outcomes explicit"
 - Modify: `jazz.cabal`
 - Modify: `src/Jazz/Compiler/RecursiveBindings.hs`
 - Modify: `src/Jazz/Compiler/TypeInference/Types.hs`
-- Modify: TypeScheme construction and consumption sites under `src/` and focused tests.
+- Modify: TypeScheme construction and consumption sites in
+  `TypeInference/Scope.hs`, `TypeInference/Operator.hs`,
+  `TypeInference/Capabilities.hs`, and `ModuleCompiler.hs`.
 - Test: `test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs`
+- Test: `test/Jazz/Compiler/Semantics/BindingSignature/BasicsTests.hs`
 
 **Interfaces:**
 
 - Produces opaque `StableSet a` with empty, singleton, insert, delete,
   difference, from-set, from-preferred-order, membership-set, and ordered-list operations.
 - Uses `Set a` for membership and `Seq a` for first-occurrence order.
-- Produces `QuantifiedVariables` wrapping `StableSet Int` inside `TypeScheme`.
+- Produces opaque `QuantifiedVariables` wrapping `StableSet Int` inside
+  `TypeScheme`, with deliberate set and ordered projections.
 
 - [ ] **Step 1: Add StableSet law and normalization tests**
 
 Cover set/list agreement, idempotent insertion, first-occurrence order,
 duplicate preferred-order removal, deterministic remaining-set order, deletion,
-difference, and associative `Semigroup`. Run
+difference, left-biased union order, and `Monoid` identity/associativity.
+Include the literal normalization case `[3, 1, 3, 99]` over
+`{1, 2, 3, 4}`, yielding `[3, 1, 2, 4]`. Run
 `haskell-typeclass-contracts-spec`; expected compile failure before the module exists.
 
 - [ ] **Step 2: Implement the opaque invariant and migrate owners**
 
 `stableSetFromPreferred preferred members` must keep the first occurrence of
 each preferred member, discard foreign entries, then append remaining members
-in `Set` order. Replace `OrderedNames` and the two TypeScheme fields without
-exporting a constructor that can desynchronize membership and order.
+in `Set` order. The representation derives the exact structural `Eq`, `Show`,
+`Generic`, and `NFData` support required by its owners, but no `Foldable`,
+`IsList`, mapping, or generic traversal API. Replace `OrderedNames` and the two
+TypeScheme fields without exporting a constructor that can desynchronize
+membership and order. Remove the now-redundant local preferred-variable
+deduplicator in `Scope`; normalization belongs to `StableSet`.
+
+At every consumer, use the set projection only for membership/subtraction and
+the ordered projection for explicit type-application target selection, fresh
+allocation, and runtime template naming. Preserve the existing first-variable
+semantics rather than falling back to `Set.toList`.
 
 - [ ] **Step 3: Run inference, recursion, runtime capture, and direct-call suites**
 
@@ -1255,7 +1270,8 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 Format touched files, run `git diff --check`, then:
 
 ```sh
-git add jazz.cabal src test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs
+git add jazz.cabal src test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs \
+  test/Jazz/Compiler/Semantics/BindingSignature/BasicsTests.hs
 git commit -m "refactor: encode stable ordered sets"
 ```
 
