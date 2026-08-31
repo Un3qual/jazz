@@ -14,9 +14,9 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraph,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.FractionalLiteral (mkFractionalLiteralSource)

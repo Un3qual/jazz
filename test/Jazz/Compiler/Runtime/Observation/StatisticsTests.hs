@@ -33,11 +33,16 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeAbsent),
-    RunResult (..),
+    RunResult,
     runCompileErrors,
+    runDiagnostics,
+    runExitStatus,
     runModuleGraphObserved,
     runModuleGraphWithResolvedPreludeAndHostObserved,
+    runOutput,
     runRuntimeErrors,
+    runRuntimeObservation,
+    runRuntimeValue,
     runSource,
     runSourceObserved,
   )

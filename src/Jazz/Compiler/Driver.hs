@@ -15,7 +15,14 @@ module Jazz.Compiler.Driver
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
     buildCompiledProgram,
-    RunResult (..),
+    RunExecution (..),
+    RunResult,
+    runDiagnostics,
+    runExecution,
+    runRuntimeObservation,
+    runOutput,
+    runRuntimeValue,
+    runExitStatus,
     runCompileErrors,
     runRuntimeErrors,
     runWarnings,
@@ -130,16 +137,45 @@ compileWarnings = filter isWarningDiagnostic . compileDiagnostics
 compileErrors :: CompileResult -> [Diagnostic]
 compileErrors = filter isErrorDiagnostic . compileDiagnostics
 
+-- | Whether evaluation ran and how it terminated. Normal completion retains
+-- the optional terminal value so valueless completion remains distinct from a
+-- run that never started or failed at runtime.
+data RunExecution
+  = RunNotExecuted
+  | RunRuntimeFailed
+  | RunExited Integer
+  | RunCompleted (Maybe RuntimeValue)
+  deriving (Show)
+
 -- | Result of a run invocation. Compile diagnostics precede runtime
 -- diagnostics because evaluation only begins after compilation succeeds.
+-- Construction stays private so the compatibility projections cannot
+-- contradict the execution state.
 data RunResult = RunResult
   { runDiagnostics :: [Diagnostic],
-    runOutput :: Maybe Text,
-    runRuntimeValue :: Maybe RuntimeValue,
-    runExitStatus :: Maybe Integer,
+    runExecution :: RunExecution,
     runRuntimeObservation :: Maybe RuntimeObservationReport
   }
   deriving (Show)
+
+runOutput :: RunResult -> Maybe Text
+runOutput = fmap renderRuntimeValue . runRuntimeValue
+
+runRuntimeValue :: RunResult -> Maybe RuntimeValue
+runRuntimeValue result =
+  case runExecution result of
+    RunCompleted runtimeValue -> runtimeValue
+    RunNotExecuted -> Nothing
+    RunRuntimeFailed -> Nothing
+    RunExited _ -> Nothing
+
+runExitStatus :: RunResult -> Maybe Integer
+runExitStatus result =
+  case runExecution result of
+    RunExited status -> Just status
+    RunNotExecuted -> Nothing
+    RunRuntimeFailed -> Nothing
+    RunCompleted _ -> Nothing
 
 runWarnings :: RunResult -> [Diagnostic]
 runWarnings = filter isWarningDiagnostic . runDiagnostics
@@ -279,9 +315,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
       pure
         RunResult
           { runDiagnostics = compilePhaseDiagnostics,
-            runOutput = Nothing,
-            runRuntimeValue = Nothing,
-            runExitStatus = Nothing,
+            runExecution = RunNotExecuted,
             runRuntimeObservation = Nothing
           }
     else do
@@ -293,34 +327,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
           builtinMode
           runtimeTypeHints
           canonicalExpr
-      case runtimeObservationOutcome runtimeResult of
-        RuntimeOutcomeFailed runtimeError ->
-          pure
-            RunResult
-              { runDiagnostics = compilePhaseDiagnostics <> [runtimeError],
-                runOutput = Nothing,
-                runRuntimeValue = Nothing,
-                runExitStatus = Nothing,
-                runRuntimeObservation = runtimeObservationReport runtimeResult
-              }
-        RuntimeOutcomeExited status ->
-          pure
-            RunResult
-              { runDiagnostics = compilePhaseDiagnostics,
-                runOutput = Nothing,
-                runRuntimeValue = Nothing,
-                runExitStatus = Just status,
-                runRuntimeObservation = runtimeObservationReport runtimeResult
-              }
-        RuntimeOutcomeCompleted runtimeValue ->
-          pure
-            RunResult
-              { runDiagnostics = compilePhaseDiagnostics,
-                runOutput = fmap renderRuntimeValue runtimeValue,
-                runRuntimeValue = runtimeValue,
-                runExitStatus = Nothing,
-                runRuntimeObservation = runtimeObservationReport runtimeResult
-              }
+      pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
 
 runSource :: WarningSettings -> Text -> IO RunResult
 runSource = runSourceObserved RuntimeObservationDisabled
@@ -357,9 +364,7 @@ runSourceWithResolvedPreludeAndHostObserved observationRequest host settings res
       pure
         RunResult
           { runDiagnostics = [parseErrorCode],
-            runOutput = Nothing,
-            runRuntimeValue = Nothing,
-            runExitStatus = Nothing,
+            runExecution = RunNotExecuted,
             runRuntimeObservation = Nothing
           }
     Right loweredProgram ->
@@ -491,9 +496,7 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
       pure
         RunResult
           { runDiagnostics = [diagnostic],
-            runOutput = Nothing,
-            runRuntimeValue = Nothing,
-            runExitStatus = Nothing,
+            runExecution = RunNotExecuted,
             runRuntimeObservation = Nothing
           }
     Right compiledProgram ->
@@ -503,41 +506,38 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
               pure
                 RunResult
                   { runDiagnostics = moduleDiagnostics,
-                    runOutput = Nothing,
-                    runRuntimeValue = Nothing,
-                    runExitStatus = Nothing,
+                    runExecution = RunNotExecuted,
                     runRuntimeObservation = Nothing
                   }
             else do
               runtimeResult <- evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram
-              case runtimeObservationOutcome runtimeResult of
-                RuntimeOutcomeFailed runtimeError ->
-                  pure
-                    RunResult
-                      { runDiagnostics = moduleDiagnostics <> [runtimeError],
-                        runOutput = Nothing,
-                        runRuntimeValue = Nothing,
-                        runExitStatus = Nothing,
-                        runRuntimeObservation = runtimeObservationReport runtimeResult
-                      }
-                RuntimeOutcomeExited status ->
-                  pure
-                    RunResult
-                      { runDiagnostics = moduleDiagnostics,
-                        runOutput = Nothing,
-                        runRuntimeValue = Nothing,
-                        runExitStatus = Just status,
-                        runRuntimeObservation = runtimeObservationReport runtimeResult
-                      }
-                RuntimeOutcomeCompleted runtimeProgram ->
-                  pure
-                    RunResult
-                      { runDiagnostics = moduleDiagnostics,
-                        runOutput = renderRuntimeValue <$> runtimeProgramOutput runtimeProgram,
-                        runRuntimeValue = runtimeProgramOutput runtimeProgram,
-                        runExitStatus = Nothing,
-                        runRuntimeObservation = runtimeObservationReport runtimeResult
-                      }
+              pure (runtimeObservationRunResult runtimeProgramOutput moduleDiagnostics runtimeResult)
+
+runtimeObservationRunResult ::
+  (value -> Maybe RuntimeValue) ->
+  [Diagnostic] ->
+  RuntimeObservationResult value ->
+  RunResult
+runtimeObservationRunResult runtimeValueProjection compilePhaseDiagnostics runtimeResult =
+  case runtimeObservationOutcome runtimeResult of
+    RuntimeOutcomeFailed runtimeError ->
+      RunResult
+        { runDiagnostics = compilePhaseDiagnostics <> [runtimeError],
+          runExecution = RunRuntimeFailed,
+          runRuntimeObservation = runtimeObservationReport runtimeResult
+        }
+    RuntimeOutcomeExited status ->
+      RunResult
+        { runDiagnostics = compilePhaseDiagnostics,
+          runExecution = RunExited status,
+          runRuntimeObservation = runtimeObservationReport runtimeResult
+        }
+    RuntimeOutcomeCompleted value ->
+      RunResult
+        { runDiagnostics = compilePhaseDiagnostics,
+          runExecution = RunCompleted (runtimeValueProjection value),
+          runRuntimeObservation = runtimeObservationReport runtimeResult
+        }
 
 buildCompiledProgram ::
   WarningSettings ->

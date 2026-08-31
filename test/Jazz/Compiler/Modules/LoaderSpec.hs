@@ -15,12 +15,13 @@ import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
     runModuleGraph,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
-    runRuntimeErrors
+    runOutput,
+    runRuntimeErrors,
   )
 import Jazz.Compiler.Modules.Loader.Shared
   ( resolverConfig

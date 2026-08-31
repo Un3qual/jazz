@@ -9,12 +9,12 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    compileErrors,
+  ( compileErrors,
     compileSourceWithPrelude,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSourceWithPrelude
+    runSourceWithPrelude,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings

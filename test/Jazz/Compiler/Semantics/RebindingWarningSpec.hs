@@ -32,16 +32,16 @@ import Jazz.Compiler.Diagnostics.Render
   )
 import Jazz.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
     compileErrors,
     compileExpr,
     compileSource,
     compileSourceWithPrelude,
     compileWarnings,
     runCompileErrors,
+    runDiagnostics,
     runRuntimeErrors,
     runSource,
-    runWarnings
+    runWarnings,
   )
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,

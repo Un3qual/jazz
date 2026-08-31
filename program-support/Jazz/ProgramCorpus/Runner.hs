@@ -28,12 +28,14 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeBundled),
-    RunResult (..),
+    RunResult,
     buildCompiledProgram,
     runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runOutput,
     runRuntimeErrors,
+    runRuntimeObservation,
     runWarnings,
   )
 import Jazz.Compiler.ModuleInterface (CompiledProgram)

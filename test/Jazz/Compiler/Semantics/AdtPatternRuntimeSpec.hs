@@ -6,8 +6,9 @@ import Data.Text
   ( Text,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
     runSource,
   )

@@ -11,17 +11,17 @@ import Jazz.Compiler.Diagnostics.Render
   )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (..),
-    RunResult (..),
     compileErrors,
-    compileModuleGraphWithResolvedPrelude,
     compileModuleGraphWithPrelude,
+    compileModuleGraphWithResolvedPrelude,
     compileWarnings,
     runCompileErrors,
     runModuleGraph,
-    runModuleGraphWithResolvedPrelude,
     runModuleGraphWithPrelude,
+    runModuleGraphWithResolvedPrelude,
+    runOutput,
     runRuntimeErrors,
-    runWarnings
+    runWarnings,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings

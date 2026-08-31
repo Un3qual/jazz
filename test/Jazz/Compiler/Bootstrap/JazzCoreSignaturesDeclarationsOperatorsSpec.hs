@@ -15,8 +15,9 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.Name

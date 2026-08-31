@@ -22,13 +22,13 @@ import Jazz.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    compileErrors,
+  ( compileErrors,
     compileExpr,
     compileSource,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSourceWithPrelude
+    runSourceWithPrelude,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings

@@ -29,8 +29,9 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeAbsent),
-    RunResult (..),
+    RunResult,
     runModuleGraphWithResolvedPreludeAndHostObserved,
+    runRuntimeObservation,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name

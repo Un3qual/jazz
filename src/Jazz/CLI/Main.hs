@@ -44,14 +44,18 @@ import Jazz.Compiler.Diagnostics.Render
 import Jazz.Compiler.Driver
   ( CompileResult (..),
     ResolvedPrelude (..),
-    RunResult (..),
+    RunResult,
     compileErrors,
     compileModuleGraphWithResolvedPrelude,
     compileSourceWithResolvedPrelude,
     runCompileErrors,
+    runDiagnostics,
+    runExitStatus,
     runModuleGraphWithResolvedPreludeAndHostObserved,
+    runOutput,
     runRuntimeErrors,
-    runSourceWithResolvedPreludeAndHostObserved
+    runRuntimeObservation,
+    runSourceWithResolvedPreludeAndHostObserved,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),

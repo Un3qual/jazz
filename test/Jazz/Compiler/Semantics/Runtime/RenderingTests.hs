@@ -28,10 +28,11 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..)
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSource
+    runSource,
   )
 import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource

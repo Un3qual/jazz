@@ -8,7 +8,7 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Driver
-  ( RunResult (runRuntimeObservation),
+  ( runRuntimeObservation,
   )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationReport (runtimeObservationStatistics),

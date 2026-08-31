@@ -9,10 +9,10 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraphWithPrelude,
-    runRuntimeErrors
+    runOutput,
+    runRuntimeErrors,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings

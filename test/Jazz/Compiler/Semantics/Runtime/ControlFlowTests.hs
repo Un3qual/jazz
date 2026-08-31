@@ -10,10 +10,11 @@ import Control.Exception
   )
 import qualified Data.Text as Text
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSource
+    runSource,
   )
 import Jazz.Compiler.Runtime
   ( evaluateRuntimeExpr

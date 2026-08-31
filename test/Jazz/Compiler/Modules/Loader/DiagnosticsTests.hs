@@ -9,14 +9,14 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    compileErrors,
+  ( compileErrors,
     compileModuleGraphWithPrelude,
     compileWarnings,
     runCompileErrors,
     runModuleGraphWithPrelude,
+    runOutput,
     runRuntimeErrors,
-    runWarnings
+    runWarnings,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..)

@@ -21,10 +21,11 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
     directRecursionExpectedPrograms,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
     runModuleGraph,
     runRuntimeErrors,
+    runRuntimeValue,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name (identifierText)

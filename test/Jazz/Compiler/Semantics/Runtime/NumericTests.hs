@@ -11,10 +11,10 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSource
+    runSource,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),

@@ -25,8 +25,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Data.Word (Word64)
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
     runRuntimeObservation,
   )

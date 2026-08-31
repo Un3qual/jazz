@@ -7,13 +7,13 @@ import Data.Text (Text)
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileSource,
-    RunResult (..),
     compileSourceWithPrelude,
     runCompileErrors,
-    runRuntimeErrors,
     runModuleGraph,
+    runOutput,
+    runRuntimeErrors,
     runSource,
-    runSourceWithPrelude
+    runSourceWithPrelude,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..)

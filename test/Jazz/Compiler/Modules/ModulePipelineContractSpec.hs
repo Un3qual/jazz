@@ -6,7 +6,7 @@ import Data.IORef
   ( IORef,
     modifyIORef',
     newIORef,
-    readIORef
+    readIORef,
   )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -16,60 +16,52 @@ import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
+import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (E1001, E1002, E1003),
-    WarningCategory (SameScopeRebinding)
+    WarningCategory (SameScopeRebinding),
   )
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (CompilationOrigin),
     SourceSpan (..),
     mkErrorDiagnostic,
-    mkWarningDiagnostic
+    mkWarningDiagnostic,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( CompileResult,
-    RunResult (..),
+    RunExecution (..),
+    RunResult,
     compileErrors,
     compileModuleGraphWithPrelude,
     compileWarnings,
     runCompileErrors,
+    runExecution,
+    runExitStatus,
     runModuleGraphWithPrelude,
     runModuleGraphWithPreludeAndHost,
-    runRuntimeErrors
+    runOutput,
+    runRuntimeErrors,
+    runRuntimeValue,
   )
-import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
-import Jazz.Compiler.ModuleResolver (resolveProgramWithAmbientExports)
 import Jazz.Compiler.ModuleCompiler
   ( compileResolvedModule,
-    compileResolvedProgram
+    compileResolvedProgram,
   )
-import Jazz.Compiler.ModuleRuntime
-  ( RuntimeExport (..),
-    RuntimeModule (runtimeModuleExports, runtimeModulePath),
-    RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
-    evaluateCompiledProgram,
-    evaluateCompiledProgramWithHost,
-    evaluateCompiledProgramWithHostObserved,
-    lookupRuntimeModule
+import Jazz.Compiler.ModuleExports
+  ( ModuleExport (..),
+    ModuleExportInventory,
+    exportInventory,
+    exportInventoryEntries,
   )
-import Jazz.Compiler.Runtime
-  ( RuntimeCell,
-    renderRuntimeValue,
-    runtimeExprRequiresHost
-  )
-import Jazz.Compiler.Runtime.Observation
-  ( RuntimeObservationRequest (RuntimeObservationStatistics),
-    RuntimeObservationResult (runtimeObservationOutcome),
-    RuntimeOutcome (RuntimeOutcomeFailed)
-  )
-import Jazz.Compiler.RuntimeHost
-  ( RuntimeHost (..),
-    RuntimeHostExit (..)
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    ResolvedImport (..),
+    ResolvedModule (..),
   )
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
@@ -77,44 +69,58 @@ import Jazz.Compiler.ModuleInterface
     CompiledProgram (..),
     ModuleInterface (..),
     compiledProgramErrors,
-    emptyCompiledPrelude,
     emptyCompileInputs,
+    emptyCompiledPrelude,
     emptyModuleInterface,
     firstCompiledProgramError,
-    lookupCompiledModule
+    lookupCompiledModule,
   )
-import Jazz.Compiler.ModuleExports
-  ( ModuleExport (..),
-    ModuleExportInventory,
-    exportInventory,
-    exportInventoryEntries
+import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveProgramWithAmbientExports)
+import Jazz.Compiler.ModuleRuntime
+  ( RuntimeExport (..),
+    RuntimeModule (runtimeModuleExports, runtimeModulePath),
+    RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
+    evaluateCompiledProgram,
+    evaluateCompiledProgramWithHost,
+    evaluateCompiledProgramWithHostObserved,
+    lookupRuntimeModule,
   )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    ResolvedImport (..),
-    ResolvedModule (..)
-  )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
     NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
     identifierText,
     mkIdentifier,
     resolvedImportedName,
-    resolvedLocalName
+    resolvedLocalName,
+  )
+import Jazz.Compiler.Runtime
+  ( RuntimeCell,
+    renderRuntimeValue,
+    runtimeExprRequiresHost,
+  )
+import Jazz.Compiler.Runtime.Observation
+  ( RuntimeObservationRequest (RuntimeObservationStatistics),
+    RuntimeObservationResult (runtimeObservationOutcome),
+    RuntimeOutcome (RuntimeOutcomeFailed),
+  )
+import Jazz.Compiler.RuntimeHost
+  ( RuntimeHost (..),
+    RuntimeHostExit (..),
+    disabledRuntimeHost,
+    productionRuntimeHost,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType (TIntType, TTextType),
-    TypeBinding (PlainTypeBinding)
+    TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    runTestSuite
+    runTestSuite,
   )
 import System.Timeout (timeout)
 
@@ -136,6 +142,7 @@ tests =
     ("compiled generic constructor fields remain module-stable", testCompiledGenericConstructorFieldsRemainModuleStable),
     ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
+    ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
     ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
     ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
@@ -161,7 +168,7 @@ testCompiledGenericConstructorFieldsRemainModuleStable = do
               [_]
               [[ConstructorArgumentStructured (TypeList (TypeVariable parameterName))]]
             ) ->
-              assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
+            assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
         binding ->
           fail ("unexpected compiled Box constructor metadata: " <> show binding)
   case evaluateCompiledProgram compiled of
@@ -508,11 +515,13 @@ testLexicalBindersShadowImportedAndBuiltinNames = do
             }
             """
           ),
-          ("src/Lib/Value.jz", """
-          module Lib::Value {
-            x = 99.
-          }
-          """)
+          ( "src/Lib/Value.jz",
+            """
+            module Lib::Value {
+              x = 99.
+            }
+            """
+          )
         ]
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
@@ -577,29 +586,35 @@ testRuntimeModulePublishesPublicClassMethodsOnly = do
 explicitExportSources :: Map.Map FilePath Text
 explicitExportSources =
   Map.fromList
-    [ ("src/App/Main.jz", """
-    module App::Main {
-    import Lib::Value (answer).
-    answer 41.
-    }
-    """),
-      ("src/Lib/Value.jz", """
-      module Lib::Value (answer) {
-      helper = \\(x) -> x + 1.
-      answer = \\(x) -> helper x.
-      }
-      """)
+    [ ( "src/App/Main.jz",
+        """
+        module App::Main {
+        import Lib::Value (answer).
+        answer 41.
+        }
+        """
+      ),
+      ( "src/Lib/Value.jz",
+        """
+        module Lib::Value (answer) {
+        helper = \\(x) -> x + 1.
+        answer = \\(x) -> helper x.
+        }
+        """
+      )
     ]
 
 explicitCapabilitySources :: Map.Map FilePath Text
 explicitCapabilitySources =
   Map.fromList
-    [ ("src/App/Main.jz", """
-    module App::Main {
-    import Lib::Facts (Eq).
-    Eq::equals 1 1.
-    }
-    """),
+    [ ( "src/App/Main.jz",
+        """
+        module App::Main {
+        import Lib::Facts (Eq).
+        Eq::equals 1 1.
+        }
+        """
+      ),
       ( "src/Lib/Facts.jz",
         """
         module Lib::Facts (Eq) {
@@ -646,10 +661,11 @@ testModuleExportIdentityPreservesNamespaces = do
             expectedRuntimeExports
             ( Map.keysSet
                 ( Map.filterWithKey
-                    (\runtimeExport _ ->
-                       case runtimeExport of
-                         RuntimeBindingExport moduleExport -> moduleExportName moduleExport == "Just"
-                         RuntimeCapabilityMethodExport {} -> False)
+                    ( \runtimeExport _ ->
+                        case runtimeExport of
+                          RuntimeBindingExport moduleExport -> moduleExportName moduleExport == "Just"
+                          RuntimeCapabilityMethodExport {} -> False
+                    )
                     (runtimeModuleExports runtimeModule)
                 )
             )
@@ -794,6 +810,64 @@ testModuleRuntimePathParity = do
     (Left diagnostic, _) -> fail ("host-free runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
     (_, Left diagnostic) -> fail ("host-capable runtime failed: " <> Text.unpack (renderDiagnostic diagnostic))
 
+testRunResultProjectionInvariants :: IO ()
+testRunResultProjectionInvariants =
+  mapM_ assertProjection cases
+  where
+    assertProjection (label, action, expected) = do
+      result <- action
+      assertEqual label expected (runResultProjection result)
+    cases =
+      [ ( "not executed",
+          runProjectionFixture disabledRuntimeHost "module App::Main { missing. }",
+          ("not-executed", Nothing, Nothing, Nothing)
+        ),
+        ( "runtime failed",
+          runProjectionFixture disabledRuntimeHost "module App::Main { 1 / 0. }",
+          ("runtime-failed", Nothing, Nothing, Nothing)
+        ),
+        ( "explicit exit",
+          runProjectionFixture productionRuntimeHost "module App::Main { __kernel_exit! 7. }",
+          ("exited", Nothing, Just 7, Nothing)
+        ),
+        ( "completed with value",
+          runProjectionFixture disabledRuntimeHost "module App::Main { 42. }",
+          ("completed", Just "42", Nothing, Just "42")
+        ),
+        ( "completed without terminal value",
+          runProjectionFixture disabledRuntimeHost "module App::Main { answer = 42. }",
+          ("completed", Nothing, Nothing, Nothing)
+        )
+      ]
+
+runResultProjection :: RunResult -> (Text, Maybe Text, Maybe Integer, Maybe Text)
+runResultProjection result =
+  ( runExecutionTag (runExecution result),
+    renderRuntimeValue <$> runRuntimeValue result,
+    runExitStatus result,
+    runOutput result
+  )
+
+runExecutionTag :: RunExecution -> Text
+runExecutionTag execution =
+  case execution of
+    RunNotExecuted -> "not-executed"
+    RunRuntimeFailed -> "runtime-failed"
+    RunExited _ -> "exited"
+    RunCompleted _ -> "completed"
+
+runProjectionFixture :: RuntimeHost IO -> Text -> IO RunResult
+runProjectionFixture host source =
+  runModuleGraphWithPreludeAndHost
+    host
+    defaultWarningSettings
+    Nothing
+    resolverConfig
+    ["App", "Main"]
+    (\path -> pure (Map.lookup path sources))
+  where
+    sources = Map.singleton "src/App/Main.jz" source
+
 assertAbsentCompiledPrelude :: String -> CompiledProgram -> IO ()
 assertAbsentCompiledPrelude label compiledProgram =
   case compiledPreludeExpr (compiledProgramPrelude compiledProgram) of
@@ -856,7 +930,7 @@ testModuleGraphInjectsRuntimeHost = do
   where
     sources =
       Map.fromList
-          [ ( "src/App/Main.jz",
+        [ ( "src/App/Main.jz",
             "module App::Main { import Lib::Emit (emit!). emit! \"entry\". }"
           ),
           ( "src/Lib/Emit.jz",
@@ -975,14 +1049,18 @@ testTransitiveVisibilityContract = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import App::UsesMath.
-        subtract.
-        """),
-          ("src/App/UsesMath.jz", """
-          import Lib::Math as Math.
-          use = 0.
-          """),
+        [ ( "src/App/Main.jz",
+            """
+            import App::UsesMath.
+            subtract.
+            """
+          ),
+          ( "src/App/UsesMath.jz",
+            """
+            import Lib::Math as Math.
+            use = 0.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
 
@@ -1001,14 +1079,18 @@ testSourcePathContract = do
   where
     sources =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Bad (x).
-        x.
-        """),
-          ("src/Lib/Bad.jz", """
-          x :: Int.
-          x = True.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Bad (x).
+            x.
+            """
+          ),
+          ( "src/Lib/Bad.jz",
+            """
+            x :: Int.
+            x = True.
+            """
+          )
         ]
 
 runGraph :: Map.Map FilePath Text -> IO RunResult

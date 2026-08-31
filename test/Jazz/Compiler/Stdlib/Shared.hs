@@ -28,11 +28,12 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     buildCompiledProgram,
     runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.ModuleInterface

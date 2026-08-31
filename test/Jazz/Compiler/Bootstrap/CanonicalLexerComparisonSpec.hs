@@ -21,8 +21,9 @@ import Jazz.Compiler.DiagnosticCatalog
   ( diagnosticCodeText
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runModuleGraphWithPrelude
+  ( RunResult,
+    runModuleGraphWithPrelude,
+    runOutput,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..)

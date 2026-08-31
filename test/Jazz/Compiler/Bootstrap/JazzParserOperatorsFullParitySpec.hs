@@ -12,9 +12,9 @@ import Jazz.Compiler.Bootstrap.CanonicalParserComparison
     renderCanonicalSourceResult,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraph,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.ModuleResolver

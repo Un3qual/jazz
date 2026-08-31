@@ -37,10 +37,10 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSourceWithPreludeAndHost
+    runSourceWithPreludeAndHost,
   )
 import Jazz.Compiler.Name (Name, qualifiedName)
 import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)

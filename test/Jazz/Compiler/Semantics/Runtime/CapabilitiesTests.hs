@@ -36,8 +36,9 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
     runSource,
     runSourceWithPrelude,
