@@ -6,11 +6,22 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( SignaturePayload (SignatureType),
-    SignatureType (TypeBool, TypeInt),
+  ( Expr (EBlock, ELit),
+    Literal (LInt),
+    SignatureConstraint (SignatureConstraint),
+    SignaturePayload (ConstrainedSignature, SignatureType),
+    SignatureType (TypeApplication, TypeBool, TypeInt, TypeName),
+    Statement (SLet, SSignature),
+  )
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (ConcreteImplFact),
+  )
+import Jazz.Compiler.Diagnostics
+  ( SourceSpan (SourceSpan),
+    isErrorDiagnostic,
   )
 import Jazz.Compiler.LoweredIR.Lower.Types
   ( RuntimeRequirements (..),
@@ -25,7 +36,8 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
+  ( Name,
+    NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     mkIdentifier,
     resolvedImportedName,
   )
@@ -41,10 +53,20 @@ import Jazz.Compiler.StableSet
     stableSetOrderedList,
     stableSetSingleton,
   )
+import Jazz.Compiler.TypeInference
+  ( InferenceInputs (..),
+    InferenceResult (inferredDiagnostics),
+    inferExpressionWithInputs,
+  )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
+    DataTypeBinding (DataTypeBinding),
     ImplMethodType (ImplMethodType),
     ScopeCapabilityFacts (..),
+    emptyScopeCapabilityFacts,
+  )
+import Jazz.Compiler.WarningConfig
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -65,6 +87,8 @@ tests =
     ("runtime requirements form their intended monoid", testRuntimeRequirements),
     ("scope capability facts preserve collision order", testScopeCapabilityFacts),
     ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
+    ("inference accepts imported TypeName facts for source-origin constraints", testInferenceAcceptsImportedTypeNameFact),
+    ("inference accepts imported TypeApplication facts for source-origin constraints", testInferenceAcceptsImportedTypeApplicationFact),
     ("module export inventories union without duplicates", testModuleExportInventory)
   ]
 
@@ -188,12 +212,79 @@ testConcreteImplFactsUseRenderedIdentity :: IO ()
 testConcreteImplFactsUseRenderedIdentity = do
   assertEqual "rendered capability facts compare equal" True (sourceFact == importedFact)
   assertEqual "rendered capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
+  assertEqual "nested TypeName origins share set membership" True (Set.member sourceTypeNameFact (Set.singleton importedTypeNameFact))
+  assertEqual "nested TypeApplication origins share set membership" True (Set.member sourceTypeApplicationFact (Set.singleton importedTypeApplicationFact))
+  assertEqual "legacy rendered argument collisions remain equal" True (ConcreteImplFact "Marked" TypeInt == ConcreteImplFact "Marked" (TypeName "Int"))
   where
     sourceFact = ConcreteImplFact "Lib::Marked::Marked!" TypeInt
     importedFact =
       ConcreteImplFact
         (resolvedImportedName ["Lib", "Marked"] CapabilityNamespace (mkIdentifier "Marked!"))
         TypeInt
+    sourceTypeNameFact = ConcreteImplFact "Marked" (TypeName "Lib::Types::Tagged")
+    importedTypeNameFact = ConcreteImplFact "Marked" (TypeName (importedTypeName "Tagged"))
+    sourceTypeApplicationFact =
+      ConcreteImplFact
+        "Marked"
+        (TypeApplication "Lib::Types::Box" [TypeName "Lib::Types::Tagged"])
+    importedTypeApplicationFact =
+      ConcreteImplFact
+        "Marked"
+        (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
+
+testInferenceAcceptsImportedTypeNameFact :: IO ()
+testInferenceAcceptsImportedTypeNameFact =
+  assertImportedConstraintFactAccepted
+    "TypeName imported fact"
+    (TypeName "Lib::Types::Tagged")
+    (TypeName (importedTypeName "Tagged"))
+
+testInferenceAcceptsImportedTypeApplicationFact :: IO ()
+testInferenceAcceptsImportedTypeApplicationFact =
+  assertImportedConstraintFactAccepted
+    "TypeApplication imported fact"
+    (TypeApplication "Lib::Types::Box" [TypeName "Lib::Types::Tagged"])
+    (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
+
+assertImportedConstraintFactAccepted :: Text -> SignatureType -> SignatureType -> IO ()
+assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
+  sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram sourceArgument)
+  importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram sourceArgument)
+  assertEqual (label <> " source-origin control errors") [] (filter isErrorDiagnostic (inferredDiagnostics sourceResult))
+  assertEqual (label <> " imported-origin errors") [] (filter isErrorDiagnostic (inferredDiagnostics importedResult))
+  where
+    inferenceInputs factArgument =
+      InferenceInputs
+        { inferenceBuiltinMode = ResolveKernelOnly,
+          inferenceWarningSettings = defaultWarningSettings,
+          inferenceImportedTypes = Map.empty,
+          inferenceImportedDataTypes =
+            Map.fromList
+              [ ("Lib::Types::Box", DataTypeBinding ["item"] []),
+                ("Lib::Types::Tagged", DataTypeBinding [] [])
+              ],
+          inferenceImportedConstructorWitnessNames = Map.empty,
+          inferenceImportedCapabilities =
+            emptyScopeCapabilityFacts
+              { scopeClassFacts = Map.singleton "Marked" 1,
+                scopeConcreteImplFacts = Set.singleton (ConcreteImplFact "Marked" factArgument)
+              },
+          inferenceImportedClassNames = Set.singleton "Marked",
+          inferenceCurrentModulePath = Nothing
+        }
+
+    constrainedProgram constraintArgument =
+      EBlock
+        [ SSignature
+            "value"
+            (SourceSpan 1 1)
+            (ConstrainedSignature [SignatureConstraint "Marked" [constraintArgument]] TypeInt),
+          SLet "value" (SourceSpan 2 1) (ELit (LInt 1))
+        ]
+
+importedTypeName :: Text -> Name
+importedTypeName name =
+  resolvedImportedName ["Lib", "Types"] TypeNamespace (mkIdentifier name)
 
 testModuleExportInventory :: IO ()
 testModuleExportInventory = do
