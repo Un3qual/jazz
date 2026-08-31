@@ -93,10 +93,7 @@ testManagedPatternLowererBoundary = do
           assertUnsupportedLowering (name <> " exact lowerer boundary") expectedFailures lowering
 
     expectedResults =
-      [ ("managed-tuple-pattern-failure", [patternFailure [0] [0, 0]]),
-        ("managed-constructor-pattern-failure", [patternFailure [1] [0, 0]]),
-        ("managed-nested-constructor-tuple-pattern", [patternFailure [1] [0, 0]]),
-        ("managed-as-constructor-pattern", [patternFailure [1] [0, 0]]),
+      [ ("managed-as-constructor-pattern", [patternFailure [1] [0, 0]]),
         ("managed-or-constructor-pattern", [patternFailure [1] [0, 0]])
       ]
 
@@ -128,8 +125,7 @@ testManagedPatternAnalysisBoundaries =
         ("managed-unsupported-text-pattern", [patternFailureAt 0 [0, 0]]),
         ("managed-unsupported-nested-or-pattern", [patternFailureAt 0 [0, 0, 0]]),
         ("managed-non-final-irrefutable-or", [expressionFailureAt 1 LoweredIRIncompletePatternCase]),
-        ("managed-distinct-or-binders", [patternFailureAt 1 [0, 0]]),
-        ("managed-complete-constructor-case", [patternFailureAt 1 [0, 0]])
+        ("managed-distinct-or-binders", [patternFailureAt 1 [0, 0]])
       ]
     expressionFailureAt statementIndex kind =
       LoweredIRLoweringFailure

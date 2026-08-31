@@ -5,6 +5,8 @@ module Jazz.Compiler.LoweredIR.Lower.Emit
   )
 where
 
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -17,6 +19,7 @@ import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     productLayoutFields,
     representationForRecipe,
   )
+import Jazz.Compiler.LoweredIR.Lower.ManagedPatterns
 import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     textEqualityOperation,
@@ -342,7 +345,7 @@ lowerFunctionResult modulePath statementPath expressionPath functions parameters
         )
     TypedPatternCaseExpr info scrutinee arms ->
       discardOperand
-        ( lowerScalarPatternCaseTo
+        ( lowerPatternCaseTo
             (FinishFunction expected)
             modulePath
             statementPath
@@ -650,7 +653,7 @@ lowerExpression modulePath statementPath expressionPath functions parameters sta
         parameters
         state
     TypedPatternCaseExpr info scrutinee arms ->
-      lowerScalarPatternCase
+      lowerPatternCase
         modulePath
         statementPath
         expressionPath
@@ -1056,7 +1059,7 @@ lowerConditionalTo destination modulePath statementPath expressionPath path info
             elseInitial
             elseExpression
 
-lowerScalarPatternCase ::
+lowerPatternCase ::
   [Text] ->
   [Int] ->
   [Int] ->
@@ -1068,8 +1071,8 @@ lowerScalarPatternCase ::
   [FunctionParameterShape] ->
   LoweringState ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
-lowerScalarPatternCase modulePath statementPath expressionPath path info scrutinee arms functions parameters state =
-  lowerScalarPatternCaseTo
+lowerPatternCase modulePath statementPath expressionPath path info scrutinee arms functions parameters state =
+  lowerPatternCaseTo
     ProduceValue
     modulePath
     statementPath
@@ -1082,7 +1085,7 @@ lowerScalarPatternCase modulePath statementPath expressionPath path info scrutin
     parameters
     state
 
-lowerScalarPatternCaseTo ::
+lowerPatternCaseTo ::
   ResultDestination ->
   [Text] ->
   [Int] ->
@@ -1095,7 +1098,26 @@ lowerScalarPatternCaseTo ::
   [FunctionParameterShape] ->
   LoweringState ->
   ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
-lowerScalarPatternCaseTo destination modulePath statementPath expressionPath path info scrutinee arms functions parameters state =
+lowerPatternCaseTo destination modulePath statementPath expressionPath path info scrutinee arms functions parameters state =
+  case analyzeManagedPatternCase (indexedManagedLayoutCatalog functions) modulePath statementPath (reverse expressionPath) scrutinee arms of
+    Left failure -> ([failure], Nothing, state)
+    Right armPlan ->
+      lowerManagedPatternCaseTo destination modulePath statementPath expressionPath path info scrutinee armPlan functions parameters state
+
+lowerManagedPatternCaseTo ::
+  ResultDestination ->
+  [Text] ->
+  [Int] ->
+  [Int] ->
+  TypedCoreValidationPath ->
+  TypedNodeInfo ->
+  TypedExpr ->
+  NonEmpty ManagedPatternArm ->
+  FunctionIndex ->
+  [FunctionParameterShape] ->
+  LoweringState ->
+  ([LoweredIRLoweringFailure], Maybe LoweredOperand, LoweringState)
+lowerManagedPatternCaseTo destination modulePath statementPath expressionPath path info scrutinee armPlan functions parameters state =
   case resultRepresentationFailures <> scrutineeFailures of
     failures@(_ : _) -> (failures, Nothing, scrutineeState)
     [] ->
@@ -1130,15 +1152,13 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
           (scrutineeCarrier, carriedState) = carryOperand scrutineeOperand scrutineeState
           controlSlots = ambientSlots carriedState
           controlParameters = ambientParameters controlSlots
-       in case lowerArms
-            resultRepresentation
-            scrutineeCarrier
-            outerSlots
-            controlSlots
-            controlParameters
-            0
-            arms
-            carriedState of
+          plannedArms = NonEmpty.toList armPlan
+          loweredArms
+            | constructorArmPlan plannedArms =
+                lowerConstructorArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters plannedArms carriedState
+            | otherwise =
+                lowerArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters 0 plannedArms carriedState
+       in case loweredArms of
             (failures@(_ : _), finalArmState) -> (failures, Nothing, finalArmState)
             ([], finalArmState) ->
               case destination of
@@ -1173,9 +1193,9 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
             ],
             currentState
           )
-        arm@(TypedCaseArm patternValue _ _) : laterArms ->
+        arm@(ManagedPatternArm patternValue maybeGuard _) : laterArms ->
           case patternValue of
-            TypedLiteralPattern patternInfo literal ->
+            ManagedLiteral patternInfo literal ->
               lowerLiteralArm
                 resultRepresentation
                 scrutineeCarrier
@@ -1188,7 +1208,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                 literal
                 laterArms
                 currentState
-            TypedWildcardPattern _ ->
+            ManagedWildcard _ ->
               lowerCatchAllArm
                 resultRepresentation
                 scrutineeCarrier
@@ -1199,7 +1219,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                 arm
                 laterArms
                 currentState
-            TypedVariablePattern _ _ _ ->
+            ManagedVariable {} ->
               lowerCatchAllArm
                 resultRepresentation
                 scrutineeCarrier
@@ -1210,6 +1230,18 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                 arm
                 laterArms
                 currentState
+            ManagedTuple _ _ _
+              | maybeGuard == Nothing ->
+                  lowerProjectedArm
+                    resultRepresentation
+                    scrutineeCarrier
+                    outerSlots
+                    controlSlots
+                    controlParameters
+                    armIndex
+                    arm
+                    laterArms
+                    currentState
             _ ->
               ( [ LoweredIRLoweringFailure
                     (TypedPatternPath modulePath statementPath (reverse expressionPath <> [armIndex]))
@@ -1218,6 +1250,274 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                 ],
                 currentState
               )
+
+    constructorArmPlan = all constructorArm
+      where
+        constructorArm (ManagedPatternArm ManagedConstructor {} Nothing _) = True
+        constructorArm _ = False
+
+    lowerProjectedArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm@(ManagedPatternArm patternValue _ _) laterArms currentState =
+      case scrutineeAt scrutineeCarrier currentState >>= (\operand -> projectPattern patternValue operand currentState) of
+        Just (binderOperands, conditions, projectedState) ->
+          enterProjectedBody
+            resultRepresentation
+            scrutineeCarrier
+            outerSlots
+            controlSlots
+            controlParameters
+            armIndex
+            arm
+            laterArms
+            currentState
+            binderOperands
+            conditions
+            (armEntryBlock (armIndex + 1) <$> nonEmptyHead laterArms)
+            projectedState
+        Nothing -> ([patternUnsupported armIndex], currentState)
+
+    lowerConstructorArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters plannedArms currentState =
+      case (plannedArms, scrutineeAt scrutineeCarrier currentState, ambientArguments controlSlots currentState) of
+        (ManagedPatternArm (ManagedConstructor firstConstructor _) _ _ : _, Just scrutineeOperand, Just switchArguments) ->
+          case constructorSwitchCases switchArguments plannedArms of
+            [] -> ([unsupportedFailure path], currentState)
+            switchCases ->
+              let layoutId = managedConstructorLayoutId (managedPatternConstructorLayout firstConstructor)
+                  tagIndex = loweringNextTemporary currentState
+                  tagTemporary = LoweredTemporaryId ("t" <> Text.pack (show tagIndex))
+                  tagInstruction =
+                    LoweredInstruction
+                      tagTemporary
+                      variantTagRepresentation
+                      (LoweredProjectVariantTag layoutId scrutineeOperand)
+                  switchedState =
+                    finishCurrentBlock
+                      (LoweredSwitch scrutineeOperand switchCases Nothing)
+                      currentState
+                        { loweringNextTemporary = tagIndex + 1,
+                          loweringInstructions = tagInstruction : loweringInstructions currentState
+                        }
+               in compileConstructorRows
+                    resultRepresentation
+                    scrutineeCarrier
+                    outerSlots
+                    controlSlots
+                    controlParameters
+                    0
+                    plannedArms
+                    currentState
+                    switchedState
+        _ -> ([unsupportedFailure path], currentState)
+
+    compileConstructorRows resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex remainingArms continuationTemplate completedState =
+      case remainingArms of
+        [] -> ([], completedState)
+        arm@(ManagedPatternArm (ManagedConstructor constructor children) _ _) : laterArms ->
+          let entryBlockId = constructorArmEntry armIndex children arm
+              entryParameters = controlParameters
+              entryBase = continuationState continuationTemplate completedState
+              entryState = remapAmbient controlSlots controlParameters (startBlock entryBlockId entryParameters entryBase)
+           in case scrutineeAt scrutineeCarrier entryState of
+                Nothing -> ([unsupportedFailure path], entryState)
+                Just currentScrutinee ->
+                  case projectConstructorChildren constructor children currentScrutinee entryState of
+                    Nothing -> ([patternUnsupported armIndex], entryState)
+                    Just (binderOperands, conditions, projectedState) ->
+                      let bodyResult =
+                            if null children
+                              then lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm [] entryState entryState
+                              else
+                                enterProjectedBody
+                                  resultRepresentation
+                                  scrutineeCarrier
+                                  outerSlots
+                                  controlSlots
+                                  controlParameters
+                                  armIndex
+                                  arm
+                                  []
+                                  entryState
+                                  binderOperands
+                                  conditions
+                                  (nextConstructorEntry constructor (armIndex + 1) laterArms)
+                                  projectedState
+                       in case bodyResult of
+                            (failures@(_ : _), bodyState) -> (failures, bodyState)
+                            ([], bodyState) ->
+                              compileConstructorRows
+                                resultRepresentation
+                                scrutineeCarrier
+                                outerSlots
+                                controlSlots
+                                controlParameters
+                                (armIndex + 1)
+                                laterArms
+                                continuationTemplate
+                                bodyState
+        _ -> ([unsupportedFailure path], completedState)
+
+    constructorSwitchCases switchArguments = go [] . zip [0 ..]
+      where
+        go _ [] = []
+        go seen ((armIndex, arm@(ManagedPatternArm (ManagedConstructor constructor children) _ _)) : later)
+          | tag `elem` seen = go seen later
+          | otherwise =
+              LoweredSwitchCase tag (constructorArmEntry armIndex children arm) switchArguments
+                : go (tag : seen) later
+          where
+            tag = fromIntegral (managedConstructorTag (managedPatternConstructorLayout constructor))
+        go seen (_ : later) = go seen later
+
+    constructorArmEntry armIndex children arm
+      | null children = matchedArmEntry armIndex arm
+      | otherwise = patternCaseBlockId statementPath expressionPath armIndex "selected"
+
+    projectConstructorChildren constructor children scrutineeOperand currentState =
+      let layout = managedPatternConstructorLayout constructor
+          layoutId = managedConstructorLayoutId layout
+          tag = fromIntegral (managedConstructorTag layout)
+          representations = managedConstructorFields layout
+       in if length children /= length representations
+            then Nothing
+            else
+              projectChildren
+                children
+                (zipWith (projectVariantField layoutId tag scrutineeOperand) [0 ..] representations)
+                currentState
+
+    projectPattern patternValue operand currentState =
+      case patternValue of
+        ManagedWildcard _ -> Just ([], [], currentState)
+        ManagedVariable _ binder -> Just ([(binder, operand)], [], currentState)
+        ManagedLiteral literalInfo literal -> Just ([], [(literalInfo, literal, operand)], currentState)
+        ManagedTuple _ layoutId children -> do
+          representations <- productLayoutFields (indexedManagedLayoutCatalog functions) layoutId
+          if length children /= length representations
+            then Nothing
+            else projectChildren children (zipWith (projectProductField layoutId operand) [0 ..] representations) currentState
+        _ -> Nothing
+
+    projectChildren children projections initialState = go [] [] initialState children projections
+      where
+        go reversedBinders reversedConditions nextState [] [] = Just (reverse reversedBinders, reverse reversedConditions, nextState)
+        go reversedBinders reversedConditions nextState (child : laterChildren) (project : laterProjections) =
+          let (projectedOperand, projectedState) = project nextState
+           in do
+                (childBinders, childConditions, childState) <- projectPattern child projectedOperand projectedState
+                go
+                  (reverse childBinders <> reversedBinders)
+                  (reverse childConditions <> reversedConditions)
+                  childState
+                  laterChildren
+                  laterProjections
+        go _ _ _ _ _ = Nothing
+
+    projectProductField layoutId operand fieldIndex representation currentState =
+      emitProjection representation (LoweredProjectField layoutId fieldIndex operand) currentState
+
+    projectVariantField layoutId tag operand fieldIndex representation currentState =
+      emitProjection representation (LoweredProjectVariantField layoutId tag fieldIndex operand) currentState
+
+    emitProjection representation operation currentState =
+      let temporaryIndex = loweringNextTemporary currentState
+          temporaryId = LoweredTemporaryId ("t" <> Text.pack (show temporaryIndex))
+          instruction = LoweredInstruction temporaryId representation operation
+       in ( LoweredTemporaryOperand temporaryId representation,
+            currentState
+              { loweringNextTemporary = temporaryIndex + 1,
+                loweringInstructions = instruction : loweringInstructions currentState
+              }
+          )
+
+    enterProjectedBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm laterArms continuationTemplate binderOperands conditions maybeFailureBlock projectedState =
+      case ambientArguments controlSlots projectedState of
+        Nothing -> ([unsupportedFailure path], projectedState)
+        Just controlArguments ->
+          let bodyBlockId = matchedArmEntry armIndex arm
+              binderParameters =
+                [ LoweredParameter (LoweredParameterId ("pattern" <> Text.pack (show index))) (loweredOperandRepresentation operand)
+                | (index, (_, operand)) <- zip [1 :: Int ..] binderOperands
+                ]
+              bodyParameters = controlParameters <> binderParameters
+              bodyArguments = controlArguments <> map snd binderOperands
+              startBody finishedState =
+                bindProjectedOperands
+                  binderOperands
+                  binderParameters
+                  (remapAmbient controlSlots controlParameters (startBlock bodyBlockId bodyParameters finishedState))
+              lowerBody bodyState =
+                lowerArmBody
+                  resultRepresentation
+                  scrutineeCarrier
+                  outerSlots
+                  controlSlots
+                  controlParameters
+                  armIndex
+                  arm
+                  laterArms
+                  continuationTemplate
+                  bodyState
+           in case conditions of
+                [] -> lowerBody (startBody (finishCurrentBlock (LoweredJump bodyBlockId bodyArguments) projectedState))
+                [(literalInfo, literal, comparedOperand)] ->
+                  case maybeFailureBlock of
+                    Nothing -> ([patternUnsupported armIndex], projectedState)
+                    Just failureBlockId ->
+                      let (literalFailures, maybeLiteralOperand, literalState) = lowerLiteral path literalInfo literal projectedState
+                       in case (literalFailures, maybeLiteralOperand) of
+                            ([], Just literalOperand)
+                              | loweredOperandRepresentation literalOperand == loweredOperandRepresentation comparedOperand ->
+                                  let comparisonIndex = loweringNextTemporary literalState
+                                      comparisonTemporary = LoweredTemporaryId ("t" <> Text.pack (show comparisonIndex))
+                                      comparisonInstruction =
+                                        LoweredInstruction
+                                          comparisonTemporary
+                                          LoweredBoolRepresentation
+                                          (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [comparedOperand, literalOperand])
+                                      comparisonState =
+                                        literalState
+                                          { loweringNextTemporary = comparisonIndex + 1,
+                                            loweringInstructions = comparisonInstruction : loweringInstructions literalState
+                                          }
+                                      finishedState =
+                                        finishCurrentBlock
+                                          (LoweredBranch (LoweredTemporaryOperand comparisonTemporary LoweredBoolRepresentation) bodyBlockId bodyArguments failureBlockId controlArguments)
+                                          comparisonState
+                                   in lowerBody (startBody finishedState)
+                            (failures@(_ : _), _) -> (failures, literalState)
+                            _ -> ([patternUnsupported armIndex], literalState)
+                _ -> ([patternUnsupported armIndex], projectedState)
+
+    nextConstructorEntry constructor nextArmIndex = go nextArmIndex
+      where
+        expectedTag = managedConstructorTag (managedPatternConstructorLayout constructor)
+        go _ [] = Nothing
+        go index (arm@(ManagedPatternArm (ManagedConstructor laterConstructor children) _ _) : later)
+          | managedConstructorTag (managedPatternConstructorLayout laterConstructor) == expectedTag =
+              Just (constructorArmEntry index children arm)
+          | otherwise = go (index + 1) later
+        go index (_ : later) = go (index + 1) later
+
+    nonEmptyHead values =
+      case values of
+        value : _ -> Just value
+        [] -> Nothing
+
+    bindProjectedOperands binderOperands binderParameters currentState =
+      currentState
+        { loweringLocalBindings =
+            foldl'
+              (\bindings ((binder, _), LoweredParameter parameterId representation) -> Map.insert binder (LoweredBlockParameterOperand parameterId representation) bindings)
+              (loweringLocalBindings currentState)
+              (zip binderOperands binderParameters)
+        }
+
+    patternUnsupported armIndex =
+      LoweredIRLoweringFailure
+        (TypedPatternPath modulePath statementPath (reverse expressionPath <> [armIndex]))
+        LoweredIRUnsupportedPattern
+        LoweredIRNoFailureDetail
+
+    variantTagRepresentation = LoweredUnsignedIntegerRepresentation LoweredIntegerWidth64
 
     lowerLiteralArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm patternInfo literal laterArms currentState =
       case (scrutineeAt scrutineeCarrier currentState, nextArmEntry armIndex laterArms) of
@@ -1315,7 +1615,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
                       enteredState
               Nothing -> ([unsupportedFailure path], currentState)
 
-    lowerMatchedArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm@(TypedCaseArm patternValue maybeGuard _) laterArms currentState =
+    lowerMatchedArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm@(ManagedPatternArm patternValue maybeGuard _) laterArms currentState =
       case scrutineeAt scrutineeCarrier currentState of
         Nothing -> ([unsupportedFailure path], currentState)
         Just scrutineeOperand ->
@@ -1394,7 +1694,7 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
             (failures@(_ : _), _, _, _) -> (failures, loweredGuardState)
             _ -> ([unsupportedFailure path], loweredGuardState)
 
-    lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex (TypedCaseArm _ _ body) laterArms continuationTemplate bodyState =
+    lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex (ManagedPatternArm _ _ body) laterArms continuationTemplate bodyState =
       case destination of
         FinishFunction expected ->
           let (bodyFailures, loweredBodyState) =
@@ -1465,12 +1765,13 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
         nextArm : _ -> Just (armEntryBlock (armIndex + 1) nextArm)
         [] -> Nothing
 
-    armEntryBlock armIndex arm@(TypedCaseArm patternValue _ _) =
+    armEntryBlock armIndex arm@(ManagedPatternArm patternValue _ _) =
       case patternValue of
-        TypedLiteralPattern {} -> patternCaseBlockId statementPath expressionPath armIndex "test"
+        ManagedLiteral {} -> patternCaseBlockId statementPath expressionPath armIndex "test"
+        ManagedTuple {} -> patternCaseBlockId statementPath expressionPath armIndex "test"
         _ -> matchedArmEntry armIndex arm
 
-    matchedArmEntry armIndex (TypedCaseArm _ maybeGuard _) =
+    matchedArmEntry armIndex (ManagedPatternArm _ maybeGuard _) =
       patternCaseBlockId
         statementPath
         expressionPath
@@ -1479,14 +1780,14 @@ lowerScalarPatternCaseTo destination modulePath statementPath expressionPath pat
 
     bindPattern patternValue scrutineeOperand currentState =
       case patternValue of
-        TypedVariablePattern _ binder _ ->
+        ManagedVariable _ binder ->
           currentState
             { loweringLocalBindings =
                 Map.insert binder scrutineeOperand (loweringLocalBindings currentState)
             }
         _ -> currentState
 
-    bindCurrentPattern (TypedCaseArm patternValue _ _) scrutineeCarrier currentState =
+    bindCurrentPattern (ManagedPatternArm patternValue _ _) scrutineeCarrier currentState =
       case scrutineeAt scrutineeCarrier currentState of
         Just scrutineeOperand -> bindPattern patternValue scrutineeOperand currentState
         Nothing -> currentState
