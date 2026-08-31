@@ -4,9 +4,9 @@ status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
-plan_section: "Full closeout"
+plan_section: "Post-completion repository audit"
 target_paths:
   - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
   - src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs
@@ -597,7 +597,17 @@ Curation Target`; preserve the completed construction evidence.
   git commit -m "docs: close typed-core managed pattern cases"
   ```
 
-### Full closeout
+### Post-completion repository audit
+
+The managed-pattern implementation, focused contract gate, eleven-suite
+architecture matrix, documentation closeout, and dispatcher handoff are
+complete. The complete repository suite remains a separate audit gate and is
+not recorded as passing: on 2026-08-31 the freshly relinked
+`program-corpus-spec` executable repeatedly remained in macOS `dyld` before
+entering Haskell `main`. The neighboring `jazz-lowered-ir-contract-spec` and
+`benchmark-stage-spec` executables launched and passed directly. Rebuilding,
+copying without extended attributes, and replacing the ad-hoc signature did
+not clear the component-specific loader block.
 
 - [ ] **Step 1: Run the complete serialized suite.** Run:
 
@@ -605,7 +615,9 @@ Curation Target`; preserve the completed construction evidence.
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1
   ```
 
-  Expected: every suite passes with zero failures.
+  Expected: every suite passes with zero failures. Current state: blocked by
+  the pre-`main` macOS loader behavior recorded above; this step is neither a
+  pass nor a test failure.
 
 - [ ] **Step 2: Re-run final evidence against committed HEAD.** Run:
 
@@ -619,6 +631,7 @@ Curation Target`; preserve the completed construction evidence.
 
   Expected: all gates exit zero and the worktree is clean.
 
-- [ ] **Step 3: Resume the architecture simplification plan.** Continue from
-      Task 2 under subagent-driven execution; do not ask the user to reapprove
-      the already-approved architecture design or execution mode.
+- [x] **Step 3: Restore the architecture execution handoff.** The dispatcher
+      now points at the architecture simplification plan's first milestone.
+      Continued implementation begins at Task 2 under the already-approved
+      subagent-driven mode; it is not part of this child's closeout.

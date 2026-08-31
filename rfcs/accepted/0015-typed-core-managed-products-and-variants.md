@@ -62,8 +62,9 @@ collection, construction, and transport. The second child owns managed pattern
 decision trees and projections. Both ordered children are complete.
 
 Ordinary `compile` and `run` remain on canonical core and the reference
-interpreter. Public language behavior, Typed Core and Lowered IR schemas,
-mirrored validators, and Lowered IR version 1 remain unchanged.
+interpreter. Public language behavior, Typed Core and Lowered IR schemas, and
+Lowered IR version 1 remain unchanged. The Haskell and hosted Jazz validators
+remain behaviorally aligned.
 
 ## Implementation status
 
@@ -93,8 +94,8 @@ language semantic change. Lists and list fields, list patterns, Text literal
 patterns, product/variant equality, first-class non-nullary constructors,
 pattern lambdas, imported data, multi-module lowering, runtime ABI, native
 execution, and ordinary compile/run cutover remain excluded. Typed Core and
-Lowered IR schemas, mirrored validators, and Lowered IR version 1 remain
-unchanged.
+Lowered IR schemas and Lowered IR version 1 remain unchanged. The Haskell and
+hosted Jazz validators remain behaviorally aligned.
 
 ## Context
 
@@ -130,8 +131,9 @@ runtime match-failure path.
   block parameters, joins, and tail terminators.
 - Complete constructor cases can lower without an artificial wildcard while
   malformed incomplete Typed Core still fails closed.
-- No Typed Core or Lowered IR schema, version, hosted validator, runtime
-  service, host callback, or native symbol changes.
+- No Typed Core or Lowered IR schema, version, runtime service, host callback,
+  or native symbol changes.
+- Haskell and hosted Jazz validator behavior remains aligned.
 - Lists, list patterns, `Text` literal patterns, product/variant equality,
   first-class constructors, pattern lambdas, imported data, multi-module
   lowering, runtime ABI, native execution, and ordinary compile/run cutover
