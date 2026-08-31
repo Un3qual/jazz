@@ -9,6 +9,8 @@ module Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     managedLayoutShapeFor,
     representationForRecipe,
     constructorLayoutFor,
+    managedPatternConstructorsFor,
+    managedPatternConstructorFor,
     constructorApplicationLayout,
     productLayoutFields,
     nodeInstantiations,
@@ -18,6 +20,7 @@ where
 import Control.Monad (foldM, join)
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq, (|>))
@@ -33,6 +36,7 @@ import Jazz.Compiler.LoweredIR.Lower.Types
     LoweredIRLoweringKind (..),
     ManagedConstructorLayout (..),
     ManagedLayoutCatalog (..),
+    ManagedPatternConstructor (..),
     loweredFloatWidth,
     loweredIntegerWidth,
   )
@@ -65,6 +69,7 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
     ManagedLayoutCatalog
       { catalogModulePath = modulePath,
         catalogConstructors = constructors,
+        catalogConstructorOrder = constructorOrder,
         catalogLayoutShapes =
           Map.fromList
             [ (layoutId, shape)
@@ -75,18 +80,32 @@ collectManagedLayoutCatalog typedModule@(TypedModule modulePath _ _ _ moduleInte
   where
     declarationValues = orderedDataDeclarations moduleInterface statements
     declarations = Map.fromList [(dataDeclarationName declaration, declaration) | declaration <- declarationValues]
+    constructorValues =
+      [ ConstructorTemplate
+          { constructorTemplateBinder = binder,
+            constructorTemplateDataName = dataDeclarationName declaration,
+            constructorTemplateName = name,
+            constructorTemplateParameters = dataDeclarationParameters declaration,
+            constructorTemplateTag = tag,
+            constructorTemplateFieldTypes = fieldTypes,
+            constructorTemplateFieldRecipes = fieldRecipes
+          }
+      | declaration <- declarationValues,
+        (tag, TypedConstructorDeclaration binder name fieldTypes fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+      ]
     constructors =
       Map.fromList
-        [ ( binder,
-            ConstructorTemplate
-              { constructorTemplateDataName = dataDeclarationName declaration,
-                constructorTemplateParameters = dataDeclarationParameters declaration,
-                constructorTemplateTag = tag,
-                constructorTemplateFieldRecipes = fieldRecipes
-              }
+        [ (constructorTemplateBinder constructor, constructor)
+        | constructor <- constructorValues
+        ]
+    constructorOrder =
+      Map.fromList
+        [ ( dataDeclarationName declaration,
+            [ binder
+            | TypedConstructorDeclaration binder _ _ _ <- dataDeclarationConstructors declaration
+            ]
           )
-        | declaration <- declarationValues,
-          (tag, TypedConstructorDeclaration binder _ _ fieldRecipes) <- zip [0 :: Natural ..] (dataDeclarationConstructors declaration)
+        | declaration <- declarationValues
         ]
 
     emptyBuild = CatalogBuild Seq.empty Map.empty
@@ -130,6 +149,50 @@ constructorLayoutFor catalog binder instantiations = do
             managedConstructorFields = fieldRepresentations
           }
     else Nothing
+
+managedPatternConstructorsFor :: ManagedLayoutCatalog -> TypedNodeInfo -> Maybe [ManagedPatternConstructor]
+managedPatternConstructorsFor catalog info = do
+  (dataName, arguments) <- managedPatternDataContract info
+  binders <- Map.lookup dataName (catalogConstructorOrder catalog)
+  traverse (specializePatternConstructor catalog arguments) binders
+
+managedPatternConstructorFor :: ManagedLayoutCatalog -> TypedCoreName -> TypedNodeInfo -> Maybe ManagedPatternConstructor
+managedPatternConstructorFor catalog name info =
+  find ((== name) . managedPatternConstructorName) =<< managedPatternConstructorsFor catalog info
+
+managedPatternDataContract :: TypedNodeInfo -> Maybe (TypedCoreName, [TypedType])
+managedPatternDataContract info =
+  case (typedNodeType info, typedNodeRecipe info) of
+    (TypedDataType typeName arguments, TypedManagedVariantRecipe recipeName recipeArguments)
+      | typeName == recipeName,
+        arguments == recipeArguments ->
+          Just (typeName, arguments)
+    _ -> Nothing
+
+specializePatternConstructor :: ManagedLayoutCatalog -> [TypedType] -> TypedBinderId -> Maybe ManagedPatternConstructor
+specializePatternConstructor catalog arguments binder = do
+  constructor <- Map.lookup binder (catalogConstructors catalog)
+  bindings <- typeBindings (constructorTemplateParameters constructor) arguments
+  concreteTypes <- traverse (substituteTypedType bindings) (constructorTemplateFieldTypes constructor)
+  concreteRecipes <- either (const Nothing) Just (traverse (substituteRecipe bindings) (constructorTemplateFieldRecipes constructor))
+  layout <- constructorLayoutFor catalog binder (patternInstantiations constructor arguments)
+  pure
+    ManagedPatternConstructor
+      { managedPatternConstructorLayout = layout,
+        managedPatternConstructorName = constructorTemplateName constructor,
+        managedPatternConstructorFields = zipWith (\typeValue recipe -> TypedNodeInfo typeValue recipe [] []) concreteTypes concreteRecipes
+      }
+
+patternInstantiations :: ConstructorTemplate -> [TypedType] -> [TypedInstantiation]
+patternInstantiations constructor arguments =
+  case constructorTemplateParameters constructor of
+    [] -> []
+    parameters ->
+      [ TypedInstantiation
+          (constructorTemplateBinder constructor)
+          (zipWith TypedTypeArgument parameters arguments)
+          Nothing
+      ]
 
 constructorApplicationLayout :: ManagedLayoutCatalog -> TypedExpr -> Maybe ManagedConstructorLayout
 constructorApplicationLayout catalog callee =

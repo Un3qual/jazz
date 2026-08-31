@@ -2,9 +2,11 @@
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary (managedPatternAnalysisBoundaryPrograms)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
   ( optionLayout,
     optionLayoutId,
@@ -12,11 +14,13 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProd
     treeLayout,
     tupleLayout,
   )
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixture, sourceFixtureNoExports)
+import qualified Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants as ManagedProductsVariants
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (intInfo, sourceFixture, sourceFixtureNoExports)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
+import Jazz.Compiler.LoweredIR.Lower.ManagedPatterns
 import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( requiredRuntimeLayouts,
     requirementsForManagedLayouts,
@@ -75,8 +79,10 @@ testManagedPatternProducerExclusions =
       )
 
 testManagedPatternLowererBoundary :: IO ()
-testManagedPatternLowererBoundary =
+testManagedPatternLowererBoundary = do
   mapM_ assertManagedPatternBoundary expectedResults
+  testManagedPatternAnalysisBoundaries
+  testManagedPatternPureAnalysis
   where
     assertManagedPatternBoundary (name, expectedFailures) =
       case lookup name managedProductVariantExpectedPrograms of
@@ -99,6 +105,116 @@ testManagedPatternLowererBoundary =
         (TypedPatternPath ["App", "Main"] statementPath patternPath)
         LoweredIRUnsupportedPattern
         LoweredIRNoFailureDetail
+
+testManagedPatternAnalysisBoundaries :: IO ()
+testManagedPatternAnalysisBoundaries =
+  mapM_ assertPatternBoundary expectedResults
+  where
+    assertPatternBoundary (name, expectedFailures) =
+      case lookup name managedPatternAnalysisBoundaryPrograms of
+        Nothing -> failTest (name <> " managed pattern analysis boundary is missing")
+        Just typedProgram -> do
+          assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
+          assertUnsupportedLowering
+            (name <> " exact managed pattern boundary")
+            expectedFailures
+            (lowerTypedCoreExpressionDirectCall typedProgram)
+
+    expectedResults =
+      [ ("managed-incomplete-constructor-case", [expressionFailureAt 1 LoweredIRIncompletePatternCase]),
+        ("managed-guarded-complete-constructor-case", [expressionFailureAt 1 LoweredIRIncompletePatternCase]),
+        ("managed-incomplete-nested-case", [expressionFailureAt 1 LoweredIRIncompletePatternCase]),
+        ("managed-unsupported-list-pattern", [patternFailureAt 0 [0, 0]]),
+        ("managed-unsupported-text-pattern", [patternFailureAt 0 [0, 0]]),
+        ("managed-unsupported-nested-or-pattern", [patternFailureAt 0 [0, 0, 0]]),
+        ("managed-complete-constructor-case", [patternFailureAt 1 [0, 0]])
+      ]
+    expressionFailureAt statementIndex kind =
+      LoweredIRLoweringFailure
+        (TypedExpressionPath ["App", "Main"] [statementIndex] [0])
+        kind
+        LoweredIRNoFailureDetail
+    patternFailureAt statementIndex patternPath =
+      LoweredIRLoweringFailure
+        (TypedPatternPath ["App", "Main"] [statementIndex] patternPath)
+        LoweredIRUnsupportedPattern
+        LoweredIRNoFailureDetail
+
+testManagedPatternPureAnalysis :: IO ()
+testManagedPatternPureAnalysis = do
+  constructorCatalog <- catalogFor ManagedProductsVariants.managedConstructorPatternProgram
+  let expectedNames = [ManagedProductsVariants.noneName, ManagedProductsVariants.someName]
+  case managedPatternConstructorsFor constructorCatalog ManagedProductsVariants.optionIntInfo of
+    Nothing -> failTest "managed constructor catalog did not resolve Option Int"
+    Just constructors -> do
+      assertEqual "constructor catalog preserves source names" expectedNames (map managedPatternConstructorName constructors)
+      assertEqual "constructor catalog preserves source tags" [0, 1] (map (managedConstructorTag . managedPatternConstructorLayout) constructors)
+      assertEqual "constructor catalog specializes field infos" [[], [intInfo]] (map managedPatternConstructorFields constructors)
+      assertEqual "constructor catalog reuses concrete layout" [optionLayoutId, optionLayoutId] (map (managedConstructorLayoutId . managedPatternConstructorLayout) constructors)
+  case managedPatternConstructorFor constructorCatalog ManagedProductsVariants.someName ManagedProductsVariants.optionIntInfo of
+    Just constructor ->
+      assertEqual "constructor lookup specializes one field" [intInfo] (managedPatternConstructorFields constructor)
+    Nothing -> failTest "managed constructor lookup did not resolve Some Int"
+
+  constructorPlan <- analyzeProgram ManagedProductsVariants.managedConstructorPatternProgram
+  case constructorPlan of
+    ManagedPatternArm (ManagedConstructor someConstructor [ManagedVariable _ itemBinder]) Nothing _
+      :| [ManagedPatternArm (ManagedConstructor noneConstructor []) Nothing _] -> do
+        assertEqual "source arm order retains Some first" 1 (managedConstructorTag (managedPatternConstructorLayout someConstructor))
+        assertEqual "source arm order retains None second" 0 (managedConstructorTag (managedPatternConstructorLayout noneConstructor))
+        assertEqual "constructor binder contract is retained" (ManagedProductsVariants.patternBinder [1, 0, 0] (ManagedProductsVariants.valueName "item")) itemBinder
+    other -> failTest ("unexpected constructor analysis plan: " <> Text.pack (show other))
+
+  tuplePlan <- analyzeProgram ManagedProductsVariants.managedTuplePatternProgram
+  case tuplePlan of
+    ManagedPatternArm (ManagedTuple _ layoutId [ManagedVariable _ leftBinder, ManagedVariable _ rightBinder]) Nothing _ :| [] -> do
+      assertEqual
+        "tuple plan uses the concrete product layout"
+        (LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$8:signed64")
+        layoutId
+      assertEqual
+        "tuple plan preserves left-to-right children"
+        [ ManagedProductsVariants.patternBinder [0, 0, 0] (ManagedProductsVariants.valueName "left"),
+          ManagedProductsVariants.patternBinder [0, 0, 1] (ManagedProductsVariants.valueName "right")
+        ]
+        [leftBinder, rightBinder]
+    other -> failTest ("unexpected tuple analysis plan: " <> Text.pack (show other))
+
+  orPlan <- analyzeProgram ManagedProductsVariants.managedOrConstructorPatternProgram
+  case orPlan of
+    ManagedPatternArm (ManagedOr _ (leftPattern :| [rightPattern])) Nothing _ :| [] ->
+      assertEqual
+        "top-level alternatives share one binder contract"
+        (managedPatternBinders leftPattern)
+        (managedPatternBinders rightPattern)
+    other -> failTest ("unexpected or-pattern analysis plan: " <> Text.pack (show other))
+  where
+    catalogFor typedProgram =
+      case typedProgram of
+        TypedProgram _ [typedModule] _ ->
+          case collectManagedLayoutCatalog typedModule of
+            Right catalog -> pure catalog
+            Left failures -> failTest ("managed catalog collection failed: " <> Text.pack (show failures))
+        _ -> failTest "managed pattern fixture must contain one module"
+    analyzeProgram typedProgram =
+      case typedProgram of
+        TypedProgram _ [TypedModule modulePath _ _ _ _ _ statements _] _ -> do
+          catalog <- catalogFor typedProgram
+          case [(statementIndex, expression) | (statementIndex, TypedExpressionStatement _ expression@TypedPatternCaseExpr {}) <- zip [0 ..] statements] of
+            [(statementIndex, TypedPatternCaseExpr _ scrutinee arms)] ->
+              case analyzeManagedPatternCase catalog modulePath [statementIndex] [0] scrutinee arms of
+                Right plan -> pure plan
+                Left failure -> failTest ("managed pattern analysis failed: " <> Text.pack (show failure))
+            _ -> failTest "managed pattern fixture must contain one case expression"
+        _ -> failTest "managed pattern fixture must contain one module"
+    managedPatternBinders patternValue =
+      case patternValue of
+        ManagedVariable _ binder -> [binder]
+        ManagedConstructor _ children -> concatMap managedPatternBinders children
+        ManagedTuple _ _ children -> concatMap managedPatternBinders children
+        ManagedAs _ binder nested -> binder : managedPatternBinders nested
+        ManagedOr _ alternatives -> concatMap managedPatternBinders alternatives
+        _ -> []
 
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =

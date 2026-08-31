@@ -12,6 +12,7 @@ module Jazz.Compiler.LoweredIR.Lower.Types
     FunctionShape (..),
     FunctionIndex (..),
     ManagedConstructorLayout (..),
+    ManagedPatternConstructor (..),
     ConstructorTemplate (..),
     ManagedLayoutCatalog (..),
     LoweringAnalysis (..),
@@ -168,16 +169,27 @@ data ManagedConstructorLayout = ManagedConstructorLayout
   }
   deriving (Eq, Show)
 
+data ManagedPatternConstructor = ManagedPatternConstructor
+  { managedPatternConstructorLayout :: ManagedConstructorLayout,
+    managedPatternConstructorName :: TypedCoreName,
+    managedPatternConstructorFields :: [TypedNodeInfo]
+  }
+  deriving (Eq, Show)
+
 data ConstructorTemplate = ConstructorTemplate
-  { constructorTemplateDataName :: TypedCoreName,
+  { constructorTemplateBinder :: TypedBinderId,
+    constructorTemplateDataName :: TypedCoreName,
+    constructorTemplateName :: TypedCoreName,
     constructorTemplateParameters :: [TypedTypeParameterId],
     constructorTemplateTag :: Natural,
+    constructorTemplateFieldTypes :: [TypedType],
     constructorTemplateFieldRecipes :: [TypedRepresentationRecipe]
   }
 
 data ManagedLayoutCatalog = ManagedLayoutCatalog
   { catalogModulePath :: [Text],
     catalogConstructors :: Map.Map TypedBinderId ConstructorTemplate,
+    catalogConstructorOrder :: Map.Map TypedCoreName [TypedBinderId],
     catalogLayoutShapes :: Map.Map LoweredLayoutId LoweredLayoutShape,
     catalogLayouts :: [LoweredLayout]
   }

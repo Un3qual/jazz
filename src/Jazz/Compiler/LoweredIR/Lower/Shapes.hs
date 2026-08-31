@@ -19,9 +19,10 @@ module Jazz.Compiler.LoweredIR.Lower.Shapes
   )
 where
 
+import Data.Foldable (toList)
 import Data.List (find, sortOn)
+import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, isNothing)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -35,6 +36,7 @@ import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     productLayoutFields,
     representationForRecipe,
   )
+import Jazz.Compiler.LoweredIR.Lower.ManagedPatterns
 import Jazz.Compiler.LoweredIR.Lower.Requirements
   ( collectRuntimeRequirements,
     requirementsForManagedLayouts,
@@ -1037,13 +1039,13 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
           child 2 elseExpression
         ]
     TypedPatternCaseExpr info scrutinee arms ->
-      case scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath expressionPath scrutinee arms of
-        failures@(_ : _) -> failures
-        [] ->
+      case analyzeManagedPatternCase managedLayoutCatalog modulePath statementPath (reverse expressionPath) scrutinee arms of
+        Left failure -> [failure]
+        Right armPlan ->
           combineExpressionChecks
             ( representationCheck info
                 : child 0 scrutinee
-                : [ let armParameters = patternArmParameters managedLayoutCatalog patternValue <> parameters
+                : [ let armParameters = managedPatternArmParameters managedLayoutCatalog patternValue <> parameters
                      in maybe
                           []
                           ( inspectExpression
@@ -1069,7 +1071,7 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
                             armParameters
                             captures
                             body
-                  | (armIndex, TypedCaseArm patternValue maybeGuard body) <- zip [0 ..] arms
+                  | (armIndex, ManagedPatternArm patternValue maybeGuard body) <- zip [0 ..] (toList armPlan)
                   ]
             )
     TypedApplyExpr {} ->
@@ -1131,73 +1133,10 @@ inspectExpression managedLayoutCatalog modulePath statementPath expressionPath f
 combineExpressionChecks :: [[LoweredIRLoweringFailure]] -> [LoweredIRLoweringFailure]
 combineExpressionChecks = concat
 
-scalarPatternCaseProfileFailures ::
-  ManagedLayoutCatalog ->
-  [Text] ->
-  [Int] ->
-  [Int] ->
-  TypedExpr ->
-  [TypedCaseArm] ->
-  [LoweredIRLoweringFailure]
-scalarPatternCaseProfileFailures managedLayoutCatalog modulePath statementPath reversedExpressionPath scrutinee arms =
-  case unsupportedArmFailures of
-    failure : _ -> [failure]
-    []
-      | isNothing
-          ( scalarRepresentation
-              managedLayoutCatalog
-              (typedNodeType scrutineeInfo)
-              (typedNodeRecipe scrutineeInfo)
-          ) ->
-          [expressionFailure LoweredIRUnsupportedPattern]
-      | not (totalArmChain arms) ->
-          [expressionFailure LoweredIRIncompletePatternCase]
-      | otherwise -> []
-  where
-    expressionPath = reverse reversedExpressionPath
-    scrutineeInfo = typedExpressionInfo scrutinee
-    unsupportedArmFailures =
-      [ LoweredIRLoweringFailure
-          (TypedPatternPath modulePath statementPath (expressionPath <> [armIndex]))
-          LoweredIRUnsupportedPattern
-          LoweredIRNoFailureDetail
-      | (armIndex, TypedCaseArm patternValue _ _) <- zip [0 ..] arms,
-        not (supportedPattern patternValue)
-      ]
-    supportedPattern patternValue =
-      case patternValue of
-        TypedWildcardPattern info -> matchingScrutineeInfo info
-        TypedVariablePattern info _ _ -> matchingScrutineeInfo info
-        TypedLiteralPattern info _ ->
-          matchingScrutineeInfo info
-            && isJust (scalarRepresentation managedLayoutCatalog (typedNodeType info) (typedNodeRecipe info))
-        _ -> False
-    matchingScrutineeInfo info =
-      typedNodeType info == typedNodeType scrutineeInfo
-        && typedNodeRecipe info == typedNodeRecipe scrutineeInfo
-    totalArmChain caseArms =
-      case reverse caseArms of
-        TypedCaseArm finalPattern Nothing _ : precedingArms ->
-          catchAllPattern finalPattern
-            && all supportedPrecedingArm precedingArms
-        _ -> False
-    supportedPrecedingArm (TypedCaseArm patternValue maybeGuard _) =
-      not (catchAllPattern patternValue) || isJust maybeGuard
-    catchAllPattern patternValue =
-      case patternValue of
-        TypedWildcardPattern {} -> True
-        TypedVariablePattern {} -> True
-        _ -> False
-    expressionFailure kind =
-      LoweredIRLoweringFailure
-        (TypedExpressionPath modulePath statementPath expressionPath)
-        kind
-        LoweredIRNoFailureDetail
-
-patternArmParameters :: ManagedLayoutCatalog -> TypedPattern -> [FunctionParameterShape]
-patternArmParameters managedLayoutCatalog patternValue =
+managedPatternArmParameters :: ManagedLayoutCatalog -> ManagedPattern -> [FunctionParameterShape]
+managedPatternArmParameters managedLayoutCatalog patternValue =
   case patternValue of
-    TypedVariablePattern info binder _ ->
+    ManagedVariable info binder ->
       case representationForRecipe managedLayoutCatalog (typedNodeRecipe info) of
         Just representation ->
           [ FunctionParameterShape
@@ -1205,6 +1144,17 @@ patternArmParameters managedLayoutCatalog patternValue =
               (LoweredParameter (LoweredParameterId "pattern") representation)
           ]
         Nothing -> []
+    ManagedConstructor _ children -> concatMap (managedPatternArmParameters managedLayoutCatalog) children
+    ManagedTuple _ _ children -> concatMap (managedPatternArmParameters managedLayoutCatalog) children
+    ManagedAs info binder nested ->
+      case representationForRecipe managedLayoutCatalog (typedNodeRecipe info) of
+        Just representation ->
+          FunctionParameterShape
+            binder
+            (LoweredParameter (LoweredParameterId "pattern") representation)
+            : managedPatternArmParameters managedLayoutCatalog nested
+        Nothing -> managedPatternArmParameters managedLayoutCatalog nested
+    ManagedOr _ (alternative :| _) -> managedPatternArmParameters managedLayoutCatalog alternative
     _ -> []
 
 typedPatternBinderIds :: TypedPattern -> [TypedBinderId]

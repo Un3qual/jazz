@@ -138,6 +138,98 @@ managedConstructionLowererBoundaryPrograms =
     ("managed-variant-equality-lowerer", managedVariantEqualityLowererProgram)
   ]
 
+managedPatternAnalysisBoundaryPrograms :: [(Text, TypedProgram)]
+managedPatternAnalysisBoundaryPrograms =
+  [ ("managed-incomplete-constructor-case", rewriteManagedTerminal ManagedProductsVariants.managedConstructorPatternProgram keepFirstArm),
+    ("managed-guarded-complete-constructor-case", rewriteManagedTerminal ManagedProductsVariants.managedConstructorPatternProgram guardEveryArm),
+    ("managed-incomplete-nested-case", rewriteManagedTerminal ManagedProductsVariants.managedNestedConstructorTuplePatternProgram constrainNestedField),
+    ("managed-unsupported-list-pattern", namedScalarBoundary "pattern-case-list-lowerer"),
+    ("managed-unsupported-text-pattern", managedTextLiteralPatternProgram),
+    ("managed-unsupported-nested-or-pattern", managedNestedOrPatternProgram),
+    ("managed-complete-constructor-case", ManagedProductsVariants.managedConstructorPatternProgram)
+  ]
+  where
+    keepFirstArm expression =
+      case expression of
+        TypedPatternCaseExpr info scrutinee (firstArm : _) ->
+          TypedPatternCaseExpr info scrutinee [firstArm]
+        _ -> error "managed constructor fixture must end in a non-empty pattern case"
+    guardEveryArm expression =
+      case expression of
+        TypedPatternCaseExpr info scrutinee arms ->
+          TypedPatternCaseExpr info scrutinee (map addGuard arms)
+        _ -> error "managed constructor fixture must end in a pattern case"
+    addGuard (TypedCaseArm patternValue _ body) =
+      TypedCaseArm patternValue (Just (boolExpr True)) body
+    constrainNestedField expression =
+      case expression of
+        TypedPatternCaseExpr info scrutinee (firstArm : laterArms) ->
+          TypedPatternCaseExpr info scrutinee (constrainArm firstArm : laterArms)
+        _ -> error "managed nested fixture must end in a non-empty pattern case"
+    constrainArm (TypedCaseArm patternValue guard _) =
+      TypedCaseArm (constrainPattern patternValue) guard (intExpr 1)
+    constrainPattern patternValue =
+      case patternValue of
+        TypedConstructorPattern info name [TypedTuplePattern tupleInfo (_ : labelPattern : [])] ->
+          TypedConstructorPattern
+            info
+            name
+            [ TypedTuplePattern
+                tupleInfo
+                [TypedLiteralPattern intInfo (TypedIntegerLiteral "1"), labelPattern]
+            ]
+        _ -> error "managed nested fixture must retain one constructor/tuple pattern"
+    namedScalarBoundary name =
+      case lookup name scalarPatternCaseLowererBoundaryPrograms of
+        Just programValue -> programValue
+        Nothing -> error "scalar pattern lowerer fixture is missing"
+
+managedTextLiteralPatternProgram :: TypedProgram
+managedTextLiteralPatternProgram =
+  expectedScalarProgram
+    intInfo
+    ( TypedPatternCaseExpr
+        intInfo
+        (textExpr "managed")
+        [ TypedCaseArm
+            (TypedLiteralPattern textInfo (TypedTextLiteral "managed"))
+            Nothing
+            (intExpr 1),
+          TypedCaseArm (TypedWildcardPattern textInfo) Nothing (intExpr 0)
+        ]
+    )
+
+managedNestedOrPatternProgram :: TypedProgram
+managedNestedOrPatternProgram =
+  expectedScalarProgram
+    intInfo
+    ( TypedPatternCaseExpr
+        intInfo
+        tupleExpression
+        [ TypedCaseArm
+            ( TypedTuplePattern
+                tupleInfo
+                [ TypedOrPattern
+                    boolInfo
+                    [ TypedLiteralPattern boolInfo (TypedBooleanLiteral True),
+                      TypedLiteralPattern boolInfo (TypedBooleanLiteral False)
+                    ],
+                  TypedWildcardPattern boolInfo
+                ]
+            )
+            Nothing
+            (intExpr 1)
+        ]
+    )
+  where
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedBoolType, TypedBoolType])
+        (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
+        []
+        []
+    tupleExpression = TypedTupleExpr tupleInfo [boolExpr True, boolExpr False]
+
 managedBareConstructorLowererProgram :: TypedProgram
 managedBareConstructorLowererProgram =
   rewriteManagedTerminal ManagedProductsVariants.managedOptionProgram bareConstructor
