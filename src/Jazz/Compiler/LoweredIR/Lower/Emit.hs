@@ -14,6 +14,7 @@ import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( constructorApplicationLayout,
     constructorLayoutFor,
+    managedLayoutShapeFor,
     nodeInstantiations,
     orderedManagedLayouts,
     productLayoutFields,
@@ -1416,12 +1417,18 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
                         (zip children projectedOperands <> laterWork)
                         projectedState
             ManagedConstructor constructor children -> do
-              failureBlockId <- maybeFailureBlock
               controlArguments <- ambientArguments controlSlots currentState
               let layout = managedPatternConstructorLayout constructor
                   layoutId = managedConstructorLayoutId layout
                   tag = fromIntegral (managedConstructorTag layout)
                   representations = managedConstructorFields layout
+              switchDefault <-
+                case managedLayoutShapeFor (indexedManagedLayoutCatalog functions) layoutId of
+                  Just (LoweredVariantLayouts [LoweredVariantLayout onlyTag _])
+                    | onlyTag == tag -> Just Nothing
+                  _ -> do
+                    failureBlockId <- maybeFailureBlock
+                    Just (Just (LoweredSwitchDefault failureBlockId controlArguments))
               if length children /= length representations
                 then Nothing
                 else
@@ -1458,7 +1465,7 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
                           ( LoweredSwitch
                               operand
                               [LoweredSwitchCase tag matchBlockId successArguments]
-                              (Just (LoweredSwitchDefault failureBlockId controlArguments))
+                              switchDefault
                           )
                           taggedState
                       matchState =
