@@ -164,7 +164,7 @@ data ClassMethodType = ClassMethodType Text SignaturePayload
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data ImplMethodType = ImplMethodType SignatureType
+newtype ImplMethodType = ImplMethodType SignatureType
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 

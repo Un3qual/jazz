@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -97,10 +98,10 @@ data RuntimeFloatMetadata = RuntimeFloatMetadata
   }
   deriving (Eq, Show)
 
-data RuntimeIntMetadata = RuntimeIntMetadata
+newtype RuntimeIntMetadata = RuntimeIntMetadata
   { runtimeIntTargetType :: Maybe NumericType
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 data RuntimeEvidence = RuntimeEvidence Text SignatureType (Maybe Text)
   deriving (Eq, Show)

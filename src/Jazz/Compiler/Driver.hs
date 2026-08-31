@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DerivingStrategies #-}
 
 -- | Compiler driver that coordinates parsing, prelude injection, module
 -- resolution, analysis/type checking, warning promotion, and runtime execution.
@@ -119,10 +119,10 @@ import Jazz.Compiler.WarningConfig
 
 -- | Result of a compile-only invocation. Severity views are derived from the
 -- one ordered diagnostic stream below.
-data CompileResult = CompileResult
+newtype CompileResult = CompileResult
   { compileDiagnostics :: [Diagnostic]
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 compileWarnings :: CompileResult -> [Diagnostic]
 compileWarnings = filter isWarningDiagnostic . compileDiagnostics

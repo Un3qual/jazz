@@ -1,7 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- | Canonical core AST shared by lowering, analysis, type inference, and the
 -- small interpreter/runtime slice in `jazz`.

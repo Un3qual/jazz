@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Pattern shape, binder, and constructor-contract validation.
 module Jazz.Compiler.TypedCore.Validate.Patterns
   ( binderContractFromInfo,

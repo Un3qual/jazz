@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Validated lowering from the first typed-core scalar profile into the
 -- permanent backend-neutral lowered IR.
 module Jazz.Compiler.LoweredIR.Lower

@@ -13,7 +13,7 @@ module Jazz.Compiler.PatternCoverage
   )
 where
 
-import Data.List (find, nub, sort, sortOn)
+import Data.List (find, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -376,7 +376,9 @@ simplifyCoveragePattern inventory expressionType patternValue =
         CoverageWildcard -> CoverageWildcard
         CoverageOr alternatives ->
           CoverageOr
-            (sort (nub (map (simplifyCoveragePattern inventory expressionType) alternatives)))
+            ( Set.toAscList
+                (Set.fromList (map (simplifyCoveragePattern inventory expressionType) alternatives))
+            )
         CoverageConstructor constructor fields ->
           case constructorShape inventory expressionType constructor (length fields) of
             Just shape

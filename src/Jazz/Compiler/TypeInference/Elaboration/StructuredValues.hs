@@ -9,6 +9,7 @@ module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   )
 where
 
+import Data.Functor (unzip)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.List (find)
@@ -33,6 +34,7 @@ import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
 import Jazz.Compiler.TypedCore
+import Prelude hiding (unzip)
 
 data StructuredConstructor = StructuredConstructor
   { structuredConstructorSourceName :: Name,
