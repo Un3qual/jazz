@@ -253,19 +253,20 @@ Each blocked item should answer these questions:
   producer, Typed Core contract, and Lowered IR contract suites pass, and
   `cabal test all --test-show-details=direct --jobs=1` passes inside the
   checked-in Nix shell.
-- Smallest unblocker: curate
-  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` into one
-  aligned implementation plan with a green focused baseline; do not promote it
-  during construction closeout.
+- Smallest unblocker: execute
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` through
+  its aligned plan and verified closeout.
 - Decision needed: none. RFC 0015's managed-pattern surface, source ordering,
   projection discipline, independent totality check, and failure boundary are
   accepted.
-- Recommended default: curate only the single named managed-pattern child.
-  Keep it outside `Ready Now` until its live paths and exact fixtures are
-  captured by a matching plan.
+- Recommended default: execute the single `Ready Now` managed-pattern child,
+  then resume the approved compiler architecture simplification.
 - Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`.
 - Target paths: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`,
+  `src/Jazz/Compiler/LoweredIR/Lower/ManagedPatterns.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`,
