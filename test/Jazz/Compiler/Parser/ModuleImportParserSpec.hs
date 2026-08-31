@@ -83,9 +83,7 @@ tests =
     ("rejects spaced qualified alias lookup inside binding expression", testRejectsSpacedQualifiedAliasLookupInBindingExpression),
     ("rejects qualified alias lookup with non-identifier member", testRejectsNonIdentifierQualifiedMember),
     ("rejects constructor qualified lookup with non-identifier member", testRejectsConstructorQualifiedNonIdentifierMember),
-    ("rejects legacy dot-only module declaration syntax", testRejectsLegacyDotOnlyModuleDeclaration),
-    ("rejects legacy equals-style module declaration syntax", testRejectsLegacyEqualsStyleModuleDeclaration),
-    ("rejects legacy newline module declaration syntax", testRejectsLegacyNewlineModuleDeclaration),
+    ("rejects legacy module declaration syntax", testRejectsLegacyModuleDeclarations),
     ("rejects trailing top-level statements after module body", testRejectsTrailingTopLevelStatementsAfterModuleBody),
     ("rejects module declaration after earlier top-level statement", testRejectsModuleDeclarationAfterTopLevelStatement),
     ("rejects module declaration nested inside module body", testRejectsModuleDeclarationNestedInsideModuleBody),
@@ -705,27 +703,20 @@ testRejectsConstructorQualifiedNonIdentifierMember =
     "expected member name after '::'"
     (parseSurfaceProgram "Math::1.")
 
-testRejectsLegacyDotOnlyModuleDeclaration :: IO ()
-testRejectsLegacyDotOnlyModuleDeclaration =
-  assertLeftDiagnosticContains
-    "legacy module declaration rejected"
-    "expected '{'"
-    (parseSurfaceProgram "module App::Core.")
-
-testRejectsLegacyEqualsStyleModuleDeclaration :: IO ()
-testRejectsLegacyEqualsStyleModuleDeclaration =
-  assertLeftDiagnosticContains
-    "legacy equals-style module declaration rejected"
-    "expected '{'"
-    (parseSurfaceProgram "module App::Core = 1.")
-
-testRejectsLegacyNewlineModuleDeclaration :: IO ()
-testRejectsLegacyNewlineModuleDeclaration =
-  -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
-  assertLeftDiagnosticContains
-    "legacy newline module declaration rejected"
-    "expected '{'"
-    (parseSurfaceProgram "module App::Core\nx = 1.")
+testRejectsLegacyModuleDeclarations :: IO ()
+testRejectsLegacyModuleDeclarations =
+  mapM_
+    ( \(label, source) ->
+        assertLeftDiagnosticContains
+          label
+          "expected '{'"
+          (parseSurfaceProgram source)
+    )
+    [ ("legacy dot-only module declaration rejected", "module App::Core."),
+      ("legacy equals-style module declaration rejected", "module App::Core = 1."),
+      -- Explicit escapes are intentional: this case asserts exact whitespace or source spans.
+      ("legacy newline module declaration rejected", "module App::Core\nx = 1.")
+    ]
 
 testRejectsTrailingTopLevelStatementsAfterModuleBody :: IO ()
 testRejectsTrailingTopLevelStatementsAfterModuleBody =
@@ -791,30 +782,25 @@ testRejectsModuleTrailingSeparatorSpan =
 
 testRejectsDuplicateModuleExport :: IO ()
 testRejectsDuplicateModuleExport = do
+  let result =
+        parseSurfaceProgram
+          """
+          module Lib::Value (answer, answer) {
+          answer = 1.
+          }
+          """
   assertLeftDiagnosticContains
     "duplicate module export code"
     "E0001"
-    (parseSurfaceProgram """
-    module Lib::Value (answer, answer) {
-    answer = 1.
-    }
-    """)
+    result
   assertLeftDiagnosticContains
     "duplicate module export message"
     "duplicate module export 'answer'"
-    (parseSurfaceProgram """
-    module Lib::Value (answer, answer) {
-    answer = 1.
-    }
-    """)
+    result
   assertLeftDiagnosticContains
     "duplicate module export span"
     "1:28"
-    (parseSurfaceProgram """
-    module Lib::Value (answer, answer) {
-    answer = 1.
-    }
-    """)
+    result
 
 testRejectsDuplicateNamespaceAwareModuleExport :: IO ()
 testRejectsDuplicateNamespaceAwareModuleExport = do
@@ -899,22 +885,21 @@ testRejectsDuplicateGroupedConstructorExport = do
 
 testRejectsTrailingCommaInModuleExportList :: IO ()
 testRejectsTrailingCommaInModuleExportList = do
+  let result =
+        parseSurfaceProgram
+          """
+          module Lib::Value (answer,) {
+          answer = 1.
+          }
+          """
   assertLeftDiagnosticContains
     "trailing module export comma code"
     "E0001"
-    (parseSurfaceProgram """
-    module Lib::Value (answer,) {
-    answer = 1.
-    }
-    """)
+    result
   assertLeftDiagnosticContains
     "trailing module export comma message"
     "expected module export name"
-    (parseSurfaceProgram """
-    module Lib::Value (answer,) {
-    answer = 1.
-    }
-    """)
+    result
 
 testRejectsUnclosedModuleExportList :: IO ()
 testRejectsUnclosedModuleExportList =

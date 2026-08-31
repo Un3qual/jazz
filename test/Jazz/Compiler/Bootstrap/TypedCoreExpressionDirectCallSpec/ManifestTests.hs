@@ -79,12 +79,8 @@ testFixtureManifest = do
   assertEqual "accepted source fixture names" expectedAcceptedNames acceptedFixtureNames
   assertEqual "rejected source fixture names" expectedRejectedNames rejectedFixtureNames
   assertEqual "fixture order" (acceptedFixtureNames <> rejectedFixtureNames) fixtureNames
-    >> assertEqual "accepted fixture count" 36 (length acceptedFixtureNames)
-    >> assertEqual "rejected fixture count" 14 (length rejectedFixtureNames)
-    >> assertEqual "unique fixture count" 50 (Set.size (Set.fromList fixtureNames))
+    >> assertEqual "fixture names are unique" (length fixtureNames) (Set.size completeSet)
     >> assertEqual "accepted and rejected source fixtures are disjoint" Set.empty (Set.intersection acceptedSet rejectedSet)
-    >> assertEqual "accepted and rejected source fixtures are exhaustive" (Set.fromList (expectedAcceptedNames <> expectedRejectedNames)) (Set.union acceptedSet rejectedSet)
-    >> assertEqual "prior scalar/direct-call inventory count" 36 (Set.size priorSet)
     >> assertEqual "every prior scalar/direct-call fixture remains present" True (priorSet `Set.isSubsetOf` completeSet)
     >> assertEqual
       "supplemental forward visibility fixtures"

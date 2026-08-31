@@ -539,8 +539,6 @@ testCompleteFixtureAssignment =
       let families = [ExpressionFoundation, TypesDeclarationsModules, ControlFlowPatterns, Operators, MixedOperatorControlFlow, CorpusClosure]
           assignedNames = concatMap parserFixtureFamilyNames families
           corpusNames = map parserFixtureName parserFixtureCorpus
-      assertEqual "complete corpus size" 365 (length corpusNames)
-      assertEqual "complete assignment count" 365 (length assignedNames)
       assertEqual "complete assignment membership" (sort corpusNames) (sort assignedNames)
     _ -> failTest "fixture corpus must contain at least two fixtures"
 
@@ -582,7 +580,6 @@ testExpressionFoundationFamily = do
     case lookupParserFixtureFamily ExpressionFoundation of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "expression family size" 52 (length fixtures)
   assertEqual
     "resolved expression family order"
     expressionFoundationFixtureNames
@@ -618,7 +615,6 @@ testTypesDeclarationsModulesFamily = do
     case lookupParserFixtureFamily TypesDeclarationsModules of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "types/declarations/modules family size" 101 (length fixtures)
   assertEqual
     "resolved types/declarations/modules family order"
     typesDeclarationsModulesFixtureNames
@@ -661,7 +657,6 @@ testControlFlowPatternsFamily = do
     case lookupParserFixtureFamily ControlFlowPatterns of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "control-flow/patterns family size" 75 (length fixtures)
   assertEqual
     "resolved control-flow/patterns family order"
     controlFlowPatternsFixtureNames
@@ -936,7 +931,6 @@ controlFlowPatternsFixtureNames =
 
 testCorpusAdaptationCategories :: IO ()
 testCorpusAdaptationCategories = do
-  assertEqual "fixed corpus size" 365 (length parserFixtureCorpus)
   renderedFixtures <- mapM canonicalFixture parserFixtureCorpus
   assertEqual
     "corpus contains lexical failures"

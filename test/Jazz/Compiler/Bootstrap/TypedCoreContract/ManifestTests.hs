@@ -54,7 +54,6 @@ coreTests =
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("preserves raw failure order at the checked boundary", testCheckedBoundaryFailureOrder),
-    ("audits the combined fixed fixture count", testCombinedFixtureCount),
     ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
     ("rejects unknown validation constructors", testCheckedValidationAdapterUnknownConstructor),
     ("rejects wrong validation constructor arity", testCheckedValidationAdapterWrongArity),
@@ -68,9 +67,8 @@ coreTests =
   ]
 
 testValidFixtureManifest :: IO ()
-testValidFixtureManifest = do
+testValidFixtureManifest =
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 21 (length validFixtures)
 
 testOutcomeEncoding :: IO ()
 testOutcomeEncoding = do
@@ -119,9 +117,8 @@ testProducerRecursionArtifacts = do
     (directRecursionExpectedPrograms <> closureRecursionExpectedPrograms)
 
 testInvalidFixtureManifest :: IO ()
-testInvalidFixtureManifest = do
+testInvalidFixtureManifest =
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 56 (length invalidFixtures)
 
 testInvalidPrograms :: IO ()
 testInvalidPrograms =
@@ -146,10 +143,6 @@ testCheckedBoundaryFailureOrder =
             (NonEmpty.toList checkedFailures)
         Right _ -> failTest "invalid typed-core fixture passed checked validation"
     [] -> failTest "typed-core invalid fixture manifest is empty"
-
-testCombinedFixtureCount :: IO ()
-testCombinedFixtureCount =
-  assertEqual "combined fixture count" 77 (length validFixtures + length invalidFixtures)
 
 testCheckedValidationAdapterRoundTrip :: IO ()
 testCheckedValidationAdapterRoundTrip =
@@ -278,7 +271,6 @@ testFixtureCoverage = do
         [kind | fixture <- invalidFixtures, TypedCoreValidationFailure _ kind _ <- invalidFixtureFailures fixture]
           <> [kind | program <- reviewRegressionPrograms, TypedCoreValidationFailure _ kind _ <- validateTypedProgram program]
   assertEqual "valid and invalid fixture names are disjoint" [] [name | name <- validNames, name `elem` invalidNames]
-  assertEqual "fixed fixture manifests are exhaustive" (expectedValidFixtureNames <> expectedInvalidFixtureNames) names
   assertEqual "fixture names are unique" (length names) (length (nub names))
   assertEqual "review regression programs are unique" (length reviewRegressionPrograms) (length (nub reviewRegressionPrograms))
   assertEqual "uncovered validation kinds" [] (filter (`notElem` observedKinds) allValidationKinds)

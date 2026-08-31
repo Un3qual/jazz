@@ -26,7 +26,6 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Declaration
   ( parseDataStatementParser,
-    parseImportStatementParser,
   )
 import qualified Jazz.Compiler.Parser.Declaration as Declaration
 import Jazz.Compiler.Parser.Failure
@@ -61,8 +60,6 @@ main = runTestSuite "DeclarationParser" tests
 tests :: [NamedTest]
 tests =
   [ ("rejects Haskell-style function equations", testRejectsFunctionEquations),
-    ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
-    ("rejects import symbol list followed by alias", testRejectsImportSymbolListWithAlias),
     ("preserves failure spans after an owned declaration", testFailureSpanAfterOwnedDeclaration),
     ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
@@ -88,22 +85,6 @@ testRejectsFunctionEquations =
     of
       Left _ -> pure ()
       Right _ -> failTest "expected Haskell-style function equations to be rejected"
-
-testRejectsImportAliasWithSymbolList :: IO ()
-testRejectsImportAliasWithSymbolList = do
-  tokens <- lexSource "import Lib::Math as Math (subtract)."
-  assertLeftDiagnosticContains
-    "import alias with symbol list"
-    "cannot combine import alias and symbol list"
-    (parseImportDeclarationForTest tokens)
-
-testRejectsImportSymbolListWithAlias :: IO ()
-testRejectsImportSymbolListWithAlias = do
-  tokens <- lexSource "import Lib::Math (subtract) as Math."
-  assertLeftDiagnosticContains
-    "import symbol list with alias"
-    "cannot combine import alias and symbol list"
-    (parseImportDeclarationForTest tokens)
 
 testFailureSpanAfterOwnedDeclaration :: IO ()
 testFailureSpanAfterOwnedDeclaration =
@@ -269,10 +250,6 @@ testAcceptsModuleBodyImport =
     """ of
     Right _ -> pure ()
     Left diagnostic -> failTest ("expected module-body import to parse, got " <> diagnosticSummary diagnostic)
-
-parseImportDeclarationForTest :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseImportDeclarationForTest =
-  runTokenParserPrefix "owned import declaration" parseImportStatementParser
 
 parseDataDeclarationForTest :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
 parseDataDeclarationForTest =

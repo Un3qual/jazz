@@ -71,7 +71,6 @@ testControlFlowParity = do
 
 testComposedParity :: IO ()
 testComposedParity = do
-  assertEqual "composed fixture count" 15 (length composedSources)
   expected <- expectRight "composed control-flow expected values" (expectedControlFlowPatternsSourceBatchRendering composedSources)
   first <- runJazzControlFlowPatternsSourceBatch composedSources
   second <- runJazzControlFlowPatternsSourceBatch composedSources
@@ -82,7 +81,6 @@ testComposedParity = do
 testUnsupportedBoundary :: IO ()
 testUnsupportedBoundary = do
   assertEqual "unsupported fixture names" expectedUnsupportedFixtureNames (map fst unsupportedFixtures)
-  assertEqual "unsupported fixture count" 12 (length unsupportedExpressions)
   first <- runJazzControlFlowPatternsBatch unsupportedExpressions
   second <- runJazzControlFlowPatternsBatch unsupportedExpressions
   let expected = Just ("[" <> Text.intercalate ", " (replicate 12 "Nothing") <> "]")

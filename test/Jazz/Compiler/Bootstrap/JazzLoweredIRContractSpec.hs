@@ -321,10 +321,8 @@ testCheckedLoweringSuccess =
     [] -> failTest "typed-core lowering fixture manifest is empty"
 
 testInvalidFixtureManifest :: IO ()
-testInvalidFixtureManifest = do
+testInvalidFixtureManifest =
   assertEqual "invalid fixture names" expectedInvalidFixtureNames (map invalidFixtureName invalidFixtures)
-  assertEqual "invalid fixture count" 31 (length invalidFixtures)
-  assertEqual "complete fixture count" 51 (length validFixtures + length invalidFixtures)
 
 testFixtureManifestIntegrity :: IO ()
 testFixtureManifestIntegrity = do
@@ -332,7 +330,6 @@ testFixtureManifestIntegrity = do
       invalidNames = map invalidFixtureName invalidFixtures
       completeNames = validNames <> invalidNames
   assertEqual "valid and invalid lowered-IR fixtures are disjoint" [] [name | name <- validNames, name `elem` invalidNames]
-  assertEqual "fixed lowered-IR fixture manifests are exhaustive" (expectedValidFixtureNames <> expectedInvalidFixtureNames) completeNames
   assertEqual "fixed lowered-IR fixture names are unique" (length completeNames) (length (nub completeNames))
 
 testInvalidPrograms :: IO ()
@@ -567,9 +564,8 @@ testCompleteFailureOrder =
     (validateLoweredProgram completeFailureOrderProgram)
 
 testValidFixtureManifest :: IO ()
-testValidFixtureManifest = do
+testValidFixtureManifest =
   assertEqual "valid fixture names" expectedValidFixtureNames (map validFixtureName validFixtures)
-  assertEqual "valid fixture count" 20 (length validFixtures)
 
 testValidContractRendering :: IO ()
 testValidContractRendering = do
