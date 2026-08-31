@@ -31,6 +31,7 @@ tests =
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
     ("retains managed tuple and local-data structure once", testManagedProductVariantRetention),
     ("keeps unsupported managed pattern leaves producer-owned", testManagedPatternProducerExclusions),
+    ("keeps retained managed patterns at the lowerer boundary", testManagedPatternLowererBoundary),
     ("produces exact managed product and local-variant artifacts", testManagedProductVariantProduction),
     ("catalogs deterministic managed product and variant layouts", testManagedProductVariantLayoutCatalog),
     ("lowers exact managed product and local-variant construction", testManagedProductVariantLowering),

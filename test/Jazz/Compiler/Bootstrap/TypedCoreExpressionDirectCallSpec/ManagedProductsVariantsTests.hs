@@ -74,6 +74,32 @@ testManagedPatternProducerExclusions =
           "case (1, \"one\") { | (number, \"one\") -> number | _ -> 0 }."
       )
 
+testManagedPatternLowererBoundary :: IO ()
+testManagedPatternLowererBoundary =
+  mapM_ assertManagedPatternBoundary expectedResults
+  where
+    assertManagedPatternBoundary (name, expectedFailures) =
+      case lookup name managedProductVariantExpectedPrograms of
+        Nothing -> failTest (name <> " managed pattern lowerer boundary is missing")
+        Just typedProgram -> do
+          let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+          assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
+          assertUnsupportedLowering (name <> " exact lowerer boundary") expectedFailures lowering
+
+    expectedResults =
+      [ ("managed-tuple-pattern-failure", [patternFailure [0] [0, 0]]),
+        ("managed-constructor-pattern-failure", [patternFailure [1] [0, 0]]),
+        ("managed-nested-constructor-tuple-pattern", [patternFailure [1] [0, 0]]),
+        ("managed-as-constructor-pattern", [patternFailure [1] [0, 0]]),
+        ("managed-or-constructor-pattern", [patternFailure [1] [0, 0]])
+      ]
+
+    patternFailure statementPath patternPath =
+      LoweredIRLoweringFailure
+        (TypedPatternPath ["App", "Main"] statementPath patternPath)
+        LoweredIRUnsupportedPattern
+        LoweredIRNoFailureDetail
+
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =
   mapM_ assertProduced managedProductVariantExpectedPrograms
