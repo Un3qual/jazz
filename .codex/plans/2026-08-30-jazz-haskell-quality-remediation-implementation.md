@@ -1760,11 +1760,13 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 - [ ] **Step 4: Prove the symbol is gone, format, and commit**
 
+Record base formatter status for the exact touched files. Whole-file format only
+base-clean files; for legacy-layout files, format every Task 24 semantic region
+and preserve unrelated layout for Task 25. Record the whole/scoped commands and
+results in the task report. Then:
+
 ```sh
 rg -n 'ResolveCompatibility' src app test -g '*.hs'
-scripts/check-haskell-format.sh \
-  src/Jazz/Compiler/BuiltinCatalog.hs \
-  test/Jazz/Compiler/Semantics/Runtime/RecursionTests.hs
 git diff --check
 git add src/Jazz/Compiler/BuiltinCatalog.hs test/Jazz/Compiler/Semantics/Runtime/RecursionTests.hs
 git commit -m "refactor: remove dead builtin compatibility mode"
