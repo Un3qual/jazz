@@ -30,7 +30,10 @@ import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (TBoolType),
   )
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 isPatternCaseBlock :: LoweredBlock -> Bool
@@ -78,9 +81,9 @@ testFunctionResultNegativeTerminators = do
     "function-body consumed calls use valid Lowered IR"
     []
     (validateLoweredProgram expectedProgram)
-  assertEqual
+  assertSuccessfulLowering
     "function-body consumed direct and closure calls lower exactly"
-    (LoweredIRSucceeded expectedProgram)
+    expectedProgram
     (lowerTypedCoreExpressionDirectCall typedProgram)
 
 testFunctionBodyPartialApplicationResult :: IO ()
@@ -94,9 +97,9 @@ testFunctionBodyPartialApplicationResult = do
     "function-body partial application uses valid Lowered IR"
     []
     (validateLoweredProgram expectedProgram)
-  assertEqual
+  assertSuccessfulLowering
     "function-body partial application lowers exactly"
-    (LoweredIRSucceeded expectedProgram)
+    expectedProgram
     (lowerTypedCoreExpressionDirectCall typedProgram)
 
 testNestedTailControlFlow :: IO ()
@@ -109,11 +112,12 @@ testNestedTailControlFlow =
       assertEqual (name <> " repeatable production") firstProduction secondProduction
       assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
       case typedCoreProductionStatus firstProduction of
-        TypedCoreProductionSucceeded typedProgram -> do
+        TypedCoreProductionSucceeded validatedProgram -> do
+          let typedProgram = validatedTypedProgram validatedProgram
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
-          assertEqual
+          assertSuccessfulLowering
             (name <> " exact nested tail lowering")
-            (LoweredIRSucceeded expectedProgram)
+            expectedProgram
             (lowerTypedCoreExpressionDirectCall typedProgram)
         other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
 
@@ -129,21 +133,24 @@ testScalarPatternCaseProduction =
       firstProduction <- produceFixture fixture
       secondProduction <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstProduction secondProduction
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact typed production")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstProduction)
       assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
       case lookup name expectedLowerings of
         Just expectedLowering ->
-          assertEqual
+          assertSuccessfulLowering
             (name <> " exact scalar pattern-case lowering")
-            (LoweredIRSucceeded expectedLowering)
+            expectedLowering
             (lowerTypedCoreExpressionDirectCall expectedProgram)
         Nothing ->
           case lowerTypedCoreExpressionDirectCall expectedProgram of
-            LoweredIRSucceeded loweredProgram ->
-              assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+            LoweredIRSucceeded validatedProgram ->
+              assertEqual
+                (name <> " lowered validation")
+                []
+                (validateLoweredProgram (validatedLoweredProgram validatedProgram))
             lowering ->
               failTest (name <> " did not lower: " <> Text.pack (show lowering))
     expectedLowerings =
@@ -161,9 +168,9 @@ testScalarPatternCaseLowererBoundary =
               secondLowering = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " valid typed core") [] (validateTypedProgram programValue)
           assertEqual (name <> " repeatable lowerer rejection") firstLowering secondLowering
-          assertEqual
+          assertUnsupportedLowering
             (name <> " exact lowerer rejection")
-            (LoweredIRUnsupported expectedFailures)
+            expectedFailures
             firstLowering
 
     expectedResults =
@@ -227,9 +234,9 @@ testScalarPatternCaseProducerBoundaries = do
       firstProduction <- produceFixture fixture
       secondProduction <- produceFixture fixture
       assertEqual (name <> " repeatable rejection") firstProduction secondProduction
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact producer-profile rejection")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstProduction)
 
     assertDiagnosticBoundary (name, expectedDiagnosticCode) = do
@@ -330,9 +337,9 @@ testScalarPatternCaseAnalysisProduction =
       firstProduction <- produceFixture fixture
       secondProduction <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstProduction secondProduction
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact analysis-preserving production")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstProduction)
       assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
 
@@ -369,13 +376,15 @@ testScalarPatternCaseTransportLowering = do
       secondProduction <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstProduction secondProduction
       case typedCoreProductionStatus firstProduction of
-        TypedCoreProductionSucceeded typedProgram -> do
+        TypedCoreProductionSucceeded validatedProgram -> do
+          let typedProgram = validatedTypedProgram validatedProgram
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
           let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
               secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
           assertEqual (name <> " repeatable lowering") firstLowering secondLowering
           case firstLowering of
-            LoweredIRSucceeded loweredProgram -> do
+            LoweredIRSucceeded validatedLowered -> do
+              let loweredProgram = validatedLoweredProgram validatedLowered
               assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
               case lookup name expectedPatternCaseControlFlows of
                 Just expectedControlFlow ->
@@ -916,13 +925,15 @@ testConditionalProfileCoverage =
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
       assertEqual (name <> " repeatable production") firstProduction secondProduction
       case typedCoreProductionStatus firstProduction of
-        TypedCoreProductionSucceeded typedProgram -> do
+        TypedCoreProductionSucceeded validatedProgram -> do
+          let typedProgram = validatedTypedProgram validatedProgram
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
           let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
               secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
           assertEqual (name <> " repeatable lowering") firstLowering secondLowering
           case firstLowering of
-            LoweredIRSucceeded loweredProgram -> do
+            LoweredIRSucceeded validatedLowered -> do
+              let loweredProgram = validatedLoweredProgram validatedLowered
               assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
               case lookup name expectedConditionalControlFlows of
                 Just expectedControlFlow ->
@@ -1242,23 +1253,22 @@ testScalarBindingProduction = do
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact typed program")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
     assertFailedBindingHidden = do
       let fixture = producerEdgeFixture "scalar-binding-failed-initializer-hidden"
-          expected =
-            TypedCoreProductionUnsupported
-              [ expressionFailure 0 [0] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toFloat64"),
-                expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "failed")
-              ]
+          expectedFailures =
+            [ expressionFailure 0 [0] TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toFloat64"),
+              expressionFailure 1 [] TypedCoreCaptureUnsupported (TypedCoreNameDetail "failed")
+            ]
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual "failed scalar binding repeatable rejection" firstRun secondRun
-      assertEqual "failed scalar binding remains hidden" expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported "failed scalar binding remains hidden" expectedFailures (typedCoreProductionStatus firstRun)
     expressionFailure statementIndex childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
@@ -1276,9 +1286,9 @@ testManagedTextProduction =
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact typed program")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
@@ -1293,9 +1303,9 @@ testManagedTextOperationProduction =
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact typed program")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
@@ -1308,7 +1318,7 @@ testManagedTextOperationLowering =
           secondRun = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
       assertEqual (name <> " repeatable lowering") firstRun secondRun
-      assertEqual (name <> " exact service lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertSuccessfulLowering (name <> " exact service lowering") expectedProgram firstRun
       assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
 
 testManagedTextKernelBoundaries :: IO ()
@@ -1332,19 +1342,18 @@ testManagedTextKernelBoundaries = do
       ]
     assertKernelUnsupported (name, kind, detail) = do
       let fixture = producerEdgeFixture name
-          expected =
-            TypedCoreProductionUnsupported
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                  kind
-                  detail
-              ]
+          expectedFailures =
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                kind
+                detail
+            ]
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable rejection") firstRun secondRun
-      assertEqual (name <> " exact producer boundary") expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " exact producer boundary") expectedFailures (typedCoreProductionStatus firstRun)
     assertBlockedByDiagnostics name = do
       let fixture = producerEdgeFixture name
       ordinary <- inferFixture fixture
@@ -1381,13 +1390,12 @@ testManagedTextProfileExclusions = do
       ]
     assertExcluded (name, failures) = do
       let fixture = producerEdgeFixture name
-          expected = TypedCoreProductionUnsupported failures
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable exclusion") firstRun secondRun
-      assertEqual (name <> " exact exclusion") expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " exact exclusion") failures (typedCoreProductionStatus firstRun)
     assertManifestExclusion name = do
       let fixture = fixtureByName name
           expected =

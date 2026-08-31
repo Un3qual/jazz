@@ -10,7 +10,10 @@ import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 testFixtureManifest :: IO ()
@@ -244,26 +247,30 @@ testAcceptedManifestPipeline =
                 []
                 (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstProduction)))
             else assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
-          assertEqual
+          assertProductionSucceeded
             (name <> " complete typed production")
-            (TypedCoreProductionSucceeded expectedTypedProgram)
+            expectedTypedProgram
             (typedCoreProductionStatus firstProduction)
           assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedTypedProgram)
           case typedCoreProductionStatus firstProduction of
-            TypedCoreProductionSucceeded typedProgram -> do
+            TypedCoreProductionSucceeded validatedTyped -> do
+              let typedProgram = validatedTypedProgram validatedTyped
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)
               case (typedCoreProductionValidatedProgram firstProduction, lookup name expectedLoweredPrograms) of
                 (Just validatedProgram, Just expectedLoweredProgram) -> do
                   let lowering = lowerTypedCoreExpressionDirectCall typedProgram
                       trustedLowering = lowerValidatedTypedCoreExpressionDirectCall validatedProgram
                   assertEqual (name <> " trusted lowering matches checked lowering") lowering trustedLowering
-                  assertEqual
+                  assertSuccessfulLowering
                     (name <> " complete lowered production")
-                    (LoweredIRSucceeded expectedLoweredProgram)
+                    expectedLoweredProgram
                     lowering
                   case lowering of
-                    LoweredIRSucceeded loweredProgram ->
-                      assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+                    LoweredIRSucceeded validatedLowered ->
+                      assertEqual
+                        (name <> " lowered validation")
+                        []
+                        (validateLoweredProgram (validatedLoweredProgram validatedLowered))
                     _ -> failTest (name <> " did not produce lowered IR")
                 (Nothing, _) -> failTest (name <> " did not retain its validation proof")
                 (Just validatedProgram, Nothing) -> do

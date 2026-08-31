@@ -24,7 +24,10 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 testManagedProductVariantRetention :: IO ()
@@ -75,8 +78,8 @@ testManagedProductVariantProduction =
       assertEqual (name <> " repeatable exact production") firstRun secondRun
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
       case typedCoreProductionStatus firstRun of
-        TypedCoreProductionSucceeded actualProgram ->
-          assertEqual (name <> " exact typed program") expectedProgram actualProgram
+        TypedCoreProductionSucceeded validatedProgram ->
+          assertEqual (name <> " exact typed program") expectedProgram (validatedTypedProgram validatedProgram)
         status -> failTest (name <> " did not produce typed core: " <> Text.pack (show status))
 
 testManagedProductVariantLowering :: IO ()
@@ -93,9 +96,9 @@ testManagedProductVariantLowering =
           secondRun = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
       assertEqual (name <> " repeatable lowering") firstRun secondRun
-      assertEqual
+      assertSuccessfulLowering
         (name <> " exact managed product/variant lowering")
-        (LoweredIRSucceeded expectedLoweredProgram)
+        expectedLoweredProgram
         firstRun
       assertEqual
         (name <> " valid expected Lowered IR")
@@ -114,7 +117,7 @@ testManagedConstructionLowererBoundaries =
               secondRun = lowerTypedCoreExpressionDirectCall typedProgram
           assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
           assertEqual (name <> " repeatable rejection") firstRun secondRun
-          assertEqual (name <> " exact lowerer boundary") (LoweredIRUnsupported expectedFailures) firstRun
+          assertUnsupportedLowering (name <> " exact lowerer boundary") expectedFailures firstRun
 
     expectedResults =
       [ ( "managed-bare-nonnullary-constructor-lowerer",
@@ -253,11 +256,11 @@ testManagedConstructorRebindingExport = do
   assertCompleteProduction "constructor rebinding export" fixture
   production <- produceFixture fixture
   case typedCoreProductionStatus production of
-    TypedCoreProductionSucceeded programValue ->
+    TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "constructor export retains only its source-visible declaration"
         [TypedResolvedName TypedCurrentModule TypedTypeNamespace "B"]
-        (interfaceDataNames programValue)
+        (interfaceDataNames (validatedTypedProgram validatedProgram))
     status -> failTest ("constructor rebinding export did not produce typed core: " <> Text.pack (show status))
 
 testManagedStandaloneConstructorDependencyRebindingExport :: IO ()
@@ -289,24 +292,22 @@ testManagedStandaloneConstructorDependencyRebindingExport = do
   assertCompleteProduction "standalone constructor dependency rebinding export" fixture
   production <- produceFixture fixture
   case typedCoreProductionStatus production of
-    TypedCoreProductionSucceeded programValue ->
+    TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "standalone constructor export retains its source-visible owner and private dependency"
         [ TypedResolvedName TypedCurrentModule TypedTypeNamespace "A",
           TypedResolvedName TypedCurrentModule TypedTypeNamespace "B"
         ]
-        (interfaceDataNames programValue)
+        (interfaceDataNames (validatedTypedProgram validatedProgram))
     status -> failTest ("standalone constructor dependency rebinding export did not produce typed core: " <> Text.pack (show status))
   abstractTypeProduction <- produceFixture abstractTypeFixture
-  assertEqual
+  assertProductionUnsupported
     "abstract type and standalone constructor reject ownership that the unchanged schema cannot represent"
-    ( TypedCoreProductionUnsupported
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionModulePath ["App", "Main"])
-            TypedCoreUnsupportedExport
-            (TypedCoreNameDetail "C")
-        ]
-    )
+    [ TypedCoreProductionFailure
+        (TypedCoreProductionModulePath ["App", "Main"])
+        TypedCoreUnsupportedExport
+        (TypedCoreNameDetail "C")
+    ]
     (typedCoreProductionStatus abstractTypeProduction)
 
 testManagedTypeSelectorRebindingExport :: IO ()
@@ -325,11 +326,11 @@ testManagedTypeSelectorRebindingExport = do
   assertCompleteProduction "type-selector constructor rebinding export" fixture
   production <- produceFixture fixture
   case typedCoreProductionStatus production of
-    TypedCoreProductionSucceeded programValue ->
+    TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "type selector retains its declared constructor owner"
         [TypedResolvedName TypedCurrentModule TypedTypeNamespace "A"]
-        (interfaceDataNames programValue)
+        (interfaceDataNames (validatedTypedProgram validatedProgram))
     status -> failTest ("type-selector constructor rebinding export did not produce typed core: " <> Text.pack (show status))
 
 testManagedPrivateDataInterfaceDependencies :: IO ()
@@ -360,22 +361,22 @@ testManagedPrivateDataInterfaceDependencies = do
   assertCompleteProduction "managed private constructor dependency" constructorFixture
   constructorProduction <- produceFixture constructorFixture
   case typedCoreProductionStatus constructorProduction of
-    TypedCoreProductionSucceeded programValue ->
+    TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "private constructor dependencies remain metadata without becoming exports"
         [ TypedResolvedName TypedCurrentModule TypedTypeNamespace "Hidden",
           TypedResolvedName TypedCurrentModule TypedTypeNamespace "Public"
         ]
-        (interfaceDataNames programValue)
+        (interfaceDataNames (validatedTypedProgram validatedProgram))
     status -> failTest ("private constructor dependency fixture did not produce typed core: " <> Text.pack (show status))
   assertCompleteProduction "managed private value dependency" valueFixture
   valueProduction <- produceFixture valueFixture
   case typedCoreProductionStatus valueProduction of
-    TypedCoreProductionSucceeded programValue ->
+    TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "private value dependencies remain metadata without becoming exports"
         [TypedResolvedName TypedCurrentModule TypedTypeNamespace "Hidden"]
-        (interfaceDataNames programValue)
+        (interfaceDataNames (validatedTypedProgram validatedProgram))
     status -> failTest ("private value dependency fixture did not produce typed core: " <> Text.pack (show status))
 
 testManagedNestedVariantProductModuleIdentity :: IO ()
@@ -464,9 +465,9 @@ testManagedStructuredFailureAccumulation = do
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "structured failure accumulation is repeatable" firstRun secondRun
-  assertEqual
+  assertProductionUnsupported
     "structured failure accumulation preserves source order"
-    (TypedCoreProductionUnsupported expectedFailures)
+    expectedFailures
     (typedCoreProductionStatus firstRun)
 
 testManagedStructuredModuleFailureOrder :: IO ()
@@ -477,16 +478,14 @@ testManagedStructuredModuleFailureOrder = do
           "structured-module-failure-order"
           "data A = A List(Int)."
       )
-  assertEqual
+  assertProductionUnsupported
     "structured declaration failures precede missing module result failures"
-    ( TypedCoreProductionUnsupported
-        [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
-          TypedCoreProductionFailure
-            (TypedCoreProductionModulePath ["App", "Main"])
-            TypedCoreUnsupportedRootExpression
-            TypedCoreUnsupportedRootDetail
-        ]
-    )
+    [ statementFailure 0 TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail,
+      TypedCoreProductionFailure
+        (TypedCoreProductionModulePath ["App", "Main"])
+        TypedCoreUnsupportedRootExpression
+        TypedCoreUnsupportedRootDetail
+    ]
     (typedCoreProductionStatus production)
 
 interfaceDataNames :: TypedProgram -> [TypedCoreName]
@@ -593,9 +592,9 @@ assertBoundary name expectedFailures = do
   secondRun <- produceFixture fixture
   assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
   assertEqual (name <> " repeatable production") firstRun secondRun
-  assertEqual
+  assertProductionUnsupported
     (name <> " exact producer boundary")
-    (TypedCoreProductionUnsupported expectedFailures)
+    expectedFailures
     (typedCoreProductionStatus firstRun)
 
 expressionFailure :: Int -> [Int] -> TypedCoreProductionFailureKind -> TypedCoreProductionFailureDetail -> TypedCoreProductionFailure

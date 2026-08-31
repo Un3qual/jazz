@@ -103,8 +103,7 @@ import Jazz.Compiler.TypedCore.Validate
   )
 
 -- | Finalize once while retaining the opaque validation proof for a trusted
--- downstream lowering handoff. The public status keeps exposing the exact raw
--- Typed Program artifact for compatibility.
+-- downstream lowering handoff.
 finalizeValidatedTypedCoreExpressionDirectCall ::
   TypedSourcePath ->
   ResolvedModule ->
@@ -156,9 +155,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ]
           moduleFailures = missingResultFailures <> fst exportResult
           productionFailures = structuredCatalogFailures <> moduleFailures <> statementFailures
-       in case productionFailures of
-            _ : _ -> unsupportedTypedCoreProductionOutcome productionFailures
-            [] ->
+       in case NonEmpty.nonEmpty productionFailures of
+            Just failures -> unsupportedTypedCoreProductionOutcome failures
+            Nothing ->
               case reverse typedStatements of
                 TypedExpressionStatement _ terminalExpression : _ ->
                   let programValue =
@@ -170,11 +169,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                    in case validateTypedProgramOnce programValue of
                         Right validatedProgram -> succeededTypedCoreProductionOutcome validatedProgram
                         Left failures -> invariantFailuresTypedCoreProductionOutcome failures
-                _ -> unsupportedTypedCoreProductionOutcome [missingModuleResultFailure]
+                _ -> unsupportedTypedCoreProductionOutcome (NonEmpty.singleton missingModuleResultFailure)
     ProvisionalUnsupportedExpression kind detail ->
-      unsupportedTypedCoreProductionOutcome [failureAt 0 [] kind detail]
+      unsupportedTypedCoreProductionOutcome (NonEmpty.singleton (failureAt 0 [] kind detail))
     _ ->
-      unsupportedTypedCoreProductionOutcome [failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+      unsupportedTypedCoreProductionOutcome
+        (NonEmpty.singleton (failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail))
   where
     modulePath = resolvedModulePath resolvedModule
 

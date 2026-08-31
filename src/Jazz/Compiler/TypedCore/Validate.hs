@@ -10,6 +10,8 @@ module Jazz.Compiler.TypedCore.Validate
   )
 where
 
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import Jazz.Compiler.TypedCore (TypedCoreValidationFailure, TypedProgram)
 import Jazz.Compiler.TypedCore.Validate.Internal
   ( ValidatedTypedProgram (ValidatedTypedProgram),
@@ -20,8 +22,8 @@ import Jazz.Compiler.TypedCore.Validate.Program (validateTypedProgramInternal)
 validateTypedProgram :: TypedProgram -> [TypedCoreValidationFailure]
 validateTypedProgram = validateTypedProgramInternal
 
-validateTypedProgramOnce :: TypedProgram -> Either [TypedCoreValidationFailure] ValidatedTypedProgram
+validateTypedProgramOnce :: TypedProgram -> Either (NonEmpty TypedCoreValidationFailure) ValidatedTypedProgram
 validateTypedProgramOnce typedProgram =
-  case validateTypedProgramInternal typedProgram of
-    [] -> Right (ValidatedTypedProgram typedProgram)
-    failures -> Left failures
+  case NonEmpty.nonEmpty (validateTypedProgramInternal typedProgram) of
+    Nothing -> Right (ValidatedTypedProgram typedProgram)
+    Just failures -> Left failures

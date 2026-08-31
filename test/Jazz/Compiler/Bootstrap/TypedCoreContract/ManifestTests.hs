@@ -7,6 +7,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreContract.ManifestTests
 where
 
 import Data.List (nub)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
@@ -30,7 +31,10 @@ import Jazz.Compiler.Runtime
     renderRuntimeValue,
   )
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validateTypedProgramOnce,
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -49,6 +53,7 @@ coreTests =
     ("accepts every fixed valid program", testValidPrograms),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
+    ("preserves raw failure order at the checked boundary", testCheckedBoundaryFailureOrder),
     ("audits the combined fixed fixture count", testCombinedFixtureCount),
     ("round-trips canonical validation failures through the checked adapter", testCheckedValidationAdapterRoundTrip),
     ("rejects unknown validation constructors", testCheckedValidationAdapterUnknownConstructor),
@@ -131,6 +136,19 @@ testInvalidPrograms =
           (validateTypedProgram (invalidFixtureProgram fixture))
     )
     invalidFixtures
+
+testCheckedBoundaryFailureOrder :: IO ()
+testCheckedBoundaryFailureOrder =
+  case invalidFixtures of
+    fixture : _ ->
+      case validateTypedProgramOnce (invalidFixtureProgram fixture) of
+        Left checkedFailures ->
+          assertEqual
+            "checked typed-core failures preserve raw order"
+            (validateTypedProgram (invalidFixtureProgram fixture))
+            (NonEmpty.toList checkedFailures)
+        Right _ -> failTest "invalid typed-core fixture passed checked validation"
+    [] -> failTest "typed-core invalid fixture manifest is empty"
 
 testCombinedFixtureCount :: IO ()
 testCombinedFixtureCount =

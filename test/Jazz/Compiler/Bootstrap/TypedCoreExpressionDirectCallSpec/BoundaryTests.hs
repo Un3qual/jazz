@@ -2,6 +2,7 @@
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests where
 
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -41,19 +42,21 @@ import Jazz.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do
   let fixture = producerEdgeFixture "unused-user-defined-operator"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUserDefinedOperatorUnsupported
-              TypedCoreUnsupportedRootDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 1)
+            TypedCoreUserDefinedOperatorUnsupported
+            TypedCoreUnsupportedRootDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -62,18 +65,17 @@ testUnusedUserDefinedOperatorBinding = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "unused user-defined operator repeatable production" firstRun secondRun
-  assertEqual "unused user-defined operator binding rejection" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "unused user-defined operator binding rejection" expectedFailures (typedCoreProductionStatus firstRun)
 
 testRootDataFailureAccumulation :: IO ()
 testRootDataFailureAccumulation = do
   let fixture = producerEdgeFixture "root-data-failure-accumulation"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -82,7 +84,7 @@ testRootDataFailureAccumulation = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "root data failure repeatable production" firstRun secondRun
-  assertEqual "root data failure structural order" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "root data failure structural order" expectedFailures (typedCoreProductionStatus firstRun)
 
 testNestedDataFailureAccumulation :: IO ()
 testNestedDataFailureAccumulation =
@@ -100,21 +102,20 @@ testNestedDataFailureAccumulation =
             withExpression
               (EBlock [SExpr spanValue nestedBlock])
               resolvedModule
-          expected =
-            TypedCoreProductionUnsupported
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                  TypedCoreStructuredValueUnsupported
-                  TypedCoreDataValueDetail,
-                TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-                  TypedCoreStructuredValueUnsupported
-                  TypedCoreListValueDetail
-              ]
+          expectedFailures =
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                TypedCoreStructuredValueUnsupported
+                TypedCoreDataValueDetail,
+              TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+                TypedCoreStructuredValueUnsupported
+                TypedCoreListValueDetail
+            ]
       firstRun <- produceResolvedFixture fixture forgedModule
       secondRun <- produceResolvedFixture fixture forgedModule
       assertEqual "nested data failure repeatable production" firstRun secondRun
-      assertEqual "nested data failure structural order" expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported "nested data failure structural order" expectedFailures (typedCoreProductionStatus firstRun)
     [] -> failTest "unit fixture is missing"
 
 testAnonymousLambdaResultAcceptance :: IO ()
@@ -131,7 +132,7 @@ testAnonymousLambdaResultAcceptance = do
   assertEqual "anonymous lambda result repeatable production" firstRun secondRun
   case expected of
     Just expectedProgram ->
-      assertEqual "anonymous lambda module result acceptance" (TypedCoreProductionSucceeded expectedProgram) (typedCoreProductionStatus firstRun)
+      assertProductionSucceeded "anonymous lambda module result acceptance" expectedProgram (typedCoreProductionStatus firstRun)
     Nothing -> failTest "anonymous lambda result expectation is missing"
 
 testProductionDiagnosticCompatibility :: IO ()
@@ -182,11 +183,10 @@ testInvalidForwardDeclarationAnalysisVisibility = do
 testUnsupportedDeclarationProfile :: IO ()
 testUnsupportedDeclarationProfile = do
   let fixture = producerEdgeFixture "class-impl-declarations"
-      expected =
-        TypedCoreProductionUnsupported
-          [ unsupportedStatement 0,
-            unsupportedStatement 1
-          ]
+      expectedFailures =
+        [ unsupportedStatement 0,
+          unsupportedStatement 1
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -199,7 +199,7 @@ testUnsupportedDeclarationProfile = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "class and impl declaration repeatable production" firstRun secondRun
-  assertEqual "class and impl declaration failures" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "class and impl declaration failures" expectedFailures (typedCoreProductionStatus firstRun)
   where
     unsupportedStatement statementIndex =
       TypedCoreProductionFailure
@@ -210,15 +210,14 @@ testUnsupportedDeclarationProfile = do
 testImplMethodBodyFailureAccumulation :: IO ()
 testImplMethodBodyFailureAccumulation = do
   let fixture = producerEdgeFixture "impl-method-profile-failure"
-      expected =
-        TypedCoreProductionUnsupported
-          [ unsupportedStatement 0,
-            unsupportedStatement 1,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+      expectedFailures =
+        [ unsupportedStatement 0,
+          unsupportedStatement 1,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -231,7 +230,7 @@ testImplMethodBodyFailureAccumulation = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "impl method body repeatable production" firstRun secondRun
-  assertEqual "impl method body complete failure accumulation" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "impl method body complete failure accumulation" expectedFailures (typedCoreProductionStatus firstRun)
   where
     unsupportedStatement statementIndex =
       TypedCoreProductionFailure
@@ -242,17 +241,16 @@ testImplMethodBodyFailureAccumulation = do
 testUnsupportedBindingFailureAccumulation :: IO ()
 testUnsupportedBindingFailureAccumulation = do
   let fixture = producerEdgeFixture "unsupported-binding-child-failure"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 0)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 0)
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -265,21 +263,20 @@ testUnsupportedBindingFailureAccumulation = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "unsupported binding repeatable production" firstRun secondRun
-  assertEqual "unsupported binding complete failure accumulation" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "unsupported binding complete failure accumulation" expectedFailures (typedCoreProductionStatus firstRun)
 
 testQualifiedMethodInferenceCompatibility :: IO ()
 testQualifiedMethodInferenceCompatibility = do
   let fixture = producerEdgeFixture "qualified-method-profile-rejection"
-      expected =
-        TypedCoreProductionUnsupported
-          [ unsupportedStatement 0,
-            unsupportedStatement 1,
-            unsupportedStatement 2,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
-              TypedCoreNonLocalCallUnsupported
-              (TypedCoreNameDetail "Choice::pick")
-          ]
+      expectedFailures =
+        [ unsupportedStatement 0,
+          unsupportedStatement 1,
+          unsupportedStatement 2,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
+            TypedCoreNonLocalCallUnsupported
+            (TypedCoreNameDetail "Choice::pick")
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -292,7 +289,7 @@ testQualifiedMethodInferenceCompatibility = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "qualified method repeatable production" firstRun secondRun
-  assertEqual "qualified method profile failures" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "qualified method profile failures" expectedFailures (typedCoreProductionStatus firstRun)
   where
     unsupportedStatement statementIndex =
       TypedCoreProductionFailure
@@ -306,13 +303,12 @@ testOutOfRangeDefaultIntegerRejection =
   where
     assertRejected name = do
       let fixture = producerEdgeFixture name
-          expected =
-            TypedCoreProductionUnsupported
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                  TypedCoreUnresolvedExpressionType
-                  TypedCoreUnsupportedRootDetail
-              ]
+          expectedFailures =
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                TypedCoreUnresolvedExpressionType
+                TypedCoreUnsupportedRootDetail
+            ]
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
@@ -325,7 +321,7 @@ testOutOfRangeDefaultIntegerRejection =
         ordinary
         (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual (name <> " structured rejection") expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " structured rejection") expectedFailures (typedCoreProductionStatus firstRun)
 
 testNumericPromotionRejection :: IO ()
 testNumericPromotionRejection =
@@ -338,13 +334,12 @@ testNumericPromotionRejection =
   where
     assertRejected (name, statementIndex, childPath) = do
       let fixture = producerEdgeFixture name
-          expected =
-            TypedCoreProductionUnsupported
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-                  TypedCoreUnsupportedRootExpression
-                  TypedCoreUnsupportedRootDetail
-              ]
+          expectedFailures =
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+                TypedCoreUnsupportedRootExpression
+                TypedCoreUnsupportedRootDetail
+            ]
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
@@ -357,7 +352,7 @@ testNumericPromotionRejection =
         ordinary
         (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual (name <> " structured rejection") expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " structured rejection") expectedFailures (typedCoreProductionStatus firstRun)
 
 testRejectedCallableProfile :: IO ()
 testRejectedCallableProfile =
@@ -378,7 +373,7 @@ testRejectedCallableProfile =
     actualKinds =
       [ kind
       | (_, TypedCoreProductionUnsupported failures) <- callableExpectedStatuses,
-        TypedCoreProductionFailure _ kind _ <- failures
+        TypedCoreProductionFailure _ kind _ <- NonEmpty.toList failures
       ]
     assertRejected (name, expectedStatus) = do
       let fixture = fixtureByName name
@@ -408,9 +403,9 @@ callableRejectionNames =
 
 testNestedScalarLowering :: IO ()
 testNestedScalarLowering =
-  assertEqual
+  assertSuccessfulLowering
     "nested scalar lowering"
-    (LoweredIRSucceeded expectedNestedScalarLoweredProgram)
+    expectedNestedScalarLoweredProgram
     (lowerTypedCoreExpressionDirectCall nestedScalarTypedProgram)
 
 testExplicitNumericWidthLowering :: IO ()
@@ -420,9 +415,9 @@ testExplicitNumericWidthLowering =
         let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
             secondRun = lowerTypedCoreExpressionDirectCall typedProgram
          in assertEqual (name <> " repeatable lowering") firstRun secondRun
-              >> assertEqual
+              >> assertSuccessfulLowering
                 (name <> " exact lowering")
-                (LoweredIRSucceeded expectedProgram)
+                expectedProgram
                 firstRun
     )
     explicitNumericScalarLoweringPrograms
@@ -435,24 +430,22 @@ testFullUInt64Lowering =
             secondRun = lowerTypedCoreExpressionDirectCall typedProgram
          in assertEqual (name <> " permanent validation") [] (validateLoweredProgram expectedProgram)
               >> assertEqual (name <> " repeatable lowering") firstRun secondRun
-              >> assertEqual
+              >> assertSuccessfulLowering
                 (name <> " exact lowering")
-                (LoweredIRSucceeded expectedProgram)
+                expectedProgram
                 firstRun
     )
     fullUInt64ScalarLoweringPrograms
 
 testLoweringPrecedence :: IO ()
 testLoweringPrecedence =
-  assertEqual
+  assertTypedCoreFailureLowering
     "typed-core validation precedes lowering profile checks"
-    ( LoweredIRTypedCoreFailures
-        [ TypedCoreValidationFailure
-            TypedProgramPath
-            TypedUnknownEntryModule
-            (TypedTextDetail "Missing::Entry")
-        ]
-    )
+    [ TypedCoreValidationFailure
+        TypedProgramPath
+        TypedUnknownEntryModule
+        (TypedTextDetail "Missing::Entry")
+    ]
     (lowerTypedCoreExpressionDirectCall (TypedProgram Nothing [] ["Missing", "Entry"]))
 
 testRejectedScalarProfile :: IO ()
@@ -478,31 +471,29 @@ testMissingModuleResultProduction :: IO ()
 testMissingModuleResultProduction =
   mapM_ assertMissing ["empty-module", "signed-function-only"]
   where
-    expected =
-      TypedCoreProductionUnsupported
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionModulePath ["App", "Main"])
-            TypedCoreUnsupportedRootExpression
-            TypedCoreUnsupportedRootDetail
-        ]
+    expectedFailures =
+      [ TypedCoreProductionFailure
+          (TypedCoreProductionModulePath ["App", "Main"])
+          TypedCoreUnsupportedRootExpression
+          TypedCoreUnsupportedRootDetail
+      ]
     assertMissing name = do
       let fixture = producerEdgeFixture name
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual (name <> " exact missing-result failure") expected (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " exact missing-result failure") expectedFailures (typedCoreProductionStatus firstRun)
 
 testMissingResultFailureAccumulation :: IO ()
 testMissingResultFailureAccumulation = do
   let fixture = producerEdgeFixture "missing-result-failure-accumulation"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -511,7 +502,7 @@ testMissingResultFailureAccumulation = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "missing-result failure repeatability" firstRun secondRun
-  assertEqual "missing-result complete failure accumulation" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "missing-result complete failure accumulation" expectedFailures (typedCoreProductionStatus firstRun)
 
 testModuleFailureOrder :: IO ()
 testModuleFailureOrder = do
@@ -525,21 +516,20 @@ testModuleFailureOrder = do
           [ ModuleExport ValueNamespace "zeta",
             ModuleExport ValueNamespace "alpha"
           ]
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "zeta"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "alpha")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "zeta"),
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "alpha")
+        ]
   resolvedModule <- resolveFixtureModule fixture
   let coreModule = resolvedModuleCore resolvedModule
       mutatedModule =
@@ -555,34 +545,36 @@ testModuleFailureOrder = do
   firstRun <- produceResolvedFixture fixture mutatedModule
   secondRun <- produceResolvedFixture fixture mutatedModule
   assertEqual "module failure order repeatability" firstRun secondRun
-  assertEqual "module failures precede statements in authored export order" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "module failures precede statements in authored export order"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testExportedCallableFailureOwnership :: IO ()
 testExportedCallableFailureOwnership = do
   let fixture = producerEdgeFixture "default-exported-polymorphic-callable"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "seed"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
-              TypedCoreUnresolvedExpressionType
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreNonMonomorphicFunctionUnsupported
-              (TypedCoreNameDetail "identity"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
-              TypedCoreUnresolvedExpressionType
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0])
-              TypedCoreUnresolvedExpressionType
-              TypedCoreUnsupportedRootDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "seed"),
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+            TypedCoreUnresolvedExpressionType
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 3)
+            TypedCoreNonMonomorphicFunctionUnsupported
+            (TypedCoreNameDetail "identity"),
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
+            TypedCoreUnresolvedExpressionType
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0])
+            TypedCoreUnresolvedExpressionType
+            TypedCoreUnsupportedRootDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -591,21 +583,23 @@ testExportedCallableFailureOwnership = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "default-exported polymorphic callable repeatability" firstRun secondRun
-  assertEqual "export callable failure remains statement-owned and unique" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "export callable failure remains statement-owned and unique"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testCompoundFailureAccumulation :: IO ()
 testCompoundFailureAccumulation = do
   let fixture = producerEdgeFixture "nested-unsupported-children"
-      expected =
-        TypedCoreProductionUnsupported
-          [ expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
-          ]
+      expectedFailures =
+        [ expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+          expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "compound failure ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   assertEqual "compound failure repeatable production" firstRun secondRun
-  assertEqual "compound failure structural preorder" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "compound failure structural preorder" expectedFailures (typedCoreProductionStatus firstRun)
   where
     expressionFailure childPath kind detail =
       TypedCoreProductionFailure
@@ -670,9 +664,9 @@ testUnsupportedCompositeFailureAccumulation =
         ordinary
         (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " structural preorder")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
 
     expressionFailure statementIndex childPath kind detail =
@@ -717,9 +711,9 @@ testProducerIdentityBoundary =
       secondRun <- produceFixture fixture
       assertEqual (name <> " ordinary diagnostics") [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact identity failure")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
 
 testIncompleteRecursiveGroupOwnership :: IO ()
@@ -757,32 +751,29 @@ testIncompleteRecursiveGroupOwnership = do
               initialInferState
               provisionalScope
           )
-  assertEqual
+  assertProductionUnsupported
     "missing recursive declaration owner rejects the complete group"
-    ( TypedCoreProductionUnsupported
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionStatementPath ["App", "Main"] 1)
-            TypedCoreRecursiveFunctionUnsupported
-            (TypedCoreNameDetail "loop")
-        ]
-    )
+    [ TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] 1)
+        TypedCoreRecursiveFunctionUnsupported
+        (TypedCoreNameDetail "loop")
+    ]
     status
 
 testSameStatementFailureKindOrder :: IO ()
 testSameStatementFailureKindOrder = do
   let fixture = producerEdgeFixture "self-recursive-function-rebinding"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreFunctionRebindingUnsupported
-              (TypedCoreNameDetail "loop")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 3)
+            TypedCoreFunctionRebindingUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   assertEqual "self-recursive rebinding repeatability" firstRun secondRun
-  assertEqual "same-statement failures follow declared kind order" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "same-statement failures follow declared kind order" expectedFailures (typedCoreProductionStatus firstRun)
 
 testInterveningScalarCanonicalOwnership :: Text -> IO ()
 testInterveningScalarCanonicalOwnership requestedName =
@@ -818,9 +809,9 @@ testInterveningScalarCanonicalOwnership requestedName =
             (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
         )
       assertEqual (name <> " repeatability") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact canonical scalar-owner result")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
     rootFailure statementIndex =
       TypedCoreProductionFailure
@@ -880,7 +871,7 @@ testCanonicalRecursionTransportControls =
               (TypedCoreProductionStatementPath _ statementIndex)
               TypedCoreRecursiveFunctionUnsupported
               (TypedCoreNameDetail name) <-
-              failures
+              NonEmpty.toList failures
           ]
         _ -> []
 
@@ -910,20 +901,19 @@ testNestedPriorOuterAliasOwnership requestedName = do
               (TypedCoreProductionStatementPath _ statementIndex)
               TypedCoreRecursiveFunctionUnsupported
               (TypedCoreNameDetail name) <-
-              failures
+              NonEmpty.toList failures
           ]
         _ -> []
 
 testNestedSelfRecursiveLambdaOwnership :: IO ()
 testNestedSelfRecursiveLambdaOwnership = do
   let fixture = producerEdgeFixture "nested-self-recursive-lambda-local-ownership"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
-              TypedCoreNestedBlockUnsupported
-              TypedCoreLocalBlockDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
+            TypedCoreNestedBlockUnsupported
+            TypedCoreLocalBlockDetail
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual
@@ -934,18 +924,20 @@ testNestedSelfRecursiveLambdaOwnership = do
         (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
     )
   assertEqual "nested self-recursive lambda repeatability" firstRun secondRun
-  assertEqual "nested self-recursive lambda exact local ownership" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "nested self-recursive lambda exact local ownership"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testNestedLambdaRecursiveAdmission :: IO ()
 testNestedLambdaRecursiveAdmission = do
   let fixture = producerEdgeFixture "nested-lambda-direct-recursion"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail "loop")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 3)
+            TypedCoreRecursiveFunctionUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -958,7 +950,10 @@ testNestedLambdaRecursiveAdmission = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "nested-lambda direct recursion repeatability" firstRun secondRun
-  assertEqual "nested-lambda direct recursion producer rejection" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "nested-lambda direct recursion producer rejection"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testRejectedCallableRebinding :: Text -> IO ()
 testRejectedCallableRebinding requestedName =
@@ -1018,9 +1013,9 @@ testRejectedCallableRebinding requestedName =
             (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
         )
       assertEqual (name <> " repeatability") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact callable rebinding result")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
     rebindingFailure statementIndex =
       TypedCoreProductionFailure
@@ -1086,9 +1081,9 @@ testCanonicalCallableRebindingDependencies requestedName =
             (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
         )
       assertEqual (name <> " repeatability") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact canonical owners, order, and multiplicity")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
     assertAccepted name expectedGroups = do
       let fixture = producerEdgeFixture name
@@ -1100,7 +1095,8 @@ testCanonicalCallableRebindingDependencies requestedName =
         (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
       assertEqual (name <> " repeatability") firstRun secondRun
       case typedCoreProductionStatus firstRun of
-        TypedCoreProductionSucceeded program -> do
+        TypedCoreProductionSucceeded validatedProgram -> do
+          let program = validatedTypedProgram validatedProgram
           assertEqual (name <> " accepted recursive validation") [] (validateTypedProgram program)
           assertEqual (name <> " exact typed recursive groups") expectedGroups (typedRecursiveGroupOwners program)
         status -> failTest (name <> " did not produce typed recursion: " <> Text.pack (show status))
@@ -1200,9 +1196,9 @@ testRejectedCallableDeclarationTransport requestedName =
             (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
         )
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact declaration-owned rejection")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
     recursionFailure statementIndex name =
       TypedCoreProductionFailure
@@ -1299,9 +1295,9 @@ testRejectedProducerDependencyTransport =
             (inferredDiagnostics (typedCoreProductionInferenceResult firstRun))
         )
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionUnsupported
         (name <> " exact rejected-tree recursion result")
-        (TypedCoreProductionUnsupported expectedFailures)
+        expectedFailures
         (typedCoreProductionStatus firstRun)
     statementFailure statementIndex name =
       TypedCoreProductionFailure
@@ -1397,28 +1393,27 @@ testInputModuleFailureOrder = do
                   inferenceImportedClassNames = Set.singleton "PreludeClass"
                 }
           }
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreResolvedImportsUnsupported
-              TypedCoreNoFailureDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreResolvedImportsUnsupported
+            TypedCoreNoFailureDetail
+        ]
   firstRun <- produceFixture combinedFixture
   secondRun <- produceFixture combinedFixture
   assertEqual "input/module failure order repeatability" firstRun secondRun
-  assertEqual "all input failures precede module failures" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported "all input failures precede module failures" expectedFailures (typedCoreProductionStatus firstRun)
 
 assertUnsupported :: Fixture -> [TypedCoreProductionFailure] -> IO ()
 assertUnsupported fixture expectedFailures = do
   result <- produceFixture fixture
-  assertEqual
+  assertProductionUnsupported
     (fixtureName fixture <> " production status")
-    (TypedCoreProductionUnsupported expectedFailures)
+    expectedFailures
     (typedCoreProductionStatus result)
 
 testAdditionalProfileFailures :: IO ()
@@ -1496,17 +1491,20 @@ testAdditionalProfileFailures =
         [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreUnsupportedExport (TypedCoreNameDetail "missing")]
       leadingStatementResult <- produceResolvedFixture unitFixture leadingStatement
       case typedCoreProductionStatus leadingStatementResult of
-        TypedCoreProductionSucceeded programValue ->
-          assertEqual "unit scalar binding typed-core validation" [] (validateTypedProgram programValue)
+        TypedCoreProductionSucceeded validatedProgram ->
+          assertEqual
+            "unit scalar binding typed-core validation"
+            []
+            (validateTypedProgram (validatedTypedProgram validatedProgram))
         _ -> failTest "unit scalar binding did not produce typed core"
     [] -> failTest "unit fixture is missing"
 
 assertUnsupportedResolved :: Fixture -> ResolvedModule -> [TypedCoreProductionFailure] -> IO ()
 assertUnsupportedResolved fixture resolvedModule expectedFailures = do
   result <- produceResolvedFixture fixture resolvedModule
-  assertEqual
+  assertProductionUnsupported
     (fixtureName fixture <> " production status")
-    (TypedCoreProductionUnsupported expectedFailures)
+    expectedFailures
     (typedCoreProductionStatus result)
 
 withExpression :: Expr -> ResolvedModule -> ResolvedModule

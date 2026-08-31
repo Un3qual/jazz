@@ -13,7 +13,10 @@ import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 testManagedTextLowering :: IO ()
@@ -25,7 +28,7 @@ testManagedTextLowering =
           secondRun = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
       assertEqual (name <> " repeatable lowering") firstRun secondRun
-      assertEqual (name <> " exact managed Text lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertSuccessfulLowering (name <> " exact managed Text lowering") expectedProgram firstRun
       assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
 
 testLexicalCaptureProduction :: IO ()
@@ -42,9 +45,9 @@ testLexicalCaptureProduction =
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable lexical production") firstRun secondRun
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact lexical typed program")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected lexical typed validation") [] (validateTypedProgram expectedProgram)
 
@@ -57,9 +60,9 @@ testCurriedApplicationProduction =
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstRun secondRun
-      assertEqual
+      assertProductionSucceeded
         (name <> " exact typed program")
-        (TypedCoreProductionSucceeded expectedProgram)
+        expectedProgram
         (typedCoreProductionStatus firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
@@ -72,10 +75,13 @@ testCurriedApplicationLowering =
           secondRun = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed input") [] (validateTypedProgram typedProgram)
       assertEqual (name <> " repeatable lowering") firstRun secondRun
-      assertEqual (name <> " exact lowered program") (LoweredIRSucceeded expectedProgram) firstRun
+      assertSuccessfulLowering (name <> " exact lowered program") expectedProgram firstRun
       case firstRun of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedProgram ->
+          assertEqual
+            (name <> " lowered validation")
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedProgram))
         other -> failTest (name <> " did not lower: " <> Text.pack (show other))
 
 curriedApplicationFixture :: Text -> Fixture
@@ -110,7 +116,7 @@ testLexicalCaptureLowering =
           secondRun = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " is valid lexical typed core") [] (validateTypedProgram typedProgram)
       assertEqual (name <> " repeatable lexical lowering") firstRun secondRun
-      assertEqual (name <> " exact lexical lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertSuccessfulLowering (name <> " exact lexical lowering") expectedProgram firstRun
       assertEqual (name <> " expected lexical lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testLexicalCaptureFixtureMatrix :: IO ()
@@ -123,14 +129,16 @@ testLexicalCaptureFixtureMatrix = do
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable typed production") firstRun secondRun
       case typedCoreProductionStatus firstRun of
-        TypedCoreProductionSucceeded typedProgram -> do
+        TypedCoreProductionSucceeded validatedTyped -> do
+          let typedProgram = validatedTypedProgram validatedTyped
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
           assertEqual (name <> " exact lambda binders") expectedBinders (typedLambdaBinders typedProgram)
           let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
               secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
           assertEqual (name <> " repeatable lowering") firstLowering secondLowering
           case firstLowering of
-            LoweredIRSucceeded loweredProgram -> do
+            LoweredIRSucceeded validatedLowered -> do
+              let loweredProgram = validatedLoweredProgram validatedLowered
               assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
               assertEqual (name <> " exact environment layouts") expectedLayouts (loweredLayouts loweredProgram)
               assertEqual (name <> " exact function identities") expectedFunctionIds (loweredFunctionIds loweredProgram)
@@ -248,14 +256,18 @@ testClosureCaptureReviewRegression name = do
   secondProduction <- produceFixture fixture
   assertEqual (name <> " repeatable typed production") firstProduction secondProduction
   case typedCoreProductionStatus firstProduction of
-    TypedCoreProductionSucceeded typedProgram -> do
+    TypedCoreProductionSucceeded validatedTyped -> do
+      let typedProgram = validatedTypedProgram validatedTyped
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
       let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
           secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " repeatable lowering") firstLowering secondLowering
       case firstLowering of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual (name <> " valid lowered IR") [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedLowered ->
+          assertEqual
+            (name <> " valid lowered IR")
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedLowered))
         other -> failTest (name <> " did not lower: " <> Text.pack (show other))
     other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
 
@@ -268,8 +280,11 @@ testLiftedLambdaFailurePreorder =
       assertEqual "lifted conditional fixture is valid typed core" [] (validateTypedProgram programValue)
       assertEqual "lifted conditional lowering is repeatable" firstRun secondRun
       case firstRun of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual "lifted conditional lowered validation" [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedLowered ->
+          assertEqual
+            "lifted conditional lowered validation"
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedLowered))
         other -> failTest ("lifted conditional did not lower: " <> Text.pack (show other))
     Nothing -> failTest "lifted conditional regression fixture is missing"
 
@@ -278,15 +293,13 @@ testLiftedLambdaMetadataAlias =
   case lookup "exported-scalar-lifted-lambda-name-collision" reviewLowererBoundaryPrograms of
     Just programValue -> do
       assertEqual "metadata collision fixture is valid typed core" [] (validateTypedProgram programValue)
-      assertEqual
+      assertUnsupportedLowering
         "lifted lambda names cannot satisfy scalar module metadata"
-        ( LoweredIRUnsupported
-            [ LoweredIRLoweringFailure
-                (TypedModulePath ["App", "Main"])
-                LoweredIRUnsupportedModule
-                LoweredIRNoFailureDetail
-            ]
-        )
+        [ LoweredIRLoweringFailure
+            (TypedModulePath ["App", "Main"])
+            LoweredIRUnsupportedModule
+            LoweredIRNoFailureDetail
+        ]
         (lowerTypedCoreExpressionDirectCall programValue)
     Nothing -> failTest "metadata collision regression fixture is missing"
 
@@ -299,7 +312,7 @@ testScalarBindingLowering =
           secondRun = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram typedProgram)
       assertEqual (name <> " repeatable scalar lowering") firstRun secondRun
-      assertEqual (name <> " exact scalar lowering") (LoweredIRSucceeded expectedProgram) firstRun
+      assertSuccessfulLowering (name <> " exact scalar lowering") expectedProgram firstRun
       assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testThreeArgumentDirectLeadingLambdaRecipe :: IO ()
@@ -319,7 +332,7 @@ testRfcClosureEnvironmentIdentity = do
       secondRun = lowerTypedCoreExpressionDirectCall typedProgram
   assertEqual "RFC identity typed-core validation" [] (validateTypedProgram typedProgram)
   assertEqual "RFC identity repeatable lowering" firstRun secondRun
-  assertEqual "RFC identity exact lowering" (LoweredIRSucceeded expectedProgram) firstRun
+  assertSuccessfulLowering "RFC identity exact lowering" expectedProgram firstRun
 
 testSupportedClosureLowererBoundary :: IO ()
 testSupportedClosureLowererBoundary =
@@ -333,7 +346,7 @@ testSupportedClosureLowererBoundary =
               secondRun = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
           assertEqual (name <> " repeatable closure lowering") firstRun secondRun
-          assertEqual (name <> " exact closure lowering") (LoweredIRSucceeded expectedProgram) firstRun
+          assertSuccessfulLowering (name <> " exact closure lowering") expectedProgram firstRun
           assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testLowererCallableBoundary :: IO ()
@@ -348,7 +361,7 @@ testLowererCallableBoundary =
               secondRun = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
           assertEqual (name <> " repeatable lowerer rejection") firstRun secondRun
-          assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
+          assertUnsupportedLowering (name <> " exact lowerer rejection") expectedFailures firstRun
 
     expectedResults =
       [ ( "recursion-descendant-failure-order",
@@ -449,7 +462,7 @@ testInvalidLowererTypedCoreBoundary =
           let firstRun = lowerTypedCoreExpressionDirectCall programValue
               secondRun = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " repeatable typed-core rejection") firstRun secondRun
-          assertEqual (name <> " exact typed-core rejection") (LoweredIRTypedCoreFailures expectedFailures) firstRun
+          assertTypedCoreFailureLowering (name <> " exact typed-core rejection") expectedFailures firstRun
 
     expectedResults =
       [ ( "closure-shape-flattened-recipe",
@@ -551,7 +564,7 @@ testLowererStructuralBoundary =
               secondRun = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
           assertEqual (name <> " repeatable lowerer rejection") firstRun secondRun
-          assertEqual (name <> " exact lowerer rejection") (LoweredIRUnsupported expectedFailures) firstRun
+          assertUnsupportedLowering (name <> " exact lowerer rejection") expectedFailures firstRun
 
     expectedResults =
       [ ( "managed-pattern-scrutinee",
@@ -607,8 +620,11 @@ testUnitForwardVisibility = do
     []
     (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult result)))
   case typedCoreProductionStatus result of
-    TypedCoreProductionSucceeded programValue ->
-      assertEqual "unit forward function typed-core validation" [] (validateTypedProgram programValue)
+    TypedCoreProductionSucceeded validatedProgram ->
+      assertEqual
+        "unit forward function typed-core validation"
+        []
+        (validateTypedProgram (validatedTypedProgram validatedProgram))
     _ -> failTest "unit forward function did not produce typed core"
 
 testCurriedArgumentCapture :: IO ()
@@ -618,11 +634,15 @@ testCurriedArgumentCapture = do
   secondRun <- produceFixture fixture
   assertEqual "captured direct-call argument repeatability" firstRun secondRun
   case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded typedProgram -> do
+    TypedCoreProductionSucceeded validatedTyped -> do
+      let typedProgram = validatedTypedProgram validatedTyped
       assertEqual "captured direct-call argument typed validation" [] (validateTypedProgram typedProgram)
       case lowerTypedCoreExpressionDirectCall typedProgram of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual "captured direct-call argument lowered validation" [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedLowered ->
+          assertEqual
+            "captured direct-call argument lowered validation"
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedLowered))
         other -> failTest ("captured direct-call argument did not lower: " <> Text.pack (show other))
     other -> failTest ("captured direct-call argument did not produce typed core: " <> Text.pack (show other))
 
@@ -638,24 +658,27 @@ testPartialApplicationArgumentCapture = do
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "partial-call argument repeatability" firstRun secondRun
   case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded typedProgram -> do
+    TypedCoreProductionSucceeded validatedTyped -> do
+      let typedProgram = validatedTypedProgram validatedTyped
       assertEqual "partial-call argument typed validation" [] (validateTypedProgram typedProgram)
       case lowerTypedCoreExpressionDirectCall typedProgram of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual "partial-call argument lowered validation" [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedLowered ->
+          assertEqual
+            "partial-call argument lowered validation"
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedLowered))
         other -> failTest ("partial-call argument did not lower: " <> Text.pack (show other))
     other -> failTest ("partial-call argument did not produce typed core: " <> Text.pack (show other))
 
 testNonLocalCallArgumentFailureAccumulation :: IO ()
 testNonLocalCallArgumentFailureAccumulation = do
   let fixture = producerEdgeFixture "non-local-call-argument-capture"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
-              TypedCoreNonLocalCallUnsupported
-              (TypedCoreNameDetail "__kernel_toFloat64")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+            TypedCoreNonLocalCallUnsupported
+            (TypedCoreNameDetail "__kernel_toFloat64")
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -664,18 +687,20 @@ testNonLocalCallArgumentFailureAccumulation = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "non-local-call argument failure repeatability" firstRun secondRun
-  assertEqual "non-local-call argument failure accumulation" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "non-local-call argument failure accumulation"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testClosureUseArgumentFailureOrder :: IO ()
 testClosureUseArgumentFailureOrder = do
   let fixture = producerEdgeFixture "closure-use-argument-failure-order"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 7 [])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 7 [])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -684,7 +709,10 @@ testClosureUseArgumentFailureOrder = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "closure-use argument failure repeatability" firstRun secondRun
-  assertEqual "closure-use argument and later sibling failure order" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "closure-use argument and later sibling failure order"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testClosureShapeClassificationCollapse :: IO ()
 testClosureShapeClassificationCollapse = do
@@ -699,8 +727,11 @@ testClosureShapeClassificationCollapse = do
   secondRun <- produceFixture fixture
   assertEqual "mixed callable-use classification repeatability" firstRun secondRun
   case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded (TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _) ->
-      assertEqual "mixed callable-use scheme classifications" expectedShapes (callableSchemeShapes statements)
+    TypedCoreProductionSucceeded validatedProgram ->
+      case validatedTypedProgram validatedProgram of
+        TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _ ->
+          assertEqual "mixed callable-use scheme classifications" expectedShapes (callableSchemeShapes statements)
+        programValue -> failTest ("mixed callable-use fixture produced unexpected typed core: " <> Text.pack (show programValue))
     status -> failTest ("mixed callable-use fixture did not produce typed core: " <> Text.pack (show status))
   where
     callableSchemeShapes statements =

@@ -27,7 +27,10 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 recursiveLoopDeclaration :: Int -> SourceSpan -> ExpressionType -> ProvisionalCallableDeclaration
@@ -65,17 +68,19 @@ testEquivalentScalarAliasSpecialization =
 testEarlierCallerTransitiveCaptureAvailability :: IO ()
 testEarlierCallerTransitiveCaptureAvailability = do
   let fixture = producerEdgeFixture "earlier-caller-transitive-recursive-capture"
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "caller")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 1)
+            TypedCoreCaptureUnsupported
+            (TypedCoreNameDetail "caller")
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "earlier caller transitive capture repeatability" firstRun secondRun
-  assertEqual "earlier caller transitive capture rejection" expected (typedCoreProductionStatus firstRun)
+  assertProductionUnsupported
+    "earlier caller transitive capture rejection"
+    expectedFailures
+    (typedCoreProductionStatus firstRun)
 
 testCapturedNumericScalarReferenceSpecialization :: IO ()
 testCapturedNumericScalarReferenceSpecialization = do
@@ -1164,13 +1169,12 @@ testEagerRecursiveClosureCaptureAvailability = do
               spanValue
               ProvisionalUnitExpression
           ]
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "loop")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+            TypedCoreCaptureUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
       status =
         typedCoreProductionOutcomeStatus
           ( finalizeValidatedTypedCoreExpressionDirectCall
@@ -1179,7 +1183,7 @@ testEagerRecursiveClosureCaptureAvailability = do
               initialInferState
               provisionalScope
           )
-  assertEqual "eager recursive closure capture rejection" expected status
+  assertProductionUnsupported "eager recursive closure capture rejection" expectedFailures status
 
 testEagerNestedClosureCaptureAvailability :: IO ()
 testEagerNestedClosureCaptureAvailability = do
@@ -1251,13 +1255,12 @@ testEagerNestedClosureCaptureAvailability = do
               spanValue
               ProvisionalUnitExpression
           ]
-      expected =
-        TypedCoreProductionUnsupported
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 1])
-              TypedCoreCaptureUnsupported
-              (TypedCoreNameDetail "loop")
-          ]
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 1])
+            TypedCoreCaptureUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
       status =
         typedCoreProductionOutcomeStatus
           ( finalizeValidatedTypedCoreExpressionDirectCall
@@ -1266,7 +1269,7 @@ testEagerNestedClosureCaptureAvailability = do
               initialInferState
               provisionalScope
           )
-  assertEqual "eager nested closure capture rejection" expected status
+  assertProductionUnsupported "eager nested closure capture rejection" expectedFailures status
 
 assertProvisionalProductionCompletes :: Text -> ProvisionalTypedExpr -> IO ()
 assertProvisionalProductionCompletes label =
@@ -1284,7 +1287,8 @@ assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType
               provisionalScope
           )
   case status of
-    TypedCoreProductionSucceeded programValue -> do
+    TypedCoreProductionSucceeded validatedProgram -> do
+      let programValue = validatedTypedProgram validatedProgram
       assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
       case programValue of
         TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _ -> do
@@ -1319,8 +1323,11 @@ assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType
             Nothing -> pure ()
         _ -> failTest (label <> " typed program has an unexpected module shape")
       case lowerTypedCoreExpressionDirectCall programValue of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedLowered ->
+          assertEqual
+            (label <> " lowered-IR validation")
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedLowered))
         other -> failTest (label <> " did not lower: " <> Text.pack (show other))
     other -> failTest (label <> " did not produce typed core: " <> Text.pack (show other))
 

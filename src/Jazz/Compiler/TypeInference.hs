@@ -25,6 +25,7 @@ module Jazz.Compiler.TypeInference
 where
 
 import Data.List (sortOn)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -464,13 +465,17 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
 productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionOutcome
 productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
   | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = blockedTypedCoreProductionOutcome
-  | not (null profileFailures) = unsupportedTypedCoreProductionOutcome profileFailures
   | otherwise =
-      case inferredProvisionalExpr inferredResult of
-        Just provisionalExpr -> finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
+      case NonEmpty.nonEmpty profileFailures of
+        Just failures -> unsupportedTypedCoreProductionOutcome failures
         Nothing ->
-          unsupportedTypedCoreProductionOutcome
-            [TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+          case inferredProvisionalExpr inferredResult of
+            Just provisionalExpr -> finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
+            Nothing ->
+              unsupportedTypedCoreProductionOutcome
+                ( NonEmpty.singleton
+                    (TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
+                )
   where
     profileFailures = inputFailures <> moduleFailures
     inputFailures =

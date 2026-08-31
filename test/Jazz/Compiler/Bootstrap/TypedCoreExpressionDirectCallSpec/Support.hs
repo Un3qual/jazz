@@ -2,6 +2,11 @@
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
   ( assertCompleteProduction,
+    assertProductionSucceeded,
+    assertProductionUnsupported,
+    assertSuccessfulLowering,
+    assertTypedCoreFailureLowering,
+    assertUnsupportedLowering,
     assertUnboundLater,
     assertUnboundName,
     fixtureByName,
@@ -18,6 +23,8 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 where
 
 import Data.IORef (modifyIORef', newIORef, readIORef)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -28,12 +35,17 @@ import Jazz.Compiler.Diagnostics
     diagnosticSubject,
     isErrorDiagnostic,
   )
+import Jazz.Compiler.LoweredIR (LoweredProgram)
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
-import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
+import Jazz.Compiler.TypedCore (TypedCoreValidationFailure, TypedProgram)
+import Jazz.Compiler.TypedCore.Validate
+  ( validateTypedProgram,
+    validatedTypedProgram,
+  )
 import Jazz.TestHarness (assertEqual, failTest)
 
 assertCompleteProduction :: Text -> Fixture -> IO ()
@@ -51,11 +63,15 @@ assertCompleteProduction label fixture = do
     []
     (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
   case typedCoreProductionStatus firstRun of
-    TypedCoreProductionSucceeded programValue -> do
+    TypedCoreProductionSucceeded validatedProgram -> do
+      let programValue = validatedTypedProgram validatedProgram
       assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
       case lowerTypedCoreExpressionDirectCall programValue of
-        LoweredIRSucceeded loweredProgram ->
-          assertEqual (label <> " lowered-IR validation") [] (validateLoweredProgram loweredProgram)
+        LoweredIRSucceeded validatedLowered ->
+          assertEqual
+            (label <> " lowered-IR validation")
+            []
+            (validateLoweredProgram (validatedLoweredProgram validatedLowered))
         _ -> failTest (label <> " did not lower successfully")
     status ->
       failTest
@@ -63,6 +79,41 @@ assertCompleteProduction label fixture = do
             <> " did not produce typed core: "
             <> Text.pack (show status)
         )
+
+assertProductionSucceeded :: Text -> TypedProgram -> TypedCoreProductionStatus -> IO ()
+assertProductionSucceeded label expectedProgram status =
+  case status of
+    TypedCoreProductionSucceeded validatedProgram ->
+      assertEqual label expectedProgram (validatedTypedProgram validatedProgram)
+    other -> failTest (label <> ": expected successful production, got " <> Text.pack (show other))
+
+assertProductionUnsupported :: Text -> [TypedCoreProductionFailure] -> TypedCoreProductionStatus -> IO ()
+assertProductionUnsupported label expectedFailures status =
+  case status of
+    TypedCoreProductionUnsupported failures ->
+      assertEqual label expectedFailures (NonEmpty.toList failures)
+    other -> failTest (label <> ": expected unsupported production, got " <> Text.pack (show other))
+
+assertSuccessfulLowering :: Text -> LoweredProgram -> LoweredIRLoweringResult -> IO ()
+assertSuccessfulLowering label expectedProgram result =
+  case result of
+    LoweredIRSucceeded validatedProgram ->
+      assertEqual label expectedProgram (validatedLoweredProgram validatedProgram)
+    other -> failTest (label <> ": expected successful lowering, got " <> Text.pack (show other))
+
+assertTypedCoreFailureLowering :: Text -> [TypedCoreValidationFailure] -> LoweredIRLoweringResult -> IO ()
+assertTypedCoreFailureLowering label expectedFailures result =
+  case result of
+    LoweredIRTypedCoreFailures failures ->
+      assertEqual label expectedFailures (NonEmpty.toList failures)
+    other -> failTest (label <> ": expected typed-core validation failures, got " <> Text.pack (show other))
+
+assertUnsupportedLowering :: Text -> [LoweredIRLoweringFailure] -> LoweredIRLoweringResult -> IO ()
+assertUnsupportedLowering label expectedFailures result =
+  case result of
+    LoweredIRUnsupported failures ->
+      assertEqual label expectedFailures (NonEmpty.toList failures)
+    other -> failTest (label <> ": expected unsupported lowering, got " <> Text.pack (show other))
 
 assertUnboundName :: Text -> Text -> InferenceResult -> IO ()
 assertUnboundName label name inferenceResult =
@@ -83,53 +134,54 @@ rejectedManifestExpectedStatuses :: [(Text, TypedCoreProductionStatus)]
 rejectedManifestExpectedStatuses =
   [ ("source-diagnostic", TypedCoreProductionBlockedByDiagnostics),
     ( "invalid-portable-source-path",
-      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail]
+      unsupported (TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail :| [])
     ),
     ( "resolved-import",
-      unsupported [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreResolvedImportsUnsupported TypedCoreNoFailureDetail]
+      unsupported (TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreResolvedImportsUnsupported TypedCoreNoFailureDetail :| [])
     ),
     ( "ambient-prelude-input",
-      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail]
+      unsupported (TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail :| [])
     ),
     ( "text-value",
       unsupported
-        [expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]
+        (expressionFailure 1 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail :| [])
     ),
-    ("list-value", unsupported [expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail]),
-    ("local-block-binding", unsupported [expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail]),
+    ("list-value", unsupported (expressionFailure 0 [] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail :| [])),
+    ("local-block-binding", unsupported (expressionFailure 0 [] TypedCoreNestedBlockUnsupported TypedCoreLocalBlockDetail :| [])),
     ( "oversaturated-direct-call",
       unsupported
-        [expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
+        (expressionFailure 1 [0, 0] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail :| [])
     ),
     ( "later-capture-mutual-recursion",
       unsupported
-        [statementFailure 4 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
+        (statementFailure 4 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right") :| [])
     ),
     ( "transitive-later-capture-mutual-recursion",
       unsupported
-        [statementFailure 6 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
+        (statementFailure 6 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right") :| [])
     ),
     ( "interleaved-rebound-capture-mutual-recursion",
       unsupported
-        [statementFailure 5 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right")]
+        (statementFailure 5 TypedCoreRecursiveFunctionUnsupported (TypedCoreNameDetail "right") :| [])
     ),
     ( "polymorphic-or-evidence-function",
       unsupported
-        [ expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "identity"),
-          expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          expressionFailure 1 [0] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
-        ]
+        ( expressionFailure 0 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
+            :| [ statementFailure 1 TypedCoreNonMonomorphicFunctionUnsupported (TypedCoreNameDetail "identity"),
+                 expressionFailure 1 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+                 expressionFailure 1 [0] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail,
+                 expressionFailure 2 [] TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
+               ]
+        )
     ),
     ( "imported-direct-call",
-      unsupported [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
+      unsupported (TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail :| [])
     ),
     ( "user-defined-operator-call",
       unsupported
-        [ statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail,
-          expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
-        ]
+        ( statementFailure 1 TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail
+            :| [expressionFailure 2 [] TypedCoreUserDefinedOperatorUnsupported TypedCoreUnsupportedRootDetail]
+        )
     )
   ]
   where
@@ -157,7 +209,7 @@ statusFailureKinds status =
     TypedCoreProductionBlockedByDiagnostics -> []
     TypedCoreProductionUnsupported failures ->
       [ kind
-      | TypedCoreProductionFailure _ kind _ <- failures
+      | TypedCoreProductionFailure _ kind _ <- NonEmpty.toList failures
       ]
     TypedCoreProductionInvariantFailures _ -> []
     TypedCoreProductionSucceeded _ -> []

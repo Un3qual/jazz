@@ -33,6 +33,7 @@ module Jazz.Compiler.TypeInference.Elaboration.Types
   )
 where
 
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Jazz.Compiler.AST
@@ -51,34 +52,32 @@ import Jazz.Compiler.TypedCore
   ( TypedBinderId,
     TypedCallableShape,
     TypedCoreValidationFailure,
-    TypedProgram,
   )
 import Jazz.Compiler.TypedCore.Validate
   ( ValidatedTypedProgram,
-    validatedTypedProgram,
   )
 
 data TypedCoreProductionStatus
   = TypedCoreProductionBlockedByDiagnostics
-  | TypedCoreProductionUnsupported [TypedCoreProductionFailure]
-  | TypedCoreProductionInvariantFailures [TypedCoreValidationFailure]
-  | TypedCoreProductionSucceeded TypedProgram
+  | TypedCoreProductionUnsupported (NonEmpty TypedCoreProductionFailure)
+  | TypedCoreProductionInvariantFailures (NonEmpty TypedCoreValidationFailure)
+  | TypedCoreProductionSucceeded ValidatedTypedProgram
   deriving (Eq, Show)
 
 data TypedCoreProductionOutcome
   = ProductionBlockedByDiagnostics
-  | ProductionUnsupported [TypedCoreProductionFailure]
-  | ProductionInvariantFailures [TypedCoreValidationFailure]
+  | ProductionUnsupported (NonEmpty TypedCoreProductionFailure)
+  | ProductionInvariantFailures (NonEmpty TypedCoreValidationFailure)
   | ProductionSucceeded ValidatedTypedProgram
   deriving (Eq, Show)
 
 blockedTypedCoreProductionOutcome :: TypedCoreProductionOutcome
 blockedTypedCoreProductionOutcome = ProductionBlockedByDiagnostics
 
-unsupportedTypedCoreProductionOutcome :: [TypedCoreProductionFailure] -> TypedCoreProductionOutcome
+unsupportedTypedCoreProductionOutcome :: NonEmpty TypedCoreProductionFailure -> TypedCoreProductionOutcome
 unsupportedTypedCoreProductionOutcome = ProductionUnsupported
 
-invariantFailuresTypedCoreProductionOutcome :: [TypedCoreValidationFailure] -> TypedCoreProductionOutcome
+invariantFailuresTypedCoreProductionOutcome :: NonEmpty TypedCoreValidationFailure -> TypedCoreProductionOutcome
 invariantFailuresTypedCoreProductionOutcome = ProductionInvariantFailures
 
 succeededTypedCoreProductionOutcome :: ValidatedTypedProgram -> TypedCoreProductionOutcome
@@ -90,8 +89,7 @@ typedCoreProductionOutcomeStatus outcome =
     ProductionBlockedByDiagnostics -> TypedCoreProductionBlockedByDiagnostics
     ProductionUnsupported failures -> TypedCoreProductionUnsupported failures
     ProductionInvariantFailures failures -> TypedCoreProductionInvariantFailures failures
-    ProductionSucceeded validatedProgram ->
-      TypedCoreProductionSucceeded (validatedTypedProgram validatedProgram)
+    ProductionSucceeded validatedProgram -> TypedCoreProductionSucceeded validatedProgram
 
 typedCoreProductionOutcomeValidatedProgram :: TypedCoreProductionOutcome -> Maybe ValidatedTypedProgram
 typedCoreProductionOutcomeValidatedProgram outcome =

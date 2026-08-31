@@ -2,7 +2,6 @@ module Jazz.Compiler.LoweredIR.Lower.Types
   ( LoweredIRLoweringKind (..),
     LoweredIRLoweringDetail (..),
     LoweredIRLoweringFailure (..),
-    LoweredIRLoweringResult (..),
     RuntimeRequirements (..),
     LoweringState (..),
     ResultDestination (..),
@@ -80,13 +79,6 @@ data LoweredIRLoweringFailure
       TypedCoreValidationPath
       LoweredIRLoweringKind
       LoweredIRLoweringDetail
-  deriving (Eq, Show)
-
-data LoweredIRLoweringResult
-  = LoweredIRTypedCoreFailures [TypedCoreValidationFailure]
-  | LoweredIRUnsupported [LoweredIRLoweringFailure]
-  | LoweredIRInvariantFailures [LoweredIRValidationFailure]
-  | LoweredIRSucceeded LoweredProgram
   deriving (Eq, Show)
 
 data RuntimeRequirements = RuntimeRequirements

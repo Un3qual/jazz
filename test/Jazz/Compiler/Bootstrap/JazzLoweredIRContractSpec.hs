@@ -28,6 +28,11 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
   )
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.LoweredIR.Lower
+  ( LoweredIRLoweringResult (..),
+    lowerTypedCoreExpressionDirectCall,
+    validatedLoweredProgram,
+  )
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name (identifierText)
@@ -55,6 +60,7 @@ tests =
     ("renders the scalar contract deterministically", testScalarContractRendering),
     ("renders the complete valid contract deterministically", testValidContractRendering),
     ("accepts every fixed valid program", testValidPrograms),
+    ("unwraps successful checked lowering through the named boundary", testCheckedLoweringSuccess),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
     ("reports every fixed invalid program exactly", testInvalidPrograms),
     ("reports every validator hardening regression exactly", testHardeningPrograms),
@@ -299,6 +305,19 @@ testValidPrograms =
   mapM_
     (\fixture -> assertEqual (validFixtureName fixture <> " validation") [] (validateLoweredProgram (validFixtureProgram fixture)))
     validFixtures
+
+testCheckedLoweringSuccess :: IO ()
+testCheckedLoweringSuccess =
+  case closureRecursionExpectedLoweredPrograms of
+    (_, typedProgram, expectedProgram) : _ ->
+      case lowerTypedCoreExpressionDirectCall typedProgram of
+        LoweredIRSucceeded validatedProgram ->
+          assertEqual
+            "checked lowering unwraps the validated Lowered IR"
+            expectedProgram
+            (validatedLoweredProgram validatedProgram)
+        other -> failTest ("valid typed-core fixture did not lower: " <> Text.pack (show other))
+    [] -> failTest "typed-core lowering fixture manifest is empty"
 
 testInvalidFixtureManifest :: IO ()
 testInvalidFixtureManifest = do

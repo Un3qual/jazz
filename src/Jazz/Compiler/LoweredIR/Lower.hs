@@ -5,11 +5,15 @@ module Jazz.Compiler.LoweredIR.Lower
     LoweredIRLoweringDetail (..),
     LoweredIRLoweringFailure (..),
     LoweredIRLoweringResult (..),
+    ValidatedLoweredProgram,
     lowerTypedCoreExpressionDirectCall,
     lowerValidatedTypedCoreExpressionDirectCall,
+    validatedLoweredProgram,
   )
 where
 
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower.Emit (emitAnalyzedModule)
 import Jazz.Compiler.LoweredIR.Lower.Shapes (analyzeTypedModule)
@@ -21,6 +25,19 @@ import Jazz.Compiler.TypedCore.Validate
     validateTypedProgramOnce,
     validatedTypedProgram,
   )
+
+newtype ValidatedLoweredProgram = ValidatedLoweredProgram LoweredProgram
+  deriving (Eq, Show)
+
+validatedLoweredProgram :: ValidatedLoweredProgram -> LoweredProgram
+validatedLoweredProgram (ValidatedLoweredProgram loweredProgram) = loweredProgram
+
+data LoweredIRLoweringResult
+  = LoweredIRTypedCoreFailures (NonEmpty TypedCoreValidationFailure)
+  | LoweredIRUnsupported (NonEmpty LoweredIRLoweringFailure)
+  | LoweredIRInvariantFailures (NonEmpty LoweredIRValidationFailure)
+  | LoweredIRSucceeded ValidatedLoweredProgram
+  deriving (Eq, Show)
 
 lowerTypedCoreExpressionDirectCall :: TypedProgram -> LoweredIRLoweringResult
 lowerTypedCoreExpressionDirectCall typedProgram =
@@ -36,29 +53,26 @@ lowerValidatedTypedCoreExpressionDirectCall validatedProgram =
   case lowerValidatedProgram (validatedTypedProgram validatedProgram) of
     Left failures -> LoweredIRUnsupported failures
     Right loweredProgram ->
-      case validateLoweredProgram loweredProgram of
-        failures@(_ : _) -> LoweredIRInvariantFailures failures
-        [] -> LoweredIRSucceeded loweredProgram
+      case NonEmpty.nonEmpty (validateLoweredProgram loweredProgram) of
+        Just failures -> LoweredIRInvariantFailures failures
+        Nothing -> LoweredIRSucceeded (ValidatedLoweredProgram loweredProgram)
 
-lowerValidatedProgram :: TypedProgram -> Either [LoweredIRLoweringFailure] LoweredProgram
+lowerValidatedProgram :: TypedProgram -> Either (NonEmpty LoweredIRLoweringFailure) LoweredProgram
 lowerValidatedProgram (TypedProgram maybePrelude modules entryModulePath) =
   case filter ((== entryModulePath) . typedModulePath) modules of
     [entryModule] ->
       case lowerValidatedModule entryModule of
-        Left failures -> Left (programFailures <> failures)
+        Left failures ->
+          case NonEmpty.nonEmpty (programFailures <> failures) of
+            Just checkedFailures -> Left checkedFailures
+            Nothing -> Left (NonEmpty.singleton unsupportedProgramFailure)
         Right loweredProgram
-          | null programFailures -> Right loweredProgram
-          | otherwise -> Left programFailures
+          | Just failures <- NonEmpty.nonEmpty programFailures -> Left failures
+          | otherwise -> Right loweredProgram
     _ ->
-      Left
-        ( programFailures
-            <> [ LoweredIRLoweringFailure
-                   TypedProgramPath
-                   LoweredIRUnsupportedProgram
-                   LoweredIRNoFailureDetail
-               | null programFailures
-               ]
-        )
+      case NonEmpty.nonEmpty programFailures of
+        Just failures -> Left failures
+        Nothing -> Left (NonEmpty.singleton unsupportedProgramFailure)
   where
     programFailures
       | maybePrelude == Nothing,
@@ -70,6 +84,11 @@ lowerValidatedProgram (TypedProgram maybePrelude modules entryModulePath) =
               LoweredIRUnsupportedProgram
               LoweredIRNoFailureDetail
           ]
+    unsupportedProgramFailure =
+      LoweredIRLoweringFailure
+        TypedProgramPath
+        LoweredIRUnsupportedProgram
+        LoweredIRNoFailureDetail
     typedModulePath (TypedModule modulePath _ _ _ _ _ _ _) = modulePath
 
 lowerValidatedModule :: TypedModule -> Either [LoweredIRLoweringFailure] LoweredProgram
