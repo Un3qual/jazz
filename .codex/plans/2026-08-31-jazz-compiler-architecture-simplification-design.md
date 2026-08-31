@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-31
 
-**Status:** Approved in discussion; pending final written review
+**Status:** Approved for implementation planning
 
 ## Purpose
 
@@ -403,7 +403,7 @@ type TypedCoreBuildResult =
 
 type LoweredIRBuildResult =
   CheckedBuild
-    TypedCoreValidationFailure
+    (NonEmpty TypedCoreValidationFailure)
     LoweredIRLoweringFailure
     LoweredIRValidationFailure
     ValidatedLoweredProgram
@@ -570,9 +570,10 @@ buildTypedProgram
   -> TypedProgram
 ```
 
-`BackendEligibleProgram` is an opaque nominal-role newtype. Only the eligibility
-checker can construct it. The builder is total over that input and performs one
-structural traversal into final Typed Core.
+`BackendEligibleProgram` is an opaque newtype. Only the eligibility checker can
+construct it; hiding the parameterless newtype constructor protects the checked
+boundary without a role annotation. The builder is total over that input and
+performs one structural traversal into final Typed Core.
 
 The top-level producer constructs `TypedCoreBuildResult`: error diagnostics
 produce `BuildRejected TypedCoreRejectedByDiagnostics`; eligibility failures
