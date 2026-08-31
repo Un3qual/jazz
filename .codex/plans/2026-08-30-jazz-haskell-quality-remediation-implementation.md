@@ -1288,20 +1288,54 @@ git commit -m "refactor: encode stable ordered sets"
 **Interfaces:**
 
 - Produces private permissive `RawCliOptions` for argument accumulation.
-- Produces validated sums for input, Prelude selection, and compile/run mode.
+- Produces validated `CliInput`, `CliPreludeSelection`, and `CliExecutionMode`
+  sums. The Prelude sum uses a default/automatic constructor because environment
+  resolution can still select an explicit file after argument validation.
 - Hides the validated `CliOptions` constructor while exposing deliberate projections.
+
+```haskell
+data CliInput
+  = CliStdin
+  | CliSourceFile FilePath
+  | CliModuleGraph [Text] [FilePath]
+
+data CliPreludeSelection
+  = CliDefaultPrelude
+  | CliExplicitPrelude FilePath
+  | CliPreludeDisabled
+
+data CliExecutionMode
+  = CliCompile
+  | CliRun
+  | CliRunWithStatistics RuntimeStatisticsFormat
+  | CliRunWithProfile FilePath
+  | CliRunWithStatisticsAndProfile RuntimeStatisticsFormat FilePath
+```
 
 - [ ] **Step 1: Add algebraic parser-result assertions**
 
-Extend CLI parser tests to assert stdin/source/module-graph input, bundled/
+Extend CLI parser tests to assert stdin/source/module-graph input, default/
 explicit/disabled Prelude, and compile/run observation modes through the new
-constructors or projections. Run `cli-spec`; expected compile failure.
+constructors or projections. Treat absent Prelude flags as default/automatic,
+not already bundled. Include the valid combined statistics-plus-profile run
+mode. Run `cli-spec`; expected compile failure.
 
 - [ ] **Step 2: Split accumulation from validation**
 
-Keep the current one-pass flag parser over `RawCliOptions`; convert once after
-all arguments are consumed. The conversion must retain every existing E5002
-message and reject the same invalid combinations.
+Keep the current one-pass flag parser over `RawCliOptions`; retain immediate
+errors for missing/malformed/repeated/unknown individual arguments and convert
+cross-field state once after all arguments are consumed. Preserve the current
+final guard precedence: Prelude conflict, source/entry conflict, observation
+without run, then module-root/entry relationship. The conversion must retain
+every existing E5002 message and the resolver-owned E4016 invalid module-path
+diagnostic.
+
+Normalize implicit stdin and explicit `-` to one validated stdin constructor
+only after raw parsing, so repeated-source precedence is unchanged. Normalize
+module roots to encounter order and supply the existing `.` default in the
+validated module-graph constructor. Store only the validated sums plus warning
+flags/config in opaque `CliOptions`; derive runtime-observation and resolver
+details through total private helpers.
 
 - [ ] **Step 3: Run CLI and module entrypoint suites**
 
@@ -1326,7 +1360,10 @@ git commit -m "refactor: validate CLI options algebraically"
 
 - Modify: `src/Jazz/Compiler/ModuleGraph.hs`
 - Modify: `src/Jazz/Compiler/ModuleResolver.hs`
+- Modify: `src/Jazz/Compiler/Parser/Lower.hs`
 - Modify: resolved-import consumers in `ModuleCompiler.hs`, `ModuleRuntime.hs`, and tests.
+- Modify: raw Core canonical adapters and fixtures under
+  `test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison*.hs`.
 
 **Interfaces:**
 
@@ -1339,20 +1376,31 @@ data ImportExposure
   | ImportQualified Text
 ```
 
-- Replaces independent alias/symbol optionals only in checked resolver output.
+- Renames the parser-lowered raw record to `CoreResolvedImport`; `CoreModule`
+  stores this raw shape so canonical invalid fixtures remain constructible.
+- Replaces independent alias/symbol optionals only in checked resolver output;
+  `ResolvedImport` stores one `ImportExposure`.
 - Preserves raw parser and Typed Core import shapes for negative validation.
 
 - [ ] **Step 1: Add resolved-import shape characterization**
 
-Add resolver assertions for all three valid syntax forms and retain public
-parser rejection tests for alias-plus-selectors and empty selectors. Run
+Add direct resolver-output assertions for all three valid syntax forms in
+deliberately non-lexical declaration order, including selector order inside
+`ImportOnly`. Do not project through `ResolvedModuleSummary`, which drops this
+information. Retain public parser rejection tests for alias-plus-selectors and
+empty selectors. Run
 `module-resolution-spec module-import-parser-spec` and witness compile failure
 until the sum exists.
 
 - [ ] **Step 2: Convert at the resolver boundary**
 
-Construct `ImportOnly` only from a proven non-empty selector list. Update
-compiler/runtime consumers to one exhaustive case analysis. Do not modify raw
+Convert raw Core imports only after `validateImportBindings` succeeds. Construct
+`ImportOnly` with `NonEmpty.nonEmpty`; fail closed with a private E4010
+internal-invariant diagnostic for an impossible empty or alias-plus-selector
+shape rather than using `error` or dropping data. Preserve declaration order
+and duplicates. Update compiler/runtime consumers to one exhaustive case
+analysis, keeping qualified imports' existing capability-method exclusion. Use
+`NonEmpty.toList` only at the existing inventory boundary. Do not modify raw
 `TypedResolvedImport` or its invalid fixtures.
 
 - [ ] **Step 3: Run module and Typed Core boundary suites**
@@ -1361,6 +1409,7 @@ compiler/runtime consumers to one exhaustive case analysis. Do not modify raw
 nix --extra-experimental-features 'nix-command flakes' develop --command \
   cabal test module-resolution-spec module-exports-spec module-pipeline-contract-spec \
   loader-spec module-import-parser-spec jazz-typed-core-contract-spec \
+  canonical-core-comparison-spec jazz-core-modules-corpus-closure-spec \
   --test-show-details=failures --jobs=1
 ```
 
@@ -1369,7 +1418,8 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 Format touched files, run `git diff --check`, then:
 
 ```sh
-git add src/Jazz/Compiler test/Jazz/Compiler/Modules test/Jazz/Compiler/Parser
+git add src/Jazz/Compiler test/Jazz/Compiler/Modules test/Jazz/Compiler/Parser \
+  test/Jazz/Compiler/Bootstrap
 git commit -m "refactor: encode resolved import exposure"
 ```
 
@@ -1379,28 +1429,41 @@ git commit -m "refactor: encode resolved import exposure"
 
 - Modify: `src/Jazz/Compiler/Runtime/Types.hs`
 - Modify: `src/Jazz/Compiler/Runtime/Engine.hs`
+- Modify: `src/Jazz/Compiler/Runtime/Semantics.hs`
+- Modify: `src/Jazz/Compiler/Runtime/Primitives.hs`
 - Modify: `src/Jazz/Compiler/PatternCoverage.hs`
 - Modify: canonical/runtime tests that directly inspect qualified methods.
 - Test: `test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs`
 
 **Interfaces:**
 
-- Produces opaque `RuntimeMethodCandidates` and `RuntimeAppliedArguments`
-  backed by `Seq` if both are repeatedly appended; exposes ordered folds/lists.
+- Produces opaque `RuntimeMethodCandidates` backed by `Seq` for the proven
+  repeated candidate snoc paths.
+- Generalizes the existing opaque `RuntimeConstructorArguments` `Seq` wrapper
+  into `RuntimeAppliedArguments` shared by constructor and qualified-method
+  application; do not add a duplicate argument wrapper.
 - Changes pattern-coverage accumulation to reversed rows/failures with one final reverse.
 - Preserves candidate precedence, argument order, and diagnostic order.
 
 - [ ] **Step 1: Add large ordered characterization**
 
-Add a many-arm coverage case asserting exact unreachable-arm order. Retain
-qualified-method tests that distinguish first candidate and argument order.
+Add a coverage case with 64 distinct integer arms followed by 1,024 repeats of
+the first literal; assert exact unreachable indices 65 through 1088 and the
+non-exhaustive wildcard failure last. Strengthen a qualified-method test to
+assert exact candidate target order and add a noncommutative multi-argument
+method result that fails if arguments reverse. Retain the host-backed selector
+case for the separate host evaluator lane.
 Run `pattern-coverage-spec runtime-semantics-spec`; expected PASS before refactor.
 
 - [ ] **Step 2: Replace only repeated snoc operations**
 
-Use `Seq.|>` for method candidates/arguments and convert at boundaries that
-need lists. For coverage, prepend normalized rows/failures and reverse exactly
-once before the exhaustiveness check/result. Do not migrate fixed-arity runtime lists.
+Use `Seq.|>` for method candidates and the shared applied-argument wrapper;
+preserve the historical list-facing `VQualifiedMethod` compatibility pattern
+while internal engine/semantics patterns carry opaque collections. Expose only
+the empty/append/filter/ordered-list or ordered-fold operations actually used.
+For coverage, prepend normalized rows/failures and reverse exactly once before
+the exhaustiveness check/result. Do not migrate fixed-arity runtime lists,
+`VBuiltin`, `VOperator`, or coverage matrices themselves to `Seq`.
 
 - [ ] **Step 3: Run coverage, capabilities, runtime, observation, and benchmark-stage suites**
 
