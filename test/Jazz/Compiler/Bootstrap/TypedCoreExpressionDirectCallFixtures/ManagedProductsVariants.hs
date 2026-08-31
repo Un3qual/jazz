@@ -118,7 +118,9 @@ managedProductVariantIndependentExpectedLoweredPrograms =
     ("managed-closure-variant", managedClosureVariantProgram, managedClosureVariantLoweredProgram),
     ("managed-product-variant", managedProductVariantProgram, managedProductVariantLoweredProgram),
     ("managed-nested-variant", managedNestedVariantProgram, managedNestedVariantLoweredProgram),
-    ("managed-nested-pattern-fallthrough", managedNestedPatternFallthroughProgram, managedNestedPatternFallthroughLoweredProgram)
+    ("managed-nested-pattern-fallthrough", managedNestedPatternFallthroughProgram, managedNestedPatternFallthroughLoweredProgram),
+    ("managed-recursive-constructor-pattern", managedRecursiveConstructorPatternProgram, managedRecursiveConstructorPatternLoweredProgram),
+    ("managed-multiple-literal-tuple-pattern", managedMultipleLiteralTuplePatternProgram, managedMultipleLiteralTuplePatternLoweredProgram)
   ]
 
 managedProductVariantManifestExpectedPrograms :: [(Text, TypedProgram)]
@@ -668,6 +670,122 @@ managedNestedPatternFallthroughLoweredProgram =
     noneBodyBlockId = LoweredBlockId "case$s1$1$e1$0$a2$body"
     nestedFallthroughJoinBlockId = LoweredBlockId "case$s1$1$e1$0$join"
 
+managedRecursiveConstructorPatternLoweredProgram :: LoweredProgram
+managedRecursiveConstructorPatternLoweredProgram =
+  managedPatternLoweredProgram
+    [optionOptionLayout, optionLayout]
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ LoweredInstruction (LoweredTemporaryId "t1") optionRepresentation (LoweredConstructVariant optionLayoutId 1 [intOperand 1]),
+          LoweredInstruction (LoweredTemporaryId "t2") optionOptionRepresentation (LoweredConstructVariant optionOptionLayoutId 1 [temporaryOperand 1 optionRepresentation]),
+          LoweredInstruction (LoweredTemporaryId "t3") tagRepresentation (LoweredProjectVariantTag optionOptionLayoutId (temporaryOperand 2 optionOptionRepresentation))
+        ]
+        (Just (LoweredSwitch (temporaryOperand 2 optionOptionRepresentation) [LoweredSwitchCase 1 outerSelectedBlockId [temporaryOperand 2 optionOptionRepresentation], LoweredSwitchCase 0 noneBodyBlockId [temporaryOperand 2 optionOptionRepresentation]] Nothing)),
+      LoweredBlock
+        outerSelectedBlockId
+        [LoweredParameter (LoweredParameterId "live1") optionOptionRepresentation]
+        [ LoweredInstruction (LoweredTemporaryId "t1") optionRepresentation (LoweredProjectVariantField optionOptionLayoutId 1 0 (blockOperand "live1" optionOptionRepresentation)),
+          LoweredInstruction (LoweredTemporaryId "t2") tagRepresentation (LoweredProjectVariantTag optionLayoutId (temporaryOperand 1 optionRepresentation))
+        ]
+        ( Just
+            ( LoweredSwitch
+                (temporaryOperand 1 optionRepresentation)
+                [LoweredSwitchCase 1 nestedSelectedBlockId [blockOperand "live1" optionOptionRepresentation, temporaryOperand 1 optionRepresentation]]
+                (Just (LoweredSwitchDefault fallbackSelectedBlockId [blockOperand "live1" optionOptionRepresentation]))
+            )
+        ),
+      LoweredBlock
+        nestedSelectedBlockId
+        [ LoweredParameter (LoweredParameterId "live1") optionOptionRepresentation,
+          LoweredParameter (LoweredParameterId "match1") optionRepresentation
+        ]
+        [LoweredInstruction (LoweredTemporaryId "t1") int64Representation (LoweredProjectVariantField optionLayoutId 1 0 (blockOperand "match1" optionRepresentation))]
+        (Just (LoweredJump firstBodyBlockId [blockOperand "live1" optionOptionRepresentation, temporaryOperand 1 int64Representation])),
+      LoweredBlock
+        firstBodyBlockId
+        [ LoweredParameter (LoweredParameterId "live1") optionOptionRepresentation,
+          LoweredParameter (LoweredParameterId "pattern1") int64Representation
+        ]
+        []
+        (Just (LoweredJump recursiveJoinBlockId [blockOperand "pattern1" int64Representation])),
+      LoweredBlock
+        fallbackSelectedBlockId
+        [LoweredParameter (LoweredParameterId "live1") optionOptionRepresentation]
+        [LoweredInstruction (LoweredTemporaryId "t1") optionRepresentation (LoweredProjectVariantField optionOptionLayoutId 1 0 (blockOperand "live1" optionOptionRepresentation))]
+        (Just (LoweredJump fallbackBodyBlockId [blockOperand "live1" optionOptionRepresentation])),
+      LoweredBlock
+        fallbackBodyBlockId
+        [LoweredParameter (LoweredParameterId "live1") optionOptionRepresentation]
+        []
+        (Just (LoweredJump recursiveJoinBlockId [intOperand 0])),
+      LoweredBlock
+        noneBodyBlockId
+        [LoweredParameter (LoweredParameterId "live1") optionOptionRepresentation]
+        []
+        (Just (LoweredJump recursiveJoinBlockId [intOperand 0])),
+      resultJoinBlock recursiveJoinBlockId int64Representation
+    ]
+    int64Representation
+  where
+    outerSelectedBlockId = LoweredBlockId "case$s1$1$e1$0$a0$selected"
+    nestedSelectedBlockId = LoweredBlockId "case$s1$1$e1$0$a0$match1"
+    firstBodyBlockId = LoweredBlockId "case$s1$1$e1$0$a0$body"
+    fallbackSelectedBlockId = LoweredBlockId "case$s1$1$e1$0$a1$selected"
+    fallbackBodyBlockId = LoweredBlockId "case$s1$1$e1$0$a1$body"
+    noneBodyBlockId = LoweredBlockId "case$s1$1$e1$0$a2$body"
+    recursiveJoinBlockId = LoweredBlockId "case$s1$1$e1$0$join"
+
+managedMultipleLiteralTuplePatternLoweredProgram :: LoweredProgram
+managedMultipleLiteralTuplePatternLoweredProgram =
+  managedPatternLoweredProgram
+    [manifestTupleLayout]
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ LoweredInstruction (LoweredTemporaryId "t1") manifestTupleRepresentation (LoweredConstructProduct manifestTupleLayoutId [intOperand 1, intOperand 2]),
+          LoweredInstruction (LoweredTemporaryId "t2") int64Representation (LoweredProjectField manifestTupleLayoutId 0 (temporaryOperand 1 manifestTupleRepresentation)),
+          LoweredInstruction (LoweredTemporaryId "t3") int64Representation (LoweredProjectField manifestTupleLayoutId 1 (temporaryOperand 1 manifestTupleRepresentation)),
+          LoweredInstruction (LoweredTemporaryId "t4") LoweredBoolRepresentation (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [temporaryOperand 2 int64Representation, intOperand 0])
+        ]
+        (Just (LoweredBranch (temporaryOperand 4 LoweredBoolRepresentation) firstMatchBlockId [temporaryOperand 1 manifestTupleRepresentation, temporaryOperand 3 int64Representation] fallbackTestBlockId [temporaryOperand 1 manifestTupleRepresentation])),
+      LoweredBlock
+        firstMatchBlockId
+        [ LoweredParameter (LoweredParameterId "live1") manifestTupleRepresentation,
+          LoweredParameter (LoweredParameterId "match1") int64Representation
+        ]
+        [LoweredInstruction (LoweredTemporaryId "t1") LoweredBoolRepresentation (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [blockOperand "match1" int64Representation, intOperand 0])]
+        (Just (LoweredBranch (temporaryOperand 1 LoweredBoolRepresentation) firstBodyBlockId [blockOperand "live1" manifestTupleRepresentation] fallbackTestBlockId [blockOperand "live1" manifestTupleRepresentation])),
+      LoweredBlock
+        firstBodyBlockId
+        [LoweredParameter (LoweredParameterId "live1") manifestTupleRepresentation]
+        []
+        (Just (LoweredJump tupleLiteralJoinBlockId [intOperand 99])),
+      LoweredBlock
+        fallbackTestBlockId
+        [LoweredParameter (LoweredParameterId "live1") manifestTupleRepresentation]
+        [ LoweredInstruction (LoweredTemporaryId "t1") int64Representation (LoweredProjectField manifestTupleLayoutId 0 (blockOperand "live1" manifestTupleRepresentation)),
+          LoweredInstruction (LoweredTemporaryId "t2") int64Representation (LoweredProjectField manifestTupleLayoutId 1 (blockOperand "live1" manifestTupleRepresentation))
+        ]
+        (Just (LoweredJump fallbackBodyBlockId [blockOperand "live1" manifestTupleRepresentation, temporaryOperand 1 int64Representation, temporaryOperand 2 int64Representation])),
+      LoweredBlock
+        fallbackBodyBlockId
+        [ LoweredParameter (LoweredParameterId "live1") manifestTupleRepresentation,
+          LoweredParameter (LoweredParameterId "pattern1") int64Representation,
+          LoweredParameter (LoweredParameterId "pattern2") int64Representation
+        ]
+        []
+        (Just (LoweredJump tupleLiteralJoinBlockId [blockOperand "pattern1" int64Representation])),
+      resultJoinBlock tupleLiteralJoinBlockId int64Representation
+    ]
+    int64Representation
+  where
+    firstMatchBlockId = LoweredBlockId "case$s1$0$e1$0$a0$match1"
+    firstBodyBlockId = LoweredBlockId "case$s1$0$e1$0$a0$body"
+    fallbackTestBlockId = LoweredBlockId "case$s1$0$e1$0$a1$test"
+    fallbackBodyBlockId = LoweredBlockId "case$s1$0$e1$0$a1$body"
+    tupleLiteralJoinBlockId = LoweredBlockId "case$s1$0$e1$0$join"
+
 managedPatternLoweredProgram :: [LoweredLayout] -> [LoweredBlock] -> LoweredRepresentation -> LoweredProgram
 managedPatternLoweredProgram layouts blocks resultRepresentation =
   LoweredProgram
@@ -891,10 +1009,11 @@ temporaryOperand :: Int -> LoweredRepresentation -> LoweredOperand
 temporaryOperand index =
   LoweredTemporaryOperand (LoweredTemporaryId ("t" <> Text.pack (show index)))
 
-textLayoutId, tupleLayoutId, optionLayoutId, optionPairLayoutId, treeLayoutId, tupleVariantLayoutId, textBoxLayoutId, closureBoxLayoutId, closureEnvironmentLayoutId, productBoxLayoutId, outerLayoutId, captureBoxLayoutId, captureEnvironmentLayoutId, recursivePairEnvironmentLayoutId, manifestTupleLayoutId, manifestDataLayoutId :: LoweredLayoutId
+textLayoutId, tupleLayoutId, optionLayoutId, optionOptionLayoutId, optionPairLayoutId, treeLayoutId, tupleVariantLayoutId, textBoxLayoutId, closureBoxLayoutId, closureEnvironmentLayoutId, productBoxLayoutId, outerLayoutId, captureBoxLayoutId, captureEnvironmentLayoutId, recursivePairEnvironmentLayoutId, manifestTupleLayoutId, manifestDataLayoutId :: LoweredLayoutId
 textLayoutId = LoweredLayoutId "jazz.layout.text.v1"
 tupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$4:text"
 optionLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$3:int"
+optionOptionLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$51:data$module2$3:App$4:Main$name$6:Option$args1$3:int"
 optionPairLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$6:Option$args1$19:tuple2$3:int$4:text"
 treeLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$4:Tree$args1$3:int"
 tupleVariantLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$54:variant$module2$3:App$4:Main$name$6:Option$args1$3:int$8:signed64"
@@ -909,10 +1028,11 @@ recursivePairEnvironmentLayoutId = LoweredLayoutId "$jz1$recursive-env$m2$3:App$
 manifestTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed64$8:signed64"
 manifestDataLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$11:ManifestBox$args0"
 
-textRepresentation, tupleRepresentation, optionRepresentation, optionPairRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, captureBoxRepresentation, captureEnvironmentRepresentation, recursivePairEnvironmentRepresentation, manifestTupleRepresentation, manifestDataRepresentation :: LoweredRepresentation
+textRepresentation, tupleRepresentation, optionRepresentation, optionOptionRepresentation, optionPairRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, captureBoxRepresentation, captureEnvironmentRepresentation, recursivePairEnvironmentRepresentation, manifestTupleRepresentation, manifestDataRepresentation :: LoweredRepresentation
 textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
 tupleRepresentation = LoweredManagedReferenceRepresentation tupleLayoutId
 optionRepresentation = LoweredManagedReferenceRepresentation optionLayoutId
+optionOptionRepresentation = LoweredManagedReferenceRepresentation optionOptionLayoutId
 optionPairRepresentation = LoweredManagedReferenceRepresentation optionPairLayoutId
 treeRepresentation = LoweredManagedReferenceRepresentation treeLayoutId
 tupleVariantRepresentation = LoweredManagedReferenceRepresentation tupleVariantLayoutId
@@ -927,13 +1047,17 @@ recursivePairEnvironmentRepresentation = LoweredManagedReferenceRepresentation r
 manifestTupleRepresentation = LoweredManagedReferenceRepresentation manifestTupleLayoutId
 manifestDataRepresentation = LoweredManagedReferenceRepresentation manifestDataLayoutId
 
-textLayout, tupleLayout, optionLayout, optionPairLayout, treeLayout, tupleVariantLayout, textBoxLayout, closureBoxLayout, closureEnvironmentLayout, productBoxLayout, outerLayout, captureBoxLayout, captureEnvironmentLayout, recursivePairEnvironmentLayout, manifestTupleLayout, manifestDataLayout :: LoweredLayout
+textLayout, tupleLayout, optionLayout, optionOptionLayout, optionPairLayout, treeLayout, tupleVariantLayout, textBoxLayout, closureBoxLayout, closureEnvironmentLayout, productBoxLayout, outerLayout, captureBoxLayout, captureEnvironmentLayout, recursivePairEnvironmentLayout, manifestTupleLayout, manifestDataLayout :: LoweredLayout
 textLayout = LoweredLayout textLayoutId LoweredTextLayout
 tupleLayout = LoweredLayout tupleLayoutId (LoweredProductLayout [int64Representation, textRepresentation])
 optionLayout =
   LoweredLayout
     optionLayoutId
     (LoweredVariantLayouts [LoweredVariantLayout 0 [], LoweredVariantLayout 1 [int64Representation]])
+optionOptionLayout =
+  LoweredLayout
+    optionOptionLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [], LoweredVariantLayout 1 [optionRepresentation]])
 optionPairLayout =
   LoweredLayout
     optionPairLayoutId
@@ -1359,6 +1483,71 @@ managedNestedPatternFallthroughProgram =
     optionTupleInfo = variantInfo optionName [typedExpressionType managedPairInfo]
     fallbackName = valueName "fallback"
     fallbackBinder = patternBinder [1, 1, 0, 0] fallbackName
+
+managedRecursiveConstructorPatternProgram :: TypedProgram
+managedRecursiveConstructorPatternProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (constructorCall someBinder someName optionOptionInfo [optionIntInfo] [constructorCall someBinder someName optionIntInfo [intInfo] [intExpr 1]])
+            [ TypedCaseArm
+                ( TypedConstructorPattern
+                    optionOptionInfo
+                    someName
+                    [TypedConstructorPattern optionIntInfo someName [TypedVariablePattern intInfo itemBinder itemName]]
+                )
+                Nothing
+                (boundVariableExpr itemName intInfo itemBinder),
+              TypedCaseArm
+                (TypedConstructorPattern optionOptionInfo someName [TypedWildcardPattern optionIntInfo])
+                Nothing
+                (intExpr 0),
+              TypedCaseArm (TypedConstructorPattern optionOptionInfo noneName []) Nothing (intExpr 0)
+            ]
+        )
+    ]
+    intInfo
+  where
+    optionOptionInfo = variantInfo optionName [typedExpressionType optionIntInfo]
+    itemName = valueName "item"
+    itemBinder = patternBinder [1, 0, 0, 0] itemName
+
+managedMultipleLiteralTuplePatternProgram :: TypedProgram
+managedMultipleLiteralTuplePatternProgram =
+  managedProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (TypedTupleExpr tupleInfo [intExpr 1, intExpr 2])
+            [ TypedCaseArm
+                (TypedTuplePattern tupleInfo [literalPattern 0, literalPattern 0])
+                Nothing
+                (intExpr 99),
+              TypedCaseArm
+                (TypedTuplePattern tupleInfo [TypedVariablePattern intInfo leftBinder leftName, TypedVariablePattern intInfo rightBinder rightName])
+                Nothing
+                (boundVariableExpr leftName intInfo leftBinder)
+            ]
+        )
+    ]
+    intInfo
+  where
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedIntType, TypedIntType])
+        (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64])
+        []
+        []
+    literalPattern :: Int -> TypedPattern
+    literalPattern value = TypedLiteralPattern intInfo (TypedIntegerLiteral (Text.pack (show value)))
+    leftName = valueName "left"
+    rightName = valueName "right"
+    leftBinder = patternBinder [0, 1, 0] leftName
+    rightBinder = patternBinder [0, 1, 1] rightName
 
 managedAsConstructorPatternProgram :: TypedProgram
 managedAsConstructorPatternProgram =

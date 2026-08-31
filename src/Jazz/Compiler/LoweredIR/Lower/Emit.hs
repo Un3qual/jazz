@@ -1257,8 +1257,8 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
         constructorArm _ = False
 
     lowerProjectedArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm@(ManagedPatternArm patternValue _ _) laterArms currentState =
-      case scrutineeAt scrutineeCarrier currentState >>= (\operand -> projectPattern patternValue operand currentState) of
-        Just (binderOperands, conditions, projectedState) ->
+      case scrutineeAt scrutineeCarrier currentState >>= (\operand -> matchPatternWork controlSlots controlParameters armIndex (armEntryBlock (armIndex + 1) <$> nonEmptyHead laterArms) (1 :: Int) [] [] [(patternValue, operand)] currentState) of
+        Just (nextMatchIndex, binderOperands, conditions, projectedState) ->
           enterProjectedBody
             resultRepresentation
             scrutineeCarrier
@@ -1269,6 +1269,7 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
             arm
             laterArms
             currentState
+            nextMatchIndex
             binderOperands
             conditions
             (armEntryBlock (armIndex + 1) <$> nonEmptyHead laterArms)
@@ -1319,40 +1320,44 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
            in case scrutineeAt scrutineeCarrier entryState of
                 Nothing -> ([unsupportedFailure path], entryState)
                 Just currentScrutinee ->
-                  case projectConstructorChildren constructor children currentScrutinee entryState of
+                  case projectConstructorFields constructor children currentScrutinee entryState of
                     Nothing -> ([patternUnsupported armIndex], entryState)
-                    Just (binderOperands, conditions, projectedState) ->
-                      let bodyResult =
-                            if null children
-                              then lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm [] entryState entryState
-                              else
-                                enterProjectedBody
-                                  resultRepresentation
-                                  scrutineeCarrier
-                                  outerSlots
-                                  controlSlots
-                                  controlParameters
-                                  armIndex
-                                  arm
-                                  []
-                                  entryState
-                                  binderOperands
-                                  conditions
-                                  (nextConstructorEntry constructor (armIndex + 1) laterArms)
-                                  projectedState
-                       in case bodyResult of
-                            (failures@(_ : _), bodyState) -> (failures, bodyState)
-                            ([], bodyState) ->
-                              compileConstructorRows
-                                resultRepresentation
-                                scrutineeCarrier
-                                outerSlots
-                                controlSlots
-                                controlParameters
-                                (armIndex + 1)
-                                laterArms
-                                continuationTemplate
-                                bodyState
+                    Just (projectedOperands, projectedState) ->
+                      case matchPatternWork controlSlots controlParameters armIndex (nextConstructorEntry constructor (armIndex + 1) laterArms) (1 :: Int) [] [] (zip children projectedOperands) projectedState of
+                        Nothing -> ([patternUnsupported armIndex], entryState)
+                        Just (nextMatchIndex, binderOperands, conditions, matchedState) ->
+                          let bodyResult =
+                                if null children
+                                  then lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm [] entryState entryState
+                                  else
+                                    enterProjectedBody
+                                      resultRepresentation
+                                      scrutineeCarrier
+                                      outerSlots
+                                      controlSlots
+                                      controlParameters
+                                      armIndex
+                                      arm
+                                      []
+                                      entryState
+                                      nextMatchIndex
+                                      binderOperands
+                                      conditions
+                                      (nextConstructorEntry constructor (armIndex + 1) laterArms)
+                                      matchedState
+                           in case bodyResult of
+                                (failures@(_ : _), bodyState) -> (failures, bodyState)
+                                ([], bodyState) ->
+                                  compileConstructorRows
+                                    resultRepresentation
+                                    scrutineeCarrier
+                                    outerSlots
+                                    controlSlots
+                                    controlParameters
+                                    (armIndex + 1)
+                                    laterArms
+                                    continuationTemplate
+                                    bodyState
         _ -> ([unsupportedFailure path], completedState)
 
     constructorSwitchCases switchArguments = go [] . zip [0 ..]
@@ -1371,45 +1376,134 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
       | null children = matchedArmEntry armIndex arm
       | otherwise = patternCaseBlockId statementPath expressionPath armIndex "selected"
 
-    projectConstructorChildren constructor children scrutineeOperand currentState =
+    projectConstructorFields constructor children scrutineeOperand currentState =
       let layout = managedPatternConstructorLayout constructor
           layoutId = managedConstructorLayoutId layout
           tag = fromIntegral (managedConstructorTag layout)
           representations = managedConstructorFields layout
        in if length children /= length representations
             then Nothing
-            else
-              projectChildren
-                children
-                (zipWith (projectVariantField layoutId tag scrutineeOperand) [0 ..] representations)
-                currentState
+            else Just (emitProjections (zipWith (projectVariantField layoutId tag scrutineeOperand) [0 ..] representations) currentState)
 
-    projectPattern patternValue operand currentState =
-      case patternValue of
-        ManagedWildcard _ -> Just ([], [], currentState)
-        ManagedVariable _ binder -> Just ([(binder, operand)], [], currentState)
-        ManagedLiteral literalInfo literal -> Just ([], [(literalInfo, literal, operand)], currentState)
-        ManagedTuple _ layoutId children -> do
-          representations <- productLayoutFields (indexedManagedLayoutCatalog functions) layoutId
-          if length children /= length representations
-            then Nothing
-            else projectChildren children (zipWith (projectProductField layoutId operand) [0 ..] representations) currentState
-        _ -> Nothing
+    matchPatternWork controlSlots controlParameters armIndex maybeFailureBlock nextMatchIndex binderOperands conditions work currentState =
+      case work of
+        [] -> Just (nextMatchIndex, binderOperands, conditions, currentState)
+        (patternValue, operand) : laterWork ->
+          case patternValue of
+            ManagedWildcard _ ->
+              matchPatternWork controlSlots controlParameters armIndex maybeFailureBlock nextMatchIndex binderOperands conditions laterWork currentState
+            ManagedVariable _ binder ->
+              matchPatternWork controlSlots controlParameters armIndex maybeFailureBlock nextMatchIndex (binderOperands <> [(binder, operand)]) conditions laterWork currentState
+            ManagedLiteral literalInfo literal ->
+              matchPatternWork controlSlots controlParameters armIndex maybeFailureBlock nextMatchIndex binderOperands (conditions <> [(literalInfo, literal, operand)]) laterWork currentState
+            ManagedTuple _ layoutId children -> do
+              representations <- productLayoutFields (indexedManagedLayoutCatalog functions) layoutId
+              if length children /= length representations
+                then Nothing
+                else
+                  let (projectedOperands, projectedState) =
+                        emitProjections
+                          (zipWith (projectProductField layoutId operand) [0 ..] representations)
+                          currentState
+                   in matchPatternWork
+                        controlSlots
+                        controlParameters
+                        armIndex
+                        maybeFailureBlock
+                        nextMatchIndex
+                        binderOperands
+                        conditions
+                        (zip children projectedOperands <> laterWork)
+                        projectedState
+            ManagedConstructor constructor children -> do
+              failureBlockId <- maybeFailureBlock
+              controlArguments <- ambientArguments controlSlots currentState
+              let layout = managedPatternConstructorLayout constructor
+                  layoutId = managedConstructorLayoutId layout
+                  tag = fromIntegral (managedConstructorTag layout)
+                  representations = managedConstructorFields layout
+              if length children /= length representations
+                then Nothing
+                else
+                  let matchBlockId = patternCaseBlockId statementPath expressionPath armIndex ("match" <> Text.pack (show nextMatchIndex))
+                      pendingBinderParameters =
+                        [ LoweredParameter (LoweredParameterId ("pending" <> Text.pack (show index))) (loweredOperandRepresentation binderOperand)
+                        | (index, (_, binderOperand)) <- zip [1 :: Int ..] binderOperands
+                        ]
+                      conditionParameters =
+                        [ LoweredParameter (LoweredParameterId ("condition" <> Text.pack (show index))) (loweredOperandRepresentation conditionOperand)
+                        | (index, (_, _, conditionOperand)) <- zip [1 :: Int ..] conditions
+                        ]
+                      matchedOperands = operand : map snd laterWork
+                      matchParameters =
+                        [ LoweredParameter (LoweredParameterId ("match" <> Text.pack (show index))) (loweredOperandRepresentation matchedOperand)
+                        | (index, matchedOperand) <- zip [1 :: Int ..] matchedOperands
+                        ]
+                      successArguments =
+                        controlArguments
+                          <> map snd binderOperands
+                          <> [conditionOperand | (_, _, conditionOperand) <- conditions]
+                          <> matchedOperands
+                      tagIndex = loweringNextTemporary currentState
+                      tagTemporary = LoweredTemporaryId ("t" <> Text.pack (show tagIndex))
+                      taggedState =
+                        currentState
+                          { loweringNextTemporary = tagIndex + 1,
+                            loweringInstructions =
+                              LoweredInstruction tagTemporary variantTagRepresentation (LoweredProjectVariantTag layoutId operand)
+                                : loweringInstructions currentState
+                          }
+                      switchedState =
+                        finishCurrentBlock
+                          ( LoweredSwitch
+                              operand
+                              [LoweredSwitchCase tag matchBlockId successArguments]
+                              (Just (LoweredSwitchDefault failureBlockId controlArguments))
+                          )
+                          taggedState
+                      matchState =
+                        remapAmbient
+                          controlSlots
+                          controlParameters
+                          (startBlock matchBlockId (controlParameters <> pendingBinderParameters <> conditionParameters <> matchParameters) switchedState)
+                      pendingBinderOperands =
+                        zipWith
+                          (\(binder, _) (LoweredParameter parameterId representation) -> (binder, LoweredBlockParameterOperand parameterId representation))
+                          binderOperands
+                          pendingBinderParameters
+                      pendingConditions =
+                        zipWith
+                          (\(literalInfo, literal, _) (LoweredParameter parameterId representation) -> (literalInfo, literal, LoweredBlockParameterOperand parameterId representation))
+                          conditions
+                          conditionParameters
+                      matchedBlockOperands =
+                        [LoweredBlockParameterOperand parameterId representation | LoweredParameter parameterId representation <- matchParameters]
+                   in case matchedBlockOperands of
+                        matchedOperand : laterMatchedOperands ->
+                          let (projectedOperands, projectedState) =
+                                emitProjections
+                                  (zipWith (projectVariantField layoutId tag matchedOperand) [0 ..] representations)
+                                  matchState
+                           in matchPatternWork
+                                controlSlots
+                                controlParameters
+                                armIndex
+                                maybeFailureBlock
+                                (nextMatchIndex + 1)
+                                pendingBinderOperands
+                                pendingConditions
+                                (zip children projectedOperands <> zip (map fst laterWork) laterMatchedOperands)
+                                projectedState
+                        [] -> Nothing
+            ManagedAs {} -> Nothing
+            ManagedOr {} -> Nothing
 
-    projectChildren children projections initialState = go [] [] initialState children projections
-      where
-        go reversedBinders reversedConditions nextState [] [] = Just (reverse reversedBinders, reverse reversedConditions, nextState)
-        go reversedBinders reversedConditions nextState (child : laterChildren) (project : laterProjections) =
-          let (projectedOperand, projectedState) = project nextState
-           in do
-                (childBinders, childConditions, childState) <- projectPattern child projectedOperand projectedState
-                go
-                  (reverse childBinders <> reversedBinders)
-                  (reverse childConditions <> reversedConditions)
-                  childState
-                  laterChildren
-                  laterProjections
-        go _ _ _ _ _ = Nothing
+    emitProjections projections initialState =
+      let step (accumulatedOperands, nextState) project =
+            let (projectedOperand, nextProjectedState) = project nextState
+             in (projectedOperand : accumulatedOperands, nextProjectedState)
+          (finalReversedOperands, finalProjectedState) = foldl' step ([], initialState) projections
+       in (reverse finalReversedOperands, finalProjectedState)
 
     projectProductField layoutId operand fieldIndex representation currentState =
       emitProjection representation (LoweredProjectField layoutId fieldIndex operand) currentState
@@ -1428,22 +1522,16 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
               }
           )
 
-    enterProjectedBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm laterArms continuationTemplate binderOperands conditions maybeFailureBlock projectedState =
+    enterProjectedBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm laterArms continuationTemplate nextMatchIndex binderOperands conditions maybeFailureBlock projectedState =
       case ambientArguments controlSlots projectedState of
         Nothing -> ([unsupportedFailure path], projectedState)
-        Just controlArguments ->
+        Just _ ->
           let bodyBlockId = matchedArmEntry armIndex arm
               binderParameters =
                 [ LoweredParameter (LoweredParameterId ("pattern" <> Text.pack (show index))) (loweredOperandRepresentation operand)
                 | (index, (_, operand)) <- zip [1 :: Int ..] binderOperands
                 ]
               bodyParameters = controlParameters <> binderParameters
-              bodyArguments = controlArguments <> map snd binderOperands
-              startBody finishedState =
-                bindProjectedOperands
-                  binderOperands
-                  binderParameters
-                  (remapAmbient controlSlots controlParameters (startBlock bodyBlockId bodyParameters finishedState))
               lowerBody bodyState =
                 lowerArmBody
                   resultRepresentation
@@ -1456,36 +1544,86 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
                   laterArms
                   continuationTemplate
                   bodyState
-           in case conditions of
-                [] -> lowerBody (startBody (finishCurrentBlock (LoweredJump bodyBlockId bodyArguments) projectedState))
-                [(literalInfo, literal, comparedOperand)] ->
-                  case maybeFailureBlock of
-                    Nothing -> ([patternUnsupported armIndex], projectedState)
-                    Just failureBlockId ->
-                      let (literalFailures, maybeLiteralOperand, literalState) = lowerLiteral path literalInfo literal projectedState
-                       in case (literalFailures, maybeLiteralOperand) of
-                            ([], Just literalOperand)
-                              | loweredOperandRepresentation literalOperand == loweredOperandRepresentation comparedOperand ->
-                                  let comparisonIndex = loweringNextTemporary literalState
-                                      comparisonTemporary = LoweredTemporaryId ("t" <> Text.pack (show comparisonIndex))
-                                      comparisonInstruction =
-                                        LoweredInstruction
-                                          comparisonTemporary
-                                          LoweredBoolRepresentation
-                                          (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [comparedOperand, literalOperand])
-                                      comparisonState =
-                                        literalState
-                                          { loweringNextTemporary = comparisonIndex + 1,
-                                            loweringInstructions = comparisonInstruction : loweringInstructions literalState
-                                          }
-                                      finishedState =
-                                        finishCurrentBlock
-                                          (LoweredBranch (LoweredTemporaryOperand comparisonTemporary LoweredBoolRepresentation) bodyBlockId bodyArguments failureBlockId controlArguments)
-                                          comparisonState
-                                   in lowerBody (startBody finishedState)
-                            (failures@(_ : _), _) -> (failures, literalState)
-                            _ -> ([patternUnsupported armIndex], literalState)
-                _ -> ([patternUnsupported armIndex], projectedState)
+              lowerConditions matchIndex currentBinders remainingConditions conditionState =
+                case ambientArguments controlSlots conditionState of
+                  Nothing -> ([unsupportedFailure path], conditionState)
+                  Just currentControlArguments ->
+                    case remainingConditions of
+                      [] ->
+                        let currentBodyArguments = currentControlArguments <> map snd currentBinders
+                         in lowerBody (startBodyWith currentBinders (finishCurrentBlock (LoweredJump bodyBlockId currentBodyArguments) conditionState))
+                      (literalInfo, literal, comparedOperand) : laterConditions ->
+                        case maybeFailureBlock of
+                          Nothing -> ([patternUnsupported armIndex], conditionState)
+                          Just failureBlockId ->
+                            let (literalFailures, maybeLiteralOperand, literalState) = lowerLiteral path literalInfo literal conditionState
+                             in case (literalFailures, maybeLiteralOperand) of
+                                  ([], Just literalOperand)
+                                    | loweredOperandRepresentation literalOperand == loweredOperandRepresentation comparedOperand ->
+                                        let comparisonIndex = loweringNextTemporary literalState
+                                            comparisonTemporary = LoweredTemporaryId ("t" <> Text.pack (show comparisonIndex))
+                                            comparisonInstruction =
+                                              LoweredInstruction
+                                                comparisonTemporary
+                                                LoweredBoolRepresentation
+                                                (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [comparedOperand, literalOperand])
+                                            comparisonState =
+                                              literalState
+                                                { loweringNextTemporary = comparisonIndex + 1,
+                                                  loweringInstructions = comparisonInstruction : loweringInstructions literalState
+                                                }
+                                            conditionOperand = LoweredTemporaryOperand comparisonTemporary LoweredBoolRepresentation
+                                         in case laterConditions of
+                                              [] ->
+                                                let currentBodyArguments = currentControlArguments <> map snd currentBinders
+                                                    finishedState =
+                                                      finishCurrentBlock
+                                                        (LoweredBranch conditionOperand bodyBlockId currentBodyArguments failureBlockId currentControlArguments)
+                                                        comparisonState
+                                                 in lowerBody (startBodyWith currentBinders finishedState)
+                                              _ ->
+                                                let matchBlockId = patternCaseBlockId statementPath expressionPath armIndex ("match" <> Text.pack (show matchIndex))
+                                                    pendingBinderParameters =
+                                                      [ LoweredParameter (LoweredParameterId ("pending" <> Text.pack (show index))) (loweredOperandRepresentation binderOperand)
+                                                      | (index, (_, binderOperand)) <- zip [1 :: Int ..] currentBinders
+                                                      ]
+                                                    matchParameters =
+                                                      [ LoweredParameter (LoweredParameterId ("match" <> Text.pack (show index))) (loweredOperandRepresentation remainingOperand)
+                                                      | (index, (_, _, remainingOperand)) <- zip [1 :: Int ..] laterConditions
+                                                      ]
+                                                    matchArguments =
+                                                      currentControlArguments
+                                                        <> map snd currentBinders
+                                                        <> [remainingOperand | (_, _, remainingOperand) <- laterConditions]
+                                                    finishedState =
+                                                      finishCurrentBlock
+                                                        (LoweredBranch conditionOperand matchBlockId matchArguments failureBlockId currentControlArguments)
+                                                        comparisonState
+                                                    matchState =
+                                                      remapAmbient
+                                                        controlSlots
+                                                        controlParameters
+                                                        (startBlock matchBlockId (controlParameters <> pendingBinderParameters <> matchParameters) finishedState)
+                                                    pendingBinders =
+                                                      zipWith
+                                                        (\(binder, _) (LoweredParameter parameterId representation) -> (binder, LoweredBlockParameterOperand parameterId representation))
+                                                        currentBinders
+                                                        pendingBinderParameters
+                                                    pendingConditions =
+                                                      zipWith
+                                                        (\(remainingInfo, remainingLiteral, _) (LoweredParameter parameterId representation) -> (remainingInfo, remainingLiteral, LoweredBlockParameterOperand parameterId representation))
+                                                        laterConditions
+                                                        matchParameters
+                                                 in lowerConditions (matchIndex + 1) pendingBinders pendingConditions matchState
+                                  (failures@(_ : _), _) -> (failures, literalState)
+                                  _ -> ([patternUnsupported armIndex], literalState)
+
+              startBodyWith currentBinders finishedState =
+                bindProjectedOperands
+                  currentBinders
+                  binderParameters
+                  (remapAmbient controlSlots controlParameters (startBlock bodyBlockId bodyParameters finishedState))
+           in lowerConditions nextMatchIndex binderOperands conditions projectedState
 
     nextConstructorEntry constructor nextArmIndex = go nextArmIndex
       where

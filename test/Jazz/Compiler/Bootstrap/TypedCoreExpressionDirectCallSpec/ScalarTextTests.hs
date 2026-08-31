@@ -172,7 +172,10 @@ testScalarPatternCaseLowererBoundary =
             lowering
 
     expectedResults =
-      [ unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
+      [ ( "pattern-case-constructor-lowerer",
+          [patternFailure [1] [0, 0]]
+        ),
+        unsupportedPattern "pattern-case-list-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-as-lowerer" [0] [0, 0],
         unsupportedPattern "pattern-case-or-lowerer" [0] [0, 0],
         incompleteCase "pattern-case-final-literal-lowerer",
