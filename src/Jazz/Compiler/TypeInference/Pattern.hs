@@ -31,9 +31,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     TypedCoreProductionMode (InferenceOnly),
   )
 import Jazz.Compiler.TypeInference.Solver
-  ( combineIntegerLiteralRanges,
-    freshTypeVar,
-    integerLiteralRangeFitsNumericType,
+  ( freshTypeVar,
     resolveType,
     unifyTypes,
   )
@@ -45,6 +43,7 @@ import Jazz.Compiler.TypeInference.State
     modifyInferenceOutput,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn)
+import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     ExpressionType (..),
@@ -779,33 +778,3 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc
            in (freshArgumentType : argumentTypesRev, nextState)
-
-mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-mergedUnifiedType state leftType rightType =
-  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
-
-mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
-mergeIntegerLiteralRanges leftType rightType =
-  case (leftType, rightType) of
-    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
-    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (TIntegerLiteralType {}, TIntType) -> TIntType
-    (TIntType, TIntegerLiteralType {}) -> TIntType
-    (TListType leftElementType, TListType rightElementType) ->
-      TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
-    (TTupleType leftElementTypes, TTupleType rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
-    (TDataType leftName leftArguments, TDataType rightName rightArguments)
-      | leftName == rightName,
-        length leftArguments == length rightArguments ->
-          TDataType leftName (zipWith mergeIntegerLiteralRanges leftArguments rightArguments)
-    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
-      TFunctionType
-        (mergeIntegerLiteralRanges leftInputType rightInputType)
-        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
-    _ -> leftType

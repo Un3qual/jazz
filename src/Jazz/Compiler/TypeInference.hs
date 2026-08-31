@@ -151,7 +151,6 @@ import Jazz.Compiler.TypeInference.Scope
   )
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
-    combineIntegerLiteralRanges,
     freshTypeVar,
     freshTypeVariable,
     integerLiteralRangeFitsNumericType,
@@ -175,6 +174,7 @@ import Jazz.Compiler.TypeInference.State
     recordPatternCoverageSite,
     reservePatternCoverageSite,
   )
+import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding,
     ExpressionType (..),
@@ -1507,10 +1507,7 @@ inferExprTypeDetailed builtinMode env state expr =
                 case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
                   Just unifiedState ->
                     ( Just
-                        ( mergeIntegerLiteralRanges
-                            (resolveType unifiedState inferredExpectedType)
-                            (resolveType unifiedState inferredActualType)
-                        ),
+                        (mergedUnifiedType unifiedState inferredExpectedType inferredActualType),
                       unifiedState
                     )
                   Nothing ->
@@ -1691,16 +1688,6 @@ numericConversionFloatLiteralDiagnostic conversionName targetType literalValue l
               Just (mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetType maxMagnitude)
         _ -> Nothing
 
-targetedFloatLiteralDiagnostic :: NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
-targetedFloatLiteralDiagnostic targetType literalValue literalSource =
-  case numericTypeFloatMax targetType of
-    Just maxMagnitude
-      | not (finiteFloat literalValue)
-          || abs literalValue > maxMagnitude
-          || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
-          Just (mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude)
-    _ -> Nothing
-
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
 
@@ -1717,36 +1704,6 @@ numericConversionTargetFromCallable builtinMode env functionName =
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
-
-mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-mergedUnifiedType state leftType rightType =
-  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
-
-mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
-mergeIntegerLiteralRanges leftType rightType =
-  case (leftType, rightType) of
-    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
-    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (TIntegerLiteralType {}, TIntType) -> TIntType
-    (TIntType, TIntegerLiteralType {}) -> TIntType
-    (TListType leftElementType, TListType rightElementType) ->
-      TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
-    (TTupleType leftElementTypes, TTupleType rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
-    (TDataType leftName leftArguments, TDataType rightName rightArguments)
-      | leftName == rightName,
-        length leftArguments == length rightArguments ->
-          TDataType leftName (zipWith mergeIntegerLiteralRanges leftArguments rightArguments)
-    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
-      TFunctionType
-        (mergeIntegerLiteralRanges leftInputType rightInputType)
-        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
-    _ -> leftType
 
 instantiateBuiltinType :: BuiltinResolutionMode -> Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateBuiltinType builtinMode name state =

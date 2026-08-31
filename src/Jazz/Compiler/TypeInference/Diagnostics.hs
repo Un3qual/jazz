@@ -60,6 +60,7 @@ module Jazz.Compiler.TypeInference.Diagnostics
     mkInvalidConstructorPayloadTypeError,
     mkUnsupportedOperatorValueError,
     mkUnsupportedSectionOperatorError,
+    targetedFloatLiteralDiagnostic,
     renderSignaturePayload,
     renderType,
   )
@@ -79,7 +80,8 @@ import Jazz.Compiler.AST
     SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( renderNumericTypeName,
+  ( numericTypeFloatMax,
+    renderNumericTypeName,
   )
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
@@ -100,6 +102,10 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject,
+  )
+import Jazz.Compiler.FractionalLiteral
+  ( FractionalLiteralSource,
+    fractionalLiteralExceedsMagnitude,
   )
 import Jazz.Compiler.Name (Name, identifierText)
 import Jazz.Compiler.PatternCoverage (renderCoveragePattern)
@@ -209,6 +215,18 @@ mkNumericConversionFloatLiteralOverflowError conversionName literalValue targetT
 mkTargetedFractionalLiteralOverflowError :: Double -> NumericType -> Double -> Diagnostic
 mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude =
   mkErrorDiagnostic E2006 CompilationOrigin $ "fractional literal " <> tshow literalValue <> " cannot target finite " <> renderNumericTypeName targetType <> " magnitude " <> tshow maxMagnitude
+
+targetedFloatLiteralDiagnostic :: NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
+targetedFloatLiteralDiagnostic targetType literalValue literalSource =
+  case numericTypeFloatMax targetType of
+    Just maxMagnitude
+      | not (finiteFloat literalValue)
+          || abs literalValue > maxMagnitude
+          || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
+          Just (mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude)
+    _ -> Nothing
+  where
+    finiteFloat value = not (isNaN value) && not (isInfinite value)
 
 mkBindingTypeMismatchError :: Text -> ExpressionType -> SourceSpan -> ExpressionType -> Diagnostic
 mkBindingTypeMismatchError bindingName expectedType bindingSpan actualType =

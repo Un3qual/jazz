@@ -49,10 +49,6 @@ import Jazz.Compiler.Diagnostics
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
-import Jazz.Compiler.FractionalLiteral
-  ( FractionalLiteralSource,
-    fractionalLiteralExceedsMagnitude,
-  )
 import Jazz.Compiler.Name
   ( Name (..),
     identifierText,
@@ -2316,18 +2312,6 @@ targetedFractionalLiteralDiagnostic bindingName maybePendingSignature valueExpr 
     (Just targetType, ELit (LFloat literalValue literalSource Nothing)) ->
       targetedFloatLiteralDiagnostic targetType literalValue literalSource
     _ -> Nothing
-
-targetedFloatLiteralDiagnostic :: NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic
-targetedFloatLiteralDiagnostic targetType literalValue literalSource =
-  case numericTypeFloatMax targetType of
-    Just maxMagnitude
-      | not (finiteFloat literalValue)
-          || abs literalValue > maxMagnitude
-          || fractionalLiteralExceedsMagnitude literalSource maxMagnitude ->
-          Just (mkTargetedFractionalLiteralOverflowError literalValue targetType maxMagnitude)
-    _ -> Nothing
-  where
-    finiteFloat value = not (isNaN value) && not (isInfinite value)
 
 targetedFractionalLiteralType ::
   Text ->

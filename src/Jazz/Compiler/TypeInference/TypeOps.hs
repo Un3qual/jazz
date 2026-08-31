@@ -6,17 +6,25 @@ module Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
     instantiateTypeSchemeConstraint,
     instantiateTypeSchemePrimitiveConstraint,
-    replaceTypeVariables
-  ) where
+    mergedUnifiedType,
+    replaceTypeVariables,
+  )
+where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Jazz.Compiler.TypeInference.Solver
+  ( combineIntegerLiteralRanges,
+    integerLiteralRangeFitsNumericType,
+    resolveType,
+  )
+import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..)
+    TypeSchemePrimitiveConstraint (..),
   )
 
 dedupeTypeSchemeConstraints :: [TypeSchemeConstraint] -> [TypeSchemeConstraint]
@@ -113,3 +121,33 @@ instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
       TypeSchemeNumericConstraint numericConstraint (replaceTypeVariables replacements argumentType)
     TypeSchemeStrictEqualityConstraint argumentType ->
       TypeSchemeStrictEqualityConstraint (replaceTypeVariables replacements argumentType)
+
+mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+mergedUnifiedType state leftType rightType =
+  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
+
+mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
+mergeIntegerLiteralRanges leftType rightType =
+  case (leftType, rightType) of
+    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
+      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
+    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
+      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
+    (TIntegerLiteralType {}, TIntType) -> TIntType
+    (TIntType, TIntegerLiteralType {}) -> TIntType
+    (TListType leftElementType, TListType rightElementType) ->
+      TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
+    (TTupleType leftElementTypes, TTupleType rightElementTypes)
+      | length leftElementTypes == length rightElementTypes ->
+          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
+    (TDataType leftName leftArguments, TDataType rightName rightArguments)
+      | leftName == rightName,
+        length leftArguments == length rightArguments ->
+          TDataType leftName (zipWith mergeIntegerLiteralRanges leftArguments rightArguments)
+    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
+      TFunctionType
+        (mergeIntegerLiteralRanges leftInputType rightInputType)
+        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
+    _ -> leftType
