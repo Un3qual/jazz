@@ -146,6 +146,8 @@ managedPatternAnalysisBoundaryPrograms =
     ("managed-unsupported-list-pattern", namedScalarBoundary "pattern-case-list-lowerer"),
     ("managed-unsupported-text-pattern", managedTextLiteralPatternProgram),
     ("managed-unsupported-nested-or-pattern", managedNestedOrPatternProgram),
+    ("managed-non-final-irrefutable-or", managedNonFinalIrrefutableOrProgram),
+    ("managed-distinct-or-binders", managedDistinctOrBinderProgram),
     ("managed-complete-constructor-case", ManagedProductsVariants.managedConstructorPatternProgram)
   ]
   where
@@ -229,6 +231,55 @@ managedNestedOrPatternProgram =
         []
         []
     tupleExpression = TypedTupleExpr tupleInfo [boolExpr True, boolExpr False]
+
+managedNonFinalIrrefutableOrProgram :: TypedProgram
+managedNonFinalIrrefutableOrProgram =
+  rewriteManagedTerminal ManagedProductsVariants.managedConstructorPatternProgram rewriteCase
+  where
+    rewriteCase expression =
+      case expression of
+        TypedPatternCaseExpr info scrutinee (_ : laterArms) ->
+          TypedPatternCaseExpr info scrutinee (irrefutableOrArm : laterArms)
+        _ -> error "managed constructor fixture must end in a non-empty pattern case"
+    irrefutableOrArm =
+      TypedCaseArm
+        ( TypedOrPattern
+            ManagedProductsVariants.optionIntInfo
+            [ TypedWildcardPattern ManagedProductsVariants.optionIntInfo,
+              TypedConstructorPattern ManagedProductsVariants.optionIntInfo ManagedProductsVariants.noneName []
+            ]
+        )
+        Nothing
+        (intExpr 1)
+
+managedDistinctOrBinderProgram :: TypedProgram
+managedDistinctOrBinderProgram =
+  rewriteManagedTerminal ManagedProductsVariants.managedOrConstructorPatternProgram rewriteCase
+  where
+    rewriteCase expression =
+      case expression of
+        TypedPatternCaseExpr info scrutinee [TypedCaseArm (TypedOrPattern patternInfo [firstAlternative, secondAlternative]) guard body] ->
+          TypedPatternCaseExpr
+            info
+            scrutinee
+            [ TypedCaseArm
+                (TypedOrPattern patternInfo [firstAlternative, rewriteAlternative secondAlternative])
+                guard
+                body
+            ]
+        _ -> error "managed or fixture must end in one two-alternative pattern arm"
+    rewriteAlternative patternValue =
+      case patternValue of
+        TypedConstructorPattern info name [TypedVariablePattern fieldInfo _ fieldName] ->
+          TypedConstructorPattern
+            info
+            name
+            [ TypedVariablePattern
+                fieldInfo
+                (ManagedProductsVariants.patternBinder [1, 0, 1, 0] fieldName)
+                fieldName
+            ]
+        _ -> error "managed or fixture must retain a unary constructor alternative"
 
 managedBareConstructorLowererProgram :: TypedProgram
 managedBareConstructorLowererProgram =

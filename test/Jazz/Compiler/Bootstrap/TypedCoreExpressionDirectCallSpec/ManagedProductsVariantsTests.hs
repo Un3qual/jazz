@@ -127,6 +127,8 @@ testManagedPatternAnalysisBoundaries =
         ("managed-unsupported-list-pattern", [patternFailureAt 0 [0, 0]]),
         ("managed-unsupported-text-pattern", [patternFailureAt 0 [0, 0]]),
         ("managed-unsupported-nested-or-pattern", [patternFailureAt 0 [0, 0, 0]]),
+        ("managed-non-final-irrefutable-or", [expressionFailureAt 1 LoweredIRIncompletePatternCase]),
+        ("managed-distinct-or-binders", [patternFailureAt 1 [0, 0]]),
         ("managed-complete-constructor-case", [patternFailureAt 1 [0, 0]])
       ]
     expressionFailureAt statementIndex kind =
@@ -188,6 +190,16 @@ testManagedPatternPureAnalysis = do
         (managedPatternBinders leftPattern)
         (managedPatternBinders rightPattern)
     other -> failTest ("unexpected or-pattern analysis plan: " <> Text.pack (show other))
+
+  distinctOrProgram <- namedPatternBoundary "managed-distinct-or-binders"
+  assertEqual "distinct or-binder fixture remains valid Typed Core" [] (validateTypedProgram distinctOrProgram)
+  distinctOrPlan <- analyzeProgram distinctOrProgram
+  case distinctOrPlan of
+    ManagedPatternArm (ManagedOr _ (leftPattern :| [rightPattern])) Nothing _ :| [] -> do
+      let firstBinder = ManagedProductsVariants.patternBinder [1, 0, 0, 0] (ManagedProductsVariants.valueName "item")
+      assertEqual "first alternative retains its canonical binder" [firstBinder] (managedPatternBinders leftPattern)
+      assertEqual "later alternative uses the first binder identity" [firstBinder] (managedPatternBinders rightPattern)
+    other -> failTest ("unexpected distinct-binder or-pattern plan: " <> Text.pack (show other))
   where
     catalogFor typedProgram =
       case typedProgram of
@@ -196,6 +208,10 @@ testManagedPatternPureAnalysis = do
             Right catalog -> pure catalog
             Left failures -> failTest ("managed catalog collection failed: " <> Text.pack (show failures))
         _ -> failTest "managed pattern fixture must contain one module"
+    namedPatternBoundary name =
+      case lookup name managedPatternAnalysisBoundaryPrograms of
+        Just programValue -> pure programValue
+        Nothing -> failTest (name <> " managed pattern boundary is missing")
     analyzeProgram typedProgram =
       case typedProgram of
         TypedProgram _ [TypedModule modulePath _ _ _ _ _ statements _] _ -> do

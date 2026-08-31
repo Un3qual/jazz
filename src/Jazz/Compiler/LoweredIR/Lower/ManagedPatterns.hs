@@ -113,11 +113,12 @@ normalizePattern catalog modulePath statementPath patternPath allowAlternative e
         TypedOrPattern info alternatives
           | allowAlternative,
             managedStructuredInfo expectedInfo,
-            Just nonEmptyAlternatives <- NonEmpty.nonEmpty alternatives ->
-              ManagedOr info
-                <$> traverse
+            Just nonEmptyAlternatives <- NonEmpty.nonEmpty alternatives -> do
+              normalizedAlternatives <-
+                traverse
                   (uncurry (normalizeAlternative expectedInfo))
                   (NonEmpty.zip (0 :| [1 ..]) nonEmptyAlternatives)
+              Right (ManagedOr info (canonicalizeAlternatives normalizedAlternatives))
         TypedOrPattern {} -> unsupported
         TypedListPattern {} -> unsupported
         TypedConsListPattern {} -> unsupported
@@ -283,8 +284,44 @@ irrefutablePattern patternValue =
     ManagedWildcard _ -> True
     ManagedVariable _ _ -> True
     ManagedAs _ _ nested -> irrefutablePattern nested
-    ManagedOr _ alternatives -> all irrefutablePattern alternatives
+    ManagedOr _ alternatives -> any irrefutablePattern alternatives
     _ -> False
+
+type BinderContract = (TypedCoreName, TypedType, TypedRepresentationRecipe)
+
+canonicalizeAlternatives :: NonEmpty ManagedPattern -> NonEmpty ManagedPattern
+canonicalizeAlternatives (firstAlternative :| laterAlternatives) =
+  firstAlternative :| map (canonicalizePattern canonicalBinders) laterAlternatives
+  where
+    canonicalBinders = patternBinderContracts firstAlternative
+
+canonicalizePattern :: [(BinderContract, TypedBinderId)] -> ManagedPattern -> ManagedPattern
+canonicalizePattern canonicalBinders patternValue =
+  case patternValue of
+    ManagedVariable info binder -> ManagedVariable info (canonicalBinder info binder)
+    ManagedConstructor constructor children -> ManagedConstructor constructor (map (canonicalizePattern canonicalBinders) children)
+    ManagedTuple info layoutId children -> ManagedTuple info layoutId (map (canonicalizePattern canonicalBinders) children)
+    ManagedAs info binder nested ->
+      ManagedAs info (canonicalBinder info binder) (canonicalizePattern canonicalBinders nested)
+    ManagedOr info alternatives -> ManagedOr info (fmap (canonicalizePattern canonicalBinders) alternatives)
+    _ -> patternValue
+  where
+    canonicalBinder info binder =
+      maybe binder id (lookup (binderContract info binder) canonicalBinders)
+
+patternBinderContracts :: ManagedPattern -> [(BinderContract, TypedBinderId)]
+patternBinderContracts patternValue =
+  case patternValue of
+    ManagedVariable info binder -> [(binderContract info binder, binder)]
+    ManagedConstructor _ children -> concatMap patternBinderContracts children
+    ManagedTuple _ _ children -> concatMap patternBinderContracts children
+    ManagedAs info binder nested -> (binderContract info binder, binder) : patternBinderContracts nested
+    ManagedOr _ alternatives -> patternBinderContracts (NonEmpty.head alternatives)
+    _ -> []
+
+binderContract :: TypedNodeInfo -> TypedBinderId -> BinderContract
+binderContract info (TypedBinderId (_, _, name)) =
+  (name, typedNodeType info, typedNodeRecipe info)
 
 sameVariantConstructor :: ManagedPatternConstructor -> ManagedPatternConstructor -> Bool
 sameVariantConstructor left right =
