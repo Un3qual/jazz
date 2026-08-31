@@ -49,12 +49,20 @@ patternBinderOccurrences modulePath statementLocation patternPath patternValue =
         TypedConsListPattern _ headPattern tailPattern -> indexedChildren [headPattern, tailPattern]
         TypedTuplePattern _ patterns -> indexedChildren patterns
         TypedAsPattern _ _ _ nested -> patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) nested
-        -- Alternatives are one logical lexical definition set. Their complete
-        -- contracts are compared by 'validateOrPattern'; duplicate-definition
-        -- accounting traverses the representative first alternative, matching
-        -- 'patternBinderNodes'.
-        TypedOrPattern _ (firstAlternative : _) ->
-          patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) firstAlternative
+        -- Alternatives are one logical lexical definition set. Repeated
+        -- canonical identities are represented once, while distinct later
+        -- identities remain visible to module-wide duplicate accounting.
+        TypedOrPattern _ (firstAlternative : laterAlternatives) ->
+          let firstOccurrences =
+                patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) firstAlternative
+              representedBinders = [binderId | BinderOccurrence _ binderId <- firstOccurrences]
+              laterOccurrences =
+                concat
+                  [ patternBinderOccurrences modulePath statementLocation (patternPath <> [alternativeIndex]) alternative
+                  | (alternativeIndex, alternative) <- zip [1 ..] laterAlternatives
+                  ]
+           in firstOccurrences
+                <> [occurrence | occurrence@(BinderOccurrence _ binderId) <- laterOccurrences, binderId `notElem` representedBinders]
         TypedOrPattern _ [] -> []
         _ -> []
     indexedChildren patterns =

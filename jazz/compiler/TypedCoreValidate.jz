@@ -6056,7 +6056,19 @@ module TypedCoreValidate (
       | TypedConsListPattern info headPattern tailPattern -> patternListBinderOccurrences modulePath statementIndex patternPath [headPattern, tailPattern] 0
       | TypedTuplePattern info patterns -> patternListBinderOccurrences modulePath statementIndex patternPath patterns 0
       | TypedAsPattern info binder name nested -> patternBinderOccurrences modulePath statementIndex (listAppend patternPath [0]) nested
-      | TypedOrPattern info alternatives -> patternListBinderOccurrences modulePath statementIndex patternPath alternatives 0
+      | TypedOrPattern info alternatives -> case alternatives {
+        | [] -> []
+        | [firstAlternative | laterAlternatives] -> {
+          firstOccurrences = patternBinderOccurrences modulePath statementIndex (listAppend patternPath [0]) firstAlternative.
+          representedBinders = listMap (\(occurrence) -> case occurrence {
+            | BinderOccurrence occurrencePath binder -> binder
+          }) firstOccurrences.
+          laterOccurrences = patternListBinderOccurrences modulePath statementIndex patternPath laterAlternatives 1.
+          listAppend firstOccurrences (listFilter (\(occurrence) -> case occurrence {
+            | BinderOccurrence occurrencePath binder -> if binderIdMember binder representedBinders then False else True
+          }) laterOccurrences).
+        }
+      }
       | other -> []
     }.
     listAppend owned children.

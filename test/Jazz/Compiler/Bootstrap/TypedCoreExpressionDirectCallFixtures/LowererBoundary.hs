@@ -186,6 +186,224 @@ managedPatternAnalysisBoundaryPrograms =
         Just programValue -> programValue
         Nothing -> error "scalar pattern lowerer fixture is missing"
 
+managedPatternTransportPrograms :: [(Text, TypedProgram)]
+managedPatternTransportPrograms =
+  [ ("managed-captured-scalar-arm", managedCapturedScalarArmProgram),
+    ("managed-nested-case-arm", managedNestedCaseArmProgram),
+    ("managed-closure-result-application", managedClosureResultApplicationProgram),
+    ("managed-direct-function-result", managedDirectFunctionResultProgram)
+  ]
+
+managedDirectFunctionResultProgram :: TypedProgram
+managedDirectFunctionResultProgram =
+  ManagedProductsVariants.managedProgram
+    [ TypedDataStatement ManagedProductsVariants.optionDeclaration,
+      signatureStatement,
+      functionStatement,
+      TypedExpressionStatement
+        (TypedSpan 5 1)
+        ( TypedApplyExpr
+            intInfo
+            (TypedVariableExpr callableInfo functionName (Just functionBinder))
+            optionValue
+        )
+    ]
+    intInfo
+  where
+    functionName = ManagedProductsVariants.valueName "select"
+    signatureBinder = ManagedProductsVariants.statementBinder 1 functionName
+    functionBinder = ManagedProductsVariants.statementBinder 2 functionName
+    parameterName = ManagedProductsVariants.valueName "subject"
+    parameterBinder = TypedBinderId (modulePath, [2, 0], parameterName)
+    itemName = ManagedProductsVariants.valueName "item"
+    wholeName = ManagedProductsVariants.valueName "whole"
+    itemBinder = ManagedProductsVariants.patternBinder [2, 0, 0, 0, 0, 0] itemName
+    wholeBinder = ManagedProductsVariants.patternBinder [2, 0, 0, 0] wholeName
+    callableInfo =
+      TypedNodeInfo
+        (TypedFunctionType (typedExpressionType ManagedProductsVariants.optionIntInfo) TypedIntType)
+        (TypedClosureRecipe [typedExpressionRecipe ManagedProductsVariants.optionIntInfo] (TypedSignedIntegerRecipe 64))
+        []
+        []
+    scheme owner shape = TypedScheme owner [] [] [] (typedExpressionType callableInfo) (typedExpressionRecipe callableInfo) (Just shape)
+    signatureStatement = TypedSignatureStatement signatureBinder functionName (TypedSpan 3 1) (scheme signatureBinder TypedDirectCallableShape)
+    functionStatement =
+      TypedLetStatement
+        functionBinder
+        functionName
+        (TypedSpan 4 1)
+        (scheme functionBinder TypedDirectCallableShape)
+        ( TypedLambdaExpr
+            callableInfo
+            parameterBinder
+            parameterName
+            ( TypedPatternCaseExpr
+                intInfo
+                (TypedVariableExpr ManagedProductsVariants.optionIntInfo parameterName (Just parameterBinder))
+                [ TypedCaseArm
+                    ( TypedAsPattern
+                        ManagedProductsVariants.optionIntInfo
+                        wholeBinder
+                        wholeName
+                        ( TypedConstructorPattern
+                            ManagedProductsVariants.optionIntInfo
+                            ManagedProductsVariants.someName
+                            [TypedVariablePattern intInfo itemBinder itemName]
+                        )
+                    )
+                    Nothing
+                    (TypedVariableExpr intInfo itemName (Just itemBinder)),
+                  TypedCaseArm
+                    (TypedConstructorPattern ManagedProductsVariants.optionIntInfo ManagedProductsVariants.noneName [])
+                    Nothing
+                    (intExpr 0)
+                ]
+            )
+        )
+    optionValue =
+      ManagedProductsVariants.constructorCall
+        ManagedProductsVariants.someBinder
+        ManagedProductsVariants.someName
+        ManagedProductsVariants.optionIntInfo
+        [intInfo]
+        [intExpr 1]
+
+managedCapturedScalarArmProgram :: TypedProgram
+managedCapturedScalarArmProgram =
+  ManagedProductsVariants.managedProgram
+    [ TypedDataStatement ManagedProductsVariants.optionDeclaration,
+      TypedLetStatement captureBinder captureName (TypedSpan 3 1) (TypedScheme captureBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing) (intExpr 7),
+      TypedSignatureStatement signatureBinder functionName (TypedSpan 4 1) (scheme signatureBinder),
+      TypedLetStatement
+        functionBinder
+        functionName
+        (TypedSpan 5 1)
+        (scheme functionBinder)
+        (TypedLambdaExpr callableInfo parameterBinder parameterName functionBody),
+      TypedExpressionStatement
+        (TypedSpan 6 1)
+        (TypedApplyExpr intInfo (TypedVariableExpr callableInfo functionName (Just functionBinder)) optionValue)
+    ]
+    intInfo
+  where
+    captureName = ManagedProductsVariants.valueName "capture"
+    captureBinder = ManagedProductsVariants.statementBinder 1 captureName
+    functionName = ManagedProductsVariants.valueName "selectCaptured"
+    signatureBinder = ManagedProductsVariants.statementBinder 2 functionName
+    functionBinder = ManagedProductsVariants.statementBinder 3 functionName
+    parameterName = ManagedProductsVariants.valueName "subject"
+    parameterBinder = TypedBinderId (modulePath, [3, 0], parameterName)
+    wholeName = ManagedProductsVariants.valueName "whole"
+    itemName = ManagedProductsVariants.valueName "item"
+    wholeBinder = ManagedProductsVariants.patternBinder [3, 0, 0, 0] wholeName
+    itemBinder = ManagedProductsVariants.patternBinder [3, 0, 0, 0, 0, 0] itemName
+    callableInfo =
+      TypedNodeInfo
+        (TypedFunctionType (typedExpressionType ManagedProductsVariants.optionIntInfo) TypedIntType)
+        (TypedClosureRecipe [typedExpressionRecipe ManagedProductsVariants.optionIntInfo] (TypedSignedIntegerRecipe 64))
+        []
+        []
+    scheme owner = TypedScheme owner [] [] [] (typedExpressionType callableInfo) (typedExpressionRecipe callableInfo) (Just TypedClosureCallableShape)
+    functionBody =
+      TypedPatternCaseExpr
+        intInfo
+        (TypedVariableExpr ManagedProductsVariants.optionIntInfo parameterName (Just parameterBinder))
+        [ TypedCaseArm
+            ( TypedAsPattern
+                ManagedProductsVariants.optionIntInfo
+                wholeBinder
+                wholeName
+                (TypedConstructorPattern ManagedProductsVariants.optionIntInfo ManagedProductsVariants.someName [TypedVariablePattern intInfo itemBinder itemName])
+            )
+            Nothing
+            (TypedVariableExpr intInfo captureName (Just captureBinder)),
+          TypedCaseArm (TypedConstructorPattern ManagedProductsVariants.optionIntInfo ManagedProductsVariants.noneName []) Nothing (intExpr 0)
+        ]
+    optionValue =
+      ManagedProductsVariants.constructorCall
+        ManagedProductsVariants.someBinder
+        ManagedProductsVariants.someName
+        ManagedProductsVariants.optionIntInfo
+        [intInfo]
+        [intExpr 1]
+
+managedNestedCaseArmProgram :: TypedProgram
+managedNestedCaseArmProgram =
+  ManagedProductsVariants.managedProgram
+    [ TypedDataStatement ManagedProductsVariants.optionDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            outerValue
+            [ TypedCaseArm
+                ( TypedAsPattern
+                    optionOptionInfo
+                    wholeBinder
+                    wholeName
+                    (TypedConstructorPattern optionOptionInfo ManagedProductsVariants.someName [TypedVariablePattern ManagedProductsVariants.optionIntInfo innerBinder innerName])
+                )
+                Nothing
+                innerCase,
+              TypedCaseArm (TypedConstructorPattern optionOptionInfo ManagedProductsVariants.noneName []) Nothing (intExpr 0)
+            ]
+        )
+    ]
+    intInfo
+  where
+    optionOptionInfo = ManagedProductsVariants.variantInfo ManagedProductsVariants.optionName [typedExpressionType ManagedProductsVariants.optionIntInfo]
+    innerValue = ManagedProductsVariants.constructorCall ManagedProductsVariants.someBinder ManagedProductsVariants.someName ManagedProductsVariants.optionIntInfo [intInfo] [intExpr 1]
+    outerValue = ManagedProductsVariants.constructorCall ManagedProductsVariants.someBinder ManagedProductsVariants.someName optionOptionInfo [ManagedProductsVariants.optionIntInfo] [innerValue]
+    wholeName = ManagedProductsVariants.valueName "whole"
+    innerName = ManagedProductsVariants.valueName "inner"
+    itemName = ManagedProductsVariants.valueName "item"
+    wholeBinder = ManagedProductsVariants.patternBinder [1, 0] wholeName
+    innerBinder = ManagedProductsVariants.patternBinder [1, 0, 0, 0] innerName
+    itemBinder = ManagedProductsVariants.patternBinder [1, 0, 1, 0, 0] itemName
+    innerCase =
+      TypedPatternCaseExpr
+        intInfo
+        (TypedVariableExpr ManagedProductsVariants.optionIntInfo innerName (Just innerBinder))
+        [ TypedCaseArm
+            (TypedConstructorPattern ManagedProductsVariants.optionIntInfo ManagedProductsVariants.someName [TypedVariablePattern intInfo itemBinder itemName])
+            Nothing
+            (TypedVariableExpr intInfo itemName (Just itemBinder)),
+          TypedCaseArm (TypedConstructorPattern ManagedProductsVariants.optionIntInfo ManagedProductsVariants.noneName []) Nothing (intExpr 0)
+        ]
+
+managedClosureResultApplicationProgram :: TypedProgram
+managedClosureResultApplicationProgram =
+  case ManagedProductsVariants.managedClosureVariantProgram of
+    TypedProgram prelude [TypedModule path source imports exports interface groups [dataStatement, TypedExpressionStatement spanValue boxExpression] _] entryPath ->
+      case boxExpression of
+        TypedApplyExpr boxInfo (TypedVariableExpr _ constructorName _) closureExpression ->
+          let closureInfo = typedExpressionInfo closureExpression
+              wholeName = ManagedProductsVariants.valueName "whole"
+              functionName = ManagedProductsVariants.valueName "function"
+              wholeBinder = ManagedProductsVariants.patternBinder [1, 0] wholeName
+              functionBinder = ManagedProductsVariants.patternBinder [1, 0, 0, 0] functionName
+              caseExpression =
+                TypedPatternCaseExpr
+                  closureInfo
+                  boxExpression
+                  [ TypedCaseArm
+                      ( TypedAsPattern
+                          boxInfo
+                          wholeBinder
+                          wholeName
+                          (TypedConstructorPattern boxInfo constructorName [TypedVariablePattern closureInfo functionBinder functionName])
+                      )
+                      Nothing
+                      (TypedVariableExpr closureInfo functionName (Just functionBinder))
+                  ]
+              application = TypedApplyExpr boolInfo caseExpression (boolExpr True)
+           in TypedProgram
+                prelude
+                [TypedModule path source imports exports interface groups [dataStatement, TypedExpressionStatement spanValue application] boolInfo]
+                entryPath
+        _ -> error "managed closure variant fixture must end in one constructor application"
+    _ -> error "managed closure variant fixture must contain one module"
+
 managedTextLiteralPatternProgram :: TypedProgram
 managedTextLiteralPatternProgram =
   expectedScalarProgram
@@ -258,28 +476,30 @@ managedDistinctOrBinderProgram =
   where
     rewriteCase expression =
       case expression of
-        TypedPatternCaseExpr info scrutinee [TypedCaseArm (TypedOrPattern patternInfo [firstAlternative, secondAlternative]) guard body] ->
+        TypedPatternCaseExpr info scrutinee [TypedCaseArm (TypedOrPattern patternInfo [firstAlternative, secondAlternative]) guard body, fallbackArm] ->
           TypedPatternCaseExpr
             info
             scrutinee
             [ TypedCaseArm
                 (TypedOrPattern patternInfo [firstAlternative, rewriteAlternative secondAlternative])
                 guard
-                body
+                body,
+              fallbackArm
             ]
-        _ -> error "managed or fixture must end in one two-alternative pattern arm"
+        _ -> error "managed or fixture must end in a two-alternative pattern arm and fallback"
     rewriteAlternative patternValue =
       case patternValue of
-        TypedConstructorPattern info name [TypedVariablePattern fieldInfo _ fieldName] ->
+        TypedConstructorPattern info name [literalPattern, TypedVariablePattern fieldInfo _ fieldName] ->
           TypedConstructorPattern
             info
             name
-            [ TypedVariablePattern
+            [ literalPattern,
+              TypedVariablePattern
                 fieldInfo
-                (ManagedProductsVariants.patternBinder [1, 0, 1, 0] fieldName)
+                (ManagedProductsVariants.patternBinder [1, 0, 1, 1] fieldName)
                 fieldName
             ]
-        _ -> error "managed or fixture must retain a unary constructor alternative"
+        _ -> error "managed or fixture must retain its literal and binder constructor fields"
 
 managedBareConstructorLowererProgram :: TypedProgram
 managedBareConstructorLowererProgram =

@@ -6,7 +6,10 @@ import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary (managedPatternAnalysisBoundaryPrograms)
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
+  ( managedPatternAnalysisBoundaryPrograms,
+    managedPatternTransportPrograms,
+  )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
   ( optionLayout,
     optionLayoutId,
@@ -22,9 +25,12 @@ import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
 import Jazz.Compiler.LoweredIR.Lower.ManagedPatterns
 import Jazz.Compiler.LoweredIR.Lower.Requirements
-  ( requiredRuntimeLayouts,
+  ( collectRuntimeRequirements,
+    requiredRuntimeLayouts,
     requirementsForManagedLayouts,
   )
+import Jazz.Compiler.LoweredIR.Lower.Types (RuntimeRequirements (..))
+import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textLayout)
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypedCore
@@ -80,28 +86,8 @@ testManagedPatternProducerExclusions =
 
 testManagedPatternLowererBoundary :: IO ()
 testManagedPatternLowererBoundary = do
-  mapM_ assertManagedPatternBoundary expectedResults
   testManagedPatternAnalysisBoundaries
   testManagedPatternPureAnalysis
-  where
-    assertManagedPatternBoundary (name, expectedFailures) =
-      case lookup name managedProductVariantExpectedPrograms of
-        Nothing -> failTest (name <> " managed pattern lowerer boundary is missing")
-        Just typedProgram -> do
-          let lowering = lowerTypedCoreExpressionDirectCall typedProgram
-          assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
-          assertUnsupportedLowering (name <> " exact lowerer boundary") expectedFailures lowering
-
-    expectedResults =
-      [ ("managed-as-constructor-pattern", [patternFailure [1] [0, 0]]),
-        ("managed-or-constructor-pattern", [patternFailure [1] [0, 0]])
-      ]
-
-    patternFailure statementPath patternPath =
-      LoweredIRLoweringFailure
-        (TypedPatternPath ["App", "Main"] statementPath patternPath)
-        LoweredIRUnsupportedPattern
-        LoweredIRNoFailureDetail
 
 testManagedPatternAnalysisBoundaries :: IO ()
 testManagedPatternAnalysisBoundaries =
@@ -124,8 +110,7 @@ testManagedPatternAnalysisBoundaries =
         ("managed-unsupported-list-pattern", [patternFailureAt 0 [0, 0]]),
         ("managed-unsupported-text-pattern", [patternFailureAt 0 [0, 0]]),
         ("managed-unsupported-nested-or-pattern", [patternFailureAt 0 [0, 0, 0]]),
-        ("managed-non-final-irrefutable-or", [expressionFailureAt 1 LoweredIRIncompletePatternCase]),
-        ("managed-distinct-or-binders", [patternFailureAt 1 [0, 0]])
+        ("managed-non-final-irrefutable-or", [expressionFailureAt 1 LoweredIRIncompletePatternCase])
       ]
     expressionFailureAt statementIndex kind =
       LoweredIRLoweringFailure
@@ -180,7 +165,7 @@ testManagedPatternPureAnalysis = do
 
   orPlan <- analyzeProgram ManagedProductsVariants.managedOrConstructorPatternProgram
   case orPlan of
-    ManagedPatternArm (ManagedOr _ (leftPattern :| [rightPattern])) Nothing _ :| [] ->
+    ManagedPatternArm (ManagedOr _ (leftPattern :| [rightPattern])) Nothing _ :| [ManagedPatternArm ManagedWildcard {} Nothing _] ->
       assertEqual
         "top-level alternatives share one binder contract"
         (managedPatternBinders leftPattern)
@@ -191,8 +176,8 @@ testManagedPatternPureAnalysis = do
   assertEqual "distinct or-binder fixture remains valid Typed Core" [] (validateTypedProgram distinctOrProgram)
   distinctOrPlan <- analyzeProgram distinctOrProgram
   case distinctOrPlan of
-    ManagedPatternArm (ManagedOr _ (leftPattern :| [rightPattern])) Nothing _ :| [] -> do
-      let firstBinder = ManagedProductsVariants.patternBinder [1, 0, 0, 0] (ManagedProductsVariants.valueName "item")
+    ManagedPatternArm (ManagedOr _ (leftPattern :| [rightPattern])) Nothing _ :| [ManagedPatternArm ManagedWildcard {} Nothing _] -> do
+      let firstBinder = ManagedProductsVariants.patternBinder [1, 0, 0, 1] (ManagedProductsVariants.valueName "item")
       assertEqual "first alternative retains its canonical binder" [firstBinder] (managedPatternBinders leftPattern)
       assertEqual "later alternative uses the first binder identity" [firstBinder] (managedPatternBinders rightPattern)
     other -> failTest ("unexpected distinct-binder or-pattern plan: " <> Text.pack (show other))
@@ -246,6 +231,7 @@ testManagedProductVariantLowering :: IO ()
 testManagedProductVariantLowering =
   mapM_ assertProducedLowered managedProductVariantExpectedLoweredPrograms
     >> mapM_ assertLowered managedProductVariantIndependentExpectedLoweredPrograms
+    >> testManagedPatternTransport
   where
     assertProducedLowered (name, expectedLoweredProgram) =
       case lookup name managedProductVariantExpectedPrograms of
@@ -262,6 +248,113 @@ testManagedProductVariantLowering =
         (name <> " valid expected Lowered IR")
         []
         (validateLoweredProgram expectedLoweredProgram)
+
+testManagedPatternTransport :: IO ()
+testManagedPatternTransport = do
+  mapM_ assertTransportLowers managedPatternTransportPrograms
+  directProgram <- transportProgram "managed-direct-function-result"
+  directLowered <- successfulProgram "managed direct function result" directProgram
+  assertEqual
+    "direct managed function bodies finish with returns and no result join"
+    [ ( LoweredBlockId "case$s1$2$e2$0,0$a0$body",
+        [ LoweredParameter (LoweredParameterId "pattern1") ManagedProductsVariants.optionRepresentation,
+          LoweredParameter (LoweredParameterId "pattern2") (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)
+        ],
+        Just (LoweredReturn (LoweredBlockParameterOperand (LoweredParameterId "pattern2") (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)))
+      ),
+      ( LoweredBlockId "case$s1$2$e2$0,0$a1$body",
+        [],
+        Just (LoweredReturn (LoweredImmediateOperand (LoweredSignedIntegerImmediate LoweredIntegerWidth64 0)))
+      )
+    ]
+    (selectedBlocks (LoweredFunctionId "App::Main::select") ["$a0$body", "$a1$body"] directLowered)
+
+  capturedProgram <- transportProgram "managed-captured-scalar-arm"
+  capturedLowered <- successfulProgram "managed captured scalar arm" capturedProgram
+  assertEqual
+    "closure managed arm transports capture and scrutinee but returns directly"
+    [ ( LoweredBlockId "case$s1$3$e2$0,0$a0$body",
+        [ LoweredParameter (LoweredParameterId "live1") (LoweredSignedIntegerRepresentation LoweredIntegerWidth64),
+          LoweredParameter (LoweredParameterId "pattern1") ManagedProductsVariants.optionRepresentation,
+          LoweredParameter (LoweredParameterId "pattern2") (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)
+        ],
+        Just (LoweredReturn (LoweredBlockParameterOperand (LoweredParameterId "live1") (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)))
+      ),
+      ( LoweredBlockId "case$s1$3$e2$0,0$a1$body",
+        [LoweredParameter (LoweredParameterId "live1") (LoweredSignedIntegerRepresentation LoweredIntegerWidth64)],
+        Just (LoweredReturn (LoweredImmediateOperand (LoweredSignedIntegerImmediate LoweredIntegerWidth64 0)))
+      )
+    ]
+    (selectedBlocks (LoweredFunctionId "App::Main::selectCaptured") ["$a0$body", "$a1$body"] capturedLowered)
+
+  nestedProgram <- transportProgram "managed-nested-case-arm"
+  nestedLowered <- successfulProgram "managed nested case arm" nestedProgram
+  assertEqual
+    "nested managed cases preserve independent ProduceValue joins"
+    [ LoweredBlockId "case$s1$1$e3$0,1,1$join",
+      LoweredBlockId "case$s1$1$e1$0$join"
+    ]
+    (joinBlockIds (LoweredFunctionId "App::Main::$entry") nestedLowered)
+
+  closureProgram <- transportProgram "managed-closure-result-application"
+  closureLowered <- successfulProgram "managed closure result application" closureProgram
+  assertEqual
+    "closure-valued managed result joins before application"
+    ( LoweredBlock
+        (LoweredBlockId "case$s1$1$e2$0,0$join")
+        [LoweredParameter (LoweredParameterId "result") ManagedProductsVariants.boolClosureRepresentation]
+        [ LoweredInstruction
+            (LoweredTemporaryId "t1")
+            LoweredBoolRepresentation
+            ( LoweredClosureCall
+                (LoweredBlockParameterOperand (LoweredParameterId "result") ManagedProductsVariants.boolClosureRepresentation)
+                [LoweredImmediateOperand (LoweredBoolImmediate True)]
+            )
+        ]
+        (Just (LoweredReturn (LoweredTemporaryOperand (LoweredTemporaryId "t1") LoweredBoolRepresentation)))
+    )
+    (namedBlock (LoweredFunctionId "App::Main::$entry") (LoweredBlockId "case$s1$1$e2$0,0$join") closureLowered)
+
+  let requirements = collectRuntimeRequirements (onlyModule ManagedProductsVariants.managedTotalNestedConstructorPatternProgram)
+  assertEqual
+    "recursive managed patterns discover only the existing Text layout and no service"
+    (RuntimeRequirements True mempty)
+    requirements
+  assertEqual "recursive managed pattern requirements retain the existing Text layout" [textLayout] (requiredRuntimeLayouts requirements)
+  where
+    assertTransportLowers (name, typedProgram) = do
+      assertEqual (name <> " valid transport Typed Core") [] (validateTypedProgram typedProgram)
+      _ <- successfulProgram name typedProgram
+      pure ()
+    transportProgram name =
+      case lookup name managedPatternTransportPrograms of
+        Just programValue -> pure programValue
+        Nothing -> failTest (name <> " transport fixture is missing")
+    successfulProgram label typedProgram =
+      case lowerTypedCoreExpressionDirectCall typedProgram of
+        LoweredIRSucceeded validatedProgram -> pure (validatedLoweredProgram validatedProgram)
+        other -> failTest (label <> " expected successful lowering, got " <> Text.pack (show other))
+    onlyModule (TypedProgram _ [moduleValue] _) = moduleValue
+    onlyModule _ = error "managed runtime requirements fixture must contain one module"
+    selectedBlocks functionId suffixes programValue =
+      [ (blockId, parameters, terminator)
+      | LoweredBlock blockId parameters _ terminator <- functionBlocks functionId programValue,
+        any (`Text.isSuffixOf` loweredBlockIdText blockId) suffixes
+      ]
+    joinBlockIds functionId programValue =
+      [ blockId
+      | LoweredBlock blockId _ _ _ <- functionBlocks functionId programValue,
+        "$join" `Text.isSuffixOf` loweredBlockIdText blockId
+      ]
+    namedBlock functionId expectedId programValue =
+      case [block | block@(LoweredBlock blockId _ _ _) <- functionBlocks functionId programValue, blockId == expectedId] of
+        [block] -> block
+        _ -> error "managed transport block is missing"
+    functionBlocks expectedId (LoweredProgram _ _ _ functions _) =
+      case [blocks | LoweredFunction functionId _ _ _ blocks _ <- functions, functionId == expectedId] of
+        [blocks] -> blocks
+        _ -> error "managed transport function is missing"
+    loweredBlockIdText (LoweredBlockId value) = value
 
 testManagedConstructionLowererBoundaries :: IO ()
 testManagedConstructionLowererBoundaries =
