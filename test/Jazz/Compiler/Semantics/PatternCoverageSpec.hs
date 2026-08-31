@@ -73,6 +73,7 @@ tests =
     ("both Bool constructors are exhaustive", testCompleteBoolMatch),
     ("duplicate Bool arm is unreachable", testDuplicateBoolArm),
     ("open integer literals require a fallback", testOpenIntegerDomain),
+    ("large repeated integer arms preserve diagnostic order", testLargeRepeatedIntegerArmOrder),
     ("unguarded wildcard makes a later arm unreachable", testWildcardShadowing),
     ("guarded arms do not contribute coverage", testGuardedArmDoesNotCover),
     ("guarded arms do not shadow later arms", testGuardedArmDoesNotShadow),
@@ -143,6 +144,14 @@ testOpenIntegerDomain =
     TIntType
     [arm (PLiteral (LInt 0))]
     [NonExhaustivePattern PWildcard]
+
+testLargeRepeatedIntegerArmOrder :: IO ()
+testLargeRepeatedIntegerArmOrder =
+  assertCoverage
+    "large repeated integer arms"
+    TIntType
+    (map (arm . PLiteral . LInt) ([0 .. 63] <> replicate 1024 0))
+    (map UnreachablePatternArm [65 .. 1088] <> [NonExhaustivePattern PWildcard])
 
 testWildcardShadowing :: IO ()
 testWildcardShadowing =

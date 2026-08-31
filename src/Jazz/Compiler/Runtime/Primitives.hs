@@ -77,7 +77,7 @@ import Jazz.Compiler.Runtime.Types
     RuntimeIntMetadata (..),
     RuntimeValue (..),
     constructorIsSaturated,
-    foldrRuntimeConstructorArguments,
+    foldrRuntimeAppliedArguments,
     pattern VExplicitResultHints,
   )
 
@@ -904,7 +904,7 @@ runtimeValueContainsFunction value =
         VTuple elements ->
           any runtimeValueContainsFunction elements
         VConstructorApplication _ capturedArgs ->
-          foldrRuntimeConstructorArguments
+          foldrRuntimeAppliedArguments
             (\argumentValue containsFunction -> runtimeValueContainsFunction argumentValue || containsFunction)
             False
             capturedArgs

@@ -213,11 +213,11 @@ analyzePatternCoverage ::
   [CaseArm] ->
   [PatternCoverageFailure]
 analyzePatternCoverage inventory expressionType arms =
-  unreachableFailures <> exhaustivenessFailure
+  reverse unreachableFailuresReversed <> exhaustivenessFailure
   where
     preparedInventory = prepareConstructorInventory inventory expressionType
 
-    (coveredRows, unreachableFailures) =
+    (coveredRowsReversed, unreachableFailuresReversed) =
       foldl' analyzeArm ([], []) (zip [1 ..] arms)
 
     analyzeArm (previousRows, failures) (armIndex, CaseArm patternValue maybeGuard _) =
@@ -237,15 +237,15 @@ analyzePatternCoverage inventory expressionType arms =
           nextFailures =
             if useful
               then failures
-              else failures <> [UnreachablePatternArm armIndex]
+              else UnreachablePatternArm armIndex : failures
           nextRows =
             case maybeGuard of
-              Nothing -> previousRows <> [[normalizedPattern]]
+              Nothing -> [normalizedPattern] : previousRows
               Just _ -> previousRows
        in (nextRows, nextFailures)
 
     exhaustivenessFailure =
-      case usefulPatternVector preparedInventory [expressionType] coveredRows [CoverageWildcard] of
+      case usefulPatternVector preparedInventory [expressionType] (reverse coveredRowsReversed) [CoverageWildcard] of
         Nothing -> []
         Just [missing] -> [NonExhaustivePattern (coveragePatternToPattern missing)]
         Just _ -> [NonExhaustivePattern PWildcard]

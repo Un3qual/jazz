@@ -106,25 +106,33 @@ import Jazz.Compiler.Name
     identifierText,
   )
 import Jazz.Compiler.Runtime.Types
-  ( RuntimeClosure (..),
-    RuntimeConstructorArguments,
+  ( RuntimeAppliedArguments,
+    RuntimeClosure (..),
     RuntimeConstructorShape,
     RuntimeEnv,
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeMethodCandidate (..),
+    RuntimeMethodCandidates,
     RuntimeValue (..),
+    appendRuntimeAppliedArgument,
     attachRuntimeExplicitResultHints,
     constructorApplicationIsSaturated,
     constructorIsSaturated,
+    emptyRuntimeAppliedArguments,
+    filterRuntimeMethodCandidates,
+    foldrRuntimeMethodCandidates,
     prependRuntimeExplicitResultHint,
-    runtimeConstructorArgumentCount,
+    runtimeAppliedArgumentCount,
+    runtimeAppliedArgumentsInOrder,
     runtimeConstructorArity,
     runtimeConstructorName,
     runtimeConstructorTypeName,
     runtimeConstructorTypeParameters,
     runtimeEvidenceTarget,
+    runtimeMethodCandidatesInOrder,
     pattern VExplicitResultHints,
+    pattern VQualifiedMethodApplication,
   )
 import Numeric (showHex)
 
@@ -150,12 +158,14 @@ renderRuntimeValue value =
     VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
-    VConstructor _ _ constructorName constructorArguments capturedArgs
-      | constructorIsSaturated constructorArguments capturedArgs ->
-          renderConstructorValue constructorName capturedArgs
+    VConstructorApplication shape capturedArgs
+      | constructorApplicationIsSaturated shape capturedArgs ->
+          renderConstructorValue
+            (runtimeConstructorName shape)
+            (runtimeAppliedArgumentsInOrder capturedArgs)
       | otherwise ->
           "<function>"
-    VQualifiedMethod {} -> "<function>"
+    VQualifiedMethodApplication {} -> "<function>"
     VTyped _ innerValue -> renderRuntimeValue innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeValue innerValue
     VExplicitResultHints _ innerValue -> renderRuntimeValue innerValue
@@ -292,12 +302,12 @@ applyRuntimeTypeHint typeHint runtimeValue =
       applyRuntimeTypeHint typeHint innerValue
     VExplicitResultHints _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
-    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs
+    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs
       | null (constraintSignatureTypeVariableNamesInOrder typeHint) ->
           Right
             ( VTyped
                 typeHint
-                ( VQualifiedMethod
+                ( VQualifiedMethodApplication
                     methodKey
                     classParameter
                     methodSignature
@@ -714,17 +724,20 @@ substituteSignatureTypeVariable variableName replacementType signatureType =
 runtimeQualifiedMethodIsFullyApplied ::
   Text ->
   SignaturePayload ->
-  [RuntimeValue] ->
-  [RuntimeMethodCandidate] ->
+  RuntimeAppliedArguments ->
+  RuntimeMethodCandidates ->
   Bool
 runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments candidates =
-  any candidateIsFullyApplied candidates
+  foldrRuntimeMethodCandidates
+    (\candidate fullyApplied -> candidateIsFullyApplied candidate || fullyApplied)
+    False
+    candidates
   where
     candidateIsFullyApplied (RuntimeMethodCandidate evidence _) =
       case substituteClassMethodSignature classParameter implTarget methodSignature of
         Just substitutedSignature ->
           let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-           in length arguments >= length argumentTypes
+           in runtimeAppliedArgumentCount arguments >= length argumentTypes
         Nothing ->
           False
       where
@@ -1046,7 +1059,7 @@ isRuntimeText runtimeValue =
 
 -- | Constructor values are curried like builtins until their declared arity is
 -- saturated; extra applications are runtime errors.
-applyConstructor :: RuntimeConstructorShape -> RuntimeConstructorArguments -> Either Diagnostic RuntimeValue
+applyConstructor :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Either Diagnostic RuntimeValue
 applyConstructor shape arguments
   | receivedArity <= expectedArity =
       Right (VConstructorApplication shape arguments)
@@ -1064,7 +1077,7 @@ applyConstructor shape arguments
         )
   where
     expectedArity = runtimeConstructorArity shape
-    receivedArity = runtimeConstructorArgumentCount arguments
+    receivedArity = runtimeAppliedArgumentCount arguments
 
 renderArityCount :: Int -> Text
 renderArityCount count =
@@ -1298,9 +1311,9 @@ attachDefaultBindingIntegerTarget runtimeValue =
     VConstructor typeName typeParameters constructorName constructorArguments capturedArgs ->
       VConstructor typeName typeParameters constructorName constructorArguments
         <$> traverse attachDefaultBindingIntegerTarget capturedArgs
-    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
-      VQualifiedMethod methodKey classParameter methodSignature candidates
-        <$> traverse attachDefaultBindingIntegerTarget capturedArgs
+    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
+      VQualifiedMethodApplication methodKey classParameter methodSignature candidates
+        <$> foldM appendConvertedArgument emptyRuntimeAppliedArguments (runtimeAppliedArgumentsInOrder capturedArgs)
     VTyped typeHint innerValue
       | TypeFunction {} <- typeHint ->
           Right (VTyped typeHint innerValue)
@@ -1312,6 +1325,10 @@ attachDefaultBindingIntegerTarget runtimeValue =
       attachRuntimeExplicitResultHints hints <$> attachDefaultBindingIntegerTarget innerValue
     _ ->
       Right runtimeValue
+  where
+    appendConvertedArgument arguments argumentValue =
+      (`appendRuntimeAppliedArgument` arguments)
+        <$> attachDefaultBindingIntegerTarget argumentValue
 
 isFunctionValue :: RuntimeValue -> Bool
 isFunctionValue value =
@@ -1326,46 +1343,49 @@ isFunctionValue value =
     VOperator {} -> True
     VConstructorApplication shape capturedArgs ->
       not (constructorApplicationIsSaturated shape capturedArgs)
-    VQualifiedMethod {} -> True
+    VQualifiedMethodApplication {} -> True
     _ -> False
 
 preferredRuntimeMethodCandidates ::
   Text ->
   SignaturePayload ->
-  [RuntimeValue] ->
-  [RuntimeMethodCandidate] ->
-  [RuntimeMethodCandidate]
+  RuntimeAppliedArguments ->
+  RuntimeMethodCandidates ->
+  RuntimeMethodCandidates
 preferredRuntimeMethodCandidates classParameter methodSignature arguments candidates =
-  case exactMatchingCandidates of
+  case runtimeMethodCandidatesInOrder exactMatchingCandidates of
     [] -> matchingCandidates
-    exactMatches -> exactMatches
+    _ -> exactMatchingCandidates
   where
+    argumentsInOrder = runtimeAppliedArgumentsInOrder arguments
     exactMatchingCandidates =
-      filter
-        (runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments)
+      filterRuntimeMethodCandidates
+        (runtimeMethodCandidateExactlyMatches classParameter methodSignature argumentsInOrder)
         matchingCandidates
     matchingCandidates =
-      filter
-        (runtimeMethodCandidateMatches classParameter methodSignature arguments)
+      filterRuntimeMethodCandidates
+        (runtimeMethodCandidateMatches classParameter methodSignature argumentsInOrder)
         candidates
 
 preferredRuntimeMethodCandidatesForTypeHint ::
   SignatureType ->
   Text ->
   SignaturePayload ->
-  [RuntimeValue] ->
-  [RuntimeMethodCandidate] ->
-  [RuntimeMethodCandidate]
+  RuntimeAppliedArguments ->
+  RuntimeMethodCandidates ->
+  RuntimeMethodCandidates
 preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignature arguments candidates =
-  case exactMatchingCandidates of
+  case runtimeMethodCandidatesInOrder exactMatchingCandidates of
     [] -> compatibleCandidates
-    exactMatches -> exactMatches
+    _ -> exactMatchingCandidates
   where
     exactMatchingCandidates =
-      filter ((== Just typeHint) . candidateRemainingType) compatibleCandidates
+      filterRuntimeMethodCandidates
+        ((== Just typeHint) . candidateRemainingType)
+        compatibleCandidates
 
     compatibleCandidates =
-      filter
+      filterRuntimeMethodCandidates
         (maybe False (constraintSignatureTypesCompatible typeHint) . candidateRemainingType)
         candidates
 
@@ -1375,7 +1395,7 @@ preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignat
           classParameter
           (runtimeEvidenceTarget evidence)
           methodSignature
-      dropFunctionArguments (length arguments) substitutedSignature
+      dropFunctionArguments (runtimeAppliedArgumentCount arguments) substitutedSignature
 
     dropFunctionArguments remaining signatureType
       | remaining <= 0 = Just signatureType
@@ -1414,7 +1434,7 @@ renderRuntimeType value =
     VConstructorApplication shape capturedArgs
       | constructorApplicationIsSaturated shape capturedArgs -> "Data"
       | otherwise -> "Function"
-    VQualifiedMethod {} -> "Function"
+    VQualifiedMethodApplication {} -> "Function"
     VTyped _ innerValue -> renderRuntimeType innerValue
     VExplicitTypeApplication _ innerValue -> renderRuntimeType innerValue
     VExplicitResultHints _ innerValue -> renderRuntimeType innerValue

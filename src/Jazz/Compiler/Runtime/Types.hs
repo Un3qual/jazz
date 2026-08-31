@@ -40,17 +40,26 @@ module Jazz.Compiler.Runtime.Types
         VDeferredHostBinding
       ),
     pattern VExplicitResultHints,
+    pattern VQualifiedMethodApplication,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
     runtimeExplicitResultHintsInOrder,
     foldRuntimeExplicitResultHints,
-    RuntimeConstructorArguments,
+    RuntimeAppliedArguments,
+    RuntimeMethodCandidates,
     RuntimeConstructorShape,
-    appendRuntimeConstructorArgument,
+    emptyRuntimeAppliedArguments,
+    appendRuntimeAppliedArgument,
+    runtimeAppliedArgumentsInOrder,
+    emptyRuntimeMethodCandidates,
+    appendRuntimeMethodCandidate,
+    filterRuntimeMethodCandidates,
+    runtimeMethodCandidatesInOrder,
+    foldrRuntimeMethodCandidates,
     constructorApplicationIsSaturated,
-    foldrRuntimeConstructorArguments,
-    runtimeConstructorArgumentCount,
+    foldrRuntimeAppliedArguments,
+    runtimeAppliedArgumentCount,
     runtimeConstructorArity,
     runtimeConstructorFieldTypes,
     runtimeConstructorName,
@@ -157,9 +166,14 @@ data RuntimeClosure = RuntimeClosure
 data RuntimeConstructorShape = RuntimeConstructorShape Name [Name] Name !Int [SignatureType]
   deriving (Eq)
 
--- | Append-efficient constructor arguments. 'Seq.length' is constant time, so
--- keeping a second cached count would only duplicate an invariant.
-newtype RuntimeConstructorArguments = RuntimeConstructorArguments (Seq RuntimeValue)
+-- | Append-efficient arguments shared by curried runtime applications.
+-- 'Seq.length' is constant time, so a second cached count would only duplicate
+-- an invariant.
+newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
+
+-- | Source-ordered qualified-method candidates. Candidate precedence follows
+-- insertion order, so construction stays private and append-only.
+newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCandidate)
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -174,8 +188,8 @@ data RuntimeValue
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VConstructorState RuntimeConstructorShape RuntimeConstructorArguments
-  | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
+  | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
+  | VQualifiedMethodState Text Text SignaturePayload RuntimeMethodCandidates RuntimeAppliedArguments
   | VTyped SignatureType RuntimeValue
   | VExplicitTypeApplication SignatureType RuntimeValue
   | VRuntimeExplicitResultHints RuntimeExplicitResultHints RuntimeValue
@@ -224,9 +238,14 @@ instance Show RuntimeValue where
           <> " "
           <> show (runtimeConstructorFieldTypes shape)
           <> " "
-          <> show (runtimeConstructorArgumentsInOrder capturedArgs)
-      VQualifiedMethod methodKey _ _ candidates capturedArgs ->
-        "VQualifiedMethod " <> show methodKey <> " " <> show candidates <> " " <> show capturedArgs
+          <> show (runtimeAppliedArgumentsInOrder capturedArgs)
+      VQualifiedMethodState methodKey _ _ candidates capturedArgs ->
+        "VQualifiedMethod "
+          <> show methodKey
+          <> " "
+          <> show (runtimeMethodCandidatesInOrder candidates)
+          <> " "
+          <> show (runtimeAppliedArgumentsInOrder capturedArgs)
       VTyped typeHint innerValue ->
         "VTyped " <> show typeHint <> " " <> show innerValue
       VExplicitTypeApplication typeHint innerValue ->
@@ -246,19 +265,42 @@ pattern VConstructor :: Name -> [Name] -> Name -> [SignatureType] -> [RuntimeVal
 pattern VConstructor typeName typeParameters constructorName fieldTypes capturedArgs <-
   VConstructorState
     (RuntimeConstructorShape typeName typeParameters constructorName _ fieldTypes)
-    (runtimeConstructorArgumentsInOrder -> capturedArgs)
+    (runtimeAppliedArgumentsInOrder -> capturedArgs)
   where
     VConstructor typeName typeParameters constructorName fieldTypes capturedArgs =
       VConstructorState
         (runtimeConstructorShape typeName typeParameters constructorName fieldTypes)
-        (runtimeConstructorArgumentsFromList capturedArgs)
+        (runtimeAppliedArgumentsFromList capturedArgs)
 
 -- | Evaluator view that keeps the invariant-owning shape and append-efficient
 -- arguments intact between curried applications. Callers can reuse a shape,
 -- but cannot forge its cached arity.
-pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeConstructorArguments -> RuntimeValue
+pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeAppliedArguments -> RuntimeValue
 pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
+
+-- | Historical ordered-list view retained for public runtime consumers.
+pattern VQualifiedMethod :: Text -> Text -> SignaturePayload -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
+pattern VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs <-
+  VQualifiedMethodState
+    methodKey
+    classParameter
+    methodSignature
+    (runtimeMethodCandidatesInOrder -> candidates)
+    (runtimeAppliedArgumentsInOrder -> capturedArgs)
+  where
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs =
+      VQualifiedMethodState
+        methodKey
+        classParameter
+        methodSignature
+        (runtimeMethodCandidatesFromList candidates)
+        (runtimeAppliedArgumentsFromList capturedArgs)
+
+-- | Internal evaluator view retaining append-efficient ordered collections.
+pattern VQualifiedMethodApplication :: Text -> Text -> SignaturePayload -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
+pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
+  VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
 
 {-# COMPLETE
   VInt,
@@ -295,7 +337,7 @@ pattern VConstructorApplication shape capturedArgs =
   VSectionLeft,
   VSectionRight,
   VConstructorApplication,
-  VQualifiedMethod,
+  VQualifiedMethodApplication,
   VTyped,
   VExplicitTypeApplication,
   VExplicitResultHints,
@@ -369,33 +411,63 @@ constructorIsSaturated :: [SignatureType] -> [RuntimeValue] -> Bool
 constructorIsSaturated fieldTypes capturedArgs =
   length capturedArgs >= length fieldTypes
 
-runtimeConstructorArgumentsFromList :: [RuntimeValue] -> RuntimeConstructorArguments
-runtimeConstructorArgumentsFromList capturedArgs =
-  RuntimeConstructorArguments (Seq.fromList capturedArgs)
+runtimeAppliedArgumentsFromList :: [RuntimeValue] -> RuntimeAppliedArguments
+runtimeAppliedArgumentsFromList capturedArgs =
+  RuntimeAppliedArguments (Seq.fromList capturedArgs)
 
-runtimeConstructorArgumentsInOrder :: RuntimeConstructorArguments -> [RuntimeValue]
-runtimeConstructorArgumentsInOrder (RuntimeConstructorArguments capturedArgs) =
+emptyRuntimeAppliedArguments :: RuntimeAppliedArguments
+emptyRuntimeAppliedArguments = RuntimeAppliedArguments Seq.empty
+
+runtimeAppliedArgumentsInOrder :: RuntimeAppliedArguments -> [RuntimeValue]
+runtimeAppliedArgumentsInOrder (RuntimeAppliedArguments capturedArgs) =
   Foldable.toList capturedArgs
 
-runtimeConstructorArgumentCount :: RuntimeConstructorArguments -> Int
-runtimeConstructorArgumentCount (RuntimeConstructorArguments capturedArgs) =
+runtimeAppliedArgumentCount :: RuntimeAppliedArguments -> Int
+runtimeAppliedArgumentCount (RuntimeAppliedArguments capturedArgs) =
   Seq.length capturedArgs
 
-appendRuntimeConstructorArgument :: RuntimeValue -> RuntimeConstructorArguments -> RuntimeConstructorArguments
-appendRuntimeConstructorArgument argumentValue (RuntimeConstructorArguments capturedArgs) =
-  RuntimeConstructorArguments (capturedArgs Seq.|> argumentValue)
+appendRuntimeAppliedArgument :: RuntimeValue -> RuntimeAppliedArguments -> RuntimeAppliedArguments
+appendRuntimeAppliedArgument argumentValue (RuntimeAppliedArguments capturedArgs) =
+  RuntimeAppliedArguments (capturedArgs Seq.|> argumentValue)
 
-foldrRuntimeConstructorArguments ::
+foldrRuntimeAppliedArguments ::
   (RuntimeValue -> accumulator -> accumulator) ->
   accumulator ->
-  RuntimeConstructorArguments ->
+  RuntimeAppliedArguments ->
   accumulator
-foldrRuntimeConstructorArguments step initial (RuntimeConstructorArguments capturedArgs) =
+foldrRuntimeAppliedArguments step initial (RuntimeAppliedArguments capturedArgs) =
   Foldable.foldr step initial capturedArgs
 
-constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeConstructorArguments -> Bool
+runtimeMethodCandidatesFromList :: [RuntimeMethodCandidate] -> RuntimeMethodCandidates
+runtimeMethodCandidatesFromList candidates =
+  RuntimeMethodCandidates (Seq.fromList candidates)
+
+emptyRuntimeMethodCandidates :: RuntimeMethodCandidates
+emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty
+
+appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
+appendRuntimeMethodCandidate candidate (RuntimeMethodCandidates candidates) =
+  RuntimeMethodCandidates (candidates Seq.|> candidate)
+
+filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
+filterRuntimeMethodCandidates predicate (RuntimeMethodCandidates candidates) =
+  RuntimeMethodCandidates (Seq.filter predicate candidates)
+
+runtimeMethodCandidatesInOrder :: RuntimeMethodCandidates -> [RuntimeMethodCandidate]
+runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates) =
+  Foldable.toList candidates
+
+foldrRuntimeMethodCandidates ::
+  (RuntimeMethodCandidate -> accumulator -> accumulator) ->
+  accumulator ->
+  RuntimeMethodCandidates ->
+  accumulator
+foldrRuntimeMethodCandidates step initial (RuntimeMethodCandidates candidates) =
+  Foldable.foldr step initial candidates
+
+constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Bool
 constructorApplicationIsSaturated shape capturedArgs =
-  runtimeConstructorArgumentCount capturedArgs >= runtimeConstructorArity shape
+  runtimeAppliedArgumentCount capturedArgs >= runtimeConstructorArity shape
 
 runtimeConstructorShape :: Name -> [Name] -> Name -> [SignatureType] -> RuntimeConstructorShape
 runtimeConstructorShape typeName typeParameters constructorName fieldTypes =

@@ -199,6 +199,7 @@ import Jazz.Compiler.Runtime.Types
     DeferredHostBindingState (..),
     DeferredHostScopeId (..),
     ModuleEvaluationMode (..),
+    RuntimeAppliedArguments,
     RuntimeCell,
     RuntimeClosure (..),
     RuntimeEnv,
@@ -206,15 +207,23 @@ import Jazz.Compiler.Runtime.Types
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
     RuntimeMethodCandidate (..),
+    RuntimeMethodCandidates,
     RuntimeValue (..),
     ScopeResult (..),
-    appendRuntimeConstructorArgument,
+    appendRuntimeAppliedArgument,
+    appendRuntimeMethodCandidate,
     attachRuntimeExplicitResultHints,
     constructorApplicationIsSaturated,
+    emptyRuntimeAppliedArguments,
+    emptyRuntimeMethodCandidates,
+    filterRuntimeMethodCandidates,
     foldRuntimeExplicitResultHints,
+    runtimeAppliedArgumentsInOrder,
     runtimeConstructorName,
     runtimeEvidenceTarget,
+    runtimeMethodCandidatesInOrder,
     pattern VExplicitResultHints,
+    pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
@@ -1072,7 +1081,19 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
               methodName' = qualifiedMemberName capabilityName methodName
            in if Map.member methodName' envAcc
                 then envAcc
-                else Map.insert methodName' (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
+                else
+                  Map.insert
+                    methodName'
+                    ( Right
+                        ( VQualifiedMethodApplication
+                            methodKey
+                            classParameter
+                            methodSignature
+                            emptyRuntimeMethodCandidates
+                            emptyRuntimeAppliedArguments
+                        )
+                    )
+                    envAcc
 
     insertImplMethods :: Maybe [Text] -> Name -> [SignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
     insertImplMethods methodModulePath capabilityName arguments methods env =
@@ -1119,8 +1140,15 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         addMethodCandidate methodCandidate methodCell =
           case methodCell of
-            Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
-              Right (VQualifiedMethod methodKey classParameter methodSignature (candidates ++ [methodCandidate]) capturedArgs)
+            Right (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs) ->
+              Right
+                ( VQualifiedMethodApplication
+                    methodKey
+                    classParameter
+                    methodSignature
+                    (appendRuntimeMethodCandidate methodCandidate candidates)
+                    capturedArgs
+                )
             _ -> methodCell
 
     attachRuntimeMethodSignature ::
@@ -1132,7 +1160,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       Either Diagnostic RuntimeValue
     attachRuntimeMethodSignature methodModulePath env implTarget methodName methodValue =
       case Map.lookup methodName env of
-        Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
+        Just (Right (VQualifiedMethodApplication _ classParameter methodSignature _ _)) ->
           attachRuntimeTypeHint
             ( runtimeConstraintType signatureModulePath
                 <$> substituteClassMethodSignature classParameter implTarget methodSignature
@@ -1259,7 +1287,7 @@ qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr =
   case (maybeTypeHint, expr) of
     (Just typeHint, EVar name) ->
       case Map.lookup name env of
-        Just (Right methodValue@VQualifiedMethod {}) ->
+        Just (Right methodValue@VQualifiedMethodApplication {}) ->
           Just (applyRuntimeTypeHint typeHint methodValue)
         _ -> Nothing
     _ -> Nothing
@@ -1580,10 +1608,10 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                 Just runtimeCell -> do
                   unforcedValue <- liftRuntimeResult runtimeCell
                   case unforcedValue of
-                    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs -> do
+                    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs -> do
                       let explicitTarget = runtimeConstraintType (evaluationModulePath context) signatureType
                           matchingCandidates =
-                            filter
+                            filterRuntimeMethodCandidates
                               (\(RuntimeMethodCandidate evidence _) -> runtimeEvidenceTarget evidence == explicitTarget)
                               candidates
                       selectedValue <-
@@ -1815,7 +1843,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               throwRuntimeDiagnostic
                 (runtimeDiagnostic E3016 ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
         VConstructorApplication shape capturedArgs -> do
-          let arguments = appendRuntimeConstructorArgument argumentValue capturedArgs
+          let arguments = appendRuntimeAppliedArgument argumentValue capturedArgs
           resultValue <-
             liftRuntimeResult
               ( applyConstructor
@@ -1826,15 +1854,15 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             then recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction SaturatedAdtConstruction 1)
             else pure ()
           continueWith (ReturnRuntimeValue resultValue) profiledMachine
-        VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
-          let arguments = capturedArgs <> [argumentValue]
+        VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
+          let arguments = appendRuntimeAppliedArgument argumentValue capturedArgs
               preferredCandidates =
                 preferredRuntimeMethodCandidates
                   classParameter
                   methodSignature
                   arguments
                   candidates
-           in case preferredCandidates of
+           in case runtimeMethodCandidatesInOrder preferredCandidates of
                 [] ->
                   throwRuntimeDiagnostic
                     (runtimeDiagnostic E3026 ("no matching qualified method body '" <> methodKey <> "'"))
@@ -1842,7 +1870,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   methodValue <- liftRuntimeResult methodCell
                   suspendEvaluation
                     profiledMachine
-                    (ApplyRemainingArguments arguments)
+                    (ApplyRemainingArguments (runtimeAppliedArgumentsInOrder arguments))
                     (ForceRuntimeValue methodValue)
                 _
                   | runtimeQualifiedMethodIsFullyApplied
@@ -1855,7 +1883,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   | otherwise ->
                       continueWith
                         ( ReturnRuntimeValue
-                            ( VQualifiedMethod
+                            ( VQualifiedMethodApplication
                                 methodKey
                                 classParameter
                                 methodSignature
@@ -1877,7 +1905,7 @@ runtimeApplicationKind runtimeValue =
     VSectionLeft {} -> Just OperatorApplication
     VSectionRight {} -> Just OperatorApplication
     VConstructorApplication {} -> Just ConstructorApplication
-    VQualifiedMethod {} -> Just MethodApplication
+    VQualifiedMethodApplication {} -> Just MethodApplication
     _ -> Nothing
 
 runtimeCallableIdentity :: RuntimeValue -> Maybe RuntimeCallableIdentity
@@ -1891,7 +1919,7 @@ runtimeCallableIdentity runtimeValue =
     VSectionRight operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VConstructorApplication shape _ ->
       Just (ConstructorCallable (renderName (runtimeConstructorName shape)))
-    VQualifiedMethod methodKey _ _ _ _ -> Just (MethodCallable methodKey)
+    VQualifiedMethodApplication methodKey _ _ _ _ -> Just (MethodCallable methodKey)
     _ -> Nothing
 
 resumeEvaluationFrame ::
@@ -2564,13 +2592,20 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
 
             addMethodCandidate methodCandidate methodCell =
               case methodCell of
-                Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
-                  Right (VQualifiedMethod methodKey classParameter methodSignature (candidates <> [methodCandidate]) capturedArgs)
+                Right (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs) ->
+                  Right
+                    ( VQualifiedMethodApplication
+                        methodKey
+                        classParameter
+                        methodSignature
+                        (appendRuntimeMethodCandidate methodCandidate candidates)
+                        capturedArgs
+                    )
                 _ -> methodCell
 
             methodRuntimeTypeHint candidateImplTarget methodName =
               case Map.lookup methodName methodEnv of
-                Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
+                Just (Right (VQualifiedMethodApplication _ classParameter methodSignature _ _)) ->
                   runtimeConstraintType signatureModulePath
                     <$> substituteClassMethodSignature classParameter candidateImplTarget methodSignature
                 _ -> Nothing
@@ -2653,7 +2688,7 @@ forceQualifiedMethodValueWithHost ::
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue =
   case runtimeValue of
-    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
+    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
       applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates capturedArgs
     _ -> pure runtimeValue
 
@@ -2753,22 +2788,25 @@ applyQualifiedMethodWithHost ::
   Text ->
   Text ->
   SignaturePayload ->
-  [RuntimeMethodCandidate] ->
-  [RuntimeValue] ->
+  RuntimeMethodCandidates ->
+  RuntimeAppliedArguments ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates arguments =
-  case preferredCandidates of
+  case runtimeMethodCandidatesInOrder preferredCandidates of
     [] -> throwRuntimeDiagnostic (runtimeDiagnostic E3026 ("no matching qualified method body '" <> methodKey <> "'"))
     [RuntimeMethodCandidate _ methodCell] -> do
       methodValue <-
         liftRuntimeResult methodCell
           >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
-      foldM (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints) methodValue arguments
+      foldM
+        (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints)
+        methodValue
+        (runtimeAppliedArgumentsInOrder arguments)
     _
       | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments preferredCandidates ->
           throwRuntimeDiagnostic (runtimeDiagnostic E3026 ("ambiguous qualified method body '" <> methodKey <> "'"))
       | otherwise ->
-          pure (VQualifiedMethod methodKey classParameter methodSignature preferredCandidates arguments)
+          pure (VQualifiedMethodApplication methodKey classParameter methodSignature preferredCandidates arguments)
   where
     preferredCandidates =
       preferredRuntimeMethodCandidates

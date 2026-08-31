@@ -54,6 +54,10 @@ import Jazz.Compiler.Runtime
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
+import Jazz.Compiler.Runtime.Types
+  ( RuntimeMethodCandidate (..),
+    runtimeEvidenceTarget,
+  )
 import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKey,
     bindingRuntimeHintKeyInModule,
@@ -85,6 +89,7 @@ capabilityTests =
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
+    ("qualified method application preserves argument order", testQualifiedMethodApplicationPreservesArgumentOrder),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
     ("qualified method dispatch selects runtime body by argument types", testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes),
@@ -211,7 +216,11 @@ testCapabilityDeclarationsRuntimeInert = do
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
   case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
-    Right (Just methodValue@VQualifiedMethod {}) -> do
+    Right (Just methodValue@(VQualifiedMethod _ _ _ candidates _)) -> do
+      assertEqual
+        "runtime candidate evidence target order"
+        [TypeInt, TypeBool]
+        [runtimeEvidenceTarget evidence | RuntimeMethodCandidate evidence _ <- candidates]
       assertContains
         "runtime candidate evidence record"
         "RuntimeEvidence"
@@ -267,6 +276,27 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
             ],
           SExpr (SourceSpan 7 1) (EVar (qualifiedName "Eq" "equals"))
         ]
+
+testQualifiedMethodApplicationPreservesArgumentOrder :: IO ()
+testQualifiedMethodApplicationPreservesArgumentOrder = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      class RuntimeOrder(a) {
+      order :: Int -> a -> Int.
+      }.
+      impl RuntimeOrder(Int) {
+      order = \\(left, right) -> left * 10 + right.
+      }.
+      impl RuntimeOrder(Bool) {
+      order = \\(left, right) -> left.
+      }.
+      RuntimeOrder::order 1 2.
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "12") (runOutput result)
 
 testQualifiedMethodDispatchExecutesImplBody :: IO ()
 testQualifiedMethodDispatchExecutesImplBody = do
