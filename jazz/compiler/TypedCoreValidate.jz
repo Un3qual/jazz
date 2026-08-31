@@ -6042,6 +6042,29 @@ module TypedCoreValidate (
   binderOccurrencesAt :: TypedCoreValidationPath -> [TypedBinderId] -> [BinderOccurrence].
   binderOccurrencesAt = \(path, binders) -> listMap (\(binder) -> BinderOccurrence path binder) binders.
 
+  binderOccurrenceCount :: TypedBinderId -> [BinderOccurrence] -> Int.
+  binderOccurrenceCount = \(binder, occurrences) -> case occurrences {
+    | [] -> 0
+    | [BinderOccurrence occurrencePath occurrenceBinder | rest] ->
+      (if binderIdEqual binder occurrenceBinder then 1 else 0) + binderOccurrenceCount binder rest
+  }.
+
+  alternativeExcessBinderOccurrencesFrom :: [BinderOccurrence] -> [BinderOccurrence] -> [BinderOccurrence] -> [BinderOccurrence] -> [BinderOccurrence].
+  alternativeExcessBinderOccurrencesFrom = \(represented, remaining, seen, selectedReversed) -> case remaining {
+    | [] -> listReverse selectedReversed
+    | [occurrence | rest] -> case occurrence {
+      | BinderOccurrence occurrencePath binder -> {
+        occurrenceOrdinal = binderOccurrenceCount binder seen + 1.
+        representedMaximum = binderOccurrenceCount binder represented.
+        alternativeExcessBinderOccurrencesFrom
+          represented
+          rest
+          (listPrepend occurrence seen)
+          (if occurrenceOrdinal > representedMaximum then listPrepend occurrence selectedReversed else selectedReversed).
+      }
+    }
+  }.
+
   patternBinderOccurrences :: [Text] -> [Int] -> [Int] -> TypedPattern -> [BinderOccurrence].
   patternBinderOccurrences = \(modulePath, statementIndex, patternPath, pattern) -> {
     path = TypedPatternPath modulePath statementIndex patternPath.
@@ -6060,18 +6083,22 @@ module TypedCoreValidate (
         | [] -> []
         | [firstAlternative | laterAlternatives] -> {
           firstOccurrences = patternBinderOccurrences modulePath statementIndex (listAppend patternPath [0]) firstAlternative.
-          representedBinders = listMap (\(occurrence) -> case occurrence {
-            | BinderOccurrence occurrencePath binder -> binder
-          }) firstOccurrences.
-          laterOccurrences = patternListBinderOccurrences modulePath statementIndex patternPath laterAlternatives 1.
-          listAppend firstOccurrences (listFilter (\(occurrence) -> case occurrence {
-            | BinderOccurrence occurrencePath binder -> if binderIdMember binder representedBinders then False else True
-          }) laterOccurrences).
+          patternAlternativeBinderOccurrences modulePath statementIndex patternPath laterAlternatives 1 firstOccurrences.
         }
       }
       | other -> []
     }.
     listAppend owned children.
+  }.
+
+  patternAlternativeBinderOccurrences :: [Text] -> [Int] -> [Int] -> [TypedPattern] -> Int -> [BinderOccurrence] -> [BinderOccurrence].
+  patternAlternativeBinderOccurrences = \(modulePath, statementIndex, patternPath, alternatives, alternativeIndex, represented) -> case alternatives {
+    | [] -> represented
+    | [first | rest] -> {
+      occurrences = patternBinderOccurrences modulePath statementIndex (listAppend patternPath [alternativeIndex]) first.
+      merged = listAppend represented (alternativeExcessBinderOccurrencesFrom represented occurrences [] []).
+      patternAlternativeBinderOccurrences modulePath statementIndex patternPath rest (alternativeIndex + 1) merged.
+    }
   }.
 
   patternListBinderOccurrences :: [Text] -> [Int] -> [Int] -> [TypedPattern] -> Int -> [BinderOccurrence].

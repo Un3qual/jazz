@@ -5,6 +5,7 @@ module Jazz.Compiler.LoweredIR.Lower.Emit
   )
 where
 
+import Data.List (findIndex)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
@@ -15,6 +16,7 @@ import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
   ( constructorApplicationLayout,
     constructorLayoutFor,
     managedLayoutShapeFor,
+    managedPatternConstructorsFor,
     nodeInstantiations,
     orderedManagedLayouts,
     productLayoutFields,
@@ -36,7 +38,22 @@ import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
     textRepresentation,
   )
 import Jazz.Compiler.TypedCore
+import Numeric.Natural (Natural)
 import Text.Read (readMaybe)
+
+data ManagedDecisionAccessor
+  = ManagedDecisionRoot
+  | ManagedDecisionProductField ManagedDecisionAccessor LoweredLayoutId Int LoweredRepresentation
+  | ManagedDecisionVariantField ManagedDecisionAccessor LoweredLayoutId Natural Int LoweredRepresentation
+
+data ManagedDecisionConstructor
+  = ManagedDecisionProduct LoweredLayoutId [(TypedNodeInfo, LoweredRepresentation)]
+  | ManagedDecisionVariant ManagedPatternConstructor
+
+data ManagedAlternativeDecision
+  = ManagedAlternativeSuccess Int
+  | ManagedAlternativeVariant ManagedDecisionAccessor [(ManagedPatternConstructor, ManagedAlternativeDecision)]
+  | ManagedAlternativeLiteral ManagedDecisionAccessor TypedNodeInfo TypedLiteral ManagedAlternativeDecision ManagedAlternativeDecision
 
 emitAnalyzedModule :: LoweringAnalysis -> Either [LoweredIRLoweringFailure] LoweredProgram
 emitAnalyzedModule analysis =
@@ -1411,105 +1428,329 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
             Just expected -> expected == [(binder, loweredOperandRepresentation operand) | (binder, operand) <- binderOperands]
 
     lowerExhaustiveOrArm resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm alternatives laterArms currentState =
-      case (scrutineeAt scrutineeCarrier currentState, ambientArguments controlSlots currentState, traverse alternativeContract (NonEmpty.toList alternatives)) of
-        (Just scrutineeOperand, Just switchArguments, Just (firstContract : laterContracts))
-          | alternativesCoverLayout (firstContract : laterContracts) ->
-              let tagIndex = loweringNextTemporary currentState
-                  tagTemporary = LoweredTemporaryId ("t" <> Text.pack (show tagIndex))
-                  contracts = firstContract : laterContracts
-                  layoutId = managedConstructorLayoutId (managedPatternConstructorLayout (alternativeConstructor firstContract))
-                  tagInstruction =
-                    LoweredInstruction
-                      tagTemporary
-                      variantTagRepresentation
-                      (LoweredProjectVariantTag layoutId scrutineeOperand)
-                  alternativeBlock index = patternCaseBlockId statementPath expressionPath armIndex ("alternative" <> Text.pack (show index))
-                  indexedContracts = zip [0 :: Int ..] contracts
-                  switchCases =
-                    [ LoweredSwitchCase
-                        (fromIntegral (managedConstructorTag (managedPatternConstructorLayout (alternativeConstructor contract))))
-                        (alternativeBlock index)
-                        switchArguments
-                    | (index, contract) <- init indexedContracts
-                    ]
-                  finalBlockId = alternativeBlock (fst (last indexedContracts))
-                  switchDefault = Just (LoweredSwitchDefault finalBlockId switchArguments)
-                  switchedState =
-                    finishCurrentBlock
-                      (LoweredSwitch scrutineeOperand switchCases switchDefault)
-                      currentState
-                        { loweringNextTemporary = tagIndex + 1,
-                          loweringInstructions = tagInstruction : loweringInstructions currentState
-                        }
-               in compileAlternatives indexedContracts Nothing switchedState
+      case (managedPatternArmGuard arm, scrutineeAt scrutineeCarrier currentState, orPatternInfo >>= (\nodeInfo -> buildDecision [(nodeInfo, ManagedDecisionRoot)] indexedAlternatives)) of
+        (Nothing, Just rootOperand, Just decision) ->
+          case compileDecision [] rootOperand decision currentState of
+            (failures@(_ : _), decisionState) -> (failures, decisionState)
+            ([], decisionState) ->
+              case compileAlternativeBlocks decision decisionState of
+                (failures@(_ : _), alternativeState) -> (failures, alternativeState)
+                ([], alternativeState) -> enterCommonBody decision alternativeState
         _ -> ([patternUnsupported armIndex], currentState)
       where
-        alternativeContract patternValue = do
-          (constructor, children, prefixBinders) <- constructorPattern patternValue
-          if all irrefutableAlternativePattern children
-            then Just (constructor, children, prefixBinders)
-            else Nothing
-        alternativeConstructor (constructor, _, _) = constructor
-        irrefutableAlternativePattern patternValue =
+        indexedAlternatives = [(index, [alternative]) | (index, alternative) <- zip [0 :: Int ..] (NonEmpty.toList alternatives)]
+        orPatternInfo =
+          case managedPatternArmPattern arm of
+            ManagedOr nodeInfo _ -> Just nodeInfo
+            _ -> Nothing
+        alternativeBlockId alternativeIndex =
+          patternCaseBlockId statementPath expressionPath armIndex ("alternative" <> Text.pack (show alternativeIndex))
+        decisionBlockId decisionPath =
+          patternCaseBlockId statementPath expressionPath armIndex ("decision" <> Text.intercalate "," (map (Text.pack . show) decisionPath))
+        decisionTarget decisionPath decision =
+          case decision of
+            ManagedAlternativeSuccess alternativeIndex -> alternativeBlockId alternativeIndex
+            _ -> decisionBlockId decisionPath
+        buildDecision columns rows =
+          case rows of
+            [] -> Nothing
+            (alternativeIndex, firstPatterns) : _
+              | all decisionIrrefutable firstPatterns -> Just (ManagedAlternativeSuccess alternativeIndex)
+              | Just selectedIndex <- findIndex (not . decisionIrrefutable) firstPatterns,
+                Just (selectedInfo, selectedAccessor) <- valueAt selectedIndex columns,
+                Just selectedPattern <- valueAt selectedIndex firstPatterns ->
+                  case decisionConstructors selectedInfo of
+                    Just [constructor@ManagedDecisionProduct {}] -> do
+                      specializedRows <- nonEmptyRows (specializeDecisionRows selectedIndex constructor rows)
+                      buildDecision (decisionChildColumns selectedAccessor constructor <> removeAt selectedIndex columns) specializedRows
+                    Just constructors@(_ : _) -> do
+                      branches <-
+                        traverse
+                          ( \constructor -> do
+                              specializedRows <- nonEmptyRows (specializeDecisionRows selectedIndex constructor rows)
+                              branch <- buildDecision (decisionChildColumns selectedAccessor constructor <> removeAt selectedIndex columns) specializedRows
+                              case constructor of
+                                ManagedDecisionVariant variant -> Just (variant, branch)
+                                _ -> Nothing
+                          )
+                          constructors
+                      Just (ManagedAlternativeVariant selectedAccessor branches)
+                    _ ->
+                      case selectedPattern of
+                        ManagedLiteral literalInfo literal -> do
+                          matchingRows <- nonEmptyRows (literalMatchingRows selectedIndex literal rows)
+                          remainingRows <- nonEmptyRows (literalRemainingRows selectedIndex literal rows)
+                          matchingDecision <- buildDecision (removeAt selectedIndex columns) matchingRows
+                          remainingDecision <- buildDecision columns remainingRows
+                          Just (ManagedAlternativeLiteral selectedAccessor literalInfo literal matchingDecision remainingDecision)
+                        _ -> Nothing
+            _ -> Nothing
+        decisionIrrefutable patternValue =
           case patternValue of
             ManagedWildcard {} -> True
             ManagedVariable {} -> True
-            ManagedTuple _ _ children -> all irrefutableAlternativePattern children
-            ManagedAs _ _ nested -> irrefutableAlternativePattern nested
+            ManagedAs _ _ nested -> decisionIrrefutable nested
+            ManagedOr _ nestedAlternatives -> any decisionIrrefutable nestedAlternatives
             _ -> False
-        alternativesCoverLayout contracts =
-          case contracts of
-            (firstConstructor, _, _) : _ ->
-              let layoutId = managedConstructorLayoutId (managedPatternConstructorLayout firstConstructor)
-                  contractTags = map (managedConstructorTag . managedPatternConstructorLayout . alternativeConstructor) contracts
-               in case managedLayoutShapeFor (indexedManagedLayoutCatalog functions) layoutId of
-                    Just (LoweredVariantLayouts variants) ->
-                      contractTags == [fromIntegral tag | LoweredVariantLayout tag _ <- variants]
-                    _ -> False
-            [] -> False
-        compileAlternatives indexedContracts maybeExpectedBinders completedState =
-          case indexedContracts of
-            [] -> ([patternUnsupported armIndex], completedState)
-            (alternativeIndex, (constructor, children, prefixBinders)) : remaining ->
-              let blockId = patternCaseBlockId statementPath expressionPath armIndex ("alternative" <> Text.pack (show alternativeIndex))
+        decisionConstructors nodeInfo =
+          case (typedNodeType nodeInfo, typedNodeRecipe nodeInfo, representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe nodeInfo)) of
+            (TypedTupleType types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
+              | length types == length recipes,
+                let fieldInfos = zipWith (\typeValue recipe -> TypedNodeInfo typeValue recipe [] []) types recipes,
+                Just representations <- traverse (representationForRecipe (indexedManagedLayoutCatalog functions) . typedNodeRecipe) fieldInfos ->
+                  Just [ManagedDecisionProduct layoutId (zip fieldInfos representations)]
+            (TypedDataType {}, TypedManagedVariantRecipe {}, _) ->
+              map ManagedDecisionVariant <$> managedPatternConstructorsFor (indexedManagedLayoutCatalog functions) nodeInfo
+            _ -> Nothing
+        decisionChildColumns accessor constructor =
+          case constructor of
+            ManagedDecisionProduct layoutId fields ->
+              [ (fieldInfo, ManagedDecisionProductField accessor layoutId fieldIndex representation)
+              | (fieldIndex, (fieldInfo, representation)) <- zip [0 ..] fields
+              ]
+            ManagedDecisionVariant variant ->
+              let layout = managedPatternConstructorLayout variant
+                  layoutId = managedConstructorLayoutId layout
+                  tag = managedConstructorTag layout
+               in [ (fieldInfo, ManagedDecisionVariantField accessor layoutId tag fieldIndex representation)
+                  | (fieldIndex, (fieldInfo, representation)) <- zip [0 ..] (zip (managedPatternConstructorFields variant) (managedConstructorFields layout))
+                  ]
+        specializeDecisionRows selectedIndex constructor = concatMap specializeRow
+          where
+            specializeRow (alternativeIndex, patterns) =
+              case valueAt selectedIndex patterns >>= specializeDecisionPattern constructor of
+                Just children -> [(alternativeIndex, children <> removeAt selectedIndex patterns)]
+                Nothing -> []
+        specializeDecisionPattern constructor patternValue =
+          case patternValue of
+            ManagedWildcard _ -> Just (decisionWildcards constructor)
+            ManagedVariable _ _ -> Just (decisionWildcards constructor)
+            ManagedAs _ _ nested -> specializeDecisionPattern constructor nested
+            ManagedTuple _ layoutId children ->
+              case constructor of
+                ManagedDecisionProduct expectedLayout _
+                  | layoutId == expectedLayout -> Just children
+                _ -> Nothing
+            ManagedConstructor actual children ->
+              case constructor of
+                ManagedDecisionVariant expected
+                  | sameDecisionConstructor expected actual -> Just children
+                _ -> Nothing
+            _ -> Nothing
+        decisionWildcards constructor =
+          case constructor of
+            ManagedDecisionProduct _ fields -> [ManagedWildcard fieldInfo | (fieldInfo, _) <- fields]
+            ManagedDecisionVariant variant -> map ManagedWildcard (managedPatternConstructorFields variant)
+        sameDecisionConstructor left right =
+          managedPatternConstructorName left == managedPatternConstructorName right
+            && managedPatternConstructorLayout left == managedPatternConstructorLayout right
+        literalMatchingRows selectedIndex literal = concatMap matchingRow
+          where
+            matchingRow (alternativeIndex, patterns) =
+              case valueAt selectedIndex patterns of
+                Just patternValue
+                  | decisionIrrefutable patternValue -> [(alternativeIndex, removeAt selectedIndex patterns)]
+                Just (ManagedLiteral _ actual)
+                  | actual == literal -> [(alternativeIndex, removeAt selectedIndex patterns)]
+                _ -> []
+        literalRemainingRows selectedIndex literal = concatMap remainingRow
+          where
+            remainingRow row@(alternativeIndex, patterns) =
+              case valueAt selectedIndex patterns of
+                Just patternValue
+                  | decisionIrrefutable patternValue -> [(alternativeIndex, removeAt selectedIndex patterns)]
+                Just (ManagedLiteral _ actual)
+                  | actual == literal -> []
+                Just ManagedLiteral {} -> [row]
+                _ -> []
+        nonEmptyRows rows = if null rows then Nothing else Just rows
+        removeAt index values = take index values <> drop (index + 1) values
+        valueAt index values =
+          case drop index values of
+            value : _ -> Just value
+            [] -> Nothing
+
+        compileDecision decisionPath rootOperand decision decisionState =
+          case decision of
+            ManagedAlternativeSuccess alternativeIndex ->
+              case ambientArguments controlSlots decisionState of
+                Just arguments -> ([], finishCurrentBlock (LoweredJump (alternativeBlockId alternativeIndex) arguments) decisionState)
+                Nothing -> ([unsupportedFailure path], decisionState)
+            ManagedAlternativeVariant accessor branches@((firstConstructor, _) : _) ->
+              case emitDecisionAccessor rootOperand accessor decisionState of
+                (decisionOperand, accessedState) ->
+                  case ambientArguments controlSlots accessedState of
+                    Just arguments ->
+                      let (_, taggedState) = emitProjection variantTagRepresentation (LoweredProjectVariantTag (managedConstructorLayoutId (managedPatternConstructorLayout firstConstructor)) decisionOperand) accessedState
+                          switchCases =
+                            [ LoweredSwitchCase
+                                (fromIntegral (managedConstructorTag (managedPatternConstructorLayout constructor)))
+                                (decisionTarget (decisionPath <> [branchIndex]) branch)
+                                arguments
+                            | (branchIndex, (constructor, branch)) <- zip [0 :: Int ..] branches
+                            ]
+                          switchedState = finishCurrentBlock (LoweredSwitch decisionOperand switchCases Nothing) taggedState
+                       in compileDecisionChildren decisionPath branches switchedState
+                    Nothing -> ([unsupportedFailure path], accessedState)
+            ManagedAlternativeVariant _ [] -> ([unsupportedFailure path], decisionState)
+            ManagedAlternativeLiteral accessor literalInfo literal matching remaining ->
+              let (decisionOperand, accessedState) = emitDecisionAccessor rootOperand accessor decisionState
+                  (literalFailures, maybeLiteralOperand, literalState) = lowerLiteral path literalInfo literal accessedState
+               in case (literalFailures, maybeLiteralOperand, ambientArguments controlSlots literalState) of
+                    ([], Just literalOperand, Just arguments)
+                      | loweredOperandRepresentation literalOperand == loweredOperandRepresentation decisionOperand ->
+                          let comparisonIndex = loweringNextTemporary literalState
+                              comparisonTemporary = LoweredTemporaryId ("t" <> Text.pack (show comparisonIndex))
+                              comparisonInstruction =
+                                LoweredInstruction
+                                  comparisonTemporary
+                                  LoweredBoolRepresentation
+                                  (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [decisionOperand, literalOperand])
+                              comparedState =
+                                literalState
+                                  { loweringNextTemporary = comparisonIndex + 1,
+                                    loweringInstructions = comparisonInstruction : loweringInstructions literalState
+                                  }
+                              matchingPath = decisionPath <> [0]
+                              remainingPath = decisionPath <> [1]
+                              branchedState =
+                                finishCurrentBlock
+                                  ( LoweredBranch
+                                      (LoweredTemporaryOperand comparisonTemporary LoweredBoolRepresentation)
+                                      (decisionTarget matchingPath matching)
+                                      arguments
+                                      (decisionTarget remainingPath remaining)
+                                      arguments
+                                  )
+                                  comparedState
+                           in compileLiteralChildren matchingPath matching remainingPath remaining branchedState
+                    (failures@(_ : _), _, _) -> (failures, literalState)
+                    _ -> ([patternUnsupported armIndex], literalState)
+        compileDecisionChildren decisionPath branches initialState =
+          foldl'
+            ( \(failures, completedState) (branchIndex, (_, branch)) ->
+                if null failures
+                  then compileDecisionChild (decisionPath <> [branchIndex]) branch completedState
+                  else (failures, completedState)
+            )
+            ([], initialState)
+            (zip [0 :: Int ..] branches)
+        compileLiteralChildren matchingPath matching remainingPath remaining branchedState =
+          case compileDecisionChild matchingPath matching branchedState of
+            (failures@(_ : _), failedState) -> (failures, failedState)
+            ([], matchingState) -> compileDecisionChild remainingPath remaining matchingState
+        compileDecisionChild decisionPath decision completedState =
+          case decision of
+            ManagedAlternativeSuccess {} -> ([], completedState)
+            _ ->
+              let blockBase = continuationState currentState completedState
+                  blockState = remapAmbient controlSlots controlParameters (startBlock (decisionBlockId decisionPath) controlParameters blockBase)
+               in case scrutineeAt scrutineeCarrier blockState of
+                    Just currentRoot -> compileDecision decisionPath currentRoot decision blockState
+                    Nothing -> ([unsupportedFailure path], blockState)
+
+        compileAlternativeBlocks decision initialState = foldl' compileAlternative ([], initialState) usedAlternatives
+          where
+            usedAlternativeIndices = decisionAlternatives decision
+            usedAlternatives = [(index, alternative) | (index, alternative) <- zip [0 :: Int ..] (NonEmpty.toList alternatives), index `elem` usedAlternativeIndices]
+            compileAlternative (failures, completedState) (alternativeIndex, alternative)
+              | not (null failures) = (failures, completedState)
+              | otherwise =
+                  let blockBase = continuationState currentState completedState
+                      blockState = remapAmbient controlSlots controlParameters (startBlock (alternativeBlockId alternativeIndex) controlParameters blockBase)
+                   in case (scrutineeAt scrutineeCarrier blockState, ambientArguments controlSlots blockState) of
+                        (Just currentRoot, Just arguments) ->
+                          case extractMatchedBinders alternative currentRoot blockState of
+                            Just (binderOperands, extractedState)
+                              | binderRepresentations binderOperands == expectedBinderContract ->
+                                  ([], finishCurrentBlock (LoweredJump (matchedArmEntry armIndex arm) (arguments <> map snd binderOperands)) extractedState)
+                            _ -> ([patternUnsupported armIndex], blockState)
+                        _ -> ([unsupportedFailure path], blockState)
+        decisionAlternatives decision =
+          case decision of
+            ManagedAlternativeSuccess alternativeIndex -> [alternativeIndex]
+            ManagedAlternativeVariant _ branches -> foldl' appendUnique [] [decisionAlternatives branch | (_, branch) <- branches]
+            ManagedAlternativeLiteral _ _ _ matching remaining -> appendUnique (decisionAlternatives matching) (decisionAlternatives remaining)
+        appendUnique existing additions = foldl' (\values value -> if value `elem` values then values else values <> [value]) existing additions
+        expectedBinderContract =
+          case alternativeBinderContract (NonEmpty.head alternatives) of
+            Just contract -> contract
+            Nothing -> []
+        alternativeBinderContract patternValue =
+          traverse
+            ( \(binder, binderInfo) -> do
+                representation <- representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe binderInfo)
+                Just (binder, representation)
+            )
+            (patternBindersWithInfo patternValue)
+        binderRepresentations = map (\(binder, operand) -> (binder, loweredOperandRepresentation operand))
+        patternBindersWithInfo patternValue =
+          case patternValue of
+            ManagedVariable binderInfo binder -> [(binder, binderInfo)]
+            ManagedConstructor _ children -> concatMap patternBindersWithInfo children
+            ManagedTuple _ _ children -> concatMap patternBindersWithInfo children
+            ManagedAs binderInfo binder nested -> (binder, binderInfo) : patternBindersWithInfo nested
+            ManagedOr _ nestedAlternatives -> patternBindersWithInfo (NonEmpty.head nestedAlternatives)
+            _ -> []
+        patternHasBinders = not . null . patternBindersWithInfo
+        extractMatchedBinders patternValue operand binderState =
+          case patternValue of
+            ManagedWildcard {} -> Just ([], binderState)
+            ManagedVariable _ binder -> Just ([(binder, operand)], binderState)
+            ManagedLiteral {} -> Just ([], binderState)
+            ManagedAs _ binder nested -> do
+              (nestedBinders, nestedState) <- extractMatchedBinders nested operand binderState
+              Just ((binder, operand) : nestedBinders, nestedState)
+            ManagedTuple _ layoutId children -> do
+              representations <- productLayoutFields (indexedManagedLayoutCatalog functions) layoutId
+              extractChildBinders (\fieldIndex _ -> LoweredProjectField layoutId fieldIndex operand) children representations binderState
+            ManagedConstructor constructor children ->
+              let layout = managedPatternConstructorLayout constructor
+               in extractChildBinders
+                    (\fieldIndex _ -> LoweredProjectVariantField (managedConstructorLayoutId layout) (fromIntegral (managedConstructorTag layout)) fieldIndex operand)
+                    children
+                    (managedConstructorFields layout)
+                    binderState
+            ManagedOr {} -> Nothing
+        extractChildBinders project children representations binderState
+          | length children /= length representations = Nothing
+          | otherwise = foldl' extractChild (Just ([], binderState)) (zip3 [0 :: Int ..] children representations)
+          where
+            extractChild Nothing _ = Nothing
+            extractChild (Just (binders, childState)) (fieldIndex, child, representation)
+              | patternHasBinders child = do
+                  let (childOperand, projectedState) = emitProjection representation (project fieldIndex representation) childState
+                  (childBinders, extractedState) <- extractMatchedBinders child childOperand projectedState
+                  Just (binders <> childBinders, extractedState)
+              | otherwise = Just (binders, childState)
+        emitDecisionAccessor rootOperand accessor accessorState =
+          case accessor of
+            ManagedDecisionRoot -> (rootOperand, accessorState)
+            ManagedDecisionProductField parent layoutId fieldIndex representation ->
+              let (parentOperand, parentState) = emitDecisionAccessor rootOperand parent accessorState
+               in emitProjection representation (LoweredProjectField layoutId fieldIndex parentOperand) parentState
+            ManagedDecisionVariantField parent layoutId tag fieldIndex representation ->
+              let (parentOperand, parentState) = emitDecisionAccessor rootOperand parent accessorState
+               in emitProjection representation (LoweredProjectVariantField layoutId (fromIntegral tag) fieldIndex parentOperand) parentState
+
+        enterCommonBody decision completedState =
+          case expectedBinderContract of
+            [] | not (null (patternBindersWithInfo (NonEmpty.head alternatives))) -> ([patternUnsupported armIndex], completedState)
+            binderContract ->
+              let binderParameters =
+                    [LoweredParameter (LoweredParameterId ("pattern" <> Text.pack (show index))) representation | (index, (_, representation)) <- zip [1 :: Int ..] binderContract]
+                  bodyParameters = controlParameters <> binderParameters
                   blockBase = continuationState currentState completedState
-                  blockState = remapAmbient controlSlots controlParameters (startBlock blockId controlParameters blockBase)
-               in case (scrutineeAt scrutineeCarrier blockState, ambientArguments controlSlots blockState) of
-                    (Just currentScrutinee, Just currentControlArguments) ->
-                      case projectConstructorFields constructor children currentScrutinee blockState of
-                        Just (projectedOperands, projectedState) ->
-                          case matchPatternWork controlSlots controlParameters armIndex (ordinaryMatchBlockId armIndex) Nothing 1 [(binder, currentScrutinee) | binder <- prefixBinders] [] (zip children projectedOperands) projectedState of
-                            Just (nextMatchIndex, binderOperands, [], matchedState)
-                              | binderContractMatches maybeExpectedBinders binderOperands ->
-                                  case remaining of
-                                    [] ->
-                                      enterProjectedBody
-                                        resultRepresentation
-                                        scrutineeCarrier
-                                        outerSlots
-                                        controlSlots
-                                        controlParameters
-                                        armIndex
-                                        arm
-                                        laterArms
-                                        currentState
-                                        nextMatchIndex
-                                        binderOperands
-                                        []
-                                        (armEntryBlock (armIndex + 1) <$> nonEmptyHead laterArms)
-                                        matchedState
-                                    _ ->
-                                      let bodyBlockId = matchedArmEntry armIndex arm
-                                          jumpState = finishCurrentBlock (LoweredJump bodyBlockId (currentControlArguments <> map snd binderOperands)) matchedState
-                                          expectedBinders = Just [(binder, loweredOperandRepresentation operand) | (binder, operand) <- binderOperands]
-                                       in compileAlternatives remaining expectedBinders jumpState
-                            _ -> ([patternUnsupported armIndex], projectedState)
-                        Nothing -> ([patternUnsupported armIndex], blockState)
-                    _ -> ([unsupportedFailure path], blockState)
-        binderContractMatches maybeExpected binderOperands =
-          case maybeExpected of
-            Nothing -> True
-            Just expected -> expected == [(binder, loweredOperandRepresentation operand) | (binder, operand) <- binderOperands]
+                  bodyState = remapAmbient controlSlots controlParameters (startBlock (matchedArmEntry armIndex arm) bodyParameters blockBase)
+                  binderOperands =
+                    zipWith
+                      (\(binder, _) (LoweredParameter parameterId representation) -> (binder, LoweredBlockParameterOperand parameterId representation))
+                      binderContract
+                      binderParameters
+                  scopedState = bindProjectedOperands binderOperands binderParameters bodyState
+               in case decisionAlternatives decision of
+                    [] -> ([patternUnsupported armIndex], bodyState)
+                    _ -> lowerArmBody resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters armIndex arm laterArms currentState scopedState
 
     lowerConstructorArms resultRepresentation scrutineeCarrier outerSlots controlSlots controlParameters plannedArms currentState =
       case (plannedArms, scrutineeAt scrutineeCarrier currentState, ambientArguments controlSlots currentState) of

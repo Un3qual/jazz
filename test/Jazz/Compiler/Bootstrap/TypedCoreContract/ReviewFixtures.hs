@@ -8363,6 +8363,71 @@ laterOrPatternBinderCollisionProgram =
         expressionStatement 2 expression
       ]
 
+orPatternMaximumMultiplicityBinder :: TypedBinderId
+orPatternMaximumMultiplicityBinder =
+  binder
+    (fixtureModulePath "review-or-pattern-maximum-multiplicity")
+    [1, 0]
+    (fixtureValueName "matched")
+
+orPatternMaximumMultiplicityProgram :: TypedProgram
+orPatternMaximumMultiplicityProgram =
+  expressionFixtureProgram fixture expression
+  where
+    fixture = "review-or-pattern-maximum-multiplicity"
+    modulePath = fixtureModulePath fixture
+    valueName = fixtureValueName "matched"
+    firstBinder = binder modulePath [0, 0] valueName
+    alternative binderId = TypedVariablePattern boolInfo binderId valueName
+    patternValue =
+      TypedOrPattern
+        boolInfo
+        [ alternative firstBinder,
+          alternative orPatternMaximumMultiplicityBinder,
+          alternative orPatternMaximumMultiplicityBinder
+        ]
+    expression =
+      TypedPatternCaseExpr
+        boolInfo
+        trueExpr
+        [TypedCaseArm patternValue Nothing trueExpr]
+
+orPatternExcessMultiplicityBinder :: TypedBinderId
+orPatternExcessMultiplicityBinder =
+  binder
+    (fixtureModulePath "review-or-pattern-excess-multiplicity")
+    [0, 0]
+    (fixtureValueName "first")
+
+orPatternExcessMultiplicityProgram :: TypedProgram
+orPatternExcessMultiplicityProgram =
+  expressionFixtureProgram fixture expression
+  where
+    fixture = "review-or-pattern-excess-multiplicity"
+    modulePath = fixtureModulePath fixture
+    firstName = fixtureValueName "first"
+    secondName = fixtureValueName "second"
+    secondBinder = binder modulePath [0, 1] secondName
+    variable binderId name = TypedVariablePattern boolInfo binderId name
+    firstAlternative =
+      TypedTuplePattern
+        pairInfo
+        [ variable orPatternExcessMultiplicityBinder firstName,
+          variable secondBinder secondName
+        ]
+    secondAlternative =
+      TypedTuplePattern
+        pairInfo
+        [ variable orPatternExcessMultiplicityBinder firstName,
+          variable orPatternExcessMultiplicityBinder firstName
+        ]
+    patternValue = TypedOrPattern pairInfo [firstAlternative, secondAlternative]
+    expression =
+      TypedPatternCaseExpr
+        boolInfo
+        (TypedTupleExpr pairInfo [trueExpr, falseExpr])
+        [TypedCaseArm patternValue Nothing trueExpr]
+
 concreteIntegerBoundsProgram :: TypedProgram
 concreteIntegerBoundsProgram =
   singleModuleProgram

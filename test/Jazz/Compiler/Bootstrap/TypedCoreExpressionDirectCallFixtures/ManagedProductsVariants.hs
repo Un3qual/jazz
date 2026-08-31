@@ -125,7 +125,9 @@ managedProductVariantIndependentExpectedLoweredPrograms =
     ("managed-multiple-literal-tuple-pattern", managedMultipleLiteralTuplePatternProgram, managedMultipleLiteralTuplePatternLoweredProgram),
     ("managed-total-nested-constructor-pattern", managedTotalNestedConstructorPatternProgram, managedTotalNestedConstructorPatternLoweredProgram),
     ("managed-mixed-pattern-fallthrough", managedMixedPatternFallthroughProgram, managedMixedPatternFallthroughLoweredProgram),
-    ("managed-as-guard-transport", managedAsGuardTransportProgram, managedAsGuardTransportLoweredProgram)
+    ("managed-as-guard-transport", managedAsGuardTransportProgram, managedAsGuardTransportLoweredProgram),
+    ("managed-or-recursive-total", managedOrRecursiveTotalProgram, managedOrRecursiveTotalLoweredProgram),
+    ("managed-or-reverse-total", managedOrReverseTotalProgram, managedOrReverseTotalLoweredProgram)
   ]
 
 managedProductVariantManifestExpectedPrograms :: [(Text, TypedProgram)]
@@ -713,6 +715,111 @@ managedOrConstructorPatternLoweredProgram =
           LoweredInstruction (LoweredTemporaryId "t3") LoweredBoolRepresentation (LoweredPrimitiveOperation (LoweredComparisonPrimitive LoweredEqual) [temporaryOperand 1 int64Representation, intOperand literal])
         ]
         (Just (LoweredBranch (temporaryOperand 3 LoweredBoolRepresentation) bodyBlockId [blockOperand "live1" choiceRepresentation, temporaryOperand 2 int64Representation] failureBlockId [blockOperand "live1" choiceRepresentation]))
+
+managedOrReverseTotalLoweredProgram :: LoweredProgram
+managedOrReverseTotalLoweredProgram =
+  managedPatternLoweredProgram
+    [reverseChoiceLayout]
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ LoweredInstruction (LoweredTemporaryId "t1") reverseChoiceRepresentation (LoweredConstructVariant reverseChoiceLayoutId 1 [intOperand 20]),
+          LoweredInstruction (LoweredTemporaryId "t2") tagRepresentation (LoweredProjectVariantTag reverseChoiceLayoutId (temporaryOperand 1 reverseChoiceRepresentation))
+        ]
+        ( Just
+            ( LoweredSwitch
+                (temporaryOperand 1 reverseChoiceRepresentation)
+                [ LoweredSwitchCase 0 leftBlockId [temporaryOperand 1 reverseChoiceRepresentation],
+                  LoweredSwitchCase 1 rightBlockId [temporaryOperand 1 reverseChoiceRepresentation]
+                ]
+                Nothing
+            )
+        ),
+      alternativeBlock rightBlockId 1,
+      alternativeBlock leftBlockId 0,
+      LoweredBlock
+        bodyBlockId
+        [ LoweredParameter (LoweredParameterId "live1") reverseChoiceRepresentation,
+          LoweredParameter (LoweredParameterId "pattern1") int64Representation
+        ]
+        []
+        (Just (LoweredJump joinBlockId [blockOperand "pattern1" int64Representation])),
+      resultJoinBlock joinBlockId int64Representation
+    ]
+    int64Representation
+  where
+    rightBlockId = LoweredBlockId "case$s1$1$e1$0$a0$alternative0"
+    leftBlockId = LoweredBlockId "case$s1$1$e1$0$a0$alternative1"
+    bodyBlockId = LoweredBlockId "case$s1$1$e1$0$a0$body"
+    joinBlockId = LoweredBlockId "case$s1$1$e1$0$join"
+    alternativeBlock blockId tag =
+      LoweredBlock
+        blockId
+        [LoweredParameter (LoweredParameterId "live1") reverseChoiceRepresentation]
+        [LoweredInstruction (LoweredTemporaryId "t1") int64Representation (LoweredProjectVariantField reverseChoiceLayoutId tag 0 (blockOperand "live1" reverseChoiceRepresentation))]
+        (Just (LoweredJump bodyBlockId [blockOperand "live1" reverseChoiceRepresentation, temporaryOperand 1 int64Representation]))
+
+managedOrRecursiveTotalLoweredProgram :: LoweredProgram
+managedOrRecursiveTotalLoweredProgram =
+  managedPatternLoweredProgram
+    [optionLayout, collectiveChoiceLayout]
+    [ LoweredBlock
+        (LoweredBlockId "entry")
+        []
+        [ LoweredInstruction (LoweredTemporaryId "t1") optionRepresentation (LoweredConstructVariant optionLayoutId 1 [intOperand 1]),
+          LoweredInstruction (LoweredTemporaryId "t2") collectiveChoiceRepresentation (LoweredConstructVariant collectiveChoiceLayoutId 0 [temporaryOperand 1 optionRepresentation]),
+          LoweredInstruction (LoweredTemporaryId "t3") tagRepresentation (LoweredProjectVariantTag collectiveChoiceLayoutId (temporaryOperand 2 collectiveChoiceRepresentation))
+        ]
+        ( Just
+            ( LoweredSwitch
+                (temporaryOperand 2 collectiveChoiceRepresentation)
+                [ LoweredSwitchCase 0 leftDecisionBlockId [temporaryOperand 2 collectiveChoiceRepresentation],
+                  LoweredSwitchCase 1 rightBlockId [temporaryOperand 2 collectiveChoiceRepresentation]
+                ]
+                Nothing
+            )
+        ),
+      LoweredBlock
+        leftDecisionBlockId
+        [LoweredParameter (LoweredParameterId "live1") collectiveChoiceRepresentation]
+        [ LoweredInstruction (LoweredTemporaryId "t1") optionRepresentation (LoweredProjectVariantField collectiveChoiceLayoutId 0 0 (blockOperand "live1" collectiveChoiceRepresentation)),
+          LoweredInstruction (LoweredTemporaryId "t2") tagRepresentation (LoweredProjectVariantTag optionLayoutId (temporaryOperand 1 optionRepresentation))
+        ]
+        ( Just
+            ( LoweredSwitch
+                (temporaryOperand 1 optionRepresentation)
+                [ LoweredSwitchCase 0 noneBlockId [blockOperand "live1" collectiveChoiceRepresentation],
+                  LoweredSwitchCase 1 someBlockId [blockOperand "live1" collectiveChoiceRepresentation]
+                ]
+                Nothing
+            )
+        ),
+      alternativeBlock noneBlockId 0,
+      alternativeBlock someBlockId 0,
+      alternativeBlock rightBlockId 1,
+      LoweredBlock
+        bodyBlockId
+        [ LoweredParameter (LoweredParameterId "live1") collectiveChoiceRepresentation,
+          LoweredParameter (LoweredParameterId "pattern1") optionRepresentation
+        ]
+        []
+        (Just (LoweredJump joinBlockId [blockOperand "pattern1" optionRepresentation])),
+      resultJoinBlock joinBlockId optionRepresentation
+    ]
+    optionRepresentation
+  where
+    leftDecisionBlockId = LoweredBlockId "case$s1$2$e1$0$a0$decision0"
+    noneBlockId = LoweredBlockId "case$s1$2$e1$0$a0$alternative0"
+    someBlockId = LoweredBlockId "case$s1$2$e1$0$a0$alternative1"
+    rightBlockId = LoweredBlockId "case$s1$2$e1$0$a0$alternative2"
+    bodyBlockId = LoweredBlockId "case$s1$2$e1$0$a0$body"
+    joinBlockId = LoweredBlockId "case$s1$2$e1$0$join"
+    alternativeBlock blockId tag =
+      LoweredBlock
+        blockId
+        [LoweredParameter (LoweredParameterId "live1") collectiveChoiceRepresentation]
+        [LoweredInstruction (LoweredTemporaryId "t1") optionRepresentation (LoweredProjectVariantField collectiveChoiceLayoutId tag 0 (blockOperand "live1" collectiveChoiceRepresentation))]
+        (Just (LoweredJump bodyBlockId [blockOperand "live1" collectiveChoiceRepresentation, temporaryOperand 1 optionRepresentation]))
 
 managedNestedPatternFallthroughLoweredProgram :: LoweredProgram
 managedNestedPatternFallthroughLoweredProgram =
@@ -1310,6 +1417,10 @@ manifestTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$8:signed
 manifestDataLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$11:ManifestBox$args0"
 singleConstructorTupleLayoutId = LoweredLayoutId "jazz.layout.product.v1$fields2$49:variant$module2$3:App$4:Main$name$7:TextBox$args0$8:signed64"
 
+reverseChoiceLayoutId, collectiveChoiceLayoutId :: LoweredLayoutId
+reverseChoiceLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$13:ReverseChoice$args0"
+collectiveChoiceLayoutId = LoweredLayoutId "jazz.layout.variant.v1$module2$3:App$4:Main$name$16:CollectiveChoice$args0"
+
 textRepresentation, tupleRepresentation, optionRepresentation, optionOptionRepresentation, optionPairRepresentation, choiceRepresentation, treeRepresentation, tupleVariantRepresentation, textBoxRepresentation, closureBoxRepresentation, closureEnvironmentRepresentation, productBoxRepresentation, outerRepresentation, captureBoxRepresentation, captureEnvironmentRepresentation, recursivePairEnvironmentRepresentation, manifestTupleRepresentation, manifestDataRepresentation, singleConstructorTupleRepresentation :: LoweredRepresentation
 textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
 tupleRepresentation = LoweredManagedReferenceRepresentation tupleLayoutId
@@ -1330,6 +1441,10 @@ recursivePairEnvironmentRepresentation = LoweredManagedReferenceRepresentation r
 manifestTupleRepresentation = LoweredManagedReferenceRepresentation manifestTupleLayoutId
 manifestDataRepresentation = LoweredManagedReferenceRepresentation manifestDataLayoutId
 singleConstructorTupleRepresentation = LoweredManagedReferenceRepresentation singleConstructorTupleLayoutId
+
+reverseChoiceRepresentation, collectiveChoiceRepresentation :: LoweredRepresentation
+reverseChoiceRepresentation = LoweredManagedReferenceRepresentation reverseChoiceLayoutId
+collectiveChoiceRepresentation = LoweredManagedReferenceRepresentation collectiveChoiceLayoutId
 
 textLayout, tupleLayout, optionLayout, optionOptionLayout, optionPairLayout, choiceLayout, treeLayout, tupleVariantLayout, textBoxLayout, closureBoxLayout, closureEnvironmentLayout, productBoxLayout, outerLayout, captureBoxLayout, captureEnvironmentLayout, recursivePairEnvironmentLayout, manifestTupleLayout, manifestDataLayout, singleConstructorTupleLayout :: LoweredLayout
 textLayout = LoweredLayout textLayoutId LoweredTextLayout
@@ -1370,6 +1485,16 @@ recursivePairEnvironmentLayout = LoweredLayout recursivePairEnvironmentLayoutId 
 manifestTupleLayout = LoweredLayout manifestTupleLayoutId (LoweredProductLayout [int64Representation, int64Representation])
 manifestDataLayout = LoweredLayout manifestDataLayoutId (LoweredVariantLayouts [LoweredVariantLayout 0 []])
 singleConstructorTupleLayout = LoweredLayout singleConstructorTupleLayoutId (LoweredProductLayout [textBoxRepresentation, int64Representation])
+
+reverseChoiceLayout, collectiveChoiceLayout :: LoweredLayout
+reverseChoiceLayout =
+  LoweredLayout
+    reverseChoiceLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [int64Representation], LoweredVariantLayout 1 [int64Representation]])
+collectiveChoiceLayout =
+  LoweredLayout
+    collectiveChoiceLayoutId
+    (LoweredVariantLayouts [LoweredVariantLayout 0 [optionRepresentation], LoweredVariantLayout 1 [optionRepresentation]])
 
 boolClosureRepresentation :: LoweredRepresentation
 boolClosureRepresentation =
@@ -1651,6 +1776,50 @@ optionDeclaration =
 
 optionIntInfo :: TypedNodeInfo
 optionIntInfo = variantInfo optionName [TypedIntType]
+
+reverseChoiceName, reverseLeftName, reverseRightName :: TypedCoreName
+reverseChoiceName = typeName "ReverseChoice"
+reverseLeftName = constructorName "Left"
+reverseRightName = constructorName "Right"
+
+reverseLeftBinder, reverseRightBinder :: TypedBinderId
+reverseLeftBinder = constructorBinder 0 reverseLeftName
+reverseRightBinder = constructorBinder 1 reverseRightName
+
+reverseChoiceInfo :: TypedNodeInfo
+reverseChoiceInfo = variantInfo reverseChoiceName []
+
+reverseChoiceDeclaration :: TypedDataDeclaration
+reverseChoiceDeclaration =
+  TypedDataDeclaration
+    (TypedSpan 2 1)
+    reverseChoiceName
+    []
+    [ TypedConstructorDeclaration reverseLeftBinder reverseLeftName [TypedIntType] [TypedSignedIntegerRecipe 64],
+      TypedConstructorDeclaration reverseRightBinder reverseRightName [TypedIntType] [TypedSignedIntegerRecipe 64]
+    ]
+
+collectiveChoiceName, collectiveLeftName, collectiveRightName :: TypedCoreName
+collectiveChoiceName = typeName "CollectiveChoice"
+collectiveLeftName = constructorName "Left"
+collectiveRightName = constructorName "Right"
+
+collectiveLeftBinder, collectiveRightBinder :: TypedBinderId
+collectiveLeftBinder = catalogConstructorBinder 1 0 collectiveLeftName
+collectiveRightBinder = catalogConstructorBinder 1 1 collectiveRightName
+
+collectiveChoiceInfo :: TypedNodeInfo
+collectiveChoiceInfo = variantInfo collectiveChoiceName []
+
+collectiveChoiceDeclaration :: TypedDataDeclaration
+collectiveChoiceDeclaration =
+  TypedDataDeclaration
+    (TypedSpan 3 1)
+    collectiveChoiceName
+    []
+    [ TypedConstructorDeclaration collectiveLeftBinder collectiveLeftName [typedExpressionType optionIntInfo] [typedExpressionRecipe optionIntInfo],
+      TypedConstructorDeclaration collectiveRightBinder collectiveRightName [typedExpressionType optionIntInfo] [typedExpressionRecipe optionIntInfo]
+    ]
 
 managedTuplePatternProgram :: TypedProgram
 managedTuplePatternProgram =
@@ -2027,6 +2196,78 @@ managedOrConstructorPatternProgram =
         ]
     itemName = valueName "item"
     itemBinder = patternBinder [1, 0, 0, 1] itemName
+
+managedOrReverseTotalProgram :: TypedProgram
+managedOrReverseTotalProgram =
+  managedProgram
+    [ TypedDataStatement reverseChoiceDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (monomorphicConstructorCall reverseRightBinder reverseRightName reverseChoiceInfo [intInfo] [intExpr 20])
+            [ TypedCaseArm
+                ( TypedOrPattern
+                    reverseChoiceInfo
+                    [ TypedConstructorPattern reverseChoiceInfo reverseRightName [TypedVariablePattern intInfo itemBinder itemName],
+                      TypedConstructorPattern reverseChoiceInfo reverseLeftName [TypedVariablePattern intInfo itemBinder itemName]
+                    ]
+                )
+                Nothing
+                (boundVariableExpr itemName intInfo itemBinder)
+            ]
+        )
+    ]
+    intInfo
+  where
+    itemName = valueName "item"
+    itemBinder = patternBinder [1, 0, 0, 0] itemName
+
+managedOrRecursiveTotalProgram :: TypedProgram
+managedOrRecursiveTotalProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedDataStatement collectiveChoiceDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 4 1)
+        ( TypedPatternCaseExpr
+            optionIntInfo
+            outerValue
+            [ TypedCaseArm
+                ( TypedOrPattern
+                    collectiveChoiceInfo
+                    [ TypedConstructorPattern
+                        collectiveChoiceInfo
+                        collectiveLeftName
+                        [ TypedAsPattern
+                            optionIntInfo
+                            wholeBinder
+                            wholeName
+                            (TypedConstructorPattern optionIntInfo noneName [])
+                        ],
+                      TypedConstructorPattern
+                        collectiveChoiceInfo
+                        collectiveLeftName
+                        [ TypedAsPattern
+                            optionIntInfo
+                            wholeBinder
+                            wholeName
+                            (TypedConstructorPattern optionIntInfo someName [TypedWildcardPattern intInfo])
+                        ],
+                      TypedConstructorPattern collectiveChoiceInfo collectiveRightName [TypedVariablePattern optionIntInfo wholeBinder wholeName]
+                    ]
+                )
+                Nothing
+                (boundVariableExpr wholeName optionIntInfo wholeBinder)
+            ]
+        )
+    ]
+    optionIntInfo
+  where
+    wholeName = valueName "whole"
+    wholeBinder = patternBinder [2, 0, 0, 0, 0] wholeName
+    innerValue = constructorCall someBinder someName optionIntInfo [intInfo] [intExpr 1]
+    outerValue = monomorphicConstructorCall collectiveLeftBinder collectiveLeftName collectiveChoiceInfo [optionIntInfo] [innerValue]
 
 managedTreeProgram :: TypedProgram
 managedTreeProgram =

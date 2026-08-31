@@ -55,14 +55,12 @@ patternBinderOccurrences modulePath statementLocation patternPath patternValue =
         TypedOrPattern _ (firstAlternative : laterAlternatives) ->
           let firstOccurrences =
                 patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) firstAlternative
-              representedBinders = [binderId | BinderOccurrence _ binderId <- firstOccurrences]
-              laterOccurrences =
-                concat
-                  [ patternBinderOccurrences modulePath statementLocation (patternPath <> [alternativeIndex]) alternative
-                  | (alternativeIndex, alternative) <- zip [1 ..] laterAlternatives
-                  ]
-           in firstOccurrences
-                <> [occurrence | occurrence@(BinderOccurrence _ binderId) <- laterOccurrences, binderId `notElem` representedBinders]
+           in fst
+                ( foldl'
+                    mergeAlternativeOccurrences
+                    (firstOccurrences, occurrenceCounts firstOccurrences)
+                    (zip [1 ..] laterAlternatives)
+                )
         TypedOrPattern _ [] -> []
         _ -> []
     indexedChildren patterns =
@@ -70,6 +68,22 @@ patternBinderOccurrences modulePath statementLocation patternPath patternValue =
         [ patternBinderOccurrences modulePath statementLocation (patternPath <> [childIndex]) child
         | (childIndex, child) <- zip [0 ..] patterns
         ]
+    mergeAlternativeOccurrences (represented, representedCounts) (alternativeIndex, alternative) =
+      let alternativeOccurrences =
+            patternBinderOccurrences modulePath statementLocation (patternPath <> [alternativeIndex]) alternative
+          (alternativeCounts, selectedRev) =
+            foldl' (selectExcessOccurrence representedCounts) (Map.empty, []) alternativeOccurrences
+       in (represented <> reverse selectedRev, Map.unionWith max representedCounts alternativeCounts)
+    selectExcessOccurrence representedCounts (alternativeCounts, selectedRev) occurrence@(BinderOccurrence _ binderId) =
+      let occurrenceCount = Map.findWithDefault 0 binderId alternativeCounts + 1
+          updatedCounts = Map.insert binderId occurrenceCount alternativeCounts
+       in if occurrenceCount > Map.findWithDefault 0 binderId representedCounts
+            then (updatedCounts, occurrence : selectedRev)
+            else (updatedCounts, selectedRev)
+    occurrenceCounts =
+      foldl'
+        (\counts (BinderOccurrence _ binderId) -> Map.insertWith (+) binderId 1 counts)
+        (Map.empty :: Map.Map TypedBinderId Int)
 
 validatePattern :: ModuleContext -> [Int] -> [Int] -> ValueContract -> TypedPattern -> [TypedCoreValidationFailure]
 validatePattern context statementLocation patternPath (ValueContract expectedType expectedRecipeValue) patternValue =

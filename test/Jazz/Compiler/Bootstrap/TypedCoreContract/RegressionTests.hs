@@ -160,6 +160,8 @@ reviewRegressionGroups =
     (("enforces latest bot-reviewed typed-core contracts", testLatestBotReviewRegressions), [nestedStrictEqualityConstraintProgram, canonicalQualifiedMethodKeyProgram, wrongQualifiedMethodKeyProgram, builtinValueContractProgram, missingInterfaceMetadataProgram, unterminatedBlockProgram, constrainedMonomorphicUseProgram, unrelatedKnownInstantiationProgram]),
     (("enforces newest bot-reviewed typed-core contracts", testNewestBotReviewRegressions), [explicitHeadParameterProgram, classArityProgram, classMethodSchemeShapeProgram, duplicateImplDeclarationProgram, emptyOrPatternProgram, nonBindingTypeApplicationProgram, mismatchedResolvedOperatorProgram, dataInterfaceDependencyProgram, classMethodInterfaceDependencyProgram]),
     (("enforces post-newest bot-reviewed typed-core contracts", testPostNewestBotReviewRegressions), [instantiatedPrimitiveConstraintProgram, typeApplicationExtraOwnerProgram, constrainedResolvedOperatorProgram, missingModuleResultProgram, emptyDataDeclarationProgram, laterOrPatternBinderCollisionProgram, concreteIntegerBoundsProgram, incompleteImplProgram, duplicateInstantiationProgram]),
+    (("retains stable or-pattern binder multiplicity", testOrPatternMaximumMultiplicity), [orPatternMaximumMultiplicityProgram]),
+    (("retains real excess or-pattern binder occurrences", testOrPatternExcessMultiplicity), [orPatternExcessMultiplicityProgram]),
     (("rejects globally reserved typed-core names", testReservedValueTypedCoreBoundary), [reservedValueIdentifierProgram, reservedValueModulePathProgram]),
     (("checks fractional literals against their selected floating widths", testFractionalLiteralBounds), [fractionalLiteralBoundsProgram]),
     (("rejects local classes that collide with visible classes", testVisibleClassCollisions), [visibleClassCollisionProgram]),
@@ -2006,6 +2008,28 @@ testPostNewestBotReviewRegressions = do
         (TypedBinderDetail duplicateInstantiationOwner)
     ]
     (validateTypedProgram duplicateInstantiationProgram)
+
+testOrPatternMaximumMultiplicity :: IO ()
+testOrPatternMaximumMultiplicity =
+  assertEqual
+    "or-pattern alternatives retain only the stable maximum binder multiplicity"
+    []
+    (validateTypedProgram orPatternMaximumMultiplicityProgram)
+
+testOrPatternExcessMultiplicity :: IO ()
+testOrPatternExcessMultiplicity =
+  assertEqual
+    "or-pattern alternatives retain real excess binder occurrences"
+    [ TypedCoreValidationFailure
+        (TypedPatternPath (fixtureModulePath "review-or-pattern-excess-multiplicity") [0] [0, 0, 1, 1])
+        TypedDuplicateBinder
+        (TypedBinderDetail orPatternExcessMultiplicityBinder),
+      TypedCoreValidationFailure
+        (TypedPatternPath (fixtureModulePath "review-or-pattern-excess-multiplicity") [0] [0, 0])
+        TypedOrPatternBinderMismatch
+        (TypedBinderDetail orPatternExcessMultiplicityBinder)
+    ]
+    (validateTypedProgram orPatternExcessMultiplicityProgram)
 
 testReservedValueTypedCoreBoundary :: IO ()
 testReservedValueTypedCoreBoundary = do
