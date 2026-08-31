@@ -161,6 +161,7 @@ library jazz-internal
       Jazz.Compiler.RuntimeHints
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
+      Jazz.Compiler.StableSet
       Jazz.Compiler.TypeInference
       Jazz.Compiler.TypeInference.Capabilities
       Jazz.Compiler.TypeInference.Diagnostics

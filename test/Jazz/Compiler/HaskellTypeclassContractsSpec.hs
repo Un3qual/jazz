@@ -29,6 +29,18 @@ import Jazz.Compiler.Name
     mkIdentifier,
     resolvedImportedName,
   )
+import Jazz.Compiler.StableSet
+  ( StableSet,
+    stableSetDelete,
+    stableSetDifference,
+    stableSetEmpty,
+    stableSetFromPreferred,
+    stableSetFromSet,
+    stableSetInsert,
+    stableSetMembershipSet,
+    stableSetOrderedList,
+    stableSetSingleton,
+  )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
     ImplMethodType (ImplMethodType),
@@ -45,11 +57,63 @@ main = runTestSuite "Haskell typeclass contracts" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("runtime requirements form their intended monoid", testRuntimeRequirements),
+  [ ("stable sets preserve membership and first-occurrence order", testStableSetMembershipAndOrder),
+    ("stable sets normalize preferred order literals", testStableSetPreferredNormalization),
+    ("stable set insertion is idempotent", testStableSetInsertion),
+    ("stable set deletion and difference preserve retained order", testStableSetRemoval),
+    ("stable sets form their intended left-biased monoid", testStableSetMonoid),
+    ("runtime requirements form their intended monoid", testRuntimeRequirements),
     ("scope capability facts preserve collision order", testScopeCapabilityFacts),
     ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
     ("module export inventories union without duplicates", testModuleExportInventory)
   ]
+
+testStableSetMembershipAndOrder :: IO ()
+testStableSetMembershipAndOrder = do
+  assertEqual "membership projection agrees with the ordered projection" expectedMembers (stableSetMembershipSet stable)
+  assertEqual "first occurrences determine order" [3, 1, 2] (stableSetOrderedList stable)
+  assertEqual "from-set uses deterministic set order" [1, 2, 3] (stableSetOrderedList (stableSetFromSet expectedMembers))
+  where
+    expectedMembers :: Set.Set Int
+    expectedMembers = Set.fromList [1, 2, 3]
+    stable = stableSetFromPreferred [3, 1, 3, 2] expectedMembers
+
+testStableSetPreferredNormalization :: IO ()
+testStableSetPreferredNormalization =
+  assertEqual
+    "duplicates and foreign preferred values are removed before set-ordered remainder"
+    [3, 1, 2, 4]
+    (stableSetOrderedList (stableSetFromPreferred [3, 1, 3, 99] (Set.fromList [1, 2, 3, 4] :: Set.Set Int)))
+
+testStableSetInsertion :: IO ()
+testStableSetInsertion = do
+  assertEqual "inserting an existing member is idempotent" once (stableSetInsert 2 once)
+  assertEqual "insertion appends a new member" [2, 1] (stableSetOrderedList (stableSetInsert 1 once))
+  assertEqual "empty and singleton constructors agree with insertion" singleton (stableSetInsert 2 stableSetEmpty)
+  where
+    once :: StableSet Int
+    once = stableSetInsert 2 (stableSetInsert 2 stableSetEmpty)
+    singleton :: StableSet Int
+    singleton = stableSetSingleton 2
+
+testStableSetRemoval :: IO ()
+testStableSetRemoval = do
+  assertEqual "deletion removes one member without reordering" [3, 2, 4] (stableSetOrderedList (stableSetDelete 1 stable))
+  assertEqual "difference removes all requested members without reordering" [1, 4] (stableSetOrderedList (stableSetDifference stable (Set.fromList [3, 2])))
+  where
+    stable :: StableSet Int
+    stable = stableSetFromPreferred [3, 1] (Set.fromList [1, 2, 3, 4])
+
+testStableSetMonoid :: IO ()
+testStableSetMonoid = do
+  assertMonoidLaws "stable set" first second third
+  assertEqual "union is left-biased by first occurrence" [3, 1, 2, 4] (stableSetOrderedList (first <> second))
+  assertEqual "union membership agrees with its order" (Set.fromList [1, 2, 3, 4]) (stableSetMembershipSet (first <> second))
+  where
+    first = stableSetFromPreferred [3, 1] (Set.fromList [1, 3])
+    second = stableSetFromPreferred [1, 2, 4] (Set.fromList [1, 2, 4])
+    third :: StableSet Int
+    third = stableSetFromPreferred [4, 3] (Set.fromList [3, 4])
 
 assertMonoidLaws :: (Eq value, Show value, Monoid value) => Text -> value -> value -> value -> IO ()
 assertMonoidLaws label first second third = do

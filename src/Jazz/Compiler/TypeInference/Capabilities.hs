@@ -175,6 +175,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
+    quantifiedVariablesMembershipSet,
   )
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts
@@ -870,7 +871,7 @@ freeTypeVariablesInSchemeRaw typeScheme =
           freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
         ]
     )
-    (schemeQuantifiedVariables typeScheme)
+    (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme))
 
 freeTypeVariablesInConstructorArgumentRaw :: ConstructorArgumentType -> Set Int
 freeTypeVariablesInConstructorArgumentRaw argumentType =
@@ -1627,10 +1628,10 @@ typeBindingRuntimeHint binding =
     PlainTypeBinding bindingType ->
       Signature.expressionTypeToRuntimeHint (defaultLiteralTypes bindingType)
     SchemeTypeBinding typeScheme
-      | Set.null (schemeQuantifiedVariables typeScheme) ->
+      | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
           Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (schemeResultType typeScheme))
     OperatorAliasSchemeTypeBinding _ typeScheme
-      | Set.null (schemeQuantifiedVariables typeScheme) ->
+      | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
           Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (schemeResultType typeScheme))
     _ -> Nothing
 

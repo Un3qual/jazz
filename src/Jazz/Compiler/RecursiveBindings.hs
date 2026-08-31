@@ -57,6 +57,15 @@ import Jazz.Compiler.Pattern
   ( extendBoundWithPattern,
     patternBinderNames,
   )
+import Jazz.Compiler.StableSet
+  ( StableSet,
+    stableSetDelete,
+    stableSetDifference,
+    stableSetFromSet,
+    stableSetMembershipSet,
+    stableSetOrderedList,
+    stableSetSingleton,
+  )
 
 collectBindingNames :: [(Int, Statement)] -> Map Int Name
 collectBindingNames =
@@ -128,18 +137,7 @@ preparedRecursiveScopeGroups (PreparedRecursiveScope _ _ recursiveScopeFactsValu
 -- | Free-variable facts arranged in the same child-index shape as the lambda
 -- AST. The plan deliberately retains neither lambda bodies nor parameters, so
 -- runtime lookup cannot fall back to structural expression equality.
-data LambdaCaptureHint = LambdaCaptureHint OrderedNames LambdaCaptureHints
-
--- | The set contains exactly the names in the list, whose order is their first
--- occurrence. The 'Semigroup' instance preserves this invariant by reinserting
--- the right operand's ordered list rather than trusting its cached set.
-data OrderedNames = OrderedNames (Set Name) [Name]
-
-instance Semigroup OrderedNames where
-  left <> OrderedNames _ names = foldl' orderedNamesInsert left names
-
-instance Monoid OrderedNames where
-  mempty = OrderedNames Set.empty []
+data LambdaCaptureHint = LambdaCaptureHint (StableSet Name) LambdaCaptureHints
 
 data LambdaCaptureHints = LambdaCaptureHints
   { lambdaCaptureHintAtRoot :: Maybe LambdaCaptureHint,
@@ -156,21 +154,21 @@ lambdaCaptureHintsChild childIndex =
 collectLambdaCaptureHints :: Expr -> LambdaCaptureHints
 collectLambdaCaptureHints = snd . analyzeLambdaCaptures
 
-analyzeLambdaCaptures :: Expr -> (OrderedNames, LambdaCaptureHints)
+analyzeLambdaCaptures :: Expr -> (StableSet Name, LambdaCaptureHints)
 analyzeLambdaCaptures expr =
   case expr of
     ELit _ -> emptyCaptureAnalysis
-    EVar name -> (orderedNamesSingleton name, emptyLambdaCaptureHints)
+    EVar name -> (stableSetSingleton name, emptyLambdaCaptureHints)
     ELambda parameterName bodyExpr ->
       let (bodyFreeNames, bodyHints) = analyzeLambdaCaptures bodyExpr
-          capturedNames = orderedNamesDelete parameterName bodyFreeNames
+          capturedNames = stableSetDelete parameterName bodyFreeNames
        in ( capturedNames,
             LambdaCaptureHints
               (Just (LambdaCaptureHint capturedNames bodyHints))
               IntMap.empty
           )
     EOperatorValue operatorSymbol ->
-      (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol), emptyLambdaCaptureHints)
+      (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol), emptyLambdaCaptureHints)
     EList elements -> analyzeLambdaChildren elements
     ETuple elements -> analyzeLambdaChildren elements
     EApply functionExpr argumentExpr ->
@@ -183,20 +181,20 @@ analyzeLambdaCaptures expr =
       analyzeLambdaPatternCase scrutineeExpr caseArms
     EBinary operatorSymbol leftExpr rightExpr ->
       let (freeNames, hints) = analyzeLambdaChildren [leftExpr, rightExpr]
-       in (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
+       in (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
     ESectionLeft leftExpr operatorSymbol ->
       let (freeNames, hints) = analyzeLambdaChildren [leftExpr]
-       in (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
+       in (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
     ESectionRight operatorSymbol rightExpr ->
       let (freeNames, hints) = analyzeLambdaChildren [rightExpr]
-       in (orderedNamesFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
+       in (stableSetFromSet (operatorBindingFreeVar Set.empty operatorSymbol) <> freeNames, hints)
     EBlock statements ->
       analyzeLambdaScope statements
 
-emptyCaptureAnalysis :: (OrderedNames, LambdaCaptureHints)
+emptyCaptureAnalysis :: (StableSet Name, LambdaCaptureHints)
 emptyCaptureAnalysis = (mempty, emptyLambdaCaptureHints)
 
-analyzeLambdaChildren :: [Expr] -> (OrderedNames, LambdaCaptureHints)
+analyzeLambdaChildren :: [Expr] -> (StableSet Name, LambdaCaptureHints)
 analyzeLambdaChildren expressions =
   ( mconcat freeNames,
     LambdaCaptureHints Nothing (IntMap.fromList childHints)
@@ -210,7 +208,7 @@ analyzeLambdaChildren expressions =
         not (lambdaCaptureHintsAreEmpty hints)
       ]
 
-analyzeLambdaPatternCase :: Expr -> [CaseArm] -> (OrderedNames, LambdaCaptureHints)
+analyzeLambdaPatternCase :: Expr -> [CaseArm] -> (StableSet Name, LambdaCaptureHints)
 analyzeLambdaPatternCase scrutineeExpr caseArms =
   foldl' analyzeArm initialAnalysis (zip [0 ..] caseArms)
   where
@@ -223,8 +221,8 @@ analyzeLambdaPatternCase scrutineeExpr caseArms =
     analyzeArm (freeNames, hints) (armIndex, CaseArm pattern guardExpr bodyExpr) =
       ( mconcat
           [ freeNames,
-            orderedNamesDifference guardFreeNames boundNames,
-            orderedNamesDifference bodyFreeNames boundNames
+            stableSetDifference guardFreeNames boundNames,
+            stableSetDifference bodyFreeNames boundNames
           ],
         insertLambdaChildHint
           bodyChildIndex
@@ -239,7 +237,7 @@ analyzeLambdaPatternCase scrutineeExpr caseArms =
         guardChildIndex = 1 + (2 * armIndex)
         bodyChildIndex = guardChildIndex + 1
 
-analyzeLambdaScope :: [Statement] -> (OrderedNames, LambdaCaptureHints)
+analyzeLambdaScope :: [Statement] -> (StableSet Name, LambdaCaptureHints)
 analyzeLambdaScope statements =
   (freeNames, LambdaCaptureHints Nothing childHints)
   where
@@ -263,7 +261,7 @@ analyzeLambdaScope statements =
         analyzeValue nextBoundNames valueExpr =
           let (valueFreeNames, valueHints) = analyzeLambdaCaptures valueExpr
            in ( nextBoundNames,
-                accumulatedFreeNames <> orderedNamesDifference valueFreeNames boundNames,
+                accumulatedFreeNames <> stableSetDifference valueFreeNames boundNames,
                 insertLambdaChildHintMap statementIndex valueHints accumulatedHints
               )
 
@@ -286,39 +284,14 @@ lambdaCaptureHintsAreEmpty _ = False
 lookupLambdaCapturedNames :: LambdaCaptureHints -> Maybe (Set Name, LambdaCaptureHints)
 lookupLambdaCapturedNames hints =
   case lambdaCaptureHintAtRoot hints of
-    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (orderedNamesSet capturedNames, nestedHints)
+    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (stableSetMembershipSet capturedNames, nestedHints)
     Nothing -> Nothing
 
 lookupLambdaCapturedNamesOrdered :: LambdaCaptureHints -> Maybe ([Name], LambdaCaptureHints)
 lookupLambdaCapturedNamesOrdered hints =
   case lambdaCaptureHintAtRoot hints of
-    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (orderedNamesList capturedNames, nestedHints)
+    Just (LambdaCaptureHint capturedNames nestedHints) -> Just (stableSetOrderedList capturedNames, nestedHints)
     Nothing -> Nothing
-
-orderedNamesSingleton :: Name -> OrderedNames
-orderedNamesSingleton name = OrderedNames (Set.singleton name) [name]
-
-orderedNamesFromSet :: Set Name -> OrderedNames
-orderedNamesFromSet names = OrderedNames names (Set.toList names)
-
-orderedNamesSet :: OrderedNames -> Set Name
-orderedNamesSet (OrderedNames names _) = names
-
-orderedNamesList :: OrderedNames -> [Name]
-orderedNamesList (OrderedNames _ names) = names
-
-orderedNamesInsert :: OrderedNames -> Name -> OrderedNames
-orderedNamesInsert ordered@(OrderedNames seen names) name
-  | Set.member name seen = ordered
-  | otherwise = OrderedNames (Set.insert name seen) (names <> [name])
-
-orderedNamesDelete :: Name -> OrderedNames -> OrderedNames
-orderedNamesDelete name (OrderedNames seen names) =
-  OrderedNames (Set.delete name seen) (filter (/= name) names)
-
-orderedNamesDifference :: OrderedNames -> Set Name -> OrderedNames
-orderedNamesDifference (OrderedNames seen names) removed =
-  OrderedNames (Set.difference seen removed) (filter (`Set.notMember` removed) names)
 
 freeVarsExprWithBound :: Set Name -> Expr -> Set Name
 freeVarsExprWithBound = freeVarsExprWithVisibleBindings Set.empty

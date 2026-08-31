@@ -19,7 +19,10 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     TypeScheme (..),
-    emptyScopeCapabilityFacts
+    emptyScopeCapabilityFacts,
+    quantifiedVariablesFromPreferred,
+    quantifiedVariablesMembershipSet,
+    quantifiedVariablesOrderedList,
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
@@ -79,16 +82,23 @@ basicTests =
   ]
 
 testTypeSchemeRecordPreservesFields :: IO ()
-testTypeSchemeRecordPreservesFields =
+testTypeSchemeRecordPreservesFields = do
   assertEqual
     "scheme result"
     (TFunctionType (TVarType 0) (TVarType 0))
     (schemeResultType scheme)
+  assertEqual
+    "scheme quantified membership"
+    (Set.fromList [0, 1])
+    (quantifiedVariablesMembershipSet (schemeQuantifiedVariables scheme))
+  assertEqual
+    "scheme quantified order"
+    [1, 0]
+    (quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme))
   where
     scheme =
       TypeScheme
-        { schemeQuantifiedVariables = Set.singleton 0,
-          schemeQuantifiedOrder = [0],
+        { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [1, 0] (Set.fromList [0, 1]),
           schemeClassConstraints = [],
           schemePrimitiveConstraints = [],
           schemeDefiningCapabilities = emptyScopeCapabilityFacts,

@@ -72,6 +72,7 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     NumericConstraint (..),
     TypeScheme (..),
+    quantifiedVariablesMembershipSet,
   )
 
 data OperatorRule
@@ -140,7 +141,7 @@ instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
   let replacements =
         Map.fromList
           [ (typeVar, targetType)
-          | typeVar <- Set.toList quantifiedVariables
+          | typeVar <- Set.toList (quantifiedVariablesMembershipSet quantifiedVariables)
           ]
       instantiatedConstraints =
         map (instantiateTypeSchemeConstraint replacements) explicitConstraints

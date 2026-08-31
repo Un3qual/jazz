@@ -141,6 +141,9 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     instantiateConstructorFieldType,
+    quantifiedVariablesFromPreferred,
+    quantifiedVariablesMembershipSet,
+    quantifiedVariablesOrderedList,
   )
 
 inferExprTypeWithExpectedMode ::
@@ -1542,7 +1545,7 @@ inferScopeTypeInternal
                     freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
                   ]
               )
-              (schemeQuantifiedVariables typeScheme)
+              (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme))
 
       interleavedBindingFeedsLaterGroup :: Int -> [Int] -> Bool
       interleavedBindingFeedsLaterGroup statementIndex groupMembers =
@@ -1997,7 +2000,6 @@ generalizedOrdinaryBinding :: Set Int -> InferState -> ExpressionType -> TypeBin
 generalizedOrdinaryBinding environmentVariables state expressionType =
   let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
       schemeVariables = ordinaryBindingSchemeVariables environmentVariables state expressionType
-      schemeVariableOrder = orderedSchemeVariables (expressionTypeVariableOrder resolvedType) schemeVariables
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables
@@ -2007,8 +2009,7 @@ generalizedOrdinaryBinding environmentVariables state expressionType =
         else
           SchemeTypeBinding
             TypeScheme
-              { schemeQuantifiedVariables = schemeVariables,
-                schemeQuantifiedOrder = schemeVariableOrder,
+              { schemeQuantifiedVariables = quantifiedVariablesFromPreferred (expressionTypeVariableOrder resolvedType) schemeVariables,
                 schemeClassConstraints = inferredClassConstraints,
                 schemePrimitiveConstraints = primitiveConstraints,
                 schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state inferredClassConstraints,
@@ -2044,8 +2045,7 @@ generalizedExplicitSignatureBinding environmentVariables state pendingSignature 
         else
           SchemeTypeBinding
             TypeScheme
-              { schemeQuantifiedVariables = schemeVariables,
-                schemeQuantifiedOrder = orderedSchemeVariables (pendingSignatureVariableOrder pendingSignature) schemeVariables,
+              { schemeQuantifiedVariables = quantifiedVariablesFromPreferred (pendingSignatureVariableOrder pendingSignature) schemeVariables,
                 schemeClassConstraints = schemeConstraints,
                 schemePrimitiveConstraints = primitiveConstraints,
                 schemeDefiningCapabilities = typeSchemeDefiningFactsFromState state schemeConstraints,
@@ -2188,18 +2188,8 @@ explicitBindingSchemeVariables environmentVariables state pendingSignature =
           (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
    in Set.difference freeVariables environmentVariables
 
-orderedSchemeVariables :: [Int] -> Set Int -> [Int]
-orderedSchemeVariables preferredOrder schemeVariables =
-  orderedVariables ++ Set.toList unorderedVariables
-  where
-    orderedVariables =
-      filter (`Set.member` schemeVariables) preferredOrder
-    unorderedVariables =
-      Set.difference schemeVariables (Set.fromList orderedVariables)
-
 expressionTypeVariableOrder :: ExpressionType -> [Int]
-expressionTypeVariableOrder =
-  dedupe . go
+expressionTypeVariableOrder = go
   where
     go expressionType =
       case expressionType of
@@ -2220,14 +2210,6 @@ expressionTypeVariableOrder =
           go inputType ++ go outputType
         TVarType typeVar ->
           [typeVar]
-
-    dedupe =
-      goDedupe Set.empty
-
-    goDedupe _ [] = []
-    goDedupe seen (typeVar : rest)
-      | Set.member typeVar seen = goDedupe seen rest
-      | otherwise = typeVar : goDedupe (Set.insert typeVar seen) rest
 
 typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =
@@ -2480,7 +2462,7 @@ instantiateTypeScheme typeScheme state =
         foldl'
           allocateFreshBinding
           (Map.empty, state)
-          (orderedSchemeVariables quantifiedOrder quantifiedVariables)
+          (quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme))
       instantiatedType =
         replaceTypeVariables freshBindings expressionType
       instantiatedConstraints =
@@ -2497,8 +2479,6 @@ instantiateTypeScheme typeScheme state =
           stateWithPrimitiveConstraints
    in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
-    quantifiedVariables = schemeQuantifiedVariables typeScheme
-    quantifiedOrder = schemeQuantifiedOrder typeScheme
     explicitConstraints = schemeClassConstraints typeScheme
     primitiveConstraints = schemePrimitiveConstraints typeScheme
     definingFacts = schemeDefiningCapabilities typeScheme
@@ -2631,7 +2611,7 @@ instantiateTypeSchemeWithExplicitArgument ::
   InferState ->
   (Maybe ExpressionType, InferState)
 instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state =
-  case orderedSchemeVariables quantifiedOrder quantifiedVariables of
+  case quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme) of
     [] ->
       (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
     explicitTypeVar : remainingTypeVars ->
@@ -2656,8 +2636,6 @@ instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state 
               stateWithPrimitiveConstraints
        in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
   where
-    quantifiedVariables = schemeQuantifiedVariables typeScheme
-    quantifiedOrder = schemeQuantifiedOrder typeScheme
     explicitConstraints = schemeClassConstraints typeScheme
     primitiveConstraints = schemePrimitiveConstraints typeScheme
     definingFacts = schemeDefiningCapabilities typeScheme
@@ -2695,9 +2673,7 @@ typeSchemeRuntimeHint state typeScheme =
     resolvedSchemeType =
       defaultLiteralTypes (resolveType state expressionType)
     orderedVariables =
-      orderedSchemeVariables
-        (schemeQuantifiedOrder typeScheme)
-        (schemeQuantifiedVariables typeScheme)
+      quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme)
     runtimeTemplateVariables =
       Map.fromList
         [ (typeVar, sourceName (mkIdentifier ("t" <> Text.pack (show position))))

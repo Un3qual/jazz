@@ -12,6 +12,7 @@ module Jazz.Compiler.TypeInference.Types
     ImplMethodType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    QuantifiedVariables,
     ScopeCapabilityFacts (..),
     TypeBinding (..),
     TypeEnv,
@@ -20,6 +21,9 @@ module Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
     instantiateConstructorFieldType,
+    quantifiedVariablesFromPreferred,
+    quantifiedVariablesMembershipSet,
+    quantifiedVariablesOrderedList,
   )
 where
 
@@ -43,6 +47,12 @@ import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Name
   ( Name,
     identifierText,
+  )
+import Jazz.Compiler.StableSet
+  ( StableSet,
+    stableSetFromPreferred,
+    stableSetMembershipSet,
+    stableSetOrderedList,
   )
 
 data ExpressionType
@@ -130,9 +140,24 @@ data TypeBinding
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
+newtype QuantifiedVariables = QuantifiedVariables (StableSet Int)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+quantifiedVariablesFromPreferred :: [Int] -> Set Int -> QuantifiedVariables
+quantifiedVariablesFromPreferred preferred variables =
+  QuantifiedVariables (stableSetFromPreferred preferred variables)
+
+quantifiedVariablesMembershipSet :: QuantifiedVariables -> Set Int
+quantifiedVariablesMembershipSet (QuantifiedVariables variables) =
+  stableSetMembershipSet variables
+
+quantifiedVariablesOrderedList :: QuantifiedVariables -> [Int]
+quantifiedVariablesOrderedList (QuantifiedVariables variables) =
+  stableSetOrderedList variables
+
 data TypeScheme = TypeScheme
-  { schemeQuantifiedVariables :: Set Int,
-    schemeQuantifiedOrder :: [Int],
+  { schemeQuantifiedVariables :: QuantifiedVariables,
     schemeClassConstraints :: [TypeSchemeConstraint],
     schemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint],
     schemeDefiningCapabilities :: ScopeCapabilityFacts,
