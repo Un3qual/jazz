@@ -253,37 +253,79 @@ Each blocked item should answer these questions:
   producer, Typed Core contract, and Lowered IR contract suites pass, and
   `cabal test all --test-show-details=direct --jobs=1` passes inside the
   checked-in Nix shell.
-- Smallest unblocker: execute
-  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001` through
-  its aligned plan and verified closeout.
-- Decision needed: none. RFC 0015's managed-pattern surface, source ordering,
-  projection discipline, independent totality check, and failure boundary are
-  accepted.
-- Recommended default: execute the single `Ready Now` managed-pattern child,
-  then resume the approved compiler architecture simplification.
-- Candidate child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`.
-- Target paths: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
-  `src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`,
+- Completed child:
+  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`
+  completed on `2026-08-31`. Implementation milestones `b73c6271`, `11327a97`,
+  `539a8c2b`, and `825ca9a0`, with focused fixes and plan evidence through the
+  reviewed `0116b724`, close source-ordered tuple and local-constructor matching,
+  independent backend totality, tag-before-selected-field projection, and
+  success-only arm binders. The focused producer, Typed Core contract, and
+  Lowered IR contract suites pass at the reviewed closeout base. Lists, list
+  patterns or services, Text literal patterns, first-class constructors,
+  pattern lambdas, imported data, multiple modules, Text
+  uncons/from-chars/concat, Text I/O, RuntimeHost changes, native ABI or
+  execution, product/variant equality, and normal compile/run cutover remain
+  independent decisions.
+- Smallest unblocker: execute the first milestone of the approved compiler
+  architecture simplification,
+  `JN-COMPILER-CORE-IDENTITY-TYPES-001`, through Task 5 of its aligned plan.
+- Decision needed: none. The compiler architecture simplification design and
+  execution plan are approved; preserve public behavior and ordinary
+  interpreter-backed compile/run throughout this milestone.
+- Recommended default: execute only the single `Ready Now` compiler core
+  identity/types child. Later architecture milestones replace it rather than
+  accumulating concurrently.
+- Candidate child: `JN-COMPILER-CORE-IDENTITY-TYPES-001`.
+- Target paths: `src/Jazz/Compiler/Name.hs`,
+  `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/ModuleGraph.hs`,
+  `src/Jazz/Compiler/Driver.hs`, `src/Jazz/Compiler/AST.hs`,
+  `src/Jazz/Compiler/Parser/AST.hs`, `src/Jazz/Compiler/Parser/Signature.hs`,
+  `src/Jazz/Compiler/Parser/Expression.hs`,
+  `src/Jazz/Compiler/Parser/Lower.hs`,
+  `src/Jazz/Compiler/SignatureRendering.hs`,
+  `src/Jazz/Compiler/TypeInference/Signature.hs`,
+  `src/Jazz/Compiler/TypeInference/Types.hs`,
+  `src/Jazz/Compiler/TypedCore.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/Expressions.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/TypeRecipes.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/ManagedPatterns.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`,
+  `src/Jazz/Compiler/TypeInference/State.hs`,
+  `src/Jazz/Compiler/TypeInference/Solver.hs`,
+  `src/Jazz/Compiler/TypeInference/TypeOps.hs`,
+  `src/Jazz/Compiler/TypeInference/Operator.hs`,
+  `src/Jazz/Compiler/TypeInference/Pattern.hs`,
+  `src/Jazz/Compiler/TypeInference/Scope.hs`,
+  `src/Jazz/Compiler/TypeInference/Capabilities.hs`,
+  `src/Jazz/Compiler/TypeInference/Diagnostics.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs`,
+  `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
+  `src/Jazz/Compiler/TypeInference.hs`,
+  `src/Jazz/Compiler/TypedCore/Query.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/Declarations.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/Evidence.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/Internal.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/Patterns.hs`,
+  `src/Jazz/Compiler/TypedCore/Validate/Program.hs`,
   `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`,
-  `src/Jazz/Compiler/LoweredIR/Lower/Emit.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs`,
-  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/LowererBoundary.hs`,
-  and `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs`.
+  `test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs`,
+  `test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`,
+  `test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs`,
+  `test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs`,
+  `test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs`,
+  `test/Jazz/Compiler/Semantics/PrimitiveSemantics/NumericConversions.hs`,
+  `test/Jazz/Compiler/Semantics/Runtime/NumericTests.hs`,
+  `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CaptureRecursionTests.hs`,
+  `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`, and
+  `jazz.cabal`.
 - Verification:
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all --test-show-details=direct --jobs=1`
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command bash scripts/check-docs.sh`
-  - `bash scripts/check-execution-queue.sh`
-  - `git diff --check`
-- Still not in scope for the candidate child: lists, list patterns or services,
-  Text literal patterns, first-class constructors, pattern lambdas, imported
-  data, multiple modules, Text uncons/from-chars/concat, Text I/O, RuntimeHost
-  changes, native ABI or execution, product/variant equality, and normal
-  compile/run cutover.
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec binding-signature-coherence-spec primitive-semantics-spec jazz-typed-core-contract-spec jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1`
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment --jobs=1`
+- Still not in scope for the candidate child: public syntax or semantic changes,
+  a Typed Core interpreter, raw-core interpreter removal, normal compile/run
+  cutover, hosted schema replacement, or later architecture milestones.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

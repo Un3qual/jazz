@@ -30,12 +30,14 @@ and mutual recursion, and closure-shaped self and mutual recursion when every
 external capture is available before the first group member. Closure-shaped
 groups share one immutable environment containing ordered external captures;
 members reuse it and reconstruct self or peer closures without cyclic
-initialization. Value-producing conditionals and bounded scalar pattern cases
-may nest anywhere in this profile. In value positions, lowering keeps their
-deterministic then, else, and result-join control flow, transporting each
-block-local value explicitly. A case evaluates its scrutinee once, tries
-literal, wildcard, and variable arms in source order, falls through false
-guards, and keeps variable binders inside one arm.
+initialization. Value-producing conditionals and the admitted scalar, tuple,
+and local-constructor pattern cases may nest anywhere in this profile. In value
+positions, lowering keeps their deterministic control flow and explicit value
+transport. A case evaluates its scrutinee once and tries arms in source order.
+Nested pattern failures and false guards continue to the next arm. Tuple fields
+are matched in source order; a variant tag is tested before any field, and only
+the selected tag's fields are projected. Pattern binders become visible only
+after a complete match and remain local to the selected guard and body.
 
 For a complete named or lifted function result, the opt-in lowerer records
 direct or closure tail intent instead. That result position propagates through
@@ -48,9 +50,11 @@ ordinary call/join/return lowering. These terminators record intent only: they
 do not change the Lowered IR contract or validator, runtime ABI, public
 language behavior, hosted compiler, or promise native stack optimization.
 
-The required final unguarded catch-all makes this opt-in lowering profile total.
-It is separate from source-level static exhaustiveness and unreachable-arm
-analysis, which shipped under RFC 0012.
+The backend independently checks totality for its admitted pattern subset.
+Guarded rows do not cover. Complete closed local-constructor sets and the single
+tuple shape need no synthetic wildcard, while open scalar literal domains still
+need an unguarded catch-all. This backend boundary remains separate from the
+source-level exhaustiveness and unreachable-arm analysis shipped under RFC 0012.
 
 Managed `Text` is the first non-closure managed value in this profile. Text
 literals, bindings, parameters, results, captures, calls, control-flow joins,
@@ -70,16 +74,20 @@ then constructs every field exactly once from left to right. The resulting
 managed references cross the same bindings, direct and closure call boundaries,
 captures, control-flow joins, returns, and tail-call operands as managed Text.
 
-Constructor and tuple destructuring patterns, other managed scrutinees, lists
-and list fields, product or variant equality, first-class non-nullary
-constructors, and Text literal patterns remain deferred. Pattern lambdas remain
-deferred because a parameter mismatch happens at invocation time and therefore
-needs a match-failure contract integrated with closures, currying, recursion,
-and callable parameter identity. Imported data and complete multi-module
-integration, later or interleaved external captures, scalar exports, a
-runtime-host or native ABI, and native execution also remain outside the
-profile. Ordinary run mode continues to evaluate canonical core with the
-interpreter.
+The same opt-in backend stage now supports source-ordered tuple and local-
+constructor matching, including nested tuple and constructor patterns,
+as-patterns, and top-level alternatives. This is backend support for existing
+Jazz cases, not a change to public language semantics or the IR version.
+
+Lists and list fields, list patterns, other managed scrutinees, product or
+variant equality, first-class non-nullary constructors, and Text literal
+patterns remain deferred. Pattern lambdas remain deferred because a parameter
+mismatch happens at invocation time and therefore needs a match-failure
+contract integrated with closures, currying, recursion, and callable parameter
+identity. Imported data and complete multi-module integration, later or
+interleaved external captures, scalar exports, runtime-host and runtime ABI
+changes, and native execution also remain outside the profile. Ordinary compile
+and run modes continue to use canonical core and the interpreter.
 
 Backend preparation also covers only a subset of the language. The current
 supported forms and exclusions are maintained in

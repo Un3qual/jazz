@@ -1,6 +1,6 @@
 ---
 id: JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
@@ -562,24 +562,24 @@ Curation Target`; preserve the completed construction evidence.
 - Promote only `JN-COMPILER-CORE-IDENTITY-TYPES-001`, the first milestone of
   the already-approved architecture simplification plan.
 
-- [ ] **Step 1: Run the focused contract gate.** Run the Task 5 three-suite
+- [x] **Step 1: Run the focused contract gate.** Run the Task 5 three-suite
       command once more. Expected: all suites pass.
 
-- [ ] **Step 2: Update compiler and RFC status.** Document source-ordered
+- [x] **Step 2: Update compiler and RFC status.** Document source-ordered
       matching, independent totality, tag-before-field projection, and
       arm-local guard/body binding. Keep lists, imported data, runtime ABI,
       native execution, and normal compile/run cutover explicitly excluded.
 
-- [ ] **Step 3: Close the managed child.** Mark this plan complete, remove its
+- [x] **Step 3: Close the managed child.** Mark this plan complete, remove its
       ready row, and record its verified commit in the bootstrap blocker.
 
-- [ ] **Step 4: Re-run architecture Task 1 baseline.** Run the architecture
+- [x] **Step 4: Re-run architecture Task 1 baseline.** Run the architecture
       plan's eleven-suite behavioral matrix against the completed child.
 
-- [ ] **Step 5: Promote the architecture's first milestone.** Add the exact
+- [x] **Step 5: Promote the architecture's first milestone.** Add the exact
       `JN-COMPILER-CORE-IDENTITY-TYPES-001` row specified by architecture Task 1. Do not queue later architecture milestones concurrently.
 
-- [ ] **Step 6: Run structural and documentation gates.** Run:
+- [x] **Step 6: Run structural and documentation gates.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -590,7 +590,7 @@ Curation Target`; preserve the completed construction evidence.
 
   Expected: every command exits zero.
 
-- [ ] **Step 7: Format and commit closeout.** Run:
+- [x] **Step 7: Format and commit closeout.** Run:
 
   ```bash
   git add docs/compiler/bootstrapping.md docs/compiler/pipeline.md docs/project/status.md rfcs/accepted/0015-typed-core-managed-products-and-variants.md .codex/execution/queue.md .codex/execution/blocker-contracts.md .codex/plans/2026-08-31-jazz-typed-core-managed-product-variant-pattern-cases.md .codex/plans/2026-08-31-jazz-compiler-architecture-simplification.md

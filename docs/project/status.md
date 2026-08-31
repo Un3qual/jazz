@@ -35,12 +35,14 @@ capture-free, non-escaping direct self and mutual recursion. It also covers
 closure-shaped self and mutual recursion when every external capture precedes
 the first group member. These groups reuse one immutable shared environment
 containing ordered external captures and reconstruct self or peer closures
-without cyclic initialization. Bounded value-producing conditionals and scalar
-pattern cases can nest throughout that profile. In value positions, their
-deterministic multi-block control flow preserves explicit branch and join
-transport: a case evaluates its scrutinee once, retains source-ordered literal,
-wildcard, and variable arms, falls through false guards, and keeps variable
-binders arm-local.
+without cyclic initialization. Bounded value-producing conditionals and the
+admitted scalar, tuple, and local-constructor pattern cases can nest throughout
+that profile. In value positions, a case evaluates its scrutinee once, retains
+source-ordered arms, and falls through nested pattern failures and false
+guards. Tuple fields are matched in source order. Variant tags are tested before
+fields are projected, and only the selected tag's fields are projected. Pattern
+binders become visible only after a complete match and remain local to the
+selected guard and body.
 
 For complete named or lifted function results, the profile records direct and
 closure tail intent. It propagates that result position through selected
@@ -51,9 +53,11 @@ closure values; oversaturated calls tail-terminate only at the final exact
 stage; and module entry remains ordinary call/join/return lowering. This uses
 the existing Lowered IR schema, format, and validator and changes neither the
 runtime ABI, public language semantics, hosted compiler, nor native-stack
-behavior. The opt-in profile still requires a final unguarded wildcard or
-variable as its independent lowering-totality boundary; source-level static
-exhaustiveness and unreachable-arm analysis are implemented under RFC 0012.
+behavior. The backend checks totality independently from source pattern
+coverage: guarded rows do not cover, complete closed local-constructor sets and
+the single tuple shape need no synthetic wildcard, and open scalar literal
+domains still need an unguarded catch-all. Source-level static exhaustiveness
+and unreachable-arm analysis remain implemented under RFC 0012.
 
 Managed `Text` construction and transport now spans bindings, parameters,
 results, captures, calls, conditional and scalar-case results, returns, and
@@ -70,10 +74,14 @@ variants nominal semantic identities, and constructors declaration-ordered
 zero-based tags; it emits deduplicated layouts deterministically and evaluates
 every field exactly once from left to right.
 
-Constructor and tuple destructuring patterns and other managed scrutinees remain
-deferred pending the separately ordered RFC 0015 pattern child. Lists and list
-fields, product or variant equality, first-class non-nullary constructors,
-pattern-lambda backend lowering, Text uncons/from-chars/concat/I/O, imported
+The same opt-in backend stage now supports source-ordered tuple and local-
+constructor matching, including nested tuple and constructor patterns,
+as-patterns, and top-level alternatives. This supports existing public case
+semantics without changing them or the IR version.
+
+Lists and list fields, list patterns, other managed scrutinees, product or
+variant equality, first-class non-nullary constructors, pattern-lambda backend
+lowering, Text literal patterns, Text uncons/from-chars/concat/I/O, imported
 data, complete multi-module integration, later or interleaved external
 captures, and scalar exports remain excluded. No managed product or variant
 work adds a `RuntimeHost` operation, runtime ABI, or native execution path.

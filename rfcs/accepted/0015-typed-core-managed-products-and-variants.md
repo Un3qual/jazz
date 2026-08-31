@@ -58,8 +58,8 @@ or match-failure runtime service is added.
 
 Delivery is ordered. The first implementation child owns local data retention,
 tuple and exactly saturated constructor production, canonical layout
-collection, construction, and transport. A later child owns managed pattern
-decision trees and projections. Only one child is promoted at a time.
+collection, construction, and transport. The second child owns managed pattern
+decision trees and projections. Both ordered children are complete.
 
 Ordinary `compile` and `run` remain on canonical core and the reference
 interpreter. Public language behavior, Typed Core and Lowered IR schemas,
@@ -77,13 +77,24 @@ references cross bindings, direct and closure parameters and results, calls and
 tail calls, lexical and recursive captures, conditional and scalar-case joins,
 and returns.
 
-This milestone does not implement the later managed-pattern child. Tuple and
-constructor destructuring, independently total managed decision trees, and
-field/tag projection during matching remain accepted design work rather than
-shipped backend behavior. Lists and list fields, product/variant equality,
-first-class non-nullary constructors, pattern lambdas, imported data,
-multi-module lowering, runtime ABI, native execution, and ordinary compile/run
-cutover remain excluded.
+The second ordered child completed on 2026-08-31. The opt-in backend now
+supports source-ordered tuple and local-constructor matching, including nested
+tuple and constructor patterns, as-patterns, and top-level alternatives. It
+checks totality independently from source coverage; guarded rows do not cover,
+complete closed constructor sets and the single tuple shape need no synthetic
+wildcard, and incomplete admitted cases fail before partial lowering. Matching
+tests a variant tag before projecting only the selected constructor's fields
+and retains tuple field order. Pattern binders become visible only after a
+complete match and remain local to the selected arm's guard and body. Nested
+failures and false guards continue in source order.
+
+This remains an opt-in backend stage for existing case semantics, not a public
+language semantic change. Lists and list fields, list patterns, Text literal
+patterns, product/variant equality, first-class non-nullary constructors,
+pattern lambdas, imported data, multi-module lowering, runtime ABI, native
+execution, and ordinary compile/run cutover remain excluded. Typed Core and
+Lowered IR schemas, mirrored validators, and Lowered IR version 1 remain
+unchanged.
 
 ## Context
 
