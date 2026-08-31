@@ -1202,7 +1202,10 @@ for compiling components outside the six focused suites.
 
 - [ ] **Step 4: Format and commit**
 
-Format the touched files, run `git diff --check`, then:
+Format `Driver` and the semantic test changes. For the mechanical
+`RunResult (..)` import consumers, format only the modified import regions and
+preserve unrelated legacy layout; Task 25 owns aggregate touched-file
+normalization. Run `git diff --check`, then:
 
 ```sh
 git add src program-support test
