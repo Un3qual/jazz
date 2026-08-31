@@ -858,7 +858,678 @@ git add benchmark/Jazz/Benchmark/Metadata.hs test/Jazz/Benchmark/MetadataSpec.hs
 git commit -m "fix: report empty benchmark command output"
 ```
 
-### Task 11: Format, Verify, and Review the Aggregate Branch
+## Follow-up Pass 1: Semantic Deduplication
+
+### Task 11: Share Type-Inference Numeric Policies
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/TypeInference/TypeOps.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Diagnostics.hs`
+- Modify: `src/Jazz/Compiler/TypeInference.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Pattern.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Scope.hs`
+- Test: `test/Jazz/Compiler/Semantics/IfExpressionTypeSpec.hs`
+- Test: `test/Jazz/Compiler/Semantics/AdtPatternTypeSpec.hs`
+- Test: `test/Jazz/Compiler/Semantics/PrimitiveSemantics/NumericConversions.hs`
+
+**Interfaces:**
+
+- Produces: `mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType` in `TypeOps`.
+- Produces: `targetedFloatLiteralDiagnostic :: NumericType -> Double -> FractionalLiteralSource -> Maybe Diagnostic` in `Diagnostics`.
+- Removes: both private copies of each helper.
+- Preserves: left-biased fallback, nested shape recursion, exact overflow diagnostics, and source-exact decimal checks.
+
+- [ ] **Step 1: Establish focused characterization**
+
+Run:
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test if-expression-type-spec adt-pattern-type-spec primitive-semantics-spec \
+  --test-show-details=failures --jobs=1
+```
+
+Expected: PASS before the move.
+
+- [ ] **Step 2: Move the exact policies to their semantic owners**
+
+Export the two signatures above. Move the existing recursive
+`mergeIntegerLiteralRanges` implementation with `mergedUnifiedType` into
+`TypeOps`; move the exact `numericTypeFloatMax`/finite/source-magnitude guard
+into `Diagnostics`. Both call sites must import the shared definitions and
+delete their local definitions. Do not change either decision table.
+
+- [ ] **Step 3: Re-run focused characterization**
+
+Run the Step 1 command again. Expected: PASS with identical observable results.
+
+- [ ] **Step 4: Format, check, and commit**
+
+```sh
+scripts/check-haskell-format.sh \
+  src/Jazz/Compiler/TypeInference/TypeOps.hs \
+  src/Jazz/Compiler/TypeInference/Diagnostics.hs \
+  src/Jazz/Compiler/TypeInference.hs \
+  src/Jazz/Compiler/TypeInference/Pattern.hs \
+  src/Jazz/Compiler/TypeInference/Scope.hs
+git diff --check
+git add src/Jazz/Compiler/TypeInference
+git commit -m "refactor: share inference numeric policies"
+```
+
+### Task 12: Centralize Typed Core Structural Queries
+
+**Files:**
+
+- Create: `src/Jazz/Compiler/TypedCore/Query.hs`
+- Modify: `jazz.cabal`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`
+- Modify: `src/Jazz/Compiler/TypedCore/Validate/Patterns.hs`
+- Test: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CaptureRecursionTests.hs`
+- Test: `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`
+- Test: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/RegressionTests.hs`
+
+**Interfaces:**
+
+- Produces: `typedExpressionReferencesAnyBinder :: Set TypedBinderId -> TypedExpr -> Bool`.
+- Produces: `typedPatternInfo :: TypedPattern -> TypedNodeInfo`.
+- Produces: `typedPatternChildren :: TypedPattern -> [TypedPattern]`.
+- Preserves: exhaustive constructor matching and left-to-right traversal.
+
+- [ ] **Step 1: Run the direct-call and contract characterization**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec \
+  jazz-typed-core-contract-spec --test-show-details=failures --jobs=1
+```
+
+Expected: PASS.
+
+- [ ] **Step 2: Add the focused query module**
+
+Implement the three signatures above by moving the exact existing exhaustive
+case analyses. `typedExpressionReferencesAnyBinder` must inspect only explicit
+`TypedVariableExpr` binder references and recurse through lambda bodies,
+collections, applications, conditions, case guards/results, binary/section
+operands, block initializers/results, and impl bodies. The pattern helpers must
+retain source order and have no wildcard in `typedPatternInfo`.
+
+- [ ] **Step 3: Migrate all exact copies and prove none remain**
+
+Replace the two binder-reference copies and every exact pattern-info/children
+copy with imports. Run:
+
+```sh
+rg -n '^expressionReferencesAnyBinder|^patternInfo|^patternChildren' \
+  src/Jazz/Compiler/LoweredIR src/Jazz/Compiler/TypeInference src/Jazz/Compiler/TypedCore
+```
+
+Expected: only the shared exported definitions or stage-specific differently
+named logic remain.
+
+- [ ] **Step 4: Re-run the Step 1 suites, format, and commit**
+
+```sh
+scripts/check-haskell-format.sh \
+  src/Jazz/Compiler/TypedCore/Query.hs \
+  src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs \
+  src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs \
+  src/Jazz/Compiler/LoweredIR/Lower/Requirements.hs \
+  src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs \
+  src/Jazz/Compiler/TypedCore/Validate/Patterns.hs
+git diff --check
+git add jazz.cabal src/Jazz/Compiler
+git commit -m "refactor: centralize Typed Core structural queries"
+```
+
+### Task 13: Share Typed Numeric and Lowered Width Mappings
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/TypedCore.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`
+- Modify: `src/Jazz/Compiler/TypedCore/Validate/TypeRecipes.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`
+- Test: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/RegressionTests.hs`
+- Test: `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`
+
+**Interfaces:**
+
+- Produces: `typedNumericRepresentationRecipe :: TypedNumericType -> TypedRepresentationRecipe`.
+- Produces: `loweredIntegerWidth :: Int -> Maybe LoweredIntegerWidth`.
+- Produces: `loweredFloatWidth :: Int -> Maybe LoweredFloatWidth`.
+- Preserves: independent invalid-width and recipe/type validation.
+
+- [ ] **Step 1: Run numeric recipe and lowering characterization**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec \
+  jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 2: Define total mappings once**
+
+Move the eleven-constructor numeric recipe table into `TypedCore`. Move the
+8/16/32/64 integer and 16/32/64 float width decoders into `Lower.Types`.
+Callers that formerly returned `Maybe` must wrap the total numeric mapping with
+`Just`; malformed raw recipe widths must still be rejected locally.
+
+- [ ] **Step 3: Re-run Step 1, format, and commit**
+
+```sh
+scripts/check-haskell-format.sh \
+  src/Jazz/Compiler/TypedCore.hs \
+  src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs \
+  src/Jazz/Compiler/TypedCore/Validate/TypeRecipes.hs \
+  src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs \
+  src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs \
+  src/Jazz/Compiler/LoweredIR/Lower/Types.hs
+git diff --check
+git add src/Jazz/Compiler
+git commit -m "refactor: share numeric representation mappings"
+```
+
+### Task 14: Share Canonical Runtime Value Codec Mechanics
+
+**Files:**
+
+- Modify: `test/Jazz/Compiler/Bootstrap/CanonicalValue.hs`
+- Modify: `test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs`
+- Modify: `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`
+
+**Interfaces:**
+
+- Produces: shared checked list/text/integer/constructor/arity decoders and
+  canonical list/maybe encoders in `CanonicalValue`.
+- Preserves: separate Typed Core and Lowered IR schema tables and exact error labels.
+
+- [ ] **Step 1: Run both canonical adapter characterizations**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec \
+  --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 2: Move only representation-generic mechanics**
+
+Move `decodeList`, `decodeText`, `decodeInteger`, checked host-`Int`
+conversion, constructor extraction, named-constructor checks, arity/nullary
+checks, `runtimeValueCategory`, and canonical list/maybe encoders to the
+existing support module. Leave all domain constructor names, validation paths,
+recipes, layouts, and failure-detail decoders in their owning adapters.
+
+- [ ] **Step 3: Re-run Step 1, format, and commit**
+
+```sh
+scripts/check-haskell-format.sh \
+  test/Jazz/Compiler/Bootstrap/CanonicalValue.hs \
+  test/Jazz/Compiler/Bootstrap/CanonicalLoweredIRComparison.hs \
+  test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
+git diff --check
+git add test/Jazz/Compiler/Bootstrap
+git commit -m "refactor: share canonical runtime value codecs"
+```
+
+## Follow-up Pass 2: Advanced Haskell and Data Structures
+
+### Task 15: Preserve Validation Proofs with NonEmpty Failures
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/TypedCore/Validate.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower/Types.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Lower.hs`
+- Modify: direct-call, Lowered IR, benchmark, and corpus consumers of these outcomes.
+
+**Interfaces:**
+
+- Changes: `validateTypedProgramOnce :: TypedProgram -> Either (NonEmpty TypedCoreValidationFailure) ValidatedTypedProgram`.
+- Changes: checked Typed Core production failures to `NonEmpty` and success to `ValidatedTypedProgram`.
+- Produces: opaque `ValidatedLoweredProgram` plus `validatedLoweredProgram`.
+- Changes: lowering failure constructors to `NonEmpty`; success carries `ValidatedLoweredProgram`.
+- Preserves: raw list-returning validators and malformed raw contract fixtures.
+
+- [ ] **Step 1: Add checked-boundary invariant tests**
+
+Add assertions to the existing Typed Core and Lowered IR contract suites that:
+
+```haskell
+NonEmpty.toList checkedFailures == rawFailures
+```
+
+for one invalid program, and that successful checked lowering is unwrapped only
+through `validatedLoweredProgram`. Run the suites and witness compilation fail
+until the new APIs exist.
+
+- [ ] **Step 2: Implement proof-carrying checked outcomes**
+
+Use `NonEmpty.nonEmpty` at list-to-checked boundaries. Keep
+`validateTypedProgram` and `validateLoweredProgram` unchanged. Do not strengthen
+raw hosted-Jazz contract values, which negative parity tests must construct.
+
+- [ ] **Step 3: Run affected production and contract suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec \
+  jazz-lowered-ir-contract-spec benchmark-stage-spec program-corpus-spec \
+  --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format the exact touched Haskell list, run `git diff --check`, then:
+
+```sh
+git add src benchmark program-support test
+git commit -m "refactor: carry validated compiler outcomes"
+```
+
+### Task 16: Make Run Results Algebraic
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/Driver.hs`
+- Modify: direct constructor consumers under `src/`, `program-support/`, and `test/`.
+- Test: `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`
+
+**Interfaces:**
+
+- Produces:
+
+```haskell
+data RunExecution
+  = RunNotExecuted
+  | RunRuntimeFailed
+  | RunExited Integer
+  | RunCompleted (Maybe RuntimeValue)
+```
+
+- Makes `RunResult` construction private and stores diagnostics, execution, and observation.
+- Retains total `runOutput`, `runRuntimeValue`, and `runExitStatus` projections.
+
+- [ ] **Step 1: Add projection invariant coverage**
+
+Add a table that checks the four execution forms have mutually exclusive value
+and exit projections and preserve rendered output. Run
+`module-pipeline-contract-spec`; expected compile failure before the new API.
+
+- [ ] **Step 2: Refactor driver construction sites**
+
+Map compile-not-run, runtime diagnostic failure, explicit exit, and normal
+completion branches to the corresponding constructor. Derive output from the
+execution value rather than storing a second independently constructible field.
+
+- [ ] **Step 3: Run driver, CLI, loader, runtime, corpus, and observation suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test module-pipeline-contract-spec cli-spec loader-spec runtime-semantics-spec \
+  runtime-observation-spec program-corpus-spec --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format the touched files, run `git diff --check`, then:
+
+```sh
+git add src/Jazz/Compiler/Driver.hs program-support test
+git commit -m "refactor: make run outcomes explicit"
+```
+
+### Task 17: Encapsulate Stable Ordered Sets
+
+**Files:**
+
+- Create: `src/Jazz/Compiler/StableSet.hs`
+- Modify: `jazz.cabal`
+- Modify: `src/Jazz/Compiler/RecursiveBindings.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Types.hs`
+- Modify: TypeScheme construction and consumption sites under `src/` and focused tests.
+- Test: `test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs`
+
+**Interfaces:**
+
+- Produces opaque `StableSet a` with empty, singleton, insert, delete,
+  difference, from-set, from-preferred-order, membership-set, and ordered-list operations.
+- Uses `Set a` for membership and `Seq a` for first-occurrence order.
+- Produces `QuantifiedVariables` wrapping `StableSet Int` inside `TypeScheme`.
+
+- [ ] **Step 1: Add StableSet law and normalization tests**
+
+Cover set/list agreement, idempotent insertion, first-occurrence order,
+duplicate preferred-order removal, deterministic remaining-set order, deletion,
+difference, and associative `Semigroup`. Run
+`haskell-typeclass-contracts-spec`; expected compile failure before the module exists.
+
+- [ ] **Step 2: Implement the opaque invariant and migrate owners**
+
+`stableSetFromPreferred preferred members` must keep the first occurrence of
+each preferred member, discard foreign entries, then append remaining members
+in `Set` order. Replace `OrderedNames` and the two TypeScheme fields without
+exporting a constructor that can desynchronize membership and order.
+
+- [ ] **Step 3: Run inference, recursion, runtime capture, and direct-call suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test haskell-typeclass-contracts-spec binding-signature-coherence-spec \
+  recursive-bindings-spec lambda-semantics-spec runtime-semantics-spec \
+  jazz-typed-core-expression-direct-call-spec --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format touched files, run `git diff --check`, then:
+
+```sh
+git add jazz.cabal src test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs
+git commit -m "refactor: encode stable ordered sets"
+```
+
+### Task 18: Validate CLI State into Algebraic Options
+
+**Files:**
+
+- Modify: `src/Jazz/CLI/Main.hs`
+- Test: `test/Jazz/CLI/CLISpec.hs`
+
+**Interfaces:**
+
+- Produces private permissive `RawCliOptions` for argument accumulation.
+- Produces validated sums for input, Prelude selection, and compile/run mode.
+- Hides the validated `CliOptions` constructor while exposing deliberate projections.
+
+- [ ] **Step 1: Add algebraic parser-result assertions**
+
+Extend CLI parser tests to assert stdin/source/module-graph input, bundled/
+explicit/disabled Prelude, and compile/run observation modes through the new
+constructors or projections. Run `cli-spec`; expected compile failure.
+
+- [ ] **Step 2: Split accumulation from validation**
+
+Keep the current one-pass flag parser over `RawCliOptions`; convert once after
+all arguments are consumed. The conversion must retain every existing E5002
+message and reject the same invalid combinations.
+
+- [ ] **Step 3: Run CLI and module entrypoint suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test cli-spec module-pipeline-contract-spec loader-spec \
+  --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+```sh
+scripts/check-haskell-format.sh src/Jazz/CLI/Main.hs test/Jazz/CLI/CLISpec.hs
+git diff --check
+git add src/Jazz/CLI/Main.hs test/Jazz/CLI/CLISpec.hs
+git commit -m "refactor: validate CLI options algebraically"
+```
+
+### Task 19: Make Resolved Import Exposure a Sum
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/ModuleGraph.hs`
+- Modify: `src/Jazz/Compiler/ModuleResolver.hs`
+- Modify: resolved-import consumers in `ModuleCompiler.hs`, `ModuleRuntime.hs`, and tests.
+
+**Interfaces:**
+
+- Produces:
+
+```haskell
+data ImportExposure
+  = ImportAll
+  | ImportOnly (NonEmpty Text)
+  | ImportQualified Text
+```
+
+- Replaces independent alias/symbol optionals only in checked resolver output.
+- Preserves raw parser and Typed Core import shapes for negative validation.
+
+- [ ] **Step 1: Add resolved-import shape characterization**
+
+Add resolver assertions for all three valid syntax forms and retain public
+parser rejection tests for alias-plus-selectors and empty selectors. Run
+`module-resolution-spec module-import-parser-spec` and witness compile failure
+until the sum exists.
+
+- [ ] **Step 2: Convert at the resolver boundary**
+
+Construct `ImportOnly` only from a proven non-empty selector list. Update
+compiler/runtime consumers to one exhaustive case analysis. Do not modify raw
+`TypedResolvedImport` or its invalid fixtures.
+
+- [ ] **Step 3: Run module and Typed Core boundary suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test module-resolution-spec module-exports-spec module-pipeline-contract-spec \
+  loader-spec module-import-parser-spec jazz-typed-core-contract-spec \
+  --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format touched files, run `git diff --check`, then:
+
+```sh
+git add src/Jazz/Compiler test/Jazz/Compiler/Modules test/Jazz/Compiler/Parser
+git commit -m "refactor: encode resolved import exposure"
+```
+
+### Task 20: Use Append-Appropriate Runtime and Coverage Collections
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/Runtime/Types.hs`
+- Modify: `src/Jazz/Compiler/Runtime/Engine.hs`
+- Modify: `src/Jazz/Compiler/PatternCoverage.hs`
+- Modify: canonical/runtime tests that directly inspect qualified methods.
+- Test: `test/Jazz/Compiler/Semantics/PatternCoverageSpec.hs`
+
+**Interfaces:**
+
+- Produces opaque `RuntimeMethodCandidates` and `RuntimeAppliedArguments`
+  backed by `Seq` if both are repeatedly appended; exposes ordered folds/lists.
+- Changes pattern-coverage accumulation to reversed rows/failures with one final reverse.
+- Preserves candidate precedence, argument order, and diagnostic order.
+
+- [ ] **Step 1: Add large ordered characterization**
+
+Add a many-arm coverage case asserting exact unreachable-arm order. Retain
+qualified-method tests that distinguish first candidate and argument order.
+Run `pattern-coverage-spec runtime-semantics-spec`; expected PASS before refactor.
+
+- [ ] **Step 2: Replace only repeated snoc operations**
+
+Use `Seq.|>` for method candidates/arguments and convert at boundaries that
+need lists. For coverage, prepend normalized rows/failures and reverse exactly
+once before the exhaustiveness check/result. Do not migrate fixed-arity runtime lists.
+
+- [ ] **Step 3: Run coverage, capabilities, runtime, observation, and benchmark-stage suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test pattern-coverage-spec runtime-semantics-spec primitive-semantics-spec \
+  runtime-observation-spec benchmark-stage-spec --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format touched files, run `git diff --check`, then:
+
+```sh
+git add src/Jazz/Compiler/Runtime src/Jazz/Compiler/PatternCoverage.hs test
+git commit -m "perf: use append-appropriate compiler collections"
+```
+
+## Follow-up Pass 3: Test Pruning
+
+### Task 21: Remove Vacuous Pure Repeatability Assertions
+
+**Files:**
+
+- Modify: direct-call test modules under `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/`.
+- Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/RegressionTests.hs`.
+- Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreContract/ManifestTests.hs`.
+- Modify: `test/Jazz/Compiler/Bootstrap/CanonicalLexerComparisonSpec.hs`.
+- Modify: `test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs`.
+- Modify: `test/Jazz/Benchmark/MetadataSpec.hs`.
+- Modify: `test/Jazz/Compiler/Runtime/Observation/StatisticsTests.hs`.
+- Modify: `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`.
+
+**Interfaces:**
+
+- Removes: second calls to pure lowerers/validators/renderers and alias-to-self comparisons.
+- Preserves: exact result/failure/order/schema/round-trip assertions and all repeated hosted-Jazz runs.
+
+- [ ] **Step 1: Record the exact removable inventory**
+
+Use the committed audit list: eighteen direct-call lowerer repeatability sites;
+three pure Typed Core validator reruns; the vacuous canonical lexer self-alias
+test; the pure half of parser corpus determinism; and four pure serializer/
+renderer self-equality checks. Confirm each surrounding test retains a stronger
+independent assertion before editing.
+
+- [ ] **Step 2: Remove only redundant evaluation and rename labels**
+
+Keep one result binding and every exact program/failure/layout/schema assertion.
+Delete `testParserFixtureDeterminism`; retain parser corpus category assertions
+under a name that describes adaptation/category coverage.
+
+- [ ] **Step 3: Run every affected component**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec \
+  canonical-lexer-comparison-spec canonical-parser-comparison-spec jazz-lexer-parity-spec \
+  jazz-parser-parity-spec benchmark-metadata-spec runtime-observation-spec \
+  jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format the touched test files, run `git diff --check`, then:
+
+```sh
+git add test
+git commit -m "test: remove vacuous pure repeatability checks"
+```
+
+### Task 22: Consolidate Redundant Manifest and Parser Assertions
+
+**Files:**
+
+- Modify: Typed Core, Lowered IR, direct-call, control-flow, and parser corpus manifest tests.
+- Modify: `test/Jazz/Compiler/Parser/DeclarationParserSpec.hs`.
+- Modify: `test/Jazz/Compiler/Parser/ModuleImportParserSpec.hs`.
+
+**Interfaces:**
+
+- Removes: numeric counts implied by exact ordered manifests and repeated combined-list equalities.
+- Removes: two internal import diagnostic cases duplicated by public parsing.
+- Preserves: exact manifests, uniqueness, disjointness, classifications, validation-kind coverage, and three legacy rejection inputs.
+
+- [ ] **Step 1: Consolidate fixture ownership without deleting semantic checks**
+
+Keep one exact ordered manifest per fixture family. Delete only derived `length`
+literals and equalities implied by the retained component manifests. Keep one
+authoritative 365/196/169 parser partition assertion in the fixture-manifest owner.
+
+- [ ] **Step 2: Narrow parser cleanup**
+
+Delete `testRejectsImportAliasWithSymbolList` and
+`testRejectsImportSymbolListWithAlias` from `DeclarationParserSpec`; retain the
+public `parseSurfaceProgram` cases. Bind repeated parse results once inside the
+duplicate-export and trailing-comma tests. Replace the three legacy module
+declaration functions with one explicit table of all three source forms.
+
+- [ ] **Step 3: Run manifest and parser components**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec \
+  jazz-typed-core-expression-direct-call-spec jazz-core-control-flow-patterns-spec \
+  canonical-parser-comparison-spec jazz-core-modules-corpus-closure-spec \
+  declaration-parser-spec module-import-parser-spec --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Format and commit**
+
+Format touched tests, run `git diff --check`, then:
+
+```sh
+git add test
+git commit -m "test: consolidate redundant manifests and parser cases"
+```
+
+### Task 23: Remove the Dead Compatibility Resolution Mode
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/BuiltinCatalog.hs`
+- Modify: `test/Jazz/Compiler/Semantics/Runtime/RecursionTests.hs`
+- Modify: imports and case analyses exposed by constructor removal.
+
+**Interfaces:**
+
+- Removes: `ResolveCompatibility` and its test-only scope-plan assertion.
+- Preserves: `ResolveKernelOnly`, Prelude aliases, public conversions, and the real runtime recursion assertion.
+
+- [ ] **Step 1: Revalidate the live call-site proof**
+
+```sh
+rg -n 'ResolveCompatibility|ResolveKernelOnly' src app test -g '*.hs'
+```
+
+Expected before editing: `ResolveCompatibility` construction occurs only in
+`Runtime/RecursionTests.hs`; production contains only its definition/case branches.
+
+- [ ] **Step 2: Remove the dead constructor and paired test-only branch**
+
+Delete compatibility-name/catalog selection branches. Simplify exhaustive
+case expressions only as far as the single remaining mode requires. Retain
+public builtin alias definitions and the subsequent `runSource` behavioral
+assertion in the recursion test.
+
+- [ ] **Step 3: Run builtin, runtime, Prelude, and loader suites**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test builtin-catalog-spec runtime-semantics-spec prelude-loading-spec loader-spec \
+  --test-show-details=failures --jobs=1
+```
+
+- [ ] **Step 4: Prove the symbol is gone, format, and commit**
+
+```sh
+rg -n 'ResolveCompatibility' src app test -g '*.hs'
+scripts/check-haskell-format.sh \
+  src/Jazz/Compiler/BuiltinCatalog.hs \
+  test/Jazz/Compiler/Semantics/Runtime/RecursionTests.hs
+git diff --check
+git add src/Jazz/Compiler/BuiltinCatalog.hs test/Jazz/Compiler/Semantics/Runtime/RecursionTests.hs
+git commit -m "refactor: remove dead builtin compatibility mode"
+```
+
+Expected `rg`: no matches.
+
+### Task 24: Format, Verify, and Review the Aggregate Branch
 
 **Files:**
 
