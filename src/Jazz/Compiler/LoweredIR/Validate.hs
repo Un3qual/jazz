@@ -1,7 +1,8 @@
 -- | Complete structural validation for backend-neutral lowered IR.
 module Jazz.Compiler.LoweredIR.Validate
-  ( validateLoweredProgram
-  ) where
+  ( validateLoweredProgram,
+  )
+where
 
 import Data.Char (ord)
 import Data.Function ((&))
@@ -89,7 +90,7 @@ duplicateFunctionFailures =
     LoweredDuplicateFunction
     functionIdText
 
-duplicateFailures :: Ord identifier => (value -> identifier) -> (identifier -> LoweredIRValidationPath) -> LoweredIRValidationKind -> (identifier -> Text) -> [value] -> [LoweredIRValidationFailure]
+duplicateFailures :: (Ord identifier) => (value -> identifier) -> (identifier -> LoweredIRValidationPath) -> LoweredIRValidationKind -> (identifier -> Text) -> [value] -> [LoweredIRValidationFailure]
 duplicateFailures identifierOf pathOf kind renderIdentifier values = reverse (snd (foldl' step (Set.empty, []) values))
   where
     step (seen, reversedFailures) value =
@@ -149,10 +150,11 @@ validateFunction programContext function@(LoweredFunction functionId maybeEnviro
           functionContextFunction = function,
           functionContextBlocks = blocksById,
           functionContextTemporaryOwners =
-            Map.fromListWith Set.union
+            Map.fromListWith
+              Set.union
               [ (temporaryId, Set.singleton blockId)
-                | LoweredBlock blockId _ instructions _ <- blocks,
-                  LoweredInstruction temporaryId _ _ <- instructions
+              | LoweredBlock blockId _ instructions _ <- blocks,
+                LoweredInstruction temporaryId _ _ <- instructions
               ],
           functionContextTemporaryRepresentations =
             -- Duplicate block lookup already uses the last block in
@@ -161,13 +163,13 @@ validateFunction programContext function@(LoweredFunction functionId maybeEnviro
             Map.fromListWith
               (\_ firstRepresentation -> firstRepresentation)
               [ ((blockId, temporaryId), representation)
-                | (blockId, LoweredBlock _ _ instructions _) <- Map.toList blocksById,
-                  LoweredInstruction temporaryId representation _ <- instructions
+              | (blockId, LoweredBlock _ _ instructions _) <- Map.toList blocksById,
+                LoweredInstruction temporaryId representation _ <- instructions
               ],
           functionContextParameters =
             Map.fromList
               [ (parameterId, representation)
-                | LoweredParameter parameterId representation <- maybeToList maybeEnvironment <> parameters
+              | LoweredParameter parameterId representation <- maybeToList maybeEnvironment <> parameters
               ]
         }
     duplicateBlockFailures =
@@ -659,9 +661,9 @@ switchShapeFailures functionContext path operand cases maybeDefault =
   where
     invalidSwitchTagFailures variants =
       [ failure path LoweredInvalidTagProjection (LoweredTagDetail tag)
-        | LoweredSwitchCase tag _ _ <- cases,
-          tagWithinSharedCarrier tag,
-          lookupVariant tag variants == Nothing
+      | LoweredSwitchCase tag _ _ <- cases,
+        tagWithinSharedCarrier tag,
+        lookupVariant tag variants == Nothing
       ]
     switchCoverageFailures variants =
       case maybeDefault of

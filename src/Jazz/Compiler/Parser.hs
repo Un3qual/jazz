@@ -50,7 +50,7 @@ import Jazz.Compiler.Parser.Lexer
   )
 import Jazz.Compiler.Parser.Operator
   ( OperatorInfo,
-    operatorTableFromDeclarations
+    operatorTableFromDeclarations,
   )
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,

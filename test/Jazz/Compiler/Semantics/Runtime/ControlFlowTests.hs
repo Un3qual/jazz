@@ -1,12 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.ControlFlowTests
-  ( controlFlowTests
-  ) where
+  ( controlFlowTests,
+  )
+where
 
 import Control.Exception
   ( SomeException,
-    try
+    try,
   )
 import qualified Data.Text as Text
 import Jazz.Compiler.Driver
@@ -17,30 +18,30 @@ import Jazz.Compiler.Driver
     runSource,
   )
 import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExpr
+  ( evaluateRuntimeExpr,
   )
+import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
-    assertLeftDiagnosticCodeAndContains,
     assertEqual,
+    assertLeftDiagnosticCodeAndContains,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
 import System.Timeout
-  ( timeout
+  ( timeout,
   )
-import Jazz.Compiler.Semantics.Runtime.Shared
 
 controlFlowTests :: [NamedTest]
 controlFlowTests =
-  [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure)
-    , ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure)
-    , ("mixed wrapper with eager selected branch produces runtime unbound diagnostic", testMixedWrapperWithSelectedNonAliasSelfUseTerminates)
-    , ("function-valued pattern guard uses prior rebinding", testFunctionPatternGuardUsesPriorRebinding)
-    , ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError)
+  [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
+    ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
+    ("mixed wrapper with eager selected branch produces runtime unbound diagnostic", testMixedWrapperWithSelectedNonAliasSelfUseTerminates),
+    ("function-valued pattern guard uses prior rebinding", testFunctionPatternGuardUsesPriorRebinding),
+    ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError)
   ]
 
 testIfFalseSkipsThenRuntimeFailure :: IO ()

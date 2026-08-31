@@ -1,31 +1,32 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.RenderingTests
-  ( renderingTests
-  ) where
+  ( renderingTests,
+  )
+where
 
 import Control.Exception
   ( SomeException,
-    try
+    try,
   )
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignatureType (..),
-    DataConstructor (..),
+  ( DataConstructor (..),
     Expr (..),
     Literal (..),
     NumericType (..),
-    Statement (..)
-  )
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
-  )
-import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+    SignatureType (..),
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..)
+  ( BuiltinResolutionMode (..),
+  )
+import Jazz.Compiler.Diagnostics
+  ( SourceSpan (..),
+  )
+import Jazz.Compiler.Diagnostics.Render
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( RunResult,
@@ -35,98 +36,98 @@ import Jazz.Compiler.Driver
     runSource,
   )
 import Jazz.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource
+  ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints
+    evaluateRuntimeExprWithBuiltinsAndBindingHints,
   )
 import Jazz.Compiler.Runtime.Semantics
   ( literalRuntimeValue,
     roundFloatTarget,
-    runtimeValueMatchesLiteral
+    runtimeValueMatchesLiteral,
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeIntMetadata (..),
-    prependRuntimeExplicitResultHint
+    prependRuntimeExplicitResultHint,
   )
 import Jazz.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey
+  ( bindingRuntimeHintKey,
   )
+import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
-    assertLeftDiagnosticCodeAndContains,
     assertEqual,
+    assertLeftDiagnosticCodeAndContains,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
 import System.Timeout
-  ( timeout
+  ( timeout,
   )
-import Jazz.Compiler.Semantics.Runtime.Shared
 
 renderingTests :: [NamedTest]
 renderingTests =
-  [ ("Unit renders and participates in structural equality", testUnitRenderingAndEquality)
-    , ("Char and Text literals evaluate and render", testCharTextLiteralRendering)
-    , ("Char and Text strict equality evaluates", testCharTextStrictEquality)
-    , ("Char and Text literal patterns match", testCharTextLiteralPatterns)
-    , ("literal matching strips wrappers without comparing callables", testRuntimeValueMatchesLiteral)
-    , ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess)
-    , ("private itemValue rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess)
-    , ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments)
-    , ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess)
-    , ("Unicode case and bulk text primitives evaluate", testUnicodeCaseAndBulkTextRuntimeSuccess)
-    , ("checked scalar conversion rejects non-scalars", testCheckedScalarConversionRejectsNonScalars)
-    , ("runtime fallback rejects invalid bootstrap primitive arguments", testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments)
-    , ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError)
-    , ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError)
-    , ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates)
-    , ("block wrapper with eager statement before alias terminal produces runtime unbound diagnostic", testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates)
-    , ("constructor over-application produces arity runtime diagnostic", testConstructorOverApplicationRuntimeError)
-    , ("bare dollar operator itemValue applies at runtime", testDollarOperatorValueRuntimeSuccess)
-    , ("bare operator itemValue applies at runtime", testBareOperatorValueRuntimeSuccess)
-    , ("explicit partial application of bare operator itemValue applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess)
-    , ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess)
-    , ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess)
-    , ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess)
-    , ("declared custom precedence user operator groups at runtime", testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess)
-    , ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess)
-    , ("declared user operator itemValue applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess)
-    , ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess)
-    , ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess)
-    , ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess)
-    , ("filter keeps only matching list elements", testFilterRuntimeSuccess)
-    , ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue)
-    , ("tuple literal evaluates and renders at runtime", testTupleLiteralRuntimeValue)
-    , ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError)
-    , ("tl on empty list produces fatal runtime diagnostic", testTlEmptyListRuntimeError)
-    , ("direct runtime helper rejects canonical prelude alias without bundled prelude", testRuntimeHelperRejectsCanonicalAlias)
-    , ("runtime fallback rejects kernel hd on non-list values", testRuntimeFallbackRejectsHdNonList)
-    , ("runtime fallback rejects kernel tl on non-list values", testRuntimeFallbackRejectsTlNonList)
-    , ("runtime fallback rejects kernel map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper)
-    , ("runtime fallback rejects kernel map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection)
-    , ("runtime fallback rejects kernel filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate)
-    , ("runtime fallback rejects kernel filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection)
-    , ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool)
-    , ("print! returns evaluated argument itemValue", testPrintBuiltinReturnsArgument)
-    , ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess)
-    , ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess)
-    , ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess)
-    , ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints)
-    , ("structural ADT equality preserves incompatible runtime type hints", testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints)
-    , ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality)
-    , ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality)
-    , ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality)
-    , ("runtime fallback rejects different-length structural equality over functions", testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality)
-    , ("runtime fallback rejects different saturated ADT constructors with function payloads", testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors)
-    , ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput)
-    , ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
+  [ ("Unit renders and participates in structural equality", testUnitRenderingAndEquality),
+    ("Char and Text literals evaluate and render", testCharTextLiteralRendering),
+    ("Char and Text strict equality evaluates", testCharTextStrictEquality),
+    ("Char and Text literal patterns match", testCharTextLiteralPatterns),
+    ("literal matching strips wrappers without comparing callables", testRuntimeValueMatchesLiteral),
+    ("private text traversal primitives evaluate Unicode scalars", testPrivateTextTraversalRuntimeSuccess),
+    ("private itemValue rendering primitive uses deterministic source rendering", testPrivateValueRenderingRuntimeSuccess),
+    ("runtime fallback rejects non-Text traversal arguments", testRuntimeFallbackRejectsNonTextTraversalArguments),
+    ("bootstrap collection and scalar primitives evaluate", testBootstrapCollectionScalarRuntimeSuccess),
+    ("Unicode case and bulk text primitives evaluate", testUnicodeCaseAndBulkTextRuntimeSuccess),
+    ("checked scalar conversion rejects non-scalars", testCheckedScalarConversionRejectsNonScalars),
+    ("runtime fallback rejects invalid bootstrap primitive arguments", testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments),
+    ("direct self alias produces deterministic runtime diagnostic", testDirectSelfAliasRuntimeError),
+    ("wrapped direct self alias produces deterministic runtime diagnostic", testWrappedDirectSelfAliasRuntimeError),
+    ("same-name non-alias self application produces runtime unbound diagnostic", testSameNameNonAliasSelfApplicationTerminates),
+    ("block wrapper with eager statement before alias terminal produces runtime unbound diagnostic", testBlockWrapperWithEagerStatementBeforeAliasTerminalTerminates),
+    ("constructor over-application produces arity runtime diagnostic", testConstructorOverApplicationRuntimeError),
+    ("bare dollar operator itemValue applies at runtime", testDollarOperatorValueRuntimeSuccess),
+    ("bare operator itemValue applies at runtime", testBareOperatorValueRuntimeSuccess),
+    ("explicit partial application of bare operator itemValue applies at runtime", testExplicitPartialOperatorValueRuntimeSuccess),
+    ("left operator section applies at runtime", testLeftOperatorSectionRuntimeSuccess),
+    ("right operator section applies at runtime", testRightOperatorSectionRuntimeSuccess),
+    ("declared user operator infix applies at runtime", testDeclaredUserOperatorInfixRuntimeSuccess),
+    ("declared custom precedence user operator groups at runtime", testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess),
+    ("declared user operator signature applies at runtime", testDeclaredUserOperatorSignatureRuntimeSuccess),
+    ("declared user operator itemValue applies at runtime", testDeclaredUserOperatorValueRuntimeSuccess),
+    ("declared user left operator section applies at runtime", testDeclaredUserLeftOperatorSectionRuntimeSuccess),
+    ("declared user right operator section preserves argument order", testDeclaredUserRightOperatorSectionRuntimeSuccess),
+    ("map + hd evaluates over nested list literals", testMapHdNestedListsRuntimeSuccess),
+    ("filter keeps only matching list elements", testFilterRuntimeSuccess),
+    ("tl returns the tail of a non-empty list", testTlReturnsTailRuntimeValue),
+    ("tuple literal evaluates and renders at runtime", testTupleLiteralRuntimeValue),
+    ("hd on empty list produces fatal runtime diagnostic", testHdEmptyListRuntimeError),
+    ("tl on empty list produces fatal runtime diagnostic", testTlEmptyListRuntimeError),
+    ("direct runtime helper rejects canonical prelude alias without bundled prelude", testRuntimeHelperRejectsCanonicalAlias),
+    ("runtime fallback rejects kernel hd on non-list values", testRuntimeFallbackRejectsHdNonList),
+    ("runtime fallback rejects kernel tl on non-list values", testRuntimeFallbackRejectsTlNonList),
+    ("runtime fallback rejects kernel map with non-function mapper", testRuntimeFallbackRejectsMapNonFunctionMapper),
+    ("runtime fallback rejects kernel map with non-list collection", testRuntimeFallbackRejectsMapNonListCollection),
+    ("runtime fallback rejects kernel filter with non-function predicate", testRuntimeFallbackRejectsFilterNonFunctionPredicate),
+    ("runtime fallback rejects kernel filter with non-list collection", testRuntimeFallbackRejectsFilterNonListCollection),
+    ("runtime fallback rejects kernel filter predicate returning non-Bool", testRuntimeFallbackRejectsFilterPredicateNonBool),
+    ("print! returns evaluated argument itemValue", testPrintBuiltinReturnsArgument),
+    ("structural list equality evaluates at runtime", testStructuralListEqualityRuntimeSuccess),
+    ("structural tuple equality evaluates at runtime", testStructuralTupleEqualityRuntimeSuccess),
+    ("structural ADT equality evaluates at runtime", testStructuralAdtEqualityRuntimeSuccess),
+    ("structural ADT equality sees through runtime type hints", testStructuralAdtEqualitySeesThroughRuntimeTypeHints),
+    ("structural ADT equality preserves incompatible runtime type hints", testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints),
+    ("runtime fallback rejects direct callable equality", testRuntimeFallbackRejectsDirectCallableEquality),
+    ("runtime fallback rejects direct callable inequality", testRuntimeFallbackRejectsDirectCallableInequality),
+    ("runtime fallback rejects structural equality over functions", testRuntimeFallbackRejectsFunctionStructuralEquality),
+    ("runtime fallback rejects different-length structural equality over functions", testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality),
+    ("runtime fallback rejects different saturated ADT constructors with function payloads", testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors),
+    ("scope with only declarations has no runtime output", testDeclarationOnlyScopeHasNoOutput),
+    ("scope result requires terminal expression", testScopeDeclarationAfterExprClearsResult)
   ]
 
 testUnitRenderingAndEquality :: IO ()
@@ -463,67 +464,85 @@ testRightOperatorSectionRuntimeSuccess = do
 
 testDeclaredUserOperatorInfixRuntimeSuccess :: IO ()
 testDeclaredUserOperatorInfixRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  operator %% tier 2.
-  (%%) = \\(left, right) -> left + right.
-  1 %% 2.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      (%%) = \\(left, right) -> left + right.
+      1 %% 2.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
 testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess :: IO ()
 testDeclaredCustomPrecedenceUserOperatorRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  operator %% precedence 99.
-  (%%) = \\(left, right) -> left - right.
-  20 + 10 %% 3 * 2.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      operator %% precedence 99.
+      (%%) = \\(left, right) -> left - right.
+      20 + 10 %% 3 * 2.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "34") (runOutput result)
 
 testDeclaredUserOperatorSignatureRuntimeSuccess :: IO ()
 testDeclaredUserOperatorSignatureRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  operator %% tier 2.
-  (%%) :: Int -> Int -> Int.
-  (%%) = \\(left, right) -> left + right.
-  1 %% 2.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      (%%) :: Int -> Int -> Int.
+      (%%) = \\(left, right) -> left + right.
+      1 %% 2.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
 testDeclaredUserOperatorValueRuntimeSuccess :: IO ()
 testDeclaredUserOperatorValueRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  operator %% tier 2.
-  (%%) = \\(left, right) -> left + right.
-  (%%) 1 2.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      (%%) = \\(left, right) -> left + right.
+      (%%) 1 2.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "3") (runOutput result)
 
 testDeclaredUserLeftOperatorSectionRuntimeSuccess :: IO ()
 testDeclaredUserLeftOperatorSectionRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  operator %% tier 2.
-  (%%) = \\(left, right) -> left - right.
-  (2 %%) 10.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      (%%) = \\(left, right) -> left - right.
+      (2 %%) 10.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "-8") (runOutput result)
 
 testDeclaredUserRightOperatorSectionRuntimeSuccess :: IO ()
 testDeclaredUserRightOperatorSectionRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  operator %% tier 2.
-  (%%) = \\(left, right) -> left - right.
-  (%% 2) 10.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      (%%) = \\(left, right) -> left - right.
+      (%% 2) 10.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "8") (runOutput result)
@@ -643,38 +662,47 @@ testPrintBuiltinReturnsArgument = do
 
 testStructuralListEqualityRuntimeSuccess :: IO ()
 testStructuralListEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  same = [1, 2] == [1, 2].
-  different = [1, 2] != [1, 3].
-  shorter = [1] == [1, 2].
-  nested = [[True], [False]] == [[True], [False]].
-  [same, different, shorter, nested].
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      same = [1, 2] == [1, 2].
+      different = [1, 2] != [1, 3].
+      shorter = [1] == [1, 2].
+      nested = [[True], [False]] == [[True], [False]].
+      [same, different, shorter, nested].
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)
 
 testStructuralTupleEqualityRuntimeSuccess :: IO ()
 testStructuralTupleEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  same = (1, True) == (1, True).
-  different = (1, (True, 2)) != (1, (True, 3)).
-  [same, different].
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      same = (1, True) == (1, True).
+      different = (1, (True, 2)) != (1, (True, 3)).
+      [same, different].
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True]") (runOutput result)
 
 testStructuralAdtEqualityRuntimeSuccess :: IO ()
 testStructuralAdtEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  data Maybe a = Nothing | Just a.
-  same = Just 1 == Just 1.
-  differentPayload = Just 1 != Just 2.
-  differentCtor = Just 1 == Nothing.
-  nested = Just [True] == Just [True].
-  [same, differentPayload, differentCtor, nested].
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      data Maybe a = Nothing | Just a.
+      same = Just 1 == Just 1.
+      differentPayload = Just 1 != Just 2.
+      differentCtor = Just 1 == Nothing.
+      nested = Just [True] == Just [True].
+      [same, differentPayload, differentCtor, nested].
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, False, True]") (runOutput result)

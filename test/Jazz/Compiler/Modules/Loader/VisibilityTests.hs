@@ -1,13 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Modules.Loader.VisibilityTests
-  ( visibilityTests
-  ) where
+  ( visibilityTests,
+  )
+where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (..),
@@ -23,74 +24,74 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runWarnings,
   )
+import Jazz.Compiler.Modules.Loader.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest
+    failTest,
   )
-import Jazz.Compiler.Modules.Loader.Shared
 
 visibilityTests :: [NamedTest]
 visibilityTests =
-  [ ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude)
-    , ("run module graph transports Char/Text values", testRunModuleGraphTransportsCharTextValues)
-    , ("compile module graph without prelude rejects public aliases across files", testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles)
-    , ("run module graph without prelude rejects public aliases across files", testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles)
-    , ("compile module graph without prelude keeps kernel bridge aliases across files", testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles)
-    , ("run module graph without prelude executes kernel bridge aliases across files", testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles)
-    , ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports)
-    , ("compile module graph rewrites hidden constructor dependency expressions", testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions)
-    , ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings)
-    , ("compile module graph keeps hidden constructor dependencies for validation", testCompileModuleGraphKeepsHiddenConstructorValidationDependencies)
-    , ("compile module graph allows explicit-import hidden name supplied by prelude", testCompileModuleGraphExplicitImportAllowsPreludeBinding)
-    , ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings)
-    , ("compile module graph allows alias-hidden name supplied by prelude", testCompileModuleGraphAliasImportAllowsPreludeBinding)
-    , ("run module graph rewrites visible export hidden constructor dependencies", testRunModuleGraphVisibleExportRewritesHiddenConstructorDependency)
-    , ("run module graph keeps explicit-import hidden dependency export from shadowing prelude", testRunModuleGraphExplicitImportHiddenExportUsesPrelude)
-    , ("run module graph keeps alias-hidden dependency export from shadowing prelude", testRunModuleGraphAliasImportHiddenExportUsesPrelude)
-    , ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude)
-    , ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup)
-    , ("compile module graph qualifies alias-only pattern coverage witnesses", testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness)
-    , ("compile module graph hides shadowed imported constructor witnesses", testCompileModuleGraphHidesShadowedImportedConstructorWitness)
-    , ("compile module graph retains visible constructor payload coverage", testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage)
-    , ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes)
-    , ("run module graph resolves alias-qualified types in signatures", testRunModuleGraphResolvesAliasQualifiedTypesInSignatures)
-    , ("compile module graph rejects private alias-qualified types", testCompileModuleGraphRejectsPrivateAliasQualifiedType)
-    , ("run module graph resolves zero-arity types through lowercase aliases", testRunModuleGraphResolvesLowercaseAliasZeroArityType)
-    , ("run module graph accepts impl targets through lowercase aliases", testRunModuleGraphAcceptsLowercaseAliasImplTarget)
-    , ("run module graph resolves generic types from lowercase module paths", testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath)
-    , ("run module graph transports signed generic named schemes", testRunModuleGraphTransportsSignedGenericNamedSchemes)
-    , ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite)
-    , ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets)
-    , ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge)
-    , ("run module graph resolves imported constructors in or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives)
-    , ("run module graph resolves imported constructors in lambda or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives)
-    , ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude)
-    , ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude)
-    , ("compile module graph hides transitive alias-only exports from unqualified visibility", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport)
-    , ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter)
-    , ("run module graph keeps visible sibling import isolated from alias-hidden modules", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule)
-    , ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge)
-    , ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup)
-    , ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport)
-    , ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport)
-    , ("run module graph lets ordinary bindings shadow local constructors", testRunModuleGraphOrdinaryBindingShadowsLocalConstructor)
-    , ("run module graph imports ordinary bindings that shadow constructors", testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor)
-    , ("run module graph executes public closure with private helper", testRunModuleGraphExecutesPublicClosureWithPrivateHelper)
-    , ("compile module graph rejects private alias member", testCompileModuleGraphRejectsPrivateAliasMember)
-    , ("compile module graph supports opaque exported type", testCompileModuleGraphSupportsOpaqueExportedType)
-    , ("run module graph imports selected grouped constructors in expressions and patterns", testRunModuleGraphImportsSelectedGroupedConstructor)
-    , ("compile module graph hides unselected grouped constructors", testCompileModuleGraphHidesUnselectedGroupedConstructor)
-    , ("run module graph imports exported constructor without type name", testRunModuleGraphImportsExportedConstructorWithoutTypeName)
-    , ("run module graph keeps private entry bindings usable", testRunModuleGraphKeepsPrivateEntryBindingsUsable)
-    , ("run module graph keeps earlier imported values visible before later block binders", testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder)
-    , ("run module graph keeps imported values outside later recursive-looking block cycles", testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle)
-    , ("run module graph keeps earlier imported constructors visible before later block binders", testRunModuleGraphKeepsEarlierImportedConstructorBeforeLaterBlockBinder)
-    , ("run module graph preserves nested mutual recursion while resolving block binders sequentially", testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution)
+  [ ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
+    ("run module graph transports Char/Text values", testRunModuleGraphTransportsCharTextValues),
+    ("compile module graph without prelude rejects public aliases across files", testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
+    ("run module graph without prelude rejects public aliases across files", testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
+    ("compile module graph without prelude keeps kernel bridge aliases across files", testCompileModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles),
+    ("run module graph without prelude executes kernel bridge aliases across files", testRunModuleGraphWithoutPreludeKeepsKernelBridgeAliasesAcrossFiles),
+    ("compile module graph validates hidden dependency exports", testCompileModuleGraphValidatesHiddenDependencyExports),
+    ("compile module graph rewrites hidden constructor dependency expressions", testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions),
+    ("compile module graph hides dependency bindings excluded by explicit import list", testCompileModuleGraphExplicitImportListHidesUnlistedBindings),
+    ("compile module graph keeps hidden constructor dependencies for validation", testCompileModuleGraphKeepsHiddenConstructorValidationDependencies),
+    ("compile module graph allows explicit-import hidden name supplied by prelude", testCompileModuleGraphExplicitImportAllowsPreludeBinding),
+    ("compile module graph hides dependency bindings imported only by alias", testCompileModuleGraphAliasImportHidesUnqualifiedBindings),
+    ("compile module graph allows alias-hidden name supplied by prelude", testCompileModuleGraphAliasImportAllowsPreludeBinding),
+    ("run module graph rewrites visible export hidden constructor dependencies", testRunModuleGraphVisibleExportRewritesHiddenConstructorDependency),
+    ("run module graph keeps explicit-import hidden dependency export from shadowing prelude", testRunModuleGraphExplicitImportHiddenExportUsesPrelude),
+    ("run module graph keeps alias-hidden dependency export from shadowing prelude", testRunModuleGraphAliasImportHiddenExportUsesPrelude),
+    ("run module graph keeps alias-hidden data constructor from shadowing prelude", testRunModuleGraphAliasHiddenDataConstructorUsesPrelude),
+    ("run module graph resolves qualified alias data constructor lookup", testRunModuleGraphQualifiedAliasDataConstructorLookup),
+    ("compile module graph qualifies alias-only pattern coverage witnesses", testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness),
+    ("compile module graph hides shadowed imported constructor witnesses", testCompileModuleGraphHidesShadowedImportedConstructorWitness),
+    ("compile module graph retains visible constructor payload coverage", testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage),
+    ("compile module graph preserves alias-qualified generic constructor schemes", testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes),
+    ("run module graph resolves alias-qualified types in signatures", testRunModuleGraphResolvesAliasQualifiedTypesInSignatures),
+    ("compile module graph rejects private alias-qualified types", testCompileModuleGraphRejectsPrivateAliasQualifiedType),
+    ("run module graph resolves zero-arity types through lowercase aliases", testRunModuleGraphResolvesLowercaseAliasZeroArityType),
+    ("run module graph accepts impl targets through lowercase aliases", testRunModuleGraphAcceptsLowercaseAliasImplTarget),
+    ("run module graph resolves generic types from lowercase module paths", testRunModuleGraphResolvesGenericTypeFromLowercaseModulePath),
+    ("run module graph transports signed generic named schemes", testRunModuleGraphTransportsSignedGenericNamedSchemes),
+    ("run module graph keeps local data constructor from hidden import rewrite", testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite),
+    ("run module graph preserves alias-qualified float literal targets", testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets),
+    ("run module graph keeps hidden qualified export pattern constructors available", testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge),
+    ("run module graph resolves imported constructors in or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives),
+    ("run module graph resolves imported constructors in lambda or-pattern alternatives", testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives),
+    ("run module graph keeps alias-qualified dependency export visible with prelude", testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude),
+    ("run module graph keeps transitive alias-hidden dependency export from shadowing prelude", testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude),
+    ("compile module graph hides transitive alias-only exports from unqualified visibility", testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport),
+    ("run module graph keeps alias-hidden prelude binding isolated from visible importer", testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter),
+    ("run module graph keeps visible sibling import isolated from alias-hidden modules", testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule),
+    ("run module graph keeps hidden qualified export dependencies available", testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge),
+    ("run module graph resolves qualified alias lookup", testRunModuleGraphQualifiedAliasLookup),
+    ("run module graph resolves qualified alias lookup through dependency export", testRunModuleGraphQualifiedAliasLookupUsesDependencyExport),
+    ("compile module graph accepts qualified alias use before import", testCompileModuleGraphQualifiedAliasLookupBeforeImport),
+    ("run module graph lets ordinary bindings shadow local constructors", testRunModuleGraphOrdinaryBindingShadowsLocalConstructor),
+    ("run module graph imports ordinary bindings that shadow constructors", testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor),
+    ("run module graph executes public closure with private helper", testRunModuleGraphExecutesPublicClosureWithPrivateHelper),
+    ("compile module graph rejects private alias member", testCompileModuleGraphRejectsPrivateAliasMember),
+    ("compile module graph supports opaque exported type", testCompileModuleGraphSupportsOpaqueExportedType),
+    ("run module graph imports selected grouped constructors in expressions and patterns", testRunModuleGraphImportsSelectedGroupedConstructor),
+    ("compile module graph hides unselected grouped constructors", testCompileModuleGraphHidesUnselectedGroupedConstructor),
+    ("run module graph imports exported constructor without type name", testRunModuleGraphImportsExportedConstructorWithoutTypeName),
+    ("run module graph keeps private entry bindings usable", testRunModuleGraphKeepsPrivateEntryBindingsUsable),
+    ("run module graph keeps earlier imported values visible before later block binders", testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder),
+    ("run module graph keeps imported values outside later recursive-looking block cycles", testRunModuleGraphKeepsImportedValueOutsideLaterBlockCycle),
+    ("run module graph keeps earlier imported constructors visible before later block binders", testRunModuleGraphKeepsEarlierImportedConstructorBeforeLaterBlockBinder),
+    ("run module graph preserves nested mutual recursion while resolving block binders sequentially", testRunModuleGraphPreservesNestedMutualRecursionDuringSequentialResolution)
   ]
 
 testRunModuleGraphKeepsEarlierImportedValueBeforeLaterBlockBinder :: IO ()
@@ -194,17 +195,21 @@ testRunModuleGraphDefaultLoadsBundledPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Data.
-        map hd values.
-        }
-        """),
-          ("src/Lib/Data.jz", """
-          module Lib::Data {
-          values = [[1, 2], [3], [4, 5]].
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Data.
+            map hd values.
+            }
+            """
+          ),
+          ( "src/Lib/Data.jz",
+            """
+            module Lib::Data {
+            values = [[1, 2], [3], [4, 5]].
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -314,14 +319,18 @@ testCompileModuleGraphValidatesHiddenDependencyExports = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math (add).
-        add.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = missingName.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math (add).
+            add.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = missingName.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -339,15 +348,19 @@ testCompileModuleGraphRewritesHiddenConstructorDependencyExpressions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe (x).
-        x.
-        """),
-          ("src/Lib/Maybe.jz", """
-          data Maybe = Just Int.
-          x = 1.
-          Just 1.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe (x).
+            x.
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            data Maybe = Just Int.
+            x = 1.
+            Just 1.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -372,14 +385,18 @@ testCompileModuleGraphExplicitImportListHidesUnlistedBindings = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math (add).
-        subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math (add).
+            subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -397,14 +414,18 @@ testCompileModuleGraphKeepsHiddenConstructorValidationDependencies = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe as Maybe.
-        1.
-        """),
-          ("src/Lib/Maybe.jz", """
-          data Maybe = Just Int.
-          x = Just 1.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe as Maybe.
+            1.
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            data Maybe = Just Int.
+            x = Just 1.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -422,14 +443,18 @@ testCompileModuleGraphExplicitImportAllowsPreludeBinding = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math (add).
-        subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math (add).
+            subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -455,14 +480,18 @@ testCompileModuleGraphAliasImportHidesUnqualifiedBindings = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math as Math.
-        subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math as Math.
+            subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -480,14 +509,18 @@ testCompileModuleGraphAliasImportAllowsPreludeBinding = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math as Math.
-        subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math as Math.
+            subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -506,14 +539,18 @@ testRunModuleGraphVisibleExportRewritesHiddenConstructorDependency = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe (x).
-        x.
-        """),
-          ("src/Lib/Maybe.jz", """
-          data Maybe = Just Int.
-          x = Just 1.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe (x).
+            x.
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            data Maybe = Just Int.
+            x = Just 1.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -532,14 +569,18 @@ testRunModuleGraphExplicitImportHiddenExportUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math (add).
-        subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math (add).
+            subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -558,14 +599,18 @@ testRunModuleGraphAliasImportHiddenExportUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math as Math.
-        subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math as Math.
+            subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -584,10 +629,12 @@ testRunModuleGraphAliasHiddenDataConstructorUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe as Maybe.
-        Nothing.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe as Maybe.
+            Nothing.
+            """
+          ),
           ("src/Lib/Maybe.jz", "data Maybe = Nothing.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -607,10 +654,12 @@ testRunModuleGraphQualifiedAliasDataConstructorLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe as Maybe.
-        Maybe::Just 1.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe as Maybe.
+            Maybe::Just 1.
+            """
+          ),
           ("src/Lib/Maybe.jz", "data Maybe = Just Int | Nothing.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -639,11 +688,13 @@ testCompileModuleGraphQualifiesAliasOnlyPatternCoverageWitness = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Choice as Choice.
-        selected = Choice::Third.
-        case selected { | _ if False -> 0 }.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Choice as Choice.
+            selected = Choice::Third.
+            case selected { | _ if False -> 0 }.
+            """
+          ),
           ("src/Lib/Choice.jz", "data Choice = Second Int | Third.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -672,14 +723,16 @@ testCompileModuleGraphHidesShadowedImportedConstructorWitness = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Choice.
-        data Other = Second.
-        selected = First.
-        case selected { | First -> 0 }.
-        }
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Choice.
+            data Other = Second.
+            selected = First.
+            case selected { | First -> 0 }.
+            }
+            """
+          ),
           ("src/Lib/Choice.jz", "data Choice = First | Second.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -707,18 +760,20 @@ testCompileModuleGraphRetainsVisibleConstructorPayloadCoverage = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Choice.
-        selected = First True.
-        case selected {
-        | First False -> 0
-        | First True -> 1
-        | First _ -> 2
-        | _ -> 3
-        }.
-        }
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Choice.
+            selected = First True.
+            case selected {
+            | First False -> 0
+            | First True -> 1
+            | First _ -> 2
+            | _ -> 3
+            }.
+            }
+            """
+          ),
           ( "src/Lib/Choice.jz",
             "module Lib::Choice (type Choice(First)) { data Choice = First Bool | Second. }"
           )
@@ -738,12 +793,14 @@ testCompileModuleGraphPreservesAliasQualifiedGenericConstructorSchemes = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Box as Box.
-        first = Box::Box 1.
-        second = Box::Box True.
-        second.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Box as Box.
+            first = Box::Box 1.
+            second = Box::Box True.
+            second.
+            """
+          ),
           ("src/Lib/Box.jz", "data Box a = Box a.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -981,16 +1038,20 @@ testRunModuleGraphLocalDataConstructorShadowsHiddenImportRewrite = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import App::UsesMaybe.
-        import Lib::Maybe (Just).
-        data Pair = Just Int Int.
-        Just 1 2.
-        """),
-          ("src/App/UsesMaybe.jz", """
-          import Lib::Maybe as Maybe.
-          use = 0.
-          """),
+        [ ( "src/App/Main.jz",
+            """
+            import App::UsesMaybe.
+            import Lib::Maybe (Just).
+            data Pair = Just Int Int.
+            Just 1 2.
+            """
+          ),
+          ( "src/App/UsesMaybe.jz",
+            """
+            import Lib::Maybe as Maybe.
+            use = 0.
+            """
+          ),
           ("src/Lib/Maybe.jz", "data Maybe = Just Int.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1010,16 +1071,20 @@ testRunModuleGraphPreservesAliasQualifiedFloatLiteralTargets = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Floats as Floats.
-        (Floats::x16, Floats::x32).
-        """),
-          ("src/Lib/Floats.jz", """
-          x16 :: Float16.
-          x16 = 2049.0.
-          x32 :: Float32.
-          x32 = 1.00000001.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Floats as Floats.
+            (Floats::x16, Floats::x32).
+            """
+          ),
+          ( "src/Lib/Floats.jz",
+            """
+            x16 :: Float16.
+            x16 = 2049.0.
+            x32 :: Float32.
+            x32 = 1.00000001.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1038,15 +1103,19 @@ testRunModuleGraphHiddenQualifiedPatternExportKeepsConstructorBridge = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe as Maybe.
-        Maybe::fromDefault.
-        """),
-          ("src/Lib/Maybe.jz", """
-          data Maybe = Just Int | Nothing.
-          default = Just 7.
-          fromDefault = case default { | Just item -> item | Nothing -> 0 }.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe as Maybe.
+            Maybe::fromDefault.
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            data Maybe = Just Int | Nothing.
+            default = Just 7.
+            fromDefault = case default { | Just item -> item | Nothing -> 0 }.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1065,16 +1134,20 @@ testRunModuleGraphResolvesImportedConstructorsInOrPatternAlternatives = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe.
-        selected = Also 41.
-        case selected { | Just item | Also item -> item + 1 | Nothing -> 0 }.
-        """),
-          ("src/Lib/Maybe.jz", """
-          module Lib::Maybe {
-          data Maybe = Nothing | Just Int | Also Int.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe.
+            selected = Also 41.
+            case selected { | Just item | Also item -> item + 1 | Nothing -> 0 }.
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            module Lib::Maybe {
+            data Maybe = Nothing | Just Int | Also Int.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1093,17 +1166,21 @@ testRunModuleGraphResolvesImportedConstructorsInLambdaOrPatternAlternatives = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Maybe.
-        choose = \\|(Just item | Also item) -> item + 1
-                  |(Nothing) -> 0.
-        choose (Also 41).
-        """),
-          ("src/Lib/Maybe.jz", """
-          module Lib::Maybe {
-          data Maybe = Nothing | Just Int | Also Int.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Maybe.
+            choose = \\|(Just item | Also item) -> item + 1
+                      |(Nothing) -> 0.
+            choose (Also 41).
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            module Lib::Maybe {
+            data Maybe = Nothing | Just Int | Also Int.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1122,14 +1199,18 @@ testRunModuleGraphAliasQualifiedExportUsesDependencyWithPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math as Math.
-        Math::subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math as Math.
+            Math::subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1148,14 +1229,18 @@ testRunModuleGraphTransitiveAliasHiddenExportUsesPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import App::UsesMath.
-        use.
-        """),
-          ("src/App/UsesMath.jz", """
-          import Lib::Math as Math.
-          use = subtract.
-          """),
+        [ ( "src/App/Main.jz",
+            """
+            import App::UsesMath.
+            use.
+            """
+          ),
+          ( "src/App/UsesMath.jz",
+            """
+            import Lib::Math as Math.
+            use = subtract.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1179,14 +1264,18 @@ testCompileModuleGraphTransitiveAliasImportHidesUnqualifiedExport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import App::UsesMath.
-        subtract.
-        """),
-          ("src/App/UsesMath.jz", """
-          import Lib::Math as Math.
-          use = 0.
-          """),
+        [ ( "src/App/Main.jz",
+            """
+            import App::UsesMath.
+            subtract.
+            """
+          ),
+          ( "src/App/UsesMath.jz",
+            """
+            import Lib::Math as Math.
+            use = 0.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1206,19 +1295,25 @@ testRunModuleGraphAliasHiddenExportUsesPreludeDespiteVisibleImporter = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import App::UsesMath.
-        import App::UsesPrelude.
-        preludeValue.
-        """),
-          ("src/App/UsesMath.jz", """
-          import Lib::Math.
-          mathValue = subtract.
-          """),
-          ("src/App/UsesPrelude.jz", """
-          import Lib::Math as Math.
-          preludeValue = subtract.
-          """),
+        [ ( "src/App/Main.jz",
+            """
+            import App::UsesMath.
+            import App::UsesPrelude.
+            preludeValue.
+            """
+          ),
+          ( "src/App/UsesMath.jz",
+            """
+            import Lib::Math.
+            mathValue = subtract.
+            """
+          ),
+          ( "src/App/UsesPrelude.jz",
+            """
+            import Lib::Math as Math.
+            preludeValue = subtract.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1238,19 +1333,25 @@ testRunModuleGraphVisibleSiblingImportSurvivesAliasHiddenModule = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import App::UsesMath.
-        import App::UsesPrelude.
-        mathValue.
-        """),
-          ("src/App/UsesMath.jz", """
-          import Lib::Math.
-          mathValue = subtract.
-          """),
-          ("src/App/UsesPrelude.jz", """
-          import Lib::Math as Math.
-          preludeValue = subtract.
-          """),
+        [ ( "src/App/Main.jz",
+            """
+            import App::UsesMath.
+            import App::UsesPrelude.
+            mathValue.
+            """
+          ),
+          ( "src/App/UsesMath.jz",
+            """
+            import Lib::Math.
+            mathValue = subtract.
+            """
+          ),
+          ( "src/App/UsesPrelude.jz",
+            """
+            import Lib::Math as Math.
+            preludeValue = subtract.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1270,14 +1371,18 @@ testRunModuleGraphHiddenQualifiedExportKeepsDependencyBridge = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math as Math.
-        Math::use.
-        """),
-          ("src/Lib/Math.jz", """
-          subtract = 2.
-          use = subtract.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math as Math.
+            Math::use.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            subtract = 2.
+            use = subtract.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1296,14 +1401,18 @@ testRunModuleGraphQualifiedAliasLookup = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math as Math.
-        Math::subtract.
-        """),
-          ("src/Lib/Math.jz", """
-          add = 1.
-          subtract = 2.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math as Math.
+            Math::subtract.
+            """
+          ),
+          ( "src/Lib/Math.jz",
+            """
+            add = 1.
+            subtract = 2.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1322,11 +1431,13 @@ testRunModuleGraphQualifiedAliasLookupUsesDependencyExport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        subtract = 99.
-        import Lib::Math as Math.
-        Math::subtract.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            subtract = 99.
+            import Lib::Math as Math.
+            Math::subtract.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1344,10 +1455,12 @@ testCompileModuleGraphQualifiedAliasLookupBeforeImport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        math::subtract.
-        import Lib::Math as math.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            math::subtract.
+            import Lib::Math as math.
+            """
+          ),
           ("src/Lib/Math.jz", "subtract = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -1367,13 +1480,15 @@ testRunModuleGraphOrdinaryBindingShadowsLocalConstructor = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        data Maybe = Just Int.
-        Just = 1.
-        Just.
-        }
-        """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            data Maybe = Just Int.
+            Just = 1.
+            Just.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1392,18 +1507,22 @@ testRunModuleGraphImportsOrdinaryBindingThatShadowsConstructor = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Maybe (Just).
-        Just.
-        }
-        """),
-          ("src/Lib/Maybe.jz", """
-          module Lib::Maybe {
-          data Maybe = Just Int.
-          Just = 1.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Maybe (Just).
+            Just.
+            }
+            """
+          ),
+          ( "src/Lib/Maybe.jz",
+            """
+            module Lib::Maybe {
+            data Maybe = Just Int.
+            Just = 1.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1416,18 +1535,22 @@ testRunModuleGraphExecutesPublicClosureWithPrivateHelper = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Value (answer).
-        answer 41.
-        }
-        """),
-          ("src/Lib/Value.jz", """
-          module Lib::Value (answer) {
-          helper = \\(x) -> x + 1.
-          answer = \\(x) -> helper x.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Value (answer).
+            answer 41.
+            }
+            """
+          ),
+          ( "src/Lib/Value.jz",
+            """
+            module Lib::Value (answer) {
+            helper = \\(x) -> x + 1.
+            answer = \\(x) -> helper x.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1442,18 +1565,22 @@ testCompileModuleGraphRejectsPrivateAliasMember = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Value as Value.
-        Value::helper.
-        }
-        """),
-          ("src/Lib/Value.jz", """
-          module Lib::Value (answer) {
-          helper = 1.
-          answer = helper.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Value as Value.
+            Value::helper.
+            }
+            """
+          ),
+          ( "src/Lib/Value.jz",
+            """
+            module Lib::Value (answer) {
+            helper = 1.
+            answer = helper.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1464,24 +1591,28 @@ testCompileModuleGraphSupportsOpaqueExportedType = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Box.
-        class Use(a) {
-        use :: a -> Bool.
-        }.
-        impl Use(Box) {
-        use = \\(ignored) -> True.
-        }.
-        Use::use boxed.
-        }
-        """),
-          ("src/Lib/Box.jz", """
-          module Lib::Box (Box, boxed) {
-          data Box = Pack Int.
-          boxed = Pack 1.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Box.
+            class Use(a) {
+            use :: a -> Bool.
+            }.
+            impl Use(Box) {
+            use = \\(ignored) -> True.
+            }.
+            Use::use boxed.
+            }
+            """
+          ),
+          ( "src/Lib/Box.jz",
+            """
+            module Lib::Box (Box, boxed) {
+            data Box = Pack Int.
+            boxed = Pack 1.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1522,17 +1653,21 @@ testRunModuleGraphImportsExportedConstructorWithoutTypeName = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Box (Pack).
-        Pack 1.
-        }
-        """),
-          ("src/Lib/Box.jz", """
-          module Lib::Box (Pack) {
-          data Box = Pack Int.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Box (Pack).
+            Pack 1.
+            }
+            """
+          ),
+          ( "src/Lib/Box.jz",
+            """
+            module Lib::Box (Pack) {
+            data Box = Pack Int.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -1543,10 +1678,13 @@ testRunModuleGraphKeepsPrivateEntryBindingsUsable = do
   assertEqual "private entry binding runtime errors" [] (runRuntimeErrors result)
   assertEqual "private entry binding output" (Just "41") (runOutput result)
   where
-    sourceMap = Map.singleton "src/App/Main.jz" """
-    module App::Main () {
-    helper = 41.
-    helper.
-    }
-    """
+    sourceMap =
+      Map.singleton
+        "src/App/Main.jz"
+        """
+        module App::Main () {
+        helper = 41.
+        helper.
+        }
+        """
     lookupSource path = pure (Map.lookup path sourceMap)

@@ -8,7 +8,7 @@ import Jazz.Compiler.AST
     ImplMethod (..),
     Literal (..),
     SignatureType (TypeInt),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Analyzer
   ( AnalysisResult (..),
@@ -16,7 +16,12 @@ import Jazz.Compiler.Analyzer
     analyzeRebindingWarnings,
   )
 import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( bundledPreludeSource,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( DiagnosticSeverity (..),
+    WarningCategory (..),
+    diagnosticCodeText,
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -25,10 +30,10 @@ import Jazz.Compiler.Diagnostics
     diagnosticRelatedSpan,
     diagnosticSeverity,
     diagnosticSubject,
-    diagnosticWarningCategory
+    diagnosticWarningCategory,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( CompileResult (..),
@@ -46,18 +51,13 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,
-    resolveWarningSettings
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( DiagnosticSeverity (..),
-    WarningCategory (..),
-    diagnosticCodeText
+    resolveWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()

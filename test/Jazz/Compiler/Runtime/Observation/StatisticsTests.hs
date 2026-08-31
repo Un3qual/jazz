@@ -74,12 +74,12 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeTermination (..),
     emptyRuntimeStatistics,
   )
+import Jazz.Compiler.Runtime.Observation.Profile (encodeRuntimeSemanticProfile)
 import Jazz.Compiler.Runtime.Observation.Render
   ( decodeRuntimeObservationJson,
     encodeRuntimeObservationJson,
     renderRuntimeObservationHuman,
   )
-import Jazz.Compiler.Runtime.Observation.Profile (encodeRuntimeSemanticProfile)
 import Jazz.Compiler.Runtime.Types
   ( RuntimeHostEvaluationState
       ( runtimeHostEvaluationActiveMachineCount,
@@ -606,7 +606,7 @@ expectedNestedApplicationProfile =
           : concatMap
             (\openTime -> [RuntimeProfileOpen 1 openTime, RuntimeProfileClose 1 (openTime + 3)])
             [195, 199 .. 447]
-          <> [RuntimeProfileClose 0 450]
+            <> [RuntimeProfileClose 0 450]
     }
 
 zeroReport :: RuntimeObservationReport

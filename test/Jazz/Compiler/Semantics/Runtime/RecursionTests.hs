@@ -1,17 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.RecursionTests
-  ( recursionTests
-  ) where
+  ( recursionTests,
+  )
+where
 
 import Control.Exception
   ( SomeException,
     evaluate,
-    try
+    try,
   )
 import Data.Functor.Identity
   ( Identity,
-    runIdentity
+    runIdentity,
   )
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -23,16 +24,16 @@ import Jazz.Compiler.AST
     NumericType (..),
     Pattern (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( RunResult,
@@ -47,66 +48,66 @@ import Jazz.Compiler.Runtime
     evaluateRuntimeExprWithHost,
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
-    runtimeValueExactlyMatchesConstraint
+    runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.ScopePlan
   ( RuntimeScopePlan,
     buildRuntimeScopePlan,
     scopePlanIsRecursiveBinding,
-    scopePlanIsSelfRecursiveFunction
-  )
-import Jazz.Compiler.SourceProgram
-  ( parseAndLowerStandaloneSource,
-    scopeStatements
+    scopePlanIsSelfRecursiveFunction,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
-    RuntimeHostExit (..)
+    RuntimeHostExit (..),
+  )
+import Jazz.Compiler.SourceProgram
+  ( parseAndLowerStandaloneSource,
+    scopeStatements,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
 import System.Timeout
-  ( timeout
+  ( timeout,
   )
 
 recursionTests :: [NamedTest]
 recursionTests =
-  [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe)
-    , ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe)
-    , ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe)
-    , ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations)
-    , ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely)
-    , ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity)
-    , ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch)
-    , ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError)
-    , ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError)
-    , ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError)
-    , ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError)
-    , ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError)
-    , ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer)
-    , ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility)
-    , ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility)
-    , ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility)
-    , ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion)
-    , ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError)
-    , ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError)
-    , ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError)
-    , ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer)
-    , ( "nested recursive forward alias preserves callable recursion"
-      , testNestedRecursiveForwardAliasRuntimeSuccess
-      )
-    , ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess)
-    , ("recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError)
-    , ("indirect recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError)
-    , ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals)
-    , ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
+  [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe),
+    ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe),
+    ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe),
+    ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations),
+    ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely),
+    ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity),
+    ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch),
+    ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
+    ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
+    ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
+    ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
+    ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
+    ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility),
+    ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility),
+    ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility),
+    ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
+    ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError),
+    ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
+    ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
+    ( "nested recursive forward alias preserves callable recursion",
+      testNestedRecursiveForwardAliasRuntimeSuccess
+    ),
+    ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess),
+    ("recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("indirect recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
+    ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
   ]
 
 testTailRecursiveClosureIsStackSafe :: IO ()
@@ -201,8 +202,8 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
               _ <- evaluate (Text.length renderedAppliedValue)
               pure (renderedCallable, observedCount, allHintsMatch, renderedAppliedValue)
           )
-      )
-      :: IO (Either SomeException (Maybe (Text, Int, Bool, Text)))
+      ) ::
+      IO (Either SomeException (Maybe (Text, Int, Bool, Text)))
   case outcome of
     Right Nothing ->
       failTest "100,000 explicit result hints timed out while rendering or applying"
@@ -326,23 +327,21 @@ testPureAndHostDiagnosticsMatch =
   mapM_ assertParity diagnosticParityExpressions
   where
     assertParity expression =
-      case
-          ( evaluateRuntimeExpr expression,
-            runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
-          )
-        of
-          (Left pureDiagnostic, Left hostDiagnostic) ->
-            assertEqual
-              "pure/host rendered diagnostic"
-              (renderDiagnostic pureDiagnostic)
-              (renderDiagnostic hostDiagnostic)
-          (pureResult, hostResult) ->
-            failTest
-              ( "expected matching diagnostic failures, found "
-                  <> Text.pack (show pureResult)
-                  <> " and "
-                  <> Text.pack (show hostResult)
-              )
+      case ( evaluateRuntimeExpr expression,
+             runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
+           ) of
+        (Left pureDiagnostic, Left hostDiagnostic) ->
+          assertEqual
+            "pure/host rendered diagnostic"
+            (renderDiagnostic pureDiagnostic)
+            (renderDiagnostic hostDiagnostic)
+        (pureResult, hostResult) ->
+          failTest
+            ( "expected matching diagnostic failures, found "
+                <> Text.pack (show pureResult)
+                <> " and "
+                <> Text.pack (show hostResult)
+            )
 
 testAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testAliasOnlyRecursiveCycleRuntimeError = do
@@ -659,12 +658,15 @@ testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
     timeout
       1000000
       ( try
-          (runSource defaultWarningSettings """
-          operator %% tier 2.
-          (%%) = (%%).
-          1 %% 2.
-          """)
-          :: IO (Either SomeException RunResult)
+          ( runSource
+              defaultWarningSettings
+              """
+              operator %% tier 2.
+              (%%) = (%%).
+              1 %% 2.
+              """
+          ) ::
+          IO (Either SomeException RunResult)
       )
   case maybeResult of
     Nothing ->
@@ -689,13 +691,16 @@ testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
     timeout
       1000000
       ( try
-          (runSource defaultWarningSettings """
-          operator %% tier 2.
-          (%%) = alias.
-          alias = (%%).
-          1 %% 2.
-          """)
-          :: IO (Either SomeException RunResult)
+          ( runSource
+              defaultWarningSettings
+              """
+              operator %% tier 2.
+              (%%) = alias.
+              alias = (%%).
+              1 %% 2.
+              """
+          ) ::
+          IO (Either SomeException RunResult)
       )
   case maybeResult of
     Nothing ->
@@ -720,18 +725,18 @@ testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals = do
     runSource
       defaultWarningSettings
       ( """
-      class RuntimeApply(a) {
-      apply :: (a -> Bool) -> Bool.
-      }.
-      impl RuntimeApply(Int) {
-      apply = \\(fn) -> True.
-      }.
-      impl RuntimeApply(UInt8) {
-      apply = \\(fn) -> False.
-      }.
-      eq1 = (1 ==).
-      RuntimeApply::apply eq1.
-      """
+        class RuntimeApply(a) {
+        apply :: (a -> Bool) -> Bool.
+        }.
+        impl RuntimeApply(Int) {
+        apply = \\(fn) -> True.
+        }.
+        impl RuntimeApply(UInt8) {
+        apply = \\(fn) -> False.
+        }.
+        eq1 = (1 ==).
+        RuntimeApply::apply eq1.
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -746,16 +751,16 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
           ( runSource
               defaultWarningSettings
               ( """
-              class RuntimeFlag(a) {
-              enabled :: Bool.
-              other :: Bool.
-              }.
-              impl RuntimeFlag(Int) {
-              enabled = RuntimeFlag::other.
-              other = RuntimeFlag::enabled.
-              }.
-              RuntimeFlag::enabled.
-              """
+                class RuntimeFlag(a) {
+                enabled :: Bool.
+                other :: Bool.
+                }.
+                impl RuntimeFlag(Int) {
+                enabled = RuntimeFlag::other.
+                other = RuntimeFlag::enabled.
+                }.
+                RuntimeFlag::enabled.
+                """
               )
           ) ::
           IO (Either SomeException RunResult)

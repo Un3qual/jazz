@@ -28,7 +28,7 @@ import Control.Exception
     displayException,
     evaluate,
     onException,
-    try
+    try,
   )
 import qualified Data.ByteString.Lazy as LazyByteString
 import Data.Either (isRight)
@@ -40,15 +40,18 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Text.IO as TextIO
 import Jazz.Compiler.BundledPrelude
-  ( loadBundledPreludeSource
+  ( loadBundledPreludeSource,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
-    mkErrorDiagnostic
+    mkErrorDiagnostic,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( CompileResult (..),
@@ -68,47 +71,44 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    parseModulePathText
+    parseModulePathText,
+  )
+import Jazz.Compiler.Runtime.Observation
+  ( RuntimeObservationReport (..),
+    RuntimeObservationRequest (..),
+  )
+import Jazz.Compiler.Runtime.Observation.Profile
+  ( encodeRuntimeSemanticProfile,
+  )
+import Jazz.Compiler.Runtime.Observation.Render
+  ( encodeRuntimeObservationJson,
+    renderRuntimeObservationHuman,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     disabledRuntimeHost,
-    productionRuntimeHost
-  )
-import Jazz.Compiler.Runtime.Observation
-  ( RuntimeObservationReport (..),
-    RuntimeObservationRequest (..)
-  )
-import Jazz.Compiler.Runtime.Observation.Profile
-  ( encodeRuntimeSemanticProfile
-  )
-import Jazz.Compiler.Runtime.Observation.Render
-  ( encodeRuntimeObservationJson,
-    renderRuntimeObservationHuman
+    productionRuntimeHost,
   )
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
-    resolveWarningSettings
+    resolveWarningSettings,
   )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+import System.Directory
+  ( removeFile,
+    renameFile,
   )
 import System.Environment (getArgs, lookupEnv)
 import System.Exit (ExitCode (..), exitWith)
-import System.Directory
-  ( removeFile,
-    renameFile
-  )
 import System.FilePath
   ( takeDirectory,
-    takeFileName
+    takeFileName,
   )
 import System.IO
   ( hClose,
     hFlush,
     openBinaryTempFile,
     stderr,
-    stdout
+    stdout,
   )
 
 data RuntimeStatisticsFormat
@@ -545,7 +545,9 @@ loadWarningConfig configSelection configLookup =
           Just contents -> Right (Just contents)
           Nothing ->
             Left
-              ( mkErrorDiagnostic E5003 ToolingOrigin
+              ( mkErrorDiagnostic
+                  E5003
+                  ToolingOrigin
                   ("warning config file could not be read at '" <> Text.pack configPath <> "'")
               )
     DefaultWarningConfigProbe configPath ->
@@ -775,7 +777,9 @@ writeRuntimeProfileAtomically destinationPath profileBytes = do
       Right () -> Right ()
       Left writeError ->
         Left
-          ( mkErrorDiagnostic E5005 ToolingOrigin
+          ( mkErrorDiagnostic
+              E5005
+              ToolingOrigin
               ( "runtime profile could not be written at '"
                   <> Text.pack destinationPath
                   <> "': "

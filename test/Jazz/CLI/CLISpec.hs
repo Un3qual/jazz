@@ -10,7 +10,7 @@ import Data.IORef
     modifyIORef',
     newIORef,
     readIORef,
-    writeIORef
+    writeIORef,
   )
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -35,30 +35,30 @@ import Jazz.CLI.Main
     runCliWithHost,
     runCliWithHostAndProfileWriter,
   )
-import Jazz.Compiler.Diagnostics
-  ( DiagnosticOrigin (..),
-    mkErrorDiagnostic
-  )
-import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+import Jazz.Compiler.BundledPrelude
+  ( bundledPreludeSource,
   )
 import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+  ( ErrorCode (..),
   )
-import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+import Jazz.Compiler.Diagnostics
+  ( DiagnosticOrigin (..),
+    mkErrorDiagnostic,
+  )
+import Jazz.Compiler.Diagnostics.Render
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     disabledRuntimeHost,
-    productionRuntimeHost
+    productionRuntimeHost,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 import System.Directory
   ( createDirectory,
@@ -67,14 +67,14 @@ import System.Directory
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
-    removeFile
+    removeFile,
   )
+import System.Exit (ExitCode)
 import System.FilePath ((</>))
 import System.IO
   ( hClose,
-    openTempFile
+    openTempFile,
   )
-import System.Exit (ExitCode)
 
 main :: IO ()
 main = runTestSuite "CLISpec" tests
@@ -654,17 +654,21 @@ testCliRunModeModuleGraphSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", """
-                module App::Main {
-                import Lib::Util.
-                util.
-                }
-                """),
-                  ("src/Lib/Util.jz", """
-                  module Lib::Util {
-                  util = 1.
-                  }
-                  """)
+                [ ( "src/App/Main.jz",
+                    """
+                    module App::Main {
+                    import Lib::Util.
+                    util.
+                    }
+                    """
+                  ),
+                  ( "src/Lib/Util.jz",
+                    """
+                    module Lib::Util {
+                    util = 1.
+                    }
+                    """
+                  )
                 ]
             )
         )
@@ -690,17 +694,21 @@ testCliModuleGraphDefaultRootSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("App/Main.jz", """
-                module App::Main {
-                import Lib::Util.
-                util.
-                }
-                """),
-                  ("Lib/Util.jz", """
-                  module Lib::Util {
-                  util = 1.
-                  }
-                  """)
+                [ ( "App/Main.jz",
+                    """
+                    module App::Main {
+                    import Lib::Util.
+                    util.
+                    }
+                    """
+                  ),
+                  ( "Lib/Util.jz",
+                    """
+                    module Lib::Util {
+                    util = 1.
+                    }
+                    """
+                  )
                 ]
             )
         )
@@ -723,17 +731,21 @@ testCliModuleGraphCompileSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", """
-                module App::Main {
-                import Lib::Util.
-                util.
-                }
-                """),
-                  ("src/Lib/Util.jz", """
-                  module Lib::Util {
-                  util = 1.
-                  }
-                  """)
+                [ ( "src/App/Main.jz",
+                    """
+                    module App::Main {
+                    import Lib::Util.
+                    util.
+                    }
+                    """
+                  ),
+                  ( "src/Lib/Util.jz",
+                    """
+                    module Lib::Util {
+                    util = 1.
+                    }
+                    """
+                  )
                 ]
             )
         )
@@ -751,10 +763,20 @@ testCliModuleGraphCompileError = do
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    fileLookup key = pure (Map.lookup key (Map.fromList [("src/App/Main.jz", """
-    import Missing::Thing.
-    1.
-    """)]))
+    fileLookup key =
+      pure
+        ( Map.lookup
+            key
+            ( Map.fromList
+                [ ( "src/App/Main.jz",
+                    """
+                    import Missing::Thing.
+                    1.
+                    """
+                  )
+                ]
+            )
+        )
 
 testCliModuleGraphMissingImportSymbol :: IO ()
 testCliModuleGraphMissingImportSymbol = do
@@ -776,10 +798,12 @@ testCliModuleGraphMissingImportSymbol = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", """
-                import Lib::Math (subtract).
-                1.
-                """),
+                [ ( "src/App/Main.jz",
+                    """
+                    import Lib::Math (subtract).
+                    1.
+                    """
+                  ),
                   ("src/Lib/Math.jz", "add = 1.")
                 ]
             )
@@ -804,11 +828,16 @@ testCliModuleGraphDeclarationMismatch = do
       pure
         ( Map.lookup
             key
-            (Map.fromList [("src/App/Main.jz", """
-            module Wrong::Name {
-            1.
-            }
-            """)])
+            ( Map.fromList
+                [ ( "src/App/Main.jz",
+                    """
+                    module Wrong::Name {
+                    1.
+                    }
+                    """
+                  )
+                ]
+            )
         )
 
 testCliModuleGraphParseFailure :: IO ()
@@ -1093,7 +1122,8 @@ testCliObservedExitFinalizesArtifacts = do
           noEnvironment
           (const (pure Nothing))
           (pure source)
-      ) :: IO (Either ExitCode CliOutput)
+      ) ::
+      IO (Either ExitCode CliOutput)
   output <-
     case outputResult of
       Left exitCode ->
@@ -1487,43 +1517,49 @@ runtimeFailureFixture :: FilePath
 runtimeFailureFixture = "test/fixtures/runtime-observation/runtime-failure.jz"
 
 firstProgramSource :: Text
-firstProgramSource = """
-answer = 40 + 2.
-answer.
-"""
+firstProgramSource =
+  """
+  answer = 40 + 2.
+  answer.
+  """
 
 nestedModuleInModuleBodySource :: Text
-nestedModuleInModuleBodySource = """
-module App::Main {
-module Inner::Thing {
-x = 1.
-}
-}
-"""
+nestedModuleInModuleBodySource =
+  """
+  module App::Main {
+  module Inner::Thing {
+  x = 1.
+  }
+  }
+  """
 
 concreteListSignatureSource :: Text
-concreteListSignatureSource = """
-xs :: [Int].
-xs = [1, 2].
-"""
+concreteListSignatureSource =
+  """
+  xs :: [Int].
+  xs = [1, 2].
+  """
 
 simpleFunctionSignatureSource :: Text
-simpleFunctionSignatureSource = """
-inc :: Int -> Int.
-inc = (+ 1).
-"""
+simpleFunctionSignatureSource =
+  """
+  inc :: Int -> Int.
+  inc = (+ 1).
+  """
 
 signatureMismatchSource :: Text
-signatureMismatchSource = """
-x :: Int.
-x = True.
-"""
+signatureMismatchSource =
+  """
+  x :: Int.
+  x = True.
+  """
 
 signatureNameMismatchSource :: Text
-signatureNameMismatchSource = """
-x :: Int.
-y = 1.
-"""
+signatureNameMismatchSource =
+  """
+  x :: Int.
+  y = 1.
+  """
 
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True then 1 else 2."

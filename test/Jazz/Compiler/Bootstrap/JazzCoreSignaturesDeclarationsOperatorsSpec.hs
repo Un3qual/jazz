@@ -163,10 +163,11 @@ directFixtures =
     ),
     ( "type-application-recursive-qualified",
       SETypeApplication
-        (SETypeApplication
-          (SEQualifiedVar "Alias" "map")
-          span1
-          (SurfaceTypeApplication "Alias::Maybe" [SurfaceTypeVariable "a"]))
+        ( SETypeApplication
+            (SEQualifiedVar "Alias" "map")
+            span1
+            (SurfaceTypeApplication "Alias::Maybe" [SurfaceTypeVariable "a"])
+        )
         span2
         ( SurfaceTypeFunction
             (SurfaceTypeList (SurfaceTypeNumeric SurfaceNumericUInt16))
@@ -357,7 +358,7 @@ signatureBlock :: [(Identifier, SurfaceSignatureType)] -> SurfaceExpr
 signatureBlock signatures =
   SEBlock
     [ SSSignature name span1 (SurfaceSignatureType signatureType)
-      | (name, signatureType) <- signatures
+    | (name, signatureType) <- signatures
     ]
 
 earlierChildExpressions :: [SurfaceExpr]
@@ -517,7 +518,7 @@ assertSuccessfulOutput label expected result = do
   assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
   assertEqual (label <> " output") (Just expected) (runOutput result)
 
-expectRight :: Show err => Text.Text -> Either err value -> IO value
+expectRight :: (Show err) => Text.Text -> Either err value -> IO value
 expectRight label value =
   case value of
     Left err -> failTest (label <> ": expected Right, got Left " <> Text.pack (show err))

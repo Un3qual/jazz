@@ -527,11 +527,11 @@ expectedComposedSourceFixtureNames =
 composedSourceInputs :: [(FilePath, [Text.Text], Text.Text)]
 composedSourceInputs =
   map
-    (\fixture ->
-       ( composedFixtureSourcePath fixture,
-         composedFixtureExpectedPath fixture,
-         composedFixtureSource fixture
-       )
+    ( \fixture ->
+        ( composedFixtureSourcePath fixture,
+          composedFixtureExpectedPath fixture,
+          composedFixtureSource fixture
+        )
     )
     composedSourceFixtures
 
@@ -606,11 +606,11 @@ expectedDirectModuleFixtureNames =
 directModuleInputs :: [(FilePath, [Text.Text], SurfaceExpr)]
 directModuleInputs =
   map
-    (\fixture ->
-       ( directFixtureSourcePath fixture,
-         directFixtureExpectedPath fixture,
-         directFixtureExpression fixture
-       )
+    ( \fixture ->
+        ( directFixtureSourcePath fixture,
+          directFixtureExpectedPath fixture,
+          directFixtureExpression fixture
+        )
     )
     directModuleFixtures
 

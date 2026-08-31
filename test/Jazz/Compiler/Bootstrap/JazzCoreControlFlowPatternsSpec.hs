@@ -287,8 +287,8 @@ unsupportedFixtures =
     ("type-application-condition", SEIf (SETypeApplication (SEVar "condition") span1 SurfaceTypeBool) (seInt 1) (seInt 0)),
     ( "type-application-case-scrutinee",
       SECase
-      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
-      [SurfaceCaseArm SPWildcard Nothing (seInt 0)]
+        (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+        [SurfaceCaseArm SPWildcard Nothing (seInt 0)]
     ),
     ( "type-application-case-guard",
       SECase
@@ -357,7 +357,7 @@ assertSuccessfulOutput label expected result = do
   assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
   assertEqual (label <> " output") (Just expected) (runOutput result)
 
-expectRight :: Show err => Text.Text -> Either err value -> IO value
+expectRight :: (Show err) => Text.Text -> Either err value -> IO value
 expectRight label value =
   case value of
     Left err -> failTest (label <> ": expected Right, got Left " <> Text.pack (show err))

@@ -21,8 +21,9 @@ module Jazz.Compiler.CapabilityFacts
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
     substituteClassMethodSignature,
-    constraintFunctionArgumentTypes
-  ) where
+    constraintFunctionArgumentTypes,
+  )
+where
 
 import Control.DeepSeq (NFData)
 import Data.Char (isLower)
@@ -34,19 +35,19 @@ import Jazz.Compiler.AST
   ( NumericType (..),
     SignaturePayload (..),
     SignatureToken (..),
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFromName,
-    renderNumericTypeName
+    renderNumericTypeName,
   )
 import Jazz.Compiler.Name
   ( IdentifierLike (identifierText),
     Name (..),
-    renderName
+    renderName,
   )
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType
+  ( renderSignatureType,
   )
 
 data ConcreteImplFact = ConcreteImplFact Name SignatureType
@@ -302,7 +303,7 @@ constraintSignatureAliasVariants signatureType =
       map TypeName (constraintSignatureAliasNames name)
     TypeApplication name arguments ->
       [ TypeApplication name variantArguments
-        | variantArguments <- traverse constraintSignatureAliasVariants arguments
+      | variantArguments <- traverse constraintSignatureAliasVariants arguments
       ]
     TypeList elementType ->
       map TypeList (constraintSignatureAliasVariants elementType)
@@ -310,8 +311,8 @@ constraintSignatureAliasVariants signatureType =
       map TypeTuple (traverse constraintSignatureAliasVariants elementTypes)
     TypeFunction argumentType resultType ->
       [ TypeFunction variantArgument variantResult
-        | variantArgument <- constraintSignatureAliasVariants argumentType,
-          variantResult <- constraintSignatureAliasVariants resultType
+      | variantArgument <- constraintSignatureAliasVariants argumentType,
+        variantResult <- constraintSignatureAliasVariants resultType
       ]
     _ -> [signatureType]
 

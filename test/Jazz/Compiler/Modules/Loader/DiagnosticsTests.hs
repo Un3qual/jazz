@@ -1,12 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Modules.Loader.DiagnosticsTests
-  ( diagnosticTests
-  ) where
+  ( diagnosticTests,
+  )
+where
 
 import qualified Data.Map.Strict as Map
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
@@ -19,26 +20,26 @@ import Jazz.Compiler.Driver
     runWarnings,
   )
 import Jazz.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..)
+  ( ModuleResolutionConfig (..),
   )
+import Jazz.Compiler.Modules.Loader.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest
+    failTest,
   )
-import Jazz.Compiler.Modules.Loader.Shared
 
 diagnosticTests :: [NamedTest]
 diagnosticTests =
-  [ ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved)
-    , ("compile module graph reports ambiguous import diagnostics", testCompileModuleGraphAmbiguousImport)
-    , ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol)
-    , ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch)
-    , ("run module graph reports cycle diagnostics", testRunModuleGraphCycle)
+  [ ("compile module graph reports unresolved import diagnostics", testCompileModuleGraphUnresolved),
+    ("compile module graph reports ambiguous import diagnostics", testCompileModuleGraphAmbiguousImport),
+    ("compile module graph reports missing import symbols", testCompileModuleGraphMissingImportSymbol),
+    ("compile module graph reports module declaration mismatch diagnostics", testCompileModuleGraphModuleDeclarationMismatch),
+    ("run module graph reports cycle diagnostics", testRunModuleGraphCycle)
   ]
 
 testCompileModuleGraphUnresolved :: IO ()
@@ -59,10 +60,13 @@ testCompileModuleGraphUnresolved = do
   where
     sourceMap =
       Map.fromList
-        [("src/App/Main.jz", """
-        import Missing::Thing.
-        1.
-        """)]
+        [ ( "src/App/Main.jz",
+            """
+            import Missing::Thing.
+            1.
+            """
+          )
+        ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testCompileModuleGraphAmbiguousImport :: IO ()
@@ -91,10 +95,12 @@ testCompileModuleGraphAmbiguousImport = do
         }
     sourceMap =
       Map.fromList
-        [ ("rootA/App/Main.jz", """
-        import Lib::Util.
-        util.
-        """),
+        [ ( "rootA/App/Main.jz",
+            """
+            import Lib::Util.
+            util.
+            """
+          ),
           ("rootA/Lib/Util.jz", "util = 1."),
           ("rootB/Lib/Util.jz", "util = 2.")
         ]
@@ -121,10 +127,12 @@ testCompileModuleGraphMissingImportSymbol = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Math (subtract).
-        1.
-        """),
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Math (subtract).
+            1.
+            """
+          ),
           ("src/Lib/Math.jz", "add = 1.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
@@ -149,11 +157,14 @@ testCompileModuleGraphModuleDeclarationMismatch = do
   where
     sourceMap =
       Map.fromList
-        [("src/App/Main.jz", """
-        module Wrong::Name {
-        main = 1.
-        }
-        """)]
+        [ ( "src/App/Main.jz",
+            """
+            module Wrong::Name {
+            main = 1.
+            }
+            """
+          )
+        ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
 testRunModuleGraphCycle :: IO ()
@@ -174,14 +185,18 @@ testRunModuleGraphCycle = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/A/One.jz", """
-        import B::Two.
-        a.
-        """),
-          ("src/B/Two.jz", """
-          import A::One.
-          b.
-          """),
+        [ ( "src/A/One.jz",
+            """
+            import B::Two.
+            a.
+            """
+          ),
+          ( "src/B/Two.jz",
+            """
+            import A::One.
+            b.
+            """
+          ),
           ("src/b.jz", "b = 2.")
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

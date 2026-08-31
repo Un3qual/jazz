@@ -12,8 +12,9 @@ module Jazz.Compiler.TypeInference.Signature
     renderSignatureTypeFailure,
     signaturePayloadToSignatureType,
     signatureTypeToExpressionType,
-    validateSignatureType
-  ) where
+    validateSignatureType,
+  )
+where
 
 import Control.Applicative ((<|>))
 import Data.Functor (void)
@@ -27,31 +28,31 @@ import Jazz.Compiler.AST
   ( NumericType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
-    SignatureType (..)
+    SignatureType (..),
   )
 import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     concreteImplFact,
     constraintSignatureTypeVariableNamesInOrder,
-    identifierLooksLikeTypeVariable
+    identifierLooksLikeTypeVariable,
   )
 import Jazz.Compiler.Name (Name, identifierText)
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
-    integerLiteralRangeFitsNumericType
+    integerLiteralRangeFitsNumericType,
   )
 import Jazz.Compiler.TypeInference.State
   ( InferState,
     inferClassFacts,
     inferConcreteImplFacts,
     inferDataTypes,
-    initialInferState
+    initialInferState,
   )
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
     ExpressionType (..),
-    TypeSchemeConstraint (..)
+    TypeSchemeConstraint (..),
   )
 
 data SignatureTypeFailure
@@ -79,8 +80,8 @@ validateSignatureType state signatureType =
     variables =
       Map.fromList
         [ (variableName, TVarType (negate position - 1))
-          | (position, variableName) <-
-              zip [0 :: Int ..] (constraintSignatureTypeVariableNamesInOrder signatureType)
+        | (position, variableName) <-
+            zip [0 :: Int ..] (constraintSignatureTypeVariableNamesInOrder signatureType)
         ]
 
 convertSignatureType ::
@@ -97,7 +98,9 @@ convertSignatureType dataTypes variables signatureType =
     TypeChar -> Right TCharType
     TypeText -> Right TTextType
     TypeVariable name ->
-      maybe (Left (UnboundSignatureTypeVariable name)) Right
+      maybe
+        (Left (UnboundSignatureTypeVariable name))
+        Right
         (Map.lookup (identifierText name) variables)
     TypeName name ->
       case builtinOrVariableType name of
@@ -159,7 +162,9 @@ constraintSignatureTypeToExpressionTypeWithState ::
   SignatureType ->
   Maybe ExpressionType
 constraintSignatureTypeToExpressionTypeWithState state signatureVariables signatureType =
-  either (const Nothing) Just
+  either
+    (const Nothing)
+    Just
     (signatureTypeToExpressionType state signatureVariables signatureType)
 
 data SignaturePayloadType = SignaturePayloadType
@@ -197,8 +202,8 @@ signaturePayloadFromType explicitConstraints signatureType state =
       (signatureVariables, nextState) = allocateSignatureTypeVariables variableNames state
       variableOrder =
         [ typeVar
-          | variableName <- variableNames,
-            Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
+        | variableName <- variableNames,
+          Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
         ]
    in case constraintSignatureTypeToExpressionTypeWithState nextState signatureVariables signatureType of
         Just expressionType ->
@@ -207,7 +212,9 @@ signaturePayloadFromType explicitConstraints signatureType state =
 
 constraintSignatureTypeToExpressionType :: SignatureType -> Maybe ExpressionType
 constraintSignatureTypeToExpressionType signatureType =
-  either (const Nothing) Just
+  either
+    (const Nothing)
+    Just
     (signatureTypeToExpressionType initialInferState Map.empty signatureType)
 
 variableConstraintSignaturePayloadToExpressionType ::
@@ -224,8 +231,8 @@ variableConstraintSignaturePayloadToExpressionType constraints signatureType sta
         traverse (variableConstraintToTypeSchemeConstraint signatureVariables) constraints
       variableOrder =
         [ typeVar
-          | variableName <- variableNames,
-            Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
+        | variableName <- variableNames,
+          Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
         ]
    in case (convertedType, convertedConstraints) of
         (Just expressionType, Just explicitConstraints) ->
@@ -394,5 +401,5 @@ expressionTypeToRuntimeSignature policy expressionType =
   where
     convert = expressionTypeToRuntimeSignature policy
 
-tshow :: Show a => a -> Text
+tshow :: (Show a) => a -> Text
 tshow = Text.pack . show

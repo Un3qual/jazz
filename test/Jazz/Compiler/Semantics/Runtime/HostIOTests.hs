@@ -1,27 +1,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.HostIOTests
-  ( hostIOTests
-  ) where
+  ( hostIOTests,
+  )
+where
 
+import Control.Exception (finally)
 import Control.Monad.Trans.State.Strict
   ( State,
     modify,
-    runState
+    runState,
   )
-import Control.Exception (finally)
 import qualified Data.ByteString as ByteString
-import Data.Functor.Identity (Identity (..))
 import Data.Either (isRight)
+import Data.Functor.Identity (Identity (..))
 import Data.IORef
   ( IORef,
+    modifyIORef',
     newIORef,
     readIORef,
-    modifyIORef'
   )
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Data.Map.Strict as Map
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -32,7 +33,7 @@ import Jazz.Compiler.AST
     Pattern (..),
     SignaturePayload (..),
     SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
@@ -49,21 +50,20 @@ import Jazz.Compiler.Runtime
     RuntimeValue (..),
     ScopeResult (..),
     evaluateModuleScopeWithHost,
-    evaluateModuleScopeWithRequiredHost,
     evaluateModuleScopeWithRequiredEvaluationHost,
+    evaluateModuleScopeWithRequiredHost,
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithHost,
     prependRuntimeExplicitResultHint,
     renderRuntimeValue,
     runRuntimeHostEvaluation,
-    runtimeValueExactlyMatchesConstraint
+    runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.Observation
-  ( RuntimeCallableIdentity (ClosureCallable)
+  ( RuntimeCallableIdentity (ClosureCallable),
   )
 import Jazz.Compiler.Runtime.Types (RuntimeClosure (..))
 import Jazz.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
-import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
 import Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
@@ -71,23 +71,24 @@ import Jazz.Compiler.RuntimeHost
     RuntimeHostExit (..),
     hostIOCategoryToken,
     hostIOFailureMessage,
-    productionRuntimeHost
+    productionRuntimeHost,
   )
+import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertLeftDiagnosticContains,
-    failTest
+    failTest,
   )
-import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import System.Directory
   ( getTemporaryDirectory,
-    removeFile
+    removeFile,
   )
 import System.Environment (getArgs)
 import System.IO
   ( hClose,
-    openBinaryTempFile
+    openBinaryTempFile,
   )
 import System.Timeout (timeout)
 
@@ -504,7 +505,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
             "token!"
             (SourceSpan 1 1)
             (hostCall "__kernel_readStdinRaw!" [ETuple []])
-          ]
+        ]
       entryStatements =
         [ SExpr
             (SourceSpan 4 1)

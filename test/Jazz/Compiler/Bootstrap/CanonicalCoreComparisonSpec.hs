@@ -156,13 +156,13 @@ testModuleFailureBoundary = do
   pathMismatch <-
     expectRight
       "module path mismatch"
-    ( canonicalCoreModuleResultRuntimeValue
-        ( lowerSurfaceModuleDetailed
-            "src/App/Main.jz"
-            ["App", "Main"]
-            (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing])
-        )
-    )
+      ( canonicalCoreModuleResultRuntimeValue
+          ( lowerSurfaceModuleDetailed
+              "src/App/Main.jz"
+              ["App", "Main"]
+              (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing])
+          )
+      )
   assertEqual
     "module path mismatch value"
     "CoreModuleLoweringFailed(CoreModulePathMismatchFailure(CanonicalSourcePath(\"src/App/Main.jz\"), [\"App\", \"Main\"], CoreModuleDeclaration(CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 2, 3), [\"Wrong\", \"Path\"])))"
@@ -174,7 +174,7 @@ testModuleFailureBoundary = do
       (canonicalCoreModuleResultRuntimeValue (Right moduleInventory))
   assertContains "successful module result" "CoreModuleLowered" (renderRuntimeValue successfulModule)
 
-assertTextLeftContains :: Show value => Text.Text -> Text.Text -> Either Text.Text value -> IO ()
+assertTextLeftContains :: (Show value) => Text.Text -> Text.Text -> Either Text.Text value -> IO ()
 assertTextLeftContains label needle value =
   case value of
     Left err -> assertContains label needle err

@@ -15,38 +15,43 @@ module Jazz.Compiler.Analyzer
     analyzeProgramWithBuiltins,
     analyzeProgram,
     analyzeRebindingWarningsWithBuiltins,
-    analyzeRebindingWarnings
-  ) where
+    analyzeRebindingWarnings,
+  )
+where
 
-import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
-import qualified Data.Set as Set
 import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    SignatureType (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Pattern (..),
-    Statement (..)
+    SignatureType (..),
+    Statement (..),
+  )
+import Jazz.Compiler.Analyzer.UnusedBindings
+  ( collectUnusedBindingWarnings,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     builtinNamesInMode,
-    isBuiltinSymbolNameInMode
-  )
-import Jazz.Compiler.Analyzer.UnusedBindings
-  ( collectUnusedBindingWarnings
+    isBuiltinSymbolNameInMode,
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact,
     concreteImplFact,
     renderConcreteImplFact,
-    splitQualifiedMethodKey
+    splitQualifiedMethodKey,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
+    WarningCategory (..),
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -55,24 +60,27 @@ import Jazz.Compiler.Diagnostics
     appendDiagnosticSecondaryLabel,
     diagnosticWarningCategory,
     mkErrorDiagnostic,
-    mkWarningDiagnostic,
     mkSameScopeRebindingWarning,
+    mkWarningDiagnostic,
     promoteDiagnostic,
     setDiagnosticPrimaryLabel,
     setDiagnosticPrimarySpan,
     setDiagnosticRelatedSpan,
     setDiagnosticSubject,
-    sortWarnings
+    sortWarnings,
   )
 import Jazz.Compiler.Name
   ( Name,
     identifierPurity,
     identifierText,
     mkIdentifier,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.Pattern
-  ( patternBinderNames
+  ( patternBinderNames,
+  )
+import Jazz.Compiler.Purity
+  ( Purity (..),
   )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
@@ -81,17 +89,10 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     recursiveScopeGroups,
   )
-import Jazz.Compiler.Purity
-  ( Purity (..)
-  )
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     isWarningEnabled,
-    isWarningError
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..),
-    WarningCategory (..)
+    isWarningError,
   )
 
 -- | Analyzer output keeps the original expression plus the warnings/errors
@@ -172,7 +173,7 @@ analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices
 analyzeProgramWithInputs :: AnalysisInputs -> Set Int -> Expr -> IO AnalysisResult
 analyzeProgramWithInputs inputs hiddenStatementIndices expr =
   {-# SCC "jazz-stage:static-analysis" #-}
-    analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics
+  analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics
   where
     collectedDiagnostics =
       case expr of
@@ -189,23 +190,24 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
 analyzeProgramWithInputsAndPreparedScope :: AnalysisInputs -> Set Int -> PreparedRecursiveScope -> IO AnalysisResult
 analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices preparedScope =
   {-# SCC "jazz-stage:static-analysis" #-}
-    let expectedOuterBindingNames =
-          Set.union
-            (Map.keysSet (analysisImportedValues inputs))
-            (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (analysisBuiltinMode inputs)))
-        analysisScope = preparedAnalysisScope expectedOuterBindingNames preparedScope
-        expr = preparedScopeExpr analysisScope
-        collectedDiagnostics =
-          collectScopeDiagnosticsWithPreparedScope
-            analysisScope
-            (analysisBuiltinMode inputs)
-            hiddenStatementIndices
-            (analysisWarningSettings inputs)
-            (analysisVisibleBindings inputs)
-            (analysisVisibleForwardBindings inputs)
-            (Set.map identifierText (analysisImportedClasses inputs))
-            topLevelContext
-     in analysisScope `seq` expr `seq`
+  let expectedOuterBindingNames =
+        Set.union
+          (Map.keysSet (analysisImportedValues inputs))
+          (Set.map (sourceName . mkIdentifier) (builtinNamesInMode (analysisBuiltinMode inputs)))
+      analysisScope = preparedAnalysisScope expectedOuterBindingNames preparedScope
+      expr = preparedScopeExpr analysisScope
+      collectedDiagnostics =
+        collectScopeDiagnosticsWithPreparedScope
+          analysisScope
+          (analysisBuiltinMode inputs)
+          hiddenStatementIndices
+          (analysisWarningSettings inputs)
+          (analysisVisibleBindings inputs)
+          (analysisVisibleForwardBindings inputs)
+          (Set.map identifierText (analysisImportedClasses inputs))
+          topLevelContext
+   in analysisScope `seq`
+        expr `seq`
           analyzeProgramWithInputsAndDiagnostics inputs expr collectedDiagnostics
 
 data PreparedAnalysisScope = PreparedAnalysisScope ![Statement] !(Map Int [Int])
@@ -238,7 +240,8 @@ analysisVisibleBindings = Map.map analysisBindingToVisibleBinding . analysisImpo
 
 analysisVisibleForwardBindings :: AnalysisInputs -> Map Int (Name, VisibleBinding)
 analysisVisibleForwardBindings inputs =
-  Map.map (\(name, binding) -> (name, analysisBindingToVisibleBinding binding))
+  Map.map
+    (\(name, binding) -> (name, analysisBindingToVisibleBinding binding))
     (analysisForwardFunctions inputs)
 
 preparedScopeExpr :: PreparedAnalysisScope -> Expr
@@ -506,38 +509,35 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                   (currentVisibleClassNames classDeclarations importedClassNames)
                   (contextForExpressionStatement exprSpan context)
                   expr
-           in
-            ( scopeBindings,
-              classDeclarations,
-              importedClassNames,
-              implDeclarations,
-              Nothing,
-              diagnosticsWithPending <> exprDiagnostics
-            )
+           in ( scopeBindings,
+                classDeclarations,
+                importedClassNames,
+                implDeclarations,
+                Nothing,
+                diagnosticsWithPending <> exprDiagnostics
+              )
         SModule {} ->
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
-           in
-            ( scopeBindings,
-              moduleBaselineClassDeclarations,
-              Set.empty,
-              Map.empty,
-              Nothing,
-              diagnosticsWithPending
-            )
+           in ( scopeBindings,
+                moduleBaselineClassDeclarations,
+                Set.empty,
+                Map.empty,
+                Nothing,
+                diagnosticsWithPending
+              )
         SImport _ modulePath maybeAlias maybeSymbolNames ->
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
               nextImportedClassNames =
                 Set.union
                   importedClassNames
                   (visibleImportedClassNames modulePath maybeAlias maybeSymbolNames)
-           in
-            ( scopeBindings,
-              classDeclarations,
-              nextImportedClassNames,
-              implDeclarations,
-              Nothing,
-              diagnosticsWithPending
-            )
+           in ( scopeBindings,
+                classDeclarations,
+                nextImportedClassNames,
+                implDeclarations,
+                Nothing,
+                diagnosticsWithPending
+              )
         SClass classSpan capabilityName _parameters methods ->
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
               classNameText = identifierText capabilityName
@@ -555,14 +555,13 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                   Nothing ->
                     (Map.insert classNameText classSpan classDeclarations, [])
               methodErrors = duplicateClassMethodErrors classNameText methods
-           in
-            ( scopeBindings,
-              nextClassDeclarations,
-              importedClassNames,
-              implDeclarations,
-              Nothing,
-              diagnosticsWithPending <> errorDiagnostics (classErrors ++ methodErrors)
-            )
+           in ( scopeBindings,
+                nextClassDeclarations,
+                importedClassNames,
+                implDeclarations,
+                Nothing,
+                diagnosticsWithPending <> errorDiagnostics (classErrors ++ methodErrors)
+              )
         SImpl implSpan capabilityName arguments methods ->
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
               visible = currentVisibleBindings scopeBindings
@@ -586,16 +585,15 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                   visible
                   (currentVisibleClassNames classDeclarations importedClassNames)
                   methods
-           in
-            ( scopeBindings,
-              classDeclarations,
-              importedClassNames,
-              nextImplDeclarations,
-              Nothing,
-              diagnosticsWithPending
-                <> errorDiagnostics (implErrors ++ methodErrors)
-                <> methodBodyDiagnostics
-            )
+           in ( scopeBindings,
+                classDeclarations,
+                importedClassNames,
+                nextImplDeclarations,
+                Nothing,
+                diagnosticsWithPending
+                  <> errorDiagnostics (implErrors ++ methodErrors)
+                  <> methodBodyDiagnostics
+              )
         SData spanValue _ _ constructors ->
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
               constructorWarnings =
@@ -606,31 +604,29 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                   spanValue
                   constructors
                   scopeBindings
-           in
-            ( registerDataConstructors
-                hiddenStatementIndices
-                statementIndex
-                spanValue
-                constructors
-                scopeBindings,
-              classDeclarations,
-              importedClassNames,
-              implDeclarations,
-              Nothing,
-              diagnosticsWithPending <> warningDiagnostics constructorWarnings
-            )
+           in ( registerDataConstructors
+                  hiddenStatementIndices
+                  statementIndex
+                  spanValue
+                  constructors
+                  scopeBindings,
+                classDeclarations,
+                importedClassNames,
+                implDeclarations,
+                Nothing,
+                diagnosticsWithPending <> warningDiagnostics constructorWarnings
+              )
         SSignature signatureName signatureSpan _signatureText ->
           -- Signature payload text is carried forward for future type parsing.
           -- This pass only enforces placement/name coherence.
           let diagnosticsWithPending = flushPendingSignature pendingSignature diagnostics
-           in
-            ( scopeBindings,
-              classDeclarations,
-              importedClassNames,
-              implDeclarations,
-              Just (PendingSignature (identifierText signatureName) signatureSpan),
-              diagnosticsWithPending
-            )
+           in ( scopeBindings,
+                classDeclarations,
+                importedClassNames,
+                implDeclarations,
+                Just (PendingSignature (identifierText signatureName) signatureSpan),
+                diagnosticsWithPending
+              )
         SLet bindingName bindingSpan valueExpr ->
           -- Bindings consume a pending signature if names match. Rebinding
           -- stays semantically valid but may emit an optional warning.
@@ -699,14 +695,13 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
                   <> warningDiagnostics rebindingWarning
                   <> warningDiagnostics shadowingWarning
                   <> warningDiagnostics unusedWarnings
-           in
-            ( nextScope,
-              classDeclarations,
-              importedClassNames,
-              implDeclarations,
-              Nothing,
-              bindingDiagnostics
-            )
+           in ( nextScope,
+                classDeclarations,
+                importedClassNames,
+                implDeclarations,
+                Nothing,
+                bindingDiagnostics
+              )
 
     currentVisibleBindings :: Map Name VisibleBinding -> Map Name VisibleBinding
     -- Local scope is left-biased so inner declarations shadow outer bindings.
@@ -723,8 +718,8 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
         firstModuleStatementIndex : _ ->
           Map.fromList
             [ (identifierText className, classSpan)
-              | (statementIndex, SClass classSpan className _ _) <- indexedScopeStatements,
-                statementIndex < firstModuleStatementIndex
+            | (statementIndex, SClass classSpan className _ _) <- indexedScopeStatements,
+              statementIndex < firstModuleStatementIndex
             ]
 
     collectModuleClassDeclarations :: [(Int, Statement)] -> Map [Text] (Map Text SourceSpan)
@@ -777,11 +772,11 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
           peerEntries =
             Map.fromList
               [ (peerName, mkVisibleBinding hiddenStatementIndices peerStatementIndex peerSpan)
-                | peerStatementIndex <- Set.toList peers,
-                  Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
-                  -- Do not override currently visible names (for example due to
-                  -- local rebinding) when adding recursive peers.
-                  Map.notMember peerName visibleNow
+              | peerStatementIndex <- Set.toList peers,
+                Just (peerName, peerSpan) <- [Map.lookup peerStatementIndex bindingDeclarationsByStatement],
+                -- Do not override currently visible names (for example due to
+                -- local rebinding) when adding recursive peers.
+                Map.notMember peerName visibleNow
               ]
        in visibleNow `Map.union` peerEntries
 
@@ -832,7 +827,8 @@ mkMissingBindingForSignatureError pendingSignature =
     ( setDiagnosticPrimarySpan
         (pendingSignatureSpan pendingSignature)
         ( mkErrorDiagnostic
-            E1002 CompilationOrigin
+            E1002
+            CompilationOrigin
             ( "signature for '"
                 <> pendingSignatureName pendingSignature
                 <> "' must be immediately followed by a matching binding"
@@ -849,7 +845,8 @@ mkMismatchedSignatureError signatureName signatureSpan bindingName bindingSpan =
         ( setDiagnosticPrimarySpan
             signatureSpan
             ( mkErrorDiagnostic
-                E1003 CompilationOrigin
+                E1003
+                CompilationOrigin
                 ( "signature for '"
                     <> signatureName
                     <> "' must annotate the next binding with the same name; found '"
@@ -1026,7 +1023,8 @@ mkImpureCallInPureContextError context calleeName maybeCalleeSpan =
             maybeCalleeSpan
             setDiagnosticRelatedSpan
             ( mkErrorDiagnostic
-                E1010 CompilationOrigin
+                E1010
+                CompilationOrigin
                 ( contextLabel context
                     <> " cannot call impure callee '"
                     <> identifierText calleeName
@@ -1094,29 +1092,28 @@ collectDataConstructorRebindingWarnings
   spanValue
   constructors
   bindings
-  | not (isWarningEnabled settings SameScopeRebinding) = []
-  | otherwise =
-      reverse warningsRev
-  where
-    constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
-    (_, warningsRev) = foldl' collect (bindings, []) constructors
+    | not (isWarningEnabled settings SameScopeRebinding) = []
+    | otherwise =
+        reverse warningsRev
+    where
+      constructorBinding = mkVisibleBinding hiddenStatementIndices statementIndex spanValue
+      (_, warningsRev) = foldl' collect (bindings, []) constructors
 
-    collect (bindingsAcc, warningsAcc) (DataConstructor constructorName _) =
-      let constructorNameText = identifierText constructorName
-          warning =
-            case Map.lookup constructorName bindingsAcc of
-              Just previousBinding
-                | not (visibleBindingIsHiddenPrelude previousBinding) ->
-                    [ mkSameScopeRebindingWarning
-                        constructorNameText
-                        spanValue
-                        (visibleBindingSpan previousBinding)
-                    ]
-              _ -> []
-       in
-        ( Map.insert constructorName constructorBinding bindingsAcc,
-          warning ++ warningsAcc
-        )
+      collect (bindingsAcc, warningsAcc) (DataConstructor constructorName _) =
+        let constructorNameText = identifierText constructorName
+            warning =
+              case Map.lookup constructorName bindingsAcc of
+                Just previousBinding
+                  | not (visibleBindingIsHiddenPrelude previousBinding) ->
+                      [ mkSameScopeRebindingWarning
+                          constructorNameText
+                          spanValue
+                          (visibleBindingSpan previousBinding)
+                      ]
+                _ -> []
+         in ( Map.insert constructorName constructorBinding bindingsAcc,
+              warning ++ warningsAcc
+            )
 
 visibleBindingDiagnosticSpan :: VisibleBinding -> Maybe SourceSpan
 visibleBindingDiagnosticSpan visibleBinding =
@@ -1168,6 +1165,7 @@ lambdaVisibleBinding =
     { visibleBindingSpan = SourceSpan 0 0,
       visibleBindingIsHiddenPrelude = True
     }
+
 extendBindingsWithPattern :: Pattern -> Map Name VisibleBinding -> Map Name VisibleBinding
 extendBindingsWithPattern pattern bindings =
   Set.foldl'

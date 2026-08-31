@@ -48,12 +48,12 @@ import Jazz.Compiler.Name
     Name (..),
     NameNamespace (..),
   )
+import Jazz.Compiler.Parser.Failure (ParserFailure)
+import Jazz.Compiler.Parser.Lexer (LexicalFailure)
 import Jazz.Compiler.Parser.Lower
   ( ModuleDeclaration (..),
     ModuleLoweringFailure (..),
   )
-import Jazz.Compiler.Parser.Failure (ParserFailure)
-import Jazz.Compiler.Parser.Lexer (LexicalFailure)
 import Jazz.Compiler.Runtime (RuntimeValue (..))
 
 canonicalCoreExprRuntimeValue :: Expr -> Either Text RuntimeValue
@@ -381,7 +381,7 @@ coreSpanRuntimeValue spanValue =
     SourceSpan line column ->
       pure
         ( canonicalConstructor
-              "CoreSpan"
+            "CoreSpan"
             [ canonicalNullaryConstructor "Nothing",
               runtimeIntValue line,
               runtimeIntValue column

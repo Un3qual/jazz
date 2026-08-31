@@ -1,13 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.NumericTests
-  ( numericTests
-  ) where
+  ( numericTests,
+  )
+where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (..),
-    Literal (..)
+    Literal (..),
   )
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver
@@ -18,58 +19,58 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr
+    evaluateRuntimeExpr,
   )
+import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
-import Jazz.Compiler.Semantics.Runtime.Shared
 
 numericTests :: [NamedTest]
 numericTests =
-  [ ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError)
-    , ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication)
-    , ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess)
-    , ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess)
-    , ("default integer conversion alias preserves source-exact integral Float literal", testDefaultIntegerConversionAliasRuntimeSuccess)
-    , ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion)
-    , ("Float16 signature converts from rounded runtime itemValue", testFloat16SignatureConvertsFromRoundedRuntimeValue)
-    , ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError)
-    , ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess)
-    , ("default float conversion alias evaluates at runtime", testDefaultFloatConversionAliasRuntimeSuccess)
-    , ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError)
-    , ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess)
-    , ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess)
-    , ("Float64-domain integer literal arithmetic evaluates at runtime", testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess)
-    , ("direct typed integer to Float64 arithmetic evaluates at runtime", testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess)
-    , ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth)
-    , ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth)
-    , ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic)
-    , ("runtime fallback handles direct integer and Float64 mixed-domain arithmetic", testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic)
-    , ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality)
-    , ("runtime fallback handles untyped integer and Float64 comparison/equality", testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality)
-    , ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue)
-    , ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue)
-    , ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError)
-    , ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError)
-    , ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess)
-    , ("direct typed integer to Float64 comparison and equality evaluate at runtime", testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess)
-    , ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess)
-    , ("targeted Float16 and Float32 fractional literals evaluate through comparison and equality", testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess)
-    , ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality)
-    , ("runtime fallback rejects mixed targeted integer comparison", testRuntimeFallbackRejectsMixedTargetedIntegerComparison)
-    , ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue)
-    , ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError)
-    , ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue)
-    , ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility)
-    , ("defaulted integer binding hints reject values outside Int64 range", testDefaultedIntegerBindingHintRejectsOutsideInt64Range)
+  [ ("division by zero produces fatal runtime diagnostic", testDivisionByZeroRuntimeError),
+    ("right section differs from ordinary partial application for division", testRightSectionDiffersFromOrdinaryPartialApplication),
+    ("target-named integer conversion evaluates at runtime", testIntegerConversionRuntimeSuccess),
+    ("target-named integer conversion preserves source-exact integral Float literal", testIntegerConversionSourceExactIntegralFloatRuntimeSuccess),
+    ("default integer conversion alias preserves source-exact integral Float literal", testDefaultIntegerConversionAliasRuntimeSuccess),
+    ("Float64 signature preserves source-exact integral conversion", testFloat64SignaturePreservesSourceExactIntegralConversion),
+    ("Float16 signature converts from rounded runtime itemValue", testFloat16SignatureConvertsFromRoundedRuntimeValue),
+    ("width-specific integer arithmetic checks preserved result bounds", testWidthSpecificIntegerArithmeticBoundsRuntimeError),
+    ("target-named float conversion evaluates at runtime", testFloatConversionRuntimeSuccess),
+    ("default float conversion alias evaluates at runtime", testDefaultFloatConversionAliasRuntimeSuccess),
+    ("dynamic integer-to-Float64 overflow checks source magnitude", testDynamicIntegerToFloat64OverflowRuntimeError),
+    ("fractional literal evaluates and renders at runtime", testFractionalLiteralRuntimeSuccess),
+    ("Float64 arithmetic evaluates at runtime", testFloat64ArithmeticRuntimeSuccess),
+    ("Float64-domain integer literal arithmetic evaluates at runtime", testFloat64DomainIntegerLiteralArithmeticRuntimeSuccess),
+    ("direct typed integer to Float64 arithmetic evaluates at runtime", testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess),
+    ("Float16 arithmetic preserves target width at runtime", testFloat16ArithmeticPreservesRuntimeWidth),
+    ("Float32 arithmetic preserves target width at runtime", testFloat32ArithmeticPreservesRuntimeWidth),
+    ("runtime fallback rejects targeted Float16/Float32 mixed with untyped Float arithmetic", testRuntimeFallbackRejectsTargetedNarrowFloatUntypedFloatArithmetic),
+    ("runtime fallback handles direct integer and Float64 mixed-domain arithmetic", testRuntimeFallbackHandlesIntegerFloat64MixedDomainArithmetic),
+    ("runtime fallback rejects mixed targeted float comparison and equality", testRuntimeFallbackRejectsMixedTargetedFloatComparisonEquality),
+    ("runtime fallback handles untyped integer and Float64 comparison/equality", testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality),
+    ("targeted Float16 and Float32 fractional literals round at runtime", testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue),
+    ("suffixed Float16 and Float32 fractional literals round at runtime", testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue),
+    ("Float16 arithmetic overflow produces runtime diagnostic", testFloat16ArithmeticOverflowRuntimeError),
+    ("Float64 arithmetic overflow produces runtime diagnostic", testFloat64ArithmeticOverflowRuntimeError),
+    ("Float64 comparison and equality evaluate at runtime", testFloat64ComparisonEqualityRuntimeSuccess),
+    ("direct typed integer to Float64 comparison and equality evaluate at runtime", testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess),
+    ("Float16 and Float32 comparison and equality evaluate at runtime", testFloat16Float32ComparisonEqualityRuntimeSuccess),
+    ("targeted Float16 and Float32 fractional literals evaluate through comparison and equality", testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess),
+    ("runtime fallback rejects mixed targeted integer equality", testRuntimeFallbackRejectsMixedTargetedIntegerEquality),
+    ("runtime fallback rejects mixed targeted integer comparison", testRuntimeFallbackRejectsMixedTargetedIntegerComparison),
+    ("Float16 conversion rounds to target precision", testFloat16ConversionRoundsRuntimeValue),
+    ("dynamic integer conversion range failure reports deterministic diagnostic", testDynamicIntegerConversionRangeRuntimeError),
+    ("runtime fallback rejects non-numeric conversion values", testRuntimeFallbackRejectsNonNumericConversionValue),
+    ("typed numeric sections preserve captured operand flexibility", testTypedNumericSectionPreservesCapturedOperandFlexibility),
+    ("defaulted integer binding hints reject values outside Int64 range", testDefaultedIntegerBindingHintRejectsOutsideInt64Range)
   ]
 
 testDivisionByZeroRuntimeError :: IO ()
@@ -125,32 +126,41 @@ testDefaultIntegerConversionAliasRuntimeSuccess = do
 
 testFloat64SignaturePreservesSourceExactIntegralConversion :: IO ()
 testFloat64SignaturePreservesSourceExactIntegralConversion = do
-  result <- runSource defaultWarningSettings """
-  itemValue :: Float64.
-  itemValue = 9223372036854775807.0.
-  toInt64 itemValue.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      itemValue :: Float64.
+      itemValue = 9223372036854775807.0.
+      toInt64 itemValue.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "9223372036854775807") (runOutput result)
 
 testFloat16SignatureConvertsFromRoundedRuntimeValue :: IO ()
 testFloat16SignatureConvertsFromRoundedRuntimeValue = do
-  result <- runSource defaultWarningSettings """
-  itemValue :: Float16.
-  itemValue = 2049.0.
-  toInt64 itemValue.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      itemValue :: Float16.
+      itemValue = 2049.0.
+      toInt64 itemValue.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "2048") (runOutput result)
 
 testWidthSpecificIntegerArithmeticBoundsRuntimeError :: IO ()
 testWidthSpecificIntegerArithmeticBoundsRuntimeError = do
-  result <- runSource defaultWarningSettings """
-  itemValue = toUInt8 255.
-  itemValue + 1.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      itemValue = toUInt8 255.
+      itemValue + 1.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
     "UInt8 arithmetic overflow runtime code"
@@ -238,46 +248,52 @@ testDirectTypedIntegerFloat64ArithmeticRuntimeSuccess = do
 
 testFloat16ArithmeticPreservesRuntimeWidth :: IO ()
 testFloat16ArithmeticPreservesRuntimeWidth = do
-  result <- runSource defaultWarningSettings """
-  left :: Float16.
-  left = 2048.0.
-  one :: Float16.
-  one = 1.0.
-  three :: Float16.
-  three = 3.0.
-  mulLeft :: Float16.
-  mulLeft = 683.0.
-  add16 :: Float16.
-  add16 = left + one.
-  sub16 :: Float16.
-  sub16 = add16 - one.
-  mul16 :: Float16.
-  mul16 = mulLeft * three.
-  div16 :: Float16.
-  div16 = add16 / one.
-  (add16, sub16, mul16, div16).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      left :: Float16.
+      left = 2048.0.
+      one :: Float16.
+      one = 1.0.
+      three :: Float16.
+      three = 3.0.
+      mulLeft :: Float16.
+      mulLeft = 683.0.
+      add16 :: Float16.
+      add16 = left + one.
+      sub16 :: Float16.
+      sub16 = add16 - one.
+      mul16 :: Float16.
+      mul16 = mulLeft * three.
+      div16 :: Float16.
+      div16 = add16 / one.
+      (add16, sub16, mul16, div16).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(2048.0, 2047.0, 2048.0, 2048.0)") (runOutput result)
 
 testFloat32ArithmeticPreservesRuntimeWidth :: IO ()
 testFloat32ArithmeticPreservesRuntimeWidth = do
-  result <- runSource defaultWarningSettings """
-  one :: Float32.
-  one = 1.0.
-  epsilon :: Float32.
-  epsilon = 0.00000001.
-  add32 :: Float32.
-  add32 = one + epsilon.
-  sub32 :: Float32.
-  sub32 = add32 - epsilon.
-  mul32 :: Float32.
-  mul32 = one * add32.
-  div32 :: Float32.
-  div32 = add32 / one.
-  (add32, sub32, mul32, div32).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      one :: Float32.
+      one = 1.0.
+      epsilon :: Float32.
+      epsilon = 0.00000001.
+      add32 :: Float32.
+      add32 = one + epsilon.
+      sub32 :: Float32.
+      sub32 = add32 - epsilon.
+      mul32 :: Float32.
+      mul32 = one * add32.
+      div32 :: Float32.
+      div32 = add32 / one.
+      (add32, sub32, mul32, div32).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(1.0, 1.0, 1.0, 1.0)") (runOutput result)
@@ -339,40 +355,49 @@ testRuntimeFallbackHandlesUntypedIntegerFloat64ComparisonEquality = do
 
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testTargetedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
-  result <- runSource defaultWarningSettings """
-  x16 :: Float16.
-  x16 = 2049.0.
-  x32 :: Float32.
-  x32 = 1.00000001.
-  y16 :: @{}: Float16.
-  y16 = 2049.0.
-  y32 :: @{}: Float32.
-  y32 = 1.00000001.
-  (x16, x32, y16, y32).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      x16 :: Float16.
+      x16 = 2049.0.
+      x32 :: Float32.
+      x32 = 1.00000001.
+      y16 :: @{}: Float16.
+      y16 = 2049.0.
+      y32 :: @{}: Float32.
+      y32 = 1.00000001.
+      (x16, x32, y16, y32).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(2048.0, 1.0, 2048.0, 1.0)") (runOutput result)
 
 testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue :: IO ()
 testSuffixedFloat16Float32FractionalLiteralRoundsRuntimeValue = do
-  result <- runSource defaultWarningSettings """
-  x16 = 2049.0f16.
-  x32 = 1.00000001f32.
-  x64 = 1.5f64.
-  (x16, x32, x64).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      x16 = 2049.0f16.
+      x32 = 1.00000001f32.
+      x64 = 1.5f64.
+      (x16, x32, x64).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "(2048.0, 1.0, 1.5)") (runOutput result)
 
 testFloat16ArithmeticOverflowRuntimeError :: IO ()
 testFloat16ArithmeticOverflowRuntimeError = do
-  result <- runSource defaultWarningSettings """
-  left = toFloat16 65504.
-  right = toFloat16 65504.
-  left + right.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      left = toFloat16 65504.
+      right = toFloat16 65504.
+      left + right.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
     "Float16 arithmetic overflow runtime code"
@@ -410,15 +435,18 @@ testFloat64ArithmeticOverflowRuntimeError = do
 
 testFloat64ComparisonEqualityRuntimeSuccess :: IO ()
 testFloat64ComparisonEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  lt = 1.5 < 2.0.
-  le = 2.0 <= 2.0.
-  gt = 3.0 > 2.0.
-  ge = 3.0 >= 3.0.
-  eq = 2.0 == 2.0.
-  ne = 2.0 != 3.0.
-  [lt, le, gt, ge, eq, ne].
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      lt = 1.5 < 2.0.
+      le = 2.0 <= 2.0.
+      gt = 3.0 > 2.0.
+      ge = 3.0 >= 3.0.
+      eq = 2.0 == 2.0.
+      ne = 2.0 != 3.0.
+      [lt, le, gt, ge, eq, ne].
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True]") (runOutput result)
@@ -449,42 +477,48 @@ testDirectTypedIntegerFloat64ComparisonEqualityRuntimeSuccess = do
 
 testFloat16Float32ComparisonEqualityRuntimeSuccess :: IO ()
 testFloat16Float32ComparisonEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  a16 = toFloat16 1.
-  b16 = toFloat16 2.
-  a32 = toFloat32 1.
-  b32 = toFloat32 2.
-  lt16 = a16 < b16.
-  le16 = a16 <= a16.
-  gt16 = b16 > a16.
-  ge16 = b16 >= b16.
-  eq16 = a16 == a16.
-  ne16 = a16 != b16.
-  lt32 = a32 < b32.
-  le32 = a32 <= a32.
-  gt32 = b32 > a32.
-  ge32 = b32 >= b32.
-  eq32 = a32 == a32.
-  ne32 = a32 != b32.
-  [lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32].
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      a16 = toFloat16 1.
+      b16 = toFloat16 2.
+      a32 = toFloat32 1.
+      b32 = toFloat32 2.
+      lt16 = a16 < b16.
+      le16 = a16 <= a16.
+      gt16 = b16 > a16.
+      ge16 = b16 >= b16.
+      eq16 = a16 == a16.
+      ne16 = a16 != b16.
+      lt32 = a32 < b32.
+      le32 = a32 <= a32.
+      gt32 = b32 > a32.
+      ge32 = b32 >= b32.
+      eq32 = a32 == a32.
+      ne32 = a32 != b32.
+      [lt16, le16, gt16, ge16, eq16, ne16, lt32, le32, gt32, ge32, eq32, ne32].
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
 
 testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess :: IO ()
 testTargetedFloat16Float32FractionalLiteralComparisonEqualityRuntimeSuccess = do
-  result <- runSource defaultWarningSettings """
-  a16 :: Float16.
-  a16 = 1.5.
-  b16 :: Float16.
-  b16 = 2.25.
-  a32 :: Float32.
-  a32 = 1.5.
-  b32 :: Float32.
-  b32 = 2.25.
-  [a16 < b16, a16 <= a16, b16 > a16, b16 >= b16, a16 == a16, a16 != b16, a32 < b32, a32 <= a32, b32 > a32, b32 >= b32, a32 == a32, a32 != b32].
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      a16 :: Float16.
+      a16 = 1.5.
+      b16 :: Float16.
+      b16 = 2.25.
+      a32 :: Float32.
+      a32 = 1.5.
+      b32 :: Float32.
+      b32 = 2.25.
+      [a16 < b16, a16 <= a16, b16 > a16, b16 >= b16, a16 == a16, a16 != b16, a32 < b32, a32 <= a32, b32 > a32, b32 >= b32, a32 == a32, a32 != b32].
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "[True, True, True, True, True, True, True, True, True, True, True, True]") (runOutput result)
@@ -524,11 +558,14 @@ testFloat16ConversionRoundsRuntimeValue = do
 
 testDynamicIntegerConversionRangeRuntimeError :: IO ()
 testDynamicIntegerConversionRangeRuntimeError = do
-  result <- runSource defaultWarningSettings """
-  x :: Int.
-  x = 256.
-  toUInt8 x.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      x :: Int.
+      x = 256.
+      toUInt8 x.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
     "dynamic conversion range runtime code"
@@ -551,10 +588,10 @@ testTypedNumericSectionPreservesCapturedOperandFlexibility = do
     runSource
       defaultWarningSettings
       ( """
-      add8 :: UInt8 -> UInt8.
-      add8 = (+ 1).
-      add8 (toUInt8 2).
-      """
+        add8 :: UInt8 -> UInt8.
+        add8 = (+ 1).
+        add8 (toUInt8 2).
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -562,10 +599,13 @@ testTypedNumericSectionPreservesCapturedOperandFlexibility = do
 
 testDefaultedIntegerBindingHintRejectsOutsideInt64Range :: IO ()
 testDefaultedIntegerBindingHintRejectsOutsideInt64Range = do
-  result <- runSource defaultWarningSettings """
-  itemValue = 18446744073709551616.
-  itemValue.
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      itemValue = 18446744073709551616.
+      itemValue.
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertSingleDiagnosticContains
     "defaulted integer runtime code"

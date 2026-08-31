@@ -76,15 +76,13 @@ tests =
 
 testRejectsFunctionEquations :: IO ()
 testRejectsFunctionEquations =
-  case
-      parseSurfaceProgram
-        """
-        length [] = 0.
-        length [_ | rest] = 1 + length rest.
-        """
-    of
-      Left _ -> pure ()
-      Right _ -> failTest "expected Haskell-style function equations to be rejected"
+  case parseSurfaceProgram
+    """
+    length [] = 0.
+    length [_ | rest] = 1 + length rest.
+    """ of
+    Left _ -> pure ()
+    Right _ -> failTest "expected Haskell-style function equations to be rejected"
 
 testFailureSpanAfterOwnedDeclaration :: IO ()
 testFailureSpanAfterOwnedDeclaration =

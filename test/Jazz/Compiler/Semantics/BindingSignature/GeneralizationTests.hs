@@ -1,12 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.GeneralizationTests
-  ( generalizationTests
-  ) where
+  ( generalizationTests,
+  )
+where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
@@ -16,45 +17,46 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSourceWithPrelude,
   )
+import Jazz.Compiler.Semantics.BindingSignature.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
-    assertEqual
+    assertEqual,
   )
-import Jazz.Compiler.Semantics.BindingSignature.Shared
 
 generalizationTests :: [NamedTest]
 generalizationTests =
-  [ ("source pipeline instantiates ordinary binding schemes per use", testSourceInstantiatesOrdinaryBindingSchemesPerUse)
-    , ("source pipeline instantiates signed generic schemes per use", testSourceInstantiatesSignedGenericSchemesPerUse)
-    , ("source pipeline instantiates signed generic ADT schemes per use", testSourceInstantiatesSignedGenericAdtSchemesPerUse)
-    , ("source pipeline instantiates signed generic constructor aliases per use", testSourceInstantiatesSignedGenericConstructorAliasesPerUse)
-    , ("source pipeline instantiates variable constrained signatures per use", testSourceInstantiatesVariableConstrainedSignaturePerUse)
-    , ("source pipeline instantiates primitive constrained signatures per use", testSourceInstantiatesPrimitiveConstrainedSignaturePerUse)
-    , ("source pipeline applies explicit type application to generalized signatures", testSourceAppliesExplicitTypeApplicationToGeneralizedSignature)
-    , ("source pipeline applies explicit named type applications", testSourceAppliesExplicitNamedTypeApplication)
-    , ("source pipeline applies nested explicit named type applications", testSourceAppliesNestedExplicitNamedTypeApplication)
-    , ("source pipeline applies explicit type application to first source variable", testSourceAppliesExplicitTypeApplicationToFirstSourceVariable)
-    , ("source pipeline applies explicit type application to inferred type order", testSourceAppliesExplicitTypeApplicationToInferredTypeOrder)
-    , ("source pipeline rejects primitive-incompatible explicit type application", testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication)
-    , ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding)
-    , ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument)
-    , ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState)
-    , ("source pipeline retains shared outer variables after rebinding", testSourceRetainsSharedOuterVariableAfterRebinding)
-    , ("source pipeline removes shadowed outer variables from generalization env", testSourceRemovesShadowedOuterVariableFromGeneralizationEnv)
-    , ("source pipeline keeps constructor bindings out of generalization env", testSourceKeepsConstructorBindingsOutOfGeneralizationEnv)
+  [ ("source pipeline instantiates ordinary binding schemes per use", testSourceInstantiatesOrdinaryBindingSchemesPerUse),
+    ("source pipeline instantiates signed generic schemes per use", testSourceInstantiatesSignedGenericSchemesPerUse),
+    ("source pipeline instantiates signed generic ADT schemes per use", testSourceInstantiatesSignedGenericAdtSchemesPerUse),
+    ("source pipeline instantiates signed generic constructor aliases per use", testSourceInstantiatesSignedGenericConstructorAliasesPerUse),
+    ("source pipeline instantiates variable constrained signatures per use", testSourceInstantiatesVariableConstrainedSignaturePerUse),
+    ("source pipeline instantiates primitive constrained signatures per use", testSourceInstantiatesPrimitiveConstrainedSignaturePerUse),
+    ("source pipeline applies explicit type application to generalized signatures", testSourceAppliesExplicitTypeApplicationToGeneralizedSignature),
+    ("source pipeline applies explicit named type applications", testSourceAppliesExplicitNamedTypeApplication),
+    ("source pipeline applies nested explicit named type applications", testSourceAppliesNestedExplicitNamedTypeApplication),
+    ("source pipeline applies explicit type application to first source variable", testSourceAppliesExplicitTypeApplicationToFirstSourceVariable),
+    ("source pipeline applies explicit type application to inferred type order", testSourceAppliesExplicitTypeApplicationToInferredTypeOrder),
+    ("source pipeline rejects primitive-incompatible explicit type application", testSourceRejectsPrimitiveIncompatibleExplicitTypeApplication),
+    ("source pipeline rejects explicit type application on monomorphic bindings", testSourceRejectsExplicitTypeApplicationOnMonomorphicBinding),
+    ("source pipeline rejects extra explicit type application arguments", testSourceRejectsExtraExplicitTypeApplicationArgument),
+    ("source pipeline does not shift inference variables after rejected variable type application", testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState),
+    ("source pipeline retains shared outer variables after rebinding", testSourceRetainsSharedOuterVariableAfterRebinding),
+    ("source pipeline removes shadowed outer variables from generalization env", testSourceRemovesShadowedOuterVariableFromGeneralizationEnv),
+    ("source pipeline keeps constructor bindings out of generalization env", testSourceKeepsConstructorBindingsOutOfGeneralizationEnv)
   ]
 
 testSourceInstantiatesOrdinaryBindingSchemesPerUse :: IO ()
 testSourceInstantiatesOrdinaryBindingSchemesPerUse =
-  assertSourceOk """
-  id = \\(x) -> x.
-  intValue = id 1.
-  boolValue = id True.
-  """
+  assertSourceOk
+    """
+    id = \\(x) -> x.
+    intValue = id 1.
+    boolValue = id True.
+    """
 
 testSourceInstantiatesSignedGenericSchemesPerUse :: IO ()
 testSourceInstantiatesSignedGenericSchemesPerUse =
@@ -70,65 +72,68 @@ testSourceInstantiatesSignedGenericAdtSchemesPerUse :: IO ()
 testSourceInstantiatesSignedGenericAdtSchemesPerUse =
   assertSourceOkWithoutPrelude
     ( """
-    data Box a = Box a.
-    keep :: Box(a) -> Box(a).
-    keep = \\(candidate) -> candidate.
-    intBox = keep (Box 1).
-    boolBox = keep (Box True).
-    """
+      data Box a = Box a.
+      keep :: Box(a) -> Box(a).
+      keep = \\(candidate) -> candidate.
+      intBox = keep (Box 1).
+      boolBox = keep (Box True).
+      """
     )
 
 testSourceInstantiatesSignedGenericConstructorAliasesPerUse :: IO ()
 testSourceInstantiatesSignedGenericConstructorAliasesPerUse =
   assertSourceOkWithoutPrelude
     ( """
-    data Box a = Box a.
-    make :: a -> Box(a).
-    make = Box.
-    first = make 1.
-    second = make True.
-    """
+      data Box a = Box a.
+      make :: a -> Box(a).
+      make = Box.
+      first = make 1.
+      second = make True.
+      """
     )
 
 testSourceInstantiatesVariableConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesVariableConstrainedSignaturePerUse =
-  assertSourceOk """
-  id :: @{Eq(a)}: a -> a.
-  id = \\(x) -> x.
-  x = id 1.
-  y = id True.
-  """
+  assertSourceOk
+    """
+    id :: @{Eq(a)}: a -> a.
+    id = \\(x) -> x.
+    x = id 1.
+    y = id True.
+    """
 
 testSourceInstantiatesPrimitiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesPrimitiveConstrainedSignaturePerUse =
-  assertSourceOkWithoutPrelude """
-  class Num(a) { }.
-  impl Num(Int32) { }.
-  impl Num(Int64) { }.
-  add :: @{Num(a)}: a -> a -> a.
-  add = \\(x, y) -> x + y.
-  a32 :: Int32.
-  a32 = 1.
-  b32 :: Int32.
-  b32 = 2.
-  small = add a32 b32.
-  a64 :: Int64.
-  a64 = 3.
-  b64 :: Int64.
-  b64 = 4.
-  wide = add a64 b64.
-  """
+  assertSourceOkWithoutPrelude
+    """
+    class Num(a) { }.
+    impl Num(Int32) { }.
+    impl Num(Int64) { }.
+    add :: @{Num(a)}: a -> a -> a.
+    add = \\(x, y) -> x + y.
+    a32 :: Int32.
+    a32 = 1.
+    b32 :: Int32.
+    b32 = 2.
+    small = add a32 b32.
+    a64 :: Int64.
+    a64 = 3.
+    b64 :: Int64.
+    b64 = 4.
+    wide = add a64 b64.
+    """
 
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature :: IO ()
 testSourceAppliesExplicitTypeApplicationToGeneralizedSignature =
-  assertSourceOkWithoutPrelude """
-  class Eq(a) { }.
-  impl Eq(Int) { }.
-  id :: @{Eq(a)}: a -> a.
-  id = \\(x) -> x.
-  candidate = id @Int 1.
-  candidate.
-  """
+  assertSourceOkWithoutPrelude
+    """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    id :: @{Eq(a)}: a -> a.
+    id = \\(x) -> x.
+    candidate = id @Int 1.
+    candidate.
+    """
 
 testSourceAppliesExplicitNamedTypeApplication :: IO ()
 testSourceAppliesExplicitNamedTypeApplication =
@@ -144,24 +149,25 @@ testSourceAppliesNestedExplicitNamedTypeApplication :: IO ()
 testSourceAppliesNestedExplicitNamedTypeApplication =
   assertSourceOkWithoutPrelude
     ( """
-    data IOError = IOError.
-    data Result a b = Ok a | Err b.
-    identity :: a -> a.
-    identity = \\(candidate) -> candidate.
-    result = identity @Result(IOError, Text) (Err \"bad\").
-    """
+      data IOError = IOError.
+      data Result a b = Ok a | Err b.
+      identity :: a -> a.
+      identity = \\(candidate) -> candidate.
+      result = identity @Result(IOError, Text) (Err \"bad\").
+      """
     )
 
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable :: IO ()
 testSourceAppliesExplicitTypeApplicationToFirstSourceVariable =
-  assertSourceOkWithoutPrelude """
-  class Eq(a) { }.
-  impl Eq(Int) { }.
-  choose :: @{Eq(b)}: b -> a -> b.
-  choose = \\(x, y) -> x.
-  candidate = choose @Int 1 True.
-  candidate.
-  """
+  assertSourceOkWithoutPrelude
+    """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    choose :: @{Eq(b)}: b -> a -> b.
+    choose = \\(x, y) -> x.
+    candidate = choose @Int 1 True.
+    candidate.
+    """
 
 testSourceAppliesExplicitTypeApplicationToInferredTypeOrder :: IO ()
 testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
@@ -170,10 +176,10 @@ testSourceAppliesExplicitTypeApplicationToInferredTypeOrder = do
       defaultWarningSettings
       Nothing
       ( """
-      flip = \\(f, x, y) -> f y x.
-      candidate = flip @Int (\\(left, right) -> left + 1) True 2.
-      candidate.
-      """
+        flip = \\(f, x, y) -> f y x.
+        candidate = flip @Int (\\(left, right) -> left + 1) True 2.
+        candidate.
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -215,11 +221,15 @@ testSourceRejectsExtraExplicitTypeApplicationArgument =
 
 testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState :: IO ()
 testSourceRejectsVariableConstrainedTypeApplicationWithoutShiftingState = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing """
-  bad :: @{Eq(f), Ord(a)}: f(a) -> a.
-  bad = \\(x) -> x.
-  use = [] 1.
-  """
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      bad :: @{Eq(f), Ord(a)}: f(a) -> a.
+      bad = \\(x) -> x.
+      use = [] 1.
+      """
   assertContains
     "later diagnostic keeps deterministic type variable id"
     "cannot apply function of type [t3] to argument of type Int"

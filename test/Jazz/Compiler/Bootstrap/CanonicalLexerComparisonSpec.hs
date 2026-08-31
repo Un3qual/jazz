@@ -2,23 +2,25 @@
 
 module Main (main) where
 
+import Data.Either (isRight)
+import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalLexerComparison
   ( CanonicalSourcePath (..),
     canonicalizeLexResult,
     normalizeCanonicalSourcePath,
-    renderCanonicalLexResult
+    renderCanonicalLexResult,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( diagnosticCodeText,
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     diagnosticCode,
-    diagnosticPrimarySpan
+    diagnosticPrimarySpan,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( diagnosticCodeText
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( RunResult,
@@ -26,7 +28,15 @@ import Jazz.Compiler.Driver
     runOutput,
   )
 import Jazz.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..)
+  ( ModuleResolutionConfig (..),
+  )
+import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.Parser.FixtureCorpus
+  ( ParserFixture (..),
+    ParserFixtureExpectation (..),
+    ParserFixtureFamily (ControlFlowPatterns, ExpressionFoundation, TypesDeclarationsModules),
+    parserFixtureCorpus,
+    parserFixtureFamilyNames,
   )
 import Jazz.Compiler.Parser.Lexer
   ( LexicalFailure (..),
@@ -34,30 +44,20 @@ import Jazz.Compiler.Parser.Lexer
     LexicalLiteralKind (..),
     Token,
     tokenize,
-    tokenizeDetailed
+    tokenizeDetailed,
   )
-import Jazz.Compiler.Parser.FixtureCorpus
-  ( ParserFixture (..),
-    ParserFixtureExpectation (..),
-    ParserFixtureFamily (ControlFlowPatterns, ExpressionFoundation, TypesDeclarationsModules),
-    parserFixtureCorpus,
-    parserFixtureFamilyNames
-  )
-import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 import Jazz.TestSource
   ( JazzSourceRole (CompilerSource),
     readCheckedInJazzSource,
   )
-import Jazz.Compiler.WarningConfig (defaultWarningSettings)
-import qualified Data.Set as Set
-import Data.Either (isRight)
 
 main :: IO ()
 main = runTestSuite "CanonicalLexerComparison" tests
@@ -352,7 +352,7 @@ testParserFixtureCorpusWellFormed = do
         ]
       observedNames =
         [ "parser-corpus-" <> Text.justifyRight 4 '0' (showText index)
-          | index <- [1 :: Int .. 312]
+        | index <- [1 :: Int .. 312]
         ]
       existingNames = Set.fromList (focusedNames <> observedNames)
       expressionFoundationNames =
@@ -411,7 +411,7 @@ testParserFixtureClassifications =
     )
     parserFixtureCorpus
 
-showText :: Show a => a -> Text.Text
+showText :: (Show a) => a -> Text.Text
 showText = Text.pack . show
 
 assertDetailedFailure :: Text.Text -> LexicalFailure -> Text.Text -> IO ()

@@ -4,13 +4,13 @@ module Main (main) where
 
 import Control.Exception
   ( SomeException,
-    try
+    try,
   )
 import Data.IORef
   ( IORef,
     modifyIORef',
     newIORef,
-    readIORef
+    readIORef,
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -23,29 +23,29 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
   )
+import Jazz.Compiler.Modules.Loader.BasicTests (basicTests)
+import Jazz.Compiler.Modules.Loader.CapabilitiesTests (capabilitiesTests)
+import Jazz.Compiler.Modules.Loader.DiagnosticsTests (diagnosticTests)
+import Jazz.Compiler.Modules.Loader.OperatorsTests (operatorTests)
 import Jazz.Compiler.Modules.Loader.Shared
-  ( resolverConfig
+  ( resolverConfig,
   )
-import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
-  )
+import Jazz.Compiler.Modules.Loader.VisibilityTests (visibilityTests)
 import Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
     RuntimeHost (..),
     RuntimeHostExit (..),
-    hostIOFailureMessage
+    hostIOFailureMessage,
   )
-import Jazz.Compiler.Modules.Loader.BasicTests (basicTests)
-import Jazz.Compiler.Modules.Loader.VisibilityTests (visibilityTests)
-import Jazz.Compiler.Modules.Loader.CapabilitiesTests (capabilitiesTests)
-import Jazz.Compiler.Modules.Loader.OperatorsTests (operatorTests)
-import Jazz.Compiler.Modules.Loader.DiagnosticsTests (diagnosticTests)
+import Jazz.Compiler.WarningConfig
+  ( defaultWarningSettings,
+  )
 import Jazz.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
 import Jazz.TestSource
   ( JazzSourceRole (StandardLibrarySource),
-    readCheckedInJazzSource,
     readCheckedInJazzProjectModuleSource,
+    readCheckedInJazzSource,
   )
 import System.Timeout (timeout)
 
@@ -94,8 +94,8 @@ testImportedTailRecursiveClosureIsStackSafe = do
               resolverConfig
               ["App", "Main"]
               lookupSource
-          )
-          :: IO (Either SomeException RunResult)
+          ) ::
+          IO (Either SomeException RunResult)
       )
   case maybeResult of
     Nothing -> failTest "20,000-call imported tail recursion timed out"

@@ -1,18 +1,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Modules.Loader.BasicTests
-  ( basicTests
-  ) where
+  ( basicTests,
+  )
+where
 
-import qualified Data.Map.Strict as Map
 import Data.IORef
   ( newIORef,
     readIORef,
-    writeIORef
+    writeIORef,
   )
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (..),
@@ -27,32 +28,32 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runWarnings,
   )
+import Jazz.Compiler.Modules.Loader.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest
+    failTest,
   )
-import Jazz.Compiler.Modules.Loader.Shared
 
 basicTests :: [NamedTest]
 basicTests =
-  [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess)
-    , ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess)
-    , ("compile module graph default helper loads bundled prelude", testCompileModuleGraphDefaultLoadsBundledPrelude)
-    , ("run module graph explicit prelude exposes public helpers across files", testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles)
-    , ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions)
-    , ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions)
-    , ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime)
-    , ("compile module graph qualifies semantic diagnostic spans with source paths", testCompileModuleGraphQualifiesSemanticDiagnosticSpans)
-    , ("compile module graph qualifies explicit type application diagnostic spans", testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans)
-    , ("compile module graph reports module source parse diagnostics", testCompileModuleGraphParseFailure)
-    , ("run module graph skips unused dependency bindings during module evaluation", testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation)
-    , ("run module graph qualifies sibling data fields across modules", testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules)
-    , ("loader reuses memoized source lookup across resolution and compilation", testMemoizedLookupReuse)
+  [ ("compile module graph succeeds for resolvable entry module", testCompileModuleGraphSuccess),
+    ("run module graph produces runtime output from entry module", testRunModuleGraphSuccess),
+    ("compile module graph default helper loads bundled prelude", testCompileModuleGraphDefaultLoadsBundledPrelude),
+    ("run module graph explicit prelude exposes public helpers across files", testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles),
+    ("run module graph ignores dependency expression statements", testRunModuleGraphIgnoresDependencyExpressions),
+    ("compile module graph validates dependency expression statements", testCompileModuleGraphValidatesDependencyExpressions),
+    ("run module graph validates dependency expression statements before runtime", testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime),
+    ("compile module graph qualifies semantic diagnostic spans with source paths", testCompileModuleGraphQualifiesSemanticDiagnosticSpans),
+    ("compile module graph qualifies explicit type application diagnostic spans", testCompileModuleGraphQualifiesExplicitTypeApplicationDiagnosticSpans),
+    ("compile module graph reports module source parse diagnostics", testCompileModuleGraphParseFailure),
+    ("run module graph skips unused dependency bindings during module evaluation", testRunModuleGraphSkipsUnusedDependencyBindingsDuringEvaluation),
+    ("run module graph qualifies sibling data fields across modules", testRunModuleGraphQualifiesSiblingDataFieldsAcrossModules),
+    ("loader reuses memoized source lookup across resolution and compilation", testMemoizedLookupReuse)
   ]
 
 testCompileModuleGraphSuccess :: IO ()
@@ -68,17 +69,21 @@ testCompileModuleGraphSuccess = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Util.
-        util.
-        }
-        """),
-          ("src/Lib/Util.jz", """
-          module Lib::Util {
-          util = 1.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Util.
+            util.
+            }
+            """
+          ),
+          ( "src/Lib/Util.jz",
+            """
+            module Lib::Util {
+            util = 1.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -97,17 +102,21 @@ testRunModuleGraphSuccess = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Util.
-        util.
-        }
-        """),
-          ("src/Lib/Util.jz", """
-          module Lib::Util {
-          util = 1.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Util.
+            util.
+            }
+            """
+          ),
+          ( "src/Lib/Util.jz",
+            """
+            module Lib::Util {
+            util = 1.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -124,17 +133,21 @@ testCompileModuleGraphDefaultLoadsBundledPrelude = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Data.
-        map hd values.
-        }
-        """),
-          ("src/Lib/Data.jz", """
-          module Lib::Data {
-          values = [[1, 2], [3], [4, 5]].
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Data.
+            map hd values.
+            }
+            """
+          ),
+          ( "src/Lib/Data.jz",
+            """
+            module Lib::Data {
+            values = [[1, 2], [3], [4, 5]].
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -143,12 +156,14 @@ testRunModuleGraphExplicitPreludeExposesPublicHelpersAcrossFiles = do
   result <-
     runModuleGraphWithResolvedPrelude
       defaultWarningSettings
-      (PreludeExplicit """
-      __kernel_map = __kernel_map.
-      __kernel_hd = __kernel_hd.
-      map = __kernel_map.
-      hd = __kernel_hd.
-      """)
+      ( PreludeExplicit
+          """
+          __kernel_map = __kernel_map.
+          __kernel_hd = __kernel_hd.
+          map = __kernel_map.
+          hd = __kernel_hd.
+          """
+      )
       resolverConfig
       ["App", "Main"]
       lookupSource
@@ -175,18 +190,22 @@ testRunModuleGraphIgnoresDependencyExpressions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Util.
-        util.
-        }
-        """),
-          ("src/Lib/Util.jz", """
-          module Lib::Util {
-          util = 1.
-          1 / 0.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Util.
+            util.
+            }
+            """
+          ),
+          ( "src/Lib/Util.jz",
+            """
+            module Lib::Util {
+            util = 1.
+            1 / 0.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -210,19 +229,23 @@ testCompileModuleGraphValidatesDependencyExpressions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Util.
-        util.
-        }
-        """),
-          ("src/Lib/Util.jz", """
-          module Lib::Util {
-          util :: Int.
-          True.
-          util = 1.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Util.
+            util.
+            }
+            """
+          ),
+          ( "src/Lib/Util.jz",
+            """
+            module Lib::Util {
+            util :: Int.
+            True.
+            util = 1.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -248,19 +271,23 @@ testRunModuleGraphValidatesDependencyExpressionsBeforeRuntime = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Util.
-        util.
-        }
-        """),
-          ("src/Lib/Util.jz", """
-          module Lib::Util {
-          util :: Int.
-          True.
-          util = 1.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Util.
+            util.
+            }
+            """
+          ),
+          ( "src/Lib/Util.jz",
+            """
+            module Lib::Util {
+            util :: Int.
+            True.
+            util = 1.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -282,14 +309,18 @@ testCompileModuleGraphQualifiesSemanticDiagnosticSpans = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        import Lib::Bad (x).
-        x.
-        """),
-          ("src/Lib/Bad.jz", """
-          x :: Int.
-          x = True.
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Bad (x).
+            x.
+            """
+          ),
+          ( "src/Lib/Bad.jz",
+            """
+            x :: Int.
+            x = True.
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -450,16 +481,20 @@ testMemoizedLookupReuse = do
         -- Without memoization this second read would replace the resolver-accepted
         -- source and fail compilation. Memoized lookup should keep first-read content.
         "src/App/Main.jz"
-          | readCount == 1 -> Just """
-          module App::Main {
-          import Lib::Util.
-          util.
-          }
-          """
+          | readCount == 1 ->
+              Just
+                """
+                module App::Main {
+                import Lib::Util.
+                util.
+                }
+                """
           | otherwise -> Just "broken = ."
-        "src/Lib/Util.jz" -> Just """
-        module Lib::Util {
-        util = 1.
-        }
-        """
+        "src/Lib/Util.jz" ->
+          Just
+            """
+            module Lib::Util {
+            util = 1.
+            }
+            """
         _ -> Nothing
