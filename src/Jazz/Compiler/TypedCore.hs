@@ -136,6 +136,21 @@ data TypedRepresentationRecipe
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+typedNumericRepresentationRecipe :: TypedNumericType -> TypedRepresentationRecipe
+typedNumericRepresentationRecipe numericType =
+  case numericType of
+    TypedInt8Type -> TypedSignedIntegerRecipe 8
+    TypedInt16Type -> TypedSignedIntegerRecipe 16
+    TypedInt32Type -> TypedSignedIntegerRecipe 32
+    TypedInt64Type -> TypedSignedIntegerRecipe 64
+    TypedUInt8Type -> TypedUnsignedIntegerRecipe 8
+    TypedUInt16Type -> TypedUnsignedIntegerRecipe 16
+    TypedUInt32Type -> TypedUnsignedIntegerRecipe 32
+    TypedUInt64Type -> TypedUnsignedIntegerRecipe 64
+    TypedFloat16Type -> TypedFloatRecipe 16
+    TypedFloat32Type -> TypedFloatRecipe 32
+    TypedFloat64Type -> TypedFloatRecipe 64
+
 data TypedNumericConstraint
   = TypedAnyNumericConstraint
   | TypedRuntimeArithmeticNumericConstraint

@@ -29,7 +29,6 @@ module Jazz.Compiler.TypedCore.Validate.TypeRecipes
     nextTypeParameterOrdinal,
     nodeInfoHasCompatibleIntrinsicContract,
     numericConstraintAcceptsType,
-    numericRecipe,
     numericTypeFromTyped,
     numericTypeIsIntegral,
     parseDecimalBound,
@@ -584,7 +583,7 @@ expectedRecipeWithCallableStaging stageCallable typeValue =
   case typeValue of
     TypedIntType -> Just (TypedSignedIntegerRecipe 64)
     TypedFloatType -> Just (TypedFloatRecipe 64)
-    TypedNumericType numericType -> Just (numericRecipe numericType)
+    TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
     TypedBoolType -> Just TypedBoolRecipe
     TypedCharType -> Just TypedCharRecipe
     TypedTextType -> Just TypedManagedTextRecipe
@@ -604,21 +603,6 @@ expectedRecipeWithCallableStaging stageCallable typeValue =
               _ -> TypedClosureRecipe [argumentRecipe] resultRecipe
         )
     TypedTypeParameterType parameterId -> Just (TypedRepresentationParameterRecipe parameterId)
-
-numericRecipe :: TypedNumericType -> TypedRepresentationRecipe
-numericRecipe numericType =
-  case numericType of
-    TypedInt8Type -> TypedSignedIntegerRecipe 8
-    TypedInt16Type -> TypedSignedIntegerRecipe 16
-    TypedInt32Type -> TypedSignedIntegerRecipe 32
-    TypedInt64Type -> TypedSignedIntegerRecipe 64
-    TypedUInt8Type -> TypedUnsignedIntegerRecipe 8
-    TypedUInt16Type -> TypedUnsignedIntegerRecipe 16
-    TypedUInt32Type -> TypedUnsignedIntegerRecipe 32
-    TypedUInt64Type -> TypedUnsignedIntegerRecipe 64
-    TypedFloat16Type -> TypedFloatRecipe 16
-    TypedFloat32Type -> TypedFloatRecipe 32
-    TypedFloat64Type -> TypedFloatRecipe 64
 
 isFunctionType :: TypedType -> Bool
 isFunctionType TypedFunctionType {} = True

@@ -1097,7 +1097,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       case typeValue of
         TypedIntType -> Just (TypedSignedIntegerRecipe 64)
         TypedFloatType -> Just (TypedFloatRecipe 64)
-        TypedNumericType numericType -> Just (typedNumericRecipe numericType)
+        TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
         TypedBoolType -> Just TypedBoolRecipe
         TypedCharType -> Just TypedCharRecipe
         TypedTextType -> Just TypedManagedTextRecipe
@@ -2385,18 +2385,3 @@ typedNumericType numericType =
     NumericFloat16 -> TypedFloat16Type
     NumericFloat32 -> TypedFloat32Type
     NumericFloat64 -> TypedFloat64Type
-
-typedNumericRecipe :: TypedNumericType -> TypedRepresentationRecipe
-typedNumericRecipe numericType =
-  case numericType of
-    TypedInt8Type -> TypedSignedIntegerRecipe 8
-    TypedInt16Type -> TypedSignedIntegerRecipe 16
-    TypedInt32Type -> TypedSignedIntegerRecipe 32
-    TypedInt64Type -> TypedSignedIntegerRecipe 64
-    TypedUInt8Type -> TypedUnsignedIntegerRecipe 8
-    TypedUInt16Type -> TypedUnsignedIntegerRecipe 16
-    TypedUInt32Type -> TypedUnsignedIntegerRecipe 32
-    TypedUInt64Type -> TypedUnsignedIntegerRecipe 64
-    TypedFloat16Type -> TypedFloatRecipe 16
-    TypedFloat32Type -> TypedFloatRecipe 32
-    TypedFloat64Type -> TypedFloatRecipe 64

@@ -16,6 +16,8 @@ module Jazz.Compiler.LoweredIR.Lower.Types
     ConstructorTemplate (..),
     ManagedLayoutCatalog (..),
     LoweringAnalysis (..),
+    loweredIntegerWidth,
+    loweredFloatWidth,
   )
 where
 
@@ -26,6 +28,23 @@ import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (RuntimeServiceKey)
 import Jazz.Compiler.TypedCore
 import Numeric.Natural (Natural)
+
+loweredIntegerWidth :: Int -> Maybe LoweredIntegerWidth
+loweredIntegerWidth bits =
+  case bits of
+    8 -> Just LoweredIntegerWidth8
+    16 -> Just LoweredIntegerWidth16
+    32 -> Just LoweredIntegerWidth32
+    64 -> Just LoweredIntegerWidth64
+    _ -> Nothing
+
+loweredFloatWidth :: Int -> Maybe LoweredFloatWidth
+loweredFloatWidth bits =
+  case bits of
+    16 -> Just LoweredFloatWidth16
+    32 -> Just LoweredFloatWidth32
+    64 -> Just LoweredFloatWidth64
+    _ -> Nothing
 
 data LoweredIRLoweringKind
   = LoweredIRUnsupportedProgram

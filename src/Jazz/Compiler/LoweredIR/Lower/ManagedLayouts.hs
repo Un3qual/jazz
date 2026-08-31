@@ -33,6 +33,8 @@ import Jazz.Compiler.LoweredIR.Lower.Types
     LoweredIRLoweringKind (..),
     ManagedConstructorLayout (..),
     ManagedLayoutCatalog (..),
+    loweredFloatWidth,
+    loweredIntegerWidth,
   )
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textRepresentation)
 import Jazz.Compiler.TypedCore
@@ -248,9 +250,9 @@ collectRecipe declarations modulePath path build recipe =
   case recipe of
     TypedUnitRecipe -> scalar LoweredUnitRepresentation
     TypedBoolRecipe -> scalar LoweredBoolRepresentation
-    TypedSignedIntegerRecipe bits -> maybeFailure (LoweredSignedIntegerRepresentation <$> integerWidth bits)
-    TypedUnsignedIntegerRecipe bits -> maybeFailure (LoweredUnsignedIntegerRepresentation <$> integerWidth bits)
-    TypedFloatRecipe bits -> maybeFailure (LoweredFloatRepresentation <$> floatWidth bits)
+    TypedSignedIntegerRecipe bits -> maybeFailure (LoweredSignedIntegerRepresentation <$> loweredIntegerWidth bits)
+    TypedUnsignedIntegerRecipe bits -> maybeFailure (LoweredUnsignedIntegerRepresentation <$> loweredIntegerWidth bits)
+    TypedFloatRecipe bits -> maybeFailure (LoweredFloatRepresentation <$> loweredFloatWidth bits)
     TypedCharRecipe -> scalar LoweredCharRepresentation
     TypedManagedTextRecipe -> scalar textRepresentation
     TypedManagedProductRecipe fields -> collectProduct fields
@@ -318,9 +320,9 @@ representationForKnownRecipe catalog recipe =
   case recipe of
     TypedUnitRecipe -> Just LoweredUnitRepresentation
     TypedBoolRecipe -> Just LoweredBoolRepresentation
-    TypedSignedIntegerRecipe bits -> LoweredSignedIntegerRepresentation <$> integerWidth bits
-    TypedUnsignedIntegerRecipe bits -> LoweredUnsignedIntegerRepresentation <$> integerWidth bits
-    TypedFloatRecipe bits -> LoweredFloatRepresentation <$> floatWidth bits
+    TypedSignedIntegerRecipe bits -> LoweredSignedIntegerRepresentation <$> loweredIntegerWidth bits
+    TypedUnsignedIntegerRecipe bits -> LoweredUnsignedIntegerRepresentation <$> loweredIntegerWidth bits
+    TypedFloatRecipe bits -> LoweredFloatRepresentation <$> loweredFloatWidth bits
     TypedCharRecipe -> Just LoweredCharRepresentation
     TypedManagedTextRecipe -> Just textRepresentation
     TypedManagedProductRecipe _ -> managedReference
@@ -393,7 +395,7 @@ recipeForType typeValue =
   case typeValue of
     TypedIntType -> Just (TypedSignedIntegerRecipe 64)
     TypedFloatType -> Just (TypedFloatRecipe 64)
-    TypedNumericType numericType -> numericRecipe numericType
+    TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
     TypedBoolType -> Just TypedBoolRecipe
     TypedCharType -> Just TypedCharRecipe
     TypedTextType -> Just TypedManagedTextRecipe
@@ -483,26 +485,9 @@ typeEncoding modulePath typeValue =
       pure ("function$" <> segment encodedArgument <> "$" <> segment encodedResult)
     TypedTypeParameterType {} -> Nothing
 
-numericRecipe :: TypedNumericType -> Maybe TypedRepresentationRecipe
-numericRecipe numericType =
-  case numericType of
-    TypedInt8Type -> Just (TypedSignedIntegerRecipe 8)
-    TypedInt16Type -> Just (TypedSignedIntegerRecipe 16)
-    TypedInt32Type -> Just (TypedSignedIntegerRecipe 32)
-    TypedInt64Type -> Just (TypedSignedIntegerRecipe 64)
-    TypedUInt8Type -> Just (TypedUnsignedIntegerRecipe 8)
-    TypedUInt16Type -> Just (TypedUnsignedIntegerRecipe 16)
-    TypedUInt32Type -> Just (TypedUnsignedIntegerRecipe 32)
-    TypedUInt64Type -> Just (TypedUnsignedIntegerRecipe 64)
-    TypedFloat16Type -> Just (TypedFloatRecipe 16)
-    TypedFloat32Type -> Just (TypedFloatRecipe 32)
-    TypedFloat64Type -> Just (TypedFloatRecipe 64)
-
 numericTypeEncoding :: [Text] -> TypedNumericType -> Maybe Text
 numericTypeEncoding modulePath numericType =
-  case numericRecipe numericType of
-    Just recipe -> recipeEncoding modulePath recipe
-    Nothing -> Nothing
+  recipeEncoding modulePath (typedNumericRepresentationRecipe numericType)
 
 dataDeclarationName :: TypedDataDeclaration -> TypedCoreName
 dataDeclarationName (TypedDataDeclaration _ name _ _) = name
@@ -546,23 +531,6 @@ segment value = decimal (Text.length value) <> ":" <> value
 
 decimal :: (Show value) => value -> Text
 decimal = Text.pack . show
-
-integerWidth :: Int -> Maybe LoweredIntegerWidth
-integerWidth bits =
-  case bits of
-    8 -> Just LoweredIntegerWidth8
-    16 -> Just LoweredIntegerWidth16
-    32 -> Just LoweredIntegerWidth32
-    64 -> Just LoweredIntegerWidth64
-    _ -> Nothing
-
-floatWidth :: Int -> Maybe LoweredFloatWidth
-floatWidth bits =
-  case bits of
-    16 -> Just LoweredFloatWidth16
-    32 -> Just LoweredFloatWidth32
-    64 -> Just LoweredFloatWidth64
-    _ -> Nothing
 
 single :: [value] -> Maybe value
 single values =

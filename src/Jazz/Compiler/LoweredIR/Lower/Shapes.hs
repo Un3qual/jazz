@@ -1492,18 +1492,7 @@ representationAtPath managedLayoutCatalog path recipe =
       )
 
 integerWidth :: Int -> Maybe LoweredIntegerWidth
-integerWidth bits =
-  case bits of
-    8 -> Just LoweredIntegerWidth8
-    16 -> Just LoweredIntegerWidth16
-    32 -> Just LoweredIntegerWidth32
-    64 -> Just LoweredIntegerWidth64
-    _ -> Nothing
+integerWidth = loweredIntegerWidth
 
 floatWidth :: Int -> Maybe LoweredFloatWidth
-floatWidth bits =
-  case bits of
-    16 -> Just LoweredFloatWidth16
-    32 -> Just LoweredFloatWidth32
-    64 -> Just LoweredFloatWidth64
-    _ -> Nothing
+floatWidth = loweredFloatWidth
