@@ -1347,8 +1347,13 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 - [ ] **Step 4: Format and commit**
 
+Record the base whole-file formatter result for both files. Format and check a
+whole file only when its base layout is already clean; otherwise run focused
+Ormolu checks over every Task 18 semantic region and preserve unrelated legacy
+layout for Task 25. Record the exact focused commands in the task report. Then
+run:
+
 ```sh
-scripts/check-haskell-format.sh src/Jazz/CLI/Main.hs test/Jazz/CLI/CLISpec.hs
 git diff --check
 git add src/Jazz/CLI/Main.hs test/Jazz/CLI/CLISpec.hs
 git commit -m "refactor: validate CLI options algebraically"
