@@ -429,39 +429,39 @@ Curation Target`; preserve the completed construction evidence.
 - Tuple matching emits `LoweredProjectField` in field order from the exact
   product layout. Nested failures jump to the next source row.
 
-- [ ] **Step 1: Add exact RED tuple lowering.** Require one product
+- [x] **Step 1: Add exact RED tuple lowering.** Require one product
       construction, one left-to-right pair of field projections, arm-local
       binder block parameters, one selected body, and the existing result join.
 
-- [ ] **Step 2: Add exact RED variant lowering.** Require the `Option` case to
+- [x] **Step 2: Add exact RED variant lowering.** Require the `Option` case to
       emit tag projection before `LoweredSwitch`, project `Some`'s field only
       in tag 1's successor, and cover `None` without a synthetic wildcard or
       default trap.
 
-- [ ] **Step 3: Add nested-failure ordering.** Cover `Some (left, right)` before
+- [x] **Step 3: Add nested-failure ordering.** Cover `Some (left, right)` before
       a later `Some fallback` row. Prove a nested tuple mismatch resumes at the
       later row and never evaluates the earlier body.
 
-- [ ] **Step 4: Run the focused suite and verify RED.** Expected: admitted
+- [x] **Step 4: Run the focused suite and verify RED.** Expected: admitted
       managed cases reach `lowerScalarPatternCaseTo` and fail with the existing
       unsupported-pattern emitter path.
 
-- [ ] **Step 5: Generalize source-row continuations.** Keep the once-evaluated
+- [x] **Step 5: Generalize source-row continuations.** Keep the once-evaluated
       scrutinee in one carried slot. Give every row an entry block; recursively
       compile its pattern with the row success block and the next row entry as
       continuations. Reuse existing ambient slot, remapping, block completion,
       and join helpers.
 
-- [ ] **Step 6: Emit tag and field operations in the required order.** The tag
+- [x] **Step 6: Emit tag and field operations in the required order.** The tag
       temporary dominates the switch. Start each matching tag block before
       emitting fields. Carry projected fields through nested tests to the
       selected arm entry; discard them on failure.
 
-- [ ] **Step 7: Bind projected operands only at success.** Add the checked
+- [x] **Step 7: Bind projected operands only at success.** Add the checked
       binder operands to `loweringLocalBindings` after the complete pattern
       succeeds. Do not add them to continuation or join states.
 
-- [ ] **Step 8: Run the focused suite twice, format, and commit.** Expected:
+- [x] **Step 8: Run the focused suite twice, format, and commit.** Expected:
       tuple, constructor, nested, complete-variant, and every existing scalar
       case lower to exact valid IR on both runs.
 
