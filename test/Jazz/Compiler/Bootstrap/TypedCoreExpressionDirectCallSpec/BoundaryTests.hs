@@ -52,11 +52,11 @@ testUnusedUserDefinedOperatorBinding :: IO ()
 testUnusedUserDefinedOperatorBinding = do
   let fixture = producerEdgeFixture "unused-user-defined-operator"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 1)
-              TypedCoreUserDefinedOperatorUnsupported
-              TypedCoreUnsupportedRootDetail
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 1)
+            TypedCoreUserDefinedOperatorUnsupported
+            TypedCoreUnsupportedRootDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -71,11 +71,11 @@ testRootDataFailureAccumulation :: IO ()
 testRootDataFailureAccumulation = do
   let fixture = producerEdgeFixture "root-data-failure-accumulation"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -103,15 +103,15 @@ testNestedDataFailureAccumulation =
               (EBlock [SExpr spanValue nestedBlock])
               resolvedModule
           expectedFailures =
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                  TypedCoreStructuredValueUnsupported
-                  TypedCoreDataValueDetail,
-                TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-                  TypedCoreStructuredValueUnsupported
-                  TypedCoreListValueDetail
-              ]
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                TypedCoreStructuredValueUnsupported
+                TypedCoreDataValueDetail,
+              TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+                TypedCoreStructuredValueUnsupported
+                TypedCoreListValueDetail
+            ]
       firstRun <- produceResolvedFixture fixture forgedModule
       secondRun <- produceResolvedFixture fixture forgedModule
       assertEqual "nested data failure repeatable production" firstRun secondRun
@@ -184,9 +184,9 @@ testUnsupportedDeclarationProfile :: IO ()
 testUnsupportedDeclarationProfile = do
   let fixture = producerEdgeFixture "class-impl-declarations"
       expectedFailures =
-          [ unsupportedStatement 0,
-            unsupportedStatement 1
-          ]
+        [ unsupportedStatement 0,
+          unsupportedStatement 1
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -211,13 +211,13 @@ testImplMethodBodyFailureAccumulation :: IO ()
 testImplMethodBodyFailureAccumulation = do
   let fixture = producerEdgeFixture "impl-method-profile-failure"
       expectedFailures =
-          [ unsupportedStatement 0,
-            unsupportedStatement 1,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+        [ unsupportedStatement 0,
+          unsupportedStatement 1,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -242,15 +242,15 @@ testUnsupportedBindingFailureAccumulation :: IO ()
 testUnsupportedBindingFailureAccumulation = do
   let fixture = producerEdgeFixture "unsupported-binding-child-failure"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 0)
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-              TypedCoreStructuredValueUnsupported
-              TypedCoreListValueDetail
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 0)
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -269,14 +269,14 @@ testQualifiedMethodInferenceCompatibility :: IO ()
 testQualifiedMethodInferenceCompatibility = do
   let fixture = producerEdgeFixture "qualified-method-profile-rejection"
       expectedFailures =
-          [ unsupportedStatement 0,
-            unsupportedStatement 1,
-            unsupportedStatement 2,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
-              TypedCoreNonLocalCallUnsupported
-              (TypedCoreNameDetail "Choice::pick")
-          ]
+        [ unsupportedStatement 0,
+          unsupportedStatement 1,
+          unsupportedStatement 2,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
+            TypedCoreNonLocalCallUnsupported
+            (TypedCoreNameDetail "Choice::pick")
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -304,11 +304,11 @@ testOutOfRangeDefaultIntegerRejection =
     assertRejected name = do
       let fixture = producerEdgeFixture name
           expectedFailures =
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                  TypedCoreUnresolvedExpressionType
-                  TypedCoreUnsupportedRootDetail
-              ]
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+                TypedCoreUnresolvedExpressionType
+                TypedCoreUnsupportedRootDetail
+            ]
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
@@ -335,11 +335,11 @@ testNumericPromotionRejection =
     assertRejected (name, statementIndex, childPath) = do
       let fixture = producerEdgeFixture name
           expectedFailures =
-              [ TypedCoreProductionFailure
-                  (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
-                  TypedCoreUnsupportedRootExpression
-                  TypedCoreUnsupportedRootDetail
-              ]
+            [ TypedCoreProductionFailure
+                (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
+                TypedCoreUnsupportedRootExpression
+                TypedCoreUnsupportedRootDetail
+            ]
       ordinary <- inferFixture fixture
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
@@ -441,11 +441,11 @@ testLoweringPrecedence :: IO ()
 testLoweringPrecedence =
   assertTypedCoreFailureLowering
     "typed-core validation precedes lowering profile checks"
-        [ TypedCoreValidationFailure
-            TypedProgramPath
-            TypedUnknownEntryModule
-            (TypedTextDetail "Missing::Entry")
-        ]
+    [ TypedCoreValidationFailure
+        TypedProgramPath
+        TypedUnknownEntryModule
+        (TypedTextDetail "Missing::Entry")
+    ]
     (lowerTypedCoreExpressionDirectCall (TypedProgram Nothing [] ["Missing", "Entry"]))
 
 testRejectedScalarProfile :: IO ()
@@ -472,11 +472,11 @@ testMissingModuleResultProduction =
   mapM_ assertMissing ["empty-module", "signed-function-only"]
   where
     expectedFailures =
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionModulePath ["App", "Main"])
-            TypedCoreUnsupportedRootExpression
-            TypedCoreUnsupportedRootDetail
-        ]
+      [ TypedCoreProductionFailure
+          (TypedCoreProductionModulePath ["App", "Main"])
+          TypedCoreUnsupportedRootExpression
+          TypedCoreUnsupportedRootDetail
+      ]
     assertMissing name = do
       let fixture = producerEdgeFixture name
       firstRun <- produceFixture fixture
@@ -489,11 +489,11 @@ testMissingResultFailureAccumulation :: IO ()
 testMissingResultFailureAccumulation = do
   let fixture = producerEdgeFixture "missing-result-failure-accumulation"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -517,19 +517,19 @@ testModuleFailureOrder = do
             ModuleExport ValueNamespace "alpha"
           ]
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedRootExpression
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "zeta"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "alpha")
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedRootExpression
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "zeta"),
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "alpha")
+        ]
   resolvedModule <- resolveFixtureModule fixture
   let coreModule = resolvedModuleCore resolvedModule
       mutatedModule =
@@ -554,27 +554,27 @@ testExportedCallableFailureOwnership :: IO ()
 testExportedCallableFailureOwnership = do
   let fixture = producerEdgeFixture "default-exported-polymorphic-callable"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreUnsupportedExport
-              (TypedCoreNameDetail "seed"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
-              TypedCoreUnresolvedExpressionType
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreNonMonomorphicFunctionUnsupported
-              (TypedCoreNameDetail "identity"),
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
-              TypedCoreUnresolvedExpressionType
-              TypedCoreUnsupportedRootDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0])
-              TypedCoreUnresolvedExpressionType
-              TypedCoreUnsupportedRootDetail
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreUnsupportedExport
+            (TypedCoreNameDetail "seed"),
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 2 [])
+            TypedCoreUnresolvedExpressionType
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 3)
+            TypedCoreNonMonomorphicFunctionUnsupported
+            (TypedCoreNameDetail "identity"),
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 3 [])
+            TypedCoreUnresolvedExpressionType
+            TypedCoreUnsupportedRootDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 3 [0])
+            TypedCoreUnresolvedExpressionType
+            TypedCoreUnsupportedRootDetail
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -592,9 +592,9 @@ testCompoundFailureAccumulation :: IO ()
 testCompoundFailureAccumulation = do
   let fixture = producerEdgeFixture "nested-unsupported-children"
       expectedFailures =
-          [ expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
-            expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
-          ]
+        [ expressionFailure [1] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail,
+          expressionFailure [2] TypedCoreStructuredValueUnsupported TypedCoreListValueDetail
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "compound failure ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
@@ -753,22 +753,22 @@ testIncompleteRecursiveGroupOwnership = do
           )
   assertProductionUnsupported
     "missing recursive declaration owner rejects the complete group"
-        [ TypedCoreProductionFailure
-            (TypedCoreProductionStatementPath ["App", "Main"] 1)
-            TypedCoreRecursiveFunctionUnsupported
-            (TypedCoreNameDetail "loop")
-        ]
+    [ TypedCoreProductionFailure
+        (TypedCoreProductionStatementPath ["App", "Main"] 1)
+        TypedCoreRecursiveFunctionUnsupported
+        (TypedCoreNameDetail "loop")
+    ]
     status
 
 testSameStatementFailureKindOrder :: IO ()
 testSameStatementFailureKindOrder = do
   let fixture = producerEdgeFixture "self-recursive-function-rebinding"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreFunctionRebindingUnsupported
-              (TypedCoreNameDetail "loop")
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 3)
+            TypedCoreFunctionRebindingUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "self-recursive rebinding ordinary diagnostics" [] (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
@@ -909,11 +909,11 @@ testNestedSelfRecursiveLambdaOwnership :: IO ()
 testNestedSelfRecursiveLambdaOwnership = do
   let fixture = producerEdgeFixture "nested-self-recursive-lambda-local-ownership"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
-              TypedCoreNestedBlockUnsupported
-              TypedCoreLocalBlockDetail
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 1 [0, 0])
+            TypedCoreNestedBlockUnsupported
+            TypedCoreLocalBlockDetail
+        ]
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual
@@ -933,11 +933,11 @@ testNestedLambdaRecursiveAdmission :: IO ()
 testNestedLambdaRecursiveAdmission = do
   let fixture = producerEdgeFixture "nested-lambda-direct-recursion"
       expectedFailures =
-          [ TypedCoreProductionFailure
-              (TypedCoreProductionStatementPath ["App", "Main"] 3)
-              TypedCoreRecursiveFunctionUnsupported
-              (TypedCoreNameDetail "loop")
-          ]
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionStatementPath ["App", "Main"] 3)
+            TypedCoreRecursiveFunctionUnsupported
+            (TypedCoreNameDetail "loop")
+        ]
   ordinary <- inferFixture fixture
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
@@ -1394,15 +1394,15 @@ testInputModuleFailureOrder = do
                 }
           }
       expectedFailures =
-          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail,
-            TypedCoreProductionFailure
-              (TypedCoreProductionModulePath ["App", "Main"])
-              TypedCoreResolvedImportsUnsupported
-              TypedCoreNoFailureDetail
-          ]
+        [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionModulePath ["App", "Main"])
+            TypedCoreResolvedImportsUnsupported
+            TypedCoreNoFailureDetail
+        ]
   firstRun <- produceFixture combinedFixture
   secondRun <- produceFixture combinedFixture
   assertEqual "input/module failure order repeatability" firstRun secondRun
