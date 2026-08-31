@@ -3,12 +3,15 @@ module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   ( StructuredConstructor (..),
     StructuredValueCatalog,
     buildStructuredValueCatalog,
+    concreteConstructorContract,
+    concreteConstructorFieldTypes,
     structuredDataStatement,
     structuredNodeInfo,
     structuredConstructorAtStatement,
   )
 where
 
+import Control.Monad (guard)
 import Data.Functor (unzip)
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -182,6 +185,64 @@ structuredConstructorAtStatement catalog statementIndex sourceName = do
     ((<= statementIndex) . structuredConstructorStatementIndex)
     (reverse (NonEmpty.toList constructors))
 
+-- | Resolve a constructor's field and result contracts at a concrete data use.
+-- The catalog remains the sole owner of declaration-era constructor metadata.
+concreteConstructorContract ::
+  StructuredValueCatalog ->
+  InferState ->
+  StructuredConstructor ->
+  ExpressionType ->
+  Maybe ([TypedNodeInfo], TypedNodeInfo, [TypedInstantiation])
+concreteConstructorContract catalog state constructor resultExpressionType = do
+  resultInfo@(TypedNodeInfo resultType _ _ _) <- structuredNodeInfo catalog state resultExpressionType
+  concreteArguments <-
+    case resultType of
+      TypedDataType dataName arguments
+        | dataName == structuredConstructorDataName constructor -> Just arguments
+      _ -> Nothing
+  guard (length concreteArguments == length (structuredConstructorParameters constructor))
+  parameterContracts <- traverse parameterContract concreteArguments
+  let bindings = Map.fromList (zip (structuredConstructorParameters constructor) parameterContracts)
+  fieldContracts <- traverse (substituteFieldContract bindings) (structuredConstructorFieldContracts constructor)
+  let fieldInfos = [TypedNodeInfo typeValue recipe [] [] | (typeValue, recipe) <- fieldContracts]
+      instantiations =
+        [ TypedInstantiation
+            (structuredConstructorBinder constructor)
+            (zipWith TypedTypeArgument (structuredConstructorParameters constructor) concreteArguments)
+            Nothing
+        | not (null concreteArguments)
+        ]
+  pure (fieldInfos, resultInfo, instantiations)
+  where
+    parameterContract typeValue = do
+      recipe <- representationRecipeForTypedType typeValue
+      pure (typeValue, recipe)
+    substituteFieldContract bindings (typeValue, recipe) =
+      (,)
+        <$> substituteStructuredType bindings typeValue
+        <*> substituteStructuredRecipe bindings recipe
+
+concreteConstructorFieldTypes ::
+  InferState ->
+  StructuredConstructor ->
+  ExpressionType ->
+  Maybe [ExpressionType]
+concreteConstructorFieldTypes state constructor resultExpressionType = do
+  concreteArguments <-
+    case resolveType state resultExpressionType of
+      TDataType dataName arguments
+        | dataName == structuredConstructorDataSourceName constructor -> Just arguments
+      _ -> Nothing
+  guard (length concreteArguments == length (structuredConstructorParameters constructor))
+  let parameterVariables =
+        Map.fromList
+          [ (negate index - 1, resolveType state argument)
+          | (index, argument) <- zip [0 :: Int ..] concreteArguments
+          ]
+  traverse
+    (substituteConstructorExpressionType parameterVariables . resolveType state)
+    (structuredConstructorFieldTemplates constructor)
+
 expressionContract ::
   Map Name StructuredDataSkeleton ->
   Map Int TypedTypeParameterId ->
@@ -247,6 +308,70 @@ numericContract numericType =
     NumericFloat64 -> numeric TypedFloat64Type (TypedFloatRecipe 64)
   where
     numeric typeValue recipe = Just (TypedNumericType typeValue, recipe)
+
+substituteConstructorExpressionType :: Map Int ExpressionType -> ExpressionType -> Maybe ExpressionType
+substituteConstructorExpressionType bindings expressionType =
+  case expressionType of
+    TListType elementType -> TListType <$> child elementType
+    TTupleType elementTypes -> TTupleType <$> traverse child elementTypes
+    TDataType dataName arguments -> TDataType dataName <$> traverse child arguments
+    TFunctionType argument result -> TFunctionType <$> child argument <*> child result
+    TVarType variable -> Map.lookup variable bindings
+    _ -> Just expressionType
+  where
+    child = substituteConstructorExpressionType bindings
+
+substituteStructuredType ::
+  Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) ->
+  TypedType ->
+  Maybe TypedType
+substituteStructuredType bindings typeValue =
+  case typeValue of
+    TypedListType elementType -> TypedListType <$> child elementType
+    TypedTupleType elementTypes -> TypedTupleType <$> traverse child elementTypes
+    TypedDataType dataName arguments -> TypedDataType dataName <$> traverse child arguments
+    TypedFunctionType argument result -> TypedFunctionType <$> child argument <*> child result
+    TypedTypeParameterType parameter -> fst <$> Map.lookup parameter bindings
+    _ -> Just typeValue
+  where
+    child = substituteStructuredType bindings
+
+substituteStructuredRecipe ::
+  Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) ->
+  TypedRepresentationRecipe ->
+  Maybe TypedRepresentationRecipe
+substituteStructuredRecipe bindings recipe =
+  case recipe of
+    TypedManagedListRecipe elementRecipe -> TypedManagedListRecipe <$> child elementRecipe
+    TypedManagedProductRecipe elementRecipes -> TypedManagedProductRecipe <$> traverse child elementRecipes
+    TypedManagedVariantRecipe dataName arguments ->
+      TypedManagedVariantRecipe dataName <$> traverse (substituteStructuredType bindings) arguments
+    TypedClosureRecipe arguments result -> TypedClosureRecipe <$> traverse child arguments <*> child result
+    TypedRepresentationParameterRecipe parameter -> snd <$> Map.lookup parameter bindings
+    _ -> Just recipe
+  where
+    child = substituteStructuredRecipe bindings
+
+representationRecipeForTypedType :: TypedType -> Maybe TypedRepresentationRecipe
+representationRecipeForTypedType typeValue =
+  case typeValue of
+    TypedIntType -> Just (TypedSignedIntegerRecipe 64)
+    TypedFloatType -> Just (TypedFloatRecipe 64)
+    TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
+    TypedBoolType -> Just TypedBoolRecipe
+    TypedCharType -> Just TypedCharRecipe
+    TypedTextType -> Just TypedManagedTextRecipe
+    TypedListType {} -> Nothing
+    TypedTupleType elementTypes ->
+      case elementTypes of
+        [] -> Just TypedUnitRecipe
+        _ -> TypedManagedProductRecipe <$> traverse representationRecipeForTypedType elementTypes
+    TypedDataType dataName arguments -> Just (TypedManagedVariantRecipe dataName arguments)
+    TypedFunctionType argument result ->
+      TypedClosureRecipe
+        <$> ((: []) <$> representationRecipeForTypedType argument)
+        <*> representationRecipeForTypedType result
+    TypedTypeParameterType {} -> Nothing
 
 resolvedTypeName :: Name -> TypedCoreName
 resolvedTypeName sourceName = TypedResolvedName TypedCurrentModule TypedTypeNamespace (identifierText sourceName)

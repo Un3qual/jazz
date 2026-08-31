@@ -965,6 +965,12 @@ inferExprTypeDetailed builtinMode env state expr =
       | supportedScalarScrutinee finalState scrutineeType
           && supportedScalarArms caseArms =
           []
+      | supportedManagedScrutinee finalState scrutineeType
+          && any (isManagedPattern . armPattern) caseArms =
+          concat
+            [ managedPatternFailures [armIndex] pattern
+            | (armIndex, CaseArm pattern _ _) <- zip [0 :: Int ..] caseArms
+            ]
       | otherwise =
           [ InferredProductionFailure
               []
@@ -984,6 +990,22 @@ inferExprTypeDetailed builtinMode env state expr =
         TTupleType [] -> True
         _ -> False
 
+    supportedManagedScrutinee finalState scrutineeType =
+      case resolveType finalState scrutineeType of
+        TTupleType (_ : _) -> True
+        TDataType {} -> True
+        _ -> False
+
+    armPattern (CaseArm pattern _ _) = pattern
+
+    isManagedPattern pattern =
+      case pattern of
+        PConstructor _ (_ : _) -> True
+        PTuple (_ : _) -> True
+        PAs _ nested -> isManagedPattern nested
+        POr alternatives -> any isManagedPattern alternatives
+        _ -> False
+
     supportedScalarArms caseArms =
       case reverse caseArms of
         CaseArm finalPattern Nothing _ : precedingArms ->
@@ -1001,6 +1023,26 @@ inferExprTypeDetailed builtinMode env state expr =
         PWildcard -> True
         PVariable {} -> True
         _ -> False
+
+    managedPatternFailures patternPath pattern =
+      case pattern of
+        PWildcard -> []
+        PVariable {} -> []
+        PLiteral LText {} -> unsupportedPattern patternPath
+        PLiteral {} -> []
+        PConstructor _ nested -> nestedFailures nested
+        PTuple nested -> nestedFailures nested
+        PAs _ nested -> managedPatternFailures (patternPath <> [0]) nested
+        POr alternatives -> concat [managedPatternFailures (patternPath <> [alternativeIndex]) alternative | (alternativeIndex, alternative) <- zip [0 :: Int ..] alternatives]
+        PList {} -> unsupportedPattern patternPath
+        PConsList {} -> unsupportedPattern patternPath
+      where
+        nestedFailures nested =
+          concat
+            [ managedPatternFailures (patternPath <> [nestedIndex]) nestedPattern
+            | (nestedIndex, nestedPattern) <- zip [0 :: Int ..] nested
+            ]
+        unsupportedPattern path = [InferredProductionFailure path TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
 
     catchAllPattern pattern =
       case pattern of

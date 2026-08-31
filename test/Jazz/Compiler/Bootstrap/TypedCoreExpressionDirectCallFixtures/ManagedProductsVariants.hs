@@ -54,6 +54,15 @@ managedProductVariantFixtures =
     ),
     ( "managed-constructor-pattern-failure",
       sourceFixtureNoExports "managed-constructor-pattern-failure" constructorPatternSource
+    ),
+    ( "managed-nested-constructor-tuple-pattern",
+      sourceFixtureNoExports "managed-nested-constructor-tuple-pattern" nestedConstructorTuplePatternSource
+    ),
+    ( "managed-as-constructor-pattern",
+      sourceFixtureNoExports "managed-as-constructor-pattern" asConstructorPatternSource
+    ),
+    ( "managed-or-constructor-pattern",
+      sourceFixtureNoExports "managed-or-constructor-pattern" orConstructorPatternSource
     )
   ]
 
@@ -75,7 +84,12 @@ managedProductVariantExpectedPrograms =
     ("managed-pair-recursive-capture", managedPairRecursiveCaptureProgram),
     ("managed-pair-conditional-join", managedPairConditionalJoinProgram),
     ("managed-pair-scalar-case-join", managedPairScalarCaseJoinProgram),
-    ("managed-box-capture", managedBoxCaptureProgram)
+    ("managed-box-capture", managedBoxCaptureProgram),
+    ("managed-tuple-pattern-failure", managedTuplePatternProgram),
+    ("managed-constructor-pattern-failure", managedConstructorPatternProgram),
+    ("managed-nested-constructor-tuple-pattern", managedNestedConstructorTuplePatternProgram),
+    ("managed-as-constructor-pattern", managedAsConstructorPatternProgram),
+    ("managed-or-constructor-pattern", managedOrConstructorPatternProgram)
   ]
 
 managedProductVariantExpectedLoweredPrograms :: [(Text, LoweredProgram)]
@@ -1028,6 +1042,161 @@ optionDeclaration =
 optionIntInfo :: TypedNodeInfo
 optionIntInfo = variantInfo optionName [TypedIntType]
 
+managedTuplePatternProgram :: TypedProgram
+managedTuplePatternProgram =
+  managedProgram
+    [ TypedExpressionStatement
+        (TypedSpan 2 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (TypedTupleExpr tupleInfo [intExpr 1, intExpr 2])
+            [TypedCaseArm tuplePattern Nothing (boundVariableExpr leftName intInfo leftBinder)]
+        )
+    ]
+    intInfo
+  where
+    tupleInfo =
+      TypedNodeInfo
+        (TypedTupleType [TypedIntType, TypedIntType])
+        (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64])
+        []
+        []
+    leftName = valueName "left"
+    rightName = valueName "right"
+    leftBinder = patternBinder [0, 0, 0] leftName
+    rightBinder = patternBinder [0, 0, 1] rightName
+    tuplePattern =
+      TypedTuplePattern
+        tupleInfo
+        [ TypedVariablePattern intInfo leftBinder leftName,
+          TypedVariablePattern intInfo rightBinder rightName
+        ]
+
+managedConstructorPatternProgram :: TypedProgram
+managedConstructorPatternProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (constructorCall someBinder someName optionIntInfo [intInfo] [intExpr 1])
+            [ TypedCaseArm
+                (TypedConstructorPattern optionIntInfo someName [TypedVariablePattern intInfo itemBinder itemName])
+                Nothing
+                (boundVariableExpr itemName intInfo itemBinder),
+              TypedCaseArm (TypedConstructorPattern optionIntInfo noneName []) Nothing (intExpr 0)
+            ]
+        )
+    ]
+    intInfo
+  where
+    itemName = valueName "item"
+    itemBinder = patternBinder [1, 0, 0] itemName
+
+managedNestedConstructorTuplePatternProgram :: TypedProgram
+managedNestedConstructorTuplePatternProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (constructorCall someBinder someName optionTupleInfo [managedPairInfo] [managedPairExpressionWith 1 "one"])
+            [ TypedCaseArm
+                ( TypedConstructorPattern
+                    optionTupleInfo
+                    someName
+                    [ TypedTuplePattern
+                        managedPairInfo
+                        [ TypedVariablePattern intInfo numberBinder numberName,
+                          TypedVariablePattern textInfo labelBinder labelName
+                        ]
+                    ]
+                )
+                Nothing
+                (boundVariableExpr numberName intInfo numberBinder),
+              TypedCaseArm (TypedConstructorPattern optionTupleInfo noneName []) Nothing (intExpr 0)
+            ]
+        )
+    ]
+    intInfo
+  where
+    optionTupleInfo = variantInfo optionName [typedExpressionType managedPairInfo]
+    numberName = valueName "number"
+    labelName = valueName "label"
+    numberBinder = patternBinder [1, 0, 0, 0] numberName
+    labelBinder = patternBinder [1, 0, 0, 1] labelName
+
+managedAsConstructorPatternProgram :: TypedProgram
+managedAsConstructorPatternProgram =
+  managedProgram
+    [ TypedDataStatement optionDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (constructorCall someBinder someName optionIntInfo [intInfo] [intExpr 1])
+            [ TypedCaseArm
+                ( TypedAsPattern
+                    optionIntInfo
+                    wholeBinder
+                    wholeName
+                    (TypedConstructorPattern optionIntInfo someName [TypedVariablePattern intInfo itemBinder itemName])
+                )
+                Nothing
+                (boundVariableExpr itemName intInfo itemBinder),
+              TypedCaseArm (TypedConstructorPattern optionIntInfo noneName []) Nothing (intExpr 0)
+            ]
+        )
+    ]
+    intInfo
+  where
+    wholeName = valueName "whole"
+    itemName = valueName "item"
+    wholeBinder = patternBinder [1, 0] wholeName
+    itemBinder = patternBinder [1, 0, 0, 0] itemName
+
+managedOrConstructorPatternProgram :: TypedProgram
+managedOrConstructorPatternProgram =
+  managedProgram
+    [ TypedDataStatement choiceDeclaration,
+      TypedExpressionStatement
+        (TypedSpan 3 1)
+        ( TypedPatternCaseExpr
+            intInfo
+            (monomorphicConstructorCall leftBinder leftName choiceInfo [intInfo] [intExpr 1])
+            [ TypedCaseArm
+                ( TypedOrPattern
+                    choiceInfo
+                    [ TypedConstructorPattern choiceInfo leftName [TypedVariablePattern intInfo itemBinder itemName],
+                      TypedConstructorPattern choiceInfo rightName [TypedVariablePattern intInfo itemBinder itemName]
+                    ]
+                )
+                Nothing
+                (boundVariableExpr itemName intInfo itemBinder)
+            ]
+        )
+    ]
+    intInfo
+  where
+    choiceName = typeName "Choice"
+    leftName = constructorName "Left"
+    rightName = constructorName "Right"
+    leftBinder = constructorBinder 0 leftName
+    rightBinder = constructorBinder 1 rightName
+    choiceInfo = variantInfo choiceName []
+    choiceDeclaration =
+      TypedDataDeclaration
+        (TypedSpan 2 1)
+        choiceName
+        []
+        [ TypedConstructorDeclaration leftBinder leftName [TypedIntType] [TypedSignedIntegerRecipe 64],
+          TypedConstructorDeclaration rightBinder rightName [TypedIntType] [TypedSignedIntegerRecipe 64]
+        ]
+    itemName = valueName "item"
+    itemBinder = patternBinder [1, 0, 0, 0] itemName
+
 managedTreeProgram :: TypedProgram
 managedTreeProgram =
   managedProgram
@@ -1521,6 +1690,12 @@ constructorName = TypedResolvedName TypedCurrentModule TypedConstructorNamespace
 constructorBinder :: Int -> TypedCoreName -> TypedBinderId
 constructorBinder constructorIndex name = TypedBinderId (modulePath, [0, constructorIndex], name)
 
+patternBinder :: [Int] -> TypedCoreName -> TypedBinderId
+patternBinder path name = TypedBinderId (modulePath, path, name)
+
+boundVariableExpr :: TypedCoreName -> TypedNodeInfo -> TypedBinderId -> TypedExpr
+boundVariableExpr name info owner = TypedVariableExpr info name (Just owner)
+
 managedExportedOptionSource :: Text
 managedExportedOptionSource =
   Text.unlines
@@ -1578,7 +1753,7 @@ managedBoxCaptureSource =
       "capture True."
     ]
 
-bareConstructorSource, partialConstructorSource, listFieldSource, unresolvedConstructorSource, listConstructionSource, tupleEqualitySource, variantEqualitySource, tuplePatternSource, constructorPatternSource :: Text
+bareConstructorSource, partialConstructorSource, listFieldSource, unresolvedConstructorSource, listConstructionSource, tupleEqualitySource, variantEqualitySource, tuplePatternSource, constructorPatternSource, nestedConstructorTuplePatternSource, asConstructorPatternSource, orConstructorPatternSource :: Text
 bareConstructorSource = Text.unlines ["data Box = Box Int.", "Box."]
 partialConstructorSource = Text.unlines ["data Pair a b = Pair a b.", "Pair 1."]
 listFieldSource = Text.unlines ["data Box = Box List(Int).", "Box [1]."]
@@ -1591,6 +1766,21 @@ constructorPatternSource =
   Text.unlines
     [ "data Option a = None | Some a.",
       "case Some 1 { | Some item -> item | None -> 0 }."
+    ]
+nestedConstructorTuplePatternSource =
+  Text.unlines
+    [ "data Option a = None | Some a.",
+      "case Some (1, \"one\") { | Some (number, label) -> number | None -> 0 }."
+    ]
+asConstructorPatternSource =
+  Text.unlines
+    [ "data Option a = None | Some a.",
+      "case Some 1 { | whole @ Some item -> item | None -> 0 }."
+    ]
+orConstructorPatternSource =
+  Text.unlines
+    [ "data Choice = Left Int | Right Int.",
+      "case Left 1 { | Left item | Right item -> item }."
     ]
 
 managedLayoutCatalogProgram :: TypedProgram

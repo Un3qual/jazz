@@ -10,7 +10,6 @@ module Jazz.Compiler.TypeInference.Elaboration.Finalize
 where
 
 import Control.Applicative ((<|>))
-import Control.Monad (guard)
 import Data.Either (partitionEithers)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
@@ -69,6 +68,7 @@ import Jazz.Compiler.TypeInference.Elaboration.StructuredValues
     structuredDataStatement,
     structuredNodeInfo,
   )
+import qualified Jazz.Compiler.TypeInference.Elaboration.StructuredValues as StructuredValues
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( ExpressionEvaluation (..),
     ExpressionRole (..),
@@ -496,7 +496,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           | Just constructor <- structuredConstructorAtStatement structuredCatalog statementIndex name ->
               case structuredConstructorFieldContracts constructor of
                 [] ->
-                  case concreteConstructorContract structuredCatalog finalizationState constructor expressionType of
+                  case StructuredValues.concreteConstructorContract structuredCatalog finalizationState constructor expressionType of
                     Just (_, resultInfo, instantiations) ->
                       ( [],
                         Just
@@ -672,30 +672,27 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               finalizationExpressionRole = role
             }
 
-        finalizePatternCaseArms maybeScrutineeType scrutineeInfo arms' =
-          let finalized = zipWith (finalizePatternCaseArm maybeScrutineeType scrutineeInfo) [0 ..] arms'
+        finalizePatternCaseArms maybeScrutineeType _ arms' =
+          let finalized = zipWith (finalizePatternCaseArm maybeScrutineeType) [0 ..] arms'
               failures = concatMap fst finalized
               maybeArms = traverse snd finalized
            in (failures, maybeArms)
 
-        finalizePatternCaseArm maybeScrutineeType scrutineeInfo armIndex (ProvisionalPatternCaseArm pattern maybeGuard body) =
+        finalizePatternCaseArm maybeScrutineeType armIndex (ProvisionalPatternCaseArm pattern maybeGuard body) =
           let patternPath = childPath <> [armIndex]
-              (patternFailures, maybePattern, armParameters) =
-                case pattern of
-                  PWildcard -> ([], Just (TypedWildcardPattern scrutineeInfo), parameterBindings)
-                  PVariable name ->
-                    let typedName = resolvedValueName name
-                        owner = binderAt statementIndex patternPath typedName
-                     in ( [],
-                          Just (TypedVariablePattern scrutineeInfo owner typedName),
-                          Map.insert name owner parameterBindings
-                        )
-                  PLiteral literal ->
-                    case typedLiteral statementIndex patternPath literal scrutineeInfo of
-                      Left failure -> ([failure], Nothing, parameterBindings)
-                      Right literalValue ->
-                        ([], Just (TypedLiteralPattern scrutineeInfo literalValue), parameterBindings)
-                  _ ->
+              armBinders = canonicalPatternBinders patternPath pattern
+              (patternFailures, maybePattern, binderTypes) =
+                case maybeScrutineeType of
+                  Just scrutineeType ->
+                    finalizeManagedPattern
+                      structuredCatalog
+                      finalizationState
+                      statementIndex
+                      patternPath
+                      scrutineeType
+                      armBinders
+                      pattern
+                  Nothing ->
                     ( [ failureAt
                           statementIndex
                           patternPath
@@ -703,17 +700,16 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           TypedCorePatternCaseDetail
                       ],
                       Nothing,
-                      parameterBindings
+                      Map.empty
                     )
+              armParameters = Map.union armBinders parameterBindings
               specializeArmExpression armExpression =
-                case (pattern, maybeScrutineeType) of
-                  (PVariable name, Just scrutineeType) ->
-                    specializeProvisionalParameterReferences
-                      finalizationState
-                      name
-                      scrutineeType
-                      armExpression
-                  _ -> armExpression
+                foldl'
+                  ( \currentExpression (name, expressionType) ->
+                      specializeProvisionalParameterReferences finalizationState name expressionType currentExpression
+                  )
+                  armExpression
+                  (Map.toAscList binderTypes)
               (guardFailures, maybeTypedGuard) =
                 case maybeGuard of
                   Nothing -> ([], Just Nothing)
@@ -744,6 +740,128 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               failures = patternFailures <> guardFailures <> bodyFailures
               typedArm = TypedCaseArm <$> maybePattern <*> maybeTypedGuard <*> maybeTypedBody
            in (failures, if null failures then typedArm else Nothing)
+
+        canonicalPatternBinders patternPath pattern =
+          foldl'
+            ( \binders (binderPath, name) ->
+                Map.insertWith (\_ existing -> existing) name (binderAt statementIndex binderPath (resolvedValueName name)) binders
+            )
+            Map.empty
+            (patternBinderPaths patternPath pattern)
+
+        patternBinderPaths patternPath pattern =
+          case pattern of
+            PVariable name -> [(patternPath, name)]
+            PAs name nested -> (patternPath, name) : patternBinderPaths (patternPath <> [0]) nested
+            PConstructor _ nested -> nestedPaths nested
+            PTuple nested -> nestedPaths nested
+            POr alternatives -> nestedPaths alternatives
+            PList nested -> nestedPaths nested
+            PConsList headPattern tailPattern -> nestedPaths [headPattern, tailPattern]
+            _ -> []
+          where
+            nestedPaths nested =
+              concat
+                [ patternBinderPaths (patternPath <> [patternIndex]) nestedPattern
+                | (patternIndex, nestedPattern) <- zip [0 :: Int ..] nested
+                ]
+
+        finalizeManagedPattern ::
+          StructuredValueCatalog ->
+          InferState ->
+          Int ->
+          [Int] ->
+          ExpressionType ->
+          Map.Map Name TypedBinderId ->
+          Pattern ->
+          ([TypedCoreProductionFailure], Maybe TypedPattern, Map.Map Name ExpressionType)
+        finalizeManagedPattern _ patternFinalizationState patternStatementIndex patternPath expressionType binders = go True patternPath expressionType
+          where
+            go isRoot currentPath currentType pattern =
+              case structuredNodeInfo structuredCatalog patternFinalizationState currentType of
+                Nothing -> unsupported currentPath
+                Just currentInfo ->
+                  case pattern of
+                    PWildcard -> ([], Just (TypedWildcardPattern currentInfo), Map.empty)
+                    PVariable name ->
+                      case Map.lookup name binders of
+                        Just owner ->
+                          ( [],
+                            Just (TypedVariablePattern currentInfo owner (resolvedValueName name)),
+                            Map.singleton name currentType
+                          )
+                        Nothing -> unsupported currentPath
+                    PLiteral LText {} -> unsupported currentPath
+                    PLiteral literal ->
+                      case typedLiteral patternStatementIndex currentPath literal currentInfo of
+                        Left failure -> ([failure], Nothing, Map.empty)
+                        Right literalValue -> ([], Just (TypedLiteralPattern currentInfo literalValue), Map.empty)
+                    PTuple nested ->
+                      case defaultScalarLiterals (resolveType patternFinalizationState currentType) of
+                        TTupleType elementTypes
+                          | length elementTypes == length nested ->
+                              finalizeChildren
+                                currentPath
+                                elementTypes
+                                nested
+                                (TypedTuplePattern currentInfo)
+                          | otherwise -> unsupported currentPath
+                        _ -> unsupported currentPath
+                    PConstructor constructorName nested ->
+                      case structuredConstructorAtStatement structuredCatalog patternStatementIndex constructorName of
+                        Just constructor ->
+                          case StructuredValues.concreteConstructorFieldTypes patternFinalizationState constructor currentType of
+                            Just fieldTypes
+                              | length fieldTypes == length nested ->
+                                  finalizeChildren
+                                    currentPath
+                                    fieldTypes
+                                    nested
+                                    (TypedConstructorPattern currentInfo (structuredConstructorName constructor))
+                              | otherwise -> unsupported currentPath
+                            Nothing -> unsupported currentPath
+                        Nothing -> unsupported currentPath
+                    PAs name nested ->
+                      case Map.lookup name binders of
+                        Just owner ->
+                          let (failures, maybeNested, nestedTypes) = go False (currentPath <> [0]) currentType nested
+                              typedPattern = TypedAsPattern currentInfo owner (resolvedValueName name) <$> maybeNested
+                           in (failures, typedPattern, Map.insert name currentType nestedTypes)
+                        Nothing -> unsupported currentPath
+                    POr alternatives
+                      | isRoot ->
+                          let finalized =
+                                [ go False (currentPath <> [alternativeIndex]) currentType alternative
+                                | (alternativeIndex, alternative) <- zip [0 :: Int ..] alternatives
+                                ]
+                              failures = concatMap (\(patternFailures, _, _) -> patternFailures) finalized
+                              maybePatterns = traverse (\(_, maybePattern, _) -> maybePattern) finalized
+                              binderTypes = foldl' (\types (_, _, alternativeTypes) -> Map.union types alternativeTypes) Map.empty finalized
+                           in (failures, TypedOrPattern currentInfo <$> maybePatterns, binderTypes)
+                      | otherwise -> unsupported currentPath
+                    PList {} -> unsupported currentPath
+                    PConsList {} -> unsupported currentPath
+
+            finalizeChildren currentPath childTypes childPatterns build =
+              let finalized =
+                    [ go False (currentPath <> [childIndex]) childType childPattern
+                    | (childIndex, (childType, childPattern)) <- zip [0 :: Int ..] (zip childTypes childPatterns)
+                    ]
+                  failures = concatMap (\(childFailures, _, _) -> childFailures) finalized
+                  maybePatterns = traverse (\(_, maybePattern, _) -> maybePattern) finalized
+                  binderTypes = foldl' (\types (_, _, childTypes') -> Map.union types childTypes') Map.empty finalized
+               in (failures, build <$> maybePatterns, binderTypes)
+
+            unsupported currentPath =
+              ( [ failureAt
+                    patternStatementIndex
+                    currentPath
+                    TypedCorePatternCaseUnsupported
+                    TypedCorePatternCaseDetail
+                ],
+                Nothing,
+                Map.empty
+              )
 
         lambdaConstructionFailures parameterName body =
           case expressionEvaluation of
@@ -946,7 +1064,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     Nothing
                   )
                 Just resultExpressionType ->
-                  case concreteConstructorContract structuredCatalog (finalizationInferState finalizationEnv) constructor resultExpressionType of
+                  case StructuredValues.concreteConstructorContract structuredCatalog (finalizationInferState finalizationEnv) constructor resultExpressionType of
                     Nothing ->
                       ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]
                           <> argumentFailures,
@@ -993,44 +1111,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             []
             []
 
-    concreteConstructorContract structuredCatalog finalizationState constructor resultExpressionType = do
-      resultInfo@(TypedNodeInfo resultType _ _ _) <- structuredNodeInfo structuredCatalog finalizationState resultExpressionType
-      concreteArguments <-
-        case resultType of
-          TypedDataType dataName arguments
-            | dataName == structuredConstructorDataName constructor -> Just arguments
-          _ -> Nothing
-      guard (length concreteArguments == length (structuredConstructorParameters constructor))
-      parameterContracts <- traverse parameterContract concreteArguments
-      let bindings = Map.fromList (zip (structuredConstructorParameters constructor) parameterContracts)
-      fieldContracts <- traverse (substituteFieldContract bindings) (structuredConstructorFieldContracts constructor)
-      let fieldInfos =
-            [ TypedNodeInfo typeValue recipe [] []
-            | (typeValue, recipe) <- fieldContracts
-            ]
-          instantiations =
-            [ TypedInstantiation
-                (structuredConstructorBinder constructor)
-                ( zipWith
-                    TypedTypeArgument
-                    (structuredConstructorParameters constructor)
-                    concreteArguments
-                )
-                Nothing
-            | not (null concreteArguments)
-            ]
-      pure (fieldInfos, resultInfo, instantiations)
-      where
-        parameterContract typeValue = do
-          recipe <- representationRecipeForTypedType typeValue
-          pure (typeValue, recipe)
-        substituteFieldContract bindings (typeValue, recipe) =
-          (,)
-            <$> substituteStructuredType bindings typeValue
-            <*> substituteStructuredRecipe bindings recipe
-
     constructorApplicationArguments finalizationState constructor expression provisionalArguments =
-      case provisionalExpressionType finalizationState expression >>= concreteConstructorFieldTypes finalizationState constructor of
+      case provisionalExpressionType finalizationState expression >>= StructuredValues.concreteConstructorFieldTypes finalizationState constructor of
         Just fieldTypes ->
           zipWith
             ( \fieldType (argumentPath, argument) ->
@@ -1042,56 +1124,6 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             provisionalArguments
             <> drop (length fieldTypes) provisionalArguments
         Nothing -> provisionalArguments
-
-    concreteConstructorFieldTypes finalizationState constructor resultExpressionType = do
-      concreteArguments <-
-        case resolveType finalizationState resultExpressionType of
-          TDataType dataName arguments
-            | dataName == structuredConstructorDataSourceName constructor -> Just arguments
-          _ -> Nothing
-      guard (length concreteArguments == length (structuredConstructorParameters constructor))
-      let parameterVariables =
-            Map.fromList
-              [ (negate index - 1, resolveType finalizationState argument)
-              | (index, argument) <- zip [0 :: Int ..] concreteArguments
-              ]
-      traverse
-        (substituteConstructorExpressionType parameterVariables . resolveType finalizationState)
-        (structuredConstructorFieldTemplates constructor)
-
-    substituteConstructorExpressionType bindings expressionType =
-      case expressionType of
-        TListType elementType -> TListType <$> child elementType
-        TTupleType elementTypes -> TTupleType <$> traverse child elementTypes
-        TDataType dataName arguments -> TDataType dataName <$> traverse child arguments
-        TFunctionType argument result -> TFunctionType <$> child argument <*> child result
-        TVarType variable -> Map.lookup variable bindings
-        _ -> Just expressionType
-      where
-        child = substituteConstructorExpressionType bindings
-
-    substituteStructuredType bindings typeValue =
-      case typeValue of
-        TypedListType elementType -> TypedListType <$> child elementType
-        TypedTupleType elementTypes -> TypedTupleType <$> traverse child elementTypes
-        TypedDataType dataName arguments -> TypedDataType dataName <$> traverse child arguments
-        TypedFunctionType argument result -> TypedFunctionType <$> child argument <*> child result
-        TypedTypeParameterType parameter -> fst <$> Map.lookup parameter bindings
-        _ -> Just typeValue
-      where
-        child = substituteStructuredType bindings
-
-    substituteStructuredRecipe bindings recipe =
-      case recipe of
-        TypedManagedListRecipe elementRecipe -> TypedManagedListRecipe <$> child elementRecipe
-        TypedManagedProductRecipe elementRecipes -> TypedManagedProductRecipe <$> traverse child elementRecipes
-        TypedManagedVariantRecipe dataName arguments ->
-          TypedManagedVariantRecipe dataName <$> traverse (substituteStructuredType bindings) arguments
-        TypedClosureRecipe arguments result -> TypedClosureRecipe <$> traverse child arguments <*> child result
-        TypedRepresentationParameterRecipe parameter -> snd <$> Map.lookup parameter bindings
-        _ -> Just recipe
-      where
-        child = substituteStructuredRecipe bindings
 
     representationRecipeForTypedType typeValue =
       case typeValue of

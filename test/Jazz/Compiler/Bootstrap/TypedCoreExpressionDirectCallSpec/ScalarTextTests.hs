@@ -214,7 +214,6 @@ testScalarPatternCaseProducerBoundaries = do
             profileFailure 0
           ]
         ),
-        ("pattern-case-tuple-pattern", [profileFailure 0]),
         ("pattern-case-as-pattern", [profileFailure 0]),
         ("pattern-case-or-pattern", [profileFailure 0])
       ]

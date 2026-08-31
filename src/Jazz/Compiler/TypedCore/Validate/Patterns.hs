@@ -49,7 +49,13 @@ patternBinderOccurrences modulePath statementLocation patternPath patternValue =
         TypedConsListPattern _ headPattern tailPattern -> indexedChildren [headPattern, tailPattern]
         TypedTuplePattern _ patterns -> indexedChildren patterns
         TypedAsPattern _ _ _ nested -> patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) nested
-        TypedOrPattern _ alternatives -> indexedChildren alternatives
+        -- Alternatives are one logical lexical definition set. Their complete
+        -- contracts are compared by 'validateOrPattern'; duplicate-definition
+        -- accounting traverses the representative first alternative, matching
+        -- 'patternBinderNodes'.
+        TypedOrPattern _ (firstAlternative : _) ->
+          patternBinderOccurrences modulePath statementLocation (patternPath <> [0]) firstAlternative
+        TypedOrPattern _ [] -> []
         _ -> []
     indexedChildren patterns =
       concat

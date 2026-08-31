@@ -61,12 +61,18 @@ testManagedProductVariantRetention = do
   assertBoundary
     "managed-variant-equality-failure"
     [expressionFailure 1 [] TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail]
-  assertBoundary
-    "managed-tuple-pattern-failure"
-    [expressionFailure 0 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
-  assertBoundary
-    "managed-constructor-pattern-failure"
-    [expressionFailure 1 [] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+
+testManagedPatternProducerExclusions :: IO ()
+testManagedPatternProducerExclusions =
+  assertProductionUnsupported
+    "managed nested Text pattern remains producer-owned"
+    [expressionFailure 0 [0, 1] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
+    . typedCoreProductionStatus
+    =<< produceFixture
+      ( sourceFixtureNoExports
+          "managed-nested-text-pattern"
+          "case (1, \"one\") { | (number, \"one\") -> number | _ -> 0 }."
+      )
 
 testManagedProductVariantProduction :: IO ()
 testManagedProductVariantProduction =
