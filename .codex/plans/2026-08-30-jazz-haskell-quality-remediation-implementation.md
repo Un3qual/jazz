@@ -1140,7 +1140,8 @@ git commit -m "refactor: carry validated compiler outcomes"
 **Files:**
 
 - Modify: `src/Jazz/Compiler/Driver.hs`
-- Modify: direct constructor consumers under `src/`, `program-support/`, and `test/`.
+- Modify: all explicit `RunResult (..)` import consumers under `src/`,
+  `program-support/`, and `test/`; construction is already private to `Driver`.
 - Test: `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`
 
 **Interfaces:**
@@ -1156,12 +1157,16 @@ data RunExecution
 ```
 
 - Makes `RunResult` construction private and stores diagnostics, execution, and observation.
+- Exposes `RunExecution (..)` and `runExecution` so callers can distinguish
+  successful valueless completion from not-executed and runtime-failed states.
 - Retains total `runOutput`, `runRuntimeValue`, and `runExitStatus` projections.
 
 - [ ] **Step 1: Add projection invariant coverage**
 
-Add a table that checks the four execution forms have mutually exclusive value
-and exit projections and preserve rendered output. Run
+Add a table built from real driver actions that checks not executed, runtime
+failed, exited, completed with a value, and completed without a terminal value.
+Assert the execution tag plus mutually exclusive value/exit projections and
+preserved rendered output. Run
 `module-pipeline-contract-spec`; expected compile failure before the new API.
 
 - [ ] **Step 2: Refactor driver construction sites**
@@ -1169,6 +1174,10 @@ and exit projections and preserve rendered output. Run
 Map compile-not-run, runtime diagnostic failure, explicit exit, and normal
 completion branches to the corresponding constructor. Derive output from the
 execution value rather than storing a second independently constructible field.
+Use one private adapter for the standalone and module runtime outcome mappings,
+parameterized only by the successful result's runtime-value projection. Preserve
+compile-first diagnostic ordering and the program-corpus classification of a
+diagnostic-free explicit exit.
 
 - [ ] **Step 3: Run driver, CLI, loader, runtime, corpus, and observation suites**
 
@@ -1178,12 +1187,21 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
   runtime-observation-spec program-corpus-spec --test-show-details=failures --jobs=1
 ```
 
+Then run:
+
+```sh
+rg -n 'RunResult \(\.\.\)' src program-support test -g '*.hs'
+```
+
+Expected: no matches. The deferred Task 25 aggregate gate remains responsible
+for compiling components outside the six focused suites.
+
 - [ ] **Step 4: Format and commit**
 
 Format the touched files, run `git diff --check`, then:
 
 ```sh
-git add src/Jazz/Compiler/Driver.hs program-support test
+git add src program-support test
 git commit -m "refactor: make run outcomes explicit"
 ```
 
