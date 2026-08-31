@@ -310,28 +310,31 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                                   (resolvedExportInventoriesState stateAfterDeps)
                                   (parsedModuleImports parsedModule)
                                   (parsedModuleCore parsedModule)
-                              resolvedModule =
-                                ModuleGraph.ResolvedModule
-                                  { ModuleGraph.resolvedModulePath = modulePath,
-                                    ModuleGraph.resolvedSourcePath = sourcePath,
-                                    ModuleGraph.resolvedModuleImports = ModuleGraph.coreModuleImports resolvedCore,
-                                    ModuleGraph.resolvedModuleExportInventory = parsedModulePublicInventory parsedModule,
-                                    ModuleGraph.resolvedModuleCore = resolvedCore
-                                  }
-                           in pure
-                                ( Right
-                                    stateAfterDeps
-                                      { resolvedSetState =
-                                          Set.insert modulePath (resolvedSetState stateAfterDeps),
-                                        resolvedModulesRevState =
-                                          resolvedModule : resolvedModulesRevState stateAfterDeps,
-                                        resolvedExportInventoriesState =
-                                          Map.insert
-                                            modulePath
-                                            (parsedModulePublicInventory parsedModule)
-                                            (resolvedExportInventoriesState stateAfterDeps)
-                                      }
-                                )
+                           in case traverse (resolveImportExposure modulePath) (ModuleGraph.coreModuleImports resolvedCore) of
+                                Left err -> pure (Left err)
+                                Right resolvedImports ->
+                                  let resolvedModule =
+                                        ModuleGraph.ResolvedModule
+                                          { ModuleGraph.resolvedModulePath = modulePath,
+                                            ModuleGraph.resolvedSourcePath = sourcePath,
+                                            ModuleGraph.resolvedModuleImports = resolvedImports,
+                                            ModuleGraph.resolvedModuleExportInventory = parsedModulePublicInventory parsedModule,
+                                            ModuleGraph.resolvedModuleCore = resolvedCore
+                                          }
+                                   in pure
+                                        ( Right
+                                            stateAfterDeps
+                                              { resolvedSetState =
+                                                  Set.insert modulePath (resolvedSetState stateAfterDeps),
+                                                resolvedModulesRevState =
+                                                  resolvedModule : resolvedModulesRevState stateAfterDeps,
+                                                resolvedExportInventoriesState =
+                                                  Map.insert
+                                                    modulePath
+                                                    (parsedModulePublicInventory parsedModule)
+                                                    (resolvedExportInventoriesState stateAfterDeps)
+                                              }
+                                        )
 
     ambientVisibleSymbols =
       exportNamesInNamespaces
@@ -393,6 +396,38 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                       <> Text.intercalate ", " (map (Text.pack . fst) matchingCandidates)
                   )
               )
+
+resolveImportExposure :: [Text] -> ModuleGraph.CoreResolvedImport -> Either Diagnostic ModuleGraph.ResolvedImport
+resolveImportExposure importerPath coreImport =
+  ModuleGraph.ResolvedImport
+    (ModuleGraph.coreResolvedImportSpan coreImport)
+    (ModuleGraph.coreResolvedImportPath coreImport)
+    <$> exposure
+  where
+    exposure =
+      case (ModuleGraph.coreResolvedImportAlias coreImport, ModuleGraph.coreResolvedImportSymbols coreImport) of
+        (Nothing, Nothing) -> Right ModuleGraph.ImportAll
+        (Nothing, Just symbolNames) ->
+          case NonEmpty.nonEmpty symbolNames of
+            Just nonEmptySymbolNames -> Right (ModuleGraph.ImportOnly nonEmptySymbolNames)
+            Nothing -> Left (mkImportExposureInvariantError importerPath coreImport)
+        (Just aliasName, Nothing) -> Right (ModuleGraph.ImportQualified aliasName)
+        (Just _, Just _) -> Left (mkImportExposureInvariantError importerPath coreImport)
+
+mkImportExposureInvariantError :: [Text] -> ModuleGraph.CoreResolvedImport -> Diagnostic
+mkImportExposureInvariantError importerPath coreImport =
+  setDiagnosticPrimarySpan
+    (ModuleGraph.coreResolvedImportSpan coreImport)
+    ( mkErrorDiagnostic
+        E4010
+        CompilationOrigin
+        ( "internal resolver invariant failed while finalizing import '"
+            <> renderModulePath (ModuleGraph.coreResolvedImportPath coreImport)
+            <> "' for module '"
+            <> renderModulePath importerPath
+            <> "'"
+        )
+    )
 
 appendRelativePath :: FilePath -> FilePath -> FilePath
 appendRelativePath relativePath root

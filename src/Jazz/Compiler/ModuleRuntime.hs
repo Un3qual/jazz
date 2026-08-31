@@ -18,6 +18,7 @@ import Control.Monad.Trans.Except
     runExceptT,
   )
 import Data.Functor.Identity (runIdentity)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -37,7 +38,7 @@ import Jazz.Compiler.ModuleExports
     inventoryHasExport,
     visibleImportInventory,
   )
-import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
+import Jazz.Compiler.ModuleGraph (ImportExposure (..), ResolvedImport (..))
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -438,24 +439,26 @@ interfaceExports publicInventory moduleInterface =
 
 runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> RuntimeExport -> Bool
 runtimeExportSelected importDecl publicInventory runtimeExport =
-  case runtimeExport of
-    RuntimeCapabilityMethodExport className _ ->
-      resolvedImportAlias importDecl == Nothing
-        && Set.member className selectedClassNames
-    RuntimeBindingExport moduleExport ->
-      inventoryHasExport moduleExport selectedInventory
+  case resolvedImportExposure importDecl of
+    ImportAll -> selectedBy UnqualifiedImport Nothing True
+    ImportOnly symbolNames -> selectedBy UnqualifiedImport (Just (NonEmpty.toList symbolNames)) True
+    ImportQualified _ -> selectedBy QualifiedAliasImport Nothing False
   where
-    importMode =
-      case resolvedImportAlias importDecl of
-        Nothing -> UnqualifiedImport
-        Just _ -> QualifiedAliasImport
-    selectedInventory =
-      visibleImportInventory
-        importMode
-        (resolvedImportSymbols importDecl)
-        publicInventory
-    selectedClassNames =
-      exportNamesInNamespace CapabilityNamespace selectedInventory
+    selectedBy importMode symbolNames includeCapabilityMethods =
+      case runtimeExport of
+        RuntimeCapabilityMethodExport className _ ->
+          includeCapabilityMethods
+            && Set.member className selectedClassNames
+        RuntimeBindingExport moduleExport ->
+          inventoryHasExport moduleExport selectedInventory
+      where
+        selectedInventory =
+          visibleImportInventory
+            importMode
+            symbolNames
+            publicInventory
+        selectedClassNames =
+          exportNamesInNamespace CapabilityNamespace selectedInventory
 
 runtimeExportName :: RuntimeExport -> Text
 runtimeExportName runtimeExport =

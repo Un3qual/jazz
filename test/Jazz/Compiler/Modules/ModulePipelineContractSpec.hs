@@ -60,6 +60,8 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
+    CoreResolvedImport (..),
+    ImportExposure (ImportAll),
     ResolvedImport (..),
     ResolvedModule (..),
   )
@@ -275,6 +277,7 @@ testCompileResolvedModulePreservesFirstDependency = do
         (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TIntType)})
     targetExport = ModuleExport ValueNamespace "copied"
     targetImport = chainImport dependencyPath
+    targetCoreImport = CoreResolvedImport (SourceSpan 1 1) dependencyPath Nothing Nothing
     targetExpr =
       EBlock
         [ SLet
@@ -288,7 +291,7 @@ testCompileResolvedModulePreservesFirstDependency = do
           resolvedSourcePath = "<module-index-test>",
           resolvedModuleImports = [targetImport],
           resolvedModuleExportInventory = exportInventory [targetExport],
-          resolvedModuleCore = CoreModule (Just ["App", "Main"]) Nothing [targetImport] targetExpr
+          resolvedModuleCore = CoreModule (Just ["App", "Main"]) Nothing [targetCoreImport] targetExpr
         }
 
 compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
@@ -477,7 +480,7 @@ compiledModule path imports statements inventory moduleInterface =
     }
 
 chainImport :: [Text] -> ResolvedImport
-chainImport path = ResolvedImport (SourceSpan 1 1) path Nothing Nothing
+chainImport path = ResolvedImport (SourceSpan 1 1) path ImportAll
 
 chainPath :: Int -> [Text]
 chainPath index = ["Chain", Text.pack (show index)]

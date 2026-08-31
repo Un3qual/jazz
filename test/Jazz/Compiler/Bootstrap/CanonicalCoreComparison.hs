@@ -39,8 +39,8 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
+    CoreResolvedImport (..),
     DeclaredModuleExports (..),
-    ResolvedImport (..),
   )
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
@@ -404,14 +404,14 @@ coreDeclaredModuleExportsRuntimeValue declaredExports =
     <$> coreSpanRuntimeValue (declaredModuleExportsSpan declaredExports)
     <*> listRuntimeValue coreModuleExportSelectorRuntimeValue (declaredModuleExportSelectors declaredExports)
 
-coreResolvedImportRuntimeValue :: ResolvedImport -> Either Text RuntimeValue
+coreResolvedImportRuntimeValue :: CoreResolvedImport -> Either Text RuntimeValue
 coreResolvedImportRuntimeValue resolvedImport =
   canonicalConstructor "CoreResolvedImport"
     <$> sequence
-      [ coreSpanRuntimeValue (resolvedImportSpan resolvedImport),
-        pure (listRuntimeValuePure VText (resolvedImportPath resolvedImport)),
-        pure (maybeRuntimeValuePure VText (resolvedImportAlias resolvedImport)),
-        pure (maybeRuntimeValuePure (listRuntimeValuePure VText) (resolvedImportSymbols resolvedImport))
+      [ coreSpanRuntimeValue (coreResolvedImportSpan resolvedImport),
+        pure (listRuntimeValuePure VText (coreResolvedImportPath resolvedImport)),
+        pure (maybeRuntimeValuePure VText (coreResolvedImportAlias resolvedImport)),
+        pure (maybeRuntimeValuePure (listRuntimeValuePure VText) (coreResolvedImportSymbols resolvedImport))
       ]
 
 coreModuleExportSelectorRuntimeValue :: ModuleExportSelector -> Either Text RuntimeValue

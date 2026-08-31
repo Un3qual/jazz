@@ -8,6 +8,7 @@ module Jazz.Compiler.ModuleCompiler
   )
 where
 
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -32,6 +33,7 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (coreModuleExpr),
+    ImportExposure (..),
     ResolvedImport (..),
     ResolvedModule (..),
     ResolvedProgram (..),
@@ -190,13 +192,20 @@ ambientPreludeInterface compiledPrelude =
 
 dependencyImportInterface :: ResolvedImport -> CompiledDependency -> ImportedInterface
 dependencyImportInterface importDecl dependency =
-  case (resolvedImportAlias importDecl, resolvedImportSymbols importDecl) of
-    (Nothing, Nothing) -> dependencyWholeInterface dependency
-    (maybeAlias, maybeSymbols) ->
+  case resolvedImportExposure importDecl of
+    ImportAll -> dependencyWholeInterface dependency
+    ImportOnly symbolNames ->
       importSelectedInterface
         (ImportedModule (resolvedImportPath importDecl))
-        maybeAlias
-        maybeSymbols
+        Nothing
+        (Just (NonEmpty.toList symbolNames))
+        (compiledModuleExportInventory compiledModule)
+        (compiledModuleInterface compiledModule)
+    ImportQualified aliasName ->
+      importSelectedInterface
+        (ImportedModule (resolvedImportPath importDecl))
+        (Just aliasName)
+        Nothing
         (compiledModuleExportInventory compiledModule)
         (compiledModuleInterface compiledModule)
   where

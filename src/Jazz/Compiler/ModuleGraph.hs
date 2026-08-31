@@ -6,6 +6,8 @@
 module Jazz.Compiler.ModuleGraph
   ( DeclaredModuleExports (..),
     CoreModule (..),
+    CoreResolvedImport (..),
+    ImportExposure (..),
     ResolvedImport (..),
     ResolvedModule (..),
     ResolvedProgram (..),
@@ -14,6 +16,7 @@ module Jazz.Compiler.ModuleGraph
 where
 
 import Control.DeepSeq (NFData)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
@@ -49,17 +52,32 @@ data DeclaredModuleExports = DeclaredModuleExports
 data CoreModule = CoreModule
   { coreModuleDeclaredPath :: Maybe [Text],
     coreModuleDeclaredExports :: Maybe DeclaredModuleExports,
-    coreModuleImports :: [ResolvedImport],
+    coreModuleImports :: [CoreResolvedImport],
     coreModuleExpr :: Expr
   }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data CoreResolvedImport = CoreResolvedImport
+  { coreResolvedImportSpan :: SourceSpan,
+    coreResolvedImportPath :: [Text],
+    coreResolvedImportAlias :: Maybe Text,
+    coreResolvedImportSymbols :: Maybe [Text]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data ImportExposure
+  = ImportAll
+  | ImportOnly (NonEmpty Text)
+  | ImportQualified Text
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 data ResolvedImport = ResolvedImport
   { resolvedImportSpan :: SourceSpan,
     resolvedImportPath :: [Text],
-    resolvedImportAlias :: Maybe Text,
-    resolvedImportSymbols :: Maybe [Text]
+    resolvedImportExposure :: ImportExposure
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -138,6 +139,7 @@ tests =
     ("accepts omitted module declaration from resolved source path", testAcceptsOmittedModuleDeclaration),
     ("accepts matching module declaration in resolved file", testAcceptsMatchingModuleDeclaration),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
+    ("retains checked import exposure in declaration order", testRetainsCheckedImportExposureInDeclarationOrder),
     ("resolves imports in lexical rendered-path order", testResolveImportsInLexicalRenderedPathOrder),
     ("collapses duplicate imports to one dependency edge", testCollapsesDuplicateImports),
     ("reuses already-resolved modules across branches", testReusesAlreadyResolvedModuleAcrossBranches),
@@ -813,6 +815,63 @@ testResolveDependencyGraph =
           { summaryModulePath = ["App", "Main"],
             summarySourcePath = "src/App/Main.jz",
             summaryImports = [["Lib", "Util"]]
+          }
+      ]
+
+testRetainsCheckedImportExposureInDeclarationOrder :: IO ()
+testRetainsCheckedImportExposureInDeclarationOrder =
+  assertTestModulesRight
+    "checked import exposure resolves"
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
+    ( \modules ->
+        case [ resolvedModule
+             | resolvedModule <- modules,
+               ModuleGraph.resolvedModulePath resolvedModule == ["App", "Main"]
+             ] of
+          [resolvedModule] ->
+            assertEqual
+              "checked imports preserve declaration, duplicate, and selector order"
+              expectedImports
+              (ModuleGraph.resolvedModuleImports resolvedModule)
+          _ -> failTest "expected exactly one resolved App::Main module"
+    )
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Zulu as Zed.
+            import Lib::Alpha (second, first).
+            import Lib::Middle.
+            import Lib::Alpha (second, first).
+            main = middle.
+            """
+          ),
+          ("src/Lib/Alpha.jz", "first = 1. second = 2."),
+          ("src/Lib/Middle.jz", "middle = 3."),
+          ("src/Lib/Zulu.jz", "zulu = 4.")
+        ]
+    expectedImports =
+      [ ModuleGraph.ResolvedImport
+          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 1 1,
+            ModuleGraph.resolvedImportPath = ["Lib", "Zulu"],
+            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportQualified "Zed"
+          },
+        ModuleGraph.ResolvedImport
+          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 2 1,
+            ModuleGraph.resolvedImportPath = ["Lib", "Alpha"],
+            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportOnly ("second" :| ["first"])
+          },
+        ModuleGraph.ResolvedImport
+          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 3 1,
+            ModuleGraph.resolvedImportPath = ["Lib", "Middle"],
+            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportAll
+          },
+        ModuleGraph.ResolvedImport
+          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 4 1,
+            ModuleGraph.resolvedImportPath = ["Lib", "Alpha"],
+            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportOnly ("second" :| ["first"])
           }
       ]
 

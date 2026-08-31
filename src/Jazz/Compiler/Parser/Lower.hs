@@ -45,8 +45,8 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
+    CoreResolvedImport (..),
     DeclaredModuleExports (..),
-    ResolvedImport (..),
   )
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
@@ -130,11 +130,11 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
       ]
 
     imports =
-      [ ResolvedImport
-          { resolvedImportSpan = qualifySourceSpan sourcePath spanValue,
-            resolvedImportPath = modulePath,
-            resolvedImportAlias = alias,
-            resolvedImportSymbols = importedSymbols
+      [ CoreResolvedImport
+          { coreResolvedImportSpan = qualifySourceSpan sourcePath spanValue,
+            coreResolvedImportPath = modulePath,
+            coreResolvedImportAlias = alias,
+            coreResolvedImportSymbols = importedSymbols
           }
       | SSImport spanValue modulePath alias importedSymbols <- statements
       ]

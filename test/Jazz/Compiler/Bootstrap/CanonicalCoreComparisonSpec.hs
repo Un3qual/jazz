@@ -27,8 +27,8 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
+    CoreResolvedImport (..),
     DeclaredModuleExports (..),
-    ResolvedImport (..),
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name
@@ -320,11 +320,11 @@ moduleInventory =
               ]
           ),
       coreModuleImports =
-        [ ResolvedImport
-            { resolvedImportSpan = qualifiedSpan2,
-              resolvedImportPath = ["Lib", "Value"],
-              resolvedImportAlias = Just "Value",
-              resolvedImportSymbols = Just ["item"]
+        [ CoreResolvedImport
+            { coreResolvedImportSpan = qualifiedSpan2,
+              coreResolvedImportPath = ["Lib", "Value"],
+              coreResolvedImportAlias = Just "Value",
+              coreResolvedImportSymbols = Just ["item"]
             }
         ],
       coreModuleExpr = EBlock [SExpr qualifiedSpan2 simpleCoreExpression]
