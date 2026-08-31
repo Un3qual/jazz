@@ -1128,7 +1128,11 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 - [ ] **Step 4: Format and commit**
 
-Format the exact touched Haskell list, run `git diff --check`, then:
+Format every independently formattable touched file and the semantic regions in
+legacy-layout consumer files. Do not normalize semantically untouched
+surrounding hunks solely to make a legacy file whole-file clean; record that
+whole-file mismatch for the aggregate Task 25 formatter pass. Run
+`git diff --check`, then:
 
 ```sh
 git add src benchmark program-support test
