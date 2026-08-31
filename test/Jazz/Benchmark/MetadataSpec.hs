@@ -69,10 +69,8 @@ tests =
 
 testStableEncoding :: IO ()
 testStableEncoding = do
-  let first = benchmarkEnvironmentJson fixtureEnvironment
-      second = benchmarkEnvironmentJson fixtureEnvironment
-  assertEqual "deterministic bytes" first second
-  assertEqual "stable JSON bytes" expectedFixtureJson first
+  let encoded = benchmarkEnvironmentJson fixtureEnvironment
+  assertEqual "stable JSON bytes" expectedFixtureJson encoded
 
 testRequiredIdentityRoundTrip :: IO ()
 testRequiredIdentityRoundTrip =

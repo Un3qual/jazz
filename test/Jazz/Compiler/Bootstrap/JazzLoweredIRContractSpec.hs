@@ -58,8 +58,8 @@ tests :: [NamedTest]
 tests =
   [ ("audits the fixed valid fixture manifest", testValidFixtureManifest),
     ("audits the complete fixed fixture partition", testFixtureManifestIntegrity),
-    ("renders the scalar contract deterministically", testScalarContractRendering),
-    ("renders the complete valid contract deterministically", testValidContractRendering),
+    ("renders the scalar contract exactly", testScalarContractRendering),
+    ("renders every valid constructor in the complete contract", testValidContractRendering),
     ("accepts every fixed valid program", testValidPrograms),
     ("unwraps successful checked lowering through the named boundary", testCheckedLoweringSuccess),
     ("audits the fixed invalid fixture manifest", testInvalidFixtureManifest),
@@ -574,17 +574,13 @@ testValidFixtureManifest = do
 testValidContractRendering :: IO ()
 testValidContractRendering = do
   let programs = map validFixtureProgram validFixtures
-      first = renderRuntimeValue (canonicalLoweredProgramsRuntimeValue programs)
-      second = renderRuntimeValue (canonicalLoweredProgramsRuntimeValue programs)
-  mapM_ (\constructorName -> assertContains constructorName constructorName first) validConstructorInventory
-  assertEqual "valid batch deterministic rendering" first second
+      rendered = renderRuntimeValue (canonicalLoweredProgramsRuntimeValue programs)
+  mapM_ (\constructorName -> assertContains constructorName constructorName rendered) validConstructorInventory
 
 testScalarContractRendering :: IO ()
 testScalarContractRendering = do
-  let first = renderRuntimeValue (canonicalLoweredProgramRuntimeValue minimalScalarProgram)
-      second = renderRuntimeValue (canonicalLoweredProgramRuntimeValue minimalScalarProgram)
-  assertEqual "scalar canonical rendering" expectedScalarRendering first
-  assertEqual "scalar deterministic rendering" first second
+  let rendered = renderRuntimeValue (canonicalLoweredProgramRuntimeValue minimalScalarProgram)
+  assertEqual "scalar canonical rendering" expectedScalarRendering rendered
 
 scalarProgram :: LoweredProgram
 scalarProgram =

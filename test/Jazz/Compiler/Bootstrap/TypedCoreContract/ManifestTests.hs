@@ -115,10 +115,7 @@ testProducerRecursionArtifacts = do
     ]
     (map fst closureRecursionExpectedPrograms)
   mapM_
-    ( \(fixture, program) -> do
-        assertEqual (fixture <> " producer artifact first validation") [] (validateTypedProgram program)
-        assertEqual (fixture <> " producer artifact second validation") [] (validateTypedProgram program)
-    )
+    (\(fixture, program) -> assertEqual (fixture <> " producer artifact validation") [] (validateTypedProgram program))
     (directRecursionExpectedPrograms <> closureRecursionExpectedPrograms)
 
 testInvalidFixtureManifest :: IO ()

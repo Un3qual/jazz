@@ -100,7 +100,7 @@ tests =
     ("locks the control-flow-patterns fixture family", testControlFlowPatternsFamily),
     ("locks the final parser fixture families", testFinalParserFamilies),
     ("assigns every fixture to exactly one family", testCompleteFixtureAssignment),
-    ("adapts the fixed parser corpus deterministically", testCorpusDeterminism),
+    ("covers every parser corpus adaptation category", testCorpusAdaptationCategories),
     ("canonicalizes a complete surface program", testCanonicalizesProgram)
   ]
 
@@ -934,24 +934,22 @@ controlFlowPatternsFixtureNames =
     "control-flow-patterns-recursive-block"
   ]
 
-testCorpusDeterminism :: IO ()
-testCorpusDeterminism = do
+testCorpusAdaptationCategories :: IO ()
+testCorpusAdaptationCategories = do
   assertEqual "fixed corpus size" 365 (length parserFixtureCorpus)
-  first <- mapM canonicalFixture parserFixtureCorpus
-  second <- mapM canonicalFixture parserFixtureCorpus
-  assertEqual "manifest-order deterministic rendering" first second
+  renderedFixtures <- mapM canonicalFixture parserFixtureCorpus
   assertEqual
     "corpus contains lexical failures"
     True
-    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") first)
+    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") renderedFixtures)
   assertEqual
     "corpus contains parser failures"
     True
-    (any (Text.isInfixOf "CanonicalSourceParserFailure") first)
+    (any (Text.isInfixOf "CanonicalSourceParserFailure") renderedFixtures)
   assertEqual
     "corpus contains successes"
     True
-    (any (Text.isInfixOf "CanonicalSourceSuccess") first)
+    (any (Text.isInfixOf "CanonicalSourceSuccess") renderedFixtures)
   where
     canonicalFixture fixture = do
       path <- normalizedPath (parserFixturePath fixture)

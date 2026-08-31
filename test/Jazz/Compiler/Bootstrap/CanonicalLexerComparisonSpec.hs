@@ -81,8 +81,7 @@ tests =
     ("uses runtime escaping for decoded values", testUsesRuntimeEscaping),
     ("renders the same canonical value from Jazz", testJazzCanonicalRendering),
     ("keeps the parser fixture corpus well formed", testParserFixtureCorpusWellFormed),
-    ("keeps parser classifications current", testParserFixtureClassifications),
-    ("adapts the parser corpus deterministically", testParserFixtureDeterminism)
+    ("keeps parser classifications current", testParserFixtureClassifications)
   ]
 
 testUnexpectedCharacter :: IO ()
@@ -409,18 +408,6 @@ testParserFixtureClassifications =
           ("parser classification " <> parserFixtureName fixture)
           (parserFixtureExpectation fixture == ParserAccepted)
           (isRight (parseSurfaceProgram (parserFixtureSource fixture)))
-    )
-    parserFixtureCorpus
-
-testParserFixtureDeterminism :: IO ()
-testParserFixtureDeterminism =
-  mapM_
-    ( \fixture -> do
-        path <- normalizedPath (parserFixturePath fixture)
-        let canonical = canonicalizeLexResult path (tokenizeDetailed (parserFixtureSource fixture))
-            first = renderCanonicalLexResult canonical
-            second = renderCanonicalLexResult canonical
-        assertEqual ("deterministic fixture " <> parserFixtureName fixture) first second
     )
     parserFixtureCorpus
 

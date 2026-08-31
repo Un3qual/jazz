@@ -412,13 +412,11 @@ testExplicitNumericWidthLowering :: IO ()
 testExplicitNumericWidthLowering =
   mapM_
     ( \(name, typedProgram, expectedProgram) ->
-        let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-            secondRun = lowerTypedCoreExpressionDirectCall typedProgram
-         in assertEqual (name <> " repeatable lowering") firstRun secondRun
-              >> assertSuccessfulLowering
-                (name <> " exact lowering")
-                expectedProgram
-                firstRun
+        let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+         in assertSuccessfulLowering
+              (name <> " exact lowering")
+              expectedProgram
+              lowering
     )
     explicitNumericScalarLoweringPrograms
 
@@ -426,14 +424,12 @@ testFullUInt64Lowering :: IO ()
 testFullUInt64Lowering =
   mapM_
     ( \(name, typedProgram, expectedProgram) ->
-        let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-            secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+        let lowering = lowerTypedCoreExpressionDirectCall typedProgram
          in assertEqual (name <> " permanent validation") [] (validateLoweredProgram expectedProgram)
-              >> assertEqual (name <> " repeatable lowering") firstRun secondRun
               >> assertSuccessfulLowering
                 (name <> " exact lowering")
                 expectedProgram
-                firstRun
+                lowering
     )
     fullUInt64ScalarLoweringPrograms
 

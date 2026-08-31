@@ -24,11 +24,9 @@ testManagedTextLowering =
   mapM_ assertLowered (managedTextExpectedLoweredPrograms <> lowererBoundaryExpectedLoweredPrograms)
   where
     assertLowered (name, typedProgram, expectedProgram) = do
-      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
-      assertEqual (name <> " repeatable lowering") firstRun secondRun
-      assertSuccessfulLowering (name <> " exact managed Text lowering") expectedProgram firstRun
+      assertSuccessfulLowering (name <> " exact managed Text lowering") expectedProgram lowering
       assertEqual (name <> " valid expected Lowered IR") [] (validateLoweredProgram expectedProgram)
 
 testLexicalCaptureProduction :: IO ()
@@ -71,12 +69,10 @@ testCurriedApplicationLowering =
   mapM_ assertLowered curriedApplicationExpectedLoweredPrograms
   where
     assertLowered (name, typedProgram, expectedProgram) = do
-      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed input") [] (validateTypedProgram typedProgram)
-      assertEqual (name <> " repeatable lowering") firstRun secondRun
-      assertSuccessfulLowering (name <> " exact lowered program") expectedProgram firstRun
-      case firstRun of
+      assertSuccessfulLowering (name <> " exact lowered program") expectedProgram lowering
+      case lowering of
         LoweredIRSucceeded validatedProgram ->
           assertEqual
             (name <> " lowered validation")
@@ -112,11 +108,9 @@ testLexicalCaptureLowering =
   mapM_ assertLowered lexicalCaptureExpectedLoweredPrograms
   where
     assertLowered (name, typedProgram, expectedProgram) = do
-      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " is valid lexical typed core") [] (validateTypedProgram typedProgram)
-      assertEqual (name <> " repeatable lexical lowering") firstRun secondRun
-      assertSuccessfulLowering (name <> " exact lexical lowering") expectedProgram firstRun
+      assertSuccessfulLowering (name <> " exact lexical lowering") expectedProgram lowering
       assertEqual (name <> " expected lexical lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testLexicalCaptureFixtureMatrix :: IO ()
@@ -133,10 +127,8 @@ testLexicalCaptureFixtureMatrix = do
           let typedProgram = validatedTypedProgram validatedTyped
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
           assertEqual (name <> " exact lambda binders") expectedBinders (typedLambdaBinders typedProgram)
-          let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
-              secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
-          assertEqual (name <> " repeatable lowering") firstLowering secondLowering
-          case firstLowering of
+          let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+          case lowering of
             LoweredIRSucceeded validatedLowered -> do
               let loweredProgram = validatedLoweredProgram validatedLowered
               assertEqual (name <> " lowered validation") [] (validateLoweredProgram loweredProgram)
@@ -259,10 +251,8 @@ testClosureCaptureReviewRegression name = do
     TypedCoreProductionSucceeded validatedTyped -> do
       let typedProgram = validatedTypedProgram validatedTyped
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
-      let firstLowering = lowerTypedCoreExpressionDirectCall typedProgram
-          secondLowering = lowerTypedCoreExpressionDirectCall typedProgram
-      assertEqual (name <> " repeatable lowering") firstLowering secondLowering
-      case firstLowering of
+      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
+      case lowering of
         LoweredIRSucceeded validatedLowered ->
           assertEqual
             (name <> " valid lowered IR")
@@ -271,15 +261,13 @@ testClosureCaptureReviewRegression name = do
         other -> failTest (name <> " did not lower: " <> Text.pack (show other))
     other -> failTest (name <> " did not produce typed core: " <> Text.pack (show other))
 
-testLiftedLambdaFailurePreorder :: IO ()
-testLiftedLambdaFailurePreorder =
+testLiftedLambdaLowering :: IO ()
+testLiftedLambdaLowering =
   case lookup "lifted-lambda-failure-preorder" reviewLowererBoundaryPrograms of
     Just programValue -> do
-      let firstRun = lowerTypedCoreExpressionDirectCall programValue
-          secondRun = lowerTypedCoreExpressionDirectCall programValue
+      let lowering = lowerTypedCoreExpressionDirectCall programValue
       assertEqual "lifted conditional fixture is valid typed core" [] (validateTypedProgram programValue)
-      assertEqual "lifted conditional lowering is repeatable" firstRun secondRun
-      case firstRun of
+      case lowering of
         LoweredIRSucceeded validatedLowered ->
           assertEqual
             "lifted conditional lowered validation"
@@ -308,11 +296,9 @@ testScalarBindingLowering =
   mapM_ assertLowered scalarBindingExpectedLoweredPrograms
   where
     assertLowered (name, typedProgram, expectedProgram) = do
-      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram typedProgram)
-      assertEqual (name <> " repeatable scalar lowering") firstRun secondRun
-      assertSuccessfulLowering (name <> " exact scalar lowering") expectedProgram firstRun
+      assertSuccessfulLowering (name <> " exact scalar lowering") expectedProgram lowering
       assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testThreeArgumentDirectLeadingLambdaRecipe :: IO ()
@@ -328,11 +314,9 @@ testThreeArgumentDirectLeadingLambdaRecipe =
 testRfcClosureEnvironmentIdentity :: IO ()
 testRfcClosureEnvironmentIdentity = do
   let (typedProgram, expectedProgram) = rfcClosureEnvironmentIdentityProgram
-      firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-      secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      lowering = lowerTypedCoreExpressionDirectCall typedProgram
   assertEqual "RFC identity typed-core validation" [] (validateTypedProgram typedProgram)
-  assertEqual "RFC identity repeatable lowering" firstRun secondRun
-  assertSuccessfulLowering "RFC identity exact lowering" expectedProgram firstRun
+  assertSuccessfulLowering "RFC identity exact lowering" expectedProgram lowering
 
 testSupportedClosureLowererBoundary :: IO ()
 testSupportedClosureLowererBoundary =
@@ -342,11 +326,9 @@ testSupportedClosureLowererBoundary =
       case lookup name lowererBoundaryPrograms of
         Nothing -> failTest (name <> " supported lowerer program is missing")
         Just programValue -> do
-          let firstRun = lowerTypedCoreExpressionDirectCall programValue
-              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          let lowering = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
-          assertEqual (name <> " repeatable closure lowering") firstRun secondRun
-          assertSuccessfulLowering (name <> " exact closure lowering") expectedProgram firstRun
+          assertSuccessfulLowering (name <> " exact closure lowering") expectedProgram lowering
           assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
 
 testLowererCallableBoundary :: IO ()
@@ -357,11 +339,9 @@ testLowererCallableBoundary =
       case lookup name lowererBoundaryPrograms of
         Nothing -> failTest (name <> " lowerer boundary program is missing")
         Just programValue -> do
-          let firstRun = lowerTypedCoreExpressionDirectCall programValue
-              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          let lowering = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
-          assertEqual (name <> " repeatable lowerer rejection") firstRun secondRun
-          assertUnsupportedLowering (name <> " exact lowerer rejection") expectedFailures firstRun
+          assertUnsupportedLowering (name <> " exact lowerer rejection") expectedFailures lowering
 
     expectedResults =
       [ ( "recursion-descendant-failure-order",
@@ -459,10 +439,8 @@ testInvalidLowererTypedCoreBoundary =
       case lookup name invalidLowererBoundaryPrograms of
         Nothing -> failTest (name <> " invalid lowerer boundary program is missing")
         Just programValue -> do
-          let firstRun = lowerTypedCoreExpressionDirectCall programValue
-              secondRun = lowerTypedCoreExpressionDirectCall programValue
-          assertEqual (name <> " repeatable typed-core rejection") firstRun secondRun
-          assertTypedCoreFailureLowering (name <> " exact typed-core rejection") expectedFailures firstRun
+          let lowering = lowerTypedCoreExpressionDirectCall programValue
+          assertTypedCoreFailureLowering (name <> " exact typed-core rejection") expectedFailures lowering
 
     expectedResults =
       [ ( "closure-shape-flattened-recipe",
@@ -560,11 +538,9 @@ testLowererStructuralBoundary =
       case lookup name lowererStructuralBoundaryPrograms of
         Nothing -> failTest (name <> " lowerer structural boundary program is missing")
         Just programValue -> do
-          let firstRun = lowerTypedCoreExpressionDirectCall programValue
-              secondRun = lowerTypedCoreExpressionDirectCall programValue
+          let lowering = lowerTypedCoreExpressionDirectCall programValue
           assertEqual (name <> " is permanently valid typed core") [] (validateTypedProgram programValue)
-          assertEqual (name <> " repeatable lowerer rejection") firstRun secondRun
-          assertUnsupportedLowering (name <> " exact lowerer rejection") expectedFailures firstRun
+          assertUnsupportedLowering (name <> " exact lowerer rejection") expectedFailures lowering
 
     expectedResults =
       [ ( "managed-pattern-scrutinee",

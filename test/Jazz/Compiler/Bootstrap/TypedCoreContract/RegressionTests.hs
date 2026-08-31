@@ -82,20 +82,17 @@ highCardinalityDuplicateEvidenceProgram =
 testRecursiveGroupContracts :: IO ()
 testRecursiveGroupContracts =
   mapM_
-    ( \(fixture, program, failures) -> do
-        assertEqual (fixture <> " Haskell validation first run") failures (validateTypedProgram program)
-        assertEqual (fixture <> " Haskell validation second run") failures (validateTypedProgram program)
-    )
+    (\(fixture, program, failures) -> assertEqual (fixture <> " Haskell validation") failures (validateTypedProgram program))
     recursiveGroupContractCases
 
 testRecursiveGroupFixContracts :: IO ()
 testRecursiveGroupFixContracts = do
-  let expected = [(fixture, failures, failures) | (fixture, _, failures) <- recursiveGroupFixCases]
+  let expected = [(fixture, failures) | (fixture, _, failures) <- recursiveGroupFixCases]
       actual =
-        [ (fixture, validateTypedProgram program, validateTypedProgram program)
+        [ (fixture, validateTypedProgram program)
         | (fixture, program, _) <- recursiveGroupFixCases
         ]
-  assertEqual "recursive-group review regressions on both Haskell runs" expected actual
+  assertEqual "recursive-group review regressions" expected actual
 
 testNestedBlockValidationRegressions :: IO ()
 testNestedBlockValidationRegressions = do
@@ -174,7 +171,7 @@ reviewRegressionGroups =
     (("rejects colliding imported class identifiers", testImportedClassCollision), [importedClassCollisionProgram]),
     (("preserves block statement scope order", testForwardBlockReference), [forwardBlockReferenceProgram]),
     (("preserves proven recursive block peers", testRecursiveBlockPeers), [recursiveBlockPeerProgram, sourceOrderedRecursiveVisibilityProgram]),
-    (("validates declared root recursive groups exactly twice", testRecursiveGroupContracts), [program | (_, program, _) <- recursiveGroupContractCases]),
+    (("validates declared root recursive group contracts", testRecursiveGroupContracts), [program | (_, program, _) <- recursiveGroupContractCases]),
     (("preserves earliest-member ordering and malformed root visibility parity", testRecursiveGroupFixContracts), [program | (_, program, _) <- recursiveGroupFixCases]),
     (("rejects malformed generalized literal bounds", testMalformedLiteralConstraintBounds), [malformedLiteralConstraintBoundsProgram]),
     (("preserves instantiated evidence order", testEvidenceSelectionOrder), [evidenceSelectionOrderProgram]),

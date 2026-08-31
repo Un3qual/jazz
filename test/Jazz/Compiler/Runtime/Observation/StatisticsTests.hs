@@ -121,7 +121,7 @@ tests =
     ("deferred binding caches distinguish misses and hits", testDeferredCacheHitAndMiss),
     ("recursive deferred evaluation records its own cache outcome", testDeferredCacheRecursion),
     ("human statistics use stable meaningful labels", testHumanRenderer),
-    ("JSON statistics are deterministic, explicit, and round trip", testJsonRenderer),
+    ("JSON statistics are explicit, compact, and round trip", testJsonRenderer),
     ("runtime failure retains a partial report", testRuntimeFailureReport),
     ("compile failure has no runtime report", testCompileFailureHasNoReport)
   ]
@@ -501,13 +501,11 @@ testHumanRenderer = do
 
 testJsonRenderer :: IO ()
 testJsonRenderer = do
-  let first = encodeRuntimeObservationJson zeroReport
-      second = encodeRuntimeObservationJson zeroReport
-  assertEqual "deterministic JSON bytes" first second
-  assertEqual "JSON round trip" (Right zeroReport) (decodeRuntimeObservationJson first)
-  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":1" first
-  assertLazyBytesContain "JSON explicit zero" "\"closuresCreated\":0" first
-  assertEqual "compact JSON" False (LazyByteString.elem '\n' first)
+  let encoded = encodeRuntimeObservationJson zeroReport
+  assertEqual "JSON round trip" (Right zeroReport) (decodeRuntimeObservationJson encoded)
+  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":1" encoded
+  assertLazyBytesContain "JSON explicit zero" "\"closuresCreated\":0" encoded
+  assertEqual "compact JSON" False (LazyByteString.elem '\n' encoded)
 
 testRuntimeFailureReport :: IO ()
 testRuntimeFailureReport = do

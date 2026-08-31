@@ -92,14 +92,12 @@ testManagedProductVariantLowering =
         Nothing -> failTest (name <> " is missing its typed-program expectation")
         Just typedProgram -> assertLowered (name, typedProgram, expectedLoweredProgram)
     assertLowered (name, typedProgram, expectedLoweredProgram) = do
-      let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-          secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+      let lowering = lowerTypedCoreExpressionDirectCall typedProgram
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
-      assertEqual (name <> " repeatable lowering") firstRun secondRun
       assertSuccessfulLowering
         (name <> " exact managed product/variant lowering")
         expectedLoweredProgram
-        firstRun
+        lowering
       assertEqual
         (name <> " valid expected Lowered IR")
         []
@@ -113,11 +111,9 @@ testManagedConstructionLowererBoundaries =
       case lookup name managedConstructionLowererBoundaryPrograms of
         Nothing -> failTest (name <> " managed construction boundary is missing")
         Just typedProgram -> do
-          let firstRun = lowerTypedCoreExpressionDirectCall typedProgram
-              secondRun = lowerTypedCoreExpressionDirectCall typedProgram
+          let lowering = lowerTypedCoreExpressionDirectCall typedProgram
           assertEqual (name <> " valid arbitrary Typed Core") [] (validateTypedProgram typedProgram)
-          assertEqual (name <> " repeatable rejection") firstRun secondRun
-          assertUnsupportedLowering (name <> " exact lowerer boundary") expectedFailures firstRun
+          assertUnsupportedLowering (name <> " exact lowerer boundary") expectedFailures lowering
 
     expectedResults =
       [ ( "managed-bare-nonnullary-constructor-lowerer",
