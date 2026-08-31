@@ -17,6 +17,7 @@ module Jazz.Benchmark.Metadata
     benchmarkRunIdentity,
     benchmarkTimeModeFromArguments,
     captureBenchmarkEnvironment,
+    classifyProcessFact,
     checkBenchmarkCompatibility,
     createBenchmarkArtifactDirectory,
     validateEnvironmentLabel,
@@ -456,20 +457,27 @@ captureProcessFact description allowEmpty executable arguments = do
         ( UnavailableEnvironmentFact
             (description <> " is unavailable: " <> Text.pack (show (exception :: IOException)))
         )
-    Right (ExitSuccess, output, _)
-      | let value = Text.strip (Text.pack output),
-        allowEmpty || not (Text.null value) ->
-          pure (AvailableEnvironmentFact value)
-    Right (exitCode, _, standardError) ->
+    Right (exitCode, output, standardError) ->
       pure
-        ( UnavailableEnvironmentFact
-            ( description
-                <> " command failed ("
-                <> Text.pack (show exitCode)
-                <> "): "
-                <> Text.strip (Text.pack standardError)
-            )
+        ( case classifyProcessFact allowEmpty exitCode output standardError of
+            Right value -> AvailableEnvironmentFact value
+            Left reason -> UnavailableEnvironmentFact (description <> " " <> reason)
         )
+
+classifyProcessFact :: Bool -> ExitCode -> String -> String -> Either Text Text
+classifyProcessFact allowEmpty ExitSuccess output _
+  | not (Text.null value) = Right value
+  | allowEmpty = Right value
+  | otherwise = Left "command produced no output"
+  where
+    value = Text.strip (Text.pack output)
+classifyProcessFact _ exitCode _ standardError =
+  Left
+    ( "command failed ("
+        <> Text.pack (show exitCode)
+        <> "): "
+        <> Text.strip (Text.pack standardError)
+    )
 
 mapEnvironmentFact :: (left -> right) -> EnvironmentFact left -> EnvironmentFact right
 mapEnvironmentFact mapValue environmentFact =
