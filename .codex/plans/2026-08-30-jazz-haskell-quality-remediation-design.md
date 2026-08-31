@@ -239,12 +239,20 @@ invalid state or asymptotic problem:
 6. Replace only demonstrated repeated snoc operations: use `Seq` for
    append-heavy runtime method collections and reverse-once accumulation for
    batch pattern-coverage rows/failures.
+7. Reconsider otherwise-unnecessary abstractions when `base` or `containers`
+   can delete bespoke machinery without changing behavior. In particular, use
+   `find`, `listToMaybe`, `maybeToList`, `asum`, `Data.Bifunctor.first`, and
+   test-only `nub` for exact left-to-right equivalents; derive newtype
+   composition instances and `Functor` only where they replace manual code.
+   The replacement must have a net source reduction, preserve collision and
+   diagnostic precedence, and add no dependency.
 
 Do not add dependencies. Do not introduce phase-indexed GADTs, DataKinds
 pipelines, length-indexed vectors, category/Arrow frameworks, a blanket
 `StrictData` policy, hash-based collections, or a whole-repository migration of
 module paths and integer identifiers. Those techniques do not currently repay
-their migration and review cost.
+their migration and review cost unless a concrete standard-library replacement
+proves a net reduction while preserving the existing contract.
 
 ## 10. Dedicated Test-Pruning Pass
 

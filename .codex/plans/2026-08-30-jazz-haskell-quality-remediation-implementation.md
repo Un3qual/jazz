@@ -1378,9 +1378,94 @@ git add src/Jazz/Compiler/Runtime src/Jazz/Compiler/PatternCoverage.hs test
 git commit -m "perf: use append-appropriate compiler collections"
 ```
 
+### Task 21: Replace Bespoke Helpers with Standard Library Abstractions
+
+**Files:**
+
+- Modify: `src/Jazz/Compiler/ModuleRuntime.hs`
+- Modify: `src/Jazz/Compiler/ModuleInterface.hs`
+- Modify: `src/Jazz/Compiler/RecursiveBindings.hs`
+- Modify: `src/Jazz/Compiler/ModuleResolver.hs`
+- Modify: `src/Jazz/Compiler/LoweredIR/Validate.hs`
+- Modify: `src/Jazz/Compiler/PatternCoverage.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Diagnostics.hs`
+- Modify: `src/Jazz/Compiler/Parser.hs`
+- Modify: `src/Jazz/Compiler/Parser/Lexer.hs`
+- Modify: `src/Jazz/Compiler/Parser/Declaration.hs`
+- Modify: `src/Jazz/Compiler/Parser/Signature.hs`
+- Modify: `src/Jazz/Compiler/Parser/TokenParser.hs`
+- Modify: `src/Jazz/Compiler/ModuleExports.hs`
+- Modify: `src/Jazz/Compiler/TypeInference/Pattern.hs`
+- Modify: `src/Jazz/Compiler/Runtime/Types.hs`
+- Modify: `src/Jazz/Compiler/Runtime/Outcome.hs`
+- Modify: the exact test support consumers named in the standard-library audit.
+
+**Interfaces:**
+
+- Replaces hand-written first-match recursion with `Data.List.find`.
+- Replaces bespoke head/optional adapters with `listToMaybe`, `maybeToList`,
+  `find`, and ordered `lookup` where the behavior is identical.
+- Replaces four `firstJust` implementations with `Data.Foldable.asum`.
+- Replaces four `mapLeft` implementations with `Data.Bifunctor.first`.
+- Replaces two test-only stable-first deduplicators with `Data.List.nub`.
+- Uses `deriving newtype` only for exact underlying `Set`, `Map`, and `Seq`
+  composition; derives `Functor` for `RuntimeOutcome` to delete the manual test mapper.
+- Preserves first-match, left-biased union, first-occurrence, and diagnostic order.
+
+- [ ] **Step 1: Establish the focused behavior baseline**
+
+```sh
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  cabal test module-pipeline-contract-spec recursive-bindings-spec module-resolution-spec \
+  jazz-lowered-ir-contract-spec token-parser-spec declaration-parser-spec \
+  signature-rendering-spec pattern-coverage-spec module-exports-spec \
+  haskell-typeclass-contracts-spec runtime-observation-spec repository-audit-spec \
+  canonical-parser-comparison-spec jazz-core-modules-corpus-closure-spec \
+  --test-show-details=failures --jobs=1
+```
+
+Expected: PASS before the mechanical replacements.
+
+- [ ] **Step 2: Apply only exact standard-library equivalents**
+
+Use `find` for the five predicate-first recursions; `listToMaybe` and
+`maybeToList` for the audited adapters; `asum` for left-biased `[Maybe a]`;
+`first` for `Either` left mapping; and `nub` only in the two test-only `Eq`
+manifest paths. Do not replace production `Set`-backed stable deduplication or
+last-occurrence-preserving helpers.
+
+- [ ] **Step 3: Derive only instances that delete identical manual code**
+
+Enable the narrow deriving extensions needed for:
+
+```haskell
+deriving newtype (Semigroup, Monoid)
+```
+
+on `ModuleExportInventory` and `PatternBindings`, `Semigroup` on
+`RuntimeExplicitResultHints`, and stock/derived `Functor` on `RuntimeOutcome`.
+Replace `hasWitness` with `isJust` while editing `PatternCoverage`. Do not add
+unused instances or expose constructors.
+
+- [ ] **Step 4: Prove net reduction and run the focused suites**
+
+Run the Step 1 command again. Inspect `git diff --stat` and the diff itself;
+the task must delete more nonblank bespoke implementation lines than it adds,
+excluding import reflow and tests. If a candidate fails that rule, revert that
+candidate only.
+
+- [ ] **Step 5: Format and commit**
+
+Format the exact touched Haskell files, run `git diff --check`, then:
+
+```sh
+git add src test
+git commit -m "refactor: prefer standard Haskell abstractions"
+```
+
 ## Follow-up Pass 3: Test Pruning
 
-### Task 21: Remove Vacuous Pure Repeatability Assertions
+### Task 22: Remove Vacuous Pure Repeatability Assertions
 
 **Files:**
 
@@ -1431,7 +1516,7 @@ git add test
 git commit -m "test: remove vacuous pure repeatability checks"
 ```
 
-### Task 22: Consolidate Redundant Manifest and Parser Assertions
+### Task 23: Consolidate Redundant Manifest and Parser Assertions
 
 **Files:**
 
@@ -1478,7 +1563,7 @@ git add test
 git commit -m "test: consolidate redundant manifests and parser cases"
 ```
 
-### Task 23: Remove the Dead Compatibility Resolution Mode
+### Task 24: Remove the Dead Compatibility Resolution Mode
 
 **Files:**
 
@@ -1529,7 +1614,7 @@ git commit -m "refactor: remove dead builtin compatibility mode"
 
 Expected `rg`: no matches.
 
-### Task 24: Format, Verify, and Review the Aggregate Branch
+### Task 25: Format, Verify, and Review the Aggregate Branch
 
 **Files:**
 
