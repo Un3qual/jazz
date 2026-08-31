@@ -1509,6 +1509,8 @@ git commit -m "perf: use append-appropriate compiler collections"
 - Replaces hand-written first-match recursion with `Data.List.find`.
 - Replaces bespoke head/optional adapters with `listToMaybe`, `maybeToList`,
   `find`, and ordered `lookup` where the behavior is identical.
+- Replaces the total list index helper with `Data.List.!?` and the local
+  reverse-application operator with `Data.Function.&`.
 - Replaces four `firstJust` implementations with `Data.Foldable.asum`.
 - Replaces four `mapLeft` implementations with `Data.Bifunctor.first`.
 - Replaces two test-only stable-first deduplicators with `Data.List.nub`.
@@ -1525,6 +1527,7 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
   signature-rendering-spec pattern-coverage-spec module-exports-spec \
   haskell-typeclass-contracts-spec runtime-observation-spec repository-audit-spec \
   canonical-parser-comparison-spec jazz-core-modules-corpus-closure-spec \
+  binding-signature-coherence-spec adt-pattern-type-spec runtime-semantics-spec \
   --test-show-details=failures --jobs=1
 ```
 
@@ -1532,11 +1535,15 @@ Expected: PASS before the mechanical replacements.
 
 - [ ] **Step 2: Apply only exact standard-library equivalents**
 
-Use `find` for the five predicate-first recursions; `listToMaybe` and
-`maybeToList` for the audited adapters; `asum` for left-biased `[Maybe a]`;
-`first` for `Either` left mapping; and `nub` only in the two test-only `Eq`
-manifest paths. Do not replace production `Set`-backed stable deduplication or
-last-occurrence-preserving helpers.
+Use `find` for the audited predicate-first recursions, including the complete
+compiled-program diagnostic search; `listToMaybe` and `maybeToList` for the
+audited adapters; `asum` for left-biased `[Maybe a]`; `first` for `Either` left
+mapping; `!?` for the exact total indexing helper; `&` for the identical local
+operator; and `nub` only in the two test-only stable-first `Eq` manifest paths.
+Use Prelude `lookup` for ordered variant pairs rather than a `Map`, so duplicate
+tags remain first-wins. Do not replace production `Set`-backed stable
+deduplication, the Task 17 `StableSet`, or the last-occurrence-preserving
+`AuditSpec.uniqueValues` helper.
 
 - [ ] **Step 3: Derive only instances that delete identical manual code**
 
@@ -1554,8 +1561,11 @@ unused instances or expose constructors.
 - [ ] **Step 4: Prove net reduction and run the focused suites**
 
 Run the Step 1 command again. Inspect `git diff --stat` and the diff itself;
-the task must delete more nonblank bespoke implementation lines than it adds,
-excluding import reflow and tests. If a candidate fails that rule, revert that
+the production task must delete more nonblank bespoke implementation lines than
+it adds, excluding import reflow. Each candidate must reduce bespoke code in
+the repository as a whole; this deliberately admits derived `Functor` for
+`RuntimeOutcome`, whose one production pragma deletes a larger manual test
+mapper. If another candidate fails the repository-wide rule, revert that
 candidate only.
 
 - [ ] **Step 5: Format and commit**
@@ -1589,17 +1599,22 @@ git commit -m "refactor: prefer standard Haskell abstractions"
 
 - [ ] **Step 1: Record the exact removable inventory**
 
-Use the committed audit list: eighteen direct-call lowerer repeatability sites;
-three pure Typed Core validator reruns; the vacuous canonical lexer self-alias
-test; the pure half of parser corpus determinism; and four pure serializer/
-renderer self-equality checks. Confirm each surrounding test retains a stronger
-independent assertion before editing.
+Use the revalidated inventory: twenty direct-call lowerer repeatability sites,
+including `testInvalidLowererTypedCoreBoundary` and
+`testManagedConstructionLowererBoundaries`; three pure Typed Core validator
+reruns; the vacuous canonical lexer self-alias test; the pure half of parser
+corpus determinism; and four pure serializer/renderer self-equality checks.
+These are twenty-nine redundant evaluation/assertion sites total. Confirm each
+surrounding test retains a stronger independent assertion before editing.
 
 - [ ] **Step 2: Remove only redundant evaluation and rename labels**
 
 Keep one result binding and every exact program/failure/layout/schema assertion.
 Delete `testParserFixtureDeterminism`; retain parser corpus category assertions
-under a name that describes adaptation/category coverage.
+under a name that describes adaptation/category coverage. Rename the lifted
+lambda direct-call case so it no longer claims to test failure preorder after
+the duplicate call is removed. Retain every repeated `produceFixture` IO run,
+all hosted Jazz reruns, and Task 15's raw-vs-checked failure-order assertion.
 
 - [ ] **Step 3: Run every affected component**
 
