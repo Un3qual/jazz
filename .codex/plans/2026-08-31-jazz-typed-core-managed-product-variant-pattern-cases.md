@@ -121,7 +121,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 - Point the bootstrap umbrella at accepted RFC 0015 and this plan.
 - Keep the architecture simplification plan unqueued until this child closes.
 
-- [ ] **Step 1: Confirm the focused baseline.** Run:
+- [x] **Step 1: Confirm the focused baseline.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
@@ -129,14 +129,14 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 
   Expected: all three suites pass before queue promotion.
 
-- [ ] **Step 2: Promote the candidate.** Replace the empty `Ready Now` state
+- [x] **Step 2: Promote the candidate.** Replace the empty `Ready Now` state
       with this plan's exact frontmatter row. Remove the candidate from `Next
 Curation Target`; preserve the completed construction evidence.
 
-- [ ] **Step 3: Update the bootstrap blocker.** Name this managed-pattern child
+- [x] **Step 3: Update the bootstrap blocker.** Name this managed-pattern child
       as executing and retain every explicit RFC 0015 exclusion.
 
-- [ ] **Step 4: Validate dispatcher structure.** Run:
+- [x] **Step 4: Validate dispatcher structure.** Run:
 
   ```bash
   bash scripts/check-execution-queue.sh
@@ -146,7 +146,7 @@ Curation Target`; preserve the completed construction evidence.
 
   Expected: all commands exit zero and the queue row matches this plan.
 
-- [ ] **Step 5: Commit the curation milestone.** Run:
+- [x] **Step 5: Commit the curation milestone.** Run:
 
   ```bash
   git add .codex/plans/2026-08-31-jazz-typed-core-managed-product-variant-pattern-cases.md .codex/execution/queue.md .codex/execution/blocker-contracts.md
@@ -200,13 +200,13 @@ Curation Target`; preserve the completed construction evidence.
 - Specialize guard and body provisional references for every collected binder
   type, not only a root variable pattern.
 
-- [ ] **Step 1: Replace the two rejection assertions with RED production
+- [x] **Step 1: Replace the two rejection assertions with RED production
       expectations.** Give `managed-tuple-pattern-failure` and
       `managed-constructor-pattern-failure` exact expected `TypedProgram`
       values containing `TypedTuplePattern` and `TypedConstructorPattern`.
       Keep their lowering expectations absent.
 
-- [ ] **Step 2: Add exact nested binder fixtures.** Add source and exact Typed
+- [x] **Step 2: Add exact nested binder fixtures.** Add source and exact Typed
       Core for:
 
   ```jazz
@@ -235,14 +235,14 @@ Curation Target`; preserve the completed construction evidence.
   Assert exact child `TypedNodeInfo`, canonical binder IDs, constructor names,
   and identical binder contracts across or alternatives.
 
-- [ ] **Step 3: Add producer exclusions.** Assert the producer still returns
+- [x] **Step 3: Add producer exclusions.** Assert the producer still returns
       `TypedCorePatternCaseUnsupported` at the exact nested pattern path for a
       Text literal inside an admitted managed pattern. Retain the established
       list/cons, nested-or grammar, and pattern-lambda rejection coverage at
       their earlier profile owners. Keep ordinary source diagnostics ahead of
       producer failures.
 
-- [ ] **Step 4: Run the focused suite and verify RED.** Run:
+- [x] **Step 4: Run the focused suite and verify RED.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec --test-show-details=direct --jobs=1
@@ -251,23 +251,23 @@ Curation Target`; preserve the completed construction evidence.
   Expected: the newly admitted fixtures fail with the current
   `TypedCorePatternCaseUnsupported` boundary.
 
-- [ ] **Step 5: Finalize the admitted tree recursively.** For tuple nodes,
+- [x] **Step 5: Finalize the admitted tree recursively.** For tuple nodes,
       derive each child type from the resolved `TTupleType`; for constructors,
       resolve the visible local `StructuredConstructor` at the case statement
       and specialize its field templates from the concrete scrutinee type.
       Emit child patterns in source order with exact child infos.
 
-- [ ] **Step 6: Bind variables, as-patterns, and alternatives once.** Build one
+- [x] **Step 6: Bind variables, as-patterns, and alternatives once.** Build one
       arm binder table from first semantic occurrence order. Reuse it while
       finalizing every top-level or alternative. Collect each binder's resolved
       `ExpressionType`, then fold `specializeProvisionalParameterReferences`
       over the guard and body before their existing finalization.
 
-- [ ] **Step 7: Run the focused suite twice.** Expected: exact Typed Core and
+- [x] **Step 7: Run the focused suite twice.** Expected: exact Typed Core and
       exclusions are stable on both runs; managed cases still fail closed at
       the lowerer profile.
 
-- [ ] **Step 8: Format and commit.** Run the repository formatter for the
+- [x] **Step 8: Format and commit.** Run the repository formatter for the
       touched files, then:
 
   ```bash
