@@ -1642,7 +1642,10 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 - [ ] **Step 4: Format and commit**
 
-Format the touched test files, run `git diff --check`, then:
+Record base formatter status for the exact touched test files. Whole-file format
+only base-clean files; for legacy-layout files, format every Task 22 semantic
+region and preserve unrelated layout for Task 25. Record the whole/scoped checks
+in the task report, run `git diff --check`, then:
 
 ```sh
 git add test
