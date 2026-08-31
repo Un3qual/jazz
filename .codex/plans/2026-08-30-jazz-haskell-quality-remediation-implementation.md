@@ -1581,7 +1581,10 @@ candidate only.
 
 - [ ] **Step 5: Format and commit**
 
-Format the exact touched Haskell files, run `git diff --check`, then:
+Record base formatter status for the exact touched files. Whole-file format only
+base-clean files; for legacy-layout files, format every Task 21 semantic region
+and preserve unrelated layout for Task 25. Record the whole/scoped checks in the
+task report, run `git diff --check`, then:
 
 ```sh
 git add src test
