@@ -344,47 +344,47 @@ Curation Target`; preserve the completed construction evidence.
 - `Shapes.inspectExpression` consumes the checked result for admission and
   recursively derives deterministic binder parameter shapes from it.
 
-- [ ] **Step 1: Add RED arbitrary Typed Core boundaries.** Add valid hand-built
+- [x] **Step 1: Add RED arbitrary Typed Core boundaries.** Add valid hand-built
       programs for an incomplete constructor set, a guarded-only complete set,
       an incomplete nested tuple/constructor row, unsupported list/Text/nested
       or patterns, and a complete constructor set without a wildcard. Assert
       the exact `LoweredIRIncompletePatternCase` or
       `LoweredIRUnsupportedPattern` path for each rejected program.
 
-- [ ] **Step 2: Add direct pure-analysis contracts.** Assert that successful
+- [x] **Step 2: Add direct pure-analysis contracts.** Assert that successful
       analysis returns a `NonEmpty` source-ordered arm plan, exact constructor
       tags/layouts, left-to-right product children, and one binder contract for
       all top-level or alternatives.
 
-- [ ] **Step 3: Run the focused suite and verify RED.** Expected: the current
+- [x] **Step 3: Run the focused suite and verify RED.** Expected: the current
       scalar-only checker rejects the valid managed cases and accepts only the
       old final-catch-all totality rule.
 
-- [ ] **Step 4: Extend the catalog for pattern lookup.** Retain ordered
+- [x] **Step 4: Extend the catalog for pattern lookup.** Retain ordered
       constructor names, binders, type parameters, field types, and recipes.
       Specialize field infos using the node's concrete `TypedDataType`
       arguments, then reuse `constructorLayoutFor` for the layout and tag.
       Never select by map iteration order.
 
-- [ ] **Step 5: Normalize only the approved grammar.** Convert validated raw
+- [x] **Step 5: Normalize only the approved grammar.** Convert validated raw
       patterns to `ManagedPattern`; convert top-level alternative lists with
       `NonEmpty.nonEmpty`; reject nested alternatives, lists, Text literals,
       mismatched recipes, missing layouts, and unknown constructors at their
       exact pattern paths.
 
-- [ ] **Step 6: Implement a pure matrix totality check.** Treat wildcard,
+- [x] **Step 6: Implement a pure matrix totality check.** Treat wildcard,
       variable, and as-patterns as irrefutable at their current node; a product
       has one constructor; a variant has its catalog's complete ordered tag
       set; scalar literal domains are open. Expand top-level alternatives into
       rows. Add only unguarded rows to coverage. Return the expression-level
       incomplete failure before emission when a wildcard witness remains.
 
-- [ ] **Step 7: Replace `scalarPatternCaseProfileFailures`.** Make Shapes call
+- [x] **Step 7: Replace `scalarPatternCaseProfileFailures`.** Make Shapes call
       `analyzeManagedPatternCase`, recurse through the checked arm plan for
       exact binder representations, and preserve existing scalar-case behavior
       as a subset.
 
-- [ ] **Step 8: Run the focused suite twice, format, and commit.** Expected:
+- [x] **Step 8: Run the focused suite twice, format, and commit.** Expected:
       pure admission and boundary failures are exact and deterministic; valid
       managed cases proceed to the still-unimplemented emitter boundary.
 
