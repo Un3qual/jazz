@@ -191,6 +191,87 @@ Make the following bounded, compiler-checked changes:
 The benchmark diagnostic change is tooling-only and receives a direct unit
 test around a pure classification helper.
 
+## 8. Dedicated Semantic Deduplication Pass
+
+The initial remediation intentionally avoided a generic traversal framework,
+but the follow-up audit found several exact copies of semantic policy over the
+same representation. Consolidate those copies into the nearest existing owner:
+
+- move integer-literal range reconciliation shared by expression and pattern
+  inference into `TypeInference.TypeOps`;
+- move targeted fractional-literal overflow classification shared by the main
+  and scope inference paths into `TypeInference.Diagnostics`;
+- add a small `TypedCore.Query` module for the exact binder-reference walk and
+  the repeated pattern-info/children projections;
+- define the total `TypedNumericType` to canonical representation-recipe
+  mapping once and retain independent validation of malformed recipes;
+- move lowered integer/float recipe-width decoding into the existing shared
+  lowering types module;
+- share only the generic checked `RuntimeValue` codec mechanics used by the
+  typed-core and lowered-IR canonical adapters, while leaving their schemas,
+  constructor tables, and parity assertions independent.
+
+These helpers must remain concrete and purpose-named. Do not introduce a
+generic AST visitor, recursion scheme, numeric-width typeclass, or shared
+validator framework. Preserve source order, diagnostic order, fail-closed
+boundaries, and exact canonical error text.
+
+## 9. Dedicated Advanced Haskell and Data-Structure Pass
+
+Use stronger types and collections only at boundaries with a demonstrated
+invalid state or asymptotic problem:
+
+1. Keep raw accumulating validators list-based, but make checked failure
+   outcomes `NonEmpty`. Preserve `ValidatedTypedProgram` across production
+   status APIs and introduce an opaque `ValidatedLoweredProgram` for successful
+   lowering.
+2. Replace the contradictory `RunResult` product state with an algebraic
+   `RunExecution`. Hide construction and retain total observation projections
+   for output, runtime value, and exit status.
+3. Encapsulate the repeated membership-plus-first-occurrence-order invariant in
+   a private stable ordered-set abstraction backed by `Set` and `Seq`. Use it
+   for quantified type variables and recursive-binding capture names.
+4. Separate permissive CLI argument accumulation from validated algebraic
+   options for input, Prelude selection, and execution mode.
+5. Represent checked resolver imports with a single exposure sum:
+   import-all, a `NonEmpty` selected-symbol list, or a qualified alias. Retain
+   raw invalid import shapes in parser and Typed Core contract fixtures.
+6. Replace only demonstrated repeated snoc operations: use `Seq` for
+   append-heavy runtime method collections and reverse-once accumulation for
+   batch pattern-coverage rows/failures.
+
+Do not add dependencies. Do not introduce phase-indexed GADTs, DataKinds
+pipelines, length-indexed vectors, category/Arrow frameworks, a blanket
+`StrictData` policy, hash-based collections, or a whole-repository migration of
+module paths and integer identifiers. Those techniques do not currently repay
+their migration and review cost.
+
+## 10. Dedicated Test-Pruning Pass
+
+Remove only tests whose unique failure signal is proven absent:
+
+- delete repeated calls to pure lowerers and validators when the same test
+  already checks the exact result or exact ordered failures;
+- delete pure serializer/renderer self-equality checks subsumed by exact bytes,
+  schema checks, or round trips;
+- remove vacuous pure corpus determinism checks while preserving repeated
+  hosted-Jazz execution across the interpreter boundary;
+- remove derived fixture counts and combined-list equalities already implied by
+  exact ordered manifests, retaining uniqueness, disjointness, classification,
+  and validation-kind coverage;
+- remove two internal import-declaration diagnostic tests duplicated by
+  stronger public parser-entry tests;
+- parse identical source once inside a test and table-drive identical legacy
+  rejection contracts;
+- remove the test-only `ResolveCompatibility` case together with the dead
+  production mode after revalidating that every active compiler path uses
+  `ResolveKernelOnly`.
+
+Do not merge Cabal test-suite components based on source similarity. Preserve
+fixed-bug regressions, public-language rejection cases, diagnostic code/span/
+ordering assertions, independent raw-validator negative fixtures, Haskell/
+hosted-Jazz parity, pure/host runtime paths, and default/opt-in scale tiers.
+
 ## Explicit Non-Goals
 
 - No public language syntax or specification changes.
@@ -204,12 +285,17 @@ test around a pure classification helper.
 - No blanket application of HLint suggestions; ASCII-specific predicates,
   diagnostic construction, and deliberate explicit code remain explicit.
 - No repository-wide Ormolu rewrite.
+- No deletion of a test merely because another test uses similar source text;
+  the observable boundary and asserted failure signal must also be the same.
 
 ## Delivery and Verification
 
 Each numbered implementation task will be independently reviewed and
 committed. Correctness fixes use witnessed red-green tests. Behavior-preserving
-refactors use focused characterization suites before and after the change.
+refactors use focused characterization suites before and after the change. The
+three follow-up passes run before the aggregate gate: semantic deduplication,
+advanced Haskell/data structures, then test pruning so pruning decisions are
+made against the final implementation shape.
 
 The final gate is:
 
