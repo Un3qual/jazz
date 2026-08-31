@@ -492,42 +492,42 @@ Curation Target`; preserve the completed construction evidence.
 - `FinishFunction` bodies keep existing direct/closure tail-result lowering;
   `ProduceValue` bodies keep the one-result join.
 
-- [ ] **Step 1: Add RED exact as-pattern lowering.** Assert both the complete
+- [x] **Step 1: Add RED exact as-pattern lowering.** Assert both the complete
       scrutinee and nested projected field arrive as distinct arm parameters
       and are usable in the guard/body only.
 
-- [ ] **Step 2: Add RED exact top-level-or lowering.** Use alternatives sharing
+- [x] **Step 2: Add RED exact top-level-or lowering.** Use alternatives sharing
       one binder. Assert each alternative reaches the same arm-success block
       with the same ordered parameter IDs and representations.
 
-- [ ] **Step 3: Add guard and source-order regressions.** Cover repeated
+- [x] **Step 3: Add guard and source-order regressions.** Cover repeated
       constructors whose earlier guard is false, a nested pattern failure, and
       a later catch-all. Assert only selected guards/bodies run and fallthrough
       preserves source order.
 
-- [ ] **Step 4: Add ambient and tail fixtures.** Cover a captured scalar in a
+- [x] **Step 4: Add ambient and tail fixtures.** Cover a captured scalar in a
       managed arm, a managed case nested inside another managed arm, a
       closure-valued result followed by application, and managed cases in
       direct and closure function-result position. Lock exact edge arguments
       and tail terminators.
 
-- [ ] **Step 5: Run the focused suite and verify RED.** Expected failures are
+- [x] **Step 5: Run the focused suite and verify RED.** Expected failures are
       exact block-parameter, scoping, edge, or tail-CFG differences.
 
-- [ ] **Step 6: Compile alternatives into one arm success contract.** Chain
+- [x] **Step 6: Compile alternatives into one arm success contract.** Chain
       alternatives in authored order. Remap their agreed binder operands to
       the common success parameters. The final alternative failure enters the
       next source row.
 
-- [ ] **Step 7: Restore outer scope on every failure edge.** Reuse the original
+- [x] **Step 7: Restore outer scope on every failure edge.** Reuse the original
       control-slot parameter list for nested failure and false guard. Never
       transport an arm-local binder into the next row or result join.
 
-- [ ] **Step 8: Preserve runtime requirement discovery.** Verify recursive
+- [x] **Step 8: Preserve runtime requirement discovery.** Verify recursive
       pattern traversal continues to discover only existing managed layouts
       and runtime services; add no pattern-specific runtime requirement.
 
-- [ ] **Step 9: Run the three-suite gate twice, format, and commit.** Run:
+- [x] **Step 9: Run the three-suite gate twice, format, and commit.** Run:
 
   ```bash
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
