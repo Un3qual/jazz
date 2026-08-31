@@ -17,7 +17,7 @@ import Data.List (find, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, listToMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -1490,7 +1490,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     findAliasImport :: Text -> Maybe ParsedImport
     findAliasImport aliasName =
-      firstMatch
+      listToMaybe
         [ importDecl
         | importDecl <- imports,
           parsedImportAlias importDecl == Just aliasName
@@ -1697,7 +1697,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ParsedImport)
     findHiddenExplicitImportReference visibleSymbols =
-      firstMatch
+      listToMaybe
         [ (symbolName, importDecl)
         | importDecl <- imports,
           Just symbolNames <- [parsedImportSymbols importDecl],
@@ -1711,7 +1711,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     findHiddenAliasImportReference :: Set Text -> Maybe (Text, ParsedImport, Text)
     findHiddenAliasImportReference visibleSymbols =
-      firstMatch
+      listToMaybe
         [ (symbolName, importDecl, aliasName)
         | importDecl <- imports,
           Just aliasName <- [parsedImportAlias importDecl],
@@ -1721,12 +1721,6 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           Set.member symbolName referencedNames,
           not (Set.member symbolName visibleSymbols)
         ]
-
-    firstMatch :: [a] -> Maybe a
-    firstMatch matches =
-      case matches of
-        [] -> Nothing
-        match : _ -> Just match
 
     mkHiddenExplicitImportSymbolError :: Text -> ParsedImport -> Diagnostic
     mkHiddenExplicitImportSymbolError symbolName importDecl =

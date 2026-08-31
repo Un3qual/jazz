@@ -12,6 +12,7 @@ module Jazz.Compiler.Parser
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -73,7 +74,7 @@ parseSurfaceProgram source = do
 -- entrypoint keeps lexing and parsing as independently measurable phases.
 parseSurfaceProgramTokens :: [Token] -> Either Diagnostic SurfaceExpr
 parseSurfaceProgramTokens =
-  mapLeft parserFailureDiagnostic . parseSurfaceProgramTokensDetailed
+  first parserFailureDiagnostic . parseSurfaceProgramTokensDetailed
 
 parseSurfaceProgramTokensDetailed :: [Token] -> Either ParserFailure SurfaceExpr
 parseSurfaceProgramTokensDetailed tokens =
@@ -184,9 +185,3 @@ leadingModuleDeclaration statements =
   case statements of
     SSModule spanValue _ _ : _ -> Just spanValue
     _ -> Nothing
-
-mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
-mapLeft transform result =
-  case result of
-    Left failure -> Left (transform failure)
-    Right value -> Right value

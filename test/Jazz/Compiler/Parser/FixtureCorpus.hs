@@ -11,6 +11,7 @@ module Jazz.Compiler.Parser.FixtureCorpus
     validateParserFixtureManifest
   ) where
 
+import Data.List (find, nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -93,16 +94,16 @@ validateParserFixtureManifest fixtures families =
     duplicateFamilyAssignments =
       filter
         (\name -> length [family | (family, names) <- families, name `elem` names] > 1)
-        (uniqueValues familyMemberNames)
+        (nub familyMemberNames)
     unassignedFixtureNames =
-      filter (`notElem` familyMemberNames) (uniqueValues fixtureNames)
+      filter (`notElem` familyMemberNames) (nub fixtureNames)
 
     validateFamily (family, memberNames) =
       map (DuplicateParserFixtureFamilyMember family) (duplicateValues memberNames)
         <> map (MissingParserFixtureFamilyMember family) (missingValues memberNames)
 
     missingValues =
-      uniqueValues . filter (not . (`elem` fixtureNames))
+      nub . filter (not . (`elem` fixtureNames))
 
 parserFixtureFamilies :: [(ParserFixtureFamily, [Text])]
 parserFixtureFamilies =
@@ -125,23 +126,9 @@ duplicateValues = go [] []
               go seen (value : duplicates) remaining
           | otherwise -> go (value : seen) duplicates remaining
 
-uniqueValues :: (Eq value) => [value] -> [value]
-uniqueValues = go []
-  where
-    go seen values =
-      case values of
-        [] -> reverse seen
-        value : remaining
-          | value `elem` seen -> go seen remaining
-          | otherwise -> go (value : seen) remaining
-
 lookupFixture :: Text -> [ParserFixture] -> Maybe ParserFixture
 lookupFixture name fixtures =
-  case fixtures of
-    [] -> Nothing
-    fixture : remaining
-      | parserFixtureName fixture == name -> Just fixture
-      | otherwise -> lookupFixture name remaining
+  find ((== name) . parserFixtureName) fixtures
 
 expressionFoundationFixtureNames :: [Text]
 expressionFoundationFixtureNames =

@@ -177,7 +177,7 @@ testLiteralTransitions = do
   assertEqual
     "literal result"
     (RuntimeOutcomeCompleted (Just "1"))
-    (renderRuntimeOutcome (runtimeObservationOutcome observed))
+    (fmap (fmap renderRuntimeValue) (runtimeObservationOutcome observed))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "literal transitions" 2 (runtimeEvaluatorTransitions statistics)
@@ -192,7 +192,7 @@ testNestedApplicationAccounting = do
   assertEqual
     "nested application result"
     (RuntimeOutcomeCompleted (Just "7"))
-    (renderRuntimeOutcome (runtimeObservationOutcome observed))
+    (fmap (fmap renderRuntimeValue) (runtimeObservationOutcome observed))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "nested application transitions" 450 (runtimeEvaluatorTransitions statistics)
@@ -541,13 +541,6 @@ observableRunResult result =
     runExitStatus result,
     runRuntimeObservation result
   )
-
-renderRuntimeOutcome :: RuntimeOutcome (Maybe RuntimeValue) -> RuntimeOutcome (Maybe Text)
-renderRuntimeOutcome outcome =
-  case outcome of
-    RuntimeOutcomeCompleted value -> RuntimeOutcomeCompleted (renderRuntimeValue <$> value)
-    RuntimeOutcomeFailed diagnostic -> RuntimeOutcomeFailed diagnostic
-    RuntimeOutcomeExited status -> RuntimeOutcomeExited status
 
 requireReport :: RunResult -> IO RuntimeObservationReport
 requireReport result =

@@ -4,8 +4,11 @@ module Jazz.Compiler.LoweredIR.Validate
   ) where
 
 import Data.Char (ord)
+import Data.Function ((&))
+import Data.List (find, (!?))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (listToMaybe, maybeToList)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -707,24 +710,14 @@ representationMismatchFailure path kind expected actual
 
 firstRepresentationMismatch :: [LoweredRepresentation] -> [LoweredRepresentation] -> Maybe (LoweredRepresentation, LoweredRepresentation)
 firstRepresentationMismatch expected actual =
-  case [(expectedRepresentation, actualRepresentation) | (expectedRepresentation, actualRepresentation) <- zip expected actual, expectedRepresentation /= actualRepresentation] of
-    mismatch : _ -> Just mismatch
-    [] -> Nothing
+  find (uncurry (/=)) (zip expected actual)
 
 lookupVariant :: Integer -> [LoweredVariantLayout] -> Maybe [LoweredRepresentation]
 lookupVariant tag variants =
-  case [fields | LoweredVariantLayout candidateTag fields <- variants, candidateTag == tag] of
-    fields : _ -> Just fields
-    [] -> Nothing
+  lookup tag [(candidateTag, fields) | LoweredVariantLayout candidateTag fields <- variants]
 
 indexMaybe :: [value] -> Int -> Maybe value
-indexMaybe values index
-  | index < 0 = Nothing
-  | otherwise = go values index
-  where
-    go [] _ = Nothing
-    go (value : _) 0 = Just value
-    go (_ : rest) remaining = go rest (remaining - 1)
+indexMaybe values index = values !? index
 
 lookupTemporaryRepresentation :: FunctionContext -> LoweredBlockId -> LoweredTemporaryId -> Maybe LoweredRepresentation
 lookupTemporaryRepresentation functionContext blockId temporaryId =
@@ -737,9 +730,7 @@ instructionTemporaryId (LoweredInstruction temporaryId _ _) = temporaryId
 
 firstOperandRepresentation :: [LoweredOperand] -> Maybe LoweredRepresentation
 firstOperandRepresentation operands =
-  case operands of
-    operand : _ -> Just (loweredOperandRepresentation operand)
-    [] -> Nothing
+  loweredOperandRepresentation <$> listToMaybe operands
 
 parameterRepresentation :: LoweredParameter -> LoweredRepresentation
 parameterRepresentation (LoweredParameter _ representation) = representation
@@ -778,12 +769,3 @@ identifierDetail = LoweredIdentifierDetail
 
 failure :: LoweredIRValidationPath -> LoweredIRValidationKind -> LoweredIRValidationDetail -> LoweredIRValidationFailure
 failure = LoweredIRValidationFailure
-
-maybeToList :: Maybe value -> [value]
-maybeToList maybeValue =
-  case maybeValue of
-    Nothing -> []
-    Just value -> [value]
-
-(&) :: value -> (value -> result) -> result
-value & function = function value

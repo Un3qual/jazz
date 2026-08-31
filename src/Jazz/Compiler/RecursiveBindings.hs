@@ -36,6 +36,7 @@ import Data.Graph
   )
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
+import Data.List (find)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -636,12 +637,7 @@ scopeStatementContexts scopePath bindingBoundNames initialVisibleBindings statem
 
 lookupScopeBinding :: Name -> [ScopeBindingExpr] -> Maybe ScopeBindingExpr
 lookupScopeBinding requestedName =
-  go
-  where
-    go [] = Nothing
-    go (binding@(ScopeBindingExpr _ bindingName _ _ _ _) : rest)
-      | bindingName == requestedName = Just binding
-      | otherwise = go rest
+  find (\(ScopeBindingExpr _ bindingName _ _ _ _) -> bindingName == requestedName)
 
 -- Keep callable-shape recognition beside canonical recursive ownership so
 -- nested and top-level scopes agree on lambda self recursion.

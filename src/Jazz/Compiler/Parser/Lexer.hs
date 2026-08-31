@@ -21,6 +21,7 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (void)
 import Data.Char (chr, isDigit, isHexDigit, isSpace, ord)
+import Data.Foldable (asum)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -424,22 +425,16 @@ lexerFailureFromBundle source bundle =
 
 firstCustomLexerFailure :: MP.ParseErrorBundle Text LexerError -> Maybe LexicalFailure
 firstCustomLexerFailure bundle =
-  firstJust (map customErrorMessage (NonEmpty.toList (MP.bundleErrors bundle)))
+  asum (map customErrorMessage (NonEmpty.toList (MP.bundleErrors bundle)))
   where
     customErrorMessage parseError =
       case parseError of
         FancyError _ fancyErrors ->
-          firstJust
+          asum
             [ Just failure
             | ErrorCustom (LexerError failure) <- Set.toList fancyErrors
             ]
         TrivialError {} -> Nothing
-
-    firstJust values =
-      case values of
-        [] -> Nothing
-        Just value : _ -> Just value
-        Nothing : rest -> firstJust rest
 
 fallbackLexerFailure :: Text -> MP.ParseErrorBundle Text LexerError -> LexicalFailure
 fallbackLexerFailure source bundle =

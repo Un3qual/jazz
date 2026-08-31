@@ -13,9 +13,11 @@ module Jazz.Compiler.PatternCoverage
   )
 where
 
+import Data.Foldable (asum)
 import Data.List (find, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -251,7 +253,7 @@ analyzePatternCoverage inventory expressionType arms =
         Just _ -> [NonExhaustivePattern PWildcard]
 
 hasWitness :: Maybe value -> Bool
-hasWitness = maybe False (const True)
+hasWitness = isJust
 
 data CoveragePattern
   = CoverageWildcard
@@ -466,7 +468,7 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
       let (fieldWitnesses, restWitnesses) = splitAt (length (shapeFieldTypes shape)) witness
       pure (CoverageConstructor constructor fieldWitnesses : restWitnesses)
     CoverageOr alternatives ->
-      firstJust
+      asum
         ( map
             ( \alternative ->
                 usefulPatternVector
@@ -498,7 +500,7 @@ usefulPatternVector inventory (expressionType : restTypes) matrix (query : restQ
           pure (CoverageWildcard : restWitness)
       where
         firstUsefulSpecialization shapes =
-          firstJust (map usefulSpecialization shapes)
+          asum (map usefulSpecialization shapes)
 
         usefulSpecialization shape = do
           witness <-
@@ -655,13 +657,6 @@ constructorPresent shape = any rowHasConstructor
         CoverageOr alternatives : rest ->
           any (rowHasConstructor . (: rest)) alternatives
         _ -> False
-
-firstJust :: [Maybe value] -> Maybe value
-firstJust values =
-  case values of
-    [] -> Nothing
-    Just value : _ -> Just value
-    Nothing : rest -> firstJust rest
 
 coveragePatternToPattern :: CoveragePattern -> Pattern
 coveragePatternToPattern coveragePattern =

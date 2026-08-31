@@ -1,5 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -124,11 +125,8 @@ data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Dia
 -- constructor stays private so callers cannot reintroduce nested hint wrappers.
 -- Hints are stored outermost-to-innermost, matching source evaluation order.
 newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq SignatureType)
-  deriving (Eq, Show)
-
-instance Semigroup RuntimeExplicitResultHints where
-  RuntimeExplicitResultHints outerHints <> RuntimeExplicitResultHints innerHints =
-    RuntimeExplicitResultHints (outerHints Seq.>< innerHints)
+  deriving stock (Eq, Show)
+  deriving newtype (Semigroup)
 
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)

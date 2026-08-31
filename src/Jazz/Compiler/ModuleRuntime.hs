@@ -18,6 +18,7 @@ import Control.Monad.Trans.Except
     runExceptT,
   )
 import Data.Functor.Identity (runIdentity)
+import Data.List (find)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -119,14 +120,7 @@ data PreparedModuleEvaluation = PreparedModuleEvaluation
 
 lookupRuntimeModule :: [Text] -> RuntimeProgram -> Maybe RuntimeModule
 lookupRuntimeModule modulePath =
-  go . runtimeProgramModules
-  where
-    go modules =
-      case modules of
-        [] -> Nothing
-        runtimeModule : rest
-          | runtimeModulePath runtimeModule == modulePath -> Just runtimeModule
-          | otherwise -> go rest
+  find ((== modulePath) . runtimeModulePath) . runtimeProgramModules
 
 evaluateCompiledProgram :: CompiledProgram -> Either Diagnostic RuntimeProgram
 evaluateCompiledProgram =

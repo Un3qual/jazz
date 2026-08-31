@@ -11,6 +11,7 @@ import qualified Data.ByteString as ByteString
 import Data.Char (toLower)
 import Data.Foldable (toList)
 import Data.List (sort, stripPrefix)
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -1057,10 +1058,7 @@ jsonArray value =
     _ -> []
 
 firstValue :: [Value] -> Maybe Value
-firstValue values =
-  case values of
-    [] -> Nothing
-    value : _ -> Just value
+firstValue = listToMaybe
 
 testPackageRoot :: IO ()
 testPackageRoot =

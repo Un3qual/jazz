@@ -66,6 +66,7 @@ module Jazz.Compiler.TypeInference.Diagnostics
   )
 where
 
+import Data.Foldable (asum)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -571,7 +572,7 @@ mkInvalidImplTargetError state implSpan signatureType =
 
 signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload -> Maybe Text
 signaturePayloadNamedTypeFailure state payload =
-  firstJust (map (declarationSignatureTypeFailureSummary state) payloadTypes)
+  asum (map (declarationSignatureTypeFailureSummary state) payloadTypes)
   where
     payloadTypes =
       case payload of
@@ -592,17 +593,10 @@ declarationSignatureTypeFailureSummary state signatureType =
     Left failure -> Just (Signature.renderSignatureTypeFailure failure)
     Right () -> Nothing
 
-firstJust :: [Maybe a] -> Maybe a
-firstJust results =
-  case results of
-    [] -> Nothing
-    Just result : _ -> Just result
-    Nothing : rest -> firstJust rest
-
 concreteConstraintFailureSummary :: InferState -> [SignatureConstraint] -> Maybe Text
 concreteConstraintFailureSummary state constraints
   | null constraints = Nothing
-  | otherwise = firstJust (map constraintFailureSummary constraints)
+  | otherwise = asum (map constraintFailureSummary constraints)
   where
     constraintFailureSummary (SignatureConstraint constraintName arguments)
       | Nothing <- maybeClassArity =

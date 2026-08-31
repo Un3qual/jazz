@@ -29,6 +29,7 @@ module Jazz.Compiler.ModuleInterface
 where
 
 import Control.DeepSeq (NFData)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -170,24 +171,7 @@ compiledProgramErrors :: CompiledProgram -> [Diagnostic]
 compiledProgramErrors = filter isErrorDiagnostic . compiledProgramDiagnostics
 
 firstCompiledProgramError :: CompiledProgram -> Maybe Diagnostic
-firstCompiledProgramError compiledProgram =
-  case firstError (compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)) of
-    Just diagnostic -> Just diagnostic
-    Nothing -> firstModuleError (compiledProgramModules compiledProgram)
-  where
-    firstError diagnostics =
-      case diagnostics of
-        [] -> Nothing
-        diagnostic : rest
-          | isErrorDiagnostic diagnostic -> Just diagnostic
-          | otherwise -> firstError rest
-    firstModuleError compiledModules =
-      case compiledModules of
-        [] -> Nothing
-        compiledModule : rest ->
-          case firstError (compiledModuleDiagnostics compiledModule) of
-            Just diagnostic -> Just diagnostic
-            Nothing -> firstModuleError rest
+firstCompiledProgramError = find isErrorDiagnostic . compiledProgramDiagnostics
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,
@@ -213,11 +197,4 @@ compileInputs settings compiledPrelude =
 
 lookupCompiledModule :: [Text] -> CompiledProgram -> Maybe CompiledModule
 lookupCompiledModule modulePath =
-  go . compiledProgramModules
-  where
-    go modules =
-      case modules of
-        [] -> Nothing
-        compiledModule : rest
-          | compiledModulePath compiledModule == modulePath -> Just compiledModule
-          | otherwise -> go rest
+  find ((== modulePath) . compiledModulePath) . compiledProgramModules

@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Shared typed inventory for source and compiled module exports.
@@ -111,13 +112,7 @@ data ModuleExport = ModuleExport
 newtype ModuleExportInventory = ModuleExportInventory (Set ModuleExport)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
-
-instance Semigroup ModuleExportInventory where
-  ModuleExportInventory left <> ModuleExportInventory right =
-    ModuleExportInventory (Set.union left right)
-
-instance Monoid ModuleExportInventory where
-  mempty = ModuleExportInventory Set.empty
+  deriving newtype (Semigroup, Monoid)
 
 data ModuleImportMode
   = UnqualifiedImport

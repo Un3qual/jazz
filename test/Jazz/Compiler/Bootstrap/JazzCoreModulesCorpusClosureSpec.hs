@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List (find, nub)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.JazzCoreParity
@@ -423,11 +424,7 @@ resolveCoreCorpusInputs fixtures = mapM resolveEntry
 
 lookupParserFixture :: Text.Text -> [ParserFixture] -> Maybe ParserFixture
 lookupParserFixture name fixtures =
-  case fixtures of
-    [] -> Nothing
-    fixture : remaining
-      | parserFixtureName fixture == name -> Just fixture
-      | otherwise -> lookupParserFixture name remaining
+  find ((== name) . parserFixtureName) fixtures
 
 validateCoreCorpusManifest :: [ParserFixture] -> [CoreCorpusManifestEntry] -> [CoreCorpusManifestViolation]
 validateCoreCorpusManifest fixtures manifest =
@@ -444,8 +441,8 @@ validateCoreCorpusManifest fixtures manifest =
     fixtureNames = map parserFixtureName fixtures
     acceptedNames = map parserFixtureName (filter ((== ParserAccepted) . parserFixtureExpectation) fixtures)
     rejectedFixtureNames = map parserFixtureName (filter ((== ParserRejected) . parserFixtureExpectation) fixtures)
-    unknownNames = uniqueValues (filter (not . (`elem` fixtureNames)) manifestNames)
-    rejectedNames = uniqueValues (filter (`elem` rejectedFixtureNames) manifestNames)
+    unknownNames = nub (filter (not . (`elem` fixtureNames)) manifestNames)
+    rejectedNames = nub (filter (`elem` rejectedFixtureNames) manifestNames)
     omittedAcceptedNames = filter (not . (`elem` manifestNames)) acceptedNames
     completeNameSet =
       null (duplicateValues manifestNames)
@@ -468,17 +465,6 @@ collectDuplicateValues seen duplicates values =
       | value `elem` seen && value `notElem` duplicates ->
           collectDuplicateValues seen (value : duplicates) remaining
       | otherwise -> collectDuplicateValues (value : seen) duplicates remaining
-
-uniqueValues :: (Eq value) => [value] -> [value]
-uniqueValues = collectUniqueValues []
-
-collectUniqueValues :: (Eq value) => [value] -> [value] -> [value]
-collectUniqueValues seen values =
-  case values of
-    [] -> reverse seen
-    value : remaining
-      | value `elem` seen -> collectUniqueValues seen remaining
-      | otherwise -> collectUniqueValues (value : seen) remaining
 
 assertManifestViolation :: Text.Text -> Text.Text -> [CoreCorpusManifestEntry] -> IO ()
 assertManifestViolation label expectedViolation manifest =

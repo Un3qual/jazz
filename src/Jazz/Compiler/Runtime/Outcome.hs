@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Runtime termination values and compatibility adapters shared by the
@@ -35,7 +36,7 @@ data RuntimeOutcome value
   = RuntimeOutcomeCompleted value
   | RuntimeOutcomeExited Integer
   | RuntimeOutcomeFailed Diagnostic
-  deriving (Eq, Show)
+  deriving (Eq, Functor, Show)
 
 runtimeControlOutcome :: Either RuntimeControl value -> RuntimeOutcome value
 runtimeControlOutcome controlResult =

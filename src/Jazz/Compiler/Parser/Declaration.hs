@@ -13,6 +13,7 @@ module Jazz.Compiler.Parser.Declaration
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Char
   ( isLower,
     isUpper,
@@ -136,7 +137,7 @@ parseCapabilityDeclarationTokensDetailed ::
   TokenStream ->
   Either ParserFailure (SurfaceStatement, TokenStream)
 parseCapabilityDeclarationTokensDetailed parseImplExpression =
-  mapLeft capabilityFailureDetailed
+  first capabilityFailureDetailed
     . parseCapabilityDeclarationFromTokens parseImplExpression
 
 capabilityFailureDetailed :: CapabilityFailure ParserFailure -> ParserFailure
@@ -146,10 +147,10 @@ capabilityFailureDetailed capabilityFailure =
     CapabilityExpressionFailure failure -> failure
 
 liftCapabilityParserResult :: Either ParserFailure value -> Either (CapabilityFailure failure) value
-liftCapabilityParserResult = mapLeft CapabilityParserFailure
+liftCapabilityParserResult = first CapabilityParserFailure
 
 liftCapabilityExpressionResult :: Either failure value -> Either (CapabilityFailure failure) value
-liftCapabilityExpressionResult = mapLeft CapabilityExpressionFailure
+liftCapabilityExpressionResult = first CapabilityExpressionFailure
 
 parseImportStatementParser :: Parser SurfaceStatement
 parseImportStatementParser =
@@ -1992,9 +1993,3 @@ isTypeParameterIdentifierText name =
   case Text.uncons name of
     Just (firstChar, _) -> isLower firstChar
     Nothing -> False
-
-mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
-mapLeft transform result =
-  case result of
-    Left failure -> Left (transform failure)
-    Right value -> Right value

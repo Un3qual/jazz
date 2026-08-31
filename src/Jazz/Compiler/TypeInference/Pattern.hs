@@ -1,3 +1,5 @@
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.TypeInference.Pattern
@@ -188,14 +190,8 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
            in (checkedState, Just guardResult)
 
 newtype PatternBindings = PatternBindings (Map Name ExpressionType)
-  deriving (Eq, Show)
-
-instance Semigroup PatternBindings where
-  PatternBindings left <> PatternBindings right =
-    PatternBindings (Map.union left right)
-
-instance Monoid PatternBindings where
-  mempty = PatternBindings Map.empty
+  deriving stock (Eq, Show)
+  deriving newtype (Semigroup, Monoid)
 
 singletonPatternBinding :: Name -> ExpressionType -> PatternBindings
 singletonPatternBinding name expressionType =

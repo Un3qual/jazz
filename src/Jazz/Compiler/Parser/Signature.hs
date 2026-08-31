@@ -14,6 +14,7 @@ module Jazz.Compiler.Parser.Signature
 where
 
 import Control.Applicative ((<|>))
+import Data.Bifunctor (first)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -57,7 +58,7 @@ parseSupportedSignaturePayload tokens =
 
 parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceSignatureType
 parseConstrainedSignatureType =
-  mapLeft parserFailureDiagnostic . parseConstrainedSignatureTypeDetailed
+  first parserFailureDiagnostic . parseConstrainedSignatureTypeDetailed
 
 parseConstrainedSignatureTypeDetailed :: [Token] -> Either ParserFailure SurfaceSignatureType
 parseConstrainedSignatureTypeDetailed =
@@ -65,7 +66,7 @@ parseConstrainedSignatureTypeDetailed =
 
 parseSignatureTypePrefix :: [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
 parseSignatureTypePrefix =
-  mapLeft parserFailureDiagnostic . parseSignatureTypePrefixDetailed
+  first parserFailureDiagnostic . parseSignatureTypePrefixDetailed
 
 parseSignatureTypePrefixDetailed :: [Token] -> Either ParserFailure (SurfaceSignatureType, [Token])
 parseSignatureTypePrefixDetailed =
@@ -73,17 +74,11 @@ parseSignatureTypePrefixDetailed =
 
 splitTopLevelCommaTokens :: [Token] -> Either Diagnostic [[Token]]
 splitTopLevelCommaTokens =
-  mapLeft parserFailureDiagnostic . splitTopLevelCommaTokensDetailed
+  first parserFailureDiagnostic . splitTopLevelCommaTokensDetailed
 
 splitTopLevelCommaTokensDetailed :: [Token] -> Either ParserFailure [[Token]]
 splitTopLevelCommaTokensDetailed =
   TokenParser.runTokenParserDetailed "top-level comma list" topLevelCommaTokensParser
-
-mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
-mapLeft transform result =
-  case result of
-    Left failure -> Left (transform failure)
-    Right value -> Right value
 
 signaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 signaturePayloadParser =
