@@ -42,6 +42,7 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
   )
 import Jazz.Compiler.LoweredIR.Lower.Types
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Query (typedExpressionReferencesAnyBinder)
 
 analyzeTypedModule :: TypedModule -> Either [LoweredIRLoweringFailure] LoweringAnalysis
 analyzeTypedModule typedModule = do
@@ -1451,42 +1452,9 @@ recursiveGroupProfileFailures managedLayoutCatalog modulePath functions unshared
         && Set.member
           (functionShapeStatementIndex function)
           memberStatementIndexes
-        && expressionReferencesAnyBinder
+        && typedExpressionReferencesAnyBinder
           memberSet
           (functionShapeBody function)
-
-expressionReferencesAnyBinder :: Set.Set TypedBinderId -> TypedExpr -> Bool
-expressionReferencesAnyBinder binders expression =
-  case expression of
-    TypedLiteralExpr {} -> False
-    TypedVariableExpr _ _ binderReference ->
-      maybe False (`Set.member` binders) binderReference
-    TypedLambdaExpr _ _ _ body -> child body
-    TypedOperatorValueExpr {} -> False
-    TypedListExpr _ elements -> any child elements
-    TypedTupleExpr _ elements -> any child elements
-    TypedApplyExpr _ function argument -> child function || child argument
-    TypedTypeApplicationExpr _ function _ _ -> child function
-    TypedIfExpr _ condition thenExpression elseExpression ->
-      any child [condition, thenExpression, elseExpression]
-    TypedPatternCaseExpr _ scrutinee arms ->
-      child scrutinee || any armReferencesBinder arms
-    TypedBinaryExpr _ _ left right -> child left || child right
-    TypedLeftSectionExpr _ left _ -> child left
-    TypedRightSectionExpr _ _ right -> child right
-    TypedBlockExpr _ statements -> any statementReferencesBinder statements
-  where
-    child = expressionReferencesAnyBinder binders
-    armReferencesBinder (TypedCaseArm _ maybeGuard result) =
-      maybe False child maybeGuard || child result
-    statementReferencesBinder statement =
-      case statement of
-        TypedLetStatement _ _ _ _ initializer -> child initializer
-        TypedExpressionStatement _ result -> child result
-        TypedImplStatement (TypedImplDeclaration _ _ methods) ->
-          any methodReferencesBinder methods
-        _ -> False
-    methodReferencesBinder (TypedMethodDefinition _ _ _ _ body) = child body
 
 loweredPrimitive :: TypedOperatorRef -> Maybe LoweredPrimitive
 loweredPrimitive operator =

@@ -36,6 +36,7 @@ import Jazz.Compiler.LoweredIR.Lower.Types
   )
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textRepresentation)
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Query (typedPatternChildren, typedPatternInfo)
 import Numeric.Natural (Natural)
 
 data CatalogBuild = CatalogBuild
@@ -226,8 +227,8 @@ collectExpression declarations modulePath statementPath expressionPath expressio
 
 collectPattern :: Map TypedCoreName TypedDataDeclaration -> [Text] -> [Int] -> [Int] -> TypedPattern -> CatalogBuild -> Either [LoweredIRLoweringFailure] CatalogBuild
 collectPattern declarations modulePath statementPath patternPath patternValue build = do
-  afterInfo <- collectObservedRecipe declarations modulePath path build (typedNodeRecipe (patternInfo patternValue))
-  foldM collectChild afterInfo (zip [0 :: Int ..] (patternChildren patternValue))
+  afterInfo <- collectObservedRecipe declarations modulePath path build (typedNodeRecipe (typedPatternInfo patternValue))
+  foldM collectChild afterInfo (zip [0 :: Int ..] (typedPatternChildren patternValue))
   where
     path = TypedPatternPath modulePath statementPath patternPath
     collectChild current (index, child) = collectPattern declarations modulePath statementPath (patternPath <> [index]) child current
@@ -511,30 +512,6 @@ dataDeclarationParameters (TypedDataDeclaration _ _ parameters _) = parameters
 
 dataDeclarationConstructors :: TypedDataDeclaration -> [TypedConstructorDeclaration]
 dataDeclarationConstructors (TypedDataDeclaration _ _ _ constructors) = constructors
-
-patternInfo :: TypedPattern -> TypedNodeInfo
-patternInfo patternValue =
-  case patternValue of
-    TypedWildcardPattern info -> info
-    TypedVariablePattern info _ _ -> info
-    TypedLiteralPattern info _ -> info
-    TypedConstructorPattern info _ _ -> info
-    TypedListPattern info _ -> info
-    TypedConsListPattern info _ _ -> info
-    TypedTuplePattern info _ -> info
-    TypedAsPattern info _ _ _ -> info
-    TypedOrPattern info _ -> info
-
-patternChildren :: TypedPattern -> [TypedPattern]
-patternChildren patternValue =
-  case patternValue of
-    TypedConstructorPattern _ _ children -> children
-    TypedListPattern _ children -> children
-    TypedConsListPattern _ headPattern tailPattern -> [headPattern, tailPattern]
-    TypedTuplePattern _ children -> children
-    TypedAsPattern _ _ _ nested -> [nested]
-    TypedOrPattern _ alternatives -> alternatives
-    _ -> []
 
 reserveLayout :: LoweredLayoutId -> CatalogBuild -> CatalogBuild
 reserveLayout layoutId build =

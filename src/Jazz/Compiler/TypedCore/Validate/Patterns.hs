@@ -12,7 +12,6 @@ module Jazz.Compiler.TypedCore.Validate.Patterns
     patternBinderOccurrences,
     patternBoundContracts,
     patternChildrenWithContracts,
-    patternInfo,
     patternValueContract,
     validateConstructorPatternShape,
     validateListPatternShape,
@@ -28,6 +27,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Query (typedPatternInfo)
 import Jazz.Compiler.TypedCore.Validate.Evidence
 import Jazz.Compiler.TypedCore.Validate.Internal
 import Jazz.Compiler.TypedCore.Validate.TypeRecipes
@@ -59,17 +59,17 @@ patternBinderOccurrences modulePath statementLocation patternPath patternValue =
 
 validatePattern :: ModuleContext -> [Int] -> [Int] -> ValueContract -> TypedPattern -> [TypedCoreValidationFailure]
 validatePattern context statementLocation patternPath (ValueContract expectedType expectedRecipeValue) patternValue =
-  validateNodeInfo context path (moduleContextTypeScope context) False Nothing Nothing (patternInfo patternValue)
-    <> validatePatternMetadata path (patternInfo patternValue)
+  validateNodeInfo context path (moduleContextTypeScope context) False Nothing Nothing (typedPatternInfo patternValue)
+    <> validatePatternMetadata path (typedPatternInfo patternValue)
     <> scrutineeFailures
     <> patternOwnedFailures
     <> concatMap validateChild (patternChildrenWithContracts context patternValue)
   where
     path = TypedPatternPath (moduleContextPath context) statementLocation patternPath
-    actualType = typedNodeType (patternInfo patternValue)
+    actualType = typedNodeType (typedPatternInfo patternValue)
     scrutineeFailures
       | actualType /= expectedType = [failure path TypedPatternScrutineeMismatch (TypedTypeDetail expectedType actualType)]
-      | otherwise = recipeContractFailures path TypedPatternScrutineeMismatch expectedRecipeValue (patternInfo patternValue)
+      | otherwise = recipeContractFailures path TypedPatternScrutineeMismatch expectedRecipeValue (typedPatternInfo patternValue)
     patternOwnedFailures =
       case patternValue of
         TypedVariablePattern _ binderId name -> validateLocalDefinitionName context [TypedValueNamespace] path name <> validateBinderDefinition context path binderId name
@@ -161,7 +161,7 @@ patternChildrenWithContracts context patternValue =
       [(index, patternValueContract pattern', pattern') | (index, pattern') <- zip [0 ..] patterns]
 
 patternValueContract :: TypedPattern -> ValueContract
-patternValueContract = nodeValueContract . patternInfo
+patternValueContract = nodeValueContract . typedPatternInfo
 
 nodeValueContract :: TypedNodeInfo -> ValueContract
 nodeValueContract info = ValueContract (typedNodeType info) (typedNodeRecipe info)
@@ -252,16 +252,3 @@ patternBinderContractEqual
     expectedName == actualName
       && expectedType == actualType
       && expectedRecipeValue == actualRecipeValue
-
-patternInfo :: TypedPattern -> TypedNodeInfo
-patternInfo patternValue =
-  case patternValue of
-    TypedWildcardPattern info -> info
-    TypedVariablePattern info _ _ -> info
-    TypedLiteralPattern info _ -> info
-    TypedConstructorPattern info _ _ -> info
-    TypedListPattern info _ -> info
-    TypedConsListPattern info _ _ -> info
-    TypedTuplePattern info _ -> info
-    TypedAsPattern info _ _ _ -> info
-    TypedOrPattern info _ -> info

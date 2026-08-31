@@ -30,6 +30,7 @@ import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
     textOperationService,
   )
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Query (typedPatternChildren, typedPatternInfo)
 
 collectRuntimeRequirements :: TypedModule -> RuntimeRequirements
 collectRuntimeRequirements (TypedModule _ _ _ _ moduleInterface _ statements moduleInfo) =
@@ -144,29 +145,8 @@ requirementsForArm (TypedCaseArm patternValue guard result) =
 
 requirementsForPattern :: TypedPattern -> RuntimeRequirements
 requirementsForPattern patternValue =
-  requirementsForNodeInfo (patternInfo patternValue)
-    <> foldMap requirementsForPattern (patternChildren patternValue)
-  where
-    patternInfo patternNode =
-      case patternNode of
-        TypedWildcardPattern info -> info
-        TypedVariablePattern info _ _ -> info
-        TypedLiteralPattern info _ -> info
-        TypedConstructorPattern info _ _ -> info
-        TypedListPattern info _ -> info
-        TypedConsListPattern info _ _ -> info
-        TypedTuplePattern info _ -> info
-        TypedAsPattern info _ _ _ -> info
-        TypedOrPattern info _ -> info
-    patternChildren patternNode =
-      case patternNode of
-        TypedConstructorPattern _ _ children -> children
-        TypedListPattern _ children -> children
-        TypedConsListPattern _ headPattern tailPattern -> [headPattern, tailPattern]
-        TypedTuplePattern _ children -> children
-        TypedAsPattern _ _ _ nested -> [nested]
-        TypedOrPattern _ alternatives -> alternatives
-        _ -> []
+  requirementsForNodeInfo (typedPatternInfo patternValue)
+    <> foldMap requirementsForPattern (typedPatternChildren patternValue)
 
 textEqualityOperation :: TypedExpr -> Maybe Bool
 textEqualityOperation expression =

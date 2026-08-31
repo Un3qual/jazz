@@ -97,6 +97,7 @@ import Jazz.Compiler.TypeInference.Solver
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Query (typedExpressionReferencesAnyBinder)
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgramOnce,
   )
@@ -1978,7 +1979,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           case expression of
             TypedLiteralExpr {} -> False
             TypedVariableExpr {} -> False
-            TypedLambdaExpr _ _ _ body -> expressionReferencesAnyBinder binders body
+            TypedLambdaExpr _ _ _ body -> typedExpressionReferencesAnyBinder binders body
             TypedOperatorValueExpr {} -> False
             TypedListExpr _ elements -> any nestedReference elements
             TypedTupleExpr _ elements -> any nestedReference elements
@@ -2003,38 +2004,6 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               any methodHasNestedReference methods
             _ -> False
         methodHasNestedReference (TypedMethodDefinition _ _ _ _ body) = nestedReference body
-
-    expressionReferencesAnyBinder binders expression =
-      case expression of
-        TypedLiteralExpr {} -> False
-        TypedVariableExpr _ _ binderReference ->
-          maybe False (`Set.member` binders) binderReference
-        TypedLambdaExpr _ _ _ body -> child body
-        TypedOperatorValueExpr {} -> False
-        TypedListExpr _ elements -> any child elements
-        TypedTupleExpr _ elements -> any child elements
-        TypedApplyExpr _ function argument -> child function || child argument
-        TypedTypeApplicationExpr _ function _ _ -> child function
-        TypedIfExpr _ condition thenExpression elseExpression ->
-          any child [condition, thenExpression, elseExpression]
-        TypedPatternCaseExpr _ scrutinee arms ->
-          child scrutinee || any armReferencesBinder arms
-        TypedBinaryExpr _ _ left right -> child left || child right
-        TypedLeftSectionExpr _ left _ -> child left
-        TypedRightSectionExpr _ _ right -> child right
-        TypedBlockExpr _ blockStatements -> any statementReferencesBinder blockStatements
-      where
-        child = expressionReferencesAnyBinder binders
-        armReferencesBinder (TypedCaseArm _ maybeGuard result) =
-          maybe False child maybeGuard || child result
-        statementReferencesBinder statement =
-          case statement of
-            TypedLetStatement _ _ _ _ initializer -> child initializer
-            TypedExpressionStatement _ result -> child result
-            TypedImplStatement (TypedImplDeclaration _ _ methods) ->
-              any methodReferencesBinder methods
-            _ -> False
-        methodReferencesBinder (TypedMethodDefinition _ _ _ _ body) = child body
 
     finalizeExports structuredCatalog provisionalStatements functions callableShapes =
       let (reversedFailures, TypedModuleInterface reversedValues datas classes impls) =
