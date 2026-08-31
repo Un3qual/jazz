@@ -131,7 +131,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 
 - [ ] **Step 2: Promote the candidate.** Replace the empty `Ready Now` state
       with this plan's exact frontmatter row. Remove the candidate from `Next
-  Curation Target`; preserve the completed construction evidence.
+Curation Target`; preserve the completed construction evidence.
 
 - [ ] **Step 3: Update the bootstrap blocker.** Name this managed-pattern child
       as executing and retain every explicit RFC 0015 exclusion.
@@ -157,10 +157,14 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 
 **Files:**
 
+- Modify: `src/Jazz/Compiler/TypeInference.hs`
 - Modify: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`
 - Modify: `src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs`
+- Modify: `src/Jazz/Compiler/TypedCore/Validate/Patterns.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs`
+- Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs`
 - Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs`
+- Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ScalarTextTests.hs`
 
 **Interfaces:**
 
@@ -184,8 +188,15 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
 - Reuse `concreteConstructorContract` and
   `concreteConstructorFieldTypes`; do not re-run inference or reconstruct
   constructor ownership from source spelling alone.
+- Let the provisional producer profile pass only RFC 0015 tuple/data pattern
+  roots to finalization; keep scalar cases and every existing exclusion at
+  their current owners.
 - Allocate every distinct arm binder with the arm pattern path and its resolved
   value name. Top-level or alternatives look up the same binder table.
+- Count a `TypedOrPattern` as one logical definition set in global binder
+  occurrence validation, using the first alternative exactly as
+  `patternBinderNodes` does; retain `validateOrPattern`'s all-alternative
+  contract-equality check.
 - Specialize guard and body provisional references for every collected binder
   type, not only a root variable pattern.
 
@@ -215,10 +226,9 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   ```
 
   ```jazz
-  data Option a = None | Some a.
-  case Some 1 {
-    | Some item | Some item if item > 0 -> item
-    | None -> 0
+  data Choice = Left Int | Right Int.
+  case Left 1 {
+    | Left item | Right item -> item
   }.
   ```
 
@@ -226,9 +236,11 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
   and identical binder contracts across or alternatives.
 
 - [ ] **Step 3: Add producer exclusions.** Assert the producer still returns
-      `TypedCorePatternCaseUnsupported` at the exact nested pattern path for
-      list/cons patterns, Text literals, nested or-patterns, and pattern
-      lambdas. Keep ordinary source diagnostics ahead of these failures.
+      `TypedCorePatternCaseUnsupported` at the exact nested pattern path for a
+      Text literal inside an admitted managed pattern. Retain the established
+      list/cons, nested-or grammar, and pattern-lambda rejection coverage at
+      their earlier profile owners. Keep ordinary source diagnostics ahead of
+      producer failures.
 
 - [ ] **Step 4: Run the focused suite and verify RED.** Run:
 
@@ -259,7 +271,7 @@ and `rfcs/accepted/0015-typed-core-managed-products-and-variants.md`
       touched files, then:
 
   ```bash
-  git add src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs
+  git add src/Jazz/Compiler/TypeInference.hs src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs src/Jazz/Compiler/TypedCore/Validate/Patterns.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallFixtures/ManagedProductsVariants.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ManagedProductsVariantsTests.hs test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ScalarTextTests.hs
   git commit -m "feat: produce typed-core managed patterns"
   ```
 
