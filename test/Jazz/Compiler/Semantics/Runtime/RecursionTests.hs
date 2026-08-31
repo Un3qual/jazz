@@ -26,7 +26,7 @@ import Jazz.Compiler.AST
     Statement (..)
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveCompatibility, ResolveKernelOnly)
+  ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..)
@@ -502,9 +502,6 @@ testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
 
 testBuiltinNameDoesNotGainSelfRecursiveVisibility :: IO ()
 testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
-  plan <- scopePlanForSource ResolveCompatibility witnessSource
-  assertEqual "builtin-named witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
-  assertEqual "builtin-named witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings witnessSource
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)

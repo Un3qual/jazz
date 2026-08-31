@@ -49,11 +49,10 @@ import Jazz.Compiler.AST
   ( NumericType (..),
   )
 
--- | Selects exactly one builtin naming scheme for a compiler phase: either the
--- kernel bridge names or the older compatibility/public names.
+-- | Selects the compiler-owned builtin naming scheme used by every compiler
+-- phase. Public builtin spellings remain available through the Prelude.
 data BuiltinResolutionMode
   = ResolveKernelOnly
-  | ResolveCompatibility
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -117,23 +116,11 @@ data BuiltinSymbol
 allBuiltinSymbols :: [BuiltinSymbol]
 allBuiltinSymbols = [minBound .. maxBound]
 
--- | Render the accepted builtin names for one resolution mode. The resulting
--- set is intentionally mode-specific so kernel-only phases do not accept
--- compatibility aliases by accident.
+-- | Render the accepted compiler-owned builtin names. Public Prelude aliases
+-- are deliberately absent from this set.
 builtinNamesInMode :: BuiltinResolutionMode -> Set Text
-builtinNamesInMode mode =
-  Set.fromList
-    [ case mode of
-        ResolveKernelOnly -> builtinSymbolKernelName symbol
-        ResolveCompatibility -> builtinSymbolName symbol
-    | symbol <- symbolsForMode mode
-    ]
-  where
-    symbolsForMode resolutionMode =
-      case resolutionMode of
-        ResolveKernelOnly -> allBuiltinSymbols
-        ResolveCompatibility ->
-          filter ((== PreludeTarget) . builtinSymbolOwnership) allBuiltinSymbols
+builtinNamesInMode ResolveKernelOnly =
+  Set.fromList (map builtinSymbolKernelName allBuiltinSymbols)
 
 -- | Classify the public ownership contract for a builtin independent of the
 -- temporary runtime implementation that backs it.
@@ -435,15 +422,10 @@ lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupKernelBuiltinSymbol name =
   lookupByRenderedName builtinSymbolKernelName name
 
--- | Resolve builtin names according to the selected mode. This chooses either
--- the kernel-name lookup or the compatibility lookup, never a combined search.
+-- | Resolve a compiler-owned builtin name according to the selected mode.
 lookupBuiltinSymbolInMode :: BuiltinResolutionMode -> Text -> Maybe BuiltinSymbol
-lookupBuiltinSymbolInMode mode name =
-  case mode of
-    ResolveKernelOnly ->
-      lookupKernelBuiltinSymbol name
-    ResolveCompatibility ->
-      lookupBuiltinSymbol name
+lookupBuiltinSymbolInMode ResolveKernelOnly =
+  lookupKernelBuiltinSymbol
 
 -- | Test whether a name is accepted by the selected builtin resolution mode.
 isBuiltinSymbolNameInMode :: BuiltinResolutionMode -> Text -> Bool
