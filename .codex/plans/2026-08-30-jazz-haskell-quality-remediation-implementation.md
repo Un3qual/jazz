@@ -1669,8 +1669,27 @@ git commit -m "test: remove vacuous pure repeatability checks"
 - [ ] **Step 1: Consolidate fixture ownership without deleting semantic checks**
 
 Keep one exact ordered manifest per fixture family. Delete only derived `length`
-literals and equalities implied by the retained component manifests. Keep one
-authoritative 365/196/169 parser partition assertion in the fixture-manifest owner.
+literals and equalities implied by retained component manifests:
+
+- remove the Typed Core 21/56/77 counts and repeated combined-manifest equality,
+  while retaining exact names, uniqueness, disjointness, and validation-kind coverage;
+- remove Lowered IR 31/51/20 counts and repeated combined equality, but retain the
+  behavior/performance-sensitive 1,999-failure characterization;
+- remove direct-call 36/14/50 counts and the repeated combined-set equality only
+  where the exact accepted/rejected lists imply them; retain the independent
+  uniqueness assertion and prior-inventory subset check, dropping only its
+  redundant numeric size assertion;
+- remove control-flow 15/12 counts only where exact ordered manifests imply them;
+  retain hosted parity reruns and expected-output construction;
+- remove canonical-parser 52/101/75 family sizes where the same tests retain exact
+  ordered family-name lists. Do not delete size/boundary/classification checks for
+  final families lacking an equivalent exact list in the same test.
+
+Keep one authoritative 365/196/169 parser partition assertion in
+`JazzCoreModulesCorpusClosureSpec`; remove only duplicated cardinality literals
+from `CanonicalParserComparisonSpec`, retaining assignment membership, exact
+family order, category coverage, and boundaries. Never remove high-cardinality
+behavior or performance counts merely because they are numeric.
 
 - [ ] **Step 2: Narrow parser cleanup**
 
@@ -1692,7 +1711,10 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 - [ ] **Step 4: Format and commit**
 
-Format touched tests, run `git diff --check`, then:
+Record base formatter status for the exact touched tests. Whole-file format only
+base-clean files; for legacy-layout files, format every Task 23 semantic region
+and preserve unrelated layout for Task 25. Record the whole/scoped checks in the
+task report, run `git diff --check`, then:
 
 ```sh
 git add test
