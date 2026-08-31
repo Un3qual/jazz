@@ -18,14 +18,22 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Text.IO as TextIO
 import Jazz.CLI.Main
-  ( CliOptions (..),
+  ( CliExecutionMode (..),
+    CliInput (..),
+    CliOptions,
     CliOutput (..),
+    CliPreludeSelection (..),
     RuntimeProfileWriter,
     RuntimeStatisticsFormat (..),
+    cliExecutionMode,
+    cliInput,
+    cliPreludeSelection,
+    cliWarningFlags,
+    cliWarningsConfigPath,
     parseCliOptions,
     runCliWith,
     runCliWithHost,
-    runCliWithHostAndProfileWriter
+    runCliWithHostAndProfileWriter,
   )
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (..),
@@ -157,9 +165,9 @@ testParseOptions = do
       Right parsed -> pure parsed
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)
-  assertEqual "run mode" False (cliRunMode options)
-  assertEqual "prelude path" Nothing (cliPreludePath options)
-  assertEqual "prelude disabled" False (cliDisablePrelude options)
+  assertEqual "implicit stdin input" CliStdin (cliInput options)
+  assertEqual "compile mode" CliCompile (cliExecutionMode options)
+  assertEqual "default prelude selection" CliDefaultPrelude (cliPreludeSelection options)
 
 testParseRunMode :: IO ()
 testParseRunMode = do
@@ -167,10 +175,10 @@ testParseRunMode = do
     case parseCliOptions ["--run"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
   assertEqual "warning flags" [] (cliWarningFlags options)
-  assertEqual "prelude path" Nothing (cliPreludePath options)
-  assertEqual "prelude disabled" False (cliDisablePrelude options)
+  assertEqual "implicit stdin input" CliStdin (cliInput options)
+  assertEqual "default prelude selection" CliDefaultPrelude (cliPreludeSelection options)
 
 testParseRuntimeStatistics :: IO ()
 testParseRuntimeStatistics = do
@@ -179,16 +187,16 @@ testParseRuntimeStatistics = do
   jsonOptions <- requireParsedOptions ["--run", "--runtime-stats=json", "--runtime-stats=json"]
   assertEqual
     "default runtime statistics format"
-    (Just RuntimeStatisticsHuman)
-    (cliRuntimeStatisticsFormat defaultOptions)
+    (CliRunWithStatistics RuntimeStatisticsHuman)
+    (cliExecutionMode defaultOptions)
   assertEqual
     "explicit human runtime statistics format"
-    (Just RuntimeStatisticsHuman)
-    (cliRuntimeStatisticsFormat humanOptions)
+    (CliRunWithStatistics RuntimeStatisticsHuman)
+    (cliExecutionMode humanOptions)
   assertEqual
     "JSON runtime statistics format"
-    (Just RuntimeStatisticsJson)
-    (cliRuntimeStatisticsFormat jsonOptions)
+    (CliRunWithStatistics RuntimeStatisticsJson)
+    (cliExecutionMode jsonOptions)
 
 testParseRuntimeProfile :: IO ()
 testParseRuntimeProfile = do
@@ -200,12 +208,22 @@ testParseRuntimeProfile = do
       ["--run", "--runtime-profile", "profiles/program.speedscope.json"]
   assertEqual
     "equals runtime profile path"
-    (Just "profiles/program.speedscope.json")
-    (cliRuntimeProfilePath equalsOptions)
+    (CliRunWithProfile "profiles/program.speedscope.json")
+    (cliExecutionMode equalsOptions)
   assertEqual
     "space-separated runtime profile path"
-    (Just "profiles/program.speedscope.json")
-    (cliRuntimeProfilePath spacedOptions)
+    (CliRunWithProfile "profiles/program.speedscope.json")
+    (cliExecutionMode spacedOptions)
+  combinedOptions <-
+    requireParsedOptions
+      [ "--run",
+        "--runtime-stats=json",
+        "--runtime-profile=profiles/program.speedscope.json"
+      ]
+  assertEqual
+    "combined runtime observation mode"
+    (CliRunWithStatisticsAndProfile RuntimeStatisticsJson "profiles/program.speedscope.json")
+    (cliExecutionMode combinedOptions)
 
 testParseInvalidRuntimeObservation :: IO ()
 testParseInvalidRuntimeObservation = do
@@ -251,8 +269,8 @@ testParseSourcePath = do
     case parseCliOptions ["--run", "first.jz"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
-  assertEqual "source path" (Just "first.jz") (cliSourcePath options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
+  assertEqual "source input" (CliSourceFile "first.jz") (cliInput options)
 
 testParseMultipleSourcePaths :: IO ()
 testParseMultipleSourcePaths =
@@ -268,8 +286,8 @@ testParseExplicitStdinSentinel = do
     case parseCliOptions ["--run", "-"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
-  assertEqual "stdin sentinel source selector" (Just "-") (cliSourcePath options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
+  assertEqual "explicit stdin input" CliStdin (cliInput options)
 
 testParseExplicitStdinWithSourcePath :: IO ()
 testParseExplicitStdinWithSourcePath = do
@@ -311,9 +329,16 @@ testParseModuleGraphOptions = do
     case parseCliOptions ["--run", "--entry-module", "App::Main", "--module-root", "src", "--module-root", "stdlib"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
-  assertEqual "entry module" (Just ["App", "Main"]) (cliEntryModule options)
-  assertEqual "module roots" ["src", "stdlib"] (cliModuleRoots options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
+  assertEqual
+    "module graph input"
+    (CliModuleGraph ["App", "Main"] ["src", "stdlib"])
+    (cliInput options)
+  defaultRootOptions <- requireParsedOptions ["--entry-module", "App::Main"]
+  assertEqual
+    "module graph default root"
+    (CliModuleGraph ["App", "Main"] ["."])
+    (cliInput defaultRootOptions)
 
 testParsePreludePath :: IO ()
 testParsePreludePath = do
@@ -321,8 +346,10 @@ testParsePreludePath = do
     case parseCliOptions ["--prelude", "stdlib/Prelude.jz"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "prelude path" (Just "stdlib/Prelude.jz") (cliPreludePath options)
-  assertEqual "prelude disabled" False (cliDisablePrelude options)
+  assertEqual
+    "explicit prelude selection"
+    (CliExplicitPrelude "stdlib/Prelude.jz")
+    (cliPreludeSelection options)
 
 testParseNoPrelude :: IO ()
 testParseNoPrelude = do
@@ -330,8 +357,7 @@ testParseNoPrelude = do
     case parseCliOptions ["--no-prelude"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "prelude path" Nothing (cliPreludePath options)
-  assertEqual "prelude disabled" True (cliDisablePrelude options)
+  assertEqual "disabled prelude selection" CliPreludeDisabled (cliPreludeSelection options)
 
 testParsePreludeConflict :: IO ()
 testParsePreludeConflict =
