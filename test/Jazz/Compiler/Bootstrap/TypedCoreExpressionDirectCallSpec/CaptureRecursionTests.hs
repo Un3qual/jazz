@@ -22,8 +22,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
   )
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TBoolType, TFunctionType, TIntegerLiteralType, TNumericType, TTupleType),
-    IntegerLiteralRange (..),
+  ( ExpressionType (TBoolType, TFunctionType, TNumericType, TTupleType),
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
@@ -86,7 +85,7 @@ testEarlierCallerTransitiveCaptureAvailability = do
 testCapturedNumericScalarReferenceSpecialization :: IO ()
 testCapturedNumericScalarReferenceSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
@@ -129,7 +128,7 @@ testCapturedNumericScalarReferenceSpecialization = do
 testCapturedCompositeScalarSpecialization :: IO ()
 testCapturedCompositeScalarSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
@@ -168,8 +167,8 @@ testCapturedCompositeScalarSpecialization = do
 testCapturedCompositeScalarBinderSpecialization :: IO ()
 testCapturedCompositeScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      seedType = TIntegerLiteralType (IntegerLiteralRange 1 1)
-      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      seedType = TNumericType NumericUInt8
+      otherType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 2 spanValue functionType
@@ -214,9 +213,9 @@ testCapturedCompositeScalarBinderSpecialization = do
 testCapturedComparisonResultSpecialization :: IO ()
 testCapturedComparisonResultSpecialization = do
   let spanValue = SourceSpan 1 1
-      seedType = TIntegerLiteralType (IntegerLiteralRange 1 1)
-      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
-      comparisonOperandType = TIntegerLiteralType (IntegerLiteralRange 1 2)
+      seedType = TNumericType NumericUInt8
+      otherType = TNumericType NumericUInt8
+      comparisonOperandType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
@@ -261,7 +260,7 @@ testCapturedComparisonResultSpecialization = do
 testCapturedFunctionBodySpecialization :: IO ()
 testCapturedFunctionBodySpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -320,7 +319,7 @@ testCapturedFunctionBodySpecialization = do
 testCapturedFunctionParameterSpecialization :: IO ()
 testCapturedFunctionParameterSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -383,7 +382,7 @@ testCapturedFunctionParameterSpecialization = do
 testCapturedCallableParameterApplicationSpecialization :: IO ()
 testCapturedCallableParameterApplicationSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       callbackFunctionType = TFunctionType literalType literalType
@@ -447,7 +446,7 @@ testCapturedCallableParameterApplicationSpecialization = do
 testCapturedFunctionScalarBinderSpecialization :: IO ()
 testCapturedFunctionScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -509,15 +508,15 @@ testCapturedFunctionScalarBinderSpecialization = do
           ]
   assertProvisionalProductionTypes
     "captured function scalar binder specialization"
-    [("other", typedUInt8Type), ("helper", typedIntToUInt8Type)]
+    [("other", typedUInt8Type), ("helper", typedUInt8UnaryType)]
     Nothing
     provisionalScope
 
 testCapturedFunctionArgumentScalarBinderSpecialization :: IO ()
 testCapturedFunctionArgumentScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
-      otherType = TIntegerLiteralType (IntegerLiteralRange 2 2)
+      literalType = TNumericType NumericUInt8
+      otherType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -586,7 +585,7 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
 testCapturedFunctionResultScalarBinderSpecialization :: IO ()
 testCapturedFunctionResultScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -655,7 +654,7 @@ testCapturedFunctionResultScalarBinderSpecialization = do
 testCapturedHigherOrderCallableArgumentSpecialization :: IO ()
 testCapturedHigherOrderCallableArgumentSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -738,7 +737,7 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
 testCapturedForwardedHigherOrderCallableArgumentSpecialization :: IO ()
 testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -844,7 +843,7 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
 testCapturedTerminalAnonymousCallableSpecialization :: IO ()
 testCapturedTerminalAnonymousCallableSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       anonymousFunctionType = TFunctionType literalType literalType
@@ -892,7 +891,7 @@ testCapturedTerminalAnonymousCallableSpecialization = do
 testCapturedNamedCallerSpecialization :: IO ()
 testCapturedNamedCallerSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       recursiveFunctionType = TFunctionType uint8Type uint8Type
       helperFunctionType = TFunctionType literalType literalType
@@ -975,7 +974,7 @@ testCapturedNamedCallerSpecialization = do
 testCapturedNamedApplicationTupleSpecialization :: IO ()
 testCapturedNamedApplicationTupleSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       unitType = TTupleType []
       tupleType = TTupleType [literalType, unitType]
@@ -1044,7 +1043,7 @@ testCapturedNamedApplicationTupleSpecialization = do
 testCapturedScalarAliasSourceSpecialization :: IO ()
 testCapturedScalarAliasSourceSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 2 spanValue functionType
@@ -1087,7 +1086,7 @@ testCapturedScalarAliasSourceSpecialization = do
 testRecordedScalarStatementIndices :: IO ()
 testRecordedScalarStatementIndices = do
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 3 spanValue functionType
@@ -1131,7 +1130,7 @@ testEagerRecursiveClosureCaptureAvailability :: IO ()
 testEagerRecursiveClosureCaptureAvailability = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let spanValue = SourceSpan 1 1
-      literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+      literalType = TNumericType NumericUInt8
       uint8Type = TNumericType NumericUInt8
       functionType = TFunctionType uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 3 spanValue functionType

@@ -47,8 +47,6 @@ where
 
 import Control.Applicative ((<|>))
 import Data.Foldable (toList)
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import Data.List (uncons)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -131,6 +129,7 @@ import Jazz.Compiler.TypeInference.Solver
     constrainNumericOperatorType,
     freshTypeVar,
     integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
     resolveType,
     supportsRuntimeEqualityType,
     unifyTypes,
@@ -169,6 +168,7 @@ import Jazz.Compiler.TypeInference.Types
     ConstructorArgumentType (..),
     ExpressionType (..),
     ImplMethodType (..),
+    InferenceVariable,
     ScopeCapabilityFacts (..),
     TypeBinding (..),
     TypeEnv,
@@ -599,8 +599,8 @@ checkImplMethodBodies inferExpected resultType builtinMode env state capabilityN
                                                 ( mkImplMethodTypeMismatchError
                                                     methodKey
                                                     methodSpan
-                                                    (resolveType stateAfterMethod expectedType)
-                                                    (resolveType stateAfterMethod methodType)
+                                                    (defaultLiteralTypes stateAfterMethod (resolveType stateAfterMethod expectedType))
+                                                    (defaultLiteralTypes stateAfterMethod (resolveType stateAfterMethod methodType))
                                                 )
                                         Nothing ->
                                           stateAfterMethod
@@ -636,7 +636,7 @@ addUnpreservedInferredMethodConstraintErrors ::
   InferState ->
   InferState ->
   ExpressionType ->
-  Set Int ->
+  Set InferenceVariable ->
   InferState
 addUnpreservedInferredMethodConstraintErrors spanValue env statementStartState state statementResultType schemeVariables =
   foldl'
@@ -720,7 +720,7 @@ newInferredClassConstraints previousState state =
     currentConstraintCount = inferInferredClassConstraintCount state
     newConstraintCount = max 0 (currentConstraintCount - previousConstraintCount)
 
-inferredConstraintTargetPreserved :: InferState -> Set Int -> ExpressionType -> Bool
+inferredConstraintTargetPreserved :: InferState -> Set InferenceVariable -> ExpressionType -> Bool
 inferredConstraintTargetPreserved state schemeVariables argumentType =
   let targetType = resolveType state argumentType
       targetVariables = freeTypeVariables targetType
@@ -729,7 +729,7 @@ inferredConstraintTargetPreserved state schemeVariables argumentType =
 
 inferredConstraintTargetConcrete :: InferState -> ExpressionType -> Bool
 inferredConstraintTargetConcrete state argumentType =
-  let resolvedArgumentType = defaultLiteralTypes (resolveType state argumentType)
+  let resolvedArgumentType = defaultLiteralTypes state (resolveType state argumentType)
    in Set.null (freeTypeVariables resolvedArgumentType)
         && case Signature.expressionTypeToRuntimeHint resolvedArgumentType of
           Just _ -> True
@@ -763,7 +763,7 @@ concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName me
     [] -> False
     [_] -> True
     _
-      | expressionTypeContainsUncommittedIntegerLiteral argumentType ->
+      | expressionTypeContainsUncommittedIntegerLiteral state argumentType ->
           uniqueExactRuntimeCandidateHint state argumentType satisfyingMethodHints
       | otherwise -> True
   where
@@ -794,13 +794,13 @@ resolveTypeSchemeConstraint state constraint =
     TypeSchemeMethodConstraint constraintName methodKey argumentType ->
       TypeSchemeMethodConstraint constraintName methodKey (resolveType state argumentType)
 
-freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set Int
+freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set InferenceVariable
 freeTypeVariablesInEnv state =
   Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
 
 data TypeEnvFreeVariables = TypeEnvFreeVariables
-  { typeEnvBindingFreeVariables :: Map Name (Set Int),
-    typeEnvFreeVariableReferenceCounts :: IntMap Int
+  { typeEnvBindingFreeVariables :: Map Name (Set InferenceVariable),
+    typeEnvFreeVariableReferenceCounts :: Map InferenceVariable Int
   }
 
 typeEnvFreeVariables :: TypeEnv -> TypeEnvFreeVariables
@@ -808,7 +808,7 @@ typeEnvFreeVariables =
   Map.foldlWithKey' (\summary name binding -> insertTypeEnvFreeVariables name binding summary) emptyTypeEnvFreeVariables
 
 emptyTypeEnvFreeVariables :: TypeEnvFreeVariables
-emptyTypeEnvFreeVariables = TypeEnvFreeVariables Map.empty IntMap.empty
+emptyTypeEnvFreeVariables = TypeEnvFreeVariables Map.empty Map.empty
 
 insertTypeEnvFreeVariables :: Name -> TypeBinding -> TypeEnvFreeVariables -> TypeEnvFreeVariables
 insertTypeEnvFreeVariables name binding summary =
@@ -824,7 +824,7 @@ insertTypeEnvFreeVariables name binding summary =
       Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
     countsWithoutPriorBinding =
       Set.foldl' decrementTypeEnvFreeVariableReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
-    incrementReference counts typeVar = IntMap.insertWith (+) typeVar 1 counts
+    incrementReference counts typeVar = Map.insertWith (+) typeVar 1 counts
 
 deleteTypeEnvFreeVariables :: Name -> TypeEnvFreeVariables -> TypeEnvFreeVariables
 deleteTypeEnvFreeVariables name summary =
@@ -841,29 +841,29 @@ deleteTypeEnvFreeVariables name summary =
     priorVariables =
       Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
 
-decrementTypeEnvFreeVariableReference :: IntMap Int -> Int -> IntMap Int
+decrementTypeEnvFreeVariableReference :: Map InferenceVariable Int -> InferenceVariable -> Map InferenceVariable Int
 decrementTypeEnvFreeVariableReference counts typeVar =
-  IntMap.update decrement typeVar counts
+  Map.update decrement typeVar counts
   where
     decrement count
       | count <= 1 = Nothing
       | otherwise = Just (count - 1)
 
-resolveTypeEnvFreeVariables :: InferState -> TypeEnvFreeVariables -> Set Int
+resolveTypeEnvFreeVariables :: InferState -> TypeEnvFreeVariables -> Set InferenceVariable
 resolveTypeEnvFreeVariables state summary =
   Set.unions
     [ freeTypeVariables (resolveType state (TVarType typeVar))
-    | typeVar <- IntMap.keys (typeEnvFreeVariableReferenceCounts summary)
+    | typeVar <- Map.keys (typeEnvFreeVariableReferenceCounts summary)
     ]
 
-freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set Int
+freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set InferenceVariable
 freeTypeVariablesInBinding state binding =
   Set.unions
     [ freeTypeVariables (resolveType state (TVarType typeVar))
     | typeVar <- Set.toList (freeTypeVariablesInBindingRaw binding)
     ]
 
-freeTypeVariablesInBindingRaw :: TypeBinding -> Set Int
+freeTypeVariablesInBindingRaw :: TypeBinding -> Set InferenceVariable
 freeTypeVariablesInBindingRaw binding =
   case binding of
     PlainTypeBinding expressionType ->
@@ -877,7 +877,7 @@ freeTypeVariablesInBindingRaw binding =
     ConstructorTypeBinding _ _ argumentTypes ->
       Set.unions (map freeTypeVariablesInConstructorArgumentRaw argumentTypes)
 
-freeTypeVariablesInSchemeRaw :: TypeScheme -> Set Int
+freeTypeVariablesInSchemeRaw :: TypeScheme -> Set InferenceVariable
 freeTypeVariablesInSchemeRaw typeScheme =
   Set.difference
     ( Set.unions
@@ -888,7 +888,7 @@ freeTypeVariablesInSchemeRaw typeScheme =
     )
     (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme))
 
-freeTypeVariablesInConstructorArgumentRaw :: ConstructorArgumentType -> Set Int
+freeTypeVariablesInConstructorArgumentRaw :: ConstructorArgumentType -> Set InferenceVariable
 freeTypeVariablesInConstructorArgumentRaw argumentType =
   case argumentType of
     ConstructorArgumentMonomorphic expressionType -> freeTypeVariables expressionType
@@ -1019,8 +1019,8 @@ resolveDeferredExplicitConstraint state deferredConstraint =
   let unresolvedArgumentType =
         resolveType state argumentType
       resolvedArgumentType =
-        defaultLiteralTypes unresolvedArgumentType
-   in if not (Set.null (freeTypeVariables unresolvedArgumentType))
+        defaultLiteralTypes state unresolvedArgumentType
+   in if not (Set.null (freeTypeVariables resolvedArgumentType))
         then addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
         else case Map.lookup constraintName (scopeClassFacts facts) of
           Nothing ->
@@ -1044,7 +1044,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
                             implFactHints
                         ambiguousMethodBodyHints methodKey =
                           inferredConstraint
-                            && expressionTypeContainsUncommittedIntegerLiteral unresolvedArgumentType
+                            && expressionTypeContainsUncommittedIntegerLiteral state unresolvedArgumentType
                             && length (methodBodyHints methodKey) > 1
                             && not (uniqueExactRuntimeCandidateHint state unresolvedArgumentType (methodBodyHints methodKey))
                         renderedImplFactKey =
@@ -1075,20 +1075,21 @@ resolveDeferredExplicitConstraint state deferredConstraint =
     facts = deferredVisibleFacts deferredConstraint
     structuralFacts = deferredStructuralFacts deferredConstraint
 
-expressionTypeContainsUncommittedIntegerLiteral :: ExpressionType -> Bool
-expressionTypeContainsUncommittedIntegerLiteral expressionType =
-  case expressionType of
-    TIntegerLiteralType {} -> True
-    TListType elementType ->
-      expressionTypeContainsUncommittedIntegerLiteral elementType
-    TTupleType elementTypes ->
-      any expressionTypeContainsUncommittedIntegerLiteral elementTypes
-    TDataType _ typeArguments ->
-      any expressionTypeContainsUncommittedIntegerLiteral typeArguments
-    TFunctionType argumentType resultType ->
-      expressionTypeContainsUncommittedIntegerLiteral argumentType
-        || expressionTypeContainsUncommittedIntegerLiteral resultType
-    _ -> False
+expressionTypeContainsUncommittedIntegerLiteral :: InferState -> ExpressionType -> Bool
+expressionTypeContainsUncommittedIntegerLiteral state expressionType
+  | Just _ <- integerLiteralRangeFor state expressionType = True
+  | otherwise =
+      case expressionType of
+        TListType elementType ->
+          expressionTypeContainsUncommittedIntegerLiteral state elementType
+        TTupleType elementTypes ->
+          any (expressionTypeContainsUncommittedIntegerLiteral state) elementTypes
+        TDataType _ typeArguments ->
+          any (expressionTypeContainsUncommittedIntegerLiteral state) typeArguments
+        TFunctionType argumentType resultType ->
+          expressionTypeContainsUncommittedIntegerLiteral state argumentType
+            || expressionTypeContainsUncommittedIntegerLiteral state resultType
+        _ -> False
 
 constraintRuntimeHintsForDeferred ::
   ScopeCapabilityFacts ->
@@ -1102,7 +1103,7 @@ constraintRuntimeHintsForDeferred facts state inferredConstraint _ maybeMethodKe
   | inferredConstraint =
       inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType
   | otherwise =
-      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes argumentType) of
+      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
         Nothing -> []
 
@@ -1117,7 +1118,7 @@ inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType 
   dedupeSignatureTypes (defaultHint ++ methodCandidateHints)
   where
     defaultHint =
-      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes argumentType) of
+      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
         Nothing -> []
 
@@ -1143,34 +1144,34 @@ dedupeSignatureTypes =
 
 constraintSignatureTypeMatchesExpressionType :: InferState -> SignatureType -> ExpressionType -> Bool
 constraintSignatureTypeMatchesExpressionType state signatureType expressionType =
-  case (signatureType, resolveType state expressionType) of
-    (TypeInt, TIntegerLiteralType literalRange) ->
+  case (signatureType, integerLiteralRangeFor state expressionType, resolveType state expressionType) of
+    (TypeInt, Just literalRange, _) ->
       integerLiteralRangeFitsNumericType literalRange NumericInt64
-    (TypeNumeric numericType, TIntegerLiteralType literalRange) ->
+    (TypeNumeric numericType, Just literalRange, _) ->
       numericTypeIsIntegral numericType
         && integerLiteralRangeFitsNumericType literalRange numericType
-    (TypeName signatureName, TIntegerLiteralType literalRange) ->
+    (TypeName signatureName, Just literalRange, _) ->
       case numericTypeFromConstraintSignatureName (identifierText signatureName) of
         Just numericType ->
           numericTypeIsIntegral numericType
             && integerLiteralRangeFitsNumericType literalRange numericType
         Nothing ->
           False
-    (TypeList signatureElementType, TListType elementType) ->
+    (TypeList signatureElementType, _, TListType elementType) ->
       constraintSignatureTypeMatchesExpressionType state signatureElementType elementType
-    (TypeTuple signatureElementTypes, TTupleType elementTypes)
+    (TypeTuple signatureElementTypes, _, TTupleType elementTypes)
       | length signatureElementTypes == length elementTypes ->
           and (zipWith (constraintSignatureTypeMatchesExpressionType state) signatureElementTypes elementTypes)
-    (TypeApplication signatureName signatureArguments, TDataType typeName typeArguments)
+    (TypeApplication signatureName signatureArguments, _, TDataType typeName typeArguments)
       | normalizeConstraintSignatureName (identifierText signatureName)
           == normalizeConstraintSignatureName (identifierText typeName),
         length signatureArguments == length typeArguments ->
           and (zipWith (constraintSignatureTypeMatchesExpressionType state) signatureArguments typeArguments)
-    (TypeFunction signatureArgument signatureResult, TFunctionType argumentType resultType) ->
+    (TypeFunction signatureArgument signatureResult, _, TFunctionType argumentType resultType) ->
       constraintSignatureTypeMatchesExpressionType state signatureArgument argumentType
         && constraintSignatureTypeMatchesExpressionType state signatureResult resultType
     _ ->
-      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType)) of
+      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (resolveType state expressionType)) of
         Just argumentHint -> constraintSignatureTypesCompatible signatureType argumentHint
         Nothing -> False
 
@@ -1263,7 +1264,7 @@ resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
           ( Nothing,
             addTypeError
               state
-              (mkNoMatchingQualifiedMethodBodyError methodKey [resolveType state expectedType])
+              (mkNoMatchingQualifiedMethodBodyError methodKey [defaultLiteralTypes state (resolveType state expectedType)])
           )
         [(_, matchedType, matchedState)] ->
           (Just matchedType, matchedState)
@@ -1404,7 +1405,10 @@ inferQualifiedMethodRequirementWithoutCostCentre methodKey (ClassMethodType clas
                     resolvedClassTarget = resolveType stateAfterArguments classTarget
                 case maybeResultType of
                   Just resultType
-                    | not (Set.null (freeTypeVariables resolvedClassTarget)) ->
+                    | not
+                        ( Set.null
+                            (freeTypeVariables (defaultLiteralTypes stateAfterArguments resolvedClassTarget))
+                        ) ->
                         Just
                           ( Just resultType,
                             addInferredMethodClassConstraint capabilityName methodKey resolvedClassTarget stateAfterArguments
@@ -1470,7 +1474,9 @@ selectQualifiedMethodCandidate methodKey classMethodType implMethodTypes env sta
       ]
 
     resolvedArgumentTypes stateForRendering =
-      map (resolveType stateForRendering) argumentTypes
+      map
+        (defaultLiteralTypes stateForRendering . resolveType stateForRendering)
+        argumentTypes
 
     argumentTypes = map snd typedArguments
 
@@ -1507,100 +1513,103 @@ qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType class
     exactCandidateArgumentMatches targetArgumentPosition signatureType (argumentExpr, expressionType) =
       not targetArgumentPosition
         || constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType
-          && constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr
+          && constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr
 
-constraintSignatureExpressionHasExactEvidence :: TypeEnv -> SignatureType -> Expr -> Bool
-constraintSignatureExpressionHasExactEvidence env signatureType argumentExpr =
+constraintSignatureExpressionHasExactEvidence :: InferState -> TypeEnv -> SignatureType -> Expr -> Bool
+constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr =
   case (signatureType, argumentExpr) of
     (TypeList elementType, EList elements) ->
       not (null elements)
-        && all (constraintSignatureExpressionHasExactEvidence env elementType) elements
+        && all (constraintSignatureExpressionHasExactEvidence state env elementType) elements
     (TypeTuple elementTypes, ETuple elements)
       | length elementTypes == length elements ->
-          and (zipWith (constraintSignatureExpressionHasExactEvidence env) elementTypes elements)
+          and (zipWith (constraintSignatureExpressionHasExactEvidence state env) elementTypes elements)
     (TypeApplication typeName typeArguments, EApply {}) ->
-      constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr
-        || constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+      constructorApplicationExpressionHasExactEvidence state env typeName typeArguments argumentExpr
+        || constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     (TypeFunction {}, _) ->
-      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+      constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EVar {})
       | constraintSignatureTypeContainsList signatureType ->
-          constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+          constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EApply {})
       | constraintSignatureTypeContainsList signatureType ->
-          constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+          constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EIf {}) ->
-      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+      constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EPatternCase {}) ->
-      constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+      constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     (_, EBlock {})
       | constraintSignatureTypeContainsList signatureType ->
-          constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr
+          constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr
     _ -> True
 
-constraintSignatureExpressionRuntimeHintMatches :: TypeEnv -> SignatureType -> Expr -> Bool
-constraintSignatureExpressionRuntimeHintMatches env signatureType argumentExpr =
-  case constraintSignatureExpressionRuntimeHint env argumentExpr of
+constraintSignatureExpressionRuntimeHintMatches :: InferState -> TypeEnv -> SignatureType -> Expr -> Bool
+constraintSignatureExpressionRuntimeHintMatches state env signatureType argumentExpr =
+  case constraintSignatureExpressionRuntimeHint state env argumentExpr of
     Just runtimeHint -> runtimeHint == signatureType
     Nothing -> False
 
-constraintSignatureExpressionRuntimeHint :: TypeEnv -> Expr -> Maybe SignatureType
-constraintSignatureExpressionRuntimeHint env argumentExpr =
-  constraintSignatureExpressionRuntimeHintWithLocalHints env Map.empty argumentExpr
+constraintSignatureExpressionRuntimeHint :: InferState -> TypeEnv -> Expr -> Maybe SignatureType
+constraintSignatureExpressionRuntimeHint state env argumentExpr =
+  constraintSignatureExpressionRuntimeHintWithLocalHints state env Map.empty argumentExpr
 
 constraintSignatureExpressionRuntimeHintWithLocalHints ::
+  InferState ->
   TypeEnv ->
   Map Text SignatureType ->
   Expr ->
   Maybe SignatureType
-constraintSignatureExpressionRuntimeHintWithLocalHints env localHints argumentExpr =
+constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints argumentExpr =
   case argumentExpr of
     EVar referencedName ->
       Map.lookup (identifierText referencedName) localHints
-        <|> (Map.lookup referencedName env >>= typeBindingRuntimeHint)
+        <|> (Map.lookup referencedName env >>= typeBindingRuntimeHint state)
     EApply (EApply dollarExpr functionExpr) _
       | builtinDollarOperatorExpr env dollarExpr ->
-          case constraintSignatureExpressionRuntimeHintWithLocalHints env localHints functionExpr of
+          case constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
             Just (TypeFunction _ resultType) -> Just resultType
             _ -> Nothing
     EApply functionExpr _ ->
-      case constraintSignatureExpressionRuntimeHintWithLocalHints env localHints functionExpr of
+      case constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints functionExpr of
         Just (TypeFunction _ resultType) -> Just resultType
         _ -> Nothing
     EIf _ thenExpr elseExpr ->
-      commonConstraintSignatureExpressionRuntimeHint env localHints [thenExpr, elseExpr]
+      commonConstraintSignatureExpressionRuntimeHint state env localHints [thenExpr, elseExpr]
     EPatternCase _ caseArms ->
-      commonConstraintSignatureExpressionRuntimeHint env localHints [bodyExpr | CaseArm _ _ bodyExpr <- caseArms]
+      commonConstraintSignatureExpressionRuntimeHint state env localHints [bodyExpr | CaseArm _ _ bodyExpr <- caseArms]
     EBlock statements ->
-      constraintSignatureBlockRuntimeHint env localHints statements
+      constraintSignatureBlockRuntimeHint state env localHints statements
     _ -> Nothing
 
 commonConstraintSignatureExpressionRuntimeHint ::
+  InferState ->
   TypeEnv ->
   Map Text SignatureType ->
   [Expr] ->
   Maybe SignatureType
-commonConstraintSignatureExpressionRuntimeHint _ _ [] = Nothing
-commonConstraintSignatureExpressionRuntimeHint env localHints (firstExpr : restExprs) = do
-  firstHint <- constraintSignatureExpressionRuntimeHintWithLocalHints env localHints firstExpr
+commonConstraintSignatureExpressionRuntimeHint _ _ _ [] = Nothing
+commonConstraintSignatureExpressionRuntimeHint state env localHints (firstExpr : restExprs) = do
+  firstHint <- constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints firstExpr
   if all
-    (\expr -> constraintSignatureExpressionRuntimeHintWithLocalHints env localHints expr == Just firstHint)
+    (\expr -> constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints expr == Just firstHint)
     restExprs
     then Just firstHint
     else Nothing
 
 constraintSignatureBlockRuntimeHint ::
+  InferState ->
   TypeEnv ->
   Map Text SignatureType ->
   [Statement] ->
   Maybe SignatureType
-constraintSignatureBlockRuntimeHint env initialLocalHints statements =
+constraintSignatureBlockRuntimeHint state env initialLocalHints statements =
   go initialLocalHints Map.empty statements
   where
     go _ _ [] =
       Nothing
     go localHints _ [SExpr _ expr] =
-      constraintSignatureExpressionRuntimeHintWithLocalHints env localHints expr
+      constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints expr
     go localHints pendingHints (statement : rest) =
       case statement of
         SSignature name _ signaturePayload ->
@@ -1614,7 +1623,7 @@ constraintSignatureBlockRuntimeHint env initialLocalHints statements =
           let nameText = identifierText name
               bindingHint =
                 Map.lookup nameText pendingHints
-                  <|> constraintSignatureExpressionRuntimeHintWithLocalHints env localHints valueExpr
+                  <|> constraintSignatureExpressionRuntimeHintWithLocalHints state env localHints valueExpr
               nextLocalHints =
                 case bindingHint of
                   Just runtimeHint -> Map.insert nameText runtimeHint localHints
@@ -1637,17 +1646,17 @@ signaturePayloadRuntimeHint signaturePayload =
     UnsupportedSignature {} ->
       Nothing
 
-typeBindingRuntimeHint :: TypeBinding -> Maybe SignatureType
-typeBindingRuntimeHint binding =
+typeBindingRuntimeHint :: InferState -> TypeBinding -> Maybe SignatureType
+typeBindingRuntimeHint state binding =
   case binding of
     PlainTypeBinding bindingType ->
-      Signature.expressionTypeToRuntimeHint (defaultLiteralTypes bindingType)
+      Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state bindingType)
     SchemeTypeBinding typeScheme
       | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
-          Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (schemeResultType typeScheme))
+          Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (schemeResultType typeScheme))
     OperatorAliasSchemeTypeBinding _ typeScheme
       | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
-          Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (schemeResultType typeScheme))
+          Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (schemeResultType typeScheme))
     _ -> Nothing
 
 constraintSignatureTypeContainsList :: SignatureType -> Bool
@@ -1664,8 +1673,8 @@ constraintSignatureTypeContainsList signatureType =
     TypeName {} -> False
     _ -> False
 
-constructorApplicationExpressionHasExactEvidence :: TypeEnv -> Name -> [SignatureType] -> Expr -> Bool
-constructorApplicationExpressionHasExactEvidence env typeName typeArguments argumentExpr =
+constructorApplicationExpressionHasExactEvidence :: InferState -> TypeEnv -> Name -> [SignatureType] -> Expr -> Bool
+constructorApplicationExpressionHasExactEvidence state env typeName typeArguments argumentExpr =
   case constructorExpressionSpine argumentExpr of
     Just (constructorName, constructorArgumentExprs) ->
       case Map.lookup constructorName env of
@@ -1677,7 +1686,7 @@ constructorApplicationExpressionHasExactEvidence env typeName typeArguments argu
                     Map.fromList (zip (map identifierText typeParameters) typeArguments)
                in and
                     ( zipWith
-                        (constructorArgumentExpressionHasExactEvidence env typeParameterBindings)
+                        (constructorArgumentExpressionHasExactEvidence state env typeParameterBindings)
                         constructorArgumentTypes
                         constructorArgumentExprs
                     )
@@ -1697,19 +1706,20 @@ constructorExpressionSpine expr =
         _ ->
           Nothing
 
-constructorArgumentExpressionHasExactEvidence :: TypeEnv -> Map Text SignatureType -> ConstructorArgumentType -> Expr -> Bool
-constructorArgumentExpressionHasExactEvidence env typeParameterBindings constructorArgument argumentExpr =
+constructorArgumentExpressionHasExactEvidence :: InferState -> TypeEnv -> Map Text SignatureType -> ConstructorArgumentType -> Expr -> Bool
+constructorArgumentExpressionHasExactEvidence state env typeParameterBindings constructorArgument argumentExpr =
   case constructorArgument of
     ConstructorArgumentParameter parameterName ->
       case Map.lookup parameterName typeParameterBindings of
         Just concreteArgumentType ->
-          constraintSignatureExpressionHasExactEvidence env concreteArgumentType argumentExpr
+          constraintSignatureExpressionHasExactEvidence state env concreteArgumentType argumentExpr
         Nothing ->
           True
     ConstructorArgumentMonomorphic {} ->
       True
     ConstructorArgumentStructured fieldType ->
       constraintSignatureExpressionHasExactEvidence
+        state
         env
         (substituteConstructorFieldSignatureType typeParameterBindings fieldType)
         argumentExpr
@@ -1742,7 +1752,7 @@ constraintSignatureTypeExactlyMatchesExpressionType :: InferState -> SignatureTy
 constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType =
   case Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty signatureType of
     Just signatureExpressionType ->
-      resolveType state signatureExpressionType == defaultLiteralTypes (resolveType state expressionType)
+      resolveType state signatureExpressionType == defaultLiteralTypes state (resolveType state expressionType)
     Nothing ->
       False
 
@@ -1812,8 +1822,8 @@ applyKnownFunctionArgumentsWithErrors functionType argumentTypes state =
                 addTypeError
                   stateWithResultVar
                   ( mkApplyTypeError
-                      (resolveType stateWithResultVar currentFunctionType)
-                      (resolveType stateWithResultVar argumentType)
+                      (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar currentFunctionType))
+                      (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar argumentType))
                   )
               )
 
@@ -1861,29 +1871,30 @@ freshTypeVars count initialState =
           let (typeVar, nextState) = freshTypeVar state
            in go (remaining - 1) (typeVar : acc) nextState
 
-defaultLiteralTypes :: ExpressionType -> ExpressionType
-defaultLiteralTypes =
-  defaultLiteralTypesWith TIntType
+defaultLiteralTypes :: InferState -> ExpressionType -> ExpressionType
+defaultLiteralTypes state =
+  defaultLiteralTypesWith state TIntType
 
-defaultBindingLiteralTypes :: ExpressionType -> ExpressionType
-defaultBindingLiteralTypes =
-  defaultLiteralTypesWith (TNumericType NumericInt64)
+defaultBindingLiteralTypes :: InferState -> ExpressionType -> ExpressionType
+defaultBindingLiteralTypes state =
+  defaultLiteralTypesWith state (TNumericType NumericInt64)
 
-defaultLiteralTypesWith :: ExpressionType -> ExpressionType -> ExpressionType
-defaultLiteralTypesWith integerLiteralDefault expressionType =
-  case expressionType of
-    TIntegerLiteralType {} -> integerLiteralDefault
-    TListType elementType ->
-      TListType (defaultLiteralTypesWith integerLiteralDefault elementType)
-    TTupleType elementTypes ->
-      TTupleType (map (defaultLiteralTypesWith integerLiteralDefault) elementTypes)
-    TDataType typeName typeArguments ->
-      TDataType typeName (map (defaultLiteralTypesWith integerLiteralDefault) typeArguments)
-    TFunctionType inputType outputType ->
-      TFunctionType
-        (defaultLiteralTypesWith integerLiteralDefault inputType)
-        (defaultLiteralTypesWith integerLiteralDefault outputType)
-    _ -> expressionType
+defaultLiteralTypesWith :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
+defaultLiteralTypesWith state integerLiteralDefault expressionType
+  | Just _ <- integerLiteralRangeFor state expressionType = integerLiteralDefault
+  | otherwise =
+      case expressionType of
+        TListType elementType ->
+          TListType (defaultLiteralTypesWith state integerLiteralDefault elementType)
+        TTupleType elementTypes ->
+          TTupleType (map (defaultLiteralTypesWith state integerLiteralDefault) elementTypes)
+        TDataType typeName typeArguments ->
+          TDataType typeName (map (defaultLiteralTypesWith state integerLiteralDefault) typeArguments)
+        TFunctionType inputType outputType ->
+          TFunctionType
+            (defaultLiteralTypesWith state integerLiteralDefault inputType)
+            (defaultLiteralTypesWith state integerLiteralDefault outputType)
+        _ -> expressionType
 
 addInferredClassConstraint :: Text -> ExpressionType -> InferState -> InferState
 addInferredClassConstraint constraintName argumentType state =

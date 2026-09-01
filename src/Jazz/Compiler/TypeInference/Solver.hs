@@ -10,6 +10,8 @@ module Jazz.Compiler.TypeInference.Solver
     constrainNumericOperatorType,
     freshTypeVar,
     freshTypeVariable,
+    freshIntegerLiteralType,
+    integerLiteralRangeFor,
     integerLiteralRangeBounds,
     integerLiteralRangeFitsNumericType,
     occursInType,
@@ -21,8 +23,6 @@ module Jazz.Compiler.TypeInference.Solver
   )
 where
 
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -48,6 +48,7 @@ import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType (..),
+    InferenceVariable,
     IntegerLiteralRange (..),
     NumericConstraint (..),
     instantiateConstructorFieldType,
@@ -59,7 +60,7 @@ freshTypeVar state =
   let (_, expressionType, nextState) = freshTypeVariable state
    in (expressionType, nextState)
 
-freshTypeVariable :: InferState -> (Int, ExpressionType, InferState)
+freshTypeVariable :: InferState -> (InferenceVariable, ExpressionType, InferState)
 freshTypeVariable state =
   let nextVar = inferNextTypeVar state
    in ( nextVar,
@@ -69,14 +70,31 @@ freshTypeVariable state =
           state
       )
 
+freshIntegerLiteralType :: IntegerLiteralRange -> InferState -> (ExpressionType, InferState)
+freshIntegerLiteralType literalRange state =
+  let (typeVar, literalType, nextState) = freshTypeVariable state
+   in ( literalType,
+        addNumericTypeVarConstraint
+          typeVar
+          (IntegralLiteralNumericConstraint literalRange)
+          nextState
+      )
+
+integerLiteralRangeFor :: InferState -> ExpressionType -> Maybe IntegerLiteralRange
+integerLiteralRangeFor state expressionType =
+  case resolveType state expressionType of
+    TVarType typeVar -> do
+      IntegralLiteralNumericConstraint literalRange <- Map.lookup typeVar (inferNumericVars state)
+      pure literalRange
+    _ -> Nothing
+
 resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
 
-applySubstitution :: IntMap ExpressionType -> ExpressionType -> ExpressionType
+applySubstitution :: Map.Map InferenceVariable ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution substitution expressionType =
   case expressionType of
     TIntType -> TIntType
-    TIntegerLiteralType literalRange -> TIntegerLiteralType literalRange
     TFloatType -> TFloatType
     TNumericType numericType -> TNumericType numericType
     TBoolType -> TBoolType
@@ -91,7 +109,7 @@ applySubstitution substitution expressionType =
         (applySubstitution substitution inputType)
         (applySubstitution substitution outputType)
     TVarType typeVar ->
-      case IntMap.lookup typeVar substitution of
+      case Map.lookup typeVar substitution of
         Just replacementType -> applySubstitution substitution replacementType
         Nothing -> TVarType typeVar
 
@@ -106,13 +124,6 @@ unifyTypesWithoutCostCentre leftType rightType state =
       (resolvedRight, stateAfterDereference) = dereferenceType stateAfterLeft rightType
    in case (resolvedLeft, resolvedRight) of
         (TIntType, TIntType) -> Just stateAfterDereference
-        (TIntegerLiteralType {}, TIntegerLiteralType {}) -> Just stateAfterDereference
-        (TIntegerLiteralType {}, TIntType) -> Just stateAfterDereference
-        (TIntType, TIntegerLiteralType {}) -> Just stateAfterDereference
-        (TIntegerLiteralType literalRange, TNumericType rightNumericType)
-          | integerLiteralRangeFitsNumericType literalRange rightNumericType -> Just stateAfterDereference
-        (TNumericType leftNumericType, TIntegerLiteralType literalRange)
-          | integerLiteralRangeFitsNumericType literalRange leftNumericType -> Just stateAfterDereference
         (TFloatType, TFloatType) -> Just stateAfterDereference
         (TFloatType, TNumericType NumericFloat64) -> Just stateAfterDereference
         (TNumericType NumericFloat64, TFloatType) -> Just stateAfterDereference
@@ -162,7 +173,7 @@ dereferenceType :: InferState -> ExpressionType -> (ExpressionType, InferState)
 dereferenceType state expressionType =
   case expressionType of
     TVarType typeVar ->
-      case IntMap.lookup typeVar (inferSubst state) of
+      case Map.lookup typeVar (inferSubst state) of
         Nothing -> (expressionType, state)
         Just replacementType@(TVarType replacementVar) ->
           let (resolvedType, resolvedState) = dereferenceType state replacementType
@@ -175,7 +186,7 @@ dereferenceType state expressionType =
                       ( \solver ->
                           solver
                             { solverSubstitution =
-                                IntMap.insert typeVar resolvedType (solverSubstitution solver)
+                                Map.insert typeVar resolvedType (solverSubstitution solver)
                             }
                       )
                       resolvedState
@@ -197,10 +208,11 @@ unifyTypeListsWithoutCostCentre leftTypes rightTypes state
     step maybeState (leftType, rightType) =
       maybeState >>= unifyTypesWithoutCostCentre leftType rightType
 
-bindTypeVar :: Int -> ExpressionType -> InferState -> Maybe InferState
+bindTypeVar :: InferenceVariable -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
   | resolvedReplacementType == TVarType typeVar = Just state
   | occursInType typeVar resolvedReplacementType = Nothing
+  | literalConstraintWouldSpecializeRigidVariable = Nothing
   | typeVarIsStrictEqualityConstrained
       && not (supportsDeferredEqualityOperandType state resolvedReplacementType) =
       Nothing
@@ -211,7 +223,7 @@ bindTypeVar typeVar replacementType state
             ( \solver ->
                 solver
                   { solverSubstitution =
-                      IntMap.insert typeVar nextReplacementType (solverSubstitution solver),
+                      Map.insert typeVar nextReplacementType (solverSubstitution solver),
                     solverStrictEqualityVars =
                       nextStrictEqualityVars nextReplacementType
                   }
@@ -223,6 +235,11 @@ bindTypeVar typeVar replacementType state
     typeVarIsStrictEqualityConstrained =
       Set.member typeVar (inferStrictEqualityVars state)
     typeVarNumericConstraint = Map.lookup typeVar (inferNumericVars state)
+    literalConstraintWouldSpecializeRigidVariable =
+      case (typeVarNumericConstraint, resolvedReplacementType) of
+        (Just IntegralLiteralNumericConstraint {}, TVarType replacementVar) ->
+          Set.member replacementVar (inferRigidTypeVars state)
+        _ -> False
     constrainedReplacementType =
       case typeVarNumericConstraint of
         Just numericConstraint ->
@@ -247,11 +264,10 @@ bindTypeVar typeVar replacementType state
           addNumericTypeVarConstraint replacementVar numericConstraint stateWithoutNumericTypeVar
         _ -> stateWithoutNumericTypeVar
 
-occursInType :: Int -> ExpressionType -> Bool
+occursInType :: InferenceVariable -> ExpressionType -> Bool
 occursInType typeVar expressionType =
   case expressionType of
     TIntType -> False
-    TIntegerLiteralType {} -> False
     TFloatType -> False
     TNumericType {} -> False
     TBoolType -> False
@@ -264,7 +280,7 @@ occursInType typeVar expressionType =
       occursInType typeVar inputType || occursInType typeVar outputType
     TVarType otherVar -> typeVar == otherVar
 
-addStrictEqualityTypeVarConstraint :: Int -> InferState -> InferState
+addStrictEqualityTypeVarConstraint :: InferenceVariable -> InferState -> InferState
 addStrictEqualityTypeVarConstraint typeVar state =
   modifySolverState
     ( \solver ->
@@ -275,7 +291,7 @@ addStrictEqualityTypeVarConstraint typeVar state =
     )
     state
 
-addNumericTypeVarConstraint :: Int -> NumericConstraint -> InferState -> InferState
+addNumericTypeVarConstraint :: InferenceVariable -> NumericConstraint -> InferState -> InferState
 addNumericTypeVarConstraint typeVar numericConstraint state =
   modifySolverState
     ( \solver ->
@@ -306,13 +322,9 @@ combineNumericConstraints leftConstraint rightConstraint =
     _ -> AnyNumericConstraint
 
 applyNumericConstraintToReplacement :: NumericConstraint -> ExpressionType -> Maybe ExpressionType
-applyNumericConstraintToReplacement numericConstraint replacementType =
-  case (numericConstraint, replacementType) of
-    (IntegralLiteralNumericConstraint constraintRange, TIntegerLiteralType replacementRange) ->
-      Just (TIntegerLiteralType (combineIntegerLiteralRanges constraintRange replacementRange))
-    _
-      | typeSatisfiesNumericConstraint numericConstraint replacementType -> Just replacementType
-      | otherwise -> Nothing
+applyNumericConstraintToReplacement numericConstraint replacementType
+  | typeSatisfiesNumericConstraint numericConstraint replacementType = Just replacementType
+  | otherwise = Nothing
 
 constrainNumericOperatorType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
 constrainNumericOperatorType numericConstraint expressionType state =
@@ -332,7 +344,6 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
     IntegralLiteralNumericConstraint literalRange ->
       case expressionType of
         TIntType -> True
-        TIntegerLiteralType {} -> True
         TNumericType numericType ->
           numericTypeIsIntegral numericType
             && integerLiteralRangeFitsNumericType literalRange numericType
@@ -342,7 +353,6 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
     anyNumeric =
       case expressionType of
         TIntType -> True
-        TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType {} -> True
         TVarType {} -> True
@@ -350,7 +360,6 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
     runtimeArithmeticNumeric =
       case expressionType of
         TIntType -> True
-        TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType numericType -> numericTypeSupportsRuntimeArithmetic numericType
         TVarType {} -> True
@@ -358,7 +367,6 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
     runtimeComparisonNumeric =
       case expressionType of
         TIntType -> True
-        TIntegerLiteralType {} -> True
         TFloatType -> True
         TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
         TVarType {} -> True
@@ -366,7 +374,6 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
     integralNumeric =
       case expressionType of
         TIntType -> True
-        TIntegerLiteralType {} -> True
         TNumericType numericType -> numericTypeIsIntegral numericType
         TVarType {} -> True
         _ -> False
@@ -390,20 +397,21 @@ supportsRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 supportsRuntimeEqualityType state = supportsRuntimeEqualityTypeWith Set.empty state
 
 supportsRuntimeEqualityTypeWith :: Set.Set Text -> InferState -> ExpressionType -> Bool
-supportsRuntimeEqualityTypeWith seenDataTypes state expressionType =
-  case resolveType state expressionType of
-    TIntType -> True
-    TIntegerLiteralType {} -> True
-    TFloatType -> True
-    TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
-    TBoolType -> True
-    TCharType -> True
-    TTextType -> True
-    TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
-    TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
-    TDataType typeName typeArguments ->
-      dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
-    _ -> False
+supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
+  | Just _ <- integerLiteralRangeFor state expressionType = True
+  | otherwise =
+      case resolveType state expressionType of
+        TIntType -> True
+        TFloatType -> True
+        TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
+        TBoolType -> True
+        TCharType -> True
+        TTextType -> True
+        TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
+        TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
+        TDataType typeName typeArguments ->
+          dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
+        _ -> False
 
 dataTypeSupportsRuntimeEqualityWith :: Set.Set Text -> InferState -> Name -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =

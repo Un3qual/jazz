@@ -133,6 +133,7 @@ import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
     ExpressionType (..),
+    InferenceVariable (..),
     NumericConstraint,
     ScopeCapabilityFacts,
     TypeBinding (..),
@@ -917,7 +918,7 @@ inferScopeTypeInternal
                                         (pendingSignatureSpan pendingSignature)
                                         (resolveType stateAfterBindingSeedCheck (pendingSignatureDeclaredType pendingSignature))
                                         bindingSpan
-                                        (resolveType stateAfterBindingSeedCheck inferredType)
+                                        (defaultLiteralTypes stateAfterBindingSeedCheck (resolveType stateAfterBindingSeedCheck inferredType))
                                     )
                             _ -> stateAfterBindingSeedCheck
                         stateAfterExplicitConstraintCheck =
@@ -942,7 +943,7 @@ inferScopeTypeInternal
                               Just (resolveType stateAfterSignatureContractCheck (pendingSignatureDeclaredType pendingSignature))
                             _ ->
                               fmap
-                                (defaultBindingLiteralTypes . resolveType stateAfterSignatureContractCheck)
+                                (bindingTypeForValue stateAfterSignatureContractCheck valueExpr)
                                 (Map.lookup statementIndex bindingSeedsByStatement)
                         generalizationEnv =
                           generalizationEnvForStatement statementIndex envForStatement
@@ -958,7 +959,7 @@ inferScopeTypeInternal
                                   explicitBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck pendingSignature
                             (_, Just inferredType)
                               | shouldGeneralizeOrdinaryBinding statementIndex generalizationEnv valueExpr matchingPendingSignature ->
-                                  ordinaryBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck inferredType
+                                  ordinaryBindingSchemeVariables generalizationEnvVariables stateAfterSignatureContractCheck valueExpr inferredType
                             _ -> Set.empty
                         stateAfterDroppedInferredMethodCheck =
                           case nextBindingType of
@@ -1222,7 +1223,7 @@ inferScopeTypeInternal
       nextBindingForValue ::
         Int ->
         TypeEnv ->
-        Set Int ->
+        Set InferenceVariable ->
         Expr ->
         Maybe ExpressionType ->
         Maybe PendingSignatureType ->
@@ -1274,7 +1275,7 @@ inferScopeTypeInternal
       ordinaryBindingForValue ::
         Int ->
         TypeEnv ->
-        Set Int ->
+        Set InferenceVariable ->
         Expr ->
         Maybe ExpressionType ->
         Maybe PendingSignatureType ->
@@ -1288,7 +1289,7 @@ inferScopeTypeInternal
                 Just (generalizedExplicitSignatureBinding environmentVariables state pendingSignature)
           Just inferredType
             | shouldGeneralizeOrdinaryBinding statementIndex currentEnv valueExpr maybePendingSignature ->
-                Just (generalizedOrdinaryBinding environmentVariables state inferredType)
+                Just (generalizedOrdinaryBinding environmentVariables state valueExpr inferredType)
           _ -> PlainTypeBinding <$> maybeInferredType
 
       shouldGeneralizeExplicitSignatureBinding :: PendingSignatureType -> Bool
@@ -1672,7 +1673,7 @@ inferScopeTypeInternal
         Set.member statementIndex selfRecursiveFunctionStatements
           && Map.notMember bindingName visibleEnv
 
-      exposePreviewRecursiveGroupMember :: Int -> TypeEnv -> Set Int -> InferState -> (TypeEnv, TypeEnvFreeVariables) -> Int -> (TypeEnv, TypeEnvFreeVariables)
+      exposePreviewRecursiveGroupMember :: Int -> TypeEnv -> Set InferenceVariable -> InferState -> (TypeEnv, TypeEnvFreeVariables) -> Int -> (TypeEnv, TypeEnvFreeVariables)
       exposePreviewRecursiveGroupMember statementIndex envOutsideGroup environmentVariables state (currentEnv, currentFreeVariables) memberIndex =
         case Map.lookup memberIndex bindingNamesByStatement of
           Just bindingName
@@ -1708,7 +1709,7 @@ inferScopeTypeInternal
           currentEnv
           memberIndex
 
-      generalizeRecursiveGroupMemberWithVariables :: Map Int PendingSignatureType -> TypeEnv -> Set Int -> InferState -> TypeEnv -> Int -> TypeEnv
+      generalizeRecursiveGroupMemberWithVariables :: Map Int PendingSignatureType -> TypeEnv -> Set InferenceVariable -> InferState -> TypeEnv -> Int -> TypeEnv
       generalizeRecursiveGroupMemberWithVariables pendingSignatures envOutsideGroup environmentVariables state currentEnv memberIndex =
         case (Map.lookup memberIndex statementsByIndex, Map.lookup memberIndex bindingNamesByStatement) of
           (Just (SLet _ _ _), Just bindingName)
@@ -1724,7 +1725,7 @@ inferScopeTypeInternal
                   Just bindingSeed ->
                     Map.insert
                       bindingName
-                      (generalizedOrdinaryBinding environmentVariables state bindingSeed)
+                      (generalizedOrdinaryBinding environmentVariables state valueExpr bindingSeed)
                       currentEnv
                   _ -> currentEnv
           _ -> currentEnv
@@ -1736,10 +1737,10 @@ data ForwardFunctionBinding = ForwardFunctionBinding
 
 data RecursiveGroupPreview = RecursiveGroupPreview
   { recursiveGroupPreviewBindings :: Map Int TypeBinding,
-    recursiveGroupPreviewNextTypeVar :: Int,
-    recursiveGroupPreviewDependencies :: Map Int ExpressionType,
-    recursiveGroupPreviewNumericConstraints :: Map Int NumericConstraint,
-    recursiveGroupPreviewStrictEqualityVars :: Set Int
+    recursiveGroupPreviewNextTypeVar :: InferenceVariable,
+    recursiveGroupPreviewDependencies :: Map InferenceVariable ExpressionType,
+    recursiveGroupPreviewNumericConstraints :: Map InferenceVariable NumericConstraint,
+    recursiveGroupPreviewStrictEqualityVars :: Set InferenceVariable
   }
 
 type RecursiveGroupPreviewCache = Map (Int, Int) RecursiveGroupPreview
@@ -2000,10 +2001,10 @@ isDirectConstructorAlias env expr =
         _ -> False
     _ -> False
 
-generalizedOrdinaryBinding :: Set Int -> InferState -> ExpressionType -> TypeBinding
-generalizedOrdinaryBinding environmentVariables state expressionType =
-  let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
-      schemeVariables = ordinaryBindingSchemeVariables environmentVariables state expressionType
+generalizedOrdinaryBinding :: Set InferenceVariable -> InferState -> Expr -> ExpressionType -> TypeBinding
+generalizedOrdinaryBinding environmentVariables state valueExpr expressionType =
+  let resolvedType = bindingTypeForValue state valueExpr expressionType
+      schemeVariables = ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType
       inferredClassConstraints = typeSchemeInferredClassConstraints state schemeVariables
       primitiveConstraints = typeSchemePrimitiveConstraints state schemeVariables
    in if Set.null schemeVariables
@@ -2020,17 +2021,26 @@ generalizedOrdinaryBinding environmentVariables state expressionType =
                 schemeResultType = resolvedType
               }
 
-ordinaryBindingSchemeVariables :: Set Int -> InferState -> ExpressionType -> Set Int
-ordinaryBindingSchemeVariables environmentVariables state expressionType =
-  let resolvedType = defaultBindingLiteralTypes (resolveType state expressionType)
+ordinaryBindingSchemeVariables :: Set InferenceVariable -> InferState -> Expr -> ExpressionType -> Set InferenceVariable
+ordinaryBindingSchemeVariables environmentVariables state valueExpr expressionType =
+  let resolvedType = bindingTypeForValue state valueExpr expressionType
       freeVariables = freeTypeVariables resolvedType
       quantifiedVariables = Set.difference freeVariables environmentVariables
    in Set.difference
         quantifiedVariables
         (numericConstrainedTypeVariables state)
 
+bindingTypeForValue :: InferState -> Expr -> ExpressionType -> ExpressionType
+bindingTypeForValue state valueExpr expressionType =
+  case valueExpr of
+    ESectionLeft {} -> resolvedType
+    ESectionRight {} -> resolvedType
+    _ -> defaultBindingLiteralTypes state resolvedType
+  where
+    resolvedType = resolveType state expressionType
+
 generalizedExplicitSignatureBinding ::
-  Set Int ->
+  Set InferenceVariable ->
   InferState ->
   PendingSignatureType ->
   TypeBinding
@@ -2181,7 +2191,7 @@ typeSchemeConstraintIsInferred constraint =
     TypeSchemeMethodConstraint {} -> True
     TypeSchemeConstraint {} -> False
 
-explicitBindingSchemeVariables :: Set Int -> InferState -> PendingSignatureType -> Set Int
+explicitBindingSchemeVariables :: Set InferenceVariable -> InferState -> PendingSignatureType -> Set InferenceVariable
 explicitBindingSchemeVariables environmentVariables state pendingSignature =
   let resolvedType = resolveType state (pendingSignatureDeclaredType pendingSignature)
       resolvedConstraints =
@@ -2192,13 +2202,12 @@ explicitBindingSchemeVariables environmentVariables state pendingSignature =
           (freeTypeVariablesInTypeSchemeConstraints resolvedConstraints)
    in Set.difference freeVariables environmentVariables
 
-expressionTypeVariableOrder :: ExpressionType -> [Int]
+expressionTypeVariableOrder :: ExpressionType -> [InferenceVariable]
 expressionTypeVariableOrder = go
   where
     go expressionType =
       case expressionType of
         TIntType -> []
-        TIntegerLiteralType {} -> []
         TFloatType -> []
         TNumericType {} -> []
         TBoolType -> []
@@ -2215,7 +2224,7 @@ expressionTypeVariableOrder = go
         TVarType typeVar ->
           [typeVar]
 
-typeSchemePrimitiveConstraints :: InferState -> Set Int -> [TypeSchemePrimitiveConstraint]
+typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
 typeSchemePrimitiveConstraints state schemeVariables =
   numericConstraints ++ equalityConstraints
   where
@@ -2238,11 +2247,11 @@ typeSchemePrimitiveConstraints state schemeVariables =
         Just targetType <- [targetTypeFor typeVar]
       ]
 
-numericConstrainedTypeVariables :: InferState -> Set Int
+numericConstrainedTypeVariables :: InferState -> Set InferenceVariable
 numericConstrainedTypeVariables =
   Map.keysSet . inferNumericVars
 
-typeSchemeInferredClassConstraints :: InferState -> Set Int -> [TypeSchemeConstraint]
+typeSchemeInferredClassConstraints :: InferState -> Set InferenceVariable -> [TypeSchemeConstraint]
 typeSchemeInferredClassConstraints state schemeVariables =
   dedupeTypeSchemeConstraints qualifiedMethodConstraints
   where
@@ -2273,7 +2282,7 @@ data PendingSignatureType = PendingSignatureType
     pendingSignatureSpan :: SourceSpan,
     pendingSignatureDeclaredType :: ExpressionType,
     pendingSignatureExplicitConstraints :: [TypeSchemeConstraint],
-    pendingSignatureVariableOrder :: [Int]
+    pendingSignatureVariableOrder :: [InferenceVariable]
   }
 
 targetedFractionalLiteralBindingType ::
@@ -2379,7 +2388,7 @@ retainedDataDeclaration statementIndex spanValue typeName typeParameters constru
   where
     parameterTypes =
       Map.fromList
-        [ (identifierText parameterName, TVarType (negate position - 1))
+        [ (identifierText parameterName, TVarType (InferenceVariable (negate position - 1)))
         | (position, parameterName) <- zip [0 :: Int ..] typeParameters
         ]
 
@@ -2404,7 +2413,7 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
   where
     signatureVariables =
       Map.fromList
-        [ (identifierText parameterName, TVarType (negate position - 1))
+        [ (identifierText parameterName, TVarType (InferenceVariable (negate position - 1)))
         | (position, parameterName) <- zip [0 :: Int ..] typeParameters
         ]
 
@@ -2675,7 +2684,7 @@ typeSchemeRuntimeHint state typeScheme =
   where
     expressionType = schemeResultType typeScheme
     resolvedSchemeType =
-      defaultLiteralTypes (resolveType state expressionType)
+      defaultLiteralTypes state (resolveType state expressionType)
     orderedVariables =
       quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme)
     runtimeTemplateVariables =
@@ -2686,4 +2695,4 @@ typeSchemeRuntimeHint state typeScheme =
 
 runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe SignatureType
 runtimeHintFromExpressionType state expressionType =
-  Signature.expressionTypeToRuntimeHint (defaultLiteralTypes (resolveType state expressionType))
+  Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (resolveType state expressionType))

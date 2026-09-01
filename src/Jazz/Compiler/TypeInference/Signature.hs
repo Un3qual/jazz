@@ -41,7 +41,6 @@ import Jazz.Compiler.CapabilityFacts
 import Jazz.Compiler.Name (Name, identifierText)
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
-    integerLiteralRangeFitsNumericType,
   )
 import Jazz.Compiler.TypeInference.State
   ( InferState,
@@ -56,7 +55,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
+  ( InferenceVariable (..),
     pattern ConstrainedSignature,
     pattern SignatureConstraint,
     pattern SignatureType,
@@ -99,7 +98,7 @@ validateSignatureType state signatureType =
   where
     variables =
       Map.fromList
-        [ (variableName, TVarType (negate position - 1))
+        [ (variableName, TVarType (InferenceVariable (negate position - 1)))
         | (position, variableName) <-
             zip [0 :: Int ..] (constraintSignatureTypeVariableNamesInOrder signatureType)
         ]
@@ -190,7 +189,7 @@ constraintSignatureTypeToExpressionTypeWithState state signatureVariables signat
 data SignaturePayloadType = SignaturePayloadType
   { signaturePayloadDeclaredType :: ExpressionType,
     signaturePayloadExplicitConstraints :: [TypeSchemeConstraint],
-    signaturePayloadVariableOrder :: [Int]
+    signaturePayloadVariableOrder :: [InferenceVariable]
   }
 
 -- | Normalize the currently accepted signature subset. Unsupported surfaces
@@ -378,23 +377,18 @@ expressionTypeToRuntimeHint =
 
 -- | Preserve quantified variables as actual signature variables when building
 -- runtime templates. This avoids disguising them as zero-arity data types.
-expressionTypeToRuntimeTemplate :: Map Int Name -> ExpressionType -> Maybe SignatureType
+expressionTypeToRuntimeTemplate :: Map InferenceVariable Name -> ExpressionType -> Maybe SignatureType
 expressionTypeToRuntimeTemplate variableNames =
   expressionTypeToRuntimeSignature (RuntimeTemplatePolicy variableNames)
 
 data RuntimeSignaturePolicy
   = RuntimeHintPolicy
-  | RuntimeTemplatePolicy (Map Int Name)
+  | RuntimeTemplatePolicy (Map InferenceVariable Name)
 
 expressionTypeToRuntimeSignature :: RuntimeSignaturePolicy -> ExpressionType -> Maybe SignatureType
 expressionTypeToRuntimeSignature policy expressionType =
   case expressionType of
     TIntType -> Just TypeInt
-    TIntegerLiteralType literalRange ->
-      case policy of
-        RuntimeHintPolicy
-          | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> Just TypeInt
-        _ -> Nothing
     TFloatType -> Just TypeFloat
     TNumericType numericType -> Just (TypeNumeric numericType)
     TBoolType -> Just TypeBool

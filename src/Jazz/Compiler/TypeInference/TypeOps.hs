@@ -15,14 +15,11 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.TypeInference.Solver
-  ( combineIntegerLiteralRanges,
-    integerLiteralRangeFitsNumericType,
-    resolveType,
-  )
+import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
+    InferenceVariable,
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
   )
@@ -36,11 +33,11 @@ dedupeTypeSchemeConstraints constraints =
     insertIfMissing (seen, deduplicated) constraint =
       (Set.insert constraint seen, constraint : deduplicated)
 
-freeTypeVariablesInTypeSchemeConstraints :: [TypeSchemeConstraint] -> Set Int
+freeTypeVariablesInTypeSchemeConstraints :: [TypeSchemeConstraint] -> Set InferenceVariable
 freeTypeVariablesInTypeSchemeConstraints constraints =
   Set.unions (map freeTypeVariablesInTypeSchemeConstraint constraints)
 
-freeTypeVariablesInTypeSchemeConstraint :: TypeSchemeConstraint -> Set Int
+freeTypeVariablesInTypeSchemeConstraint :: TypeSchemeConstraint -> Set InferenceVariable
 freeTypeVariablesInTypeSchemeConstraint constraint =
   case constraint of
     TypeSchemeConstraint _ argumentType ->
@@ -50,21 +47,20 @@ freeTypeVariablesInTypeSchemeConstraint constraint =
     TypeSchemeMethodConstraint _ _ argumentType ->
       freeTypeVariables argumentType
 
-freeTypeVariablesInTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> Set Int
+freeTypeVariablesInTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> Set InferenceVariable
 freeTypeVariablesInTypeSchemePrimitiveConstraints primitiveConstraints =
   Set.unions (map freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraints)
 
-freeTypeVariablesInTypeSchemePrimitiveConstraint :: TypeSchemePrimitiveConstraint -> Set Int
+freeTypeVariablesInTypeSchemePrimitiveConstraint :: TypeSchemePrimitiveConstraint -> Set InferenceVariable
 freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraint =
   case primitiveConstraint of
     TypeSchemeNumericConstraint _ argumentType -> freeTypeVariables argumentType
     TypeSchemeStrictEqualityConstraint argumentType -> freeTypeVariables argumentType
 
-freeTypeVariables :: ExpressionType -> Set Int
+freeTypeVariables :: ExpressionType -> Set InferenceVariable
 freeTypeVariables expressionType =
   case expressionType of
     TIntType -> Set.empty
-    TIntegerLiteralType {} -> Set.empty
     TFloatType -> Set.empty
     TNumericType {} -> Set.empty
     TBoolType -> Set.empty
@@ -81,11 +77,10 @@ freeTypeVariables expressionType =
     TVarType typeVar ->
       Set.singleton typeVar
 
-replaceTypeVariables :: Map Int ExpressionType -> ExpressionType -> ExpressionType
+replaceTypeVariables :: Map InferenceVariable ExpressionType -> ExpressionType -> ExpressionType
 replaceTypeVariables replacements expressionType =
   case expressionType of
     TIntType -> TIntType
-    TIntegerLiteralType literalRange -> TIntegerLiteralType literalRange
     TFloatType -> TFloatType
     TNumericType numericType -> TNumericType numericType
     TBoolType -> TBoolType
@@ -104,7 +99,7 @@ replaceTypeVariables replacements expressionType =
     TVarType typeVar ->
       Map.findWithDefault expressionType typeVar replacements
 
-instantiateTypeSchemeConstraint :: Map Int ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
+instantiateTypeSchemeConstraint :: Map InferenceVariable ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
 instantiateTypeSchemeConstraint replacements constraint =
   case constraint of
     TypeSchemeConstraint constraintName argumentType ->
@@ -114,7 +109,7 @@ instantiateTypeSchemeConstraint replacements constraint =
     TypeSchemeMethodConstraint constraintName methodKey argumentType ->
       TypeSchemeMethodConstraint constraintName methodKey (replaceTypeVariables replacements argumentType)
 
-instantiateTypeSchemePrimitiveConstraint :: Map Int ExpressionType -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
+instantiateTypeSchemePrimitiveConstraint :: Map InferenceVariable ExpressionType -> TypeSchemePrimitiveConstraint -> TypeSchemePrimitiveConstraint
 instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
   case primitiveConstraint of
     TypeSchemeNumericConstraint numericConstraint argumentType ->
@@ -123,31 +118,4 @@ instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
       TypeSchemeStrictEqualityConstraint (replaceTypeVariables replacements argumentType)
 
 mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-mergedUnifiedType state leftType rightType =
-  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
-
-mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
-mergeIntegerLiteralRanges leftType rightType =
-  case (leftType, rightType) of
-    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
-    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (TIntegerLiteralType {}, TIntType) -> TIntType
-    (TIntType, TIntegerLiteralType {}) -> TIntType
-    (TListType leftElementType, TListType rightElementType) ->
-      TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
-    (TTupleType leftElementTypes, TTupleType rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
-    (TDataType leftName leftArguments, TDataType rightName rightArguments)
-      | leftName == rightName,
-        length leftArguments == length rightArguments ->
-          TDataType leftName (zipWith mergeIntegerLiteralRanges leftArguments rightArguments)
-    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
-      TFunctionType
-        (mergeIntegerLiteralRanges leftInputType rightInputType)
-        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
-    _ -> leftType
+mergedUnifiedType state leftType _ = resolveType state leftType

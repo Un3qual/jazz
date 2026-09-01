@@ -27,13 +27,15 @@ import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
     patternBinderNames,
   )
+import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
     TypedCoreProductionMode (InferenceOnly),
   )
 import Jazz.Compiler.TypeInference.Solver
-  ( freshTypeVar,
+  ( freshIntegerLiteralType,
+    freshTypeVar,
     resolveType,
     unifyTypes,
   )
@@ -163,8 +165,8 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
                             addTypeError
                               stateAfterBody
                               ( mkPatternBranchTypeMismatchError
-                                  (resolveType stateAfterBody inferredExpectedBodyType)
-                                  (resolveType stateAfterBody inferredBodyType)
+                                  (diagnosticType stateAfterBody inferredExpectedBodyType)
+                                  (diagnosticType stateAfterBody inferredBodyType)
                               ),
                             nextResults
                           )
@@ -184,7 +186,7 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
                       Nothing ->
                         addTypeError
                           stateAfterGuard
-                          (mkCaseGuardTypeError (resolveType stateAfterGuard inferredGuardType))
+                          (mkCaseGuardTypeError (diagnosticType stateAfterGuard inferredGuardType))
                   Nothing ->
                     stateAfterGuard
            in (checkedState, Just guardResult)
@@ -314,16 +316,16 @@ inferPatternType env scrutineeType pattern state =
       )
     PWildcard -> (mempty, state)
     PLiteral literal ->
-      let literalType = literalExpressionType literal
-       in case unifyTypes scrutineeType literalType state of
+      let (literalType, stateAfterLiteral) = literalExpressionType literal state
+       in case unifyTypes scrutineeType literalType stateAfterLiteral of
             Just unifiedState -> (mempty, unifiedState)
             Nothing ->
               ( skipBranchPatternTyping,
                 addTypeError
-                  state
+                  stateAfterLiteral
                   ( mkPatternTypeMismatchError
-                      (resolveType state scrutineeType)
-                      literalType
+                      (diagnosticType stateAfterLiteral scrutineeType)
+                      (diagnosticType stateAfterLiteral literalType)
                   )
               )
     PConstructor constructorName patterns ->
@@ -449,8 +451,8 @@ inferOrPatternType env scrutineeType alternatives initialState =
                             stateForBinder
                             ( mkOrPatternBinderTypeMismatchError
                                 binderName
-                                (resolveType stateForBinder leftType)
-                                (resolveType stateForBinder rightType)
+                                (diagnosticType stateForBinder leftType)
+                                (diagnosticType stateForBinder rightType)
                             )
                         )
                 _ ->
@@ -496,8 +498,8 @@ inferConstructorPatternType env scrutineeType constructorName patterns state =
                       addTypeError
                         stateAfterConstructor
                         ( mkPatternTypeMismatchError
-                            (resolveType stateAfterConstructor scrutineeType)
-                            constructorResultType
+                            (diagnosticType stateAfterConstructor scrutineeType)
+                            (diagnosticType stateAfterConstructor constructorResultType)
                         )
                     )
         Nothing ->
@@ -551,7 +553,7 @@ inferListPatternType env scrutineeType patterns state =
             addTypeError
               stateWithElementType
               ( mkListPatternTypeMismatchError
-                  (resolveType stateWithElementType scrutineeType)
+                  (diagnosticType stateWithElementType scrutineeType)
               )
    in if hasNewPatternError stateWithElementType stateAfterListCheck
         then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
@@ -599,7 +601,7 @@ inferConsListPatternType env scrutineeType headPattern tailPattern state =
             addTypeError
               stateWithElementType
               ( mkListPatternTypeMismatchError
-                  (resolveType stateWithElementType scrutineeType)
+                  (diagnosticType stateWithElementType scrutineeType)
               )
    in if hasNewPatternError stateWithElementType stateAfterListCheck
         then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
@@ -659,7 +661,7 @@ inferTuplePatternType env scrutineeType patterns state =
               Nothing ->
                 addTypeError
                   stateWithElementTypes
-                  (mkTuplePatternTypeMismatchError resolvedScrutineeType)
+                  (mkTuplePatternTypeMismatchError (diagnosticType stateWithElementTypes resolvedScrutineeType))
        in if hasNewPatternError stateWithElementTypes stateAfterTupleCheck
             then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterTupleCheck)
             else
@@ -693,15 +695,18 @@ hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =
   inferErrorCount nextState > inferErrorCount previousState
 
-literalExpressionType :: Literal -> ExpressionType
-literalExpressionType literal =
+literalExpressionType :: Literal -> InferState -> (ExpressionType, InferState)
+literalExpressionType literal state =
   case literal of
-    LInt value -> TIntegerLiteralType (IntegerLiteralRange value value)
+    LInt value -> freshIntegerLiteralType (IntegerLiteralRange value value) state
     LFloat _ _ maybeTargetType ->
-      maybe TFloatType TNumericType maybeTargetType
-    LBool _ -> TBoolType
-    LChar _ -> TCharType
-    LText _ -> TTextType
+      (maybe TFloatType TNumericType maybeTargetType, state)
+    LBool _ -> (TBoolType, state)
+    LChar _ -> (TCharType, state)
+    LText _ -> (TTextType, state)
+
+diagnosticType :: InferState -> ExpressionType -> ExpressionType
+diagnosticType state = defaultLiteralTypes state . resolveType state
 
 instantiateConstructorBinding :: TypeBinding -> InferState -> Maybe ([ExpressionType], ExpressionType, InferState)
 instantiateConstructorBinding binding state =

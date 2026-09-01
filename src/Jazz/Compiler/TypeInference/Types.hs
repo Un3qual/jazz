@@ -12,6 +12,7 @@ module Jazz.Compiler.TypeInference.Types
     DataTypeBinding (..),
     ExpressionType (..),
     ImplMethodType (..),
+    InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
     QuantifiedVariables,
@@ -56,7 +57,8 @@ import Jazz.Compiler.StableSet
     stableSetOrderedList,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType,
+  ( InferenceVariable (..),
+    NumericType,
     pattern TypeApplication,
     pattern TypeBool,
     pattern TypeChar,
@@ -73,7 +75,6 @@ import Jazz.Compiler.TypeRepresentation
 
 data ExpressionType
   = TIntType
-  | TIntegerLiteralType IntegerLiteralRange
   | TFloatType
   | TNumericType NumericType
   | TBoolType
@@ -83,7 +84,7 @@ data ExpressionType
   | TTupleType [ExpressionType]
   | TDataType Name [ExpressionType]
   | TFunctionType ExpressionType ExpressionType
-  | TVarType Int
+  | TVarType InferenceVariable
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -156,19 +157,19 @@ data TypeBinding
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-newtype QuantifiedVariables = QuantifiedVariables (StableSet Int)
+newtype QuantifiedVariables = QuantifiedVariables (StableSet InferenceVariable)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-quantifiedVariablesFromPreferred :: [Int] -> Set Int -> QuantifiedVariables
+quantifiedVariablesFromPreferred :: [InferenceVariable] -> Set InferenceVariable -> QuantifiedVariables
 quantifiedVariablesFromPreferred preferred variables =
   QuantifiedVariables (stableSetFromPreferred preferred variables)
 
-quantifiedVariablesMembershipSet :: QuantifiedVariables -> Set Int
+quantifiedVariablesMembershipSet :: QuantifiedVariables -> Set InferenceVariable
 quantifiedVariablesMembershipSet (QuantifiedVariables variables) =
   stableSetMembershipSet variables
 
-quantifiedVariablesOrderedList :: QuantifiedVariables -> [Int]
+quantifiedVariablesOrderedList :: QuantifiedVariables -> [InferenceVariable]
 quantifiedVariablesOrderedList (QuantifiedVariables variables) =
   stableSetOrderedList variables
 

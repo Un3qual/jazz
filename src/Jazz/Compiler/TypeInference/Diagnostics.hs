@@ -427,7 +427,6 @@ renderType :: ExpressionType -> Text
 renderType expressionType =
   case expressionType of
     TIntType -> "Int"
-    TIntegerLiteralType {} -> "Int"
     TFloatType -> "Float"
     TNumericType numericType -> renderNumericTypeName numericType
     TBoolType -> "Bool"

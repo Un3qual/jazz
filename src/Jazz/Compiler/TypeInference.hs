@@ -151,9 +151,11 @@ import Jazz.Compiler.TypeInference.Scope
   )
 import Jazz.Compiler.TypeInference.Solver
   ( addNumericTypeVarConstraint,
+    freshIntegerLiteralType,
     freshTypeVar,
     freshTypeVariable,
     integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
     resolveType,
     unifyTypes,
   )
@@ -695,8 +697,9 @@ inferExprTypeDetailed ::
 inferExprTypeDetailed builtinMode env state expr =
   case expr of
     ELit literal ->
-      let expressionType = Just (literalExpressionType literal)
-          finalState = checkLiteralType state literal
+      let (literalType, stateAfterLiteral) = literalExpressionType literal state
+          expressionType = Just literalType
+          finalState = checkLiteralType stateAfterLiteral literal
        in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType) [], finalState)
     ETuple [] ->
       (InferredExpr (Just (TTupleType [])) (Just ProvisionalUnitExpression) [], state)
@@ -938,7 +941,9 @@ inferExprTypeDetailed builtinMode env state expr =
 
     inferUnsupportedLeafType unsupportedExpr initialState =
       case unsupportedExpr of
-        ELit literal -> (Just (literalExpressionType literal), checkLiteralType initialState literal)
+        ELit literal ->
+          let (literalType, stateAfterLiteral) = literalExpressionType literal initialState
+           in (Just literalType, checkLiteralType stateAfterLiteral literal)
         EVar name -> inferVariableType name initialState
         EOperatorValue operatorSymbol ->
           case instantiateOperatorType operatorSymbol initialState of
@@ -981,8 +986,9 @@ inferExprTypeDetailed builtinMode env state expr =
     supportedScalarScrutinee finalState scrutineeType =
       case resolveType finalState scrutineeType of
         TIntType -> True
-        TIntegerLiteralType literalRange ->
-          integerLiteralRangeFitsNumericType literalRange NumericInt64
+        literalType
+          | Just literalRange <- integerLiteralRangeFor finalState literalType ->
+              integerLiteralRangeFitsNumericType literalRange NumericInt64
         TFloatType -> True
         TNumericType {} -> True
         TBoolType -> True
@@ -1222,7 +1228,10 @@ inferExprTypeDetailed builtinMode env state expr =
                   ( Nothing,
                     addTypeError
                       (discardFailedFunctionApplicationConstraints applicationStartState stateWithResultVar)
-                      (mkApplyTypeError (resolveType stateWithResultVar functionType) (resolveType stateWithResultVar argumentType))
+                      ( mkApplyTypeError
+                          (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar functionType))
+                          (defaultLiteralTypes stateWithResultVar (resolveType stateWithResultVar argumentType))
+                      )
                   )
             _ ->
               ( Nothing,
@@ -1670,17 +1679,19 @@ builtinOperatorSymbolExpr env expr =
         _ -> Nothing
     _ -> Nothing
 
-literalExpressionType :: Literal -> ExpressionType
-literalExpressionType literal =
+literalExpressionType :: Literal -> InferState -> (ExpressionType, InferState)
+literalExpressionType literal state =
   case literal of
-    LInt value -> TIntegerLiteralType (singletonIntegerLiteralRange value)
+    LInt value -> freshIntegerLiteralType (singletonIntegerLiteralRange value) state
     LFloat _ _ maybeTargetType ->
-      case maybeTargetType of
-        Just targetType -> TNumericType targetType
-        Nothing -> TFloatType
-    LBool _ -> TBoolType
-    LChar _ -> TCharType
-    LText _ -> TTextType
+      ( case maybeTargetType of
+          Just targetType -> TNumericType targetType
+          Nothing -> TFloatType,
+        state
+      )
+    LBool _ -> (TBoolType, state)
+    LChar _ -> (TCharType, state)
+    LText _ -> (TTextType, state)
 
 checkLiteralType :: InferState -> Literal -> InferState
 checkLiteralType state literal =

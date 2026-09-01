@@ -41,8 +41,6 @@ module Jazz.Compiler.TypeInference.State
 where
 
 import Data.Foldable (toList)
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
@@ -61,6 +59,7 @@ import Jazz.Compiler.TypeInference.Types
     DataTypeBinding,
     ExpressionType,
     ImplMethodType,
+    InferenceVariable,
     NumericConstraint,
     ScopeCapabilityFacts,
     TypeEnv,
@@ -69,11 +68,11 @@ import Jazz.Compiler.TypeInference.Types
   )
 
 data SolverState = SolverState
-  { solverNextTypeVar :: Int,
-    solverSubstitution :: IntMap ExpressionType,
-    solverStrictEqualityVars :: Set Int,
-    solverNumericVars :: Map Int NumericConstraint,
-    solverRigidTypeVars :: Set Int
+  { solverNextTypeVar :: InferenceVariable,
+    solverSubstitution :: Map InferenceVariable ExpressionType,
+    solverStrictEqualityVars :: Set InferenceVariable,
+    solverNumericVars :: Map InferenceVariable NumericConstraint,
+    solverRigidTypeVars :: Set InferenceVariable
   }
   deriving (Eq, Show)
 
@@ -146,7 +145,7 @@ initialInferState =
     { inferSolver =
         SolverState
           { solverNextTypeVar = 0,
-            solverSubstitution = IntMap.empty,
+            solverSubstitution = Map.empty,
             solverStrictEqualityVars = Set.empty,
             solverNumericVars = Map.empty,
             solverRigidTypeVars = Set.empty
@@ -182,19 +181,19 @@ initialInferState =
           }
     }
 
-inferNextTypeVar :: InferState -> Int
+inferNextTypeVar :: InferState -> InferenceVariable
 inferNextTypeVar = solverNextTypeVar . inferSolver
 
-inferSubst :: InferState -> IntMap ExpressionType
+inferSubst :: InferState -> Map InferenceVariable ExpressionType
 inferSubst = solverSubstitution . inferSolver
 
-inferStrictEqualityVars :: InferState -> Set Int
+inferStrictEqualityVars :: InferState -> Set InferenceVariable
 inferStrictEqualityVars = solverStrictEqualityVars . inferSolver
 
-inferNumericVars :: InferState -> Map Int NumericConstraint
+inferNumericVars :: InferState -> Map InferenceVariable NumericConstraint
 inferNumericVars = solverNumericVars . inferSolver
 
-inferRigidTypeVars :: InferState -> Set Int
+inferRigidTypeVars :: InferState -> Set InferenceVariable
 inferRigidTypeVars = solverRigidTypeVars . inferSolver
 
 inferDataTypes :: InferState -> Map Text DataTypeBinding

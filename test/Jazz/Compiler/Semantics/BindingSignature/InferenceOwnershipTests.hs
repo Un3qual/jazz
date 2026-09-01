@@ -7,7 +7,6 @@ module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   )
 where
 
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -95,7 +94,6 @@ import Jazz.Compiler.TypeInference.TypeOps
   )
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
-    IntegerLiteralRange (..),
     NumericConstraint (..),
     ScopeCapabilityFacts,
     TypeBinding (..),
@@ -104,7 +102,8 @@ import Jazz.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( pattern SignatureConstraint,
+  ( InferenceVariable,
+    pattern SignatureConstraint,
     pattern SignatureType,
     pattern TypeBool,
     pattern TypeFunction,
@@ -121,10 +120,7 @@ import Jazz.TestHarness
 
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
-  [ ("runtime hints accept Int64-fitting integer ranges", testRuntimeHintsAcceptInt64FittingIntegerRanges),
-    ("runtime hints reject overflowing integer ranges", testRuntimeHintsRejectOverflowingIntegerRanges),
-    ("runtime templates reject integer literals", testRuntimeTemplatesRejectIntegerLiterals),
-    ("runtime templates accept only mapped quantified variables", testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables),
+  [ ("runtime templates accept only mapped quantified variables", testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables),
     ("runtime hint child failures propagate through lists and functions", testRuntimeHintChildFailuresPropagate),
     ("runtime template child failures propagate through lists and functions", testRuntimeTemplateChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
@@ -151,40 +147,6 @@ inferenceOwnershipTests =
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
 
-testRuntimeHintsAcceptInt64FittingIntegerRanges :: IO ()
-testRuntimeHintsAcceptInt64FittingIntegerRanges =
-  assertEqual
-    "Int64 range hint"
-    (Just TypeInt)
-    ( expressionTypeToRuntimeHint
-        (TIntegerLiteralType (IntegerLiteralRange (-9223372036854775808) 9223372036854775807))
-    )
-
-testRuntimeHintsRejectOverflowingIntegerRanges :: IO ()
-testRuntimeHintsRejectOverflowingIntegerRanges = do
-  assertEqual
-    "positive Int64 overflow"
-    Nothing
-    ( expressionTypeToRuntimeHint
-        (TIntegerLiteralType (IntegerLiteralRange 0 9223372036854775808))
-    )
-  assertEqual
-    "negative Int64 overflow"
-    Nothing
-    ( expressionTypeToRuntimeHint
-        (TIntegerLiteralType (IntegerLiteralRange (-9223372036854775809) 0))
-    )
-
-testRuntimeTemplatesRejectIntegerLiterals :: IO ()
-testRuntimeTemplatesRejectIntegerLiterals =
-  assertEqual
-    "literal template"
-    Nothing
-    ( expressionTypeToRuntimeTemplate
-        Map.empty
-        (TIntegerLiteralType (IntegerLiteralRange 1 1))
-    )
-
 testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables :: IO ()
 testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables = do
   let variableName = sourceName (mkIdentifier "a")
@@ -210,15 +172,15 @@ testRuntimeHintChildFailuresPropagate = do
 
 testRuntimeTemplateChildFailuresPropagate :: IO ()
 testRuntimeTemplateChildFailuresPropagate = do
-  let literalType = TIntegerLiteralType (IntegerLiteralRange 1 1)
+  let unmappedType = TVarType 1
   assertEqual
     "list child failure"
     Nothing
-    (expressionTypeToRuntimeTemplate Map.empty (TListType literalType))
+    (expressionTypeToRuntimeTemplate Map.empty (TListType unmappedType))
   assertEqual
     "function child failure"
     Nothing
-    (expressionTypeToRuntimeTemplate Map.empty (TFunctionType TIntType literalType))
+    (expressionTypeToRuntimeTemplate Map.empty (TFunctionType TIntType unmappedType))
 
 testDuplicateConstraintsReportFirstRepeatedName :: IO ()
 testDuplicateConstraintsReportFirstRepeatedName =
@@ -335,7 +297,7 @@ testSolverResolvesLongSubstitutionChains =
     )
   where
     substitution =
-      IntMap.fromList
+      Map.fromList
         ([(typeVar, TVarType (typeVar + 1)) | typeVar <- [0 .. 62]] ++ [(63, TIntType)])
 
 testUnificationPathCompressesSubstitutionChains :: IO ()
@@ -346,11 +308,11 @@ testUnificationPathCompressesSubstitutionChains =
       assertEqual
         "compressed root substitution"
         (Just TIntType)
-        (IntMap.lookup 0 (solverSubstitution (inferSolver nextState)))
+        (Map.lookup 0 (solverSubstitution (inferSolver nextState)))
       assertEqual
         "compressed middle substitution"
         (Just TIntType)
-        (IntMap.lookup 1 (solverSubstitution (inferSolver nextState)))
+        (Map.lookup 1 (solverSubstitution (inferSolver nextState)))
       assertEqual "resolved root type" TIntType (resolveType nextState (TVarType 0))
   where
     chainState =
@@ -358,7 +320,7 @@ testUnificationPathCompressesSubstitutionChains =
         { inferSolver =
             (inferSolver initialInferState)
               { solverSubstitution =
-                  IntMap.fromList
+                  Map.fromList
                     [ (0, TVarType 1),
                       (1, TVarType 2),
                       (2, TIntType)
@@ -595,11 +557,11 @@ testRecursivePreviewSolverStateIsTransactional =
               { inferSolver =
                   (inferSolver state)
                     { solverSubstitution =
-                        IntMap.insert previewSentinel TIntType (solverSubstitution (inferSolver state))
+                        Map.insert previewSentinel TIntType (solverSubstitution (inferSolver state))
                     }
               }
         EVar "probe"
-          | IntMap.member previewSentinel (solverSubstitution (inferSolver state)) ->
+          | Map.member previewSentinel (solverSubstitution (inferSolver state)) ->
               inferenceOnlyResult
                 mode
                 (Just TBoolType)
@@ -685,8 +647,8 @@ testRecursivePreviewRefreshesAfterStrictEqualityConstraintChange =
 
 assertRecursivePreviewRefreshesAfterConstraintChange ::
   Text ->
-  (Int -> InferState -> InferState) ->
-  (Int -> InferState -> Bool) ->
+  (InferenceVariable -> InferState -> InferState) ->
+  (InferenceVariable -> InferState -> Bool) ->
   IO ()
 assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasConstraint =
   assertEqual

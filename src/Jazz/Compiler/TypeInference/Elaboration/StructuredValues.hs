@@ -32,10 +32,17 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionPath (..),
   )
-import Jazz.Compiler.TypeInference.Solver (resolveType)
+import Jazz.Compiler.TypeInference.Solver
+  ( integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
+    resolveType,
+  )
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
-import Jazz.Compiler.TypeRepresentation (NumericType)
+import Jazz.Compiler.TypeRepresentation
+  ( InferenceVariable (..),
+    NumericType (..),
+  )
 import Jazz.Compiler.TypedCore
 import Prelude hiding (unzip)
 
@@ -133,7 +140,7 @@ buildStructuredValueCatalog modulePath state statements =
     resolveConstructor skeletonMap skeleton constructorIndex (ProvisionalConstructorDeclaration sourceName fieldTemplates) = do
       let parameterVariables =
             Map.fromList
-              [ (negate index - 1, parameter)
+              [ (InferenceVariable (negate index - 1), parameter)
               | (index, parameter) <- zip [0 :: Int ..] (skeletonParameters skeleton)
               ]
           contract template = expressionContract skeletonMap parameterVariables state template
@@ -236,7 +243,7 @@ concreteConstructorFieldTypes state constructor resultExpressionType = do
   guard (length concreteArguments == length (structuredConstructorParameters constructor))
   let parameterVariables =
         Map.fromList
-          [ (negate index - 1, resolveType state argument)
+          [ (InferenceVariable (negate index - 1), resolveType state argument)
           | (index, argument) <- zip [0 :: Int ..] concreteArguments
           ]
   traverse
@@ -245,49 +252,52 @@ concreteConstructorFieldTypes state constructor resultExpressionType = do
 
 expressionContract ::
   Map Name StructuredDataSkeleton ->
-  Map Int TypedTypeParameterId ->
+  Map InferenceVariable TypedTypeParameterId ->
   InferState ->
   ExpressionType ->
   Maybe (TypedType, TypedRepresentationRecipe)
-expressionContract dataSkeletons parameterVariables state expressionType =
-  case resolveType state expressionType of
-    TIntType -> scalar TypedIntType (TypedSignedIntegerRecipe 64)
-    TIntegerLiteralType {} -> scalar TypedIntType (TypedSignedIntegerRecipe 64)
-    TFloatType -> scalar TypedFloatType (TypedFloatRecipe 64)
-    TNumericType numericType -> numericContract numericType
-    TBoolType -> scalar TypedBoolType TypedBoolRecipe
-    TCharType -> scalar TypedCharType TypedCharRecipe
-    TTextType -> scalar TypedTextType TypedManagedTextRecipe
-    TListType {} -> Nothing
-    TTupleType elementTypes -> do
-      elementContracts <- traverse child elementTypes
-      pure
-        ( TypedTupleType (map fst elementContracts),
-          case elementContracts of
-            [] -> TypedUnitRecipe
-            _ -> TypedManagedProductRecipe (map snd elementContracts)
-        )
-    TDataType sourceName arguments -> do
-      skeleton <- Map.lookup sourceName dataSkeletons
-      argumentContracts <- traverse child arguments
-      let typedArguments = map fst argumentContracts
-      pure
-        ( TypedDataType (skeletonName skeleton) typedArguments,
-          TypedManagedVariantRecipe (skeletonName skeleton) typedArguments
-        )
-    TFunctionType argument result -> do
-      (argumentType, argumentRecipe) <- child argument
-      (resultType, resultRecipe) <- child result
-      pure
-        ( TypedFunctionType argumentType resultType,
-          TypedClosureRecipe [argumentRecipe] resultRecipe
-        )
-    TVarType variable -> do
-      parameter <- Map.lookup variable parameterVariables
-      pure
-        ( TypedTypeParameterType parameter,
-          TypedRepresentationParameterRecipe parameter
-        )
+expressionContract dataSkeletons parameterVariables state expressionType
+  | Just literalRange <- integerLiteralRangeFor state expressionType,
+    integerLiteralRangeFitsNumericType literalRange NumericInt64 =
+      scalar TypedIntType (TypedSignedIntegerRecipe 64)
+  | otherwise =
+      case resolveType state expressionType of
+        TIntType -> scalar TypedIntType (TypedSignedIntegerRecipe 64)
+        TFloatType -> scalar TypedFloatType (TypedFloatRecipe 64)
+        TNumericType numericType -> numericContract numericType
+        TBoolType -> scalar TypedBoolType TypedBoolRecipe
+        TCharType -> scalar TypedCharType TypedCharRecipe
+        TTextType -> scalar TypedTextType TypedManagedTextRecipe
+        TListType {} -> Nothing
+        TTupleType elementTypes -> do
+          elementContracts <- traverse child elementTypes
+          pure
+            ( TypedTupleType (map fst elementContracts),
+              case elementContracts of
+                [] -> TypedUnitRecipe
+                _ -> TypedManagedProductRecipe (map snd elementContracts)
+            )
+        TDataType sourceName arguments -> do
+          skeleton <- Map.lookup sourceName dataSkeletons
+          argumentContracts <- traverse child arguments
+          let typedArguments = map fst argumentContracts
+          pure
+            ( TypedDataType (skeletonName skeleton) typedArguments,
+              TypedManagedVariantRecipe (skeletonName skeleton) typedArguments
+            )
+        TFunctionType argument result -> do
+          (argumentType, argumentRecipe) <- child argument
+          (resultType, resultRecipe) <- child result
+          pure
+            ( TypedFunctionType argumentType resultType,
+              TypedClosureRecipe [argumentRecipe] resultRecipe
+            )
+        TVarType variable -> do
+          parameter <- Map.lookup variable parameterVariables
+          pure
+            ( TypedTypeParameterType parameter,
+              TypedRepresentationParameterRecipe parameter
+            )
   where
     child = expressionContract dataSkeletons parameterVariables state
     scalar typeValue recipe = Just (typeValue, recipe)
@@ -296,7 +306,7 @@ numericContract :: NumericType -> Maybe (TypedType, TypedRepresentationRecipe)
 numericContract numericType =
   Just (TypedNumericType numericType, typedNumericRepresentationRecipe numericType)
 
-substituteConstructorExpressionType :: Map Int ExpressionType -> ExpressionType -> Maybe ExpressionType
+substituteConstructorExpressionType :: Map InferenceVariable ExpressionType -> ExpressionType -> Maybe ExpressionType
 substituteConstructorExpressionType bindings expressionType =
   case expressionType of
     TListType elementType -> TListType <$> child elementType

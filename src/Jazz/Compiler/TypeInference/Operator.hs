@@ -52,7 +52,7 @@ import Jazz.Compiler.TypeInference.Solver
     freshTypeVar,
     freshTypeVariable,
     integerLiteralRangeBounds,
-    integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
     resolveType,
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
@@ -133,8 +133,8 @@ operatorAliasEqualityConstraintTarget state leftType rightType
       Just resolvedLeftType
   | otherwise = Nothing
   where
-    resolvedLeftType = defaultLiteralTypes (resolveType state leftType)
-    resolvedRightType = defaultLiteralTypes (resolveType state rightType)
+    resolvedLeftType = defaultLiteralTypes state (resolveType state leftType)
+    resolvedRightType = defaultLiteralTypes state (resolveType state rightType)
 
 instantiateOperatorAliasSchemeConstraints :: TypeScheme -> ExpressionType -> InferState -> InferState
 instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
@@ -182,8 +182,8 @@ inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
           state
           ( mkBinaryTypeError
               operatorSymbol
-              (resolveType state leftType)
-              (resolveType state rightType)
+              (diagnosticType state leftType)
+              (diagnosticType state rightType)
           )
       )
 
@@ -234,8 +234,15 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
         Nothing ->
           case unifyTypes leftType rightType state of
             Just stateAfterUnify ->
-              let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-               in constrainNumericOperand resolvedOperandType stateAfterUnify
+              let (resolvedOperandType, stateAfterResultRange) =
+                    numericBinaryOperandType
+                      operatorSymbol
+                      resultRule
+                      leftLiteralRange
+                      rightLiteralRange
+                      stateAfterUnify
+                      leftType
+               in constrainNumericOperand resolvedOperandType stateAfterResultRange
             Nothing -> numericOperandError state
   where
     rigidNumericOperand =
@@ -250,6 +257,9 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
               Just rigidType
         _ -> Nothing
 
+    leftLiteralRange = integerLiteralRangeFor state leftType
+    rightLiteralRange = integerLiteralRangeFor state rightType
+
     constrainNumericOperand resolvedOperandType operandState =
       case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType operandState of
         Just stateAfterNumericConstraint ->
@@ -262,8 +272,8 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
           errState
           ( mkNumericBinaryTypeError
               operatorSymbol
-              (resolveType errState leftType)
-              (resolveType errState rightType)
+              (diagnosticType errState leftType)
+              (diagnosticType errState rightType)
           )
       )
 
@@ -288,13 +298,13 @@ numericRuleConstraint resultRule =
 
 integerLiteralFloat64PromotionOperand :: InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
 integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType =
-  case (resolveType state leftType, resolveType state rightType) of
-    (TIntegerLiteralType literalRange, floatType)
+  case (integerLiteralRangeFor state leftType, integerLiteralRangeFor state rightType, resolveType state leftType, resolveType state rightType) of
+    (Just literalRange, _, _, floatType)
       | exprIsIntegerLiteral leftExpr,
         integerLiteralRangeFitsFloat64 literalRange,
         expressionTypeIsFloat64Domain floatType ->
           Just (floatType, state)
-    (floatType, TIntegerLiteralType literalRange)
+    (_, Just literalRange, floatType, _)
       | exprIsIntegerLiteral rightExpr,
         integerLiteralRangeFitsFloat64 literalRange,
         expressionTypeIsFloat64Domain floatType ->
@@ -345,21 +355,23 @@ integerLiteralRangeFitsFloat64 literalRange =
 numericBinaryOperandType ::
   Text ->
   NumericRuleResult ->
+  Maybe IntegerLiteralRange ->
+  Maybe IntegerLiteralRange ->
   InferState ->
   ExpressionType ->
-  ExpressionType ->
-  ExpressionType
-numericBinaryOperandType operatorSymbol resultRule state leftType rightType =
-  case (resolveType state leftType, resolveType state rightType) of
-    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange)
-    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (TIntegerLiteralType {}, TIntType) -> TIntType
-    (TIntType, TIntegerLiteralType {}) -> TIntType
-    (resolvedLeftType, _) -> resolvedLeftType
+  (ExpressionType, InferState)
+numericBinaryOperandType operatorSymbol resultRule leftLiteralRange rightLiteralRange state leftType =
+  case (resultRule, leftLiteralRange, rightLiteralRange, resolvedLeftType) of
+    (NumericSameTypeResult, Just leftRange, Just rightRange, TVarType resultVar) ->
+      ( resolvedLeftType,
+        addNumericTypeVarConstraint
+          resultVar
+          (IntegralLiteralNumericConstraint (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange))
+          state
+      )
+    _ -> (resolvedLeftType, state)
+  where
+    resolvedLeftType = resolveType state leftType
 
 applyApplicationBinaryRule ::
   ExpressionType ->
@@ -376,8 +388,8 @@ applyApplicationBinaryRule functionType argumentType state =
             addTypeError
               stateAfterResultVar
               ( mkApplyTypeError
-                  (resolveType stateAfterResultVar functionType)
-                  (resolveType stateAfterResultVar argumentType)
+                  (diagnosticType stateAfterResultVar functionType)
+                  (diagnosticType stateAfterResultVar argumentType)
               )
           )
 
@@ -418,7 +430,7 @@ applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightTy
                       ( Nothing,
                         addTypeError
                           unifiedState
-                          (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
+                          (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType unifiedState resolvedType))
                       )
         Nothing ->
           ( Nothing,
@@ -426,8 +438,8 @@ applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightTy
               state
               ( mkStrictEqualityTypeError
                   operatorSymbol
-                  (resolveType state leftType)
-                  (resolveType state rightType)
+                  (diagnosticType state leftType)
+                  (diagnosticType state rightType)
               )
           )
 
@@ -472,7 +484,7 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state leftType))
+              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state leftType))
           )
 
 applyStrictEqualitySectionLeftRule ::
@@ -496,7 +508,7 @@ applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
               ( Nothing,
                 addTypeError
                   state
-                  (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedLeftType))
               )
 
 inferSectionRightType ::
@@ -540,7 +552,7 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state rightType))
+              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state rightType))
           )
 
 applyStrictEqualitySectionRightRule ::
@@ -564,18 +576,18 @@ applyStrictEqualitySectionRightRule operatorSymbol rightType state =
               ( Nothing,
                 addTypeError
                   state
-                  (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedRightType))
               )
 
 numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)
 numericSectionCounterpartType sectionOperandType state =
-  case sectionOperandType of
-    TIntegerLiteralType literalRange ->
+  case integerLiteralRangeFor state sectionOperandType of
+    Just literalRange ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
        in ( operandType,
             addNumericTypeVarConstraint typeVar (IntegralLiteralNumericConstraint literalRange) stateAfterOperandType
           )
-    _ -> (sectionOperandType, state)
+    Nothing -> (sectionOperandType, state)
 
 numericLiteralBinaryRange ::
   Text ->
@@ -618,6 +630,9 @@ integerLiteralArithmeticResultRange operatorSymbol (IntegerLiteralRange leftMin 
 
 rangeFromValues :: [Integer] -> IntegerLiteralRange
 rangeFromValues values = IntegerLiteralRange (minimum values) (maximum values)
+
+diagnosticType :: InferState -> ExpressionType -> ExpressionType
+diagnosticType state = defaultLiteralTypes state . resolveType state
 
 instantiateOperatorType :: Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateOperatorType operatorSymbol state =

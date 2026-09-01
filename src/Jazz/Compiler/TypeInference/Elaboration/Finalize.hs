@@ -92,10 +92,13 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     unsupportedTypedCoreProductionOutcome,
   )
 import Jazz.Compiler.TypeInference.Solver
-  ( resolveType,
+  ( integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
+    resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
-import Jazz.Compiler.TypeInference.Types (ExpressionType (..), TypeBinding (..))
+import Jazz.Compiler.TypeInference.Types (ExpressionType (..), IntegerLiteralRange (..), TypeBinding (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (NumericInt64))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Query (typedExpressionReferencesAnyBinder)
 import Jazz.Compiler.TypedCore.Validate
@@ -242,7 +245,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           let callableShape = shapeFor callableShapes name
               directArity = maybe (resolvedFunctionArity expressionType) functionArity (Map.lookup name functions)
               infoResult =
-                case defaultScalarLiterals (resolveType state expressionType) of
+                case defaultScalarLiterals state (resolveType state expressionType) of
                   TFunctionType {} -> callableInfo structuredCatalog callableShape directArity statementIndex [] expressionType
                   _ -> valueInfo structuredCatalog statementIndex [] expressionType
            in case infoResult of
@@ -441,7 +444,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           ([], Just (TypedTupleExpr unitInfo []))
         ProvisionalTupleExpression expressionType elements ->
           let selectedElements =
-                case defaultScalarLiterals (resolveType finalizationState expressionType) of
+                case defaultScalarLiterals finalizationState (resolveType finalizationState expressionType) of
                   TTupleType elementTypes
                     | length elementTypes == length elements ->
                         zipWith
@@ -463,7 +466,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       Nothing
                     )
         ProvisionalLiteralExpression literal expressionType ->
-          case scalarInfo structuredCatalog statementIndex childPath expressionType of
+          case scalarInfo structuredCatalog statementIndex childPath (literalFinalizationType literal expressionType) of
             Left failure -> ([failure], Nothing)
             Right info ->
               case typedLiteral statementIndex childPath literal info of
@@ -519,11 +522,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     case Map.lookup parameterBinder scalarCaptureTypes of
                       Just captureType -> specializeExpressionType finalizationState captureType expressionType
                       Nothing -> expressionType
-                  selectedType = defaultScalarLiterals (resolveType finalizationState selectedExpressionType)
+                  selectedType = defaultScalarLiterals finalizationState (resolveType finalizationState selectedExpressionType)
                   captureTypeMismatch =
                     case Map.lookup parameterBinder scalarCaptureTypes of
                       Just captureType ->
-                        selectedType /= defaultScalarLiterals (resolveType finalizationState captureType)
+                        selectedType /= defaultScalarLiterals finalizationState (resolveType finalizationState captureType)
                       Nothing -> False
                in if captureTypeMismatch
                     then
@@ -633,7 +636,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 case maybeScrutinee of
                   Just typedScrutinee ->
                     finalizePatternCaseArms
-                      (defaultScalarLiterals <$> provisionalExpressionType finalizationState scrutinee)
+                      (defaultScalarLiterals finalizationState <$> provisionalExpressionType finalizationState scrutinee)
                       (typedExpressionInfo typedScrutinee)
                       arms
                   Nothing -> ([], Nothing)
@@ -797,7 +800,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                         Left failure -> ([failure], Nothing, Map.empty)
                         Right literalValue -> ([], Just (TypedLiteralPattern currentInfo literalValue), Map.empty)
                     PTuple nested ->
-                      case defaultScalarLiterals (resolveType patternFinalizationState currentType) of
+                      case defaultScalarLiterals patternFinalizationState (resolveType patternFinalizationState currentType) of
                         TTupleType elementTypes
                           | length elementTypes == length nested ->
                               finalizeChildren
@@ -1186,8 +1189,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       where
         selectedResultTypes = take (length provisionalResultTypes) (resultTypes expressionType)
         selectResultType selectedType provisionalType =
-          case (resolveType state provisionalType, concreteIntegralType (resolveType state selectedType)) of
-            (TIntegerLiteralType {}, Just concreteType) -> specializeExpressionType state concreteType provisionalType
+          case (integerLiteralRangeFor state provisionalType, concreteIntegralType (resolveType state selectedType)) of
+            (Just _, Just concreteType) -> specializeExpressionType state concreteType provisionalType
             _ -> provisionalType
         resultTypes selectedType =
           case resolveType state selectedType of
@@ -1200,8 +1203,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       where
         selectedArgumentTypes = take (length provisionalArguments) (argumentTypes expressionType)
         selectArgumentType selectedType (argumentPath, argument) =
-          case (provisionalExpressionType state argument, concreteIntegralType (resolveType state selectedType)) of
-            (Just TIntegerLiteralType {}, Just concreteType) ->
+          case (provisionalExpressionType state argument >>= integerLiteralRangeFor state, concreteIntegralType (resolveType state selectedType)) of
+            (Just _, Just concreteType) ->
               (argumentPath, specializeProvisionalExpression state (Just concreteType) argument)
             _ -> (argumentPath, argument)
         argumentTypes selectedType =
@@ -1426,7 +1429,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             (max 0 (length resultTypes - directArity))
             (drop (max 0 (directArity - 1)) resultTypes)
         isCallableResult expressionType =
-          case defaultScalarLiterals (resolveType state expressionType) of
+          case defaultScalarLiterals state (resolveType state expressionType) of
             TFunctionType {} -> True
             _ -> False
 
@@ -1482,7 +1485,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         TypedClosureCallableShape -> stagedTypeAndRecipe structuredCatalog
 
     directTypeAndRecipe structuredCatalog remainingDirectArity statementIndex childPath expressionType =
-      case (remainingDirectArity, defaultScalarLiterals (resolveType state expressionType)) of
+      case (remainingDirectArity, defaultScalarLiterals state (resolveType state expressionType)) of
         (remaining, TFunctionType argument result)
           | remaining > 0 -> do
               (argumentType, argumentRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath argument
@@ -1498,12 +1501,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         (_, other) -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
     resolvedFunctionArity expressionType =
-      case defaultScalarLiterals (resolveType state expressionType) of
+      case defaultScalarLiterals state (resolveType state expressionType) of
         TFunctionType _ result -> 1 + resolvedFunctionArity result
         _ -> 0
 
     stagedTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
-      case defaultScalarLiterals (resolveType state expressionType) of
+      case defaultScalarLiterals state (resolveType state expressionType) of
         TFunctionType argument result -> do
           (argumentType, argumentRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath argument
           (resultType, resultRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath result
@@ -1511,7 +1514,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         other -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
     valueTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
-      case defaultScalarLiterals (resolveType state expressionType) of
+      case defaultScalarLiterals state (resolveType state expressionType) of
         resolvedFunctionType@TFunctionType {} -> stagedTypeAndRecipe structuredCatalog statementIndex childPath resolvedFunctionType
         other -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
@@ -2336,9 +2339,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               | otherwise = (Set.insert export seen, export : exports)
 
     scalarInfo structuredCatalog statementIndex childPath expressionType =
-      case defaultScalarLiterals (resolveType state expressionType) of
+      case defaultScalarLiterals state (resolveType state expressionType) of
         TIntType -> typedInfo TypedIntType
-        TIntegerLiteralType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
         TFloatType -> typedInfo TypedFloatType
         TNumericType numericType -> typedInfo (TypedNumericType numericType)
         TBoolType -> typedInfo TypedBoolType
@@ -2364,9 +2366,15 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             Just recipe -> Right (TypedNodeInfo typeValue recipe [] [])
             Nothing -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
 
+    literalFinalizationType literal expressionType =
+      case (literal, integerLiteralRangeFor state expressionType) of
+        (LInt value, Just _)
+          | integerLiteralRangeFitsNumericType (IntegerLiteralRange value value) NumericInt64 -> TIntType
+        _ -> expressionType
+
     isManagedStructuredEquality operatorSymbol operandType =
       operatorSymbol `elem` ["==", "!="]
-        && case defaultScalarLiterals (resolveType state operandType) of
+        && case defaultScalarLiterals state (resolveType state operandType) of
           TTupleType (_ : _) -> True
           TDataType {} -> True
           _ -> False

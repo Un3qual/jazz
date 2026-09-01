@@ -4,10 +4,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 -- | Shared recursive type syntax used from parsing through type inference.
 module Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
+  ( InferenceVariable (..),
+    NumericType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
@@ -25,6 +27,19 @@ import Data.Bitraversable
   )
 import Data.Text (Text)
 import GHC.Generics (Generic)
+
+-- | Nominal identity for a solver-owned type variable.
+--
+-- Keeping this distinct from incidental counters and source positions makes
+-- inference state ownership explicit while preserving concise numeric
+-- construction at solver call sites.
+newtype InferenceVariable = InferenceVariable Int
+  deriving stock (Eq, Generic, Ord)
+  deriving newtype (Enum, Num)
+  deriving anyclass (NFData)
+
+instance Show InferenceVariable where
+  show (InferenceVariable variable) = show variable
 
 -- | Fixed-width numeric types supported throughout the compiler pipeline.
 data NumericType

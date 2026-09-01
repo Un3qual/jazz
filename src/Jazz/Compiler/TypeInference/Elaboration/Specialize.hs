@@ -30,6 +30,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
   )
 import Jazz.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
@@ -395,24 +396,24 @@ specializeExpressionType :: InferState -> ExpressionType -> ExpressionType -> Ex
 specializeExpressionType state expectedType expressionType =
   let resolvedExpected = resolveType state expectedType
       resolvedExpression = resolveType state expressionType
-   in case (resolvedExpression, resolvedExpected) of
-        (TTupleType expressionElements, TTupleType expectedElements)
+   in case (integerLiteralRangeFor state expressionType, resolvedExpression, resolvedExpected) of
+        (_, TTupleType expressionElements, TTupleType expectedElements)
           | length expressionElements == length expectedElements ->
               TTupleType (zipWith (specializeExpressionType state) expectedElements expressionElements)
-        (TDataType expressionName expressionArguments, TDataType expectedName expectedArguments)
+        (_, TDataType expressionName expressionArguments, TDataType expectedName expectedArguments)
           | expressionName == expectedName,
             length expressionArguments == length expectedArguments ->
               TDataType
                 expressionName
                 (zipWith (specializeExpressionType state) expectedArguments expressionArguments)
-        (TIntegerLiteralType literalRange, TIntType)
+        (Just literalRange, _, TIntType)
           | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
-        (TIntegerLiteralType literalRange, numericType@(TNumericType concreteType))
+        (Just literalRange, _, numericType@(TNumericType concreteType))
           | integerLiteralRangeFitsNumericType literalRange concreteType -> numericType
-        (TIntType, TNumericType NumericInt64) -> resolvedExpected
-        (TNumericType NumericInt64, TIntType) -> resolvedExpected
-        (TFloatType, TNumericType NumericFloat64) -> resolvedExpected
-        (TNumericType NumericFloat64, TFloatType) -> resolvedExpected
+        (_, TIntType, TNumericType NumericInt64) -> resolvedExpected
+        (_, TNumericType NumericInt64, TIntType) -> resolvedExpected
+        (_, TFloatType, TNumericType NumericFloat64) -> resolvedExpected
+        (_, TNumericType NumericFloat64, TFloatType) -> resolvedExpected
         _ -> resolvedExpression
 
 concreteIntegralType :: ExpressionType -> Maybe ExpressionType
@@ -423,9 +424,9 @@ concreteIntegralType expressionType =
       | numericTypeIsIntegral concreteType -> Just numericType
     _ -> Nothing
 
-defaultScalarLiterals :: ExpressionType -> ExpressionType
-defaultScalarLiterals expressionType =
-  case expressionType of
-    TIntegerLiteralType literalRange
+defaultScalarLiterals :: InferState -> ExpressionType -> ExpressionType
+defaultScalarLiterals state expressionType =
+  case integerLiteralRangeFor state expressionType of
+    Just literalRange
       | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
     _ -> expressionType
