@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Jazz.Compiler.Runtime.Request
   ( RuntimeExpressionRequest (..),
     RuntimeScopeRequest (..),
@@ -7,7 +9,7 @@ where
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
-import Jazz.Compiler.AST (Expr, SignatureType, Statement)
+import Jazz.Compiler.AST (CorePhase (..), Expr, SignatureType, Statement)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.Runtime.Types
   ( ModuleEvaluationMode,
@@ -18,8 +20,8 @@ import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 data RuntimeExpressionRequest = RuntimeExpressionRequest
   { runtimeExpressionSourceUnitStatementIndices :: Set Int,
     runtimeExpressionBuiltinMode :: BuiltinResolutionMode,
-    runtimeExpressionBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
-    runtimeExpression :: Expr
+    runtimeExpressionBindingTypeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved),
+    runtimeExpression :: Expr 'Resolved
   }
 
 data RuntimeScopeRequest = RuntimeScopeRequest
@@ -27,7 +29,7 @@ data RuntimeScopeRequest = RuntimeScopeRequest
     runtimeScopeCurrentModulePath :: Maybe [Text],
     runtimeScopeEvaluationMode :: ModuleEvaluationMode,
     runtimeScopeBuiltinMode :: BuiltinResolutionMode,
-    runtimeScopeBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
+    runtimeScopeBindingTypeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved),
     runtimeScopeInitialEnvironment :: RuntimeEnv,
-    runtimeScopeStatements :: [Statement]
+    runtimeScopeStatements :: [Statement 'Resolved]
   }

@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 -- | Explicitly separated state for inference traversal and solver operations.
 module Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -48,10 +50,10 @@ import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.AST (SignatureType)
+import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
@@ -92,13 +94,13 @@ data ModuleInferenceState = ModuleInferenceState
     inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
-    inferenceConstructorWitnessNames :: Map Name Name,
+    inferenceConstructorWitnessNames :: Map ResolvedName ResolvedName,
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
+  { outputRuntimeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved),
     outputDeferredConstraints :: Seq DeferredExplicitConstraint,
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputInferredConstraintCount :: Int,
@@ -226,13 +228,13 @@ inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModul
 inferModuleCapabilityFacts :: InferState -> Map [Text] ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
-inferConstructorWitnessNames :: InferState -> Map Name Name
+inferConstructorWitnessNames :: InferState -> Map ResolvedName ResolvedName
 inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
 
-inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey SignatureType
+inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey (SignatureType 'Resolved)
 inferRuntimeTypeHints = outputRuntimeHints . inferOutput
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]

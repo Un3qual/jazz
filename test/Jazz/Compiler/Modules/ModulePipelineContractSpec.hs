@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -14,7 +15,10 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Resolved),
+    Expr (..),
     Literal (..),
     Statement (..),
   )
@@ -91,6 +95,7 @@ import Jazz.Compiler.ModuleRuntime
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
     NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    ResolvedName,
     identifierText,
     mkIdentifier,
     resolvedImportedName,
@@ -216,21 +221,21 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
     middleExport = ModuleExport ValueNamespace "middle"
     secondExport = ModuleExport ValueNamespace "other"
     firstModule =
-      compiledTextBindingModule duplicatePath [] firstExport (ELit (LText "first"))
+      compiledTextBindingModule duplicatePath [] firstExport (resolvedLiteral (LText "first"))
     middleModule =
       compiledTextBindingModule
         middlePath
         [chainImport duplicatePath]
         middleExport
-        (EVar (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")))
+        (resolvedVariable (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")))
     secondModule =
-      compiledTextBindingModule duplicatePath [] secondExport (ELit (LText "second"))
+      compiledTextBindingModule duplicatePath [] secondExport (resolvedLiteral (LText "second"))
     entryStatements =
-      [ SExpr
+      [ resolvedExpression
           (SourceSpan 1 1)
-          ( ETuple
-              [ EVar (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")),
-                EVar (resolvedImportedName (nominalModulePath middlePath) ValueNamespace (mkIdentifier "middle"))
+          ( resolvedTuple
+              [ resolvedVariable (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")),
+                resolvedVariable (resolvedImportedName (nominalModulePath middlePath) ValueNamespace (mkIdentifier "middle"))
               ]
           )
       ]
@@ -267,25 +272,25 @@ testCompileResolvedModulePreservesFirstDependency = do
       compiledModule
         dependencyPath
         []
-        [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LText "first"))]
+        [resolvedLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (resolvedLiteral (LText "first"))]
         dependencyInventory
         (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding SemanticText)})
     secondDependency =
       compiledModule
         dependencyPath
         []
-        [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LInt 2))]
+        [resolvedLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (resolvedLiteral (LInt 2))]
         dependencyInventory
         (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding SemanticInt)})
     targetExport = ModuleExport ValueNamespace "copied"
     targetImport = chainImport dependencyPath
     targetCoreImport = CoreResolvedImport (SourceSpan 1 1) dependencyPath Nothing Nothing
     targetExpr =
-      EBlock
-        [ SLet
+      resolvedBlock
+        [ resolvedLet
             (resolvedLocalName ValueNamespace (mkIdentifier "copied"))
             (SourceSpan 1 1)
-            (EVar (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value")))
+            (resolvedVariable (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value")))
         ]
     targetModule =
       ResolvedModule
@@ -296,12 +301,12 @@ testCompileResolvedModulePreservesFirstDependency = do
           resolvedModuleCore = CoreModule (Just ["App", "Main"]) Nothing [targetCoreImport] targetExpr
         }
 
-compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr -> CompiledModule
+compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr 'Resolved -> CompiledModule
 compiledTextBindingModule path imports moduleExport valueExpr =
   compiledModule
     path
     imports
-    [ SLet
+    [ resolvedLet
         (resolvedLocalName ValueNamespace (mkIdentifier (moduleExportName moduleExport)))
         (SourceSpan 1 1)
         valueExpr
@@ -440,37 +445,37 @@ chainDependency index =
     imports = if index == 0 then [] else [chainImport (chainPath (index - 1))]
     valueExpr =
       if index == 0
-        then ELit (LText "chain-value")
-        else EVar (resolvedImportedName (nominalModulePath (chainPath (index - 1))) ValueNamespace (mkIdentifier "value"))
-    statements = [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) valueExpr]
+        then resolvedLiteral (LText "chain-value")
+        else resolvedVariable (resolvedImportedName (nominalModulePath (chainPath (index - 1))) ValueNamespace (mkIdentifier "value"))
+    statements = [resolvedLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) valueExpr]
 
 chainEntry :: Bool -> Int -> CompiledModule
 chainEntry requiresHost moduleCount =
   compiledModule ["App", "Main"] [chainImport dependencyPath] statements (exportInventory []) emptyModuleInterface
   where
     dependencyPath = chainPath (moduleCount - 1)
-    importedValue = EVar (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value"))
+    importedValue = resolvedVariable (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value"))
     hostResultName = resolvedLocalName ValueNamespace (mkIdentifier "host-result")
     hostStatements =
-      [ SLet
+      [ resolvedLet
           hostResultName
           (SourceSpan 1 1)
-          ( EApply
-              (EVar (BuiltinName (mkIdentifier "__kernel_arguments!")))
-              (ETuple [])
+          ( resolvedApply
+              (resolvedVariable (BuiltinName (mkIdentifier "__kernel_arguments!")))
+              (resolvedTuple [])
           )
       | requiresHost
       ]
     entryValue =
       if requiresHost
         then
-          EApply
-            (ELambda (resolvedLocalName ValueNamespace (mkIdentifier "ignored-host-result")) importedValue)
-            (EVar hostResultName)
+          resolvedApply
+            (resolvedLambda (resolvedLocalName ValueNamespace (mkIdentifier "ignored-host-result")) importedValue)
+            (resolvedVariable hostResultName)
         else importedValue
-    statements = hostStatements <> [SExpr (SourceSpan 2 1) entryValue]
+    statements = hostStatements <> [resolvedExpression (SourceSpan 2 1) entryValue]
 
-compiledModule :: [Text] -> [ResolvedImport] -> [Statement] -> ModuleExportInventory -> ModuleInterface -> CompiledModule
+compiledModule :: [Text] -> [ResolvedImport] -> [Statement 'Resolved] -> ModuleExportInventory -> ModuleInterface -> CompiledModule
 compiledModule path imports statements inventory moduleInterface =
   CompiledModule
     { compiledModulePath = path,
@@ -478,8 +483,38 @@ compiledModule path imports statements inventory moduleInterface =
       compiledModuleExportInventory = inventory,
       compiledModuleInterface = moduleInterface,
       compiledModuleDiagnostics = [],
-      compiledModuleExpr = EBlock statements
+      compiledModuleExpr = resolvedBlock statements
     }
+
+resolvedExpressionNode :: CoreNode 'Resolved sort
+resolvedExpressionNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
+
+resolvedStatementNode :: SourceSpan -> CoreNode 'Resolved sort
+resolvedStatementNode spanValue = CoreNode (CoreNodeId 0) spanValue ()
+
+resolvedLiteral :: Literal -> Expr 'Resolved
+resolvedLiteral = ELit resolvedExpressionNode
+
+resolvedVariable :: ResolvedName -> Expr 'Resolved
+resolvedVariable = EVar resolvedExpressionNode
+
+resolvedTuple :: [Expr 'Resolved] -> Expr 'Resolved
+resolvedTuple = ETuple resolvedExpressionNode
+
+resolvedApply :: Expr 'Resolved -> Expr 'Resolved -> Expr 'Resolved
+resolvedApply = EApply resolvedExpressionNode
+
+resolvedLambda :: ResolvedName -> Expr 'Resolved -> Expr 'Resolved
+resolvedLambda = ELambda resolvedExpressionNode
+
+resolvedBlock :: [Statement 'Resolved] -> Expr 'Resolved
+resolvedBlock = EBlock resolvedExpressionNode
+
+resolvedLet :: ResolvedName -> SourceSpan -> Expr 'Resolved -> Statement 'Resolved
+resolvedLet name spanValue = SLet (resolvedStatementNode spanValue) name
+
+resolvedExpression :: SourceSpan -> Expr 'Resolved -> Statement 'Resolved
+resolvedExpression spanValue = SExpr (resolvedStatementNode spanValue)
 
 chainImport :: [Text] -> ResolvedImport
 chainImport path = ResolvedImport (SourceSpan 1 1) path ImportAll

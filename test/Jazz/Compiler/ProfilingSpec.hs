@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -15,7 +16,10 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (ELit),
+  ( CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Resolved),
+    Expr (ELit),
     Literal (LInt),
   )
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
@@ -75,7 +79,11 @@ import Jazz.Compiler.ModuleRuntime
     RuntimeModule (RuntimeModule),
     RuntimeProgram (RuntimeProgram),
   )
-import Jazz.Compiler.Name (NameNamespace (ValueNamespace))
+import Jazz.Compiler.Name
+  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    mkIdentifier,
+    resolvedLocalName,
+  )
 import Jazz.Compiler.Profiling
   ( BenchmarkGroup (..),
     CompilerStage (..),
@@ -248,7 +256,7 @@ testDeepInferenceForcing = do
       runtimeHintKey = ExplicitTypeApplicationRuntimeHintKey Nothing (SourceSpan 0 0)
       inference =
         InferenceResult
-          { inferredExpr = ELit (LInt 0),
+          { inferredExpr = resolvedZero,
             inferredDiagnostics = [],
             inferredRuntimeTypeHints = Map.singleton runtimeHintKey (TypeList deferredFailure),
             inferredModuleInterface = emptyModuleInterface
@@ -302,7 +310,7 @@ testDeepModuleInterfaceForcing =
     assertInterfaceForced (label, marker, interface) = do
       let inference =
             InferenceResult
-              { inferredExpr = ELit (LInt 0),
+              { inferredExpr = resolvedZero,
                 inferredDiagnostics = [],
                 inferredRuntimeTypeHints = Map.empty,
                 inferredModuleInterface = interface
@@ -345,7 +353,7 @@ testDeepCompiledModuleForcing =
           compiledModuleExportInventory = exportInventory [],
           compiledModuleInterface = emptyModuleInterface,
           compiledModuleDiagnostics = [],
-          compiledModuleExpr = ELit (LInt 0)
+          compiledModuleExpr = resolvedZero
         }
     assertCompiledMetadataForced (label, marker, compiledModule) =
       assertForcesMarker label marker (evaluate (forceCompiledModule compiledModule))
@@ -537,8 +545,11 @@ baseResolvedModule =
       resolvedSourcePath = "App/Main.jazz",
       resolvedModuleImports = [],
       resolvedModuleExportInventory = exportInventory [],
-      resolvedModuleCore = CoreModule Nothing Nothing [] (ELit (LInt 0))
+      resolvedModuleCore = CoreModule Nothing Nothing [] resolvedZero
     }
+
+resolvedZero :: Expr 'Resolved
+resolvedZero = ELit (CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()) (LInt 0)
 
 testRuntimeResultForcingFollowsRendering :: IO ()
 testRuntimeResultForcingFollowsRendering = do
@@ -555,9 +566,9 @@ testRuntimeResultForcingFollowsRendering = do
           ]
           ( Just
               ( VConstructor
-                  "Container"
+                  (resolvedLocalName TypeNamespace (mkIdentifier "Container"))
                   []
-                  "Partial"
+                  (resolvedLocalName ConstructorNamespace (mkIdentifier "Partial"))
                   [TypeInt, TypeInt]
                   [unrenderedPartialArgument]
               )

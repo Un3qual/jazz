@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -36,7 +37,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.AST (Expr, SignatureType)
+import Jazz.Compiler.AST (CorePhase (Resolved), Expr, SignatureType)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics
@@ -78,7 +79,7 @@ data ModuleInterface = ModuleInterface
     interfaceConcreteImplFacts :: Set ConcreteImplFact,
     interfaceClassMethods :: Map Text ClassMethodType,
     interfaceConcreteImplMethods :: Map Text [ImplMethodType],
-    interfaceRuntimeHints :: Map BindingRuntimeHintKey SignatureType
+    interfaceRuntimeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved)
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -112,8 +113,8 @@ data CompiledPrelude = CompiledPrelude
   { compiledPreludeBuiltinMode :: BuiltinResolutionMode,
     compiledPreludeInterface :: ModuleInterface,
     compiledPreludeDiagnostics :: [Diagnostic],
-    compiledPreludeExpr :: Maybe Expr,
-    compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey SignatureType
+    compiledPreludeExpr :: Maybe (Expr 'Resolved),
+    compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved)
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -134,7 +135,7 @@ data CompiledModule = CompiledModule
     compiledModuleExportInventory :: ModuleExportInventory,
     compiledModuleInterface :: ModuleInterface,
     compiledModuleDiagnostics :: [Diagnostic],
-    compiledModuleExpr :: Expr
+    compiledModuleExpr :: Expr 'Resolved
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

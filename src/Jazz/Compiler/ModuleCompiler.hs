@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile resolved modules once against explicit dependency interfaces.
@@ -16,7 +17,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignaturePayload,
+  ( CorePhase (..),
+    SignaturePayload,
     SignatureType,
   )
 import Jazz.Compiler.CapabilityFacts
@@ -26,6 +28,7 @@ import Jazz.Compiler.CapabilityFacts
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleImportMode (..),
+    exportInventory,
     exportNamesInNamespace,
     inventoryHasExport,
     visibleImportInventory,
@@ -39,10 +42,13 @@ import Jazz.Compiler.ModuleGraph
   )
 import Jazz.Compiler.ModuleIdentity (mkModulePath, renderModulePath)
 import Jazz.Compiler.ModuleInterface
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace),
+    ResolvedName,
     ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     identifierText,
     mkIdentifier,
   )
@@ -79,29 +85,37 @@ compilePreparedPrelude settings preparedPrelude =
         emptyCompiledPrelude
           { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
           }
-    Just preludeExpr -> do
-      inference <-
-        inferExpressionWithInputsAndHiddenStatements
-          InferenceInputs
-            { inferenceBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
-              inferenceWarningSettings = settings,
-              inferenceImportedTypes = Map.empty,
-              inferenceImportedDataTypes = Map.empty,
-              inferenceImportedConstructorWitnessNames = Map.empty,
-              inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-              inferenceImportedClassNames = Set.empty,
-              inferenceCurrentModulePath = Just []
-            }
-          (preparedPreludeHiddenStatementIndices preparedPrelude)
-          preludeExpr
-      pure
-        CompiledPrelude
-          { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
-            compiledPreludeInterface = inferredModuleInterface inference,
-            compiledPreludeDiagnostics = inferredDiagnostics inference,
-            compiledPreludeExpr = Just (inferredExpr inference),
-            compiledPreludeRuntimeHints = inferredRuntimeTypeHints inference
-          }
+    Just preludeExpr ->
+      case resolveStandaloneExprNames (preparedPreludeBuiltinMode preparedPrelude) (exportInventory []) preludeExpr of
+        Left diagnostics ->
+          pure
+            emptyCompiledPrelude
+              { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
+                compiledPreludeDiagnostics = NonEmpty.toList diagnostics
+              }
+        Right resolvedPreludeExpr -> do
+          inference <-
+            inferExpressionWithInputsAndHiddenStatements
+              InferenceInputs
+                { inferenceBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
+                  inferenceWarningSettings = settings,
+                  inferenceImportedTypes = Map.empty,
+                  inferenceImportedDataTypes = Map.empty,
+                  inferenceImportedConstructorWitnessNames = Map.empty,
+                  inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+                  inferenceImportedClassNames = Set.empty,
+                  inferenceCurrentModulePath = Just []
+                }
+              (preparedPreludeHiddenStatementIndices preparedPrelude)
+              resolvedPreludeExpr
+          pure
+            CompiledPrelude
+              { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
+                compiledPreludeInterface = inferredModuleInterface inference,
+                compiledPreludeDiagnostics = inferredDiagnostics inference,
+                compiledPreludeExpr = Just (inferredExpr inference),
+                compiledPreludeRuntimeHints = inferredRuntimeTypeHints inference
+              }
 
 compileResolvedProgram :: CompileInputs -> ResolvedProgram -> IO CompiledProgram
 compileResolvedProgram inputs resolvedProgram =
@@ -227,7 +241,7 @@ importWholeCompiledModuleInterface compiledModule =
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,
     importedDataTypes :: Map Text DataTypeBinding,
-    importedConstructorWitnessNames :: Map Name Name,
+    importedConstructorWitnessNames :: Map ResolvedName ResolvedName,
     importedCapabilities :: ScopeCapabilityFacts,
     importedClassNames :: Set.Set Text
   }
@@ -262,7 +276,7 @@ interfaceTypeEnv = importedTypes
 interfaceCapabilities :: ImportedInterface -> ScopeCapabilityFacts
 interfaceCapabilities = importedCapabilities
 
-interfaceConstructorWitnessNames :: ImportedInterface -> Map Name Name
+interfaceConstructorWitnessNames :: ImportedInterface -> Map ResolvedName ResolvedName
 interfaceConstructorWitnessNames = importedConstructorWitnessNames
 
 importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
@@ -279,7 +293,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( ResolvedName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export)),
+          [ ( UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export))),
               rebaseTypeBinding origin dataTypeNames classNames binding
             )
           | (export, binding) <- Map.toList selectedValueTypes
@@ -293,7 +307,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
           ],
       importedConstructorWitnessNames =
         Map.fromList
-          [ (importedName export, sourceConstructorName export)
+          [ (importedName export, importedName export)
           | export <- Map.keys selectedValueTypes,
             moduleExportNamespace export == ConstructorNamespace
           ],
@@ -303,17 +317,12 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
     }
   where
     importedName export =
-      ResolvedName
-        origin
-        (moduleExportNamespace export)
-        (mkIdentifier (moduleExportName export))
-
-    sourceConstructorName export =
-      case maybeAlias of
-        Nothing -> SourceName member
-        Just alias -> QualifiedName (mkIdentifier alias) member
-      where
-        member = mkIdentifier (moduleExportName export)
+      UserName
+        ( ResolvedUserName
+            origin
+            (moduleExportNamespace export)
+            (mkIdentifier (moduleExportName export))
+        )
 
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
@@ -470,7 +479,7 @@ rebaseImplMethod :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ImplMe
 rebaseImplMethod origin dataTypeNames _ (ImplMethodType target) =
   ImplMethodType (rebaseSignatureTypeNames origin dataTypeNames target)
 
-rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload -> SignaturePayload
+rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload 'Resolved -> SignaturePayload 'Resolved
 rebaseSignaturePayload origin dataTypeNames classNames payload =
   case payload of
     TypeRepresentation.SignatureType signatureType ->
@@ -498,21 +507,18 @@ rebaseConcreteImplFact origin dataTypeNames classNames (ConcreteImplFact capabil
     (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
     (rebaseSignatureTypeNames origin dataTypeNames argument)
 
-rebaseSignatureTypeNames :: ResolvedNameOrigin -> Set.Set Text -> SignatureType -> SignatureType
+rebaseSignatureTypeNames :: ResolvedNameOrigin -> Set.Set Text -> SignatureType 'Resolved -> SignatureType 'Resolved
 rebaseSignatureTypeNames origin dataTypeNames =
   bimap rebaseTypeName rebaseTypeName
   where
     rebaseTypeName = rebaseKnownName origin TypeNamespace dataTypeNames
 
-rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> Name -> Name
+rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> ResolvedName -> ResolvedName
 rebaseKnownName origin namespace knownNames name =
   case name of
-    SourceName identifier
+    UserName (ResolvedUserName CurrentModule _ identifier)
       | Set.member (identifierText identifier) knownNames ->
-          ResolvedName origin namespace identifier
-    ResolvedName CurrentModule _ identifier
-      | Set.member (identifierText identifier) knownNames ->
-          ResolvedName origin namespace identifier
+          UserName (ResolvedUserName origin namespace identifier)
     _ -> name
 
 rebaseKnownText :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text

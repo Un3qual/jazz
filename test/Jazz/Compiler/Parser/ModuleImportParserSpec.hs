@@ -4,10 +4,6 @@ module Main (main) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
-import Jazz.Compiler.AST
-  ( Expr (..),
-    Statement (..),
-  )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan (..),
@@ -43,6 +39,14 @@ import Jazz.Compiler.Parser.Lower
 import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBlock,
+    loweredExpression,
+    loweredImport,
+    loweredModule,
+    loweredVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -702,13 +706,13 @@ testLowersModuleImportStatements =
         }
         """
     )
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SModule (SourceSpan 1 1) ["App", "Core"],
-          SImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
-          SExpr (SourceSpan 3 1) (EVar "map")
+      loweredBlock
+        [ loweredModule (SourceSpan 1 1) ["App", "Core"],
+          loweredImport (SourceSpan 2 1) ["Std", "List"] Nothing (Just ["map"]),
+          loweredExpression (SourceSpan 3 1) (loweredVariable "map")
         ]
 
 testLowersQualifiedAliasLookup :: IO ()
@@ -721,12 +725,12 @@ testLowersQualifiedAliasLookup =
         Math::subtract.
         """
     )
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
-          SExpr (SourceSpan 2 1) (EVar (qualifiedName "Math" "subtract"))
+      loweredBlock
+        [ loweredImport (SourceSpan 1 1) ["Lib", "Math"] (Just "Math") Nothing,
+          loweredExpression (SourceSpan 2 1) (loweredVariable (qualifiedName "Math" "subtract"))
         ]
 
 testRejectsSpacedQualifiedAliasLookupInBindingExpression :: IO ()

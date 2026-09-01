@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Opt-in, deliberately narrow typed-core production support.  The ordinary
@@ -17,7 +18,7 @@ import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST (CorePhase (..), DataConstructor (..), Expr (..), Literal (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
     BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
@@ -39,6 +40,7 @@ import Jazz.Compiler.Name
   ( GeneratedNameKind (OperatorBinding),
     Name (..),
     NameNamespace (..),
+    ResolvedName,
     identifierText,
   )
 import Jazz.Compiler.Pattern (patternBinderNames)
@@ -754,13 +756,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
         patternBinderPaths patternPath pattern =
           case pattern of
-            PVariable name -> [(patternPath, name)]
-            PAs name nested -> (patternPath, name) : patternBinderPaths (patternPath <> [0]) nested
-            PConstructor _ nested -> nestedPaths nested
-            PTuple nested -> nestedPaths nested
-            POr alternatives -> nestedPaths alternatives
-            PList nested -> nestedPaths nested
-            PConsList headPattern tailPattern -> nestedPaths [headPattern, tailPattern]
+            PVariable _ name -> [(patternPath, name)]
+            PAs _ name nested -> (patternPath, name) : patternBinderPaths (patternPath <> [0]) nested
+            PConstructor _ _ nested -> nestedPaths nested
+            PTuple _ nested -> nestedPaths nested
+            POr _ alternatives -> nestedPaths alternatives
+            PList _ nested -> nestedPaths nested
+            PConsList _ headPattern tailPattern -> nestedPaths [headPattern, tailPattern]
             _ -> []
           where
             nestedPaths nested =
@@ -775,9 +777,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           Int ->
           [Int] ->
           ExpressionType ->
-          Map.Map Name TypedBinderId ->
-          Pattern ->
-          ([TypedCoreProductionFailure], Maybe TypedPattern, Map.Map Name ExpressionType)
+          Map.Map ResolvedName TypedBinderId ->
+          Pattern 'Resolved ->
+          ([TypedCoreProductionFailure], Maybe TypedPattern, Map.Map ResolvedName ExpressionType)
         finalizeManagedPattern _ patternFinalizationState patternStatementIndex patternPath expressionType binders = go True patternPath expressionType
           where
             go isRoot currentPath currentType pattern =
@@ -785,8 +787,8 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                 Nothing -> unsupported currentPath
                 Just currentInfo ->
                   case pattern of
-                    PWildcard -> ([], Just (TypedWildcardPattern currentInfo), Map.empty)
-                    PVariable name ->
+                    PWildcard _ -> ([], Just (TypedWildcardPattern currentInfo), Map.empty)
+                    PVariable _ name ->
                       case Map.lookup name binders of
                         Just owner ->
                           ( [],
@@ -794,12 +796,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                             Map.singleton name currentType
                           )
                         Nothing -> unsupported currentPath
-                    PLiteral LText {} -> unsupported currentPath
-                    PLiteral literal ->
+                    PLiteral _ LText {} -> unsupported currentPath
+                    PLiteral _ literal ->
                       case typedLiteral patternStatementIndex currentPath literal currentInfo of
                         Left failure -> ([failure], Nothing, Map.empty)
                         Right literalValue -> ([], Just (TypedLiteralPattern currentInfo literalValue), Map.empty)
-                    PTuple nested ->
+                    PTuple _ nested ->
                       case defaultScalarLiterals patternFinalizationState (resolveType patternFinalizationState currentType) of
                         SemanticTuple elementTypes
                           | length elementTypes == length nested ->
@@ -810,7 +812,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                                 (TypedTuplePattern currentInfo)
                           | otherwise -> unsupported currentPath
                         _ -> unsupported currentPath
-                    PConstructor constructorName nested ->
+                    PConstructor _ constructorName nested ->
                       case structuredConstructorAtStatement structuredCatalog patternStatementIndex constructorName of
                         Just constructor ->
                           case StructuredValues.concreteConstructorFieldTypes patternFinalizationState constructor currentType of
@@ -824,14 +826,14 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                               | otherwise -> unsupported currentPath
                             Nothing -> unsupported currentPath
                         Nothing -> unsupported currentPath
-                    PAs name nested ->
+                    PAs _ name nested ->
                       case Map.lookup name binders of
                         Just owner ->
                           let (failures, maybeNested, nestedTypes) = go False (currentPath <> [0]) currentType nested
                               typedPattern = TypedAsPattern currentInfo owner (resolvedValueName name) <$> maybeNested
                            in (failures, typedPattern, Map.insert name currentType nestedTypes)
                         Nothing -> unsupported currentPath
-                    POr alternatives
+                    POr _ alternatives
                       | isRoot ->
                           let finalized =
                                 [ go False (currentPath <> [alternativeIndex]) currentType alternative
@@ -2263,18 +2265,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         publicExport = (`inventoryHasExport` publicInventory)
         sourceOrderedDeclarations =
           case coreModuleExpr coreModule of
-            EBlock statements -> concatMap statementExports statements
+            EBlock _ statements -> concatMap statementExports statements
             _ -> []
 
         statementExports statement =
           case statement of
-            SLet name _ _
+            SLet _ name _
               | not (generatedOperatorName name) ->
                   [ModuleExport ValueNamespace (identifierText name)]
             SData _ typeName _ constructors ->
               ModuleExport TypeNamespace (identifierText typeName)
                 : [ ModuleExport ConstructorNamespace (identifierText constructorName)
-                  | DataConstructor constructorName _ <- constructors
+                  | DataConstructor _ constructorName _ <- constructors
                   ]
             SClass _ className _ _ ->
               [ModuleExport CapabilityNamespace (identifierText className)]
@@ -2317,9 +2319,9 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
         sourceConstructors typeName =
           case coreModuleExpr coreModule of
-            EBlock statements ->
+            EBlock _ statements ->
               concat
-                [ [ModuleExport ConstructorNamespace (identifierText constructorName) | DataConstructor constructorName _ <- constructors]
+                [ [ModuleExport ConstructorNamespace (identifierText constructorName) | DataConstructor _ constructorName _ <- constructors]
                 | SData _ sourceTypeName _ constructors <- statements,
                   identifierText sourceTypeName == typeName
                 ]

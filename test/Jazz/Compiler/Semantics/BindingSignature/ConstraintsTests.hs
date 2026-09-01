@@ -8,9 +8,7 @@ module Jazz.Compiler.Semantics.BindingSignature.ConstraintsTests
 where
 
 import Jazz.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    Literal (..),
+  ( Expr (..),
     Statement (..),
   )
 import Jazz.Compiler.Diagnostics
@@ -22,12 +20,8 @@ import Jazz.Compiler.Driver
     compileSource,
     compileSourceWithPrelude,
   )
+import Jazz.Compiler.Name (mkIdentifier, sourceName)
 import Jazz.Compiler.Semantics.BindingSignature.Shared
-import Jazz.Compiler.TypeRepresentation
-  ( pattern SignatureType,
-    pattern TypeBool,
-    pattern TypeInt,
-  )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -202,20 +196,16 @@ testAnalyzerRejectsDuplicateClassMethodMetadata = do
     "duplicate method signature 'equals'"
     (compileErrors result)
   where
-    classSpan = SourceSpan 1 1
-    firstMethodSpan = SourceSpan 2 1
-    secondMethodSpan = SourceSpan 3 1
     program =
-      EBlock
-        [ SClass
-            classSpan
-            "Eq"
-            ["a"]
-            [ ClassMethodSignature "equals" firstMethodSpan (SignatureType TypeInt),
-              ClassMethodSignature "equals" secondMethodSpan (SignatureType TypeBool)
-            ],
-          SExpr (SourceSpan 4 1) (ELit (LInt 1))
-        ]
+      case ( loweredProgram "class Eq(a) { equals :: Int. }. 1.",
+             loweredProgram "class Eq(a) { equals :: Bool. }."
+           ) of
+        ( EBlock blockNode (SClass classNode className parameters methods : statements),
+          EBlock _ (SClass _ _ _ duplicateMethods : _)
+          ) ->
+            EBlock blockNode (SClass classNode className parameters (methods <> duplicateMethods) : statements)
+        (firstProgram, secondProgram) ->
+          error ("expected class declaration blocks, got " <> show (firstProgram, secondProgram))
 
 testSourceAnalyzesImplMethodBindingMetadata :: IO ()
 testSourceAnalyzesImplMethodBindingMetadata = do
@@ -1013,13 +1003,20 @@ testSourcePrefersVisibleBindingOverQualifiedMethodSpine = do
   result <-
     compileExpr
       defaultWarningSettings
-      ( EBlock
-          [ SClass (SourceSpan 1 1) "Eq" ["a"] [],
-            SLet "Eq::helper" (SourceSpan 2 1) (ELambda "value" (EVar "value")),
-            SExpr (SourceSpan 3 1) (EApply (EVar "Eq::helper") (ELit (LInt 1)))
-          ]
-      )
+      program
   assertEqual "binding-precedence compile errors" [] (compileErrors result)
+  where
+    qualifiedHelper = sourceName (mkIdentifier "Eq::helper")
+    program =
+      case loweredProgram "class Eq(a) { }. helper = \\(item) -> item. helper 1." of
+        EBlock blockNode [classStatement, SLet bindingNode _ body, SExpr expressionNode (EApply applicationNode (EVar variableNode _) argument)] ->
+          EBlock
+            blockNode
+            [ classStatement,
+              SLet bindingNode qualifiedHelper body,
+              SExpr expressionNode (EApply applicationNode (EVar variableNode qualifiedHelper) argument)
+            ]
+        expression -> error ("expected qualified helper fixture shape, got " <> show expression)
 
 testSourceRejectsQualifiedMethodSignatureMismatch :: IO ()
 testSourceRejectsQualifiedMethodSignatureMismatch =

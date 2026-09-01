@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests where
@@ -5,13 +6,23 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CaseArm (..), Expr (..), Literal (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST
+  ( CaseArm (..),
+    CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Resolved),
+    Expr (..),
+    Literal (..),
+    Pattern (..),
+    Statement (..),
+  )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
-  ( diagnosticCode,
+  ( SourceSpan (..),
+    diagnosticCode,
     isErrorDiagnostic,
   )
 import Jazz.Compiler.LoweredIR
@@ -257,7 +268,7 @@ testScalarPatternCaseProducerBoundaries = do
             resolvedModule
               { resolvedModuleCore =
                   replaceTerminalExpression
-                    (EPatternCase (ELit (LBool True)) [])
+                    (EPatternCase syntheticNode (ELit syntheticNode (LBool True)) [])
                     (resolvedModuleCore resolvedModule)
               }
       firstProduction <- produceResolvedFixture fixture emptyCaseModule
@@ -275,10 +286,11 @@ testScalarPatternCaseProducerBoundaries = do
           isErrorDiagnostic diagnostic
         ]
 
+    replaceTerminalExpression :: Expr 'Resolved -> CoreModule 'Resolved -> CoreModule 'Resolved
     replaceTerminalExpression replacement coreModule =
       case coreModuleExpr coreModule of
-        EBlock [SExpr spanValue _] ->
-          coreModule {coreModuleExpr = EBlock [SExpr spanValue replacement]}
+        EBlock blockNode [SExpr statementNode _] ->
+          coreModule {coreModuleExpr = EBlock blockNode [SExpr statementNode replacement]}
         other ->
           error ("unexpected unit fixture core shape: " <> show other)
 
@@ -299,7 +311,7 @@ testScalarPatternCaseArmResultPositions :: IO ()
 testScalarPatternCaseArmResultPositions =
   assertEqual
     "pattern inference retains one result slot per authored arm"
-    [PLiteral (LInt 1), PWildcard]
+    [literalPattern, wildcardPattern]
     (map inferredArmPattern armResults)
   where
     (_, _, armResults) =
@@ -310,8 +322,8 @@ testScalarPatternCaseArmResultPositions =
         Map.empty
         SemanticBool
         initialInferState
-        [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool False)),
-          CaseArm PWildcard Nothing (ELit (LBool True))
+        [ CaseArm syntheticNode literalPattern Nothing (ELit syntheticNode (LBool False)),
+          CaseArm syntheticNode wildcardPattern Nothing (ELit syntheticNode (LBool True))
         ]
     inferChild mode _ _ state _ =
       case mode of
@@ -319,6 +331,12 @@ testScalarPatternCaseArmResultPositions =
         ProduceTypedCoreExpressionDirectCall ->
           error "expected inference-only pattern callback invocation"
     inferredArmPattern (InferredPatternCaseArm pattern _ _) = pattern
+
+    literalPattern = PLiteral syntheticNode (LInt 1)
+    wildcardPattern = PWildcard syntheticNode
+
+syntheticNode :: CoreNode 'Resolved sort
+syntheticNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
 
 testScalarPatternCaseAnalysisProduction :: IO ()
 testScalarPatternCaseAnalysisProduction =

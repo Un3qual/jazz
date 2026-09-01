@@ -16,19 +16,19 @@ import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics
   ( SourceSpan,
   )
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.Name (ResolvedName)
 
 data BindingRuntimeHintKey
-  = BindingRuntimeHintKey (Maybe [Text]) SourceSpan Name
+  = BindingRuntimeHintKey (Maybe [Text]) SourceSpan ResolvedName
   | ExplicitTypeApplicationRuntimeHintKey (Maybe [Text]) SourceSpan
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-bindingRuntimeHintKey :: Name -> SourceSpan -> BindingRuntimeHintKey
+bindingRuntimeHintKey :: ResolvedName -> SourceSpan -> BindingRuntimeHintKey
 bindingRuntimeHintKey bindingName bindingSpan =
   bindingRuntimeHintKeyInModule Nothing bindingName bindingSpan
 
-bindingRuntimeHintKeyInModule :: Maybe [Text] -> Name -> SourceSpan -> BindingRuntimeHintKey
+bindingRuntimeHintKeyInModule :: Maybe [Text] -> ResolvedName -> SourceSpan -> BindingRuntimeHintKey
 bindingRuntimeHintKeyInModule modulePath bindingName bindingSpan =
   BindingRuntimeHintKey modulePath bindingSpan bindingName
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -27,7 +28,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignatureConstraint,
+  ( CorePhase (..),
+    SignatureConstraint,
     SignaturePayload,
     SignatureType,
   )
@@ -38,7 +40,7 @@ import Jazz.Compiler.CapabilityFacts
     constraintSignatureTypeVariableNamesInOrder,
     identifierLooksLikeTypeVariable,
   )
-import Jazz.Compiler.Name (Name, identifierText)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
   )
@@ -76,16 +78,16 @@ import Jazz.Compiler.TypeRepresentation
   )
 
 data SignatureTypeFailure
-  = UnknownNamedType Name
-  | NamedTypeArityMismatch Name Int Int
-  | TypeVariableApplicationHead Name
-  | UnboundSignatureTypeVariable Name
+  = UnknownNamedType ResolvedName
+  | NamedTypeArityMismatch ResolvedName Int Int
+  | TypeVariableApplicationHead ResolvedName
+  | UnboundSignatureTypeVariable ResolvedName
   deriving (Eq, Show)
 
 signatureTypeToExpressionType ::
   InferState ->
   Map Text ExpressionType ->
-  SignatureType ->
+  SignatureType 'Resolved ->
   Either SignatureTypeFailure ExpressionType
 signatureTypeToExpressionType state =
   convertSignatureType (inferDataTypes state)
@@ -93,7 +95,7 @@ signatureTypeToExpressionType state =
 -- | Validate a declaration signature while treating its free variables as
 -- universally quantified placeholders. Callers that require a concrete type
 -- use 'signatureTypeToExpressionType' with an empty variable environment.
-validateSignatureType :: InferState -> SignatureType -> Either SignatureTypeFailure ()
+validateSignatureType :: InferState -> SignatureType 'Resolved -> Either SignatureTypeFailure ()
 validateSignatureType state signatureType =
   void (signatureTypeToExpressionType state variables signatureType)
   where
@@ -107,7 +109,7 @@ validateSignatureType state signatureType =
 convertSignatureType ::
   Map Text DataTypeBinding ->
   Map Text ExpressionType ->
-  SignatureType ->
+  SignatureType 'Resolved ->
   Either SignatureTypeFailure ExpressionType
 convertSignatureType dataTypes variables signatureType =
   case signatureType of
@@ -179,7 +181,7 @@ renderSignatureTypeFailure failure =
 constraintSignatureTypeToExpressionTypeWithState ::
   InferState ->
   Map Text ExpressionType ->
-  SignatureType ->
+  SignatureType 'Resolved ->
   Maybe ExpressionType
 constraintSignatureTypeToExpressionTypeWithState state signatureVariables signatureType =
   either
@@ -195,7 +197,7 @@ data SignaturePayloadType = SignaturePayloadType
 
 -- | Normalize the currently accepted signature subset. Unsupported surfaces
 -- return `Nothing` so callers can emit the stable signature diagnostic.
-signaturePayloadToSignatureType :: SignaturePayload -> InferState -> (Maybe SignaturePayloadType, InferState)
+signaturePayloadToSignatureType :: SignaturePayload 'Resolved -> InferState -> (Maybe SignaturePayloadType, InferState)
 signaturePayloadToSignatureType signaturePayload state =
   case signaturePayload of
     SignatureType signatureType ->
@@ -214,7 +216,7 @@ signaturePayloadToSignatureType signaturePayload state =
 
 signaturePayloadFromType ::
   [TypeSchemeConstraint] ->
-  SignatureType ->
+  SignatureType 'Resolved ->
   InferState ->
   (Maybe SignaturePayloadType, InferState)
 signaturePayloadFromType explicitConstraints signatureType state =
@@ -230,7 +232,7 @@ signaturePayloadFromType explicitConstraints signatureType state =
           (Just (SignaturePayloadType expressionType explicitConstraints variableOrder), nextState)
         Nothing -> (Nothing, state)
 
-constraintSignatureTypeToExpressionType :: SignatureType -> Maybe ExpressionType
+constraintSignatureTypeToExpressionType :: SignatureType 'Resolved -> Maybe ExpressionType
 constraintSignatureTypeToExpressionType signatureType =
   either
     (const Nothing)
@@ -238,8 +240,8 @@ constraintSignatureTypeToExpressionType signatureType =
     (signatureTypeToExpressionType initialInferState Map.empty signatureType)
 
 variableConstraintSignaturePayloadToExpressionType ::
-  [SignatureConstraint] ->
-  SignatureType ->
+  [SignatureConstraint 'Resolved] ->
+  SignatureType 'Resolved ->
   InferState ->
   (Maybe SignaturePayloadType, InferState)
 variableConstraintSignaturePayloadToExpressionType constraints signatureType state =
@@ -261,7 +263,7 @@ variableConstraintSignaturePayloadToExpressionType constraints signatureType sta
 
 variableConstraintToTypeSchemeConstraint ::
   Map Text ExpressionType ->
-  SignatureConstraint ->
+  SignatureConstraint 'Resolved ->
   Maybe TypeSchemeConstraint
 variableConstraintToTypeSchemeConstraint signatureVariables (SignatureConstraint constraintName arguments) =
   case arguments of
@@ -278,7 +280,7 @@ allocateSignatureTypeVariables variableNames state =
       let (variableType, nextState) = freshTypeVar stateAcc
        in (Map.insert variableName variableType signatureVariables, nextState)
 
-supportedConcreteConstraints :: InferState -> [SignatureConstraint] -> Bool
+supportedConcreteConstraints :: InferState -> [SignatureConstraint 'Resolved] -> Bool
 supportedConcreteConstraints state constraints =
   not (null constraints)
     && isNothing (duplicateConstraintName constraints)
@@ -286,7 +288,7 @@ supportedConcreteConstraints state constraints =
 
 -- | Variable constrained signatures are accepted when every constrained
 -- variable appears in the body; extra body variables remain unconstrained.
-supportedVariableConstraints :: InferState -> [SignatureConstraint] -> SignatureType -> Bool
+supportedVariableConstraints :: InferState -> [SignatureConstraint 'Resolved] -> SignatureType 'Resolved -> Bool
 supportedVariableConstraints state constraints signatureType =
   not (null constraints)
     && isNothing (duplicateConstraintName constraints)
@@ -300,7 +302,7 @@ supportedVariableConstraints state constraints signatureType =
     constraintVariableNames =
       Set.unions (map constraintVariableNamesInSupportedConstraint constraints)
 
-supportedConcreteConstraint :: InferState -> SignatureConstraint -> Bool
+supportedConcreteConstraint :: InferState -> SignatureConstraint 'Resolved -> Bool
 supportedConcreteConstraint state (SignatureConstraint constraintName arguments) =
   case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
     (Just 1, [argument]) ->
@@ -308,20 +310,20 @@ supportedConcreteConstraint state (SignatureConstraint constraintName arguments)
         && maybe False (`Set.member` inferConcreteImplFacts state) (concreteImplFact constraintName [argument])
     _ -> False
 
-supportedVariableConstraint :: InferState -> SignatureConstraint -> Bool
+supportedVariableConstraint :: InferState -> SignatureConstraint 'Resolved -> Bool
 supportedVariableConstraint state (SignatureConstraint constraintName arguments) =
   case (Map.lookup (identifierText constraintName) (inferClassFacts state), arguments) of
     (Just 1, [TypeVariable {}]) -> True
     _ -> False
 
-constraintVariableNamesInSupportedConstraint :: SignatureConstraint -> Set.Set Text
+constraintVariableNamesInSupportedConstraint :: SignatureConstraint 'Resolved -> Set.Set Text
 constraintVariableNamesInSupportedConstraint constraint =
   case constraint of
     SignatureConstraint _ [TypeVariable argumentName] ->
       Set.singleton (identifierText argumentName)
     _ -> Set.empty
 
-constraintSignatureTypeVariableNames :: SignatureType -> Set.Set Text
+constraintSignatureTypeVariableNames :: SignatureType 'Resolved -> Set.Set Text
 constraintSignatureTypeVariableNames signatureType =
   case signatureType of
     TypeVariable name -> Set.singleton (identifierText name)
@@ -342,7 +344,7 @@ constraintSignatureTypeVariableNames signatureType =
         (constraintSignatureTypeVariableNames resultType)
     _ -> Set.empty
 
-constraintSignatureTypeSupportsVariableBody :: SignatureType -> Bool
+constraintSignatureTypeSupportsVariableBody :: SignatureType 'Resolved -> Bool
 constraintSignatureTypeSupportsVariableBody signatureType =
   case signatureType of
     TypeVariable {} -> True
@@ -357,7 +359,7 @@ constraintSignatureTypeSupportsVariableBody signatureType =
         && constraintSignatureTypeSupportsVariableBody resultType
     _ -> True
 
-duplicateConstraintName :: [SignatureConstraint] -> Maybe Text
+duplicateConstraintName :: [SignatureConstraint 'Resolved] -> Maybe Text
 duplicateConstraintName constraints =
   go Set.empty constraints
   where
@@ -372,21 +374,21 @@ duplicateConstraintName constraints =
 
 -- | Convert a resolved expression type into a concrete runtime dispatch hint.
 -- Uncommitted integer ranges are valid only when the complete range fits Int64.
-expressionTypeToRuntimeHint :: ExpressionType -> Maybe SignatureType
+expressionTypeToRuntimeHint :: ExpressionType -> Maybe (SignatureType 'Resolved)
 expressionTypeToRuntimeHint =
   expressionTypeToRuntimeSignature RuntimeHintPolicy
 
 -- | Preserve quantified variables as actual signature variables when building
 -- runtime templates. This avoids disguising them as zero-arity data types.
-expressionTypeToRuntimeTemplate :: Map InferenceVariable Name -> ExpressionType -> Maybe SignatureType
+expressionTypeToRuntimeTemplate :: Map InferenceVariable ResolvedName -> ExpressionType -> Maybe (SignatureType 'Resolved)
 expressionTypeToRuntimeTemplate variableNames =
   expressionTypeToRuntimeSignature (RuntimeTemplatePolicy variableNames)
 
 data RuntimeSignaturePolicy
   = RuntimeHintPolicy
-  | RuntimeTemplatePolicy (Map InferenceVariable Name)
+  | RuntimeTemplatePolicy (Map InferenceVariable ResolvedName)
 
-expressionTypeToRuntimeSignature :: RuntimeSignaturePolicy -> ExpressionType -> Maybe SignatureType
+expressionTypeToRuntimeSignature :: RuntimeSignaturePolicy -> ExpressionType -> Maybe (SignatureType 'Resolved)
 expressionTypeToRuntimeSignature policy expressionType =
   case expressionType of
     SemanticInt -> Just TypeInt

@@ -9,6 +9,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (..),
+    ImplMethod (..),
     Literal (..),
     Statement (..),
   )
@@ -29,6 +30,16 @@ import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBlock,
+    loweredClass,
+    loweredExpression,
+    loweredImpl,
+    loweredLet,
+    loweredLiteral,
+    loweredVariable,
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -201,8 +212,8 @@ testParseTupleLiteral =
 
 testLowersCharAndTextLiterals :: IO ()
 testLowersCharAndTextLiterals = do
-  assertEqual "lower Char" (ELit (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (SLChar 'a')))
-  assertEqual "lower Text" (ELit (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (SLText "Jazz")))
+  assertLoweredCoreEqual "lower Char" (loweredLiteral (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (SLChar 'a')))
+  assertLoweredCoreEqual "lower Text" (loweredLiteral (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (SLText "Jazz")))
 
 testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
@@ -321,12 +332,12 @@ testLowerSurfaceProgram =
         x.
         """
     )
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-          SExpr (SourceSpan 2 1) (EVar "x")
+      loweredBlock
+        [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+          loweredExpression (SourceSpan 2 1) (loweredVariable "x")
         ]
 
 testLowerFractionalLiteralProgram :: IO ()
@@ -478,11 +489,11 @@ testLowersCapabilityDeclarations =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered capability declarations"
-          ( EBlock
-              [ SClass (SourceSpan 1 1) "Eq" ["a"] [],
-                SImpl (SourceSpan 2 1) "Eq" [TypeInt] []
+          ( loweredBlock
+              [ loweredClass (SourceSpan 1 1) "Eq" ["a"] [],
+                loweredImpl (SourceSpan 2 1) "Eq" [TypeInt] []
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -517,11 +528,21 @@ testLowersImplMethodBindingMetadata =
         }.
         """
     )
-    ( \surfaceProgram -> do
-        let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
-        assertContains "lowered impl method metadata" "ImplMethod" rendered
-        assertContains "lowered impl method name" "SourceName (Identifier \"equals\" Pure)" rendered
-        assertContains "lowered impl method expression" "EBinary \"==\"" rendered
+    ( \surfaceProgram ->
+        case lowerSurfaceExpr surfaceProgram of
+          EBlock
+            _
+            [ SImpl
+                _
+                "Eq"
+                [TypeInt]
+                [ ImplMethod
+                    _
+                    "equals"
+                    (ELambda _ "left" (ELambda _ "right" (EBinary _ "==" (EVar _ "left") (EVar _ "right"))))
+                  ]
+              ] -> pure ()
+          other -> failTest ("unexpected lowered impl method shape: " <> Text.pack (show other))
     )
 
 e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr

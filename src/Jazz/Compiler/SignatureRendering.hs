@@ -12,17 +12,17 @@ where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( SignatureType,
-  )
 import Jazz.Compiler.BuiltinCatalog
   ( renderNumericTypeName,
   )
 import Jazz.Compiler.Name
-  ( renderName,
+  ( Name,
+    UserNameLike,
+    renderName,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( pattern TypeApplication,
+  ( SignatureType,
+    pattern TypeApplication,
     pattern TypeBool,
     pattern TypeChar,
     pattern TypeFloat,
@@ -36,7 +36,7 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeVariable,
   )
 
-renderSignatureType :: SignatureType -> Text
+renderSignatureType :: (UserNameLike user) => SignatureType (Name user) (Name user) -> Text
 renderSignatureType signatureType =
   case signatureType of
     TypeInt -> "Int"
@@ -53,7 +53,7 @@ renderSignatureType signatureType =
     TypeTuple elementTypes -> "(" <> Text.intercalate ", " (map renderSignatureType elementTypes) <> ")"
     TypeFunction argumentType resultType -> renderSignatureTypeAtom argumentType <> " -> " <> renderSignatureType resultType
 
-renderSignatureTypeAtom :: SignatureType -> Text
+renderSignatureTypeAtom :: (UserNameLike user) => SignatureType (Name user) (Name user) -> Text
 renderSignatureTypeAtom signatureType =
   case signatureType of
     TypeFunction {} -> "(" <> renderSignatureType signatureType <> ")"

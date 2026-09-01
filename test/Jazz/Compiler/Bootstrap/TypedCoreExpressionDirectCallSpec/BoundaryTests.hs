@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests where
@@ -7,7 +8,15 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Statement (..))
+import Jazz.Compiler.AST
+  ( CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Resolved),
+    DataConstructor (..),
+    Expr (..),
+    Literal (..),
+    Statement (..),
+  )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
@@ -20,7 +29,14 @@ import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..), exportInventory)
 import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
-import Jazz.Compiler.Name (NameNamespace (ValueNamespace), operatorBindingName)
+import Jazz.Compiler.Name
+  ( Name (BuiltinName),
+    NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    ResolvedName,
+    mkIdentifier,
+    operatorBindingName,
+    resolvedLocalName,
+  )
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Elaboration
   ( expressionDependencyNames,
@@ -93,14 +109,14 @@ testNestedDataFailureAccumulation =
       resolvedModule <- resolveFixtureModule fixture
       let spanValue = SourceSpan 1 1
           nestedBlock =
-            EBlock
-              [ SExpr spanValue (EList [ELit (LInt 1)]),
-                SData spanValue "Box" [] [DataConstructor "Box" []],
-                SExpr spanValue (ETuple [])
+            resolvedBlock
+              [ resolvedExpression spanValue (resolvedList [resolvedLiteral (LInt 1)]),
+                resolvedData spanValue "Box" "Box",
+                resolvedExpression spanValue (resolvedTuple [])
               ]
           forgedModule =
             withExpression
-              (EBlock [SExpr spanValue nestedBlock])
+              (resolvedBlock [resolvedExpression spanValue nestedBlock])
               resolvedModule
           expectedFailures =
             [ TypedCoreProductionFailure
@@ -535,7 +551,7 @@ testModuleFailureOrder = do
               coreModule
                 { coreModuleDeclaredExports =
                     Just (DeclaredModuleExports (SourceSpan 1 1) selectors),
-                  coreModuleExpr = EBlock [SLet "ignored" (SourceSpan 2 1) (ETuple [])]
+                  coreModuleExpr = resolvedBlock [resolvedLet (SourceSpan 2 1) "ignored" (resolvedTuple [])]
                 }
           }
   firstRun <- produceResolvedFixture fixture mutatedModule
@@ -720,19 +736,19 @@ testIncompleteRecursiveGroupOwnership = do
       loopDeclaration =
         ProvisionalCallableDeclaration
           1
-          "loop"
+          (localName ValueNamespace "loop")
           spanValue
           functionType
           (Just (PlainTypeBinding functionType))
           (Just [1, 3])
       loopExpression =
         ProvisionalLambdaExpression
-          "item"
+          (localName ValueNamespace "item")
           functionType
           ( ProvisionalApplyExpression
               SemanticBool
-              (ProvisionalVariableExpression "loop" functionType)
-              (ProvisionalVariableExpression "item" SemanticBool)
+              (ProvisionalVariableExpression (localName ValueNamespace "loop") functionType)
+              (ProvisionalVariableExpression (localName ValueNamespace "item") SemanticBool)
           )
       provisionalScope =
         ProvisionalScopeStatements
@@ -1320,32 +1336,32 @@ testRejectedProducerDependencyTransport =
 testOperatorDependencyNames :: IO ()
 testOperatorDependencyNames = do
   let userOperator = operatorBindingName "%%"
-      literal = ELit (LInt 1)
+      literal = resolvedLiteral (LInt 1)
   assertEqual
     "operator value dependency"
     (Set.singleton userOperator)
-    (expressionDependencyNames (EOperatorValue "%%"))
+    (expressionDependencyNames (resolvedOperatorValue "%%"))
   assertEqual
     "infix operator dependency"
     (Set.singleton userOperator)
-    (expressionDependencyNames (EBinary "%%" literal literal))
+    (expressionDependencyNames (resolvedBinary "%%" literal literal))
   assertEqual
     "left section operator dependency"
     (Set.singleton userOperator)
-    (expressionDependencyNames (ESectionLeft literal "%%"))
+    (expressionDependencyNames (resolvedSectionLeft literal "%%"))
   assertEqual
     "right section operator dependency"
     (Set.singleton userOperator)
-    (expressionDependencyNames (ESectionRight "%%" literal))
+    (expressionDependencyNames (resolvedSectionRight "%%" literal))
   assertEqual
     "builtin operator forms are dependency free"
     Set.empty
     ( foldMap
         expressionDependencyNames
-        [ EOperatorValue "+",
-          EBinary "+" literal literal,
-          ESectionLeft literal "+",
-          ESectionRight "+" literal
+        [ resolvedOperatorValue "+",
+          resolvedBinary "+" literal literal,
+          resolvedSectionLeft literal "+",
+          resolvedSectionRight "+" literal
         ]
     )
 
@@ -1385,7 +1401,7 @@ testInputModuleFailureOrder = do
             fixtureInputs =
               (fixtureInputs fixture)
                 { inferenceCurrentModulePath = Just ["Other", "Main"],
-                  inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding SemanticBool),
+                  inferenceImportedTypes = Map.singleton (localName ValueNamespace "foreign") (PlainTypeBinding SemanticBool),
                   inferenceImportedClassNames = Set.singleton "PreludeClass"
                 }
           }
@@ -1425,7 +1441,7 @@ testAdditionalProfileFailures =
             unitFixture
               { fixtureInputs =
                   (fixtureInputs unitFixture)
-                    { inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding SemanticBool)
+                    { inferenceImportedTypes = Map.singleton (localName ValueNamespace "foreign") (PlainTypeBinding SemanticBool)
                     }
               }
           importedData =
@@ -1442,13 +1458,13 @@ testAdditionalProfileFailures =
                     { inferenceImportedCapabilities = emptyScopeCapabilityFacts {scopeClassFacts = Map.singleton "Foreign" 0}
                     }
               }
-          unsupportedRoot = withExpression (ELit (LBool True)) resolvedUnitModule
+          unsupportedRoot = withExpression (resolvedLiteral (LBool True)) resolvedUnitModule
           nonLocalCall =
             withExpression
-              ( EBlock
-                  [ SExpr
+              ( resolvedBlock
+                  [ resolvedExpression
                       (SourceSpan 1 1)
-                      (EApply (EVar "__kernel_toInt8") (ELit (LInt 1)))
+                      (resolvedApply (resolvedVariable (BuiltinName (mkIdentifier "__kernel_toInt8"))) (resolvedLiteral (LInt 1)))
                   ]
               )
               resolvedUnitModule
@@ -1468,7 +1484,11 @@ testAdditionalProfileFailures =
               }
           leadingStatement =
             withExpression
-              (EBlock [SLet "ignored" (SourceSpan 1 1) (ETuple []), SExpr (SourceSpan 2 1) (ETuple [])])
+              ( resolvedBlock
+                  [ resolvedLet (SourceSpan 1 1) "ignored" (resolvedTuple []),
+                    resolvedExpression (SourceSpan 2 1) (resolvedTuple [])
+                  ]
+              )
               resolvedUnitModule
           inputFailure = [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
           rootExpressionFailure = [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
@@ -1503,7 +1523,7 @@ assertUnsupportedResolved fixture resolvedModule expectedFailures = do
     expectedFailures
     (typedCoreProductionStatus result)
 
-withExpression :: Expr -> ResolvedModule -> ResolvedModule
+withExpression :: Expr 'Resolved -> ResolvedModule -> ResolvedModule
 withExpression expression moduleValue =
   moduleValue
     { resolvedModuleCore =
@@ -1513,3 +1533,56 @@ withExpression expression moduleValue =
           []
           expression
     }
+
+resolvedNode :: CoreNode 'Resolved sort
+resolvedNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
+
+resolvedStatementNode :: SourceSpan -> CoreNode 'Resolved sort
+resolvedStatementNode spanValue = CoreNode (CoreNodeId 0) spanValue ()
+
+localName :: NameNamespace -> Text -> ResolvedName
+localName namespace = resolvedLocalName namespace . mkIdentifier
+
+resolvedLiteral :: Literal -> Expr 'Resolved
+resolvedLiteral = ELit resolvedNode
+
+resolvedVariable :: ResolvedName -> Expr 'Resolved
+resolvedVariable = EVar resolvedNode
+
+resolvedOperatorValue :: Text -> Expr 'Resolved
+resolvedOperatorValue = EOperatorValue resolvedNode
+
+resolvedList :: [Expr 'Resolved] -> Expr 'Resolved
+resolvedList = EList resolvedNode
+
+resolvedTuple :: [Expr 'Resolved] -> Expr 'Resolved
+resolvedTuple = ETuple resolvedNode
+
+resolvedApply :: Expr 'Resolved -> Expr 'Resolved -> Expr 'Resolved
+resolvedApply = EApply resolvedNode
+
+resolvedBinary :: Text -> Expr 'Resolved -> Expr 'Resolved -> Expr 'Resolved
+resolvedBinary = EBinary resolvedNode
+
+resolvedSectionLeft :: Expr 'Resolved -> Text -> Expr 'Resolved
+resolvedSectionLeft = ESectionLeft resolvedNode
+
+resolvedSectionRight :: Text -> Expr 'Resolved -> Expr 'Resolved
+resolvedSectionRight = ESectionRight resolvedNode
+
+resolvedBlock :: [Statement 'Resolved] -> Expr 'Resolved
+resolvedBlock = EBlock resolvedNode
+
+resolvedExpression :: SourceSpan -> Expr 'Resolved -> Statement 'Resolved
+resolvedExpression spanValue = SExpr (resolvedStatementNode spanValue)
+
+resolvedLet :: SourceSpan -> Text -> Expr 'Resolved -> Statement 'Resolved
+resolvedLet spanValue name = SLet (resolvedStatementNode spanValue) (localName ValueNamespace name)
+
+resolvedData :: SourceSpan -> Text -> Text -> Statement 'Resolved
+resolvedData spanValue typeName constructorName =
+  SData
+    (resolvedStatementNode spanValue)
+    (localName TypeNamespace typeName)
+    []
+    [DataConstructor (resolvedStatementNode spanValue) (localName ConstructorNamespace constructorName) []]

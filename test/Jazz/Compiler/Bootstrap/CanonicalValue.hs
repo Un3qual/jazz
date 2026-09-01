@@ -31,9 +31,10 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Name
-  ( identifierText,
+  ( NameNamespace (ConstructorNamespace, TypeNamespace),
+    identifierText,
     mkIdentifier,
-    sourceName,
+    resolvedLocalName,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
@@ -85,13 +86,13 @@ canonicalNullaryConstructor name = canonicalConstructor name []
 canonicalConstructor :: Text -> [RuntimeValue] -> RuntimeValue
 canonicalConstructor name arguments =
   VConstructor
-    (sourceName (mkIdentifier name))
+    (resolvedLocalName TypeNamespace (mkIdentifier name))
     []
-    (sourceName (mkIdentifier name))
+    (resolvedLocalName ConstructorNamespace (mkIdentifier name))
     (replicate (length arguments) canonicalFieldType)
     arguments
   where
-    canonicalFieldType = TypeName (sourceName (mkIdentifier "$canonical-field"))
+    canonicalFieldType = TypeName (resolvedLocalName TypeNamespace (mkIdentifier "$canonical-field"))
 
 runtimeIntValue :: Int -> RuntimeValue
 runtimeIntValue value = VInt (fromIntegral value) untypedIntMetadata

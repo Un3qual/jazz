@@ -7,10 +7,7 @@ where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    Literal (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -33,6 +30,23 @@ import Jazz.Compiler.TypeRepresentation
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureType (..),
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredApply,
+    loweredBlock,
+    loweredClass,
+    loweredClassMethodSignature,
+    loweredExpression,
+    loweredLet,
+    loweredList,
+    loweredLiteral,
+    loweredOperatorValue,
+    loweredSectionRight,
+    loweredSignature,
+    loweredTuple,
+    loweredTypeApplication,
+    loweredVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -498,19 +512,19 @@ testLoweredExplicitTypeApplicationIsCanonical =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "canonical lowered type application AST"
           expectedProgram
           (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "result"
             (SourceSpan 1 1)
-            (EApply (ETypeApplication (EVar "id") (SourceSpan 1 13) TypeInt) (ELit (LInt 1))),
-          SExpr (SourceSpan 2 1) (EVar "result")
+            (loweredApply (loweredTypeApplication (loweredVariable "id") (SourceSpan 1 13) TypeInt) (loweredLiteral (LInt 1))),
+          loweredExpression (SourceSpan 2 1) (loweredVariable "result")
         ]
 
 testLowerTupleLiteralAndSignatureProgram :: IO ()
@@ -524,17 +538,17 @@ testLowerTupleLiteralAndSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered tuple AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "pair"
                   (SourceSpan 1 1)
                   (SignatureType (TypeTuple [TypeInt, TypeBool])),
-                SLet
+                loweredLet
                   "pair"
                   (SourceSpan 2 1)
-                  (ETuple [ELit (LInt 1), ELit (LBool True)])
+                  (loweredTuple [loweredLiteral (LInt 1), loweredLiteral (LBool True)])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -551,14 +565,14 @@ testLowerUnitValueAndSignature =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered Unit AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "unit"
                   (SourceSpan 1 1)
                   (SignatureType (TypeTuple [])),
-                SLet "unit" (SourceSpan 2 1) (ETuple [])
+                loweredLet "unit" (SourceSpan 2 1) (loweredTuple [])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -575,10 +589,10 @@ testLowerNumericWidthSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered numeric width signature AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "f"
                   (SourceSpan 1 1)
                   ( SignatureType
@@ -587,7 +601,7 @@ testLowerNumericWidthSignatureProgram =
                           (TypeFunction (TypeNumeric NumericInt64) TypeFloat)
                       )
                   ),
-                SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
+                loweredLet "f" (SourceSpan 2 1) (loweredOperatorValue "+")
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -604,17 +618,17 @@ testLowerStructuredSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered signature AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "x"
                   (SourceSpan 1 1)
                   (SignatureType (TypeList (TypeList TypeBool))),
-                SLet
+                loweredLet
                   "x"
                   (SourceSpan 2 1)
-                  (EList [EList [ELit (LBool True)], EList [ELit (LBool False)]])
+                  (loweredList [loweredList [loweredLiteral (LBool True)], loweredList [loweredLiteral (LBool False)]])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -631,14 +645,14 @@ testLowerRightAssociativeFunctionSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered right-associated signature AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "f"
                   (SourceSpan 1 1)
                   (SignatureType (TypeFunction TypeInt (TypeFunction TypeInt TypeInt))),
-                SLet "f" (SourceSpan 2 1) (EOperatorValue "+")
+                loweredLet "f" (SourceSpan 2 1) (loweredOperatorValue "+")
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -655,17 +669,17 @@ testLowerFunctionListSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered list of function signature AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "fns"
                   (SourceSpan 1 1)
                   (SignatureType (TypeList (TypeFunction TypeInt TypeInt))),
-                SLet
+                loweredLet
                   "fns"
                   (SourceSpan 2 1)
-                  (EList [ESectionRight "+" (ELit (LInt 1))])
+                  (loweredList [loweredSectionRight "+" (loweredLiteral (LInt 1))])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -682,17 +696,17 @@ testLowerConstrainedSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered constrained signature AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "f"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
                       [SignatureConstraint "Eq" [TypeVariable "a"]]
                       (TypeFunction (TypeVariable "a") (TypeVariable "a"))
                   ),
-                SLet "f" (SourceSpan 2 1) (EVar "identity")
+                loweredLet "f" (SourceSpan 2 1) (loweredVariable "identity")
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -709,20 +723,20 @@ testLowerConstrainedTupleSignatureProgram =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered constrained tuple signature AST"
-          ( EBlock
-              [ SSignature
+          ( loweredBlock
+              [ loweredSignature
                   "pair"
                   (SourceSpan 1 1)
                   ( ConstrainedSignature
                       []
                       (TypeTuple [TypeInt, TypeBool])
                   ),
-                SLet
+                loweredLet
                   "pair"
                   (SourceSpan 2 1)
-                  (ETuple [ELit (LInt 1), ELit (LBool True)])
+                  (loweredTuple [loweredLiteral (LInt 1), loweredLiteral (LBool True)])
               ]
           )
           (lowerSurfaceExpr surfaceProgram)
@@ -813,15 +827,15 @@ testParsesClassMethodSignatureMetadata =
                 ]
           )
           surfaceProgram
-        assertEqual
+        assertLoweredCoreEqual
           "lowered class method metadata"
-          ( EBlock
-              [ SClass
+          ( loweredBlock
+              [ loweredClass
                   (SourceSpan 1 1)
                   "Eq"
                   ["a"]
-                  [ ClassMethodSignature "equals" (SourceSpan 2 1) corePayload,
-                    ClassMethodSignature "notEquals" (SourceSpan 3 1) corePayload
+                  [ loweredClassMethodSignature "equals" (SourceSpan 2 1) corePayload,
+                    loweredClassMethodSignature "notEquals" (SourceSpan 3 1) corePayload
                   ]
               ]
           )

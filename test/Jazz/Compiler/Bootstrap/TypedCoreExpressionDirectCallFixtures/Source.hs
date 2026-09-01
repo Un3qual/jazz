@@ -17,6 +17,11 @@ import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     resolveProgramWithAmbientExports,
   )
+import Jazz.Compiler.Name
+  ( NameNamespace (ValueNamespace),
+    mkIdentifier,
+    resolvedLocalName,
+  )
 import Jazz.Compiler.TypeInference (InferenceInputs (..))
 import Jazz.Compiler.TypeInference.Types
   ( SemanticType (..),
@@ -149,7 +154,7 @@ rejectedFixtures =
           emptyInputs
             { inferenceImportedTypes =
                 Map.singleton
-                  "foreign"
+                  (resolvedLocalName ValueNamespace (mkIdentifier "foreign"))
                   (PlainTypeBinding (SemanticFunction SemanticInt SemanticInt))
             }
       },

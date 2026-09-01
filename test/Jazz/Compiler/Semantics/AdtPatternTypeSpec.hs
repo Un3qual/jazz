@@ -6,10 +6,7 @@ import Data.Text
   ( Text,
   )
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    Expr (..),
-    Literal (..),
-    Pattern (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( diagnosticCodeText,
@@ -26,6 +23,18 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredAsPattern,
+    loweredCaseArm,
+    loweredLiteral,
+    loweredOrPattern,
+    loweredPatternCase,
+    loweredTuple,
+    loweredTuplePattern,
+    loweredVariable,
+    loweredVariablePattern,
+    loweredWildcardPattern,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -656,17 +665,17 @@ testCorePipelineRejectsDuplicateBindersInsideOrPatternAlternative = do
   result <-
     compileExpr
       defaultWarningSettings
-      ( EPatternCase
-          (ETuple [ELit (LInt 1), ELit (LInt 2)])
-          [ CaseArm
-              ( POr
-                  [ PTuple [PVariable "item", PVariable "item"],
-                    PTuple [PVariable "item", PWildcard]
+      ( loweredPatternCase
+          (loweredTuple [loweredLiteral (LInt 1), loweredLiteral (LInt 2)])
+          [ loweredCaseArm
+              ( loweredOrPattern
+                  [ loweredTuplePattern [loweredVariablePattern "item", loweredVariablePattern "item"],
+                    loweredTuplePattern [loweredVariablePattern "item", loweredWildcardPattern]
                   ]
               )
               Nothing
-              (EVar "item"),
-            CaseArm PWildcard Nothing (ELit (LInt 0))
+              (loweredVariable "item"),
+            loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LInt 0))
           ]
       )
   assertSingleDiagnosticCode
@@ -683,20 +692,20 @@ testCorePipelineRejectsDuplicateOuterBinderInsideOrPattern = do
   result <-
     compileExpr
       defaultWarningSettings
-      ( EPatternCase
-          (ETuple [ELit (LInt 1), ELit (LInt 2)])
-          [ CaseArm
-              ( PAs
+      ( loweredPatternCase
+          (loweredTuple [loweredLiteral (LInt 1), loweredLiteral (LInt 2)])
+          [ loweredCaseArm
+              ( loweredAsPattern
                   "item"
-                  ( POr
-                      [ PTuple [PVariable "item", PWildcard],
-                        PTuple [PWildcard, PVariable "item"]
+                  ( loweredOrPattern
+                      [ loweredTuplePattern [loweredVariablePattern "item", loweredWildcardPattern],
+                        loweredTuplePattern [loweredWildcardPattern, loweredVariablePattern "item"]
                       ]
                   )
               )
               Nothing
-              (EVar "item"),
-            CaseArm PWildcard Nothing (ELit (LInt 0))
+              (loweredVariable "item"),
+            loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LInt 0))
           ]
       )
   assertSingleDiagnosticCode

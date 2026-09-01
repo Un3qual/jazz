@@ -162,6 +162,7 @@ library jazz-internal
       Jazz.Compiler.Runtime.Types
       Jazz.Compiler.RuntimeHost
       Jazz.Compiler.RuntimeHints
+      Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
       Jazz.Compiler.StableSet
@@ -225,6 +226,7 @@ common test-common
   hs-source-dirs: test
   default-extensions: MultilineStrings
   other-modules:
+      Jazz.TestCore
       Jazz.TestHarness
   default-language: Haskell2010
   build-depends:
@@ -334,6 +336,7 @@ test-suite runtime-observation-spec
       Jazz.Compiler.Runtime.OutcomeTests
       Jazz.Compiler.Runtime.Observation.ProfileTests
       Jazz.Compiler.Runtime.Observation.StatisticsTests
+      Jazz.Compiler.Semantics.Runtime.Fixtures
   build-depends:
       aeson >= 2.2 && < 2.3
 
@@ -837,6 +840,7 @@ test-suite builtin-catalog-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Semantics/BuiltinCatalogSpec.hs
   other-modules:
+      Jazz.Compiler.Semantics.Runtime.Fixtures
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -903,6 +907,7 @@ test-suite runtime-semantics-spec
   other-modules:
       Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
       Jazz.Compiler.Semantics.Runtime.ControlFlowTests
+      Jazz.Compiler.Semantics.Runtime.Fixtures
       Jazz.Compiler.Semantics.Runtime.HostIOTests
       Jazz.Compiler.Semantics.Runtime.NumericTests
       Jazz.Compiler.Semantics.Runtime.RecursionTests

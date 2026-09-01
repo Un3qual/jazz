@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.RecursionTests
@@ -14,15 +15,14 @@ import Data.Functor.Identity
   ( Identity,
     runIdentity,
   )
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    Expr (..),
+  ( CorePhase (Resolved),
+    Expr,
     Literal (..),
-    Pattern (..),
-    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
@@ -40,6 +40,8 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSource,
   )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
@@ -58,6 +60,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     RuntimeHostExit (..),
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     scopeStatements,
@@ -157,20 +160,20 @@ testExplicitlyHintedTailRecursionPreservesResultObligations :: IO ()
 testExplicitlyHintedTailRecursionPreservesResultObligations = do
   let recursionDepth :: Int
       recursionDepth = 1000
-      isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
-        EApply
-          (ETypeApplication (EVar "collect") (SourceSpan 2 20) TypeInt)
-          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
+        expressionApply
+          (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
+          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
       expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "collect"
               (SourceSpan 1 1)
-              (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) recurse)),
-            SExpr
+              (expressionLambda "remaining" (expressionIf isZero (expressionLambda "itemValue" (expressionVariable "itemValue")) recurse)),
+            statementExpression
               (SourceSpan 3 1)
-              (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
+              (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
           ]
   case evaluateRuntimeExpr expression of
     Right (Just runtimeValue) ->
@@ -187,7 +190,7 @@ testExplicitResultHintsRenderAndApplyStackSafely :: IO ()
 testExplicitResultHintsRenderAndApplyStackSafely = do
   let recursionDepth = 100000
       callableExpression = explicitlyHintedCallable recursionDepth
-      appliedExpression = EApply callableExpression (ELit (LInt 7))
+      appliedExpression = expressionApply callableExpression (expressionLiteral (LInt 7))
   outcome <-
     try
       ( timeout
@@ -221,7 +224,7 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity :: IO ()
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
   let uint8 = TypeNumeric NumericUInt8
       callableExpression = mixedExplicitlyHintedCallable 6
-      appliedExpression = EApply callableExpression (ELit (LInt 7))
+      appliedExpression = expressionApply callableExpression (expressionLiteral (LInt 7))
   runtimeValue <- requireRuntimeValue "mixed explicit result hints" callableExpression
   assertEqual
     "mixed hints remain outermost-to-innermost without deduplication"
@@ -238,47 +241,47 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
     False
     (runtimeValueExactlyMatchesConstraint TypeInt appliedValue)
 
-mixedExplicitlyHintedCallable :: Int -> Expr
+mixedExplicitlyHintedCallable :: Int -> Expr 'Resolved
 mixedExplicitlyHintedCallable recursionDepth =
   let uint8 = TypeNumeric NumericUInt8
-      isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
-      decrement = EBinary "-" (EVar "remaining") (ELit (LInt 1))
+      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+      decrement = expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1))
       hintedCall functionName line typeHint =
-        EApply
-          (ETypeApplication (EVar functionName) (SourceSpan line 20) typeHint)
+        expressionApply
+          (expressionTypeApplication (expressionVariable functionName) (SourceSpan line 20) typeHint)
           decrement
       collect functionName line nextFunctionName typeHint =
-        SLet
+        statementLet
           functionName
           (SourceSpan line 1)
-          (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) (hintedCall nextFunctionName line typeHint)))
-   in EBlock
+          (expressionLambda "remaining" (expressionIf isZero (expressionLambda "itemValue" (expressionVariable "itemValue")) (hintedCall nextFunctionName line typeHint)))
+   in expressionBlock
         [ collect "collectUInt8" 1 "collectInt" uint8,
           collect "collectInt" 2 "collectBool" TypeInt,
           collect "collectBool" 3 "collectUInt8" TypeBool,
-          SExpr
+          statementExpression
             (SourceSpan 4 1)
-            (EApply (EVar "collectUInt8") (ELit (LInt (fromIntegral recursionDepth))))
+            (expressionApply (expressionVariable "collectUInt8") (expressionLiteral (LInt (fromIntegral recursionDepth))))
         ]
 
-explicitlyHintedCallable :: Int -> Expr
+explicitlyHintedCallable :: Int -> Expr 'Resolved
 explicitlyHintedCallable recursionDepth =
-  let isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+  let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
-        EApply
-          (ETypeApplication (EVar "collect") (SourceSpan 2 20) TypeInt)
-          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
-   in EBlock
-        [ SLet
+        expressionApply
+          (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
+          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+   in expressionBlock
+        [ statementLet
             "collect"
             (SourceSpan 1 1)
-            (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) recurse)),
-          SExpr
+            (expressionLambda "remaining" (expressionIf isZero (expressionLambda "itemValue" (expressionVariable "itemValue")) recurse)),
+          statementExpression
             (SourceSpan 3 1)
-            (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
+            (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
         ]
 
-requireRuntimeValue :: Text -> Expr -> IO RuntimeValue
+requireRuntimeValue :: Text -> Expr 'Resolved -> IO RuntimeValue
 requireRuntimeValue label expression =
   case evaluateRuntimeExpr expression of
     Left diagnostic ->
@@ -304,12 +307,12 @@ assertStackSafeRunResult label action expectedOutput = do
       assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
       assertEqual (label <> " output") expectedOutput (runOutput result)
 
-diagnosticParityExpressions :: [Expr]
+diagnosticParityExpressions :: [Expr 'Resolved]
 diagnosticParityExpressions =
-  [ EVar "missing",
-    EIf (ELit (LInt 1)) (ELit (LInt 2)) (ELit (LInt 3)),
-    EApply (ELit (LInt 1)) (ELit (LInt 2)),
-    EPatternCase (ELit (LInt 1)) []
+  [ expressionVariable "missing",
+    expressionIf (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)) (expressionLiteral (LInt 3)),
+    expressionApply (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)),
+    expressionPatternCase (expressionLiteral (LInt 1)) []
   ]
 
 diagnosticParityHost :: RuntimeHost Identity
@@ -471,21 +474,21 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
     witnessSource =
       "f = { apparent = \\(x) -> x. captured = \\(x) -> f. case True { | apparent -> apparent }. }. f."
     witnessStatements =
-      [ SLet
+      [ statementLet
           "f"
           (SourceSpan 1 1)
-          ( EBlock
-              [ SLet "apparent" (SourceSpan 1 1) (ELambda "x" (EVar "x")),
-                SLet "captured" (SourceSpan 1 1) (ELambda "x" (EVar "f")),
-                SExpr
+          ( expressionBlock
+              [ statementLet "apparent" (SourceSpan 1 1) (expressionLambda "x" (expressionVariable "x")),
+                statementLet "captured" (SourceSpan 1 1) (expressionLambda "x" (expressionVariable "f")),
+                statementExpression
                   (SourceSpan 1 1)
-                  ( EPatternCase
-                      (ELit (LBool True))
-                      [CaseArm (PVariable "apparent") Nothing (EVar "apparent")]
+                  ( expressionPatternCase
+                      (expressionLiteral (LBool True))
+                      [caseArm (patternVariable "apparent") Nothing (expressionVariable "apparent")]
                   )
               ]
           ),
-        SExpr (SourceSpan 1 1) (EVar "f")
+        statementExpression (SourceSpan 1 1) (expressionVariable "f")
       ]
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
@@ -516,15 +519,24 @@ scopePlanForSource builtinMode source =
   case parseAndLowerStandaloneSource source of
     Left diagnostic ->
       failTest ("expected scope-plan witness source to parse and lower: " <> renderDiagnostic diagnostic)
-    Right expression ->
-      pure
-        ( buildRuntimeScopePlan
-            Set.empty
-            Nothing
-            builtinMode
-            Set.empty
-            (scopeStatements expression)
-        )
+    Right loweredExpression ->
+      case resolveStandaloneExprNames builtinMode (exportInventory []) loweredExpression of
+        Left diagnostics ->
+          failTest
+            ( "expected scope-plan witness source to resolve: "
+                <> Text.intercalate "\n" (map renderDiagnostic (toList diagnostics))
+            )
+        Right expression ->
+          pure
+            ( buildRuntimeScopePlan
+                Set.empty
+                Nothing
+                builtinMode
+                Set.empty
+                (scopeStatements expression)
+            )
+  where
+    toList (diagnostic :| diagnostics) = diagnostic : diagnostics
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do

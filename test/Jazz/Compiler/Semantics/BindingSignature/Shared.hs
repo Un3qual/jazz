@@ -1,6 +1,5 @@
-{-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.Shared
   ( validSignatureProgram,
@@ -23,20 +22,19 @@ module Jazz.Compiler.Semantics.BindingSignature.Shared
     qualifiedEqSource,
     importedQualifiedMethodFactsProgram,
     aliasOnlyImportedCapabilityFactsProgram,
-    speculativePreviewDeferredConstraintProgram,
-    speculativePreviewDeferredConstraintBlock,
-    speculativePreviewInferredConstraintProgram,
+    loweredProgram,
+    resolvedProgram,
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( ClassMethodSignature (..),
+  ( CorePhase (Lowered, Resolved),
     Expr (..),
-    ImplMethod (..),
-    Literal (..),
     Statement (..),
   )
+import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
@@ -48,15 +46,10 @@ import Jazz.Compiler.Driver
     compileSource,
     compileSourceWithPrelude,
   )
-import Jazz.Compiler.TypeRepresentation
-  ( pattern ConstrainedSignature,
-    pattern SignatureConstraint,
-    pattern SignatureType,
-    pattern TypeBool,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeVariable,
-  )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -68,94 +61,38 @@ import Jazz.TestHarness
     assertSingleDiagnosticPrimarySpan,
   )
 
-validSignatureProgram :: Expr
-validSignatureProgram =
-  EBlock
-    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
-      SLet "x" (SourceSpan 2 1) (ELit (LInt 1)),
-      SExpr (SourceSpan 3 1) (EVar "x")
-    ]
+validSignatureProgram :: Expr 'Lowered
+validSignatureProgram = loweredProgram "x :: Int.\nx = 1.\nx."
 
-separatedSignatureProgram :: Expr
-separatedSignatureProgram =
-  EBlock
-    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
-      SExpr (SourceSpan 2 1) (ELit (LInt 1)),
-      SLet "x" (SourceSpan 3 1) (ELit (LInt 2))
-    ]
+separatedSignatureProgram :: Expr 'Lowered
+separatedSignatureProgram = loweredProgram "x :: Int.\n1.\nx = 2."
 
-mismatchedSignatureProgram :: Expr
-mismatchedSignatureProgram =
-  EBlock
-    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
-      SLet "y" (SourceSpan 2 1) (ELit (LInt 2))
-    ]
+mismatchedSignatureProgram :: Expr 'Lowered
+mismatchedSignatureProgram = loweredProgram "x :: Int.\ny = 2."
 
-useBeforeDefinitionProgram :: Expr
-useBeforeDefinitionProgram =
-  EBlock
-    [ SExpr (SourceSpan 1 1) (EVar "x"),
-      SLet "x" (SourceSpan 2 1) (ELit (LInt 1))
-    ]
+useBeforeDefinitionProgram :: Expr 'Lowered
+useBeforeDefinitionProgram = loweredProgram "x.\nx = 1."
 
-nestedScopeProgram :: Expr
-nestedScopeProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SExpr
-        (SourceSpan 2 1)
-        ( EBlock
-            [ SExpr (SourceSpan 3 1) (EVar "x")
-            ]
-        )
-    ]
+nestedScopeProgram :: Expr 'Lowered
+nestedScopeProgram = loweredProgram "x = 1.\nnested = { x. }."
 
-selfRecursiveProgram :: Expr
-selfRecursiveProgram =
-  EBlock
-    [ SLet "f" (SourceSpan 1 1) (EVar "f")
-    ]
+selfRecursiveProgram :: Expr 'Lowered
+selfRecursiveProgram = loweredProgram "f = f."
 
-mutualRecursionProgram :: Expr
-mutualRecursionProgram =
-  EBlock
-    [ SLet "even" (SourceSpan 1 1) (EVar "odd"),
-      SLet "odd" (SourceSpan 2 1) (EVar "even"),
-      SExpr (SourceSpan 3 1) (EVar "even")
-    ]
+mutualRecursionProgram :: Expr 'Lowered
+mutualRecursionProgram = loweredProgram "even = odd.\nodd = even.\neven."
 
-threeNodeMutualRecursionProgram :: Expr
-threeNodeMutualRecursionProgram =
-  EBlock
-    [ SLet "a" (SourceSpan 1 1) (EVar "b"),
-      SLet "b" (SourceSpan 2 1) (EVar "c"),
-      SLet "c" (SourceSpan 3 1) (EVar "a"),
-      SExpr (SourceSpan 4 1) (EVar "a")
-    ]
+threeNodeMutualRecursionProgram :: Expr 'Lowered
+threeNodeMutualRecursionProgram = loweredProgram "a = b.\nb = c.\nc = a.\na."
 
-nonRecursiveForwardReferenceProgram :: Expr
-nonRecursiveForwardReferenceProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-      SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
-      SExpr (SourceSpan 3 1) (EVar "x")
-    ]
+nonRecursiveForwardReferenceProgram :: Expr 'Lowered
+nonRecursiveForwardReferenceProgram = loweredProgram "x = y.\ny = 1.\nx."
 
-retroactiveRebindingProgram :: Expr
-retroactiveRebindingProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-      SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
-      SLet "y" (SourceSpan 3 1) (EVar "x"),
-      SExpr (SourceSpan 4 1) (EVar "x")
-    ]
+retroactiveRebindingProgram :: Expr 'Lowered
+retroactiveRebindingProgram = loweredProgram "x = y.\ny = 1.\ny = x.\nx."
 
-signatureTypeMismatchProgram :: Expr
-signatureTypeMismatchProgram =
-  EBlock
-    [ SSignature "x" (SourceSpan 1 1) (SignatureType TypeInt),
-      SLet "x" (SourceSpan 2 1) (ELit (LBool True))
-    ]
+signatureTypeMismatchProgram :: Expr 'Lowered
+signatureTypeMismatchProgram = loweredProgram "x :: Int.\nx = True."
 
 assertSourceOk :: Text.Text -> IO ()
 assertSourceOk src = do
@@ -200,146 +137,44 @@ qualifiedEqSource =
 
   """
 
-importedQualifiedMethodFactsProgram :: Expr
+importedQualifiedMethodFactsProgram :: Expr 'Lowered
 importedQualifiedMethodFactsProgram =
-  EBlock
-    [ SModule (SourceSpan 1 1) ["Lib"],
-      SClass
-        (SourceSpan 2 1)
-        "RemoteEq"
-        ["a"]
-        [ ClassMethodSignature
-            "equals"
-            (SourceSpan 3 1)
-            ( ConstrainedSignature
-                []
-                ( TypeFunction
-                    (TypeVariable "a")
-                    (TypeFunction (TypeVariable "a") (TypeBool))
-                )
-            )
-        ],
-      SImpl
-        (SourceSpan 4 1)
-        "RemoteEq"
-        [TypeInt]
-        [ ImplMethod
-            "equals"
-            (SourceSpan 5 1)
-            (ELambda "left" (ELambda "right" (EBinary "==" (EVar "left") (EVar "right"))))
-        ],
-      SModule (SourceSpan 6 1) ["App"],
-      SImport (SourceSpan 7 1) ["Lib"] Nothing Nothing,
-      SExpr
-        (SourceSpan 9 1)
-        ( EApply
-            (EApply (EVar "RemoteEq::equals") (ELit (LInt 1)))
-            (ELit (LInt 1))
-        )
+  loweredPrograms
+    [ "module Lib { class RemoteEq(a) { equals :: a -> a -> Bool. }. impl RemoteEq(Int) { equals = \\(left, right) -> left == right. }. }",
+      "module App { import Lib. RemoteEq::equals 1 1. }"
     ]
 
-aliasOnlyImportedCapabilityFactsProgram :: Expr
+aliasOnlyImportedCapabilityFactsProgram :: Expr 'Lowered
 aliasOnlyImportedCapabilityFactsProgram =
-  EBlock
-    [ SModule (SourceSpan 1 1) ["Lib"],
-      SClass (SourceSpan 2 1) "RemoteEq" ["a"] [],
-      SImpl (SourceSpan 3 1) "RemoteEq" [TypeInt] [],
-      SModule (SourceSpan 4 1) ["App"],
-      SImport (SourceSpan 5 1) ["Lib"] (Just "Lib") Nothing,
-      SSignature
-        "x"
-        (SourceSpan 6 1)
-        (ConstrainedSignature [SignatureConstraint "RemoteEq" [TypeInt]] (TypeInt)),
-      SLet "x" (SourceSpan 7 1) (ELit (LInt 1))
+  loweredPrograms
+    [ "module Lib { class RemoteEq(a) { }. impl RemoteEq(Int) { }. }",
+      "module App { import Lib as Lib. x :: @{RemoteEq(Int)}: Int. x = 1. }"
     ]
 
-speculativePreviewDeferredConstraintProgram :: Expr
-speculativePreviewDeferredConstraintProgram =
-  EBlock
-    [ SModule (SourceSpan 1 1) ["Base"],
-      SClass (SourceSpan 2 1) "Eq" ["a"] [],
-      SImpl (SourceSpan 3 1) "Eq" [TypeInt] [],
-      SModule (SourceSpan 4 1) ["Facts"],
-      SImport (SourceSpan 5 1) ["Base"] Nothing Nothing,
-      SImpl (SourceSpan 6 1) "Eq" [TypeBool] [],
-      SModule (SourceSpan 7 1) ["Main"],
-      SImport (SourceSpan 8 1) ["Base"] Nothing Nothing,
-      SSignature
-        "id"
-        (SourceSpan 9 1)
-        ( ConstrainedSignature
-            [SignatureConstraint "Eq" [TypeVariable "a"]]
-            (TypeFunction (TypeVariable "a") (TypeVariable "a"))
-        ),
-      SLet "id" (SourceSpan 10 1) (ELambda "x" (EVar "x")),
-      SLet "value" (SourceSpan 11 1) speculativePreviewDeferredConstraintBlock,
-      SExpr (SourceSpan 18 1) (EVar "value")
-    ]
+loweredProgram :: Text.Text -> Expr 'Lowered
+loweredProgram source =
+  case parseSurfaceProgram source of
+    Left diagnostic -> error (Text.unpack (renderDiagnostic diagnostic))
+    Right surface -> lowerSurfaceExpr surface
 
-speculativePreviewDeferredConstraintBlock :: Expr
-speculativePreviewDeferredConstraintBlock =
-  EBlock
-    [ SLet
-        "left"
-        (SourceSpan 12 1)
-        ( EIf
-            (ELit (LBool True))
-            (ELambda "x" (EVar "x"))
-            (ELambda "x" (EVar "right"))
-        ),
-      SLet "early" (SourceSpan 13 1) (EApply (EVar "left") (ELit (LBool True))),
-      SImport (SourceSpan 14 1) ["Facts"] Nothing Nothing,
-      SLet
-        "right"
-        (SourceSpan 15 1)
-        ( EIf
-            (ELit (LBool False))
-            (EApply (EVar "left") (ELit (LBool True)))
-            (EApply (EVar "id") (ELit (LBool True)))
-        ),
-      SExpr (SourceSpan 16 1) (EVar "early")
-    ]
+loweredPrograms :: [Text.Text] -> Expr 'Lowered
+loweredPrograms = mergeLoweredPrograms . map loweredProgram
 
-speculativePreviewInferredConstraintProgram :: Expr
-speculativePreviewInferredConstraintProgram =
-  EBlock
-    [ SModule (SourceSpan 1 1) ["Base"],
-      SClass
-        (SourceSpan 2 1)
-        "C"
-        ["a"]
-        [ ClassMethodSignature
-            "m"
-            (SourceSpan 3 1)
-            (SignatureType (TypeFunction (TypeVariable "a") TypeBool))
-        ],
-      SModule (SourceSpan 4 1) ["Facts"],
-      SImport (SourceSpan 5 1) ["Base"] Nothing Nothing,
-      SImpl
-        (SourceSpan 6 1)
-        "C"
-        [TypeBool]
-        [ImplMethod "m" (SourceSpan 7 1) (ELambda "value" (ELit (LBool True)))],
-      SModule (SourceSpan 8 1) ["Main"],
-      SImport (SourceSpan 9 1) ["Base"] Nothing Nothing,
-      SExpr
-        (SourceSpan 10 1)
-        ( EBlock
-            [ SLet
-                "left"
-                (SourceSpan 11 1)
-                (EIf (ELit (LBool True)) (ELambda "x" (EVar "x")) (EVar "right")),
-              SLet "early" (SourceSpan 12 1) (EApply (EVar "left") (ELit (LBool True))),
-              SImport (SourceSpan 13 1) ["Facts"] Nothing Nothing,
-              SLet
-                "right"
-                (SourceSpan 14 1)
-                ( EIf
-                    (ELit (LBool False))
-                    (ELambda "x" (EApply (EVar "C::m") (EVar "x")))
-                    (EVar "left")
-                ),
-              SExpr (SourceSpan 15 1) (EVar "early")
-            ]
-        )
-    ]
+mergeLoweredPrograms :: [Expr 'Lowered] -> Expr 'Lowered
+mergeLoweredPrograms programs =
+  case programs of
+    [] -> error "expected at least one lowered source unit"
+    EBlock node statements : remainingPrograms -> EBlock node (statements <> concatMap blockStatements remainingPrograms)
+    expression : _ -> error ("expected lowered source-unit block, got " <> show expression)
+  where
+    blockStatements :: Expr 'Lowered -> [Statement 'Lowered]
+    blockStatements (EBlock _ statements) = statements
+    blockStatements expression = error ("expected lowered source-unit block, got " <> show expression)
+
+resolvedProgram :: Text.Text -> Expr 'Resolved
+resolvedProgram source =
+  case resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) (loweredProgram source) of
+    Left diagnostics -> error (Text.unpack (Text.unlines (map renderDiagnostic (toList diagnostics))))
+    Right expression -> expression
+  where
+    toList (diagnostic :| diagnostics) = diagnostic : diagnostics

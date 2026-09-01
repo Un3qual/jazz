@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Runtime.Observation.ProfileTests
@@ -12,12 +13,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Jazz.Compiler.AST
-  ( ClassMethodSignature (..),
-    DataConstructor (..),
-    Expr (..),
-    ImplMethod (..),
+  ( CorePhase (Resolved),
+    Expr,
     Literal (..),
-    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (BuiltinArguments, BuiltinHd, BuiltinTextLength),
@@ -35,7 +33,6 @@ import Jazz.Compiler.Name
   ( Name (BuiltinName),
     mkIdentifier,
     operatorBindingName,
-    qualifiedName,
   )
 import Jazz.Compiler.Runtime
   ( evaluateRuntimeExprObserved,
@@ -57,6 +54,28 @@ import Jazz.Compiler.Runtime.Observation.Profile
   ( encodeRuntimeSemanticProfile,
   )
 import Jazz.Compiler.RuntimeHost (disabledRuntimeHost)
+import Jazz.Compiler.Semantics.Runtime.Fixtures
+  ( classMethodSignature,
+    dataConstructor,
+    expressionApply,
+    expressionBinary,
+    expressionBlock,
+    expressionConstructor,
+    expressionLambda,
+    expressionList,
+    expressionLiteral,
+    expressionQualifiedMethod,
+    expressionSectionRight,
+    expressionTuple,
+    expressionVariable,
+    fixtureTypeVariable,
+    implMethod,
+    statementClass,
+    statementData,
+    statementExpression,
+    statementImpl,
+    statementLet,
+  )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SignaturePayload (..),
@@ -85,7 +104,7 @@ testProfileStructure = do
   report <-
     reportFor
       RuntimeObservationStatisticsAndProfile
-      (EApply (ELambda "value" (EVar "value")) (ELit (LInt 7)))
+      (expressionApply (expressionLambda "value" (expressionVariable "value")) (expressionLiteral (LInt 7)))
   profile <- requireProfile report
   assertEqual "profile termination" RuntimeSucceeded (runtimeSemanticProfileTermination profile)
   assertEqual "profile incomplete" False (runtimeSemanticProfileIncomplete profile)
@@ -107,25 +126,25 @@ testProfileStructure = do
 
 testCallableIdentities :: IO ()
 testCallableIdentities = do
-  closureProfile <- profileFor (EApply (ELambda "value" (EVar "value")) (ELit (LInt 1)))
+  closureProfile <- profileFor (expressionApply (expressionLambda "value" (expressionVariable "value")) (expressionLiteral (LInt 1)))
   builtinProfile <-
     profileFor
-      (EApply (kernelBuiltin BuiltinTextLength) (ELit (LText "Jazz")))
-  operatorProfile <- profileFor (EBinary "+" (ELit (LInt 1)) (ELit (LInt 2)))
+      (expressionApply (kernelBuiltin BuiltinTextLength) (expressionLiteral (LText "Jazz")))
+  operatorProfile <- profileFor (expressionBinary "+" (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)))
   constructorProfile <-
     profileFor
-      ( EBlock
-          [ SData
+      ( expressionBlock
+          [ statementData
               (SourceSpan 1 1)
               "Box"
               []
-              [DataConstructor "Box" [TypeInt]],
-            SExpr (SourceSpan 2 1) (EApply (EVar "Box") (ELit (LInt 1)))
+              [dataConstructor "Box" [TypeInt]],
+            statementExpression (SourceSpan 2 1) (expressionApply (expressionConstructor "Box") (expressionLiteral (LInt 1)))
           ]
       )
   methodProfile <- profileFor qualifiedMethodExpression
   generatedProfile <- profileFor generatedSectionExpression
-  hostProfile <- profileFor (EApply (kernelBuiltin BuiltinArguments) (ETuple []))
+  hostProfile <- profileFor (expressionApply (kernelBuiltin BuiltinArguments) (expressionTuple []))
   assertHasIdentity "closure identity" isClosure closureProfile
   assertHasIdentity "builtin identity" (== BuiltinCallable "textLength") builtinProfile
   assertHasIdentity "operator identity" (== OperatorCallable "+") operatorProfile
@@ -179,7 +198,7 @@ testNamedClosureIdentity = do
 
 testProfileDeterminism :: IO ()
 testProfileDeterminism = do
-  let expression = EApply (ELambda "value" (EVar "value")) (ELit (LInt 7))
+  let expression = expressionApply (expressionLambda "value" (expressionVariable "value")) (expressionLiteral (LInt 7))
   first <- profileFor expression
   second <- profileFor expression
   assertEqual "profile domain" first second
@@ -193,7 +212,7 @@ testFailureProfile = do
   let observed =
         evaluateRuntimeExprObserved
           RuntimeObservationStatisticsAndProfile
-          (EApply (kernelBuiltin BuiltinHd) (EList []))
+          (expressionApply (kernelBuiltin BuiltinHd) (expressionList []))
   case runtimeObservationOutcome observed of
     RuntimeOutcomeFailed _ -> pure ()
     outcome -> failTest ("expected runtime failure, got " <> Text.pack (show outcome))
@@ -208,12 +227,12 @@ testFailureProfile = do
   assertBalancedEvents profile
   assertBytesContain "incomplete profile name" "incomplete: failed" (encodeRuntimeSemanticProfile profile)
 
-profileFor :: Expr -> IO RuntimeSemanticProfile
+profileFor :: Expr 'Resolved -> IO RuntimeSemanticProfile
 profileFor expression = do
   report <- reportFor RuntimeObservationProfile expression
   requireProfile report
 
-reportFor :: RuntimeObservationRequest -> Expr -> IO RuntimeObservationReport
+reportFor :: RuntimeObservationRequest -> Expr 'Resolved -> IO RuntimeObservationReport
 reportFor request expression = do
   let observed = evaluateRuntimeExprObserved request expression
   case runtimeObservationOutcome observed of
@@ -270,55 +289,55 @@ assertBytesContain label expected actual =
     then pure ()
     else failTest (label <> ": expected " <> Text.pack (show expected) <> " in profile JSON")
 
-kernelBuiltin :: BuiltinSymbol -> Expr
-kernelBuiltin = EVar . BuiltinName . mkIdentifier . builtinSymbolKernelName
+kernelBuiltin :: BuiltinSymbol -> Expr 'Resolved
+kernelBuiltin = expressionVariable . BuiltinName . mkIdentifier . builtinSymbolKernelName
 
-qualifiedMethodExpression :: Expr
+qualifiedMethodExpression :: Expr 'Resolved
 qualifiedMethodExpression =
-  EBlock
-    [ SClass
+  expressionBlock
+    [ statementClass
         (SourceSpan 1 1)
         "Probe"
         ["a"]
-        [ ClassMethodSignature
+        [ classMethodSignature
             "identity"
             (SourceSpan 2 1)
             ( ConstrainedSignature
                 []
-                (TypeFunction (TypeVariable "a") TypeBool)
+                (TypeFunction (fixtureTypeVariable "a") TypeBool)
             )
         ],
-      SImpl
+      statementImpl
         (SourceSpan 3 1)
         "Probe"
         [TypeInt]
-        [ ImplMethod
+        [ implMethod
             "identity"
             (SourceSpan 4 1)
-            (ELambda "value" (ELit (LBool True)))
+            (expressionLambda "value" (expressionLiteral (LBool True)))
         ],
-      SImpl
+      statementImpl
         (SourceSpan 5 1)
         "Probe"
         [TypeNumeric NumericUInt8]
-        [ ImplMethod
+        [ implMethod
             "identity"
             (SourceSpan 6 1)
-            (ELambda "value" (ELit (LBool False)))
+            (expressionLambda "value" (expressionLiteral (LBool False)))
         ],
-      SExpr
+      statementExpression
         (SourceSpan 7 1)
-        (EApply (EVar (qualifiedName "Probe" "identity")) (ELit (LInt 1)))
+        (expressionApply (expressionQualifiedMethod "Probe" "identity") (expressionLiteral (LInt 1)))
     ]
 
-generatedSectionExpression :: Expr
+generatedSectionExpression :: Expr 'Resolved
 generatedSectionExpression =
-  EBlock
-    [ SLet
+  expressionBlock
+    [ statementLet
         (operatorBindingName "%%")
         (SourceSpan 1 1)
-        (ELambda "left" (ELambda "right" (EVar "left"))),
-      SExpr
+        (expressionLambda "left" (expressionLambda "right" (expressionVariable "left"))),
+      statementExpression
         (SourceSpan 2 1)
-        (EApply (ESectionRight "%%" (ELit (LInt 2))) (ELit (LInt 1)))
+        (expressionApply (expressionSectionRight "%%" (expressionLiteral (LInt 2))) (expressionLiteral (LInt 1)))
     ]

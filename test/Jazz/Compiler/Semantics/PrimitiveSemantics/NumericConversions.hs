@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.NumericConversions
@@ -8,9 +9,9 @@ where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (Lowered),
+    Expr,
     Literal (..),
-    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -38,6 +39,14 @@ import Jazz.Compiler.TypeRepresentation
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredApply,
+    loweredBlock,
+    loweredLet,
+    loweredLiteral,
+    loweredSignature,
+    loweredVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -960,25 +969,25 @@ testSourcePipelineRejectsNonNumericConversionSource =
     "non-numeric conversion argument"
     "E2006"
 
-sourceExactNegativeFloatTargetOverflowProgram :: Expr
+sourceExactNegativeFloatTargetOverflowProgram :: Expr 'Lowered
 sourceExactNegativeFloatTargetOverflowProgram =
   mkProgram
-    ( EApply
-        (EVar "__kernel_toFloat16")
-        (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18) Nothing))
+    ( loweredApply
+        (loweredVariable "__kernel_toFloat16")
+        (loweredLiteral (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18) Nothing))
     )
 
-targetedFloat64OverflowProgram :: Expr
+targetedFloat64OverflowProgram :: Expr 'Lowered
 targetedFloat64OverflowProgram =
-  EBlock
-    [ SSignature
+  loweredBlock
+    [ loweredSignature
         "x"
         (SourceSpan 1 1)
         (SignatureType (TypeNumeric NumericFloat64)),
-      SLet
+      loweredLet
         "x"
         (SourceSpan 2 1)
-        (ELit (LFloat literalValue literalSource Nothing))
+        (loweredLiteral (LFloat literalValue literalSource Nothing))
     ]
   where
     literalValue = 1 / 0 :: Double

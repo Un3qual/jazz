@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -38,10 +39,11 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
-  ( Name,
-    NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
+  ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
+    ResolvedName,
     mkIdentifier,
     resolvedImportedName,
+    resolvedLocalName,
   )
 import Jazz.Compiler.StableSet
   ( StableSet,
@@ -290,7 +292,7 @@ testScopeCapabilityFacts = do
           scopeConcreteImplMethods =
             Map.singleton "Comparable" [ImplMethodType TypeBool],
           scopeGeneratedEqualityClassFacts = Set.singleton "Eq",
-          scopeConcreteImplFacts = Set.singleton (ConcreteImplFact "Comparable" TypeInt)
+          scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Comparable") TypeInt)
         }
 
 testConcreteImplFactsUseRenderedIdentity :: IO ()
@@ -299,39 +301,44 @@ testConcreteImplFactsUseRenderedIdentity = do
   assertEqual "rendered capability facts share set membership" True (Set.member sourceFact (Set.singleton importedFact))
   assertEqual "nested TypeName origins share set membership" True (Set.member sourceTypeNameFact (Set.singleton importedTypeNameFact))
   assertEqual "nested TypeApplication origins share set membership" True (Set.member sourceTypeApplicationFact (Set.singleton importedTypeApplicationFact))
-  assertEqual "legacy rendered argument collisions remain equal" True (ConcreteImplFact "Marked" TypeInt == ConcreteImplFact "Marked" (TypeName "Int"))
+  assertEqual
+    "legacy rendered argument collisions remain equal"
+    True
+    ( ConcreteImplFact (localCapabilityName "Marked") TypeInt
+        == ConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Int"))
+    )
   where
-    sourceFact = ConcreteImplFact "Lib::Marked::Marked!" TypeInt
+    sourceFact = ConcreteImplFact (localCapabilityName "Lib::Marked::Marked!") TypeInt
     importedFact =
       ConcreteImplFact
         (resolvedImportedName (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Marked"])) CapabilityNamespace (mkIdentifier "Marked!"))
         TypeInt
-    sourceTypeNameFact = ConcreteImplFact "Marked" (TypeName "Lib::Types::Tagged")
-    importedTypeNameFact = ConcreteImplFact "Marked" (TypeName (importedTypeName "Tagged"))
+    sourceTypeNameFact = ConcreteImplFact (localCapabilityName "Marked") (TypeName (localTypeName "Lib::Types::Tagged"))
+    importedTypeNameFact = ConcreteImplFact (localCapabilityName "Marked") (TypeName (importedTypeName "Tagged"))
     sourceTypeApplicationFact =
       ConcreteImplFact
-        "Marked"
-        (TypeApplication "Lib::Types::Box" [TypeName "Lib::Types::Tagged"])
+        (localCapabilityName "Marked")
+        (TypeApplication (localTypeName "Lib::Types::Box") [TypeName (localTypeName "Lib::Types::Tagged")])
     importedTypeApplicationFact =
       ConcreteImplFact
-        "Marked"
+        (localCapabilityName "Marked")
         (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
 testInferenceAcceptsImportedTypeNameFact :: IO ()
 testInferenceAcceptsImportedTypeNameFact =
   assertImportedConstraintFactAccepted
     "TypeName imported fact"
-    (TypeName "Lib::Types::Tagged")
+    (TypeName (localTypeName "Lib::Types::Tagged"))
     (TypeName (importedTypeName "Tagged"))
 
 testInferenceAcceptsImportedTypeApplicationFact :: IO ()
 testInferenceAcceptsImportedTypeApplicationFact =
   assertImportedConstraintFactAccepted
     "TypeApplication imported fact"
-    (TypeApplication "Lib::Types::Box" [TypeName "Lib::Types::Tagged"])
+    (TypeApplication (localTypeName "Lib::Types::Box") [TypeName (localTypeName "Lib::Types::Tagged")])
     (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
-assertImportedConstraintFactAccepted :: Text -> AST.SignatureType -> AST.SignatureType -> IO ()
+assertImportedConstraintFactAccepted :: Text -> AST.SignatureType 'AST.Resolved -> AST.SignatureType 'AST.Resolved -> IO ()
 assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
   sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram sourceArgument)
   importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram sourceArgument)
@@ -345,14 +352,14 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =
             Map.fromList
-              [ ("Lib::Types::Box", DataTypeBinding ["item"] []),
+              [ ("Lib::Types::Box", DataTypeBinding [localTypeName "item"] []),
                 ("Lib::Types::Tagged", DataTypeBinding [] [])
               ],
           inferenceImportedConstructorWitnessNames = Map.empty,
           inferenceImportedCapabilities =
             emptyScopeCapabilityFacts
               { scopeClassFacts = Map.singleton "Marked" 1,
-                scopeConcreteImplFacts = Set.singleton (ConcreteImplFact "Marked" factArgument)
+                scopeConcreteImplFacts = Set.singleton (ConcreteImplFact (localCapabilityName "Marked") factArgument)
               },
           inferenceImportedClassNames = Set.singleton "Marked",
           inferenceCurrentModulePath = Nothing
@@ -360,14 +367,33 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
 
     constrainedProgram constraintArgument =
       EBlock
+        fixtureExpressionNode
         [ SSignature
-            "value"
-            (SourceSpan 1 1)
-            (ConstrainedSignature [SignatureConstraint "Marked" [constraintArgument]] TypeInt),
-          SLet "value" (SourceSpan 2 1) (ELit (LInt 1))
+            (fixtureStatementNode (SourceSpan 1 1))
+            (localValueName "value")
+            (ConstrainedSignature [SignatureConstraint (localCapabilityName "Marked") [constraintArgument]] TypeInt),
+          SLet
+            (fixtureStatementNode (SourceSpan 2 1))
+            (localValueName "value")
+            (ELit fixtureExpressionNode (LInt 1))
         ]
 
-importedTypeName :: Text -> Name
+fixtureExpressionNode :: AST.CoreNode 'AST.Resolved sort
+fixtureExpressionNode = AST.CoreNode (AST.CoreNodeId 0) (SourceSpan 1 1) ()
+
+fixtureStatementNode :: SourceSpan -> AST.CoreNode 'AST.Resolved sort
+fixtureStatementNode spanValue = AST.CoreNode (AST.CoreNodeId 0) spanValue ()
+
+localValueName :: Text -> ResolvedName
+localValueName = resolvedLocalName ValueNamespace . mkIdentifier
+
+localTypeName :: Text -> ResolvedName
+localTypeName = resolvedLocalName TypeNamespace . mkIdentifier
+
+localCapabilityName :: Text -> ResolvedName
+localCapabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
+
+importedTypeName :: Text -> ResolvedName
 importedTypeName name =
   resolvedImportedName
     (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Types"]))

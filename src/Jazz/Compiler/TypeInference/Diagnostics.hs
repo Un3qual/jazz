@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -75,8 +76,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( NumericType,
-    Pattern,
+  ( CorePhase (..),
+    NumericType,
     SignatureConstraint,
     SignaturePayload,
     SignatureToken,
@@ -110,8 +111,8 @@ import Jazz.Compiler.FractionalLiteral
   ( FractionalLiteralSource,
     fractionalLiteralExceedsMagnitude,
   )
-import Jazz.Compiler.Name (Name, identifierText)
-import Jazz.Compiler.PatternCoverage (renderCoveragePattern)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
+import Jazz.Compiler.PatternCoverage (CoveragePattern, renderCoveragePattern)
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
@@ -296,7 +297,7 @@ mkNoMatchingQualifiedMethodBodyError, mkAmbiguousQualifiedMethodBodyForArguments
 mkNoMatchingQualifiedMethodBodyError key types = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("no matching qualified method body '" <> key <> "' for argument types " <> renderTypes types)
 mkAmbiguousQualifiedMethodBodyForArgumentsError key types = withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("ambiguous qualified method body '" <> key <> "' for argument types " <> renderTypes types)
 
-mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload -> Diagnostic
+mkInvalidQualifiedMethodSignatureError :: Text -> SignaturePayload 'Resolved -> Diagnostic
 mkInvalidQualifiedMethodSignatureError key payload =
   withSubject key $ mkErrorDiagnostic E2015 CompilationOrigin ("invalid or unsupported class method signature for '" <> key <> "': '" <> renderSignaturePayload payload <> "'")
 
@@ -338,7 +339,7 @@ mkImplMethodMissingClassMethodError key spanValue = withSubject key $ setDiagnos
 mkImplMethodTypeMismatchError :: Text -> SourceSpan -> ExpressionType -> ExpressionType -> Diagnostic
 mkImplMethodTypeMismatchError key spanValue declaredType inferredType = withSubject key $ setDiagnosticPrimarySpan spanValue $ mkErrorDiagnostic E2016 CompilationOrigin ("impl method '" <> key <> "' declared as " <> renderType declaredType <> " but inferred as " <> renderType inferredType)
 
-mkUnknownConstructorPayloadTypeError :: Name -> Diagnostic
+mkUnknownConstructorPayloadTypeError :: ResolvedName -> Diagnostic
 mkUnknownConstructorPayloadTypeError name = mkErrorDiagnostic E2013 CompilationOrigin ("unknown constructor payload type '" <> identifierText name <> "' in generic data declaration")
 
 mkInvalidConstructorPayloadTypeError :: Text -> Diagnostic
@@ -395,19 +396,19 @@ mkConstructorPatternArityError name expected actual = mkErrorDiagnostic E2011 Co
 mkUnknownConstructorPatternError :: Text -> Diagnostic
 mkUnknownConstructorPatternError name = mkErrorDiagnostic E2011 CompilationOrigin ("unknown constructor case pattern '" <> name <> "'")
 
-mkDuplicatePatternBinderError :: Name -> Diagnostic
+mkDuplicatePatternBinderError :: ResolvedName -> Diagnostic
 mkDuplicatePatternBinderError name = mkErrorDiagnostic E2011 CompilationOrigin ("duplicate case pattern binder '" <> identifierText name <> "'")
 
 mkEmptyOrPatternError :: Diagnostic
 mkEmptyOrPatternError = mkErrorDiagnostic E2011 CompilationOrigin "or-pattern must contain at least one alternative"
 
-mkOrPatternBinderSetMismatchError :: Set Name -> Set Name -> Diagnostic
+mkOrPatternBinderSetMismatchError :: Set ResolvedName -> Set ResolvedName -> Diagnostic
 mkOrPatternBinderSetMismatchError expected found = mkErrorDiagnostic E2011 CompilationOrigin ("or-pattern alternatives must bind the same names, expected " <> renderBinderSet expected <> " but found " <> renderBinderSet found)
 
-mkOrPatternBinderTypeMismatchError :: Name -> ExpressionType -> ExpressionType -> Diagnostic
+mkOrPatternBinderTypeMismatchError :: ResolvedName -> ExpressionType -> ExpressionType -> Diagnostic
 mkOrPatternBinderTypeMismatchError name leftType rightType = mkErrorDiagnostic E2011 CompilationOrigin ("or-pattern binder '" <> identifierText name <> "' has incompatible types " <> renderType leftType <> " and " <> renderType rightType)
 
-mkNonExhaustivePatternMatchError :: Pattern -> Diagnostic
+mkNonExhaustivePatternMatchError :: CoveragePattern -> Diagnostic
 mkNonExhaustivePatternMatchError missingPattern =
   setDiagnosticHelp
     "add an unguarded arm that covers the missing pattern"
@@ -446,7 +447,7 @@ renderTypeAtom expressionType =
     SemanticFunction {} -> "(" <> renderType expressionType <> ")"
     _ -> renderType expressionType
 
-renderSignaturePayload :: SignaturePayload -> Text
+renderSignaturePayload :: SignaturePayload 'Resolved -> Text
 renderSignaturePayload signaturePayload =
   case signaturePayload of
     SignatureType signatureType -> renderSignatureType signatureType
@@ -454,14 +455,14 @@ renderSignaturePayload signaturePayload =
       "@{" <> Text.intercalate ", " (map renderSignatureConstraint constraints) <> "}: " <> renderSignatureType signatureType
     UnsupportedSignature tokens -> renderUnsupportedSignatureTokens tokens
 
-renderSignatureConstraint :: SignatureConstraint -> Text
+renderSignatureConstraint :: SignatureConstraint 'Resolved -> Text
 renderSignatureConstraint (SignatureConstraint name arguments) =
   identifierText name
     <> if null arguments
       then ""
       else "(" <> Text.intercalate ", " (map renderSignatureType arguments) <> ")"
 
-renderUnsupportedSignatureTokens :: [SignatureToken] -> Text
+renderUnsupportedSignatureTokens :: [SignatureToken 'Resolved] -> Text
 renderUnsupportedSignatureTokens = Text.concat . go Nothing
   where
     go _ [] = []
@@ -473,7 +474,7 @@ renderUnsupportedSignatureTokens = Text.concat . go Nothing
               _ -> []
        in prefix <> [renderSignatureToken token] <> go (Just token) rest
 
-tokenNeedsLeadingSpace :: SignatureToken -> Bool
+tokenNeedsLeadingSpace :: SignatureToken 'Resolved -> Bool
 tokenNeedsLeadingSpace token =
   case token of
     SignatureLParenToken -> False
@@ -487,7 +488,7 @@ tokenNeedsLeadingSpace token =
     SignatureArrowToken -> True
     _ -> True
 
-tokenNeedsTrailingSpace :: SignatureToken -> Bool
+tokenNeedsTrailingSpace :: SignatureToken 'Resolved -> Bool
 tokenNeedsTrailingSpace token =
   case token of
     SignatureAtToken -> False
@@ -496,7 +497,7 @@ tokenNeedsTrailingSpace token =
     SignatureLBraceToken -> False
     _ -> True
 
-renderSignatureToken :: SignatureToken -> Text
+renderSignatureToken :: SignatureToken 'Resolved -> Text
 renderSignatureToken token =
   case token of
     SignatureNameToken name -> identifierText name
@@ -517,7 +518,7 @@ renderSignatureToken token =
 renderTypes :: [ExpressionType] -> Text
 renderTypes = Text.intercalate ", " . map renderType
 
-renderBinderSet :: Set Name -> Text
+renderBinderSet :: Set ResolvedName -> Text
 renderBinderSet names = "{" <> Text.intercalate ", " (map identifierText (Set.toList names)) <> "}"
 
 withSubject :: Text -> Diagnostic -> Diagnostic
@@ -526,7 +527,7 @@ withSubject = setDiagnosticSubject
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show
 
-mkInvalidSignatureTypeError :: InferState -> Text -> SourceSpan -> SignaturePayload -> Diagnostic
+mkInvalidSignatureTypeError :: InferState -> Text -> SourceSpan -> SignaturePayload 'Resolved -> Diagnostic
 mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
   setDiagnosticSubject symbol $
     setDiagnosticPrimarySpan
@@ -537,7 +538,7 @@ mkInvalidSignatureTypeError state symbol signatureSpan signaturePayload =
           (invalidSignatureSummary state symbol signaturePayload)
       )
 
-invalidSignatureSummary :: InferState -> Text -> SignaturePayload -> Text
+invalidSignatureSummary :: InferState -> Text -> SignaturePayload 'Resolved -> Text
 invalidSignatureSummary state symbol signaturePayload =
   case signaturePayloadNamedTypeFailure state signaturePayload of
     Just reason ->
@@ -576,7 +577,7 @@ invalidSignatureSummary state symbol signaturePayload =
             <> renderSignaturePayload signaturePayload
             <> "'"
 
-mkInvalidExplicitTypeApplicationArgumentError :: InferState -> SourceSpan -> SignatureType -> Diagnostic
+mkInvalidExplicitTypeApplicationArgumentError :: InferState -> SourceSpan -> SignatureType 'Resolved -> Diagnostic
 mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
   setDiagnosticPrimarySpan spanValue $
     mkErrorDiagnostic
@@ -587,7 +588,7 @@ mkInvalidExplicitTypeApplicationArgumentError state spanValue signatureType =
           Nothing -> "invalid or unsupported explicit type application argument '" <> renderSignatureType signatureType <> "'"
       )
 
-mkInvalidImplTargetError :: InferState -> SourceSpan -> SignatureType -> Maybe Diagnostic
+mkInvalidImplTargetError :: InferState -> SourceSpan -> SignatureType 'Resolved -> Maybe Diagnostic
 mkInvalidImplTargetError state implSpan signatureType =
   case signatureTypeFailureSummary state signatureType of
     Just failureSummary ->
@@ -598,7 +599,7 @@ mkInvalidImplTargetError state implSpan signatureType =
         )
     Nothing -> Nothing
 
-signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload -> Maybe Text
+signaturePayloadNamedTypeFailure :: InferState -> SignaturePayload 'Resolved -> Maybe Text
 signaturePayloadNamedTypeFailure state payload =
   asum (map (declarationSignatureTypeFailureSummary state) payloadTypes)
   where
@@ -609,19 +610,19 @@ signaturePayloadNamedTypeFailure state payload =
           signatureType : [argument | SignatureConstraint _ arguments <- constraints, argument <- arguments]
         UnsupportedSignature {} -> []
 
-signatureTypeFailureSummary :: InferState -> SignatureType -> Maybe Text
+signatureTypeFailureSummary :: InferState -> SignatureType 'Resolved -> Maybe Text
 signatureTypeFailureSummary state signatureType =
   case Signature.signatureTypeToExpressionType state Map.empty signatureType of
     Left failure -> Just (Signature.renderSignatureTypeFailure failure)
     Right _ -> Nothing
 
-declarationSignatureTypeFailureSummary :: InferState -> SignatureType -> Maybe Text
+declarationSignatureTypeFailureSummary :: InferState -> SignatureType 'Resolved -> Maybe Text
 declarationSignatureTypeFailureSummary state signatureType =
   case Signature.validateSignatureType state signatureType of
     Left failure -> Just (Signature.renderSignatureTypeFailure failure)
     Right () -> Nothing
 
-concreteConstraintFailureSummary :: InferState -> [SignatureConstraint] -> Maybe Text
+concreteConstraintFailureSummary :: InferState -> [SignatureConstraint 'Resolved] -> Maybe Text
 concreteConstraintFailureSummary state constraints
   | null constraints = Nothing
   | otherwise = asum (map constraintFailureSummary constraints)
@@ -650,16 +651,16 @@ concreteConstraintFailureSummary state constraints
         constraintNameText = identifierText constraintName
         maybeClassArity = Map.lookup constraintNameText (inferClassFacts state)
 
-constrainedSignatureHasTypeVariable :: [SignatureConstraint] -> SignatureType -> Bool
+constrainedSignatureHasTypeVariable :: [SignatureConstraint 'Resolved] -> SignatureType 'Resolved -> Bool
 constrainedSignatureHasTypeVariable constraints signatureType =
   any constraintHasTypeVariable constraints
     || constraintTypeHasTypeVariable signatureType
 
-constraintHasTypeVariable :: SignatureConstraint -> Bool
+constraintHasTypeVariable :: SignatureConstraint 'Resolved -> Bool
 constraintHasTypeVariable (SignatureConstraint _ arguments) =
   any constraintTypeHasTypeVariable arguments
 
-constraintTypeHasTypeVariable :: SignatureType -> Bool
+constraintTypeHasTypeVariable :: SignatureType 'Resolved -> Bool
 constraintTypeHasTypeVariable signatureType =
   case signatureType of
     TypeVariable {} -> True

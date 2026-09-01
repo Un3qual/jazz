@@ -37,6 +37,7 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
   )
+import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
@@ -47,15 +48,14 @@ import Jazz.Compiler.ModuleInterface
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
+    resolveStandaloneExprNames,
   )
 import Jazz.Compiler.Name
-  ( IdentifierLike (identifierText),
-    Name (..),
-    NameNamespace (..),
+  ( Name (..),
+    ResolvedName,
     ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     mkIdentifier,
-    mkQualifiedIdentifier,
-    sourceName,
   )
 import Jazz.Compiler.Prelude
   ( ResolvedPrelude (PreludeBundled),
@@ -181,14 +181,21 @@ evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram =
   case targetScope of
     Nothing -> Left (privateProbeDiagnostic targetModulePath)
     Just (compiledModule, environment) -> do
-      probeExpression <- parseAndLowerStandaloneSource probeSource
+      loweredProbe <- parseAndLowerStandaloneSource probeSource
+      probeExpression <-
+        case resolveStandaloneExprNames
+          (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
+          (exportInventory [])
+          loweredProbe of
+          Left diagnostics -> Left (NonEmpty.head diagnostics)
+          Right resolvedProbe -> Right resolvedProbe
       probeResult <-
         evaluateModuleScope
           (Just targetModulePath)
           EvaluateEntryModule
           (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
           (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-          (withSourceAliases environment)
+          environment
           (scopeStatements probeExpression)
       pure (scopeResultValue probeResult)
   where
@@ -231,35 +238,15 @@ evaluateTestPrelude compiledPrelude =
 publishTestScope :: ResolvedNameOrigin -> RuntimeEnv -> RuntimeEnv
 publishTestScope origin = Map.fromList . concatMap publishCell . Map.toList
   where
-    publishCell :: (Name, RuntimeCell) -> [(Name, RuntimeCell)]
+    publishCell :: (ResolvedName, RuntimeCell) -> [(ResolvedName, RuntimeCell)]
     publishCell (name, cell) =
       case name of
-        SourceName identifier ->
-          [ (ResolvedName origin namespace identifier, cell)
-          | namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
-          ]
-        QualifiedName qualifier member ->
-          [ ( ResolvedName
-                origin
-                ValueNamespace
-                (mkQualifiedIdentifier (identifierText qualifier) (identifierText member)),
-              cell
-            )
-          ]
-        ResolvedName CurrentModule namespace identifier ->
-          [(ResolvedName origin namespace identifier, cell)]
-        ResolvedName AmbientPrelude namespace identifier
-          | origin == AmbientPrelude -> [(ResolvedName AmbientPrelude namespace identifier, cell)]
+        UserName (ResolvedUserName CurrentModule namespace identifier) ->
+          [(UserName (ResolvedUserName origin namespace identifier), cell)]
+        UserName (ResolvedUserName AmbientPrelude namespace identifier)
+          | origin == AmbientPrelude ->
+              [(UserName (ResolvedUserName AmbientPrelude namespace identifier), cell)]
         _ -> []
-
-withSourceAliases :: RuntimeEnv -> RuntimeEnv
-withSourceAliases environment = Map.union aliases environment
-  where
-    aliases =
-      Map.fromList
-        [ (sourceName identifier, cell)
-        | (ResolvedName CurrentModule _ identifier, cell) <- Map.toList environment
-        ]
 
 nominalModulePath :: [Text] -> ModulePath
 nominalModulePath path =

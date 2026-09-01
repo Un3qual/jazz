@@ -6,9 +6,7 @@ module Jazz.Compiler.Parser.Foundation.ModulesTests
 where
 
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -33,6 +31,15 @@ import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredApply,
+    loweredBlock,
+    loweredExpression,
+    loweredLet,
+    loweredLiteral,
+    loweredVariable,
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -123,17 +130,17 @@ testLowersClassQualifiedMethodReference =
         """
     )
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "lowered class-qualified method reference"
-          ( EBlock
-              [ SLet
+          ( loweredBlock
+              [ loweredLet
                   "result"
                   (SourceSpan 1 1)
-                  ( EApply
-                      (EApply (EVar (qualifiedName "Eq" "equals")) (ELit (LInt 1)))
-                      (ELit (LInt 1))
+                  ( loweredApply
+                      (loweredApply (loweredVariable (qualifiedName "Eq" "equals")) (loweredLiteral (LInt 1)))
+                      (loweredLiteral (LInt 1))
                   ),
-                SExpr (SourceSpan 2 1) (EVar "result")
+                loweredExpression (SourceSpan 2 1) (loweredVariable "result")
               ]
           )
           (lowerSurfaceExpr surfaceProgram)

@@ -5,9 +5,7 @@ module Main (main) where
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -31,6 +29,13 @@ import Jazz.Compiler.Parser.Lower
 import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBinary,
+    loweredBlock,
+    loweredLet,
+    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -492,14 +497,14 @@ testLowerFixityTree =
   assertRight
     "parse + lower fixity"
     (parseSurfaceProgram "x = 1 + 2 * 3.")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            (EBinary "+" (ELit (LInt 1)) (EBinary "*" (ELit (LInt 2)) (ELit (LInt 3))))
+            (loweredBinary "+" (loweredLiteral (LInt 1)) (loweredBinary "*" (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3))))
         ]
 
 blockAt :: Int -> Int -> [SurfaceStatement] -> SurfaceExpr

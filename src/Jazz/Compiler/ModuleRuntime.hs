@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Evaluate a successful compiled program once in dependency order.
@@ -25,7 +26,8 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (EBlock),
+  ( CorePhase (..),
+    Expr (EBlock),
     Statement,
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
@@ -50,13 +52,14 @@ import Jazz.Compiler.ModuleInterface
     moduleInterfaceExportInventory,
   )
 import Jazz.Compiler.Name
-  ( Name (ResolvedName),
+  ( Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     identifierText,
     mkIdentifier,
     renderName,
-    sourceName,
+    resolvedAmbientName,
   )
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
@@ -360,10 +363,12 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
             ]
           insertExport (runtimeExport, cell) =
             Map.insert
-              ( ResolvedName
-                  dependencyOrigin
-                  (runtimeExportNamespace runtimeExport)
-                  (mkIdentifier (runtimeExportName runtimeExport))
+              ( UserName
+                  ( ResolvedUserName
+                      dependencyOrigin
+                      (runtimeExportNamespace runtimeExport)
+                      (mkIdentifier (runtimeExportName runtimeExport))
+                  )
               )
               cell
        in foldr insertExport env selectedExports
@@ -409,7 +414,7 @@ publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInter
 publishEnvironment origin publicInventory moduleInterface env =
   let renderedLookupIndex = buildRenderedLookupIndex env
    in Map.fromList
-        [ (ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)), cell)
+        [ (UserName (ResolvedUserName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport))), cell)
         | runtimeExport <- interfaceExports publicInventory moduleInterface,
           Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
         ]
@@ -483,8 +488,8 @@ lookupExportCell origin runtimeExport env renderedLookupIndex =
     exportName = runtimeExportName runtimeExport
     expectedName =
       case origin of
-        AmbientPrelude -> sourceName (mkIdentifier exportName)
-        _ -> ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier exportName)
+        AmbientPrelude -> resolvedAmbientName (runtimeExportNamespace runtimeExport) (mkIdentifier exportName)
+        _ -> UserName (ResolvedUserName origin (runtimeExportNamespace runtimeExport) (mkIdentifier exportName))
 
 buildRenderedLookupIndex :: RuntimeEnv -> RenderedLookupIndex
 buildRenderedLookupIndex =
@@ -500,7 +505,7 @@ buildRenderedLookupIndex =
         ]
     matchingNamespaces name =
       case name of
-        ResolvedName _ namespace _ -> [namespace]
+        UserName (ResolvedUserName _ namespace _) -> [namespace]
         _ -> [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
 
 lookupRendered :: RuntimeExport -> RenderedLookupIndex -> Maybe RuntimeCell
@@ -509,8 +514,8 @@ lookupRendered runtimeExport renderedLookupIndex =
     (runtimeExportNamespace runtimeExport, runtimeExportName runtimeExport)
     renderedLookupIndex
 
-scopeStatements :: Expr -> [Statement]
+scopeStatements :: Expr 'Resolved -> [Statement 'Resolved]
 scopeStatements expression =
   case expression of
-    EBlock statements -> statements
+    EBlock _ statements -> statements
     _ -> []

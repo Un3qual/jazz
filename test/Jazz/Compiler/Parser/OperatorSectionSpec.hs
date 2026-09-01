@@ -3,9 +3,7 @@
 module Main (main) where
 
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -21,6 +19,15 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBlock,
+    loweredLet,
+    loweredLiteral,
+    loweredOperatorValue,
+    loweredSectionLeft,
+    loweredSectionRight,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -158,11 +165,11 @@ testLowerPreservesLeftSectionNodes =
   assertRight
     "parse + lower left section"
     (parseSurfaceProgram "f = (10 +).")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet "f" (SourceSpan 1 1) (ESectionLeft (ELit (LInt 10)) "+")
+      loweredBlock
+        [ loweredLet "f" (SourceSpan 1 1) (loweredSectionLeft (loweredLiteral (LInt 10)) "+")
         ]
 
 testLowerPreservesSectionNodes :: IO ()
@@ -170,11 +177,11 @@ testLowerPreservesSectionNodes =
   assertRight
     "parse + lower section"
     (parseSurfaceProgram "f = (+ 10).")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet "f" (SourceSpan 1 1) (ESectionRight "+" (ELit (LInt 10)))
+      loweredBlock
+        [ loweredLet "f" (SourceSpan 1 1) (loweredSectionRight "+" (loweredLiteral (LInt 10)))
         ]
 
 testLowerPreservesBareOperatorValue :: IO ()
@@ -182,11 +189,11 @@ testLowerPreservesBareOperatorValue =
   assertRight
     "parse + lower bare operator value"
     (parseSurfaceProgram "f = (+).")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
+      loweredBlock
+        [ loweredLet "f" (SourceSpan 1 1) (loweredOperatorValue "+")
         ]
 
 testLoweredBareOperatorValueIsCanonical :: IO ()
@@ -194,11 +201,11 @@ testLoweredBareOperatorValueIsCanonical =
   assertRight
     "parse + canonical lower bare operator value"
     (parseSurfaceProgram "f = (+).")
-    (\surfaceProgram -> assertEqual "canonical lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "canonical lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
+      loweredBlock
+        [ loweredLet "f" (SourceSpan 1 1) (loweredOperatorValue "+")
         ]
 
 e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr

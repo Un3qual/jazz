@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.StageInputs
@@ -23,10 +24,11 @@ import Jazz.Benchmark.Force
     forceCompiledProgram,
     forceCompiledProgramResult,
     forceDiagnostic,
-    forceExpr,
     forceListWith,
+    forceLoweredExpr,
     forceLoweredProgram,
     forceProgramCaseResult,
+    forceResolvedExpr,
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
@@ -45,13 +47,18 @@ import Jazz.Benchmark.ScaleCases
     compilerScaleCaseSize,
     compilerScaleCaseSource,
   )
-import Jazz.Compiler.AST (Expr (..))
+import Jazz.Compiler.AST
+  ( CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Resolved),
+    Expr (..),
+  )
 import Jazz.Compiler.Analyzer
   ( AnalysisResult (..),
     analyzeProgram,
   )
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
-import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
 import Jazz.Compiler.LoweredIR
@@ -82,7 +89,11 @@ import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
     evaluateCompiledProgram,
   )
-import Jazz.Compiler.Name (mkIdentifier, sourceName)
+import Jazz.Compiler.Name
+  ( NameNamespace (ValueNamespace),
+    mkIdentifier,
+    resolvedLocalName,
+  )
 import Jazz.Compiler.Parser (parseSurfaceProgramTokens)
 import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
@@ -132,7 +143,7 @@ data PreparedCompilerScaleBenchmark
   | PreparedCompilerScaleLoweredValidation LoweredProgram
   | PreparedCompilerScaleTypedValidation TypedProgram
   | PreparedCompilerScaleTypedLowering TypedProgram
-  | PreparedCompilerScaleDiagnosticAnalysis Expr Int
+  | PreparedCompilerScaleDiagnosticAnalysis (Expr 'Resolved) Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
 
 data ExpectedProgramBehavior = ExpectedProgramBehavior Text ProgramTermination Text
@@ -167,7 +178,7 @@ instance NFData PreparedCompilerScaleBenchmark where
       PreparedCompilerScaleTypedValidation typedProgram -> forceTypedProgram typedProgram
       PreparedCompilerScaleTypedLowering typedProgram -> forceTypedProgram typedProgram
       PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
-        forceExpr expression `seq` rnf expectedDiagnosticCount
+        forceResolvedExpr expression `seq` rnf expectedDiagnosticCount
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
 
 prepareBenchmark :: BenchmarkGroup -> ProgramCase -> IO PreparedBenchmark
@@ -424,17 +435,29 @@ runParseLower source = do
         Right value -> evaluate (forceSurfaceExpr value) >> pure value
   withCompilerStage LoweringStage $ do
     let expression = lowerSurfaceExpr surfaceProgram
-    evaluate (forceExpr expression)
+    evaluate (forceLoweredExpr expression)
 
-analyzerDiagnosticChainExpression :: Int -> Expr
+analyzerDiagnosticChainExpression :: Int -> Expr 'Resolved
 analyzerDiagnosticChainExpression expressionCount =
-  foldl1
-    EApply
-    [ EVar (sourceName (mkIdentifier ("missing" <> Text.pack (show index))))
-    | index <- [0 .. expressionCount - 1]
-    ]
+  case expressionCount of
+    count
+      | count <= 0 -> EBlock (diagnosticNode 0) []
+      | otherwise ->
+          foldl'
+            (\left index -> EApply (diagnosticNode (count - 1 - index)) left (missingVariable (count - 1 + index) index))
+            (missingVariable (count - 1) 0)
+            [1 .. count - 1]
+  where
+    missingVariable :: Int -> Int -> Expr 'Resolved
+    missingVariable nodeId index =
+      EVar
+        (diagnosticNode nodeId)
+        (resolvedLocalName ValueNamespace (mkIdentifier ("missing" <> Text.pack (show index))))
 
-diagnosticAnalysisInput :: CompilerScaleScenario -> Int -> Either Text (Expr, Int)
+    diagnosticNode :: Int -> CoreNode 'Resolved sort
+    diagnosticNode nodeId = CoreNode (CoreNodeId nodeId) (SourceSpan 1 1) ()
+
+diagnosticAnalysisInput :: CompilerScaleScenario -> Int -> Either Text (Expr 'Resolved, Int)
 diagnosticAnalysisInput scenario size =
   case scenario of
     AnalyzerDiagnosticChain -> Right (analyzerDiagnosticChainExpression size, size)

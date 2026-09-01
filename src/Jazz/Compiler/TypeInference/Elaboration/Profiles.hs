@@ -12,6 +12,7 @@ import Data.Text (Text)
 import Jazz.Compiler.Name
   ( GeneratedNameKind (OperatorBinding),
     Name (..),
+    ResolvedName,
     identifierText,
   )
 import Jazz.Compiler.Pattern (patternBinderNames)
@@ -39,9 +40,9 @@ import Jazz.Compiler.TypedCore
 -- construction, so moving it here would require a callback cycle or duplicate
 -- construction logic.
 data FinalizationProfile = FinalizationProfile
-  { profileBaseFunctions :: Map.Map Name FunctionProfile,
-    profileCallableShapes :: Map.Map Name TypedCallableShape,
-    profileReboundFunctions :: Map.Map Int Name,
+  { profileBaseFunctions :: Map.Map ResolvedName FunctionProfile,
+    profileCallableShapes :: Map.Map ResolvedName TypedCallableShape,
+    profileReboundFunctions :: Map.Map Int ResolvedName,
     profileTypedRecursiveGroups :: [TypedRecursiveGroup],
     profileRecursiveBinders :: Set.Set TypedBinderId
   }
@@ -59,7 +60,7 @@ analyzeFinalizationProfile modulePath statements =
     baseFunctions = functionTable statements
     declarations = callableDeclarations statements
 
-functionTable :: [ProvisionalTypedStatement] -> Map.Map Name FunctionProfile
+functionTable :: [ProvisionalTypedStatement] -> Map.Map ResolvedName FunctionProfile
 functionTable statements =
   foldl'
     collect
@@ -92,7 +93,7 @@ callableDeclarations statements =
         _ -> []
   ]
 
-callableShapeTable :: Map.Map Name FunctionProfile -> [ProvisionalTypedStatement] -> Map.Map Name TypedCallableShape
+callableShapeTable :: Map.Map ResolvedName FunctionProfile -> [ProvisionalTypedStatement] -> Map.Map ResolvedName TypedCallableShape
 callableShapeTable functions statements =
   foldl' promoteRecursiveGroup transitiveShapes orderedRecursiveGroupNames
   where
@@ -174,7 +175,7 @@ callableShapeTable functions statements =
               (Set.delete (provisionalCallableName declaration) visibleScalars, shapesAfterUses, capturingFunctions)
             _ -> (visibleScalars, shapesAfterUses, capturingFunctions)
 
-provisionalFreeNames :: ProvisionalTypedExpr -> Set.Set Name
+provisionalFreeNames :: ProvisionalTypedExpr -> Set.Set ResolvedName
 provisionalFreeNames = freeNames Set.empty
   where
     freeNames boundNames expression =
@@ -218,11 +219,11 @@ provisionalFreeNames = freeNames Set.empty
         _ -> scopeFreeNames boundNames rest
 
 collectStatementCallableUses ::
-  Map.Map Name FunctionProfile ->
-  Set.Set Name ->
-  Map.Map Name TypedCallableShape ->
+  Map.Map ResolvedName FunctionProfile ->
+  Set.Set ResolvedName ->
+  Map.Map ResolvedName TypedCallableShape ->
   ProvisionalTypedStatement ->
-  Map.Map Name TypedCallableShape
+  Map.Map ResolvedName TypedCallableShape
 collectStatementCallableUses functions lexicalNames callableShapes statement =
   case statement of
     ProvisionalFunctionBinding _ expression ->
@@ -234,11 +235,11 @@ collectStatementCallableUses functions lexicalNames callableShapes statement =
     _ -> callableShapes
 
 collectExpressionCallableUses ::
-  Map.Map Name FunctionProfile ->
-  Set.Set Name ->
-  Map.Map Name TypedCallableShape ->
+  Map.Map ResolvedName FunctionProfile ->
+  Set.Set ResolvedName ->
+  Map.Map ResolvedName TypedCallableShape ->
   ProvisionalTypedExpr ->
-  Map.Map Name TypedCallableShape
+  Map.Map ResolvedName TypedCallableShape
 collectExpressionCallableUses functions lexicalNames callableShapes expression =
   case expression of
     ProvisionalTupleExpression _ elements ->
@@ -296,15 +297,15 @@ collectExpressionCallableUses functions lexicalNames callableShapes expression =
               maybeGuard
        in collectExpressionCallableUses functions armLexicalNames shapesAfterGuard body
 
-markClosure :: Name -> Map.Map Name TypedCallableShape -> Map.Map Name TypedCallableShape
+markClosure :: ResolvedName -> Map.Map ResolvedName TypedCallableShape -> Map.Map ResolvedName TypedCallableShape
 markClosure name = Map.insert name TypedClosureCallableShape
 
 collectScopeCallableUses ::
-  Map.Map Name FunctionProfile ->
-  Set.Set Name ->
-  Map.Map Name TypedCallableShape ->
+  Map.Map ResolvedName FunctionProfile ->
+  Set.Set ResolvedName ->
+  Map.Map ResolvedName TypedCallableShape ->
   [ProvisionalTypedStatement] ->
-  Map.Map Name TypedCallableShape
+  Map.Map ResolvedName TypedCallableShape
 collectScopeCallableUses functions = go
   where
     go _ callableShapes [] = callableShapes
@@ -328,11 +329,11 @@ collectScopeCallableUses functions = go
         | ProvisionalSignature _ name _ (SemanticFunction _ _) <- statements
         ]
 
-shapeFor :: Map.Map Name TypedCallableShape -> Name -> TypedCallableShape
+shapeFor :: Map.Map ResolvedName TypedCallableShape -> ResolvedName -> TypedCallableShape
 shapeFor callableShapes name =
   Map.findWithDefault TypedDirectCallableShape name callableShapes
 
-reboundFunctionStatements :: [ProvisionalTypedStatement] -> Map.Map Int Name
+reboundFunctionStatements :: [ProvisionalTypedStatement] -> Map.Map Int ResolvedName
 reboundFunctionStatements statements =
   snd (foldl' collect (Set.empty, Map.empty) statements)
   where
@@ -394,7 +395,7 @@ binderAt :: [Text] -> Int -> [Int] -> TypedCoreName -> TypedBinderId
 binderAt modulePath statementIndex suffix name =
   TypedBinderId (modulePath, statementIndex : suffix, name)
 
-resolvedValueName :: Name -> TypedCoreName
+resolvedValueName :: ResolvedName -> TypedCoreName
 resolvedValueName name =
   case name of
     GeneratedName (OperatorBinding storageName) -> TypedGeneratedName (TypedOperatorBinding storageName)

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -12,22 +13,23 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (Resolved),
+    Expr (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
   )
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..),
-  )
 import Jazz.Compiler.Name
-  ( mkIdentifier,
-    sourceName,
+  ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
+    ResolvedName,
+    mkIdentifier,
+    resolvedLocalName,
   )
 import Jazz.Compiler.RecursiveBindings
   ( prepareRecursiveScope,
   )
+import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference.Capabilities
   ( typeSchemeReferencedCapabilityFacts,
   )
@@ -150,7 +152,7 @@ inferenceOwnershipTests =
 
 testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables :: IO ()
 testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables = do
-  let variableName = sourceName (mkIdentifier "a")
+  let variableName = typeName "a"
   assertEqual
     "mapped variable template"
     (Just (TypeVariable variableName))
@@ -189,10 +191,10 @@ testDuplicateConstraintsReportFirstRepeatedName =
     "first duplicate"
     (Just "Eq")
     ( duplicateConstraintName
-        [ SignatureConstraint "Eq" [TypeInt],
-          SignatureConstraint "Ord" [TypeInt],
-          SignatureConstraint "Eq" [TypeBool],
-          SignatureConstraint "Ord" [TypeBool]
+        [ SignatureConstraint (capabilityName "Eq") [TypeInt],
+          SignatureConstraint (capabilityName "Ord") [TypeInt],
+          SignatureConstraint (capabilityName "Eq") [TypeBool],
+          SignatureConstraint (capabilityName "Ord") [TypeBool]
         ]
     )
 
@@ -418,7 +420,7 @@ testSignaturePayloadNormalizationAllocatesOrderedVariables =
       assertEqual "variable order" [0] (signaturePayloadVariableOrder normalized)
       assertEqual "next type variable" 1 (inferNextTypeVar nextState)
   where
-    variableName = sourceName (mkIdentifier "a")
+    variableName = typeName "a"
     payload = SignatureType (TypeFunction (TypeVariable variableName) (TypeList (TypeVariable variableName)))
 
 testFailedSignaturePayloadNormalizationRollsBackState :: IO ()
@@ -427,7 +429,7 @@ testFailedSignaturePayloadNormalizationRollsBackState =
     (Nothing, nextState) -> assertEqual "rollback state" initialInferState nextState
     (Just _, _) -> failTest "expected signature payload normalization failure"
   where
-    payload = SignatureType (TypeName (sourceName (mkIdentifier "Missing")))
+    payload = SignatureType (TypeName (typeName "Missing"))
 
 testProductionScopeElaboratesSignatureOnce :: IO ()
 testProductionScopeElaboratesSignatureOnce =
@@ -451,19 +453,14 @@ testProductionScopeElaboratesSignatureOnce =
         ResolveKernelOnly
         Map.empty
         initialInferState
-        [ SSignature
-            "identity"
-            (SourceSpan 1 1)
-            (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-          SLet "identity" (SourceSpan 2 1) (ELambda "value" (EVar "value"))
-        ]
+        (programStatements (resolvedProgram "identity :: a -> a.\nidentity = \\(item) -> item."))
 
     syntheticProductionInfer :: InferExprWithModeFn
     syntheticProductionInfer mode _ env state expression =
       case mode of
         ProduceTypedCoreExpressionDirectCall ->
           case expression of
-            EVar name ->
+            EVar _ name ->
               case Map.lookup name env of
                 Just (PlainTypeBinding expressionType) ->
                   ( InferredExpr
@@ -488,8 +485,7 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
     0
     (inferErrorCount preparedState)
   where
-    statements =
-      [SLet "self" (SourceSpan 1 1) (EVar "self")]
+    statements = programStatements (resolvedProgram "self = self.")
     (_, ordinaryState, _) =
       TypeInferenceScope.inferScopeTypeWithModeAndForwardBindings
         Set.empty
@@ -501,7 +497,7 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
         statements
     (_, preparedState, _) =
       TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
-        (prepareRecursiveScope (Set.singleton "self") statements)
+        (prepareRecursiveScope (Set.singleton (valueName "self")) statements)
         Set.empty
         syntheticProductionInfer
         InferenceOnly
@@ -514,7 +510,7 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
       case mode of
         InferenceOnly ->
           case expression of
-            EVar name ->
+            EVar _ name ->
               case Map.lookup name env of
                 Just (PlainTypeBinding expressionType) ->
                   (InferredExpr (Just expressionType) Nothing [], state)
@@ -542,27 +538,26 @@ testRecursivePreviewSolverStateIsTransactional =
         ResolveKernelOnly
         Map.empty
         initialInferState
-        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
-          SLet "early" (SourceSpan 2 1) (EVar "probe"),
-          SLet "right" (SourceSpan 3 1) (EVar "left")
-        ]
+        (programStatements (resolvedProgram "left = right.\nearly = probe.\nright = left."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode _ _ state expression =
       case expression of
-        EVar "left" ->
-          inferenceOnlyResult
-            mode
-            (Just SemanticBool)
-            state
-              { inferSolver =
-                  (inferSolver state)
-                    { solverSubstitution =
-                        Map.insert previewSentinel SemanticInt (solverSubstitution (inferSolver state))
-                    }
-              }
-        EVar "probe"
-          | Map.member previewSentinel (solverSubstitution (inferSolver state)) ->
+        EVar _ name
+          | name == valueName "left" ->
+              inferenceOnlyResult
+                mode
+                (Just SemanticBool)
+                state
+                  { inferSolver =
+                      (inferSolver state)
+                        { solverSubstitution =
+                            Map.insert previewSentinel SemanticInt (solverSubstitution (inferSolver state))
+                        }
+                  }
+        EVar _ name
+          | name == valueName "probe",
+            Map.member previewSentinel (solverSubstitution (inferSolver state)) ->
               inferenceOnlyResult
                 mode
                 (Just SemanticBool)
@@ -586,43 +581,44 @@ testRecursivePreviewRefreshesAfterSolverChange =
         Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
-        (Map.singleton "shared" (PlainTypeBinding (SemanticVariable sharedTypeVar)))
+        (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
-          SLet "advance" (SourceSpan 2 1) (EVar "advanceSolver"),
-          SLet "probe" (SourceSpan 3 1) (EVar "probeLeft"),
-          SLet "right" (SourceSpan 4 1) (EApply (EVar "left") (EVar "shared"))
-        ]
+        (programStatements (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = probeLeft.\nright = left shared."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode _ env state expression =
       case expression of
-        EVar "right" ->
-          inferenceOnlyResult mode (bindingType =<< Map.lookup "right" env) state
-        EApply (EVar "left") (EVar "shared") ->
-          inferenceOnlyResult
-            mode
-            (resolveType state <$> (bindingType =<< Map.lookup "shared" env))
-            state
-        EVar "advanceSolver" ->
-          inferenceOnlyResult
-            mode
-            (Just SemanticBool)
-            ( case bindTypeVar sharedTypeVar SemanticBool state of
-                Just nextState -> nextState
-                Nothing -> state
-            )
-        EVar "probeLeft" ->
-          inferenceOnlyResult
-            mode
-            (Just SemanticBool)
-            ( case Map.lookup "left" env of
-                Just (PlainTypeBinding SemanticBool) -> state
-                _ ->
-                  modifyInferenceOutput
-                    (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                    state
-            )
+        EVar _ name
+          | name == valueName "right" ->
+              inferenceOnlyResult mode (bindingType =<< Map.lookup (valueName "right") env) state
+        EApply _ (EVar _ functionName) (EVar _ argumentName)
+          | functionName == valueName "left",
+            argumentName == valueName "shared" ->
+              inferenceOnlyResult
+                mode
+                (resolveType state <$> (bindingType =<< Map.lookup (valueName "shared") env))
+                state
+        EVar _ name
+          | name == valueName "advanceSolver" ->
+              inferenceOnlyResult
+                mode
+                (Just SemanticBool)
+                ( case bindTypeVar sharedTypeVar SemanticBool state of
+                    Just nextState -> nextState
+                    Nothing -> state
+                )
+        EVar _ name
+          | name == valueName "probeLeft" ->
+              inferenceOnlyResult
+                mode
+                (Just SemanticBool)
+                ( case Map.lookup (valueName "left") env of
+                    Just (PlainTypeBinding SemanticBool) -> state
+                    _ ->
+                      modifyInferenceOutput
+                        (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                        state
+                )
         _ -> inferenceOnlyResult mode (Just SemanticBool) state
 
     bindingType binding =
@@ -662,42 +658,43 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
         Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
-        (Map.singleton "shared" (PlainTypeBinding (SemanticVariable sharedTypeVar)))
+        (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
-        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
-          SLet "advance" (SourceSpan 2 1) (EVar "advanceConstraint"),
-          SLet "probe" (SourceSpan 3 1) (EVar "probeLeft"),
-          SLet "right" (SourceSpan 4 1) (EApply (EVar "left") (EVar "constraintSensitive"))
-        ]
+        (programStatements (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = probeLeft.\nright = left constraintSensitive."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
     syntheticPreviewInfer mode _ env state expression =
       case expression of
-        EVar "right" ->
-          inferenceOnlyResult mode (bindingType =<< Map.lookup "right" env) state
-        EApply (EVar "left") (EVar "constraintSensitive") ->
-          inferenceOnlyResult
-            mode
-            ( Just
-                ( if hasConstraint sharedTypeVar state
-                    then SemanticBool
-                    else SemanticVariable sharedTypeVar
+        EVar _ name
+          | name == valueName "right" ->
+              inferenceOnlyResult mode (bindingType =<< Map.lookup (valueName "right") env) state
+        EApply _ (EVar _ functionName) (EVar _ argumentName)
+          | functionName == valueName "left",
+            argumentName == valueName "constraintSensitive" ->
+              inferenceOnlyResult
+                mode
+                ( Just
+                    ( if hasConstraint sharedTypeVar state
+                        then SemanticBool
+                        else SemanticVariable sharedTypeVar
+                    )
                 )
-            )
-            state
-        EVar "advanceConstraint" ->
-          inferenceOnlyResult mode (Just SemanticBool) (addConstraint sharedTypeVar state)
-        EVar "probeLeft" ->
-          inferenceOnlyResult
-            mode
-            (Just SemanticBool)
-            ( case Map.lookup "left" env of
-                Just (PlainTypeBinding SemanticBool) -> state
-                _ ->
-                  modifyInferenceOutput
-                    (\output -> output {outputErrorCount = outputErrorCount output + 1})
-                    state
-            )
+                state
+        EVar _ name
+          | name == valueName "advanceConstraint" ->
+              inferenceOnlyResult mode (Just SemanticBool) (addConstraint sharedTypeVar state)
+        EVar _ name
+          | name == valueName "probeLeft" ->
+              inferenceOnlyResult
+                mode
+                (Just SemanticBool)
+                ( case Map.lookup (valueName "left") env of
+                    Just (PlainTypeBinding SemanticBool) -> state
+                    _ ->
+                      modifyInferenceOutput
+                        (\output -> output {outputErrorCount = outputErrorCount output + 1})
+                        state
+                )
         _ -> inferenceOnlyResult mode (Just SemanticBool) state
 
     bindingType binding =
@@ -721,17 +718,25 @@ testRecursivePreviewReuseAtSameFrontier =
         ResolveKernelOnly
         Map.empty
         initialInferState
-        [ SLet "left" (SourceSpan 1 1) (EVar "right"),
-          SLet "earlyOne" (SourceSpan 2 1) (EVar "probe"),
-          SLet "earlyTwo" (SourceSpan 3 1) (EVar "probe"),
-          SLet "earlyThree" (SourceSpan 4 1) (EVar "probe"),
-          SLet "right" (SourceSpan 5 1) (EVar "left")
-        ]
+        (programStatements (resolvedProgram "left = right.\nearlyOne = probe.\nearlyTwo = probe.\nearlyThree = probe.\nright = left."))
 
     allocatingInfer :: InferExprWithModeFn
     allocatingInfer mode _ _ state _ =
       let (_, nextState) = freshTypeVar state
        in inferenceOnlyResult mode (Just SemanticBool) nextState
+
+programStatements :: Expr 'Resolved -> [Statement 'Resolved]
+programStatements (EBlock _ statements) = statements
+programStatements expression = error ("expected resolved block, got " <> show expression)
+
+valueName :: Text -> ResolvedName
+valueName = resolvedLocalName ValueNamespace . mkIdentifier
+
+typeName :: Text -> ResolvedName
+typeName = resolvedLocalName TypeNamespace . mkIdentifier
+
+capabilityName :: Text -> ResolvedName
+capabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
 
 inferenceOnlyResult :: TypedCoreProductionMode -> Maybe ExpressionType -> InferState -> (InferredExpr, InferState)
 inferenceOnlyResult mode expressionType state =

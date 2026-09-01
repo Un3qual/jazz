@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -33,7 +34,8 @@ import Data.Char
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (..),
+    Expr (..),
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -397,7 +399,7 @@ filterElements injectDiagnostic applyRuntimeValue predicate values = do
                 )
             )
 
-runtimeFunctionResultType :: RuntimeValue -> Maybe SignatureType
+runtimeFunctionResultType :: RuntimeValue -> Maybe (SignatureType 'Resolved)
 runtimeFunctionResultType runtimeValue =
   case runtimeValue of
     VExplicitTypeApplication _ innerValue ->
@@ -412,7 +414,7 @@ runtimeFunctionResultType runtimeValue =
     _ ->
       Nothing
 
-runtimeMapResultElementType :: RuntimeValue -> Maybe SignatureType -> Maybe SignatureType
+runtimeMapResultElementType :: RuntimeValue -> Maybe (SignatureType 'Resolved) -> Maybe (SignatureType 'Resolved)
 runtimeMapResultElementType mapper maybeCollectionTypeHint =
   case runtimeFunctionResultType mapper of
     Just resultType ->
@@ -420,13 +422,13 @@ runtimeMapResultElementType mapper maybeCollectionTypeHint =
     Nothing ->
       runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint
 
-runtimeBuiltinMapResultElementType :: RuntimeValue -> Maybe SignatureType -> Maybe SignatureType
+runtimeBuiltinMapResultElementType :: RuntimeValue -> Maybe (SignatureType 'Resolved) -> Maybe (SignatureType 'Resolved)
 runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
     (VBuiltin BuiltinHd [], Just (TypeList (TypeList elementType))) ->
       Just elementType
     (VClosure closure, Just (TypeList elementType))
-      | EVar resultName <- runtimeClosureBody closure,
+      | EVar _ resultName <- runtimeClosureBody closure,
         Nothing <- runtimeClosureTypeHint closure,
         resultName == runtimeClosureParameter closure ->
           Just elementType
@@ -608,7 +610,7 @@ isStrictEqualityOperator :: Text -> Bool
 isStrictEqualityOperator operatorSymbol =
   operatorSymbol == "==" || operatorSymbol == "!="
 
-preserveLeftTypedNumericOperatorResult :: Text -> SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveLeftTypedNumericOperatorResult :: Text -> SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
 preserveLeftTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
   | numericArithmeticOperator operatorSymbol,
     numericAliasTypeHint typeHint,
@@ -617,7 +619,7 @@ preserveLeftTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
   | otherwise =
       Right runtimeValue
 
-preserveRightTypedNumericOperatorResult :: Text -> RuntimeValue -> SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveRightTypedNumericOperatorResult :: Text -> RuntimeValue -> SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
 preserveRightTypedNumericOperatorResult operatorSymbol leftValue typeHint runtimeValue
   | numericArithmeticOperator operatorSymbol,
     numericAliasTypeHint typeHint,
@@ -631,7 +633,7 @@ numericArithmeticOperator :: Text -> Bool
 numericArithmeticOperator operatorSymbol =
   operatorSymbol == "+" || operatorSymbol == "-" || operatorSymbol == "*" || operatorSymbol == "/"
 
-numericAliasTypeHint :: SignatureType -> Bool
+numericAliasTypeHint :: SignatureType 'Resolved -> Bool
 numericAliasTypeHint typeHint =
   case typeHint of
     TypeInt -> True
@@ -651,7 +653,7 @@ runtimeValueHasTargetedNumericMetadata runtimeValue =
     _ ->
       False
 
-runtimeTypeHintRequiresStructuralEquality :: SignatureType -> Bool
+runtimeTypeHintRequiresStructuralEquality :: SignatureType 'Resolved -> Bool
 runtimeTypeHintRequiresStructuralEquality signatureType =
   case signatureType of
     TypeApplication {} -> True

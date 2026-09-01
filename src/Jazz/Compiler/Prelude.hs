@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Explicit prelude preparation boundary shared by standalone and module flows.
@@ -5,34 +6,36 @@ module Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
     preparePrelude,
-    resolvedExplicitPrelude
-  ) where
+    resolvedExplicitPrelude,
+  )
+where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( DataConstructor (..),
+  ( CorePhase (..),
+    DataConstructor (..),
     Expr (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
+  )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     prependDiagnosticSummary,
-    setDiagnosticErrorCode
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+    setDiagnosticErrorCode,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
-    exportInventory
+    exportInventory,
   )
 import Jazz.Compiler.Name
   ( NameNamespace (..),
-    renderName
+    renderName,
   )
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
@@ -46,7 +49,7 @@ data ResolvedPrelude
   deriving (Eq, Show)
 
 data PreparedPrelude = PreparedPrelude
-  { preparedPreludeExpr :: Maybe Expr,
+  { preparedPreludeExpr :: Maybe (Expr 'Lowered),
     preparedPreludeHiddenStatementIndices :: Set Int,
     preparedPreludeVisibleExports :: ModuleExportInventory,
     preparedPreludeBuiltinMode :: BuiltinResolutionMode
@@ -87,7 +90,7 @@ resolvedExplicitPrelude maybePrelude =
     Nothing -> PreludeAbsent
     Just preludeText -> PreludeExplicit preludeText
 
-validateAndLowerPrelude :: Text -> Either Diagnostic Expr
+validateAndLowerPrelude :: Text -> Either Diagnostic (Expr 'Lowered)
 validateAndLowerPrelude preludeText =
   case parseSurfaceProgram preludeText of
     Left parseError ->
@@ -98,21 +101,21 @@ validateAndLowerPrelude preludeText =
             [] -> Right loweredPrelude
             firstValidationError : _ -> Left firstValidationError
 
-collectPreludeExports :: Expr -> ModuleExportInventory
+collectPreludeExports :: Expr 'Lowered -> ModuleExportInventory
 collectPreludeExports expression =
   exportInventory $
     case expression of
-      EBlock statements -> concatMap statementExports statements
+      EBlock _ statements -> concatMap statementExports statements
       _ -> []
   where
     statementExports statement =
       case statement of
-        SLet name _ _ ->
+        SLet _ name _ ->
           [ModuleExport ValueNamespace (renderName name)]
         SData _ typeName _ constructors ->
           ModuleExport TypeNamespace (renderName typeName)
             : [ ModuleExport ConstructorNamespace (renderName name)
-                | DataConstructor name _ <- constructors
+              | DataConstructor _ name _ <- constructors
               ]
         SClass _ className _ _ ->
           [ModuleExport CapabilityNamespace (renderName className)]

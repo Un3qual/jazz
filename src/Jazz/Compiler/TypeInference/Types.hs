@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -39,7 +40,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
-  ( SignaturePayload,
+  ( CorePhase (Resolved),
+    SignaturePayload,
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -48,7 +50,7 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Name
-  ( Name,
+  ( ResolvedName,
     identifierText,
   )
 import Jazz.Compiler.StableSet
@@ -74,19 +76,19 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeVariable,
   )
 
-type ExpressionType = SemanticType Name InferenceVariable
+type ExpressionType = SemanticType ResolvedName InferenceVariable
 
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
   | ConstructorArgumentParameter Text
-  | ConstructorArgumentStructured SignatureType
+  | ConstructorArgumentStructured (SignatureType 'Resolved)
   | ConstructorArgumentFresh
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 instantiateConstructorFieldType ::
   Map Text ExpressionType ->
-  SignatureType ->
+  SignatureType 'Resolved ->
   Maybe ExpressionType
 instantiateConstructorFieldType typeParameterBindings fieldType =
   case fieldType of
@@ -141,7 +143,7 @@ data TypeBinding
   | BuiltinAliasTypeBinding BuiltinSymbol
   | BuiltinOperatorAliasTypeBinding Text
   | OperatorAliasSchemeTypeBinding Text TypeScheme
-  | ConstructorTypeBinding Name [Name] [ConstructorArgumentType]
+  | ConstructorTypeBinding ResolvedName [ResolvedName] [ConstructorArgumentType]
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
@@ -184,17 +186,17 @@ data TypeSchemeConstraint
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-type TypeEnv = Map Name TypeBinding
+type TypeEnv = Map ResolvedName TypeBinding
 
-data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
+data DataTypeBinding = DataTypeBinding [ResolvedName] [[ConstructorArgumentType]]
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data ClassMethodType = ClassMethodType Text SignaturePayload
+data ClassMethodType = ClassMethodType Text (SignaturePayload 'Resolved)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-newtype ImplMethodType = ImplMethodType SignatureType
+newtype ImplMethodType = ImplMethodType (SignatureType 'Resolved)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 

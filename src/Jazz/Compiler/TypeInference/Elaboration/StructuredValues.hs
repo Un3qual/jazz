@@ -22,7 +22,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
-import Jazz.Compiler.Name (Name, identifierText)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( ProvisionalConstructorDeclaration (..),
     ProvisionalDataDeclaration (..),
@@ -47,11 +47,11 @@ import Jazz.Compiler.TypedCore
 import Prelude hiding (unzip)
 
 data StructuredConstructor = StructuredConstructor
-  { structuredConstructorSourceName :: Name,
+  { structuredConstructorSourceName :: ResolvedName,
     structuredConstructorStatementIndex :: Int,
     structuredConstructorBinder :: TypedBinderId,
     structuredConstructorName :: TypedCoreName,
-    structuredConstructorDataSourceName :: Name,
+    structuredConstructorDataSourceName :: ResolvedName,
     structuredConstructorDataName :: TypedCoreName,
     structuredConstructorParameters :: [TypedTypeParameterId],
     structuredConstructorFieldTemplates :: [ExpressionType],
@@ -60,7 +60,7 @@ data StructuredConstructor = StructuredConstructor
   deriving (Eq, Show)
 
 data StructuredDataSkeleton = StructuredDataSkeleton
-  { skeletonSourceName :: Name,
+  { skeletonSourceName :: ResolvedName,
     skeletonName :: TypedCoreName,
     skeletonStatementIndex :: Int,
     skeletonSpan :: SourceSpan,
@@ -70,8 +70,8 @@ data StructuredDataSkeleton = StructuredDataSkeleton
   deriving (Eq, Show)
 
 data StructuredValueCatalog = StructuredValueCatalog
-  { catalogDataSkeletons :: Map Name StructuredDataSkeleton,
-    catalogConstructorsBySourceName :: Map Name (NonEmpty StructuredConstructor),
+  { catalogDataSkeletons :: Map ResolvedName StructuredDataSkeleton,
+    catalogConstructorsBySourceName :: Map ResolvedName (NonEmpty StructuredConstructor),
     catalogStatementsByIndex :: IntMap TypedStatement
   }
   deriving (Eq, Show)
@@ -185,7 +185,7 @@ structuredNodeInfo catalog state expressionType = do
   (typeValue, recipe) <- expressionContract (catalogDataSkeletons catalog) Map.empty state expressionType
   pure (TypedNodeInfo typeValue recipe [] [])
 
-structuredConstructorAtStatement :: StructuredValueCatalog -> Int -> Name -> Maybe StructuredConstructor
+structuredConstructorAtStatement :: StructuredValueCatalog -> Int -> ResolvedName -> Maybe StructuredConstructor
 structuredConstructorAtStatement catalog statementIndex sourceName = do
   constructors <- Map.lookup sourceName (catalogConstructorsBySourceName catalog)
   find
@@ -251,7 +251,7 @@ concreteConstructorFieldTypes state constructor resultExpressionType = do
     (structuredConstructorFieldTemplates constructor)
 
 expressionContract ::
-  Map Name StructuredDataSkeleton ->
+  Map ResolvedName StructuredDataSkeleton ->
   Map InferenceVariable TypedTypeParameterId ->
   InferState ->
   ExpressionType ->
@@ -370,10 +370,10 @@ representationRecipeForTypedType typeValue =
         <*> representationRecipeForTypedType result
     SemanticVariable {} -> Nothing
 
-resolvedTypeName :: Name -> TypedCoreName
+resolvedTypeName :: ResolvedName -> TypedCoreName
 resolvedTypeName sourceName = TypedResolvedName TypedCurrentModule TypedTypeNamespace (identifierText sourceName)
 
-resolvedConstructorName :: Name -> TypedCoreName
+resolvedConstructorName :: ResolvedName -> TypedCoreName
 resolvedConstructorName sourceName = TypedResolvedName TypedCurrentModule TypedConstructorNamespace (identifierText sourceName)
 
 typedSpan :: SourceSpan -> TypedSpan

@@ -10,11 +10,7 @@ where
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( Expr (..),
-    Literal (..),
     Statement (..),
-  )
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
@@ -33,11 +29,6 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
-  )
-import Jazz.Compiler.TypeRepresentation
-  ( pattern ConstrainedSignature,
-    pattern SignatureConstraint,
-    pattern TypeInt,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -207,22 +198,13 @@ testSourceKeepsNestedCapabilityFactsScoped = do
     "missing class declaration 'Eq'"
     (compileErrors result)
   where
-    spanValue = SourceSpan 1 1
-    eqInt = TypeInt
     program =
-      EBlock
-        [ SLet
-            "seed"
-            spanValue
-            ( EBlock
-                [ SClass spanValue "Eq" ["a"] [],
-                  SImpl spanValue "Eq" [eqInt] [],
-                  SExpr spanValue (ELit (LInt 0))
-                ]
-            ),
-          SSignature "x" spanValue (ConstrainedSignature [SignatureConstraint "Eq" [eqInt]] eqInt),
-          SLet "x" spanValue (ELit (LInt 1))
-        ]
+      case ( loweredProgram "seed = 0. x :: @{Eq(Int)}: Int. x = 1.",
+             loweredProgram "class Eq(a) { }. impl Eq(Int) { }. 0."
+           ) of
+        (EBlock blockNode (SLet bindingNode name _ : statements), nestedProgram) ->
+          EBlock blockNode (SLet bindingNode name nestedProgram : statements)
+        (outerProgram, _) -> error ("expected seed binding block, got " <> show outerProgram)
 
 testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures :: IO ()
 testCompilerHidesAliasOnlyImportedCapabilityFactsInSignatures = do

@@ -13,14 +13,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    DataConstructor (..),
-    Expr (..),
-    ImplMethod (..),
-    Literal (..),
-    Pattern (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -60,6 +53,7 @@ import Jazz.Compiler.RuntimeHints
     bindingRuntimeHintKeyInModule,
     explicitTypeApplicationRuntimeHintKeyInModule,
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.TypeInference
   ( inferExpressionWithBuiltins,
@@ -242,41 +236,41 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
       failTest ("expected qualified method runtime itemValue, got " <> renderDiagnostic runtimeError)
   where
     qualifiedMethodEvidenceExpr =
-      EBlock
-        [ SClass
+      expressionBlock
+        [ statementClass
             (SourceSpan 1 1)
             "Eq"
             ["a"]
-            [ ClassMethodSignature
+            [ classMethodSignature
                 "equals"
                 (SourceSpan 2 1)
                 ( ConstrainedSignature
                     []
                     ( TypeFunction
-                        (TypeVariable "a")
-                        (TypeFunction (TypeVariable "a") (TypeBool))
+                        (fixtureTypeVariable "a")
+                        (TypeFunction (fixtureTypeVariable "a") (TypeBool))
                     )
                 )
             ],
-          SImpl
+          statementImpl
             (SourceSpan 3 1)
             "Eq"
             [TypeInt]
-            [ ImplMethod
+            [ implMethod
                 "equals"
                 (SourceSpan 4 1)
-                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+                (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
             ],
-          SImpl
+          statementImpl
             (SourceSpan 5 1)
             "Eq"
             [TypeBool]
-            [ ImplMethod
+            [ implMethod
                 "equals"
                 (SourceSpan 6 1)
-                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+                (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
             ],
-          SExpr (SourceSpan 7 1) (EVar (qualifiedName "Eq" "equals"))
+          statementExpression (SourceSpan 7 1) (expressionVariable (qualifiedName "Eq" "equals"))
         ]
 
 testQualifiedMethodApplicationPreservesArgumentOrder :: IO ()
@@ -1096,9 +1090,9 @@ testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
 testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint :: IO ()
 testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
   let expr =
-        EBlock
-          [ SLet "empty" (SourceSpan 1 1) (EList []),
-            SExpr (SourceSpan 2 1) (EVar "empty")
+        expressionBlock
+          [ statementLet "empty" (SourceSpan 1 1) (expressionList []),
+            statementExpression (SourceSpan 2 1) (expressionVariable "empty")
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
@@ -1107,28 +1101,28 @@ testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
 testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate :: IO ()
 testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
   let expr =
-        EBlock
-          [ SSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-            SLet "identity" (SourceSpan 2 1) (ELambda "itemValue" (EVar "itemValue")),
-            SExpr (SourceSpan 3 1) (EVar "identity")
+        expressionBlock
+          [ statementSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (fixtureTypeVariable "a") (fixtureTypeVariable "a"))),
+            statementLet "identity" (SourceSpan 2 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
+            statementExpression (SourceSpan 3 1) (expressionVariable "identity")
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "signed polymorphic function runtime template"
-    (Just (TypeFunction (TypeVariable "t0") (TypeVariable "t0")))
-    (Map.lookup (bindingRuntimeHintKey "identity" (SourceSpan 2 1)) (inferredRuntimeTypeHints inference))
+    (Just (TypeFunction (fixtureAmbientTypeVariable "t0") (fixtureAmbientTypeVariable "t0")))
+    (Map.lookup (bindingRuntimeHintKey (fixtureValueName "identity") (SourceSpan 2 1)) (inferredRuntimeTypeHints inference))
 
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint :: IO ()
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do
   let typeArgumentSpan = SourceSpan 4 12
-      boxCharType = TypeApplication "Box" [TypeChar]
+      boxCharType = TypeApplication (fixtureResolvedTypeName "Box") [TypeChar]
       expr =
-        EBlock
-          [ SData (SourceSpan 1 1) "Box" ["a"] [DataConstructor "Box" [TypeVariable "a"]],
-            SSignature "identity" (SourceSpan 2 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-            SLet "identity" (SourceSpan 3 1) (ELambda "itemValue" (EVar "itemValue")),
-            SExpr (SourceSpan 4 1) (ETypeApplication (EVar "identity") typeArgumentSpan boxCharType)
+        expressionBlock
+          [ statementData (SourceSpan 1 1) "Box" ["a"] [dataConstructor "Box" [fixtureTypeVariable "a"]],
+            statementSignature "identity" (SourceSpan 2 1) (SignatureType (TypeFunction (fixtureTypeVariable "a") (fixtureTypeVariable "a"))),
+            statementLet "identity" (SourceSpan 3 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
+            statementExpression (SourceSpan 4 1) (expressionTypeApplication (expressionVariable "identity") typeArgumentSpan boxCharType)
           ]
   inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
@@ -1375,8 +1369,8 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
-          (runtimeTypedCallableArgumentHintExpr (EVar (qualifiedName "RuntimePick" "pick")))
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "choose") (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
+          (runtimeTypedCallableArgumentHintExpr (expressionVariable (qualifiedName "RuntimePick" "pick")))
   assertRuntimeBool "typed callable argument hint runtime result" False result
 
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
@@ -1384,8 +1378,8 @@ testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar =
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
-          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar (qualifiedName "RuntimePick" "pick")))
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "choose") (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
+          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (expressionVariable (qualifiedName "RuntimePick" "pick")))
   assertRuntimeBool "typed callable argument hint through prefix dollar runtime result" False result
 
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
@@ -1393,9 +1387,9 @@ testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "choose") (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
           ( runtimeTypedCallableArgumentHintExpr
-              (ELambda "itemValue" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue")))
+              (expressionLambda "itemValue" (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionVariable "itemValue")))
           )
   assertRuntimeBool "closure argument signature hint runtime result" False result
 
@@ -1841,37 +1835,37 @@ testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "tag" (SourceSpan 6 1)) (TypeApplication "Tag" [TypeNumeric NumericUInt8]))
-          ( EBlock
-              [ SData
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "tag") (SourceSpan 6 1)) (TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8]))
+          ( expressionBlock
+              [ statementData
                   (SourceSpan 1 1)
                   "Tag"
                   ["a"]
-                  [DataConstructor "Tag" []],
-                SClass
+                  [dataConstructor "Tag" []],
+                statementClass
                   (SourceSpan 2 1)
                   "RuntimePick"
                   ["a"]
-                  [ ClassMethodSignature
+                  [ classMethodSignature
                       "pick"
                       (SourceSpan 3 1)
-                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
+                      (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") (TypeBool)))
                   ],
-                SImpl
+                statementImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [TypeApplication "Tag" [TypeInt]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool True)))],
-                SImpl
+                  [TypeApplication (fixtureResolvedTypeName "Tag") [TypeInt]]
+                  [implMethod "pick" (SourceSpan 5 1) (expressionLambda "tag" (expressionLiteral (LBool True)))],
+                statementImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [TypeApplication "Tag" [TypeNumeric NumericUInt8]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool False)))],
-                SLet
+                  [TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8]]
+                  [implMethod "pick" (SourceSpan 5 1) (expressionLambda "tag" (expressionLiteral (LBool False)))],
+                statementLet
                   "tag"
                   (SourceSpan 6 1)
-                  (EVar "Tag"),
-                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "tag"))
+                  (expressionConstructor "Tag"),
+                statementExpression (SourceSpan 7 1) (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionVariable "tag"))
               ]
           )
   assertRuntimeBool "phantom ADT application hint runtime result" False result
@@ -1881,35 +1875,35 @@ testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (TypeApplication "Box" [TypeNumeric NumericUInt8]))
-          ( EBlock
-              [ SData
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "box") (SourceSpan 6 1)) (TypeApplication (fixtureResolvedTypeName "Box") [TypeNumeric NumericUInt8]))
+          ( expressionBlock
+              [ statementData
                   (SourceSpan 1 1)
                   "Box"
                   ["a"]
-                  [DataConstructor "Box" [TypeNumeric NumericFloat32, TypeVariable "a"]],
-                SClass
+                  [dataConstructor "Box" [TypeNumeric NumericFloat32, fixtureTypeVariable "a"]],
+                statementClass
                   (SourceSpan 2 1)
                   "RuntimePick"
                   ["a"]
-                  [ ClassMethodSignature
+                  [ classMethodSignature
                       "pick"
                       (SourceSpan 3 1)
-                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
+                      (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") (TypeBool)))
                   ],
-                SImpl
+                statementImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [TypeApplication "Box" [TypeNumeric NumericUInt8]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
-                SLet
+                  [TypeApplication (fixtureResolvedTypeName "Box") [TypeNumeric NumericUInt8]]
+                  [implMethod "pick" (SourceSpan 5 1) (expressionLambda "box" (expressionLiteral (LBool False)))],
+                statementLet
                   "box"
                   (SourceSpan 6 1)
-                  ( EApply
-                      (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)))
-                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
+                  ( expressionApply
+                      (expressionApply (expressionConstructor "Box") (expressionLiteral (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)))
+                      (expressionApply (expressionVariable "__kernel_toUInt8") (expressionLiteral (LInt 2)))
                   ),
-                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
+                statementExpression (SourceSpan 7 1) (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionVariable "box"))
               ]
           )
   assertRuntimeBool "ADT concrete payload hint runtime result" False result
@@ -1919,27 +1913,27 @@ testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "token" (SourceSpan 6 1)) (TypeName "Token"))
-          ( EBlock
-              ( [ SData
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "token") (SourceSpan 6 1)) (fixtureTypeName "Token"))
+          ( expressionBlock
+              ( [ statementData
                     (SourceSpan 1 1)
                     "Token"
                     []
-                    [DataConstructor "Token" [TypeNumeric NumericUInt8]]
+                    [dataConstructor "Token" [TypeNumeric NumericUInt8]]
                 ]
                   ++ runtimePickStatements
-                  ++ [ SLet
+                  ++ [ statementLet
                          "token"
                          (SourceSpan 6 1)
-                         (EApply (EVar "Token") (ELit (LInt 1))),
-                       SExpr
+                         (expressionApply (expressionConstructor "Token") (expressionLiteral (LInt 1))),
+                       statementExpression
                          (SourceSpan 7 1)
-                         ( EPatternCase
-                             (EVar "token")
-                             [ CaseArm
-                                 (PConstructor "Token" [PVariable "itemValue"])
+                         ( expressionPatternCase
+                             (expressionVariable "token")
+                             [ caseArm
+                                 (patternConstructor "Token" [patternVariable "itemValue"])
                                  Nothing
-                                 (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue"))
+                                 (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionVariable "itemValue"))
                              ]
                          )
                      ]
@@ -1952,35 +1946,35 @@ testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
   let result =
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (TypeApplication "Box" [TypeNumeric NumericUInt8]))
-          ( EBlock
-              [ SData
+          (Map.singleton (bindingRuntimeHintKey (fixtureValueName "box") (SourceSpan 6 1)) (TypeApplication (fixtureResolvedTypeName "Box") [TypeNumeric NumericUInt8]))
+          ( expressionBlock
+              [ statementData
                   (SourceSpan 1 1)
                   "Box"
                   ["a"]
-                  [DataConstructor "Box" [TypeVariable "missing", TypeVariable "a"]],
-                SClass
+                  [dataConstructor "Box" [fixtureTypeVariable "missing", fixtureTypeVariable "a"]],
+                statementClass
                   (SourceSpan 2 1)
                   "RuntimePick"
                   ["a"]
-                  [ ClassMethodSignature
+                  [ classMethodSignature
                       "pick"
                       (SourceSpan 3 1)
-                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
+                      (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") (TypeBool)))
                   ],
-                SImpl
+                statementImpl
                   (SourceSpan 4 1)
                   "RuntimePick"
-                  [TypeApplication "Box" [TypeNumeric NumericUInt8]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
-                SLet
+                  [TypeApplication (fixtureResolvedTypeName "Box") [TypeNumeric NumericUInt8]]
+                  [implMethod "pick" (SourceSpan 5 1) (expressionLambda "box" (expressionLiteral (LBool False)))],
+                statementLet
                   "box"
                   (SourceSpan 6 1)
-                  ( EApply
-                      (EApply (EVar "Box") (ELit (LInt 1)))
-                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
+                  ( expressionApply
+                      (expressionApply (expressionConstructor "Box") (expressionLiteral (LInt 1)))
+                      (expressionApply (expressionVariable "__kernel_toUInt8") (expressionLiteral (LInt 2)))
                   ),
-                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
+                statementExpression (SourceSpan 7 1) (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionVariable "box"))
               ]
           )
   assertRuntimeBool "unknown constructor field hint runtime result" False result
@@ -2017,13 +2011,13 @@ testNestedBindingHintsRetainEnclosingSourceUnit :: IO ()
 testNestedBindingHintsRetainEnclosingSourceUnit = do
   let bindingSpan = SourceSpan 5 3
       expr =
-        EBlock
-          [ SLet "seed" (SourceSpan 1 1) (ELit (LInt 0)),
-            SExpr
+        expressionBlock
+          [ statementLet "seed" (SourceSpan 1 1) (expressionLiteral (LInt 0)),
+            statementExpression
               (SourceSpan 2 1)
-              ( EBlock
-                  [ SLet "itemValue" bindingSpan (ELit (LInt 1)),
-                    SExpr (SourceSpan 6 3) (EVar "itemValue")
+              ( expressionBlock
+                  [ statementLet "itemValue" bindingSpan (expressionLiteral (LInt 1)),
+                    statementExpression (SourceSpan 6 3) (expressionVariable "itemValue")
                   ]
               )
           ]
@@ -2039,14 +2033,14 @@ testNestedBindingHintsRetainEnclosingSourceUnit = do
     "nested binding hint source-unit path"
     (Just (TypeNumeric NumericInt64))
     ( Map.lookup
-        (bindingRuntimeHintKeyInModule Nothing "itemValue" bindingSpan)
+        (bindingRuntimeHintKeyInModule Nothing (fixtureValueName "itemValue") bindingSpan)
         (inferredRuntimeTypeHints inference)
     )
   assertEqual
     "nested binding hint does not reuse the prelude path"
     Nothing
     ( Map.lookup
-        (bindingRuntimeHintKeyInModule (Just []) "itemValue" bindingSpan)
+        (bindingRuntimeHintKeyInModule (Just []) (fixtureValueName "itemValue") bindingSpan)
         (inferredRuntimeTypeHints inference)
     )
 
@@ -2055,28 +2049,28 @@ testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
   let result =
         evaluateRuntimeExpr
           ( runtimeExpr
-              ( EBlock
-                  [ SLet "Eq::helper" (SourceSpan 1 1) (ELambda "itemValue" (ELit (LBool True))),
-                    SClass
+              ( expressionBlock
+                  [ statementLet "Eq::helper" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionLiteral (LBool True))),
+                    statementClass
                       (SourceSpan 2 1)
                       "Eq"
                       ["a"]
-                      [ ClassMethodSignature
+                      [ classMethodSignature
                           "helper"
                           (SourceSpan 3 1)
                           ( ConstrainedSignature
                               []
-                              (TypeFunction (TypeVariable "a") (TypeBool))
+                              (TypeFunction (fixtureTypeVariable "a") (TypeBool))
                           )
                       ],
-                    SImpl
+                    statementImpl
                       (SourceSpan 4 1)
                       "Eq"
                       [TypeInt]
-                      [ImplMethod "helper" (SourceSpan 5 1) (ELambda "itemValue" (ELit (LBool False)))],
-                    SExpr
+                      [implMethod "helper" (SourceSpan 5 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))],
+                    statementExpression
                       (SourceSpan 6 1)
-                      (EApply (EVar "Eq::helper") (ELit (LInt 1)))
+                      (expressionApply (expressionVariable "Eq::helper") (expressionLiteral (LInt 1)))
                   ]
               )
           )

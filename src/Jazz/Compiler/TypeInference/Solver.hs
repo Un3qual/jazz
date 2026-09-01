@@ -33,7 +33,7 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeSupportsRuntimeArithmetic,
     numericTypeSupportsRuntimeComparison,
   )
-import Jazz.Compiler.Name (Name, identifierText)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.TypeInference.State
   ( InferState (..),
     SolverState (..),
@@ -414,7 +414,7 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
           dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
         _ -> False
 
-dataTypeSupportsRuntimeEqualityWith :: Set.Set Text -> InferState -> Name -> [ExpressionType] -> Bool
+dataTypeSupportsRuntimeEqualityWith :: Set.Set Text -> InferState -> ResolvedName -> [ExpressionType] -> Bool
 dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
   let resolvedTypeArguments = map (resolveType state) typeArguments
       dataTypeKey =

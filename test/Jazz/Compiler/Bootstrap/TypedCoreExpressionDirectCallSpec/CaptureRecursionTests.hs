@@ -10,6 +10,12 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
+import Jazz.Compiler.Name
+  ( NameNamespace (ValueNamespace),
+    ResolvedName,
+    mkIdentifier,
+    resolvedLocalName,
+  )
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Elaboration
   ( finalizeValidatedTypedCoreExpressionDirectCall,
@@ -34,11 +40,14 @@ import Jazz.Compiler.TypedCore.Validate
   )
 import Jazz.TestHarness (assertEqual, failTest)
 
+localValueName :: Text -> ResolvedName
+localValueName = resolvedLocalName ValueNamespace . mkIdentifier
+
 recursiveLoopDeclaration :: Int -> SourceSpan -> ExpressionType -> ProvisionalCallableDeclaration
 recursiveLoopDeclaration statementIndex spanValue functionType =
   ProvisionalCallableDeclaration
     statementIndex
-    "loop"
+    (localValueName "loop")
     spanValue
     functionType
     (Just (PlainTypeBinding functionType))
@@ -94,33 +103,33 @@ testCapturedNumericScalarReferenceSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalScalarBinding
               2
-              "copy"
+              (localValueName "copy")
               spanValue
               literalType
-              (ProvisionalVariableExpression "seed" literalType),
+              (ProvisionalVariableExpression (localValueName "seed") literalType),
             ProvisionalTerminalExpression
               3
               spanValue
               ( ProvisionalApplyExpression
                   uint8Type
-                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalVariableExpression (localValueName "loop") functionType)
                   (ProvisionalLiteralExpression (LInt 1) uint8Type)
               )
           ]
@@ -137,19 +146,19 @@ testCapturedCompositeScalarSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression
@@ -159,7 +168,7 @@ testCapturedCompositeScalarSpecialization = do
                   "+"
                   literalType
                   literalType
-                  (ProvisionalVariableExpression "seed" literalType)
+                  (ProvisionalVariableExpression (localValueName "seed") literalType)
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
@@ -177,25 +186,25 @@ testCapturedCompositeScalarBinderSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               seedType
               (ProvisionalLiteralExpression (LInt 1) seedType),
             ProvisionalScalarBinding
               1
-              "other"
+              (localValueName "other")
               spanValue
               otherType
               (ProvisionalLiteralExpression (LInt 2) otherType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression
@@ -205,8 +214,8 @@ testCapturedCompositeScalarBinderSpecialization = do
                   "+"
                   seedType
                   seedType
-                  (ProvisionalVariableExpression "seed" seedType)
-                  (ProvisionalVariableExpression "other" otherType)
+                  (ProvisionalVariableExpression (localValueName "seed") seedType)
+                  (ProvisionalVariableExpression (localValueName "other") otherType)
               )
           ]
   assertProvisionalProductionCompletes "captured composite scalar binder specialization" provisionalScope
@@ -224,37 +233,37 @@ testCapturedComparisonResultSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               seedType
               (ProvisionalLiteralExpression (LInt 1) seedType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalScalarBinding
               2
-              "flag"
+              (localValueName "flag")
               spanValue
               SemanticBool
               ( ProvisionalBinaryExpression
                   "<"
                   SemanticBool
                   comparisonOperandType
-                  (ProvisionalVariableExpression "seed" seedType)
+                  (ProvisionalVariableExpression (localValueName "seed") seedType)
                   (ProvisionalLiteralExpression (LInt 2) otherType)
               ),
             ProvisionalTerminalExpression
               3
               spanValue
-              (ProvisionalVariableExpression "flag" SemanticBool)
+              (ProvisionalVariableExpression (localValueName "flag") SemanticBool)
           ]
   assertProvisionalProductionCompletes "captured comparison result specialization" provisionalScope
 
@@ -269,7 +278,7 @@ testCapturedFunctionBodySpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -278,31 +287,31 @@ testCapturedFunctionBodySpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
                       (ProvisionalLiteralExpression (LInt 1) literalType)
                   )
               ),
@@ -311,7 +320,7 @@ testCapturedFunctionBodySpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
@@ -328,7 +337,7 @@ testCapturedFunctionParameterSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -337,32 +346,32 @@ testCapturedFunctionParameterSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalTerminalExpression
@@ -370,7 +379,7 @@ testCapturedFunctionParameterSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
@@ -392,7 +401,7 @@ testCapturedCallableParameterApplicationSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -401,25 +410,25 @@ testCapturedCallableParameterApplicationSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "function"
+                  (localValueName "function")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
@@ -427,16 +436,16 @@ testCapturedCallableParameterApplicationSpecialization = do
                       literalType
                       ( ProvisionalApplyExpression
                           literalType
-                          (ProvisionalVariableExpression "function" callbackFunctionType)
-                          (ProvisionalVariableExpression "seed" literalType)
+                          (ProvisionalVariableExpression (localValueName "function") callbackFunctionType)
+                          (ProvisionalVariableExpression (localValueName "seed") literalType)
                       )
-                      (ProvisionalVariableExpression "seed" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
                   )
               ),
             ProvisionalTerminalExpression
               3
               spanValue
-              (ProvisionalVariableExpression "helper" helperFunctionType)
+              (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
           ]
   assertProvisionalProductionTypes
     "captured callable parameter application specialization"
@@ -455,7 +464,7 @@ testCapturedFunctionScalarBinderSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           3
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -464,38 +473,38 @@ testCapturedFunctionScalarBinderSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalScalarBinding
               1
-              "other"
+              (localValueName "other")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 2) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "other" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "other") literalType)
                   )
               ),
             ProvisionalTerminalExpression
@@ -503,7 +512,7 @@ testCapturedFunctionScalarBinderSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
@@ -525,7 +534,7 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           3
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -534,38 +543,38 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalScalarBinding
               1
-              "other"
+              (localValueName "other")
               spanValue
               otherType
               (ProvisionalLiteralExpression (LInt 2) otherType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalTerminalExpression
@@ -573,8 +582,8 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
-                  (ProvisionalVariableExpression "other" otherType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "other") otherType)
               )
           ]
   assertProvisionalProductionTypes
@@ -594,7 +603,7 @@ testCapturedFunctionResultScalarBinderSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -603,48 +612,48 @@ testCapturedFunctionResultScalarBinderSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalScalarBinding
               3
-              "result"
+              (localValueName "result")
               spanValue
               literalType
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               ),
             ProvisionalTerminalExpression
               4
               spanValue
-              (ProvisionalVariableExpression "result" literalType)
+              (ProvisionalVariableExpression (localValueName "result") literalType)
           ]
   assertProvisionalProductionTypes
     "captured function result scalar binder specialization"
@@ -664,7 +673,7 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -672,7 +681,7 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
       applyDeclaration =
         ProvisionalCallableDeclaration
           3
-          "apply"
+          (localValueName "apply")
           spanValue
           applyFunctionType
           (Just (PlainTypeBinding applyFunctionType))
@@ -681,42 +690,42 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalFunctionBinding
               applyDeclaration
               ( ProvisionalLambdaExpression
-                  "function"
+                  (localValueName "function")
                   applyFunctionType
                   ( ProvisionalApplyExpression
                       literalType
-                      (ProvisionalVariableExpression "function" helperFunctionType)
+                      (ProvisionalVariableExpression (localValueName "function") helperFunctionType)
                       (ProvisionalLiteralExpression (LInt 1) literalType)
                   )
               ),
@@ -725,8 +734,8 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "apply" applyFunctionType)
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "apply") applyFunctionType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
               )
           ]
   assertProvisionalProductionTypes
@@ -748,7 +757,7 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -756,7 +765,7 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
       applyDeclaration =
         ProvisionalCallableDeclaration
           3
-          "apply"
+          (localValueName "apply")
           spanValue
           applyFunctionType
           (Just (PlainTypeBinding applyFunctionType))
@@ -764,7 +773,7 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
       forwardDeclaration =
         ProvisionalCallableDeclaration
           4
-          "forward"
+          (localValueName "forward")
           spanValue
           forwardFunctionType
           (Just (PlainTypeBinding forwardFunctionType))
@@ -773,54 +782,54 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalFunctionBinding
               applyDeclaration
               ( ProvisionalLambdaExpression
-                  "function"
+                  (localValueName "function")
                   applyFunctionType
                   ( ProvisionalApplyExpression
                       literalType
-                      (ProvisionalVariableExpression "function" helperFunctionType)
+                      (ProvisionalVariableExpression (localValueName "function") helperFunctionType)
                       (ProvisionalLiteralExpression (LInt 1) literalType)
                   )
               ),
             ProvisionalFunctionBinding
               forwardDeclaration
               ( ProvisionalLambdaExpression
-                  "function"
+                  (localValueName "function")
                   forwardFunctionType
                   ( ProvisionalApplyExpression
                       literalType
-                      (ProvisionalVariableExpression "apply" applyFunctionType)
-                      (ProvisionalVariableExpression "function" helperFunctionType)
+                      (ProvisionalVariableExpression (localValueName "apply") applyFunctionType)
+                      (ProvisionalVariableExpression (localValueName "function") helperFunctionType)
                   )
               ),
             ProvisionalTerminalExpression
@@ -828,8 +837,8 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "forward" forwardFunctionType)
-                  (ProvisionalVariableExpression "helper" helperFunctionType)
+                  (ProvisionalVariableExpression (localValueName "forward") forwardFunctionType)
+                  (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
               )
           ]
   assertProvisionalProductionTypes
@@ -853,33 +862,33 @@ testCapturedTerminalAnonymousCallableSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression
               2
               spanValue
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   anonymousFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               )
           ]
@@ -901,7 +910,7 @@ testCapturedNamedCallerSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -909,7 +918,7 @@ testCapturedNamedCallerSpecialization = do
       consumerDeclaration =
         ProvisionalCallableDeclaration
           3
-          "consumer"
+          (localValueName "consumer")
           spanValue
           consumerFunctionType
           (Just (PlainTypeBinding consumerFunctionType))
@@ -918,43 +927,43 @@ testCapturedNamedCallerSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalFunctionBinding
               consumerDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   consumerFunctionType
                   ( ProvisionalApplyExpression
                       literalType
-                      (ProvisionalVariableExpression "helper" helperFunctionType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalTerminalExpression
@@ -962,7 +971,7 @@ testCapturedNamedCallerSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   literalType
-                  (ProvisionalVariableExpression "consumer" consumerFunctionType)
+                  (ProvisionalVariableExpression (localValueName "consumer") consumerFunctionType)
                   (ProvisionalLiteralExpression (LInt 1) literalType)
               )
           ]
@@ -985,7 +994,7 @@ testCapturedNamedApplicationTupleSpecialization = do
       helperDeclaration =
         ProvisionalCallableDeclaration
           2
-          "helper"
+          (localValueName "helper")
           spanValue
           helperFunctionType
           (Just (PlainTypeBinding helperFunctionType))
@@ -994,32 +1003,32 @@ testCapturedNamedApplicationTupleSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   recursiveFunctionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" recursiveFunctionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") recursiveFunctionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalFunctionBinding
               helperDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   helperFunctionType
                   ( ProvisionalBinaryExpression
                       "+"
                       literalType
                       literalType
-                      (ProvisionalVariableExpression "seed" literalType)
-                      (ProvisionalVariableExpression "item" literalType)
+                      (ProvisionalVariableExpression (localValueName "seed") literalType)
+                      (ProvisionalVariableExpression (localValueName "item") literalType)
                   )
               ),
             ProvisionalTerminalExpression
@@ -1029,7 +1038,7 @@ testCapturedNamedApplicationTupleSpecialization = do
                   tupleType
                   [ ProvisionalApplyExpression
                       literalType
-                      (ProvisionalVariableExpression "helper" helperFunctionType)
+                      (ProvisionalVariableExpression (localValueName "helper") helperFunctionType)
                       (ProvisionalLiteralExpression (LInt 1) literalType),
                     ProvisionalUnitExpression
                   ]
@@ -1052,25 +1061,25 @@ testCapturedScalarAliasSourceSpecialization = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalScalarBinding
               1
-              "copy"
+              (localValueName "copy")
               spanValue
               literalType
-              (ProvisionalVariableExpression "seed" literalType),
+              (ProvisionalVariableExpression (localValueName "seed") literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "copy" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "copy") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression
@@ -1078,7 +1087,7 @@ testCapturedScalarAliasSourceSpecialization = do
               spanValue
               ( ProvisionalApplyExpression
                   uint8Type
-                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalVariableExpression (localValueName "loop") functionType)
                   (ProvisionalLiteralExpression (LInt 1) uint8Type)
               )
           ]
@@ -1095,25 +1104,25 @@ testRecordedScalarStatementIndices = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               1
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
             ProvisionalScalarBinding
               2
-              "copy"
+              (localValueName "copy")
               spanValue
               literalType
-              (ProvisionalVariableExpression "seed" literalType),
+              (ProvisionalVariableExpression (localValueName "seed") literalType),
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "copy" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "copy") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression
@@ -1121,7 +1130,7 @@ testRecordedScalarStatementIndices = do
               spanValue
               ( ProvisionalApplyExpression
                   uint8Type
-                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalVariableExpression (localValueName "loop") functionType)
                   (ProvisionalLiteralExpression (LInt 1) uint8Type)
               )
           ]
@@ -1139,30 +1148,30 @@ testEagerRecursiveClosureCaptureAvailability = do
         ProvisionalScopeStatements
           [ ProvisionalScalarBinding
               0
-              "result"
+              (localValueName "result")
               spanValue
               uint8Type
               ( ProvisionalApplyExpression
                   uint8Type
-                  (ProvisionalVariableExpression "loop" functionType)
+                  (ProvisionalVariableExpression (localValueName "loop") functionType)
                   (ProvisionalLiteralExpression (LInt 1) uint8Type)
               ),
             ProvisionalScalarBinding
               1
-              "seed"
+              (localValueName "seed")
               spanValue
               literalType
               (ProvisionalLiteralExpression (LInt 1) literalType),
-            ProvisionalSignature 2 "loop" spanValue functionType,
+            ProvisionalSignature 2 (localValueName "loop") spanValue functionType,
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   functionType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" functionType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") functionType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression
@@ -1196,7 +1205,7 @@ testEagerNestedClosureCaptureAvailability = do
       invokeDeclaration =
         ProvisionalCallableDeclaration
           0
-          "invoke"
+          (localValueName "invoke")
           spanValue
           invokeType
           (Just (PlainTypeBinding invokeType))
@@ -1207,48 +1216,48 @@ testEagerNestedClosureCaptureAvailability = do
           [ ProvisionalFunctionBinding
               invokeDeclaration
               ( ProvisionalLambdaExpression
-                  "callback"
+                  (localValueName "callback")
                   invokeType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "callback" callbackType)
+                      (ProvisionalVariableExpression (localValueName "callback") callbackType)
                       (ProvisionalLiteralExpression (LInt 1) uint8Type)
                   )
               ),
             ProvisionalScalarBinding
               1
-              "result"
+              (localValueName "result")
               spanValue
               uint8Type
               ( ProvisionalApplyExpression
                   uint8Type
-                  (ProvisionalVariableExpression "invoke" invokeType)
+                  (ProvisionalVariableExpression (localValueName "invoke") invokeType)
                   ( ProvisionalLambdaExpression
-                      "item"
+                      (localValueName "item")
                       callbackType
                       ( ProvisionalApplyExpression
                           uint8Type
-                          (ProvisionalVariableExpression "loop" callbackType)
-                          (ProvisionalVariableExpression "item" uint8Type)
+                          (ProvisionalVariableExpression (localValueName "loop") callbackType)
+                          (ProvisionalVariableExpression (localValueName "item") uint8Type)
                       )
                   )
               ),
             ProvisionalScalarBinding
               2
-              "seed"
+              (localValueName "seed")
               spanValue
               uint8Type
               (ProvisionalLiteralExpression (LInt 1) uint8Type),
-            ProvisionalSignature 3 "loop" spanValue callbackType,
+            ProvisionalSignature 3 (localValueName "loop") spanValue callbackType,
             ProvisionalFunctionBinding
               loopDeclaration
               ( ProvisionalLambdaExpression
-                  "item"
+                  (localValueName "item")
                   callbackType
                   ( ProvisionalApplyExpression
                       uint8Type
-                      (ProvisionalVariableExpression "loop" callbackType)
-                      (ProvisionalVariableExpression "seed" uint8Type)
+                      (ProvisionalVariableExpression (localValueName "loop") callbackType)
+                      (ProvisionalVariableExpression (localValueName "seed") uint8Type)
                   )
               ),
             ProvisionalTerminalExpression

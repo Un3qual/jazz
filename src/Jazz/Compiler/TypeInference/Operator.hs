@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Builtin operator typing rules, isolated from expression orchestration.
@@ -19,7 +20,8 @@ import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (..),
+    Expr (..),
     Literal (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -163,8 +165,8 @@ instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
 
 inferBinaryType ::
   Text ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
@@ -193,8 +195,8 @@ inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
 -- it explicitly instead of constructing a heterogeneous binary node.
 binaryNumericPromotionType ::
   Text ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
@@ -218,8 +220,8 @@ binaryNumericPromotionType operatorSymbol leftExpr rightExpr leftType rightType 
 applyNumericBinaryRule ::
   Text ->
   NumericRuleResult ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
@@ -278,7 +280,7 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
           )
       )
 
-directIntegerFloat64NumericOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+directIntegerFloat64NumericOperand :: NumericRuleResult -> InferState -> Expr 'Resolved -> Expr 'Resolved -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
 directIntegerFloat64NumericOperand _resultRule state leftExpr rightExpr leftType rightType =
   integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType
     <|> case typedIntegerFloat64PromotionOperand state leftType rightType of
@@ -297,7 +299,7 @@ numericRuleConstraint resultRule =
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
     NumericBoolResult -> RuntimeComparisonNumericConstraint
 
-integerLiteralFloat64PromotionOperand :: InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+integerLiteralFloat64PromotionOperand :: InferState -> Expr 'Resolved -> Expr 'Resolved -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
 integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType =
   case (integerLiteralRangeFor state leftType, integerLiteralRangeFor state rightType, resolveType state leftType, resolveType state rightType) of
     (Just literalRange, _, _, floatType)
@@ -312,10 +314,10 @@ integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightTyp
           Just (floatType, state)
     _ -> Nothing
 
-exprIsIntegerLiteral :: Expr -> Bool
+exprIsIntegerLiteral :: Expr 'Resolved -> Bool
 exprIsIntegerLiteral expr =
   case expr of
-    ELit (LInt _) -> True
+    ELit _ (LInt _) -> True
     _ -> False
 
 expressionTypeIsFloat64Domain :: ExpressionType -> Bool
@@ -396,8 +398,8 @@ applyApplicationBinaryRule functionType argumentType state =
 
 applyStrictEqualityBinaryRule ::
   Text ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->

@@ -12,10 +12,7 @@ import Control.Exception
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( DataConstructor (..),
-    Expr (..),
-    Literal (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -53,6 +50,7 @@ import Jazz.Compiler.Runtime.Types
 import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKey,
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -192,7 +190,7 @@ testRuntimeValueMatchesLiteral = do
     "targeted Float32 literal matches its rounded runtime value"
     True
     (runtimeValueMatchesLiteral (literalRuntimeValue float32Literal) float32Literal)
-  case evaluateRuntimeExpr (runtimeExpr (ELambda "item" (EVar "item"))) of
+  case evaluateRuntimeExpr (runtimeExpr (expressionLambda "item" (expressionVariable "item"))) of
     Right (Just closureRuntimeValue) ->
       assertEqual
         "closure is never a literal match"
@@ -216,9 +214,9 @@ testPrivateValueRenderingRuntimeSuccess = do
   let result =
         evaluateRuntimeExpr
           ( runtimeExpr
-              ( EApply
-                  (EVar "__kernel_renderValue")
-                  (ETuple [ELit (LChar 'a'), ELit (LText "\n")])
+              ( expressionApply
+                  (expressionVariable "__kernel_renderValue")
+                  (expressionTuple [expressionLiteral (LChar 'a'), expressionLiteral (LText "\n")])
               )
           )
   case result of
@@ -233,10 +231,10 @@ testRuntimeFallbackRejectsNonTextTraversalArguments :: IO ()
 testRuntimeFallbackRejectsNonTextTraversalArguments = do
   let lengthResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_textLength") (ELit (LInt 1))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_textLength") (expressionLiteral (LInt 1))))
       unconsResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_textUnconsRaw") (ELit (LInt 1))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_textUnconsRaw") (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback textLength code" "E3028" lengthResult
   assertRuntimeErrorContains "runtime fallback textLength actual type" "Int" lengthResult
   assertRuntimeErrorContains "runtime fallback textUnconsRaw code" "E3029" unconsResult
@@ -293,40 +291,40 @@ testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments :: IO ()
 testRuntimeFallbackRejectsInvalidBootstrapPrimitiveArguments = do
   let prependResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EApply (EVar "__kernel_listPrependRaw") (ELit (LInt 1))) (ELit (LInt 2))))
+          (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_listPrependRaw") (expressionLiteral (LInt 1))) (expressionLiteral (LInt 2))))
       charToResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_charToUInt32") (ELit (LText "a"))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_charToUInt32") (expressionLiteral (LText "a"))))
       charFromResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_charFromUInt32Raw") (ELit (LInt (-1)))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_charFromUInt32Raw") (expressionLiteral (LInt (-1)))))
       predicateResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_charIsAlpha") (ELit (LText "a"))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_charIsAlpha") (expressionLiteral (LText "a"))))
       caseResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_charToLower") (ELit (LText "a"))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_charToLower") (expressionLiteral (LText "a"))))
       appendResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EApply (EVar "__kernel_textAppend") (ELit (LText "a"))) (ELit (LBool True))))
+          (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_textAppend") (expressionLiteral (LText "a"))) (expressionLiteral (LBool True))))
       appendCharResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EApply (EVar "__kernel_textAppendChar") (ELit (LText "a"))) (ELit (LInt 1))))
+          (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_textAppendChar") (expressionLiteral (LText "a"))) (expressionLiteral (LInt 1))))
       reverseResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_listReverseRaw") (ELit (LInt 1))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_listReverseRaw") (expressionLiteral (LInt 1))))
       textFromCharsListResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_textFromChars") (ELit (LText "Jazz"))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_textFromChars") (expressionLiteral (LText "Jazz"))))
       textFromCharsElementResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_textFromChars") (EList [ELit (LInt 1)])))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_textFromChars") (expressionList [expressionLiteral (LInt 1)])))
       textConcatListResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_textConcat") (ELit (LText "Jazz"))))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_textConcat") (expressionLiteral (LText "Jazz"))))
       textConcatElementResult =
         evaluateRuntimeExpr
-          (runtimeExpr (EApply (EVar "__kernel_textConcat") (EList [ELit (LInt 1)])))
+          (runtimeExpr (expressionApply (expressionVariable "__kernel_textConcat") (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "list prepend argument" "E3032" prependResult
   assertRuntimeErrorContains "char to scalar argument" "E3033" charToResult
   assertRuntimeErrorContains "scalar to char argument" "E3034" charFromResult
@@ -617,42 +615,42 @@ testTlEmptyListRuntimeError = do
 
 testRuntimeHelperRejectsCanonicalAlias :: IO ()
 testRuntimeHelperRejectsCanonicalAlias = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EVar "map"))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionVariable "map"))
   assertRuntimeErrorContains "runtime helper canonical alias rejected" "E3002" result
 
 testRuntimeFallbackRejectsHdNonList :: IO ()
 testRuntimeFallbackRejectsHdNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_hd") (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionVariable "__kernel_hd") (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback hd non-list" "E3011" result
 
 testRuntimeFallbackRejectsTlNonList :: IO ()
 testRuntimeFallbackRejectsTlNonList = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EVar "__kernel_tl") (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionVariable "__kernel_tl") (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback tl non-list" "E3012" result
 
 testRuntimeFallbackRejectsMapNonFunctionMapper :: IO ()
 testRuntimeFallbackRejectsMapNonFunctionMapper = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_map") (expressionLiteral (LInt 1))) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback map mapper" "E3015" result
 
 testRuntimeFallbackRejectsMapNonListCollection :: IO ()
 testRuntimeFallbackRejectsMapNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_map") (EVar "__kernel_hd")) (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_map") (expressionVariable "__kernel_hd")) (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback map collection" "E3013" result
 
 testRuntimeFallbackRejectsFilterNonFunctionPredicate :: IO ()
 testRuntimeFallbackRejectsFilterNonFunctionPredicate = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ELit (LInt 1))) (EList [ELit (LInt 1)])))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionLiteral (LInt 1))) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate" "E3017" result
 
 testRuntimeFallbackRejectsFilterNonListCollection :: IO ()
 testRuntimeFallbackRejectsFilterNonListCollection = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "<")) (ELit (LInt 1))))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<")) (expressionLiteral (LInt 1))))
   assertRuntimeErrorContains "runtime fallback filter collection" "E3018" result
 
 testRuntimeFallbackRejectsFilterPredicateNonBool :: IO ()
 testRuntimeFallbackRejectsFilterPredicateNonBool = do
-  let result = evaluateRuntimeExpr (runtimeExpr (EApply (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "+")) (EList [ELit (LInt 1)])))
+  let result = evaluateRuntimeExpr (runtimeExpr (expressionApply (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "+")) (expressionList [expressionLiteral (LInt 1)])))
   assertRuntimeErrorContains "runtime fallback filter predicate bool result" "E3019" result
 
 testPrintBuiltinReturnsArgument :: IO ()
@@ -715,15 +713,15 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
           ( Map.fromList
-              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), TypeApplication "Tag" [TypeNumeric NumericUInt8]),
-                (bindingRuntimeHintKey "right" (SourceSpan 3 1), TypeApplication "Tag" [TypeNumeric NumericUInt8])
+              [ (bindingRuntimeHintKey (fixtureValueName "left") (SourceSpan 2 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8]),
+                (bindingRuntimeHintKey (fixtureValueName "right") (SourceSpan 3 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8])
               ]
           )
-          ( EBlock
-              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
-                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
-                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
-                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+          ( expressionBlock
+              [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
+                statementLet "left" (SourceSpan 2 1) (expressionConstructor "Tag"),
+                statementLet "right" (SourceSpan 3 1) (expressionConstructor "Tag"),
+                statementExpression (SourceSpan 4 1) (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))
               ]
           )
   assertRuntimeBool "typed ADT structural equality runtime result" True result
@@ -734,15 +732,15 @@ testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
         evaluateRuntimeExprWithBuiltinsAndBindingHints
           ResolveKernelOnly
           ( Map.fromList
-              [ (bindingRuntimeHintKey "left" (SourceSpan 2 1), TypeApplication "Tag" [TypeNumeric NumericUInt8]),
-                (bindingRuntimeHintKey "right" (SourceSpan 3 1), TypeApplication "Tag" [TypeNumeric NumericUInt16])
+              [ (bindingRuntimeHintKey (fixtureValueName "left") (SourceSpan 2 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8]),
+                (bindingRuntimeHintKey (fixtureValueName "right") (SourceSpan 3 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt16])
               ]
           )
-          ( EBlock
-              [ SData (SourceSpan 1 1) "Tag" ["a"] [DataConstructor "Tag" []],
-                SLet "left" (SourceSpan 2 1) (EVar "Tag"),
-                SLet "right" (SourceSpan 3 1) (EVar "Tag"),
-                SExpr (SourceSpan 4 1) (EBinary "==" (EVar "left") (EVar "right"))
+          ( expressionBlock
+              [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
+                statementLet "left" (SourceSpan 2 1) (expressionConstructor "Tag"),
+                statementLet "right" (SourceSpan 3 1) (expressionConstructor "Tag"),
+                statementExpression (SourceSpan 4 1) (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))
               ]
           )
   assertRuntimeBool "incompatible typed ADT structural equality runtime result" False result
@@ -751,30 +749,30 @@ testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do
   assertCallableRuntimeEqualityRejected
     "runtime closure equality"
-    (EBinary "==" closureValue closureValue)
+    (expressionBinary "==" closureValue closureValue)
   assertCallableRuntimeEqualityRejected
     "runtime builtin equality"
-    (EBinary "==" builtinValue builtinValue)
+    (expressionBinary "==" builtinValue builtinValue)
   assertCallableRuntimeEqualityRejected
     "runtime operator equality"
-    (EBinary "==" operatorValue operatorValue)
+    (expressionBinary "==" operatorValue operatorValue)
   assertCallableRuntimeEqualityRejected
     "runtime left section equality"
-    (EBinary "==" leftSectionValue leftSectionValue)
+    (expressionBinary "==" leftSectionValue leftSectionValue)
 
 testRuntimeFallbackRejectsDirectCallableInequality :: IO ()
 testRuntimeFallbackRejectsDirectCallableInequality = do
   assertCallableRuntimeEqualityRejected
     "runtime closure inequality"
-    (EBinary "!=" closureValue closureValue)
+    (expressionBinary "!=" closureValue closureValue)
   assertCallableRuntimeEqualityRejected
     "runtime right section inequality"
-    (EBinary "!=" rightSectionValue rightSectionValue)
+    (expressionBinary "!=" rightSectionValue rightSectionValue)
 
 testRuntimeFallbackRejectsFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsFunctionStructuralEquality = do
-  let identity = ELambda "x" (EVar "x")
-      result = evaluateRuntimeExpr (runtimeExpr (EBinary "==" (EList [identity]) (EList [identity])))
+  let identity = expressionLambda "x" (expressionVariable "x")
+      result = evaluateRuntimeExpr (runtimeExpr (expressionBinary "==" (expressionList [identity]) (expressionList [identity])))
   assertRuntimeErrorContains "runtime fallback function structural equality" "E3007" result
   assertRuntimeErrorContains
     "runtime fallback function structural equality callable text"
@@ -783,10 +781,10 @@ testRuntimeFallbackRejectsFunctionStructuralEquality = do
 
 testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality :: IO ()
 testRuntimeFallbackRejectsDifferentLengthFunctionStructuralEquality = do
-  let identity = ELambda "x" (EVar "x")
+  let identity = expressionLambda "x" (expressionVariable "x")
   assertCallableRuntimeEqualityRejected
     "different-length function structural equality"
-    (EBinary "==" (EList [identity]) (EList [identity, identity]))
+    (expressionBinary "==" (expressionList [identity]) (expressionList [identity, identity]))
 
 testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors :: IO ()
 testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
@@ -797,20 +795,20 @@ testRuntimeFallbackRejectsDifferentSaturatedAdtConstructors = do
     "callable values are not equality-supported"
     result
   where
-    identity = ELambda "x" (EVar "x")
+    identity = expressionLambda "x" (expressionVariable "x")
 
     differentSaturatedAdtConstructorEqualityExpr =
-      EBlock
-        [ SData
+      expressionBlock
+        [ statementData
             (SourceSpan 1 1)
             "Maybe"
             ["a"]
-            [ DataConstructor "Nothing" [],
-              DataConstructor "Just" [TypeVariable "a"]
+            [ dataConstructor "Nothing" [],
+              dataConstructor "Just" [fixtureTypeVariable "a"]
             ],
-          SExpr
+          statementExpression
             (SourceSpan 2 1)
-            (EBinary "==" (EApply (EVar "Just") identity) (EVar "Nothing"))
+            (expressionBinary "==" (expressionApply (expressionConstructor "Just") identity) (expressionConstructor "Nothing"))
         ]
 
 testDeclarationOnlyScopeHasNoOutput :: IO ()

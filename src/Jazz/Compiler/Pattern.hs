@@ -1,20 +1,23 @@
--- | Shared binder semantics for lowered core patterns.
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
+
+-- | Shared binder semantics for canonical core patterns.
 module Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
     extendBoundWithPattern,
-    patternBinderNames
-  ) where
+    patternBinderNames,
+  )
+where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.AST (Pattern (..))
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.AST (CoreNameAt, Pattern (..))
 
-extendBoundWithPattern :: Pattern -> Set Name -> Set Name
+extendBoundWithPattern :: (Ord (CoreNameAt phase)) => Pattern phase -> Set (CoreNameAt phase) -> Set (CoreNameAt phase)
 extendBoundWithPattern patternValue bound =
   Set.union bound (patternBinderNames patternValue)
 
-commonPatternBinderNames :: [Pattern] -> Set Name
+commonPatternBinderNames :: (Ord (CoreNameAt phase)) => [Pattern phase] -> Set (CoreNameAt phase)
 commonPatternBinderNames alternatives =
   case alternatives of
     [] -> Set.empty
@@ -24,21 +27,21 @@ commonPatternBinderNames alternatives =
         (patternBinderNames firstAlternative)
         (map patternBinderNames rest)
 
-patternBinderNames :: Pattern -> Set Name
+patternBinderNames :: (Ord (CoreNameAt phase)) => Pattern phase -> Set (CoreNameAt phase)
 patternBinderNames patternValue =
   case patternValue of
-    PVariable name -> Set.singleton name
-    PWildcard -> Set.empty
+    PVariable _ name -> Set.singleton name
+    PWildcard _ -> Set.empty
     PLiteral {} -> Set.empty
-    PConstructor _ patterns ->
+    PConstructor _ _ patterns ->
       Set.unions (map patternBinderNames patterns)
-    PList patterns ->
+    PList _ patterns ->
       Set.unions (map patternBinderNames patterns)
-    PConsList headPattern tailPattern ->
+    PConsList _ headPattern tailPattern ->
       Set.union (patternBinderNames headPattern) (patternBinderNames tailPattern)
-    PTuple patterns ->
+    PTuple _ patterns ->
       Set.unions (map patternBinderNames patterns)
-    PAs name nestedPattern ->
+    PAs _ name nestedPattern ->
       Set.insert name (patternBinderNames nestedPattern)
-    POr alternatives ->
+    POr _ alternatives ->
       commonPatternBinderNames alternatives

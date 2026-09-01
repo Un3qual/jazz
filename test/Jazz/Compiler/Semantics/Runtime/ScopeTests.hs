@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.ScopeTests
@@ -13,11 +14,9 @@ import Control.Exception
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( ClassMethodSignature (..),
-    Expr (..),
-    ImplMethod (..),
+  ( CorePhase (Resolved),
+    Expr,
     Literal (..),
-    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -26,7 +25,7 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Name
-  ( Name,
+  ( UnresolvedName,
     mkIdentifier,
     qualifiedName,
     sourceName,
@@ -35,6 +34,7 @@ import Jazz.Compiler.Runtime
   ( evaluateRuntimeExpr,
     renderRuntimeValue,
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
@@ -56,14 +56,14 @@ testLargeFlatBindingScopeCompletes :: IO ()
 testLargeFlatBindingScopeCompletes = do
   let bindingCount = 100000
       binding index =
-        SLet
+        statementLet
           (indexedBindingName index)
           (SourceSpan index 1)
-          (ELit (LInt (fromIntegral index)))
+          (expressionLiteral (LInt (fromIntegral index)))
       expression =
-        EBlock
+        expressionBlock
           ( map binding [1 .. bindingCount]
-              <> [SExpr (SourceSpan (bindingCount + 1) 1) (EVar (indexedBindingName bindingCount))]
+              <> [statementExpression (SourceSpan (bindingCount + 1) 1) (expressionVariable (indexedBindingName bindingCount))]
           )
   assertRuntimeCompletesWithin
     10000000
@@ -79,57 +79,57 @@ testLargeNestedBlockAliasScopeCompletes =
     (nestedBlockAliasScope 50000)
     "True"
 
-nestedBlockAliasScope :: Int -> Expr
+nestedBlockAliasScope :: Int -> Expr 'Resolved
 nestedBlockAliasScope bindingCount =
-  EBlock
-    [ SClass
+  expressionBlock
+    [ statementClass
         (SourceSpan 1 1)
         "RuntimeFlag"
         ["a"]
-        [ ClassMethodSignature "enabled" (SourceSpan 2 1) (ConstrainedSignature [] TypeBool),
-          ClassMethodSignature "on" (SourceSpan 3 1) (ConstrainedSignature [] TypeBool),
-          ClassMethodSignature "off" (SourceSpan 4 1) (ConstrainedSignature [] TypeBool)
+        [ classMethodSignature "enabled" (SourceSpan 2 1) (ConstrainedSignature [] TypeBool),
+          classMethodSignature "on" (SourceSpan 3 1) (ConstrainedSignature [] TypeBool),
+          classMethodSignature "off" (SourceSpan 4 1) (ConstrainedSignature [] TypeBool)
         ],
-      SImpl
+      statementImpl
         (SourceSpan 5 1)
         "RuntimeFlag"
         [TypeInt]
-        [ ImplMethod "enabled" (SourceSpan 6 1) enabledBody,
-          ImplMethod "on" (SourceSpan 7 1) (ELit (LBool True)),
-          ImplMethod "off" (SourceSpan 8 1) (ELit (LBool False))
+        [ implMethod "enabled" (SourceSpan 6 1) enabledBody,
+          implMethod "on" (SourceSpan 7 1) (expressionLiteral (LBool True)),
+          implMethod "off" (SourceSpan 8 1) (expressionLiteral (LBool False))
         ],
-      SExpr (SourceSpan 9 1) (EVar (qualifiedName "RuntimeFlag" "enabled"))
+      statementExpression (SourceSpan 9 1) (expressionVariable (qualifiedName "RuntimeFlag" "enabled"))
     ]
   where
     enabledBody =
-      EBlock
+      expressionBlock
         ( firstAlias
             : remainingAliases
-              <> [ SLet
+              <> [ statementLet
                      "target"
                      (SourceSpan (bindingCount + 1) 3)
-                     ( EIf
-                         (EVar (indexedBindingName bindingCount))
-                         (EVar (qualifiedName "RuntimeFlag" "on"))
-                         (EVar (qualifiedName "RuntimeFlag" "off"))
+                     ( expressionIf
+                         (expressionVariable (indexedBindingName bindingCount))
+                         (expressionVariable (qualifiedName "RuntimeFlag" "on"))
+                         (expressionVariable (qualifiedName "RuntimeFlag" "off"))
                      ),
-                   SExpr (SourceSpan (bindingCount + 2) 3) (EVar "target")
+                   statementExpression (SourceSpan (bindingCount + 2) 3) (expressionVariable "target")
                  ]
         )
-    firstAlias = SLet (indexedBindingName 1) (SourceSpan 1 3) (ELit (LBool True))
+    firstAlias = statementLet (indexedBindingName 1) (SourceSpan 1 3) (expressionLiteral (LBool True))
     remainingAliases =
-      [ SLet
+      [ statementLet
           (indexedBindingName index)
           (SourceSpan index 3)
-          (EVar (indexedBindingName (index - 1)))
+          (expressionVariable (indexedBindingName (index - 1)))
       | index <- [2 .. bindingCount]
       ]
 
-indexedBindingName :: Int -> Name
+indexedBindingName :: Int -> UnresolvedName
 indexedBindingName index =
   sourceName (mkIdentifier ("binding" <> Text.pack (show index)))
 
-assertRuntimeCompletesWithin :: Int -> Text -> Expr -> Text -> IO ()
+assertRuntimeCompletesWithin :: Int -> Text -> Expr 'Resolved -> Text -> IO ()
 assertRuntimeCompletesWithin timeoutMicros label expression expectedRendering = do
   outcome <-
     try

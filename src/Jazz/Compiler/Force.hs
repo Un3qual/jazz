@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 -- | Named strictness boundaries for compiler phases and benchmarks.
 --
 -- Pure compiler products use their declaration-local 'NFData' contracts.
@@ -10,7 +12,8 @@ module Jazz.Compiler.Force
     forceCompiledModules,
     forceCompiledProgramResult,
     forceDiagnostic,
-    forceExpr,
+    forceLoweredExpr,
+    forceResolvedExpr,
     forceInferenceResult,
     forceListWith,
     forceLoweredProgram,
@@ -24,7 +27,7 @@ where
 
 import Control.DeepSeq (rnf)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (Expr)
+import Jazz.Compiler.AST (CorePhase (Lowered, Resolved), Expr)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.LoweredIR (LoweredProgram)
@@ -38,8 +41,11 @@ import Jazz.Compiler.Runtime.Types (RuntimeValue)
 import Jazz.Compiler.TypeInference.Result (InferenceResult)
 import qualified Jazz.Compiler.TypedCore as Typed
 
-forceExpr :: Expr -> ()
-forceExpr = rnf
+forceLoweredExpr :: Expr 'Lowered -> ()
+forceLoweredExpr = rnf
+
+forceResolvedExpr :: Expr 'Resolved -> ()
+forceResolvedExpr = rnf
 
 forceTokens :: [Token] -> ()
 forceTokens = rnf

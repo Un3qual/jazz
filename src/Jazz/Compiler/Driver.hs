@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 
 -- | Compiler driver that coordinates parsing, prelude injection, module
@@ -41,13 +42,16 @@ module Jazz.Compiler.Driver
 where
 
 import Control.Exception (evaluate)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (..),
+    Expr (..),
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -70,6 +74,7 @@ import Jazz.Compiler.ModuleCompiler
   ( compilePreparedPrelude,
     compileResolvedProgram,
   )
+import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleInterface
   ( CompiledProgram (..),
     compileInputs,
@@ -78,6 +83,7 @@ import Jazz.Compiler.ModuleInterface
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
     resolveProgramWithAmbientExports,
+    resolveStandaloneExprNames,
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
@@ -114,6 +120,7 @@ import Jazz.Compiler.RuntimeHost
   )
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
+    prependLoweredStatements,
     scopeStatements,
   )
 import Jazz.Compiler.TypeInference
@@ -192,17 +199,17 @@ runRuntimeErrors =
 
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
-compileExpr :: WarningSettings -> Expr -> IO CompileResult
+compileExpr :: WarningSettings -> Expr 'Lowered -> IO CompileResult
 compileExpr = compileExprWithBuiltins ResolveKernelOnly
 
-compileExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr -> IO CompileResult
+compileExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Lowered -> IO CompileResult
 compileExprWithBuiltins = compileExprWithBuiltinsAndHiddenStatements Set.empty
 
 compileExprWithBuiltinsAndHiddenStatements ::
   Set Int ->
   BuiltinResolutionMode ->
   WarningSettings ->
-  Expr ->
+  Expr 'Lowered ->
   IO CompileResult
 compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr =
   compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices hiddenStatementIndices builtinMode settings expr
@@ -212,7 +219,7 @@ compileExprWithBuiltinsAndSourceUnitStatements ::
   Set Int ->
   BuiltinResolutionMode ->
   WarningSettings ->
-  Expr ->
+  Expr 'Lowered ->
   IO CompileResult
 compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
   (diagnostics, _, _) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr
@@ -305,10 +312,10 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
   Set Int ->
   BuiltinResolutionMode ->
   WarningSettings ->
-  Expr ->
+  Expr 'Lowered ->
   IO RunResult
 runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
-  (compilePhaseDiagnostics, canonicalExpr, runtimeTypeHints) <-
+  (compilePhaseDiagnostics, maybeCanonicalExpr, runtimeTypeHints) <-
     analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr
   if any isErrorDiagnostic compilePhaseDiagnostics
     then
@@ -318,16 +325,24 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
             runExecution = RunNotExecuted,
             runRuntimeObservation = Nothing
           }
-    else do
-      runtimeResult <-
-        evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
-          observationRequest
-          host
-          preludeStatementIndices
-          builtinMode
-          runtimeTypeHints
-          canonicalExpr
-      pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
+    else case maybeCanonicalExpr of
+      Just canonicalExpr -> do
+        runtimeResult <-
+          evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
+            observationRequest
+            host
+            preludeStatementIndices
+            builtinMode
+            runtimeTypeHints
+            canonicalExpr
+        pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
+      Nothing ->
+        pure
+          RunResult
+            { runDiagnostics = compilePhaseDiagnostics,
+              runExecution = RunNotExecuted,
+              runRuntimeObservation = Nothing
+            }
 
 runSource :: WarningSettings -> Text -> IO RunResult
 runSource = runSourceObserved RuntimeObservationDisabled
@@ -573,21 +588,25 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
 
 -- | Run inference/canonicalization and retain the canonical diagnostic order
 -- for downstream compile/run results.
-analyzeForDriver :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr -> IO ([Diagnostic], Expr, Map BindingRuntimeHintKey SignatureType)
+analyzeForDriver :: Set Int -> Set Int -> BuiltinResolutionMode -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Maybe (Expr 'Resolved), Map BindingRuntimeHintKey (SignatureType 'Resolved))
 analyzeForDriver hiddenStatementIndices preludeStatementIndices builtinMode settings expr = do
-  inference <-
-    withCompilerStageResult
-      TypeInferenceStage
-      (evaluate . forceInferenceResult)
-      ( inferExpressionWithBuiltinsAndSourceUnitStatements
-          builtinMode
-          hiddenStatementIndices
-          preludeStatementIndices
-          settings
-          expr
-      )
-  let diagnostics = inferredDiagnostics inference
-  pure (diagnostics, inferredExpr inference, inferredRuntimeTypeHints inference)
+  case resolveStandaloneExprNames builtinMode (exportInventory []) expr of
+    Left diagnostics ->
+      pure (NonEmpty.toList diagnostics, Nothing, Map.empty)
+    Right resolvedExpr -> do
+      inference <-
+        withCompilerStageResult
+          TypeInferenceStage
+          (evaluate . forceInferenceResult)
+          ( inferExpressionWithBuiltinsAndSourceUnitStatements
+              builtinMode
+              hiddenStatementIndices
+              preludeStatementIndices
+              settings
+              resolvedExpr
+          )
+      let diagnostics = inferredDiagnostics inference
+      pure (diagnostics, Just (inferredExpr inference), inferredRuntimeTypeHints inference)
 
 -- | Parse the incoming source and splice in prelude statements when required,
 -- tracking which synthetic statements should stay hidden from user diagnostics.
@@ -597,7 +616,7 @@ parseAndLowerSource resolvedPrelude source = do
   preparedPrelude <- preparePrelude resolvedPrelude
   pure (mergePreparedPrelude preparedPrelude loweredSource)
 
-mergePreparedPrelude :: PreparedPrelude -> Expr -> ParsedProgram
+mergePreparedPrelude :: PreparedPrelude -> Expr 'Lowered -> ParsedProgram
 mergePreparedPrelude preparedPrelude loweredSource =
   case preparedPreludeExpr preparedPrelude of
     Nothing ->
@@ -609,8 +628,7 @@ mergePreparedPrelude preparedPrelude loweredSource =
         }
     Just loweredPrelude ->
       let preludeStatements = scopeStatements loweredPrelude
-          combinedExpr =
-            EBlock (preludeStatements ++ scopeStatements loweredSource)
+          combinedExpr = prependLoweredStatements preludeStatements loweredSource
           preludeStatementIndices = Set.fromList [0 .. length preludeStatements - 1]
        in ParsedProgram
             { parsedExpr = combinedExpr,
@@ -622,7 +640,7 @@ mergePreparedPrelude preparedPrelude loweredSource =
 -- | Lowered program paired with statement indices that came from synthetic
 -- bundled prelude source.
 data ParsedProgram = ParsedProgram
-  { parsedExpr :: Expr,
+  { parsedExpr :: Expr 'Lowered,
     parsedHiddenStatementIndices :: Set Int,
     parsedPreludeStatementIndices :: Set Int,
     parsedBuiltinMode :: BuiltinResolutionMode

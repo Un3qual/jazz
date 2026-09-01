@@ -1,50 +1,56 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.EqualityOperator
   ( basicEqualityTests,
     primitiveMismatchTests,
     structuralEqualityTests,
-    operatorTests
+    operatorTests,
   )
 where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..)
+  ( CorePhase (Lowered),
+    Expr,
+    Literal (..),
   )
 import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( bundledPreludeSource,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( CompileResult,
     compileErrors,
     compileExpr,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
   )
 import Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
   ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
-    mkProgram
+    mkProgram,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredBinary,
+    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
 import System.Timeout
-  ( timeout
+  ( timeout,
   )
 
 basicEqualityTests :: [NamedTest]
@@ -260,10 +266,13 @@ testSourcePipelineAcceptsStructuralEqualitySections =
 
 testSourcePipelineRejectsStructuralFunctionEquality :: IO ()
 testSourcePipelineRejectsStructuralFunctionEquality = do
-  result <- compileSource defaultWarningSettings """
-  f = \\(x) -> x.
-  x = [f] == [f].
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      f = \\(x) -> x.
+      x = [f] == [f].
+      """
   assertSingleDiagnosticContains
     "function-valued structural equality code"
     "E2004"
@@ -275,13 +284,16 @@ testSourcePipelineRejectsStructuralFunctionEquality = do
 
 testSourcePipelineRejectsStructuralAdtFunctionEquality :: IO ()
 testSourcePipelineRejectsStructuralAdtFunctionEquality = do
-  result <- compileSource defaultWarningSettings """
-  data Box a = Box a.
-  f = \\(x) -> x.
-  left = Box f.
-  right = Box f.
-  x = left == right.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      data Box a = Box a.
+      f = \\(x) -> x.
+      left = Box f.
+      right = Box f.
+      x = left == right.
+      """
   assertSingleDiagnosticContains
     "function-valued ADT equality code"
     "E2004"
@@ -475,10 +487,13 @@ testSourcePipelineAcceptsDeclaredUserOperatorValueApplication =
 
 testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding :: IO ()
 testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding = do
-  result <- compileSource defaultWarningSettings """
-  operator %% tier 2.
-  x = 1 %% 2.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      x = 1 %% 2.
+      """
   assertSingleDiagnosticContains
     "declared user operator missing binding code"
     "E2010"
@@ -490,11 +505,14 @@ testSourcePipelineRejectsDeclaredUserOperatorWithoutBinding = do
 
 testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding :: IO ()
 testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding = do
-  result <- compileSource defaultWarningSettings """
-  operator %% tier 2.
-  (%%) = 1.
-  x = 1 %% 2.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      operator %% tier 2.
+      (%%) = 1.
+      x = 1 %% 2.
+      """
   assertSingleDiagnosticContains
     "declared user operator non-callable binding code"
     "E2006"
@@ -504,22 +522,22 @@ testSourcePipelineRejectsNonCallableDeclaredUserOperatorBinding = do
     "cannot apply function of type"
     (compileErrors result)
 
-intEqualityProgram :: Expr
+intEqualityProgram :: Expr 'Lowered
 intEqualityProgram =
-  mkProgram (EBinary "==" (ELit (LInt 1)) (ELit (LInt 1)))
+  mkProgram (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 1)))
 
-boolEqualityProgram :: Expr
+boolEqualityProgram :: Expr 'Lowered
 boolEqualityProgram =
-  mkProgram (EBinary "==" (ELit (LBool True)) (ELit (LBool False)))
+  mkProgram (loweredBinary "==" (loweredLiteral (LBool True)) (loweredLiteral (LBool False)))
 
-equalityTypeMismatchProgram :: Expr
+equalityTypeMismatchProgram :: Expr 'Lowered
 equalityTypeMismatchProgram =
-  mkProgram (EBinary "==" (ELit (LInt 1)) (ELit (LBool True)))
+  mkProgram (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True)))
 
-inequalityTypeMismatchProgram :: Expr
+inequalityTypeMismatchProgram :: Expr 'Lowered
 inequalityTypeMismatchProgram =
-  mkProgram (EBinary "!=" (ELit (LBool True)) (ELit (LInt 1)))
+  mkProgram (loweredBinary "!=" (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)))
 
-comparisonTypeMismatchProgram :: Expr
+comparisonTypeMismatchProgram :: Expr 'Lowered
 comparisonTypeMismatchProgram =
-  mkProgram (EBinary "<" (ELit (LBool True)) (ELit (LBool False)))
+  mkProgram (loweredBinary "<" (loweredLiteral (LBool True)) (loweredLiteral (LBool False)))

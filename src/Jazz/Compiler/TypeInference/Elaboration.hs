@@ -1,3 +1,6 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+
 -- | Opt-in, deliberately narrow typed-core production support.  The ordinary
 -- inference path does not retain these values; they are used only by the
 -- explicit resolved-module producer.
@@ -28,9 +31,9 @@ module Jazz.Compiler.TypeInference.Elaboration
 where
 
 import qualified Data.Set as Set
-import Jazz.Compiler.AST (CaseArm (..), Expr (..), ImplMethod (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), CorePhase (..), Expr (..), ImplMethod (..), Pattern (..), Statement (..))
 import Jazz.Compiler.Name
-  ( Name,
+  ( ResolvedName,
     operatorBindingName,
   )
 import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
@@ -67,35 +70,35 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
 -- rejected expression cannot erase dependency evidence. Scope separately
 -- transports canonical recursive-group membership after applying declaration
 -- position, rebinding, outer-binding, and lexical-shadow semantics.
-expressionDependencyNames :: Expr -> Set.Set Name
+expressionDependencyNames :: Expr 'Resolved -> Set.Set ResolvedName
 expressionDependencyNames = go
   where
     go expression =
       case expression of
         ELit {} -> Set.empty
-        EVar name -> Set.singleton name
-        ELambda parameterName body -> Set.delete parameterName (go body)
-        EOperatorValue operatorSymbol -> operatorDependencies operatorSymbol
-        EList elements -> foldMap go elements
-        ETuple elements -> foldMap go elements
-        EApply function argument -> go function <> go argument
-        ETypeApplication function _ _ -> go function
-        EIf condition thenExpression elseExpression ->
+        EVar _ name -> Set.singleton name
+        ELambda _ parameterName body -> Set.delete parameterName (go body)
+        EOperatorValue _ operatorSymbol -> operatorDependencies operatorSymbol
+        EList _ elements -> foldMap go elements
+        ETuple _ elements -> foldMap go elements
+        EApply _ function argument -> go function <> go argument
+        ETypeApplication _ function _ _ -> go function
+        EIf _ condition thenExpression elseExpression ->
           go condition <> go thenExpression <> go elseExpression
-        EPatternCase scrutinee arms -> go scrutinee <> foldMap armDependencies arms
-        EBinary operatorSymbol left right ->
+        EPatternCase _ scrutinee arms -> go scrutinee <> foldMap armDependencies arms
+        EBinary _ operatorSymbol left right ->
           operatorDependencies operatorSymbol <> go left <> go right
-        ESectionLeft left operatorSymbol -> operatorDependencies operatorSymbol <> go left
-        ESectionRight operatorSymbol right -> operatorDependencies operatorSymbol <> go right
-        EBlock statements -> blockDependencies Set.empty statements
-    armDependencies (CaseArm patternValue maybeGuard result) =
+        ESectionLeft _ left operatorSymbol -> operatorDependencies operatorSymbol <> go left
+        ESectionRight _ operatorSymbol right -> operatorDependencies operatorSymbol <> go right
+        EBlock _ statements -> blockDependencies Set.empty statements
+    armDependencies (CaseArm _ patternValue maybeGuard result) =
       let boundNames = patternBindingNames patternValue
        in (maybe Set.empty go maybeGuard <> go result) Set.\\ boundNames
     methodDependencies (ImplMethod _ _ body) = go body
     blockDependencies _ [] = Set.empty
     blockDependencies lexicalNames (statement : rest) =
       case statement of
-        SLet name _ initializer ->
+        SLet _ name initializer ->
           (go initializer Set.\\ lexicalNames)
             <> blockDependencies (Set.insert name lexicalNames) rest
         SExpr _ result ->
@@ -106,15 +109,15 @@ expressionDependencyNames = go
         _ -> blockDependencies lexicalNames rest
     patternBindingNames patternValue =
       case patternValue of
-        PWildcard -> Set.empty
-        PVariable name -> Set.singleton name
+        PWildcard _ -> Set.empty
+        PVariable _ name -> Set.singleton name
         PLiteral {} -> Set.empty
-        PConstructor _ fields -> foldMap patternBindingNames fields
-        PList elements -> foldMap patternBindingNames elements
-        PConsList headPattern tailPattern -> patternBindingNames headPattern <> patternBindingNames tailPattern
-        PTuple elements -> foldMap patternBindingNames elements
-        PAs name nested -> Set.insert name (patternBindingNames nested)
-        POr alternatives -> foldMap patternBindingNames alternatives
+        PConstructor _ _ fields -> foldMap patternBindingNames fields
+        PList _ elements -> foldMap patternBindingNames elements
+        PConsList _ headPattern tailPattern -> patternBindingNames headPattern <> patternBindingNames tailPattern
+        PTuple _ elements -> foldMap patternBindingNames elements
+        PAs _ name nested -> Set.insert name (patternBindingNames nested)
+        POr _ alternatives -> foldMap patternBindingNames alternatives
     operatorDependencies operatorSymbol
       | isBuiltinOperatorSymbol operatorSymbol = Set.empty
       | otherwise = Set.singleton (operatorBindingName operatorSymbol)

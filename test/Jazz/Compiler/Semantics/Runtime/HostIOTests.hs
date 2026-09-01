@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.HostIOTests
@@ -24,13 +25,9 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    Expr (..),
-    ImplMethod (..),
+  ( CorePhase (Resolved),
+    Expr,
     Literal (..),
-    Pattern (..),
-    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
@@ -40,7 +37,7 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSourceWithPreludeAndHost,
   )
-import Jazz.Compiler.Name (Name, qualifiedName)
+import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
 import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
@@ -70,6 +67,7 @@ import Jazz.Compiler.RuntimeHost
     hostIOFailureMessage,
     productionRuntimeHost,
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -128,23 +126,23 @@ hostIOTests =
 testHostTailRecursionIsStackSafe :: IO ()
 testHostTailRecursionIsStackSafe = do
   callsRef <- newIORef []
-  let isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+  let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       decrement =
-        EApply
-          (EVar "countDown!")
-          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
+        expressionApply
+          (expressionVariable "countDown!")
+          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
       expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "countDown!"
               (SourceSpan 1 1)
-              (ELambda "remaining" (EIf isZero (ELit (LInt 0)) decrement)),
-            SExpr
+              (expressionLambda "remaining" (expressionIf isZero (expressionLiteral (LInt 0)) decrement)),
+            statementExpression
               (SourceSpan 2 1)
-              (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "before")]),
-            SExpr
+              (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "before")]),
+            statementExpression
               (SourceSpan 3 1)
-              (EApply (EVar "countDown!") (ELit (LInt 20000)))
+              (expressionApply (expressionVariable "countDown!") (expressionLiteral (LInt 20000)))
           ]
   maybeOutcome <-
     timeout
@@ -165,11 +163,11 @@ testHostAwareEvaluatorPreservesPureExpressions = do
   mapM_ assertPreserved expressions
   where
     expressions =
-      [ EBinary "+" (ELit (LInt 20)) (ELit (LInt 22)),
-        EApply (ELambda "itemValue" (EBinary "+" (EVar "itemValue") (ELit (LInt 2)))) (ELit (LInt 40)),
-        EBlock
-          [ SLet "itemValue" (SourceSpan 1 1) (ELit (LInt 40)),
-            SExpr (SourceSpan 2 1) (EBinary "+" (EVar "itemValue") (ELit (LInt 2)))
+      [ expressionBinary "+" (expressionLiteral (LInt 20)) (expressionLiteral (LInt 22)),
+        expressionApply (expressionLambda "itemValue" (expressionBinary "+" (expressionVariable "itemValue") (expressionLiteral (LInt 2)))) (expressionLiteral (LInt 40)),
+        expressionBlock
+          [ statementLet "itemValue" (SourceSpan 1 1) (expressionLiteral (LInt 40)),
+            statementExpression (SourceSpan 2 1) (expressionBinary "+" (expressionVariable "itemValue") (expressionLiteral (LInt 2)))
           ]
       ]
 
@@ -206,13 +204,13 @@ data HostCall
 testHostIntrinsicsReturnRawValues :: IO ()
 testHostIntrinsicsReturnRawValues = do
   let expressions =
-        [ hostCall "__kernel_readTextRaw!" [ELit (LText "source.jz")],
-          hostCall "__kernel_writeTextRaw!" [ELit (LText "output.txt"), ELit (LText "Jazz")],
-          hostCall "__kernel_readStdinRaw!" [ETuple []],
-          hostCall "__kernel_writeStdoutRaw!" [ELit (LText "out")],
-          hostCall "__kernel_writeStderrRaw!" [ELit (LText "err")],
-          hostCall "__kernel_arguments!" [ETuple []],
-          hostCall "__kernel_exit!" [ELit (LInt 7)]
+        [ hostCall "__kernel_readTextRaw!" [expressionLiteral (LText "source.jz")],
+          hostCall "__kernel_writeTextRaw!" [expressionLiteral (LText "output.txt"), expressionLiteral (LText "Jazz")],
+          hostCall "__kernel_readStdinRaw!" [expressionTuple []],
+          hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "out")],
+          hostCall "__kernel_writeStderrRaw!" [expressionLiteral (LText "err")],
+          hostCall "__kernel_arguments!" [expressionTuple []],
+          hostCall "__kernel_exit!" [expressionLiteral (LInt 7)]
         ]
       (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
   assertEqual
@@ -255,7 +253,7 @@ testHostFailuresNormalizeEveryCategory =
 
     assertCategory category = do
       let host = deterministicHost {runtimeHostReadText = \_ -> pure (Left (HostIOFailure category "host-specific detail"))}
-          expression = hostCall "__kernel_readTextRaw!" [ELit (LText "missing.jz")]
+          expression = hostCall "__kernel_readTextRaw!" [expressionLiteral (LText "missing.jz")]
           actual = runIdentity (evaluateRuntimeExprWithHost host expression)
           expected = Right (Just (rawFailure category))
       assertEqual
@@ -266,20 +264,20 @@ testHostFailuresNormalizeEveryCategory =
 testHostEffectsExecuteAtSelectedExpressionDepth :: IO ()
 testHostEffectsExecuteAtSelectedExpressionDepth = do
   let expressions =
-        [ EApply
-            (ELambda "itemValue" (hostCall "__kernel_writeStdoutRaw!" [EVar "itemValue"]))
-            (ELit (LText "closure")),
-          EIf
-            (ELit (LBool False))
-            (hostCall "__kernel_writeStderrRaw!" [ELit (LText "skipped")])
-            (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "branch")]),
-          EPatternCase
-            (ELit (LBool True))
-            [ CaseArm (PLiteral (LBool True)) Nothing (hostCall "__kernel_writeStderrRaw!" [ELit (LText "arm")]),
-              CaseArm PWildcard Nothing (hostCall "__kernel_writeStderrRaw!" [ELit (LText "fallback")])
+        [ expressionApply
+            (expressionLambda "itemValue" (hostCall "__kernel_writeStdoutRaw!" [expressionVariable "itemValue"]))
+            (expressionLiteral (LText "closure")),
+          expressionIf
+            (expressionLiteral (LBool False))
+            (hostCall "__kernel_writeStderrRaw!" [expressionLiteral (LText "skipped")])
+            (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "branch")]),
+          expressionPatternCase
+            (expressionLiteral (LBool True))
+            [ caseArm (patternLiteral (LBool True)) Nothing (hostCall "__kernel_writeStderrRaw!" [expressionLiteral (LText "arm")]),
+              caseArm patternWildcard Nothing (hostCall "__kernel_writeStderrRaw!" [expressionLiteral (LText "fallback")])
             ],
-          EBlock
-            [ SExpr (SourceSpan 1 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "block")])
+          expressionBlock
+            [ statementExpression (SourceSpan 1 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "block")])
             ]
         ]
       (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
@@ -299,21 +297,21 @@ testHostEffectsExecuteAtSelectedExpressionDepth = do
 testHostDependentFunctionSelector :: IO ()
 testHostDependentFunctionSelector = do
   let selector =
-        EBinary
+        expressionBinary
           "=="
-          (hostCall "__kernel_arguments!" [ETuple []])
-          (EList [ELit (LText "one"), ELit (LText "two")])
+          (hostCall "__kernel_arguments!" [expressionTuple []])
+          (expressionList [expressionLiteral (LText "one"), expressionLiteral (LText "two")])
       expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "choose!"
               (SourceSpan 1 1)
-              ( EIf
+              ( expressionIf
                   selector
-                  (ELambda "ignored" (ELit (LInt 1)))
-                  (ELambda "ignored" (ELit (LInt 2)))
+                  (expressionLambda "ignored" (expressionLiteral (LInt 1)))
+                  (expressionLambda "ignored" (expressionLiteral (LInt 2)))
               ),
-            SExpr (SourceSpan 2 1) (EApply (EVar "choose!") (ETuple []))
+            statementExpression (SourceSpan 2 1) (expressionApply (expressionVariable "choose!") (expressionTuple []))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertEqual "host-selected closure result" (Right (Just "1")) (fmap (fmap renderRuntimeValue) result)
@@ -321,20 +319,20 @@ testHostDependentFunctionSelector = do
 
 testHostScopePreservesMutualRecursion :: IO ()
 testHostScopePreservesMutualRecursion = do
-  let decrement name = EApply (EVar name) (EBinary "-" (EVar "itemValue") (ELit (LInt 1)))
-      isZero = EBinary "==" (EVar "itemValue") (ELit (LInt 0))
+  let decrement name = expressionApply (expressionVariable name) (expressionBinary "-" (expressionVariable "itemValue") (expressionLiteral (LInt 1)))
+      isZero = expressionBinary "==" (expressionVariable "itemValue") (expressionLiteral (LInt 0))
       expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "even"
               (SourceSpan 1 1)
-              (ELambda "itemValue" (EIf isZero (ELit (LBool True)) (decrement "odd"))),
-            SLet
+              (expressionLambda "itemValue" (expressionIf isZero (expressionLiteral (LBool True)) (decrement "odd"))),
+            statementLet
               "odd"
               (SourceSpan 2 1)
-              (ELambda "itemValue" (EIf isZero (ELit (LBool False)) (decrement "even"))),
-            SExpr (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "once")]),
-            SExpr (SourceSpan 4 1) (EApply (EVar "even") (ELit (LInt 4)))
+              (expressionLambda "itemValue" (expressionIf isZero (expressionLiteral (LBool False)) (decrement "even"))),
+            statementExpression (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "once")]),
+            statementExpression (SourceSpan 4 1) (expressionApply (expressionVariable "even") (expressionLiteral (LInt 4)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertRuntimeBool "mutually recursive result" True result
@@ -342,30 +340,30 @@ testHostScopePreservesMutualRecursion = do
 
 testHostScopePreservesHostfulRecursivePeers :: IO ()
 testHostScopePreservesHostfulRecursivePeers = do
-  let decrement name = EApply (EVar name) (EBinary "-" (EVar "itemValue") (ELit (LInt 1)))
-      isZero = EBinary "==" (EVar "itemValue") (ELit (LInt 0))
+  let decrement name = expressionApply (expressionVariable name) (expressionBinary "-" (expressionVariable "itemValue") (expressionLiteral (LInt 1)))
+      isZero = expressionBinary "==" (expressionVariable "itemValue") (expressionLiteral (LInt 0))
       expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "even!"
               (SourceSpan 1 1)
-              ( ELambda
+              ( expressionLambda
                   "itemValue"
-                  ( EIf
+                  ( expressionIf
                       isZero
-                      (ELit (LBool True))
-                      ( EBlock
-                          [ SExpr (SourceSpan 2 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "even")]),
-                            SExpr (SourceSpan 3 1) (decrement "odd!")
+                      (expressionLiteral (LBool True))
+                      ( expressionBlock
+                          [ statementExpression (SourceSpan 2 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "even")]),
+                            statementExpression (SourceSpan 3 1) (decrement "odd!")
                           ]
                       )
                   )
               ),
-            SLet
+            statementLet
               "odd!"
               (SourceSpan 4 1)
-              (ELambda "itemValue" (EIf isZero (ELit (LBool False)) (decrement "even!"))),
-            SExpr (SourceSpan 5 1) (EApply (EVar "even!") (ELit (LInt 2)))
+              (expressionLambda "itemValue" (expressionIf isZero (expressionLiteral (LBool False)) (decrement "even!"))),
+            statementExpression (SourceSpan 5 1) (expressionApply (expressionVariable "even!") (expressionLiteral (LInt 2)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertRuntimeBool "hostful mutually recursive result" True result
@@ -374,37 +372,37 @@ testHostScopePreservesHostfulRecursivePeers = do
 testHostImplMethodSelector :: IO ()
 testHostImplMethodSelector = do
   let selector =
-        EBinary
+        expressionBinary
           "=="
-          (hostCall "__kernel_arguments!" [ETuple []])
-          (EList [ELit (LText "one"), ELit (LText "two")])
+          (hostCall "__kernel_arguments!" [expressionTuple []])
+          (expressionList [expressionLiteral (LText "one"), expressionLiteral (LText "two")])
       expression =
-        EBlock
-          [ SClass
+        expressionBlock
+          [ statementClass
               (SourceSpan 1 1)
               "RuntimePick"
               ["a"]
-              [ ClassMethodSignature
+              [ classMethodSignature
                   "pick"
                   (SourceSpan 2 1)
-                  (ConstrainedSignature [] (TypeFunction (TypeVariable "a") TypeBool))
+                  (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") TypeBool))
               ],
-            SImpl
+            statementImpl
               (SourceSpan 3 1)
               "RuntimePick"
               [TypeInt]
-              [ ImplMethod
+              [ implMethod
                   "pick"
                   (SourceSpan 4 1)
-                  ( EIf
+                  ( expressionIf
                       selector
-                      (ELambda "ignored" (ELit (LBool True)))
-                      (ELambda "ignored" (ELit (LBool False)))
+                      (expressionLambda "ignored" (expressionLiteral (LBool True)))
+                      (expressionLambda "ignored" (expressionLiteral (LBool False)))
                   )
               ],
-            SExpr
+            statementExpression
               (SourceSpan 5 1)
-              (EApply (EVar (qualifiedName "RuntimePick" "pick")) (ELit (LInt 1)))
+              (expressionApply (expressionVariable (qualifiedName "RuntimePick" "pick")) (expressionLiteral (LInt 1)))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertRuntimeBool "host-selected impl method result" True result
@@ -413,11 +411,11 @@ testHostImplMethodSelector = do
 testHostScopePreservesBindingSignatureHints :: IO ()
 testHostScopePreservesBindingSignatureHints = do
   let expression =
-        EBlock
-          [ SSignature "itemValue" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
-            SLet "itemValue" (SourceSpan 2 1) (ELit (LInt 1)),
-            SExpr (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "once")]),
-            SExpr (SourceSpan 4 1) (EVar "itemValue")
+        expressionBlock
+          [ statementSignature "itemValue" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
+            statementLet "itemValue" (SourceSpan 2 1) (expressionLiteral (LInt 1)),
+            statementExpression (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "once")]),
+            statementExpression (SourceSpan 4 1) (expressionVariable "itemValue")
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertEqual "signature host call" [WriteStdoutCall "once"] calls
@@ -432,10 +430,10 @@ testHostScopePreservesBindingSignatureHints = do
 testHostDependencyScopeKeepsUnusedBindingLazy :: IO ()
 testHostDependencyScopeKeepsUnusedBindingLazy = do
   let statements =
-        [ SLet
+        [ statementLet
             "unused!"
             (SourceSpan 1 1)
-            (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "unused")])
+            (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "unused")])
         ]
       (result, calls) =
         runState
@@ -455,15 +453,15 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
 testHostDependencyBindingIsShared :: IO ()
 testHostDependencyBindingIsShared = do
   let dependencyStatements =
-        [ SLet
+        [ statementLet
             "token!"
             (SourceSpan 1 1)
-            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+            (hostCall "__kernel_readStdinRaw!" [expressionTuple []])
         ]
       entryStatements =
-        [ SExpr
+        [ statementExpression
             (SourceSpan 2 1)
-            (ETuple [EVar "token!", EVar "token!"])
+            (expressionTuple [expressionVariable "token!", expressionVariable "token!"])
         ]
       action = do
         dependencyResult <-
@@ -493,27 +491,27 @@ testHostDependencyBindingIsShared = do
 testHostMapCallbackPreservesActiveHostCacheAndEffectOrder :: IO ()
 testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
   let mapper =
-        ELambda
+        expressionLambda
           "label"
-          ( EBlock
-              [ SExpr
+          ( expressionBlock
+              [ statementExpression
                   (SourceSpan 2 1)
-                  (hostCall "__kernel_writeStdoutRaw!" [EVar "label"]),
-                SExpr (SourceSpan 3 1) (EVar "token!")
+                  (hostCall "__kernel_writeStdoutRaw!" [expressionVariable "label"]),
+                statementExpression (SourceSpan 3 1) (expressionVariable "token!")
               ]
           )
       dependencyStatements =
-        [ SLet
+        [ statementLet
             "token!"
             (SourceSpan 1 1)
-            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+            (hostCall "__kernel_readStdinRaw!" [expressionTuple []])
         ]
       entryStatements =
-        [ SExpr
+        [ statementExpression
             (SourceSpan 4 1)
-            ( EApply
-                (EApply (EVar "__kernel_map") mapper)
-                (EList [ELit (LText "first"), ELit (LText "second")])
+            ( expressionApply
+                (expressionApply (expressionVariable "__kernel_map") mapper)
+                (expressionList [expressionLiteral (LText "first"), expressionLiteral (LText "second")])
             )
         ]
       action =
@@ -554,12 +552,12 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
 testPublicHostScopeKeepsImportedDeferredCellOnActiveHost :: IO ()
 testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
   let dependencyStatements =
-        [ SLet
+        [ statementLet
             "token!"
             (SourceSpan 1 1)
-            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+            (hostCall "__kernel_readStdinRaw!" [expressionTuple []])
         ]
-      entryStatements = [SExpr (SourceSpan 2 1) (EVar "token!")]
+      entryStatements = [statementExpression (SourceSpan 2 1) (expressionVariable "token!")]
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
@@ -594,21 +592,21 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
 testHostDependencyScopeKeepsDeferredCellsOnActiveHost :: IO ()
 testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
   let dependencyStatements =
-        [ SLet
+        [ statementLet
             "token!"
             (SourceSpan 1 1)
-            (hostCall "__kernel_readStdinRaw!" [ETuple []])
+            (hostCall "__kernel_readStdinRaw!" [expressionTuple []])
         ]
       entryStatements =
-        [ SLet
+        [ statementLet
             "selected"
             (SourceSpan 2 1)
-            (EIf (ELit (LBool True)) (EVar "token!") (EVar "peer")),
-          SLet
+            (expressionIf (expressionLiteral (LBool True)) (expressionVariable "token!") (expressionVariable "peer")),
+          statementLet
             "peer"
             (SourceSpan 3 1)
-            (EVar "selected"),
-          SExpr (SourceSpan 4 1) (EVar "selected")
+            (expressionVariable "selected"),
+          statementExpression (SourceSpan 4 1) (expressionVariable "selected")
         ]
       action = do
         dependencyResult <-
@@ -649,8 +647,8 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
             { runtimeClosureEnvironment = Map.empty,
               runtimeClosureEnvironmentMayReachHostCells = False,
               runtimeClosureLambdaCaptureHints = emptyLambdaCaptureHints,
-              runtimeClosureParameter = "itemValue",
-              runtimeClosureBody = EVar "itemValue",
+              runtimeClosureParameter = fixtureValueName "itemValue",
+              runtimeClosureBody = expressionVariable "itemValue",
               runtimeClosureTypeHint = Nothing,
               runtimeClosureModulePath = Nothing,
               runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "itemValue"
@@ -660,9 +658,9 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
           (TypeFunction TypeInt TypeInt)
           (prependRuntimeExplicitResultHint (TypeNumeric NumericUInt8) identityClosure)
       statements =
-        [ SExpr
+        [ statementExpression
             (SourceSpan 1 1)
-            (EApply (EVar "convert") (ELit (LInt 200)))
+            (expressionApply (expressionVariable "convert") (expressionLiteral (LInt 200)))
         ]
       (result, calls) =
         runState
@@ -672,7 +670,7 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
               EvaluateEntryModule
               ResolveKernelOnly
               Map.empty
-              (Map.singleton "convert" (Right stackedFunction))
+              (Map.singleton (fixtureValueName "convert") (Right stackedFunction))
               statements
           )
           []
@@ -700,16 +698,16 @@ testHostDependencyBindingRetainsRuntimeHints = do
           (explicitTypeApplicationRuntimeHintKeyInModule (Just ["Dependency"]) typeArgumentSpan)
           (TypeFunction (TypeNumeric NumericUInt8) (TypeNumeric NumericUInt8))
       dependencyStatements =
-        [ SLet "identity" (SourceSpan 1 1) (ELambda "itemValue" (EVar "itemValue")),
-          SLet
+        [ statementLet "identity" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
+          statementLet
             "token!"
             (SourceSpan 2 1)
-            ( EApply
-                (ETypeApplication (EVar "identity") typeArgumentSpan TypeInt)
-                (ELit (LInt 1))
+            ( expressionApply
+                (expressionTypeApplication (expressionVariable "identity") typeArgumentSpan TypeInt)
+                (expressionLiteral (LInt 1))
             )
         ]
-      entryStatements = [SExpr (SourceSpan 3 1) (EVar "token!")]
+      entryStatements = [statementExpression (SourceSpan 3 1) (expressionVariable "token!")]
       action = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
@@ -749,7 +747,7 @@ testDirectRuntimeWrapperUsesDisabledHost = do
   let result =
         fmap
           (fmap renderRuntimeValue)
-          (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [ELit (LText "disabled.jz")]))
+          (evaluateRuntimeExpr (hostCall "__kernel_readTextRaw!" [expressionLiteral (LText "disabled.jz")]))
   assertEqual
     "disabled host raw failure"
     (fmap (fmap renderRuntimeValue) (Right (Just (rawFailure HostUnsupported))))
@@ -758,32 +756,32 @@ testDirectRuntimeWrapperUsesDisabledHost = do
 testHostBindingCacheSeparatesDynamicScopeInvocations :: IO ()
 testHostBindingCacheSeparatesDynamicScopeInvocations = do
   let expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "capture!"
               (SourceSpan 1 1)
-              ( ELambda
+              ( expressionLambda
                   "itemValue"
-                  ( EBlock
-                      [ SLet
+                  ( expressionBlock
+                      [ statementLet
                           "local!"
                           (SourceSpan 2 1)
-                          ( EBlock
-                              [ SExpr
+                          ( expressionBlock
+                              [ statementExpression
                                   (SourceSpan 3 1)
-                                  (hostCall "__kernel_writeStdoutRaw!" [EVar "itemValue"]),
-                                SExpr (SourceSpan 4 1) (EVar "itemValue")
+                                  (hostCall "__kernel_writeStdoutRaw!" [expressionVariable "itemValue"]),
+                                statementExpression (SourceSpan 4 1) (expressionVariable "itemValue")
                               ]
                           ),
-                        SExpr (SourceSpan 5 1) (EVar "local!")
+                        statementExpression (SourceSpan 5 1) (expressionVariable "local!")
                       ]
                   )
               ),
-            SExpr
+            statementExpression
               (SourceSpan 6 1)
-              ( ETuple
-                  [ EApply (EVar "capture!") (ELit (LText "first")),
-                    EApply (EVar "capture!") (ELit (LText "second"))
+              ( expressionTuple
+                  [ expressionApply (expressionVariable "capture!") (expressionLiteral (LText "first")),
+                    expressionApply (expressionVariable "capture!") (expressionLiteral (LText "second"))
                   ]
               )
           ]
@@ -800,34 +798,34 @@ testHostBindingCacheSeparatesDynamicScopeInvocations = do
 testHostZeroArgumentImplMethod :: IO ()
 testHostZeroArgumentImplMethod = do
   let expression =
-        EBlock
-          [ SClass
+        expressionBlock
+          [ statementClass
               (SourceSpan 1 1)
               "RuntimeFlag"
               ["a"]
-              [ ClassMethodSignature
+              [ classMethodSignature
                   "enabled!"
                   (SourceSpan 2 1)
                   (ConstrainedSignature [] TypeBool)
               ],
-            SImpl
+            statementImpl
               (SourceSpan 3 1)
               "RuntimeFlag"
               [TypeInt]
-              [ ImplMethod
+              [ implMethod
                   "enabled!"
                   (SourceSpan 4 1)
-                  ( EBlock
-                      [ SExpr
+                  ( expressionBlock
+                      [ statementExpression
                           (SourceSpan 5 1)
-                          (hostCall "__kernel_writeStdoutRaw!" [ELit (LText "enabled")]),
-                        SExpr (SourceSpan 6 1) (ELit (LBool True))
+                          (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "enabled")]),
+                        statementExpression (SourceSpan 6 1) (expressionLiteral (LBool True))
                       ]
                   )
               ],
-            SExpr
+            statementExpression
               (SourceSpan 7 1)
-              (EVar (qualifiedName "RuntimeFlag" "enabled!"))
+              (expressionVariable (qualifiedName "RuntimeFlag" "enabled!"))
           ]
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertRuntimeBool "zero-argument host method result" True result
@@ -835,7 +833,7 @@ testHostZeroArgumentImplMethod = do
 
 testDirectRuntimeWrapperRejectsDisabledExit :: IO ()
 testDirectRuntimeWrapperRejectsDisabledExit = do
-  let result = evaluateRuntimeExpr (hostCall "__kernel_exit!" [ELit (LInt 7)])
+  let result = evaluateRuntimeExpr (hostCall "__kernel_exit!" [expressionLiteral (LInt 7)])
   assertLeftDiagnosticContains "disabled exit code" "E3031" result
   assertLeftDiagnosticContains "disabled exit message" "operation unsupported" result
 
@@ -843,7 +841,7 @@ testExitRejectsInvalidStatus :: IO ()
 testExitRejectsInvalidStatus = do
   let (result, calls) =
         runState
-          (evaluateRuntimeExprWithHost statefulHost (hostCall "__kernel_exit!" [ELit (LInt 256)]))
+          (evaluateRuntimeExprWithHost statefulHost (hostCall "__kernel_exit!" [expressionLiteral (LInt 256)]))
           []
   assertLeftDiagnosticContains "invalid exit status" "E3030" result
   assertLeftDiagnosticContains "invalid exit status range" "range 0..255" result
@@ -944,8 +942,8 @@ statefulHost =
       modify (<> [call])
       pure result
 
-hostCall :: Name -> [Expr] -> Expr
-hostCall name = foldl EApply (EVar name)
+hostCall :: UnresolvedName -> [Expr 'Resolved] -> Expr 'Resolved
+hostCall name = foldl expressionApply (expressionVariable name)
 
 rawFailure :: HostIOCategory -> RuntimeValue
 rawFailure category =

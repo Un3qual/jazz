@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Lowers parser-surface nodes into the smaller core AST consumed by later
@@ -8,9 +9,11 @@ module Jazz.Compiler.Parser.Lower
     lowerSurfaceExpr,
     lowerSurfaceModuleDetailed,
     lowerSurfaceModule,
+    reindexLoweredExpr,
   )
 where
 
+import Control.Monad.Trans.State.Strict (State, evalState, state)
 import Data.Bifunctor (bimap)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -19,6 +22,10 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
+    CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Lowered),
+    CoreSort (ExpressionSort),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
@@ -51,7 +58,7 @@ import Jazz.Compiler.ModuleGraph
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
     Identifier,
-    Name,
+    UnresolvedName,
     generatedName,
     identifierText,
     isOperatorBindingIdentifierText,
@@ -99,7 +106,7 @@ data ModuleLoweringFailure
 
 -- | Validate and lower one parsed module exactly once. Module/import forms are
 -- retained as graph metadata and removed from the executable core scope.
-lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic CoreModule
+lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic (CoreModule 'Lowered)
 lowerSurfaceModule sourcePath expectedPath surfaceExpr =
   case lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr of
     Left failure -> Left (moduleLoweringFailureDiagnostic failure)
@@ -108,7 +115,7 @@ lowerSurfaceModule sourcePath expectedPath surfaceExpr =
 -- | Preserve the semantic inputs for the two module-lowering failures. The
 -- public compiler entry point above renders these into the existing E4005 and
 -- E4006 diagnostics, so production behavior remains unchanged.
-lowerSurfaceModuleDetailed :: FilePath -> [Text] -> SurfaceExpr -> Either ModuleLoweringFailure CoreModule
+lowerSurfaceModuleDetailed :: FilePath -> [Text] -> SurfaceExpr -> Either ModuleLoweringFailure (CoreModule 'Lowered)
 lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
   {-# SCC "jazz-stage:lowering" #-}
   do
@@ -151,9 +158,12 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
       ]
 
     loweredBody =
-      case surfaceExprForm surfaceExpr of
-        SEBlock _ -> EBlock (map lowerSurfaceStatement executableStatements)
-        _ -> lowerSurfaceExprWithoutCostCentre surfaceExpr
+      runLowering $
+        case surfaceExprForm surfaceExpr of
+          SEBlock _ -> do
+            node <- freshNode (surfaceExprSpan surfaceExpr)
+            EBlock node <$> traverse lowerSurfaceStatement executableStatements
+          _ -> lowerSurfaceExprWithoutCostCentre surfaceExpr
 
     validateDeclaration =
       case declarations of
@@ -199,149 +209,335 @@ moduleLoweringFailureDiagnostic failure =
   where
     renderModulePath = Text.intercalate "::"
 
-qualifyExprSourceSpans :: FilePath -> Expr -> Expr
+qualifyExprSourceSpans :: FilePath -> Expr 'Lowered -> Expr 'Lowered
 qualifyExprSourceSpans sourcePath expr =
   case expr of
-    ELit literal -> ELit literal
-    EVar name -> EVar name
-    ELambda parameter body -> ELambda parameter (go body)
-    EOperatorValue symbol -> EOperatorValue symbol
-    EList items -> EList (map go items)
-    ETuple items -> ETuple (map go items)
-    EApply function argument -> EApply (go function) (go argument)
-    ETypeApplication function spanValue signatureType -> ETypeApplication (go function) (qualifySpan spanValue) signatureType
-    EIf condition trueBranch falseBranch -> EIf (go condition) (go trueBranch) (go falseBranch)
-    EPatternCase scrutinee arms -> EPatternCase (go scrutinee) (map qualifyCaseArm arms)
-    EBinary symbol left right -> EBinary symbol (go left) (go right)
-    ESectionLeft left symbol -> ESectionLeft (go left) symbol
-    ESectionRight symbol right -> ESectionRight symbol (go right)
-    EBlock statements -> EBlock (map qualifyStatement statements)
+    ELit node literal -> ELit (qualifyNode node) literal
+    EVar node name -> EVar (qualifyNode node) name
+    ELambda node parameter body -> ELambda (qualifyNode node) parameter (go body)
+    EOperatorValue node symbol -> EOperatorValue (qualifyNode node) symbol
+    EList node items -> EList (qualifyNode node) (map go items)
+    ETuple node items -> ETuple (qualifyNode node) (map go items)
+    EApply node function argument -> EApply (qualifyNode node) (go function) (go argument)
+    ETypeApplication node function spanValue signatureType ->
+      ETypeApplication (qualifyNode node) (go function) (qualifySpan spanValue) signatureType
+    EIf node condition trueBranch falseBranch ->
+      EIf (qualifyNode node) (go condition) (go trueBranch) (go falseBranch)
+    EPatternCase node scrutinee arms ->
+      EPatternCase (qualifyNode node) (go scrutinee) (map qualifyCaseArm arms)
+    EBinary node symbol left right -> EBinary (qualifyNode node) symbol (go left) (go right)
+    ESectionLeft node left symbol -> ESectionLeft (qualifyNode node) (go left) symbol
+    ESectionRight node symbol right -> ESectionRight (qualifyNode node) symbol (go right)
+    EBlock node statements -> EBlock (qualifyNode node) (map qualifyStatement statements)
   where
     go = qualifyExprSourceSpans sourcePath
     qualifySpan = qualifySourceSpan sourcePath
+    qualifyNode (CoreNode nodeId spanValue ()) = CoreNode nodeId (qualifySpan spanValue) ()
 
-    qualifyCaseArm (CaseArm patternValue guardExpr bodyExpr) =
-      CaseArm patternValue (fmap go guardExpr) (go bodyExpr)
+    qualifyCaseArm (CaseArm node patternValue guardExpr bodyExpr) =
+      CaseArm (qualifyNode node) (qualifyPattern patternValue) (fmap go guardExpr) (go bodyExpr)
 
-    qualifyClassMethod (ClassMethodSignature name spanValue payload) =
-      ClassMethodSignature name (qualifySpan spanValue) payload
+    qualifyPattern patternValue =
+      case patternValue of
+        PWildcard node -> PWildcard (qualifyNode node)
+        PVariable node name -> PVariable (qualifyNode node) name
+        PLiteral node literal -> PLiteral (qualifyNode node) literal
+        PConstructor node name patterns -> PConstructor (qualifyNode node) name (map qualifyPattern patterns)
+        PList node patterns -> PList (qualifyNode node) (map qualifyPattern patterns)
+        PConsList node headPattern tailPattern ->
+          PConsList (qualifyNode node) (qualifyPattern headPattern) (qualifyPattern tailPattern)
+        PTuple node patterns -> PTuple (qualifyNode node) (map qualifyPattern patterns)
+        PAs node name nestedPattern -> PAs (qualifyNode node) name (qualifyPattern nestedPattern)
+        POr node alternatives -> POr (qualifyNode node) (map qualifyPattern alternatives)
 
-    qualifyImplMethod (ImplMethod name spanValue bodyExpr) =
-      ImplMethod name (qualifySpan spanValue) (go bodyExpr)
+    qualifyDataConstructor (DataConstructor node name fieldTypes) =
+      DataConstructor (qualifyNode node) name fieldTypes
+
+    qualifyClassMethod (ClassMethodSignature node name payload) =
+      ClassMethodSignature (qualifyNode node) name payload
+
+    qualifyImplMethod (ImplMethod node name bodyExpr) =
+      ImplMethod (qualifyNode node) name (go bodyExpr)
 
     qualifyStatement statement =
       case statement of
-        SLet name spanValue valueExpr -> SLet name (qualifySpan spanValue) (go valueExpr)
-        SSignature name spanValue payload -> SSignature name (qualifySpan spanValue) payload
-        SData spanValue name parameters constructors -> SData (qualifySpan spanValue) name parameters constructors
-        SClass spanValue name parameters methods ->
-          SClass (qualifySpan spanValue) name parameters (map qualifyClassMethod methods)
-        SImpl spanValue name arguments methods ->
-          SImpl (qualifySpan spanValue) name arguments (map qualifyImplMethod methods)
-        SModule spanValue path -> SModule (qualifySpan spanValue) path
-        SImport spanValue path alias symbols -> SImport (qualifySpan spanValue) path alias symbols
-        SExpr spanValue valueExpr -> SExpr (qualifySpan spanValue) (go valueExpr)
+        SLet node name valueExpr -> SLet (qualifyNode node) name (go valueExpr)
+        SSignature node name payload -> SSignature (qualifyNode node) name payload
+        SData node name parameters constructors ->
+          SData (qualifyNode node) name parameters (map qualifyDataConstructor constructors)
+        SClass node name parameters methods ->
+          SClass (qualifyNode node) name parameters (map qualifyClassMethod methods)
+        SImpl node name arguments methods ->
+          SImpl (qualifyNode node) name arguments (map qualifyImplMethod methods)
+        SModule node path -> SModule (qualifyNode node) path
+        SImport node path alias symbols -> SImport (qualifyNode node) path alias symbols
+        SExpr node valueExpr -> SExpr (qualifyNode node) (go valueExpr)
 
--- | Convert parser-surface nodes into core nodes. The current core AST does not
--- yet retain the surface-node locations; the phase-indexed core migration owns
--- that transition.
-lowerSurfaceExpr :: SurfaceExpr -> Expr
+-- | Convert parser-surface nodes into located lowered core. Node identities are
+-- allocated in strict source pre-order and every core node retains its source
+-- location.
+lowerSurfaceExpr :: SurfaceExpr -> Expr 'Lowered
 lowerSurfaceExpr surfaceExpr =
   {-# SCC "jazz-stage:lowering" #-}
-  lowerSurfaceExprWithoutCostCentre surfaceExpr
+  runLowering (lowerSurfaceExprWithoutCostCentre surfaceExpr)
 
-lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Expr
-lowerSurfaceExprWithoutCostCentre surfaceExpr =
-  case surfaceExprForm surfaceExpr of
-    SELit literal -> ELit (lowerSurfaceLiteral literal)
-    SEVar name -> EVar (sourceName name)
-    SEQualifiedVar qualifier member ->
-      EVar (qualifiedName qualifier member)
-    SELambda parameters bodyExpr ->
-      lowerSurfaceLambda parameters bodyExpr
-    SEPatternLambda clauses ->
-      lowerSurfacePatternLambda clauses
-    SEOperatorValue operatorSymbol -> EOperatorValue operatorSymbol
-    SEList elements ->
-      EList (map lowerSurfaceExprWithoutCostCentre elements)
-    SETuple elements ->
-      ETuple (map lowerSurfaceExprWithoutCostCentre elements)
-    SEApply functionExpr argumentExpr ->
-      EApply (lowerSurfaceExprWithoutCostCentre functionExpr) (lowerSurfaceExprWithoutCostCentre argumentExpr)
-    SETypeApplication functionExpr spanValue signatureType ->
-      ETypeApplication (lowerSurfaceExprWithoutCostCentre functionExpr) spanValue (lowerSurfaceSignatureType signatureType)
-    SEIf conditionExpr thenExpr elseExpr ->
+type Lowering = State CoreNodeId
+
+runLowering :: Lowering value -> value
+runLowering action = evalState action (CoreNodeId 0)
+
+freshNode :: SourceSpan -> Lowering (CoreNode 'Lowered sort)
+freshNode spanValue =
+  state $ \(CoreNodeId nextId) ->
+    (CoreNode (CoreNodeId nextId) spanValue (), CoreNodeId (nextId + 1))
+
+-- | Re-establish one deterministic identity space after independently lowered
+-- trees are composed. IDs are allocated before descendants, matching ordinary
+-- lowering's strict source pre-order while preserving every span and payload.
+reindexLoweredExpr :: Expr 'Lowered -> Expr 'Lowered
+reindexLoweredExpr = runLowering . reindexExpr
+
+reindexExpr :: Expr 'Lowered -> Lowering (Expr 'Lowered)
+reindexExpr expression =
+  case expression of
+    ELit node literal -> ELit <$> reindexNode node <*> pure literal
+    EVar node name -> EVar <$> reindexNode node <*> pure name
+    ELambda node parameter body ->
+      ELambda <$> reindexNode node <*> pure parameter <*> reindexExpr body
+    EOperatorValue node operatorSymbol ->
+      EOperatorValue <$> reindexNode node <*> pure operatorSymbol
+    EList node elements ->
+      EList <$> reindexNode node <*> traverse reindexExpr elements
+    ETuple node elements ->
+      ETuple <$> reindexNode node <*> traverse reindexExpr elements
+    EApply node functionExpr argumentExpr ->
+      EApply <$> reindexNode node <*> reindexExpr functionExpr <*> reindexExpr argumentExpr
+    ETypeApplication node functionExpr typeArgumentSpan signatureType ->
+      ETypeApplication
+        <$> reindexNode node
+        <*> reindexExpr functionExpr
+        <*> pure typeArgumentSpan
+        <*> pure signatureType
+    EIf node condition trueBranch falseBranch ->
       EIf
-        (lowerSurfaceExprWithoutCostCentre conditionExpr)
-        (lowerSurfaceExprWithoutCostCentre thenExpr)
-        (lowerSurfaceExprWithoutCostCentre elseExpr)
-    SECase scrutineeExpr caseArms ->
-      EPatternCase
-        (lowerSurfaceExprWithoutCostCentre scrutineeExpr)
-        (map lowerSurfaceCaseArm caseArms)
-    SEBinary operatorSymbol functionExpr argumentExpr
-      | operatorSymbol == Text.pack "$" ->
-          EApply
-            (lowerSurfaceExprWithoutCostCentre functionExpr)
-            (lowerSurfaceExprWithoutCostCentre argumentExpr)
-    SEBinary operatorSymbol leftExpr rightExpr ->
-      EBinary
-        operatorSymbol
-        (lowerSurfaceExprWithoutCostCentre leftExpr)
-        (lowerSurfaceExprWithoutCostCentre rightExpr)
-    SESectionLeft leftExpr operatorSymbol ->
-      ESectionLeft (lowerSurfaceExprWithoutCostCentre leftExpr) operatorSymbol
-    SESectionRight operatorSymbol rightExpr ->
-      ESectionRight operatorSymbol (lowerSurfaceExprWithoutCostCentre rightExpr)
-    SEBlock statements -> EBlock (map lowerSurfaceStatement statements)
+        <$> reindexNode node
+        <*> reindexExpr condition
+        <*> reindexExpr trueBranch
+        <*> reindexExpr falseBranch
+    EPatternCase node scrutinee arms ->
+      EPatternCase <$> reindexNode node <*> reindexExpr scrutinee <*> traverse reindexCaseArm arms
+    EBinary node operatorSymbol left right ->
+      EBinary <$> reindexNode node <*> pure operatorSymbol <*> reindexExpr left <*> reindexExpr right
+    ESectionLeft node left operatorSymbol ->
+      ESectionLeft <$> reindexNode node <*> reindexExpr left <*> pure operatorSymbol
+    ESectionRight node operatorSymbol right ->
+      ESectionRight <$> reindexNode node <*> pure operatorSymbol <*> reindexExpr right
+    EBlock node statements ->
+      EBlock <$> reindexNode node <*> traverse reindexStatement statements
 
-lowerSurfaceLambda :: NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> Expr
-lowerSurfaceLambda parameters bodyExpr =
-  foldr
-    lowerParameter
-    (lowerSurfaceExprWithoutCostCentre bodyExpr)
-    (zip [1 :: Int ..] (NonEmpty.toList parameters))
+reindexNode :: CoreNode 'Lowered sort -> Lowering (CoreNode 'Lowered sort)
+reindexNode (CoreNode _ spanValue ()) = freshNode spanValue
+
+reindexCaseArm :: CaseArm 'Lowered -> Lowering (CaseArm 'Lowered)
+reindexCaseArm (CaseArm node patternValue guardExpr bodyExpr) =
+  CaseArm
+    <$> reindexNode node
+    <*> reindexPattern patternValue
+    <*> traverse reindexExpr guardExpr
+    <*> reindexExpr bodyExpr
+
+reindexPattern :: Pattern 'Lowered -> Lowering (Pattern 'Lowered)
+reindexPattern patternValue =
+  case patternValue of
+    PWildcard node -> PWildcard <$> reindexNode node
+    PVariable node name -> PVariable <$> reindexNode node <*> pure name
+    PLiteral node literal -> PLiteral <$> reindexNode node <*> pure literal
+    PConstructor node name patterns ->
+      PConstructor <$> reindexNode node <*> pure name <*> traverse reindexPattern patterns
+    PList node patterns ->
+      PList <$> reindexNode node <*> traverse reindexPattern patterns
+    PConsList node headPattern tailPattern ->
+      PConsList <$> reindexNode node <*> reindexPattern headPattern <*> reindexPattern tailPattern
+    PTuple node patterns ->
+      PTuple <$> reindexNode node <*> traverse reindexPattern patterns
+    PAs node name nestedPattern ->
+      PAs <$> reindexNode node <*> pure name <*> reindexPattern nestedPattern
+    POr node alternatives ->
+      POr <$> reindexNode node <*> traverse reindexPattern alternatives
+
+reindexStatement :: Statement 'Lowered -> Lowering (Statement 'Lowered)
+reindexStatement statement =
+  case statement of
+    SLet node name valueExpr ->
+      SLet <$> reindexNode node <*> pure name <*> reindexExpr valueExpr
+    SSignature node name signaturePayload ->
+      SSignature <$> reindexNode node <*> pure name <*> pure signaturePayload
+    SData node name parameters constructors ->
+      SData
+        <$> reindexNode node
+        <*> pure name
+        <*> pure parameters
+        <*> traverse reindexDataConstructor constructors
+    SClass node name parameters methods ->
+      SClass
+        <$> reindexNode node
+        <*> pure name
+        <*> pure parameters
+        <*> traverse reindexClassMethod methods
+    SImpl node name arguments methods ->
+      SImpl
+        <$> reindexNode node
+        <*> pure name
+        <*> pure arguments
+        <*> traverse reindexImplMethod methods
+    SModule node modulePath -> SModule <$> reindexNode node <*> pure modulePath
+    SImport node modulePath alias symbols ->
+      SImport <$> reindexNode node <*> pure modulePath <*> pure alias <*> pure symbols
+    SExpr node valueExpr -> SExpr <$> reindexNode node <*> reindexExpr valueExpr
+
+reindexDataConstructor :: DataConstructor 'Lowered -> Lowering (DataConstructor 'Lowered)
+reindexDataConstructor (DataConstructor node name fieldTypes) =
+  DataConstructor <$> reindexNode node <*> pure name <*> pure fieldTypes
+
+reindexClassMethod :: ClassMethodSignature 'Lowered -> Lowering (ClassMethodSignature 'Lowered)
+reindexClassMethod (ClassMethodSignature node name signaturePayload) =
+  ClassMethodSignature <$> reindexNode node <*> pure name <*> pure signaturePayload
+
+reindexImplMethod :: ImplMethod 'Lowered -> Lowering (ImplMethod 'Lowered)
+reindexImplMethod (ImplMethod node name bodyExpr) =
+  ImplMethod <$> reindexNode node <*> pure name <*> reindexExpr bodyExpr
+
+lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Lowering (Expr 'Lowered)
+lowerSurfaceExprWithoutCostCentre surfaceExpr = do
+  node <- freshNode (surfaceExprSpan surfaceExpr)
+  case surfaceExprForm surfaceExpr of
+    SELit literal -> pure (ELit node (lowerSurfaceLiteral literal))
+    SEVar name -> pure (EVar node (sourceName name))
+    SEQualifiedVar qualifier member ->
+      pure (EVar node (qualifiedName qualifier member))
+    SELambda parameters bodyExpr ->
+      lowerSurfaceLambda node (surfaceExprSpan surfaceExpr) parameters bodyExpr
+    SEPatternLambda clauses ->
+      lowerSurfacePatternLambda node (surfaceExprSpan surfaceExpr) clauses
+    SEOperatorValue operatorSymbol -> pure (EOperatorValue node operatorSymbol)
+    SEList elements ->
+      EList node <$> traverse lowerSurfaceExprWithoutCostCentre elements
+    SETuple elements ->
+      ETuple node <$> traverse lowerSurfaceExprWithoutCostCentre elements
+    SEApply functionExpr argumentExpr -> do
+      function <- lowerSurfaceExprWithoutCostCentre functionExpr
+      argument <- lowerSurfaceExprWithoutCostCentre argumentExpr
+      pure (EApply node function argument)
+    SETypeApplication functionExpr spanValue signatureType -> do
+      function <- lowerSurfaceExprWithoutCostCentre functionExpr
+      pure (ETypeApplication node function spanValue (lowerSurfaceSignatureType signatureType))
+    SEIf conditionExpr thenExpr elseExpr -> do
+      condition <- lowerSurfaceExprWithoutCostCentre conditionExpr
+      trueBranch <- lowerSurfaceExprWithoutCostCentre thenExpr
+      falseBranch <- lowerSurfaceExprWithoutCostCentre elseExpr
+      pure (EIf node condition trueBranch falseBranch)
+    SECase scrutineeExpr caseArms -> do
+      scrutinee <- lowerSurfaceExprWithoutCostCentre scrutineeExpr
+      arms <- traverse lowerSurfaceCaseArm caseArms
+      pure (EPatternCase node scrutinee arms)
+    SEBinary operatorSymbol functionExpr argumentExpr
+      | operatorSymbol == Text.pack "$" -> do
+          function <- lowerSurfaceExprWithoutCostCentre functionExpr
+          argument <- lowerSurfaceExprWithoutCostCentre argumentExpr
+          pure (EApply node function argument)
+    SEBinary operatorSymbol leftExpr rightExpr -> do
+      left <- lowerSurfaceExprWithoutCostCentre leftExpr
+      right <- lowerSurfaceExprWithoutCostCentre rightExpr
+      pure (EBinary node operatorSymbol left right)
+    SESectionLeft leftExpr operatorSymbol -> do
+      left <- lowerSurfaceExprWithoutCostCentre leftExpr
+      pure (ESectionLeft node left operatorSymbol)
+    SESectionRight operatorSymbol rightExpr -> do
+      right <- lowerSurfaceExprWithoutCostCentre rightExpr
+      pure (ESectionRight node operatorSymbol right)
+    SEBlock statements -> EBlock node <$> traverse lowerSurfaceStatement statements
+
+lowerSurfaceLambda :: CoreNode 'Lowered 'ExpressionSort -> SourceSpan -> NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> Lowering (Expr 'Lowered)
+lowerSurfaceLambda firstNode lambdaSpan parameters bodyExpr =
+  lowerParameters firstNode (zip [1 :: Int ..] (NonEmpty.toList parameters))
   where
-    lowerParameter (_, SurfaceLambdaIdentifier _ parameterName) loweredBody =
-      ELambda (sourceName parameterName) loweredBody
-    lowerParameter (parameterIndex, SurfaceLambdaPattern parameterPattern) loweredBody =
-      let parameterName =
-            generatedName (LambdaPatternArgument parameterIndex)
-       in ELambda
-            parameterName
-            ( EPatternCase
-                (EVar parameterName)
-                [CaseArm (lowerSurfacePattern parameterPattern) Nothing loweredBody]
+    lowerParameters _ [] = lowerSurfaceExprWithoutCostCentre bodyExpr
+    lowerParameters node ((parameterIndex, parameter) : rest) =
+      case parameter of
+        SurfaceLambdaIdentifier _ parameterName -> do
+          loweredBody <-
+            case rest of
+              [] -> lowerSurfaceExprWithoutCostCentre bodyExpr
+              _ -> freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
+          pure (ELambda node (sourceName parameterName) loweredBody)
+        SurfaceLambdaPattern parameterPattern -> do
+          let parameterName = generatedName (LambdaPatternArgument parameterIndex)
+          caseNode <- freshNode (surfacePatternSpan parameterPattern)
+          variableNode <- freshNode (surfacePatternSpan parameterPattern)
+          armNode <- freshNode (surfacePatternSpan parameterPattern)
+          loweredPattern <- lowerSurfacePattern parameterPattern
+          loweredBody <-
+            case rest of
+              [] -> lowerSurfaceExprWithoutCostCentre bodyExpr
+              _ -> freshNode lambdaSpan >>= \bodyNode -> lowerParameters bodyNode rest
+          pure
+            ( ELambda
+                node
+                parameterName
+                ( EPatternCase
+                    caseNode
+                    (EVar variableNode parameterName)
+                    [CaseArm armNode loweredPattern Nothing loweredBody]
+                )
             )
 
-lowerSurfacePatternLambda :: NonEmpty SurfacePatternLambdaClause -> Expr
-lowerSurfacePatternLambda clauses =
-  foldr
-    ELambda
-    ( EPatternCase
-        scrutinee
-        (map lowerClause (NonEmpty.toList clauses))
-    )
-    argumentNames
+lowerSurfacePatternLambda :: CoreNode 'Lowered 'ExpressionSort -> SourceSpan -> NonEmpty SurfacePatternLambdaClause -> Lowering (Expr 'Lowered)
+lowerSurfacePatternLambda firstNode lambdaSpan clauses =
+  lowerArguments firstNode argumentNames
   where
     SurfacePatternLambdaClause _ firstPatterns _ = NonEmpty.head clauses
-    argumentNames =
-      map
-        (generatedName . LambdaPatternArgument)
-        [1 .. NonEmpty.length firstPatterns]
-    scrutinee =
+    argumentNames = map (generatedName . LambdaPatternArgument) [1 .. NonEmpty.length firstPatterns]
+
+    lowerArguments _ [] = lowerPatternCase
+    lowerArguments node (argumentName : rest) = do
+      nextNode <- freshNode lambdaSpan
+      loweredBody <-
+        case rest of
+          [] -> lowerPatternCaseWithNode nextNode
+          _ -> lowerArguments nextNode rest
+      pure (ELambda node argumentName loweredBody)
+
+    lowerPatternCase = do
+      node <- freshNode lambdaSpan
+      lowerPatternCaseWithNode node
+
+    lowerPatternCaseWithNode caseNode = do
+      scrutinee <- lowerScrutinee
+      arms <- traverse lowerClause (NonEmpty.toList clauses)
+      pure (EPatternCase caseNode scrutinee arms)
+
+    lowerScrutinee =
       case argumentNames of
-        [argumentName] -> EVar argumentName
-        _ -> ETuple (map EVar argumentNames)
-    lowerClause (SurfacePatternLambdaClause _ patterns bodyExpr) =
-      CaseArm
-        (lowerClausePattern patterns)
-        Nothing
-        (lowerSurfaceExprWithoutCostCentre bodyExpr)
-    lowerClausePattern patterns =
+        [argumentName] -> do
+          node <- freshNode lambdaSpan
+          pure (EVar node argumentName)
+        _ -> do
+          node <- freshNode lambdaSpan
+          variables <- traverse (\argumentName -> EVar <$> freshNode lambdaSpan <*> pure argumentName) argumentNames
+          pure (ETuple node variables)
+
+    lowerClause (SurfacePatternLambdaClause clauseSpan patterns bodyExpr) = do
+      node <- freshNode clauseSpan
+      patternValue <- lowerClausePattern clauseSpan patterns
+      body <- lowerSurfaceExprWithoutCostCentre bodyExpr
+      pure (CaseArm node patternValue Nothing body)
+
+    lowerClausePattern clauseSpan patterns =
       case NonEmpty.toList patterns of
         [patternValue] -> lowerSurfacePattern patternValue
-        patternValues -> PTuple (map lowerSurfacePattern patternValues)
+        patternValues -> do
+          node <- freshNode clauseSpan
+          PTuple node <$> traverse lowerSurfacePattern patternValues
 
 -- | Lower literal syntax without changing the value domain available to later
 -- semantic phases.
@@ -355,66 +551,81 @@ lowerSurfaceLiteral literal =
     SLChar value -> LChar value
     SLText value -> LText value
 
-lowerSurfacePattern :: SurfacePattern -> Pattern
-lowerSurfacePattern surfacePattern =
+lowerSurfacePattern :: SurfacePattern -> Lowering (Pattern 'Lowered)
+lowerSurfacePattern surfacePattern = do
+  node <- freshNode (surfacePatternSpan surfacePattern)
   case surfacePatternForm surfacePattern of
-    SPWildcard -> PWildcard
-    SPVariable name -> PVariable (sourceName name)
-    SPLiteral literal -> PLiteral (lowerSurfaceLiteral literal)
+    SPWildcard -> pure (PWildcard node)
+    SPVariable name -> pure (PVariable node (sourceName name))
+    SPLiteral literal -> pure (PLiteral node (lowerSurfaceLiteral literal))
     SPConstructor name patterns ->
-      PConstructor (sourceName name) (map lowerSurfacePattern patterns)
+      PConstructor node (sourceName name) <$> traverse lowerSurfacePattern patterns
     SPList patterns ->
-      PList (map lowerSurfacePattern patterns)
-    SPConsList headPattern tailPattern ->
-      PConsList (lowerSurfacePattern headPattern) (lowerSurfacePattern tailPattern)
+      PList node <$> traverse lowerSurfacePattern patterns
+    SPConsList headPattern tailPattern -> do
+      headPattern' <- lowerSurfacePattern headPattern
+      tailPattern' <- lowerSurfacePattern tailPattern
+      pure (PConsList node headPattern' tailPattern')
     SPTuple patterns ->
-      PTuple (map lowerSurfacePattern patterns)
-    SPAs name patternValue ->
-      PAs (sourceName name) (lowerSurfacePattern patternValue)
+      PTuple node <$> traverse lowerSurfacePattern patterns
+    SPAs name patternValue -> PAs node (sourceName name) <$> lowerSurfacePattern patternValue
     SPOr patterns ->
-      POr (map lowerSurfacePattern patterns)
+      POr node <$> traverse lowerSurfacePattern patterns
 
-lowerSurfaceCaseArm :: SurfaceCaseArm -> CaseArm
-lowerSurfaceCaseArm (SurfaceCaseArm patternExpr guardExpr bodyExpr) =
-  CaseArm
-    (lowerSurfacePattern patternExpr)
-    (fmap lowerSurfaceExprWithoutCostCentre guardExpr)
-    (lowerSurfaceExprWithoutCostCentre bodyExpr)
+lowerSurfaceCaseArm :: SurfaceCaseArm -> Lowering (CaseArm 'Lowered)
+lowerSurfaceCaseArm (SurfaceCaseArm patternExpr guardExpr bodyExpr) = do
+  node <- freshNode (surfacePatternSpan patternExpr)
+  patternValue <- lowerSurfacePattern patternExpr
+  guard <- traverse lowerSurfaceExprWithoutCostCentre guardExpr
+  body <- lowerSurfaceExprWithoutCostCentre bodyExpr
+  pure (CaseArm node patternValue guard body)
 
 -- | Lower a parsed statement without changing its span-carrying shape.
-lowerSurfaceStatement :: SurfaceStatement -> Statement
+lowerSurfaceStatement :: SurfaceStatement -> Lowering (Statement 'Lowered)
 lowerSurfaceStatement surfaceStatement =
   case surfaceStatement of
-    SSLet name spanValue valueExpr ->
-      SLet (lowerBindingName name) spanValue (lowerSurfaceExprWithoutCostCentre valueExpr)
-    SSSignature name spanValue signaturePayload ->
-      SSignature (lowerBindingName name) spanValue (lowerSurfaceSignaturePayload signaturePayload)
-    SSData spanValue typeName typeParameters constructors ->
-      SData spanValue (sourceName typeName) (map sourceName typeParameters) (map lowerSurfaceDataConstructor constructors)
-    SSClass spanValue capabilityName parameters methods ->
-      SClass spanValue (sourceName capabilityName) (map sourceName parameters) (map lowerSurfaceClassMethodSignature methods)
-    SSImpl spanValue capabilityName arguments methods ->
-      SImpl
-        spanValue
-        (sourceName capabilityName)
-        (map lowerSurfaceSignatureType arguments)
-        (map lowerSurfaceImplMethod methods)
-    SSModule spanValue modulePath _ ->
-      SModule spanValue modulePath
-    SSImport spanValue modulePath alias importedSymbols ->
-      SImport spanValue modulePath alias importedSymbols
-    SSExpr spanValue expr ->
-      SExpr spanValue (lowerSurfaceExprWithoutCostCentre expr)
+    SSLet name spanValue valueExpr -> do
+      node <- freshNode spanValue
+      value <- lowerSurfaceExprWithoutCostCentre valueExpr
+      pure (SLet node (lowerBindingName name) value)
+    SSSignature name spanValue signaturePayload -> do
+      node <- freshNode spanValue
+      pure (SSignature node (lowerBindingName name) (lowerSurfaceSignaturePayload signaturePayload))
+    SSData spanValue typeName typeParameters constructors -> do
+      node <- freshNode spanValue
+      loweredConstructors <- traverse (lowerSurfaceDataConstructor spanValue) constructors
+      pure (SData node (sourceName typeName) (map sourceName typeParameters) loweredConstructors)
+    SSClass spanValue capabilityName parameters methods -> do
+      node <- freshNode spanValue
+      loweredMethods <- traverse lowerSurfaceClassMethodSignature methods
+      pure (SClass node (sourceName capabilityName) (map sourceName parameters) loweredMethods)
+    SSImpl spanValue capabilityName arguments methods -> do
+      node <- freshNode spanValue
+      loweredMethods <- traverse lowerSurfaceImplMethod methods
+      pure (SImpl node (sourceName capabilityName) (map lowerSurfaceSignatureType arguments) loweredMethods)
+    SSModule spanValue modulePath _ -> do
+      node <- freshNode spanValue
+      pure (SModule node modulePath)
+    SSImport spanValue modulePath alias importedSymbols -> do
+      node <- freshNode spanValue
+      pure (SImport node modulePath alias importedSymbols)
+    SSExpr spanValue expr -> do
+      node <- freshNode spanValue
+      value <- lowerSurfaceExprWithoutCostCentre expr
+      pure (SExpr node value)
 
-lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> ClassMethodSignature
-lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) =
-  ClassMethodSignature (sourceName methodName) spanValue (lowerSurfaceSignaturePayload signaturePayload)
+lowerSurfaceClassMethodSignature :: SurfaceClassMethodSignature -> Lowering (ClassMethodSignature 'Lowered)
+lowerSurfaceClassMethodSignature (SurfaceClassMethodSignature methodName spanValue signaturePayload) = do
+  node <- freshNode spanValue
+  pure (ClassMethodSignature node (sourceName methodName) (lowerSurfaceSignaturePayload signaturePayload))
 
-lowerSurfaceImplMethod :: SurfaceImplMethod -> ImplMethod
-lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) =
-  ImplMethod (sourceName methodName) spanValue (lowerSurfaceExprWithoutCostCentre methodExpr)
+lowerSurfaceImplMethod :: SurfaceImplMethod -> Lowering (ImplMethod 'Lowered)
+lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) = do
+  node <- freshNode spanValue
+  body <- lowerSurfaceExprWithoutCostCentre methodExpr
+  pure (ImplMethod node (sourceName methodName) body)
 
-lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
+lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload 'Lowered
 lowerSurfaceSignaturePayload surfaceSignaturePayload =
   case surfaceSignaturePayload of
     TypeRepresentation.SignatureType signatureType ->
@@ -428,30 +639,31 @@ lowerSurfaceSignaturePayload surfaceSignaturePayload =
 
 -- | Preserve structured constrained-signature payloads exactly; acceptance or
 -- rejection of the constraint subset belongs to type inference.
-lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint
+lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint 'Lowered
 lowerSurfaceSignatureConstraint =
   bimap lowerSurfaceSignatureName sourceName
 
-lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
+lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType 'Lowered
 lowerSurfaceSignatureType =
   bimap lowerSurfaceSignatureName sourceName
 
-lowerSurfaceSignatureName :: Identifier -> Name
+lowerSurfaceSignatureName :: Identifier -> UnresolvedName
 lowerSurfaceSignatureName name =
   case splitQualifiedIdentifierText (identifierText name) of
     Just (qualifier, member) ->
       qualifiedName (mkIdentifier qualifier) (mkIdentifier member)
     Nothing -> sourceName name
 
-lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken
+lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken 'Lowered
 lowerSurfaceSignatureToken =
   fmap (sourceName . mkIdentifier)
 
-lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
-lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName fieldTypes) =
-  DataConstructor (sourceName constructorName) (map lowerSurfaceSignatureType fieldTypes)
+lowerSurfaceDataConstructor :: SourceSpan -> SurfaceDataConstructor -> Lowering (DataConstructor 'Lowered)
+lowerSurfaceDataConstructor declarationSpan (SurfaceDataConstructor constructorName fieldTypes) = do
+  node <- freshNode declarationSpan
+  pure (DataConstructor node (sourceName constructorName) (map lowerSurfaceSignatureType fieldTypes))
 
-lowerBindingName :: Identifier -> Name
+lowerBindingName :: Identifier -> UnresolvedName
 lowerBindingName name
   | isOperatorBindingIdentifierText (identifierText name) =
       operatorBindingNameFromIdentifier name

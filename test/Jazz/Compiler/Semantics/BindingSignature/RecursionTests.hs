@@ -1,77 +1,82 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.RecursionTests
-  ( recursionTests
-  ) where
+  ( recursionTests,
+  )
+where
 
 import Control.Exception
   ( ErrorCall,
-    try
+    try,
   )
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..),
-    Statement (..)
+  ( CorePhase (Resolved),
+    Expr (..),
+    Statement,
   )
 import Jazz.Compiler.Analyzer
   ( AnalysisInputs (..),
-    AnalysisResult (..)
+    AnalysisResult (..),
   )
 import qualified Jazz.Compiler.Analyzer as Analyzer
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly)
+  ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..),
-    isErrorDiagnostic
+  ( isErrorDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
-    compileExpr
+    compileExpr,
+  )
+import Jazz.Compiler.Name
+  ( NameNamespace (ValueNamespace),
+    mkIdentifier,
+    resolvedLocalName,
   )
 import Jazz.Compiler.RecursiveBindings
-  ( prepareRecursiveScope
+  ( prepareRecursiveScope,
   )
 import Jazz.Compiler.Semantics.BindingSignature.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
+
 recursionTests :: [NamedTest]
 recursionTests =
-  [ ("self-recursive binding is accepted", testSelfRecursiveBinding)
-    , ("mutual recursion group is accepted", testMutualRecursionGroup)
-    , ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup)
-    , ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference)
-    , ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts)
-    , ("prepared analyzer scopes rederive facts for current outer bindings", testPreparedAnalyzerScopeRederivesForOuterBindings)
-    , ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness)
-    , ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion)
-    , ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion)
-    , ("source pipeline keeps nested recursive helper inferred method obligations scoped", testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped)
-    , ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse)
-    , ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse)
-    , ("source pipeline instantiates interleaved mutual recursive schemes per use", testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse)
-    , ("source pipeline keeps later rebinding over recursive scheme", testSourceKeepsLaterRebindingOverRecursiveScheme)
-    , ("source pipeline rejects interleaved use constrained by later recursive member", testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember)
-    , ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding)
-    , ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies)
-    , ("source pipeline previews through intervening recursive group members", testSourcePreviewsThroughInterveningRecursiveGroupMembers)
-    , ("source pipeline previews overlapping interleaved recursive groups", testSourcePreviewsOverlappingInterleavedRecursiveGroups)
-    , ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference)
-    , ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion)
-    , ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup)
-    , ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse)
-    , ("source pipeline discards speculative deferred constraints from recursive previews", testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews)
-    , ("source pipeline does not duplicate inferred constraints from recursive previews", testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews)
-    , ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError)
+  [ ("self-recursive binding is accepted", testSelfRecursiveBinding),
+    ("mutual recursion group is accepted", testMutualRecursionGroup),
+    ("three-node mutual recursion group is accepted", testThreeNodeMutualRecursionGroup),
+    ("non-recursive forward reference in bindings is rejected", testNonRecursiveForwardReference),
+    ("prepared analyzer scopes cannot cross-pair statements and facts", testPreparedScopesCannotCrossPairStatementsAndFacts),
+    ("prepared analyzer scopes rederive facts for current outer bindings", testPreparedAnalyzerScopeRederivesForOuterBindings),
+    ("ordinary roots stay lazy while owned prepared statements detach", testAnalyzerRootLaziness),
+    ("rebinding cannot retroactively create recursion group", testRebindingDoesNotCreateRetroactiveRecursion),
+    ("source pipeline preserves inferred method constraints across mutual recursion", testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion),
+    ("source pipeline keeps nested recursive helper inferred method obligations scoped", testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped),
+    ("source pipeline instantiates recursive binding schemes per use", testSourceInstantiatesRecursiveBindingSchemesPerUse),
+    ("source pipeline instantiates mutual recursive binding schemes per use", testSourceInstantiatesMutualRecursiveBindingSchemesPerUse),
+    ("source pipeline instantiates interleaved mutual recursive schemes per use", testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse),
+    ("source pipeline keeps later rebinding over recursive scheme", testSourceKeepsLaterRebindingOverRecursiveScheme),
+    ("source pipeline rejects interleaved use constrained by later recursive member", testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember),
+    ("source pipeline types recursive guards against prior rebinding", testSourceTypesRecursiveGuardsAgainstPriorRebinding),
+    ("source pipeline defers partial recursive previews past intervening dependencies", testSourceDefersPartialRecursivePreviewsPastInterveningDependencies),
+    ("source pipeline previews through intervening recursive group members", testSourcePreviewsThroughInterveningRecursiveGroupMembers),
+    ("source pipeline previews overlapping interleaved recursive groups", testSourcePreviewsOverlappingInterleavedRecursiveGroups),
+    ("source pipeline rejects non-recursive forward reference", testSourceRejectsNonRecursiveForwardReference),
+    ("source pipeline rejects retroactive rebinding recursion", testSourceRejectsRetroactiveRebindingRecursion),
+    ("source pipeline accepts mutual recursion group", testSourceAcceptsMutualRecursionGroup),
+    ("source pipeline instantiates recursive constrained signatures per use", testSourceInstantiatesRecursiveConstrainedSignaturePerUse),
+    ("source pipeline reports signed recursive rhs type errors", testSourceReportsSignedRecursiveRhsTypeError)
   ]
 
 testSelfRecursiveBinding :: IO ()
@@ -103,15 +108,17 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
       Set.empty
+      recursiveProgram
       (prepareRecursiveScope Set.empty recursiveStatements)
   AnalysisResult forwardExpr forwardDiagnostics <-
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
       Set.empty
+      forwardProgram
       (prepareRecursiveScope Set.empty forwardStatements)
   assertEqual
     "recursive prepared expression"
-    (EBlock recursiveStatements)
+    recursiveProgram
     recursiveExpr
   assertEqual
     "recursive prepared diagnostics"
@@ -119,23 +126,17 @@ testPreparedScopesCannotCrossPairStatementsAndFacts = do
     (filter isErrorDiagnostic recursiveDiagnostics)
   assertEqual
     "forward prepared expression"
-    (EBlock forwardStatements)
+    forwardProgram
     forwardExpr
   assertSingleDiagnosticContains
     "prepared scope forward reference"
     "unbound variable 'y'"
     (filter isErrorDiagnostic forwardDiagnostics)
   where
-    recursiveStatements =
-      [ SLet "left" (SourceSpan 1 1) (EVar "right"),
-        SLet "right" (SourceSpan 2 1) (EVar "left"),
-        SExpr (SourceSpan 3 1) (EVar "left")
-      ]
-    forwardStatements =
-      [ SLet "x" (SourceSpan 1 1) (EVar "y"),
-        SLet "y" (SourceSpan 2 1) (ELit (LInt 1)),
-        SExpr (SourceSpan 3 1) (EVar "x")
-      ]
+    recursiveProgram = resolvedProgram "left = right.\nright = left.\nleft."
+    recursiveStatements = programStatements recursiveProgram
+    forwardProgram = resolvedProgram "x = y.\ny = 1.\nx."
+    forwardStatements = programStatements forwardProgram
 
 testPreparedAnalyzerScopeRederivesForOuterBindings :: IO ()
 testPreparedAnalyzerScopeRederivesForOuterBindings = do
@@ -143,18 +144,18 @@ testPreparedAnalyzerScopeRederivesForOuterBindings = do
     Analyzer.analyzeProgramWithInputs
       analysisInputs
       Set.empty
-      (EBlock statements)
+      program
   preparedResult <-
     Analyzer.analyzeProgramWithInputsAndPreparedScope
       analysisInputs
       Set.empty
-      (prepareRecursiveScope (Set.singleton "self") statements)
+      program
+      (prepareRecursiveScope (Set.singleton selfName) statements)
   assertEqual "prepared scope under current inputs" ordinaryResult preparedResult
   where
-    statements =
-      [ SLet "self" (SourceSpan 1 1) (EVar "self"),
-        SExpr (SourceSpan 2 1) (EVar "self")
-      ]
+    program = resolvedProgram "self = self.\nself."
+    statements = programStatements program
+    selfName = resolvedLocalName ValueNamespace (mkIdentifier "self")
 
 testAnalyzerRootLaziness :: IO ()
 testAnalyzerRootLaziness = do
@@ -164,7 +165,8 @@ testAnalyzerRootLaziness = do
           analysisInputs
           Set.empty
           (error "ordinary analyzer root was forced")
-      ) :: IO (Either ErrorCall AnalysisResult)
+      ) ::
+      IO (Either ErrorCall AnalysisResult)
   case ordinaryOutcome of
     Left _ -> failTest "expected ordinary analyzer roots to remain lazy"
     Right _ -> pure ()
@@ -174,11 +176,17 @@ testAnalyzerRootLaziness = do
       ( Analyzer.analyzeProgramWithInputsAndPreparedScope
           analysisInputs
           Set.empty
+          (error "ordinary analyzer root was forced")
           (prepareRecursiveScope Set.empty (error "prepared statements were retained lazily"))
-      ) :: IO (Either ErrorCall AnalysisResult)
+      ) ::
+      IO (Either ErrorCall AnalysisResult)
   case preparedOutcome of
     Left _ -> pure ()
     Right _ -> failTest "expected the analyzer boundary to force its prepared statements"
+
+programStatements :: Expr 'Resolved -> [Statement 'Resolved]
+programStatements (EBlock _ statements) = statements
+programStatements expression = error ("expected resolved block, got " <> show expression)
 
 analysisInputs :: AnalysisInputs
 analysisInputs =
@@ -203,62 +211,65 @@ testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion :: IO ()
 testSourcePreservesInferredMethodConstraintsAcrossMutualRecursion =
   assertSourceOkWithoutPrelude
     ( """
-    class C(a) {
-    m :: a -> Bool.
-    }.
-    impl C(Int) {
-    m = \\(x) -> True.
-    }.
-    impl C(Bool) {
-    m = \\(x) -> False.
-    }.
-    left = if True then \\(x) -> C::m x else right.
-    right = if False then \\(x) -> C::m x else left.
-    intResult = left 1.
-    boolResult = right True.
-    """
+      class C(a) {
+      m :: a -> Bool.
+      }.
+      impl C(Int) {
+      m = \\(x) -> True.
+      }.
+      impl C(Bool) {
+      m = \\(x) -> False.
+      }.
+      left = if True then \\(x) -> C::m x else right.
+      right = if False then \\(x) -> C::m x else left.
+      intResult = left 1.
+      boolResult = right True.
+      """
     )
 
 testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped :: IO ()
 testSourceKeepsNestedRecursiveHelperInferredMethodObligationsScoped =
   assertSourceOkWithoutPrelude
     ( """
-    class C(a) {
-    m :: a -> Bool.
-    }.
-    impl C(Int) {
-    m = \\(x) -> True.
-    }.
-    outer = { f = if True then \\(x) -> g x else g. g = if False then \\(y) -> C::m y else f. 1. }.
-    outer.
-    """
+      class C(a) {
+      m :: a -> Bool.
+      }.
+      impl C(Int) {
+      m = \\(x) -> True.
+      }.
+      outer = { f = if True then \\(x) -> g x else g. g = if False then \\(y) -> C::m y else f. 1. }.
+      outer.
+      """
     )
 
 testSourceInstantiatesRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesRecursiveBindingSchemesPerUse =
-  assertSourceOk """
-  choose = if True then \\(x) -> x else choose.
-  intValue = choose 1.
-  boolValue = choose True.
-  """
+  assertSourceOk
+    """
+    choose = if True then \\(x) -> x else choose.
+    intValue = choose 1.
+    boolValue = choose True.
+    """
 
 testSourceInstantiatesMutualRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesMutualRecursiveBindingSchemesPerUse =
-  assertSourceOk """
-  left = if True then \\(x) -> x else right.
-  right = if False then \\(x) -> x else left.
-  intValue = left 1.
-  boolValue = right True.
-  """
+  assertSourceOk
+    """
+    left = if True then \\(x) -> x else right.
+    right = if False then \\(x) -> x else left.
+    intValue = left 1.
+    boolValue = right True.
+    """
 
 testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse :: IO ()
 testSourceInstantiatesInterleavedMutualRecursiveBindingSchemesPerUse =
-  assertSourceOk """
-  left = if True then \\(x) -> x else right.
-  intValue = left 1.
-  right = if False then \\(x) -> x else left.
-  boolValue = right True.
-  """
+  assertSourceOk
+    """
+    left = if True then \\(x) -> x else right.
+    intValue = left 1.
+    right = if False then \\(x) -> x else left.
+    boolValue = right True.
+    """
 
 testSourceKeepsLaterRebindingOverRecursiveScheme :: IO ()
 testSourceKeepsLaterRebindingOverRecursiveScheme =
@@ -283,12 +294,13 @@ testSourceRejectsInterleavedUseConstrainedByLaterRecursiveMember =
 
 testSourceTypesRecursiveGuardsAgainstPriorRebinding :: IO ()
 testSourceTypesRecursiveGuardsAgainstPriorRebinding =
-  assertSourceOk """
-  f = \\(x) -> x.
-  f = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.
-  candidate = f 1.
-  candidate.
-  """
+  assertSourceOk
+    """
+    f = \\(x) -> x.
+    f = case 0 { | 0 if f True -> \\(y) -> y | _ -> \\(y) -> y }.
+    candidate = f 1.
+    candidate.
+    """
 
 testSourceDefersPartialRecursivePreviewsPastInterveningDependencies :: IO ()
 testSourceDefersPartialRecursivePreviewsPastInterveningDependencies =
@@ -304,76 +316,76 @@ testSourceDefersPartialRecursivePreviewsPastInterveningDependencies =
 
 testSourcePreviewsThroughInterveningRecursiveGroupMembers :: IO ()
 testSourcePreviewsThroughInterveningRecursiveGroupMembers =
-  assertSourceOk """
-  left = if True then \\(x) -> x else right.
-  early = left True.
-  middle = if True then \\(x) -> x else left.
-  right = if False then middle else left.
-  late = left 1.
-  late.
-  """
+  assertSourceOk
+    """
+    left = if True then \\(x) -> x else right.
+    early = left True.
+    middle = if True then \\(x) -> x else left.
+    right = if False then middle else left.
+    late = left 1.
+    late.
+    """
 
 testSourcePreviewsOverlappingInterleavedRecursiveGroups :: IO ()
 testSourcePreviewsOverlappingInterleavedRecursiveGroups =
-  assertSourceOk """
-  aLeft = if True then \\(x) -> x else aRight.
-  bLeft = if True then \\(x) -> x else bRight.
-  probe = (aLeft True, bLeft 1).
-  aRight = if False then \\(x) -> x else aLeft.
-  bRight = if False then \\(x) -> x else bLeft.
-  probe.
-  """
+  assertSourceOk
+    """
+    aLeft = if True then \\(x) -> x else aRight.
+    bLeft = if True then \\(x) -> x else bRight.
+    probe = (aLeft True, bLeft 1).
+    aRight = if False then \\(x) -> x else aLeft.
+    bRight = if False then \\(x) -> x else bLeft.
+    probe.
+    """
 
 testSourceRejectsNonRecursiveForwardReference :: IO ()
 testSourceRejectsNonRecursiveForwardReference =
-  assertSourceErrorContains """
-  x = y.
-  y = 1.
-  x.
-  """ "E1001"
+  assertSourceErrorContains
+    """
+    x = y.
+    y = 1.
+    x.
+    """
+    "E1001"
 
 testSourceRejectsRetroactiveRebindingRecursion :: IO ()
 testSourceRejectsRetroactiveRebindingRecursion =
-  assertSourceErrorContains """
-  x = y.
-  y = 1.
-  y = x.
-  x.
-  """ "E1001"
+  assertSourceErrorContains
+    """
+    x = y.
+    y = 1.
+    y = x.
+    x.
+    """
+    "E1001"
 
 testSourceAcceptsMutualRecursionGroup :: IO ()
 testSourceAcceptsMutualRecursionGroup =
-  assertSourceOk """
-  even = odd.
-  odd = even.
-  even.
-  """
+  assertSourceOk
+    """
+    even = odd.
+    odd = even.
+    even.
+    """
 
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse :: IO ()
 testSourceInstantiatesRecursiveConstrainedSignaturePerUse =
-  assertSourceOkWithoutPrelude """
-  class Eq(a) { }.
-  impl Eq(Int) { }.
-  impl Eq(Bool) { }.
-  choose :: @{Eq(a)}: a -> a.
-  choose = if True then \\(x) -> x else choose.
-  intValue = choose 1.
-  boolValue = choose True.
-  """
-
-testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews :: IO ()
-testSourceDiscardsSpeculativeDeferredConstraintsFromRecursivePreviews = do
-  result <- compileExpr defaultWarningSettings speculativePreviewDeferredConstraintProgram
-  assertEqual "compile errors" [] (compileErrors result)
-
-testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews :: IO ()
-testSourceDoesNotDuplicateInferredConstraintsFromRecursivePreviews = do
-  result <- compileExpr defaultWarningSettings speculativePreviewInferredConstraintProgram
-  assertSingleDiagnosticContains "compile errors" "missing impl fact 'C(Bool)'" (compileErrors result)
+  assertSourceOkWithoutPrelude
+    """
+    class Eq(a) { }.
+    impl Eq(Int) { }.
+    impl Eq(Bool) { }.
+    choose :: @{Eq(a)}: a -> a.
+    choose = if True then \\(x) -> x else choose.
+    intValue = choose 1.
+    boolValue = choose True.
+    """
 
 testSourceReportsSignedRecursiveRhsTypeError :: IO ()
 testSourceReportsSignedRecursiveRhsTypeError =
-  assertSourceSingleErrorContains """
-  x :: Bool.
-  x = x + 1.
-  """ "E2003"
+  assertSourceSingleErrorContains
+    """
+    x :: Bool.
+    x = x + 1.
+    """
+    "E2003"

@@ -122,7 +122,6 @@ tests :: [NamedTest]
 tests =
   [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
-    ("resolved module audit ignores generic type variables", testResolvedModuleAuditIgnoresGenericTypeVariables),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
     ("resolves mixed module facts without changing inventories", testResolvesMixedModuleFacts),
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
@@ -206,39 +205,12 @@ testResolvedProgramRetainsLoweredModules = do
       (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
     assertEqual "entry path" ["App", "Main"] (ModuleGraph.resolvedProgramEntryPath program)
     assertEqual "module count" 2 (length (ModuleGraph.resolvedProgramModules program))
-    assertEqual
-      "unresolved core names"
-      []
-      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
   where
     resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sources =
       Map.fromList
         [ ("src/App/Main.jz", "module App::Main { import Lib::Value. answer. }"),
           ("src/Lib/Value.jz", "module Lib::Value { answer = 1. }")
-        ]
-    lookupSource path = pure (Map.lookup path sources)
-
-testResolvedModuleAuditIgnoresGenericTypeVariables :: IO ()
-testResolvedModuleAuditIgnoresGenericTypeVariables = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
-  assertRight "resolved generic module" result $ \program ->
-    assertEqual
-      "unresolved generic module names"
-      []
-      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
-  where
-    sources =
-      Map.fromList
-        [ ( "src/App/Main.jz",
-            """
-            module App::Main {
-            id :: a -> a.
-            id = \\(item) -> item.
-            id 1.
-            }
-            """
-          )
         ]
     lookupSource path = pure (Map.lookup path sources)
 

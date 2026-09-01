@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.Shared
@@ -29,14 +30,10 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    DataConstructor (..),
-    Expr (..),
-    ImplMethod (..),
+  ( CorePhase (Resolved),
+    Expr,
     Literal (..),
-    Pattern (..),
-    Statement (..),
+    Statement,
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -48,11 +45,12 @@ import Jazz.Compiler.Diagnostics.Render
 import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
-import Jazz.Compiler.Name (Name, qualifiedName)
+import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SignaturePayload (..),
@@ -64,114 +62,114 @@ import Jazz.TestHarness
     failTest,
   )
 
-patternCaseNoMatchExpr :: Expr
+patternCaseNoMatchExpr :: Expr 'Resolved
 patternCaseNoMatchExpr =
-  EPatternCase
-    (ELit (LInt 1))
-    [ CaseArm
-        (PLiteral (LInt 0))
+  expressionPatternCase
+    (expressionLiteral (LInt 1))
+    [ caseArm
+        (patternLiteral (LInt 0))
         Nothing
-        (ELit (LInt 2))
+        (expressionLiteral (LInt 2))
     ]
 
-overAppliedConstructorExpr :: Expr
+overAppliedConstructorExpr :: Expr 'Resolved
 overAppliedConstructorExpr =
-  EBlock
-    [ SData
+  expressionBlock
+    [ statementData
         (SourceSpan 1 1)
         "Maybe"
         []
-        [DataConstructor "Just" [TypeInt]],
-      SExpr
+        [dataConstructor "Just" [TypeInt]],
+      statementExpression
         (SourceSpan 1 20)
-        (EApply (EApply (EVar "Just") (ELit (LInt 1))) (ELit (LInt 2)))
+        (expressionApply (expressionApply (expressionConstructor "Just") (expressionLiteral (LInt 1))) (expressionLiteral (LInt 2)))
     ]
 
-qualifiedMethodStructuralEqualityExpr :: Expr
+qualifiedMethodStructuralEqualityExpr :: Expr 'Resolved
 qualifiedMethodStructuralEqualityExpr =
-  EBlock
-    [ SClass
+  expressionBlock
+    [ statementClass
         (SourceSpan 1 1)
         "RuntimeEq"
         ["a"]
-        [ ClassMethodSignature
+        [ classMethodSignature
             "equals"
             (SourceSpan 2 1)
             ( ConstrainedSignature
                 []
                 ( TypeFunction
-                    (TypeVariable "a")
-                    (TypeFunction (TypeVariable "a") (TypeBool))
+                    (fixtureTypeVariable "a")
+                    (TypeFunction (fixtureTypeVariable "a") (TypeBool))
                 )
             )
         ],
-      SImpl
+      statementImpl
         (SourceSpan 3 1)
         "RuntimeEq"
         [TypeInt]
-        [ ImplMethod
+        [ implMethod
             "equals"
             (SourceSpan 4 1)
-            (ELambda "left" (ELambda "right" (EBinary "==" (EVar "left") (EVar "right"))))
+            (expressionLambda "left" (expressionLambda "right" (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))))
         ],
-      SExpr
+      statementExpression
         (SourceSpan 5 1)
-        ( EBinary
+        ( expressionBinary
             "=="
-            (EList [EVar (qualifiedName "RuntimeEq" "equals")])
-            (EList [EVar (qualifiedName "RuntimeEq" "equals")])
+            (expressionList [expressionVariable (qualifiedName "RuntimeEq" "equals")])
+            (expressionList [expressionVariable (qualifiedName "RuntimeEq" "equals")])
         )
     ]
 
-runtimeTypedCallableArgumentHintExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintExpr :: Expr 'Resolved -> Expr 'Resolved
 runtimeTypedCallableArgumentHintExpr callableExpr =
-  EBlock
+  expressionBlock
     ( runtimePickStatements
-        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
-             SExpr (SourceSpan 10 1) (EApply (EVar "choose") (ELit (LInt 1)))
+        ++ [ statementLet "choose" (SourceSpan 9 1) callableExpr,
+             statementExpression (SourceSpan 10 1) (expressionApply (expressionVariable "choose") (expressionLiteral (LInt 1)))
            ]
     )
 
-runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr -> Expr
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr 'Resolved -> Expr 'Resolved
 runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
-  EBlock
+  expressionBlock
     ( runtimePickStatements
-        ++ [ SLet "choose" (SourceSpan 9 1) callableExpr,
-             SExpr (SourceSpan 10 1) (EApply (EApply (EOperatorValue "$") (EVar "choose")) (ELit (LInt 1)))
+        ++ [ statementLet "choose" (SourceSpan 9 1) callableExpr,
+             statementExpression (SourceSpan 10 1) (expressionApply (expressionApply (expressionOperatorValue "$") (expressionVariable "choose")) (expressionLiteral (LInt 1)))
            ]
     )
 
-runtimePickStatements :: [Statement]
+runtimePickStatements :: [Statement 'Resolved]
 runtimePickStatements =
-  [ SClass
+  [ statementClass
       (SourceSpan 1 1)
       "RuntimePick"
       ["a"]
-      [ ClassMethodSignature
+      [ classMethodSignature
           "pick"
           (SourceSpan 2 1)
-          (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
+          (ConstrainedSignature [] (TypeFunction (fixtureTypeVariable "a") (TypeBool)))
       ],
-    SImpl
+    statementImpl
       (SourceSpan 3 1)
       "RuntimePick"
       [TypeInt]
-      [ImplMethod "pick" (SourceSpan 4 1) (ELambda "itemValue" (ELit (LBool True)))],
-    SImpl
+      [implMethod "pick" (SourceSpan 4 1) (expressionLambda "itemValue" (expressionLiteral (LBool True)))],
+    statementImpl
       (SourceSpan 5 1)
       "RuntimePick"
       [TypeNumeric NumericUInt8]
-      [ImplMethod "pick" (SourceSpan 6 1) (ELambda "itemValue" (ELit (LBool False)))]
+      [implMethod "pick" (SourceSpan 6 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))]
   ]
 
-ambiguousQualifiedMethodRuntimeExpr :: Expr
+ambiguousQualifiedMethodRuntimeExpr :: Expr 'Resolved
 ambiguousQualifiedMethodRuntimeExpr =
-  EBlock
-    [ SClass
+  expressionBlock
+    [ statementClass
         (SourceSpan 1 1)
         "RuntimePick"
         ["a"]
-        [ ClassMethodSignature
+        [ classMethodSignature
             "choose"
             (SourceSpan 2 1)
             ( ConstrainedSignature
@@ -179,19 +177,19 @@ ambiguousQualifiedMethodRuntimeExpr =
                 (TypeFunction (TypeInt) (TypeBool))
             )
         ],
-      SImpl
+      statementImpl
         (SourceSpan 3 1)
         "RuntimePick"
         [TypeInt]
-        [ImplMethod "choose" (SourceSpan 4 1) (ELambda "itemValue" (ELit (LBool True)))],
-      SImpl
+        [implMethod "choose" (SourceSpan 4 1) (expressionLambda "itemValue" (expressionLiteral (LBool True)))],
+      statementImpl
         (SourceSpan 5 1)
         "RuntimePick"
         [TypeBool]
-        [ImplMethod "choose" (SourceSpan 6 1) (ELambda "itemValue" (ELit (LBool False)))],
-      SExpr
+        [implMethod "choose" (SourceSpan 6 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))],
+      statementExpression
         (SourceSpan 7 1)
-        (EApply (EVar (qualifiedName "RuntimePick" "choose")) (ELit (LInt 1)))
+        (expressionApply (expressionVariable (qualifiedName "RuntimePick" "choose")) (expressionLiteral (LInt 1)))
     ]
 
 runtimeEqSource :: Text
@@ -206,53 +204,53 @@ runtimeEqSource =
 
   """
 
-runtimeExpr :: Expr -> Expr
+runtimeExpr :: Expr 'Resolved -> Expr 'Resolved
 runtimeExpr expr =
-  EBlock
-    [ SExpr
+  expressionBlock
+    [ statementExpression
         (SourceSpan 1 1)
         expr
     ]
 
-closureValue :: Expr
+closureValue :: Expr 'Resolved
 closureValue =
-  ELambda "itemValue" (EVar "itemValue")
+  expressionLambda "itemValue" (expressionVariable "itemValue")
 
-builtinValue :: Expr
+builtinValue :: Expr 'Resolved
 builtinValue =
-  EVar "__kernel_hd"
+  expressionVariable "__kernel_hd"
 
-operatorValue :: Expr
+operatorValue :: Expr 'Resolved
 operatorValue =
-  EOperatorValue "+"
+  expressionOperatorValue "+"
 
-leftSectionValue :: Expr
+leftSectionValue :: Expr 'Resolved
 leftSectionValue =
-  ESectionLeft (ELit (LInt 1)) "+"
+  expressionSectionLeft (expressionLiteral (LInt 1)) "+"
 
-rightSectionValue :: Expr
+rightSectionValue :: Expr 'Resolved
 rightSectionValue =
-  ESectionRight "+" (ELit (LInt 1))
+  expressionSectionRight "+" (expressionLiteral (LInt 1))
 
-targetedFloat :: Name -> Expr
+targetedFloat :: UnresolvedName -> Expr 'Resolved
 targetedFloat conversionName =
-  EApply (EVar conversionName) (ELit (LInt 1))
+  expressionApply (expressionVariable conversionName) (expressionLiteral (LInt 1))
 
-targetedInt :: Name -> Expr
+targetedInt :: UnresolvedName -> Expr 'Resolved
 targetedInt conversionName =
-  EApply (EVar conversionName) (ELit (LInt 1))
+  expressionApply (expressionVariable conversionName) (expressionLiteral (LInt 1))
 
-untypedFloatOne :: Expr
+untypedFloatOne :: Expr 'Resolved
 untypedFloatOne =
-  ELit (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
+  expressionLiteral (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
 
-untypedFloatTwo :: Expr
+untypedFloatTwo :: Expr 'Resolved
 untypedFloatTwo =
-  ELit (LFloat 2.0 (mkFractionalLiteralSource 2 0 1) Nothing)
+  expressionLiteral (LFloat 2.0 (mkFractionalLiteralSource 2 0 1) Nothing)
 
-tooLargeFloat64Integer :: Expr
+tooLargeFloat64Integer :: Expr 'Resolved
 tooLargeFloat64Integer =
-  ELit (LInt ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1))
+  expressionLiteral (LInt ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1))
 
 assertRuntimeBool :: Text -> Bool -> Either Diagnostic (Maybe RuntimeValue) -> IO ()
 assertRuntimeBool label expected result =
@@ -264,7 +262,7 @@ assertRuntimeBool label expected result =
     Left runtimeError ->
       failTest ("expected " <> label <> " to succeed, got " <> renderDiagnostic runtimeError)
 
-assertCallableRuntimeEqualityRejected :: Text -> Expr -> IO ()
+assertCallableRuntimeEqualityRejected :: Text -> Expr 'Resolved -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do
   let result = evaluateRuntimeExpr (runtimeExpr expr)
   assertRuntimeErrorContains (label <> " code") "E3007" result

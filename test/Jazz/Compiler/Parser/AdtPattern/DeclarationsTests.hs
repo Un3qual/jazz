@@ -6,12 +6,7 @@ module Jazz.Compiler.Parser.AdtPattern.DeclarationsTests
 where
 
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    DataConstructor (..),
-    Expr (..),
-    Literal (..),
-    Pattern (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -33,6 +28,7 @@ import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.TestCore
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -65,7 +61,7 @@ testKeepsHigherPrecedencePipeInComparisonGuardRhs =
     (parseSurfaceProgram "x = case subject { | item if left == right | True -> 1 }.")
     ( \surfaceProgram -> do
         assertEqual "comparison guard pipe RHS surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "comparison guard pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertLoweredCoreEqual "comparison guard pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedSurfaceProgram =
@@ -101,16 +97,16 @@ testKeepsHigherPrecedencePipeInComparisonGuardRhs =
             ]
         )
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PVariable "item")
-                    (Just (EBinary "==" (EVar "left") (EBinary "|" (EVar "right") (ELit (LBool True)))))
-                    (ELit (LInt 1))
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredVariablePattern "item")
+                    (Just (loweredBinary "==" (loweredVariable "left") (loweredBinary "|" (loweredVariable "right") (loweredLiteral (LBool True)))))
+                    (loweredLiteral (LInt 1))
                 ]
             )
         ]
@@ -122,7 +118,7 @@ testKeepsLiteralPipeOperandInEqualityGuardRhs =
     (parseSurfaceProgram "x = case m { | item if item == 0 | Just -> item | _ -> m }.")
     ( \surfaceProgram -> do
         assertEqual "equality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "equality guard literal pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertLoweredCoreEqual "equality guard literal pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedSurfaceProgram =
@@ -162,20 +158,20 @@ testKeepsLiteralPipeOperandInEqualityGuardRhs =
             ]
         )
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "m")
-                [ CaseArm
-                    (PVariable "item")
-                    (Just (EBinary "==" (EVar "item") (EBinary "|" (ELit (LInt 0)) (EVar "Just"))))
-                    (EVar "item"),
-                  CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "m")
+                [ loweredCaseArm
+                    (loweredVariablePattern "item")
+                    (Just (loweredBinary "==" (loweredVariable "item") (loweredBinary "|" (loweredLiteral (LInt 0)) (loweredVariable "Just"))))
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EVar "m")
+                    (loweredVariable "m")
                 ]
             )
         ]
@@ -187,7 +183,7 @@ testKeepsLiteralPipeOperandInInequalityGuardRhs =
     (parseSurfaceProgram "x = case m { | item if item != 0 | Just -> item | _ -> m }.")
     ( \surfaceProgram -> do
         assertEqual "inequality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "inequality guard literal pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertLoweredCoreEqual "inequality guard literal pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedSurfaceProgram =
@@ -227,20 +223,20 @@ testKeepsLiteralPipeOperandInInequalityGuardRhs =
             ]
         )
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "m")
-                [ CaseArm
-                    (PVariable "item")
-                    (Just (EBinary "!=" (EVar "item") (EBinary "|" (ELit (LInt 0)) (EVar "Just"))))
-                    (EVar "item"),
-                  CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "m")
+                [ loweredCaseArm
+                    (loweredVariablePattern "item")
+                    (Just (loweredBinary "!=" (loweredVariable "item") (loweredBinary "|" (loweredLiteral (LInt 0)) (loweredVariable "Just"))))
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EVar "m")
+                    (loweredVariable "m")
                 ]
             )
         ]
@@ -261,7 +257,7 @@ testKeepsLiteralPipeOperandInOrderingGuardRhs = do
               "ordering guard literal pipe RHS surface AST"
               (expectedSurfaceProgram operator pipeExpressionColumn)
               surfaceProgram
-            assertEqual
+            assertLoweredCoreEqual
               "ordering guard literal pipe RHS lowered AST"
               (expectedLoweredProgram operator)
               (lowerSurfaceExpr surfaceProgram)
@@ -313,20 +309,20 @@ testKeepsLiteralPipeOperandInOrderingGuardRhs = do
         )
 
     expectedLoweredProgram operator =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "m")
-                [ CaseArm
-                    (PVariable "item")
-                    (Just (EBinary operator (EVar "item") (EBinary "|" (ELit (LInt 0)) (EVar "Just"))))
-                    (EVar "item"),
-                  CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "m")
+                [ loweredCaseArm
+                    (loweredVariablePattern "item")
+                    (Just (loweredBinary operator (loweredVariable "item") (loweredBinary "|" (loweredLiteral (LInt 0)) (loweredVariable "Just"))))
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EVar "m")
+                    (loweredVariable "m")
                 ]
             )
         ]
@@ -338,7 +334,7 @@ testParsesGenericDataDeclarationParameters =
     (parseSurfaceProgram "data Maybe a = Nothing | Just a.")
     ( \surfaceProgram -> do
         assertEqual "generic data declaration surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "generic data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertLoweredCoreEqual "generic data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedSurfaceProgram =
@@ -356,13 +352,13 @@ testParsesGenericDataDeclarationParameters =
             ]
         )
     expectedLoweredProgram =
-      EBlock
-        [ SData
+      loweredBlock
+        [ loweredData
             (SourceSpan 1 1)
             "Maybe"
             ["a"]
-            [ DataConstructor "Nothing" [],
-              DataConstructor "Just" [TypeVariable "a"]
+            [ loweredConstructor "Nothing" [],
+              loweredConstructor "Just" [TypeVariable "a"]
             ]
         ]
 
@@ -383,7 +379,7 @@ testParsesStructuredDataConstructorFieldTypes =
     )
     ( \surfaceProgram -> do
         assertEqual "structured constructor field surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "structured constructor field lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertLoweredCoreEqual "structured constructor field lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     treeOfA = TypeApplication "Tree" [TypeVariable "a"]
@@ -416,27 +412,27 @@ testParsesStructuredDataConstructorFieldTypes =
             ]
         )
     expectedLoweredProgram =
-      EBlock
-        [ SData
+      loweredBlock
+        [ loweredData
             (SourceSpan 1 1)
             "Tree"
             ["a"]
-            [ DataConstructor "Leaf" [TypeVariable "a"],
-              DataConstructor "Branch" [loweredTreeOfA, loweredTreeOfA]
+            [ loweredConstructor "Leaf" [TypeVariable "a"],
+              loweredConstructor "Branch" [loweredTreeOfA, loweredTreeOfA]
             ],
-          SData
+          loweredData
             (SourceSpan 4 1)
             "Callback"
             ["a", "b"]
-            [ DataConstructor
+            [ loweredConstructor
                 "Callback"
                 [TypeFunction (TypeVariable "a") (TypeVariable "b")]
             ],
-          SData
+          loweredData
             (SourceSpan 6 1)
             "Forest"
             ["a"]
-            [DataConstructor "Forest" [TypeList loweredTreeOfA]]
+            [loweredConstructor "Forest" [TypeList loweredTreeOfA]]
         ]
 
 testKeepsLambdaApplicationAfterPipeOperator :: IO ()
@@ -444,22 +440,22 @@ testKeepsLambdaApplicationAfterPipeOperator =
   assertRight
     "lambda application stays in case arm body"
     (parseSurfaceProgram "x = case subject { | _ -> 1 | f \\(y) -> y }.")
-    (\surfaceProgram -> assertEqual "lambda application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lambda application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    ( EBinary
+                    ( loweredBinary
                         "|"
-                        (ELit (LInt 1))
-                        (EApply (EVar "f") (ELambda "y" (EVar "y")))
+                        (loweredLiteral (LInt 1))
+                        (loweredApply (loweredVariable "f") (loweredLambda "y" (loweredVariable "y")))
                     )
                 ]
             )
@@ -470,19 +466,19 @@ testKeepsUnderscoreApplicationAfterPipeOperator =
   assertRight
     "underscore application stays in case arm body"
     (parseSurfaceProgram "x = case subject { | 0 -> 1 | _ y }.")
-    (\surfaceProgram -> assertEqual "underscore application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "underscore application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (EVar "y")))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredApply (loweredVariable "_") (loweredVariable "y")))
                 ]
             )
         ]
@@ -492,19 +488,19 @@ testKeepsUnderscoreBooleanApplicationAfterPipeOperator =
   assertRight
     "underscore boolean application stays in case arm body"
     (parseSurfaceProgram "x = case subject { | 0 -> 1 | _ False }.")
-    (\surfaceProgram -> assertEqual "underscore boolean application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "underscore boolean application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (EApply (EVar "_") (ELit (LBool False))))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredApply (loweredVariable "_") (loweredLiteral (LBool False))))
                 ]
             )
         ]

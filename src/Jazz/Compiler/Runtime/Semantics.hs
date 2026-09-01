@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -63,6 +64,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CorePhase (..),
     Expr,
     Literal (..),
     Pattern (..),
@@ -103,7 +105,9 @@ import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (..),
+    ResolvedName,
     ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     identifierText,
     mkIdentifier,
   )
@@ -175,6 +179,7 @@ renderRuntimeValue value =
     VOperator {} -> "<function>"
     VSectionLeft {} -> "<function>"
     VSectionRight {} -> "<function>"
+    VDeclaredOperatorRightSection {} -> "<function>"
     VConstructorApplication shape capturedArgs
       | constructorApplicationIsSaturated shape capturedArgs ->
           renderConstructorValue
@@ -203,7 +208,7 @@ renderQuotedScalar value =
           "\\u{" <> Text.pack (map toUpper (showHex (ord value) "")) <> "}"
     _ -> Text.singleton value
 
-renderConstructorValue :: Name -> [RuntimeValue] -> Text
+renderConstructorValue :: ResolvedName -> [RuntimeValue] -> Text
 renderConstructorValue constructorName arguments =
   case arguments of
     [] -> renderConstructorName constructorName
@@ -213,24 +218,24 @@ renderConstructorValue constructorName arguments =
         <> Text.intercalate ", " (map renderRuntimeValue arguments)
         <> ")"
 
-renderConstructorName :: Name -> Text
+renderConstructorName :: ResolvedName -> Text
 renderConstructorName constructorName =
   case constructorName of
-    ResolvedName _ ConstructorNamespace identifier -> identifierText identifier
+    UserName (ResolvedUserName _ ConstructorNamespace identifier) -> identifierText identifier
     _ -> identifierText constructorName
 
-runtimeDefinitionName :: Maybe [Text] -> Name -> Name
+runtimeDefinitionName :: Maybe [Text] -> ResolvedName -> ResolvedName
 runtimeDefinitionName maybeModulePath name =
   case (maybeModulePath, name) of
-    (Just modulePath, ResolvedName CurrentModule namespace identifier) ->
-      ResolvedName (runtimeDefinitionOrigin modulePath) namespace identifier
+    (Just modulePath, UserName (ResolvedUserName CurrentModule namespace identifier)) ->
+      UserName (ResolvedUserName (runtimeDefinitionOrigin modulePath) namespace identifier)
     _ -> name
 
-runtimeDefinitionNameIn :: NameNamespace -> Maybe [Text] -> Name -> Name
+runtimeDefinitionNameIn :: NameNamespace -> Maybe [Text] -> ResolvedName -> ResolvedName
 runtimeDefinitionNameIn namespace maybeModulePath name =
   case (maybeModulePath, name) of
-    (Just [], SourceName identifier) ->
-      ResolvedName AmbientPrelude namespace identifier
+    (Just [], UserName (ResolvedUserName CurrentModule _ identifier)) ->
+      UserName (ResolvedUserName AmbientPrelude namespace identifier)
     _ -> runtimeDefinitionName maybeModulePath name
 
 runtimeDefinitionOrigin :: [Text] -> ResolvedNameOrigin
@@ -239,10 +244,10 @@ runtimeDefinitionOrigin modulePath =
     Nothing -> AmbientPrelude
     Just segments -> ImportedModule (mkModulePath (fmap mkIdentifier segments))
 
-runtimeConstructorArgument :: Maybe [Text] -> SignatureType -> SignatureType
+runtimeConstructorArgument :: Maybe [Text] -> SignatureType 'Resolved -> SignatureType 'Resolved
 runtimeConstructorArgument = runtimeConstraintType
 
-runtimeConstraintType :: Maybe [Text] -> SignatureType -> SignatureType
+runtimeConstraintType :: Maybe [Text] -> SignatureType 'Resolved -> SignatureType 'Resolved
 runtimeConstraintType maybeModulePath signatureType =
   case signatureType of
     TypeVariable name -> TypeVariable (runtimeTypeName maybeModulePath name)
@@ -259,7 +264,7 @@ runtimeConstraintType maybeModulePath signatureType =
         (runtimeConstraintType maybeModulePath resultType)
     _ -> signatureType
 
-runtimeTypeName :: Maybe [Text] -> Name -> Name
+runtimeTypeName :: Maybe [Text] -> ResolvedName -> ResolvedName
 runtimeTypeName maybeModulePath name
   | identifierText name `elem` ["Int", "Float", "Bool", "Char", "Text"] = name
   | Just _ <- numericTypeFromName (identifierText name) = name
@@ -299,7 +304,7 @@ runtimeValueMatchesLiteral runtimeValue literal =
     VText actual -> case literal of LText expected -> actual == expected; _ -> False
     _ -> False
 
-attachRuntimeTypeHint :: Maybe SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+attachRuntimeTypeHint :: Maybe (SignatureType 'Resolved) -> RuntimeValue -> Either Diagnostic RuntimeValue
 attachRuntimeTypeHint maybeTypeHint runtimeValue =
   case maybeTypeHint of
     Just typeHint ->
@@ -307,7 +312,7 @@ attachRuntimeTypeHint maybeTypeHint runtimeValue =
     Nothing ->
       Right runtimeValue
 
-applyRuntimeTypeHint :: SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeTypeHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeTypeHint typeHint runtimeValue =
   case runtimeValue of
     VTyped existingTypeHint _
@@ -414,7 +419,7 @@ applyRuntimeTypeHint typeHint runtimeValue =
 -- satisfies a later polymorphic @[a]@ result hint. Preserving the stronger
 -- evidence avoids both losing concrete dispatch information and repeatedly
 -- traversing persistent values at polymorphic function boundaries.
-runtimeTypeHintAtLeastAsSpecific :: SignatureType -> SignatureType -> Bool
+runtimeTypeHintAtLeastAsSpecific :: SignatureType 'Resolved -> SignatureType 'Resolved -> Bool
 runtimeTypeHintAtLeastAsSpecific existingHint requestedHint
   | existingHint == requestedHint = True
 runtimeTypeHintAtLeastAsSpecific _ (TypeVariable _) = True
@@ -439,8 +444,8 @@ runtimeTypeHintAtLeastAsSpecific
 runtimeTypeHintAtLeastAsSpecific _ _ = False
 
 applyConstructorArgumentRuntimeHint ::
-  Map Text SignatureType ->
-  SignatureType ->
+  Map Text (SignatureType 'Resolved) ->
+  SignatureType 'Resolved ->
   RuntimeValue ->
   Either Diagnostic RuntimeValue
 applyConstructorArgumentRuntimeHint typeParameterHints fieldType runtimeValue =
@@ -448,7 +453,7 @@ applyConstructorArgumentRuntimeHint typeParameterHints fieldType runtimeValue =
     (Just (substituteConstructorFieldType typeParameterHints fieldType))
     runtimeValue
 
-substituteConstructorFieldType :: Map Text SignatureType -> SignatureType -> SignatureType
+substituteConstructorFieldType :: Map Text (SignatureType 'Resolved) -> SignatureType 'Resolved -> SignatureType 'Resolved
 substituteConstructorFieldType typeParameterHints fieldType =
   case fieldType of
     TypeVariable name ->
@@ -465,7 +470,7 @@ substituteConstructorFieldType typeParameterHints fieldType =
         (substituteConstructorFieldType typeParameterHints resultType)
     _ -> fieldType
 
-constraintTypeNameNumericTarget :: Name -> Maybe NumericType
+constraintTypeNameNumericTarget :: ResolvedName -> Maybe NumericType
 constraintTypeNameNumericTarget typeName =
   case identifierText typeName of
     "Int" -> Just NumericInt64
@@ -518,27 +523,27 @@ matchCaseArm ::
   Maybe [Text] ->
   RuntimeEnv ->
   RuntimeValue ->
-  CaseArm ->
-  Maybe (RuntimeEnv, Maybe Expr, Expr)
-matchCaseArm currentModulePath env scrutineeValue (CaseArm casePattern guardExpr bodyExpr) =
+  CaseArm 'Resolved ->
+  Maybe (RuntimeEnv, Maybe (Expr 'Resolved), Expr 'Resolved)
+matchCaseArm currentModulePath env scrutineeValue (CaseArm _ casePattern guardExpr bodyExpr) =
   case matchPattern currentModulePath scrutineeValue casePattern of
     Just patternBindings ->
       Just (Map.union patternBindings env, guardExpr, bodyExpr)
     Nothing -> Nothing
 
-matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern -> Maybe RuntimeEnv
+matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern 'Resolved -> Maybe RuntimeEnv
 matchPattern currentModulePath scrutineeValue casePattern =
   case casePattern of
-    PWildcard -> Just Map.empty
-    PVariable name ->
+    PWildcard _ -> Just Map.empty
+    PVariable _ name ->
       Just
         (Map.singleton name (Right scrutineeValue))
-    PLiteral literal
+    PLiteral _ literal
       | runtimeValueMatchesLiteral scrutineeValue literal ->
           Just Map.empty
       | otherwise ->
           Nothing
-    PConstructor constructorName patterns ->
+    PConstructor _ constructorName patterns ->
       case constructorPatternScrutinee scrutineeValue of
         VConstructor _ _ valueConstructorName constructorArguments capturedArgs
           | valueConstructorName == runtimeDefinitionNameIn ConstructorNamespace currentModulePath constructorName,
@@ -546,32 +551,32 @@ matchPattern currentModulePath scrutineeValue casePattern =
             length capturedArgs == length patterns ->
               matchPatternList currentModulePath capturedArgs patterns
         _ -> Nothing
-    PList patterns ->
+    PList _ patterns ->
       case scrutineeValue of
         VList elements _
           | length elements == length patterns ->
               matchPatternList currentModulePath elements patterns
         _ -> Nothing
-    PConsList headPattern tailPattern ->
+    PConsList _ headPattern tailPattern ->
       case scrutineeValue of
         VList (headValue : tailValues) maybeTypeHint -> do
           headBindings <- matchPattern currentModulePath headValue headPattern
           tailBindings <- matchPattern currentModulePath (VList tailValues maybeTypeHint) tailPattern
           Just (tailBindings `Map.union` headBindings)
         _ -> Nothing
-    PTuple patterns ->
+    PTuple _ patterns ->
       case scrutineeValue of
         VTuple elements
           | length elements == length patterns ->
               matchPatternList currentModulePath elements patterns
         _ -> Nothing
-    PAs name nestedPattern -> do
+    PAs _ name nestedPattern -> do
       patternBindings <- matchPattern currentModulePath scrutineeValue nestedPattern
       Just (Map.insert name (Right scrutineeValue) patternBindings)
-    POr alternatives ->
+    POr _ alternatives ->
       matchFirstAlternative currentModulePath scrutineeValue alternatives
 
-matchFirstAlternative :: Maybe [Text] -> RuntimeValue -> [Pattern] -> Maybe RuntimeEnv
+matchFirstAlternative :: Maybe [Text] -> RuntimeValue -> [Pattern 'Resolved] -> Maybe RuntimeEnv
 matchFirstAlternative currentModulePath scrutineeValue alternatives =
   case alternatives of
     [] -> Nothing
@@ -580,7 +585,7 @@ matchFirstAlternative currentModulePath scrutineeValue alternatives =
         Just patternBindings -> Just patternBindings
         Nothing -> matchFirstAlternative currentModulePath scrutineeValue rest
 
-matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern] -> Maybe RuntimeEnv
+matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern 'Resolved] -> Maybe RuntimeEnv
 matchPatternList currentModulePath values patterns =
   foldM step Map.empty (zip values patterns)
   where
@@ -597,7 +602,7 @@ constructorPatternScrutinee runtimeValue =
     VExplicitResultHints _ innerValue -> constructorPatternScrutinee innerValue
     _ -> runtimeValue
 
-applyRuntimeFunctionResultHint :: SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeFunctionResultHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunctionResultHint typeHint runtimeValue =
   case typeHint of
     TypeFunction _ resultType ->
@@ -605,7 +610,7 @@ applyRuntimeFunctionResultHint typeHint runtimeValue =
     _ ->
       Right runtimeValue
 
-applyRuntimeFunctionArgumentHint :: SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeFunctionArgumentHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunctionArgumentHint typeHint runtimeValue =
   case typeHint of
     TypeFunction argumentType _ ->
@@ -613,7 +618,7 @@ applyRuntimeFunctionArgumentHint typeHint runtimeValue =
     _ ->
       Right runtimeValue
 
-applyExplicitTypeApplicationResultHint :: SignatureType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyExplicitTypeApplicationResultHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyExplicitTypeApplicationResultHint typeHint runtimeValue
   | isFunctionValue runtimeValue =
       Right (prependRuntimeExplicitResultHint typeHint runtimeValue)
@@ -622,7 +627,7 @@ applyExplicitTypeApplicationResultHint typeHint runtimeValue
   | otherwise =
       Right runtimeValue
 
-runtimeValueCanAcceptTypeHint :: SignatureType -> RuntimeValue -> Bool
+runtimeValueCanAcceptTypeHint :: SignatureType 'Resolved -> RuntimeValue -> Bool
 runtimeValueCanAcceptTypeHint typeHint runtimeValue =
   case runtimeValue of
     VTyped _ innerValue ->
@@ -666,23 +671,23 @@ runtimeValueCanAcceptTypeHint typeHint runtimeValue =
         _ ->
           False
 
-explicitTypeApplicationRuntimeFunctionHint :: SignatureType -> RuntimeValue -> Maybe SignatureType
+explicitTypeApplicationRuntimeFunctionHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
 explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue = do
   explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue
 
-explicitTypeApplicationRuntimeValueHint :: SignatureType -> RuntimeValue -> Maybe SignatureType
+explicitTypeApplicationRuntimeValueHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
 explicitTypeApplicationRuntimeValueHint typeHint runtimeValue =
   case explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue of
     Just instantiatedTemplate -> Just instantiatedTemplate
     Nothing -> explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue
 
-explicitTypeApplicationRuntimeTemplateHint :: SignatureType -> RuntimeValue -> Maybe SignatureType
+explicitTypeApplicationRuntimeTemplateHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
 explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue = do
   templateHint <- runtimeValueSignatureHint runtimeValue
   variableName <- listToMaybe (constraintSignatureTypeVariableNamesInOrder templateHint)
   pure (substituteSignatureTypeVariable variableName typeHint templateHint)
 
-explicitTypeApplicationRuntimeShapeHint :: SignatureType -> RuntimeValue -> Maybe SignatureType
+explicitTypeApplicationRuntimeShapeHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
 explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue =
   case runtimeValue of
     VTyped _ innerValue ->
@@ -699,7 +704,7 @@ explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue =
           Just (TypeApplication (runtimeConstructorTypeName shape) [typeHint])
     _ -> Nothing
 
-runtimeValueSignatureHint :: RuntimeValue -> Maybe SignatureType
+runtimeValueSignatureHint :: RuntimeValue -> Maybe (SignatureType 'Resolved)
 runtimeValueSignatureHint runtimeValue =
   case runtimeValue of
     VTyped typeHint _ ->
@@ -714,7 +719,7 @@ runtimeValueSignatureHint runtimeValue =
       Just typeHint
     _ -> Nothing
 
-substituteSignatureTypeVariable :: Text -> SignatureType -> SignatureType -> SignatureType
+substituteSignatureTypeVariable :: Text -> SignatureType 'Resolved -> SignatureType 'Resolved -> SignatureType 'Resolved
 substituteSignatureTypeVariable variableName replacementType signatureType =
   case signatureType of
     TypeVariable name
@@ -740,7 +745,7 @@ substituteSignatureTypeVariable variableName replacementType signatureType =
 
 runtimeQualifiedMethodIsFullyApplied ::
   Text ->
-  SignaturePayload ->
+  SignaturePayload 'Resolved ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   Bool
@@ -760,7 +765,7 @@ runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments ca
       where
         implTarget = runtimeEvidenceTarget evidence
 
-runtimeMethodCandidateExactlyMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateExactlyMatches :: Text -> SignaturePayload 'Resolved -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
   case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
     (Just genericSignature, Just substitutedSignature) ->
@@ -786,11 +791,11 @@ runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (R
   where
     implTarget = runtimeEvidenceTarget evidence
 
-runtimeExactCandidateArgumentMatches :: Bool -> SignatureType -> RuntimeValue -> Bool
+runtimeExactCandidateArgumentMatches :: Bool -> SignatureType 'Resolved -> RuntimeValue -> Bool
 runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtimeValue =
   not targetArgumentPosition || runtimeValueExactlyMatchesConstraint signatureType runtimeValue
 
-runtimeValueExactlyMatchesConstraint :: SignatureType -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstraint :: SignatureType 'Resolved -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VExplicitTypeApplication _ innerValue ->
@@ -876,7 +881,7 @@ runtimeFloatExactlyMatchesTypeName typeName metadata =
     ("Float64", Just NumericFloat64) -> True
     _ -> False
 
-runtimeMethodCandidateMatches :: Text -> SignaturePayload -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateMatches :: Text -> SignaturePayload 'Resolved -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
   case substituteClassMethodSignature classParameter implTarget methodSignature of
     Just substitutedSignature ->
@@ -888,7 +893,7 @@ runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeM
   where
     implTarget = runtimeEvidenceTarget evidence
 
-runtimeValueMatchesConstraint :: SignatureType -> RuntimeValue -> Bool
+runtimeValueMatchesConstraint :: SignatureType 'Resolved -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VExplicitTypeApplication _ innerValue ->
@@ -960,7 +965,7 @@ runtimeValueMatchesDataTypeName typeName runtimeValue =
         && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
 
-runtimeValueMatchesDataTypeApplication :: Name -> [SignatureType] -> RuntimeValue -> Bool
+runtimeValueMatchesDataTypeApplication :: ResolvedName -> [SignatureType 'Resolved] -> RuntimeValue -> Bool
 runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
@@ -976,7 +981,7 @@ runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
                 )
     _ -> False
 
-runtimeValueExactlyMatchesDataTypeName :: Name -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeName :: ResolvedName -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
   case runtimeValue of
     VConstructorApplication shape capturedArgs ->
@@ -984,7 +989,7 @@ runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
         && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
 
-runtimeValueExactlyMatchesDataTypeApplication :: Name -> [SignatureType] -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeApplication :: ResolvedName -> [SignatureType 'Resolved] -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
@@ -1000,13 +1005,13 @@ runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValu
                 )
     _ -> False
 
-runtimeValueMatchesConstructorArgument :: Map Text SignatureType -> SignatureType -> RuntimeValue -> Bool
+runtimeValueMatchesConstructorArgument :: Map Text (SignatureType 'Resolved) -> SignatureType 'Resolved -> RuntimeValue -> Bool
 runtimeValueMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
   runtimeValueMatchesConstraint
     (substituteConstructorFieldType typeParameterBindings fieldType)
     runtimeValue
 
-runtimeValueExactlyMatchesConstructorArgument :: Map Text SignatureType -> SignatureType -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstructorArgument :: Map Text (SignatureType 'Resolved) -> SignatureType 'Resolved -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
   runtimeValueExactlyMatchesConstraint
     (substituteConstructorFieldType typeParameterBindings fieldType)
@@ -1365,7 +1370,7 @@ isFunctionValue value =
 
 preferredRuntimeMethodCandidates ::
   Text ->
-  SignaturePayload ->
+  SignaturePayload 'Resolved ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
@@ -1385,9 +1390,9 @@ preferredRuntimeMethodCandidates classParameter methodSignature arguments candid
         candidates
 
 preferredRuntimeMethodCandidatesForTypeHint ::
-  SignatureType ->
+  SignatureType 'Resolved ->
   Text ->
-  SignaturePayload ->
+  SignaturePayload 'Resolved ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
@@ -1445,6 +1450,7 @@ renderRuntimeType value =
     VTuple {} -> "Tuple"
     VSectionLeft {} -> "Function"
     VSectionRight {} -> "Function"
+    VDeclaredOperatorRightSection {} -> "Function"
     VClosure {} -> "Function"
     VBuiltin {} -> "Function"
     VOperator {} -> "Function"

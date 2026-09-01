@@ -1,10 +1,12 @@
+{-# LANGUAGE DataKinds #-}
+
 -- | Shared callback contracts for inference traversal.
 module Jazz.Compiler.TypeInference.Traversal
   ( InferExprWithModeFn,
   )
 where
 
-import Jazz.Compiler.AST (Expr)
+import Jazz.Compiler.AST (CorePhase (..), Expr)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr,
@@ -20,5 +22,5 @@ type InferExprWithModeFn =
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
-  Expr ->
+  Expr 'Resolved ->
   (InferredExpr, InferState)

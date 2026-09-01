@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -16,6 +17,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
+import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (E5001),
   )
@@ -1460,7 +1462,7 @@ testDiagnosticRenderingBoundaries = do
   assertEqual
     "source-signature rendering"
     "[Int] -> Text"
-    (renderSignatureType (TypeFunction (TypeList TypeInt) TypeText))
+    (renderSignatureType (TypeFunction (TypeList TypeInt) TypeText :: AST.SignatureType 'AST.Lowered))
 
 testPerformanceDocumentation :: IO ()
 testPerformanceDocumentation =

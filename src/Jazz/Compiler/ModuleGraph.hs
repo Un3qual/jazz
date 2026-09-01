@@ -1,8 +1,12 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Parse-once module graph shared by semantic compilation and runtime.
 module Jazz.Compiler.ModuleGraph
@@ -13,7 +17,6 @@ module Jazz.Compiler.ModuleGraph
     ResolvedImport (..),
     ResolvedModule (..),
     ResolvedProgram (..),
-    unresolvedResolvedModuleNames,
   )
 where
 
@@ -22,35 +25,16 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    DataConstructor (..),
-    Expr (..),
-    ImplMethod (..),
-    Pattern (..),
-    SignatureConstraint,
-    SignaturePayload,
-    SignatureType,
-    Statement (..),
+  ( CoreNameAt,
+    CorePhase (..),
+    CoreSort (..),
+    Expr,
+    FactsAt,
   )
 import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleExportSelector,
-  )
-import Jazz.Compiler.Name (Name (..))
-import Jazz.Compiler.TypeRepresentation
-  ( pattern ConstrainedSignature,
-    pattern SignatureConstraint,
-    pattern SignatureNameToken,
-    pattern SignatureType,
-    pattern TypeApplication,
-    pattern TypeFunction,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeTuple,
-    pattern TypeVariable,
-    pattern UnsupportedSignature,
   )
 
 -- | A source-qualified explicit export clause retained after lowering.
@@ -63,14 +47,39 @@ data DeclaredModuleExports = DeclaredModuleExports
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data CoreModule = CoreModule
+data CoreModule phase = CoreModule
   { coreModuleDeclaredPath :: Maybe [Text],
     coreModuleDeclaredExports :: Maybe DeclaredModuleExports,
     coreModuleImports :: [CoreResolvedImport],
-    coreModuleExpr :: Expr
+    coreModuleExpr :: Expr phase
   }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+  deriving stock (Generic)
+
+type role CoreModule nominal
+
+deriving stock instance
+  ( Eq (CoreNameAt phase),
+    Eq (FactsAt phase 'ExpressionSort),
+    Eq (FactsAt phase 'PatternSort),
+    Eq (FactsAt phase 'StatementSort)
+  ) =>
+  Eq (CoreModule phase)
+
+deriving stock instance
+  ( Show (CoreNameAt phase),
+    Show (FactsAt phase 'ExpressionSort),
+    Show (FactsAt phase 'PatternSort),
+    Show (FactsAt phase 'StatementSort)
+  ) =>
+  Show (CoreModule phase)
+
+instance
+  ( NFData (CoreNameAt phase),
+    NFData (FactsAt phase 'ExpressionSort),
+    NFData (FactsAt phase 'PatternSort),
+    NFData (FactsAt phase 'StatementSort)
+  ) =>
+  NFData (CoreModule phase)
 
 data CoreResolvedImport = CoreResolvedImport
   { coreResolvedImportSpan :: SourceSpan,
@@ -101,7 +110,7 @@ data ResolvedModule = ResolvedModule
     resolvedSourcePath :: FilePath,
     resolvedModuleImports :: [ResolvedImport],
     resolvedModuleExportInventory :: ModuleExportInventory,
-    resolvedModuleCore :: CoreModule
+    resolvedModuleCore :: CoreModule 'Resolved
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -112,101 +121,3 @@ data ResolvedProgram = ResolvedProgram
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
-
--- | Test/audit helper enforcing that resolver output contains no surface-name
--- constructors. Generated names are already compiler-owned and remain valid.
-unresolvedResolvedModuleNames :: ResolvedModule -> [Name]
-unresolvedResolvedModuleNames = filter unresolved . exprNames . coreModuleExpr . resolvedModuleCore
-  where
-    unresolved name =
-      case name of
-        SourceName {} -> True
-        QualifiedName {} -> True
-        _ -> False
-
-exprNames :: Expr -> [Name]
-exprNames expr =
-  case expr of
-    ELit _ -> []
-    EVar name -> [name]
-    ELambda parameter body -> parameter : exprNames body
-    EOperatorValue _ -> []
-    EList items -> concatMap exprNames items
-    ETuple items -> concatMap exprNames items
-    EApply function argument -> exprNames function <> exprNames argument
-    ETypeApplication function _ _ -> exprNames function
-    EIf condition trueBranch falseBranch ->
-      exprNames condition <> exprNames trueBranch <> exprNames falseBranch
-    EPatternCase scrutinee arms -> exprNames scrutinee <> concatMap caseArmNames arms
-    EBinary _ left right -> exprNames left <> exprNames right
-    ESectionLeft left _ -> exprNames left
-    ESectionRight _ right -> exprNames right
-    EBlock statements -> concatMap statementNames statements
-
-caseArmNames :: CaseArm -> [Name]
-caseArmNames (CaseArm patternValue guard body) =
-  patternNames patternValue <> maybe [] exprNames guard <> exprNames body
-
-patternNames :: Pattern -> [Name]
-patternNames patternValue =
-  case patternValue of
-    PWildcard -> []
-    PVariable name -> [name]
-    PLiteral _ -> []
-    PConstructor name patterns -> name : concatMap patternNames patterns
-    PList patterns -> concatMap patternNames patterns
-    PConsList headPattern tailPattern -> patternNames headPattern <> patternNames tailPattern
-    PTuple patterns -> concatMap patternNames patterns
-    PAs name pattern' -> name : patternNames pattern'
-    POr patterns -> concatMap patternNames patterns
-
-statementNames :: Statement -> [Name]
-statementNames statement =
-  case statement of
-    SLet name _ value -> name : exprNames value
-    SSignature name _ payload -> name : signaturePayloadNames payload
-    SData _ name parameters constructors ->
-      name : parameters <> concatMap dataConstructorNames constructors
-    SClass _ name parameters methods ->
-      name : parameters <> concatMap classMethodNames methods
-    SImpl _ name arguments methods ->
-      name : concatMap signatureTypeNames arguments <> concatMap implMethodNames methods
-    SModule {} -> []
-    SImport {} -> []
-    SExpr _ value -> exprNames value
-
-dataConstructorNames :: DataConstructor -> [Name]
-dataConstructorNames (DataConstructor name fieldTypes) =
-  name : concatMap signatureTypeNames fieldTypes
-
-classMethodNames :: ClassMethodSignature -> [Name]
-classMethodNames (ClassMethodSignature name _ payload) =
-  name : signaturePayloadNames payload
-
-implMethodNames :: ImplMethod -> [Name]
-implMethodNames (ImplMethod name _ body) = name : exprNames body
-
-signaturePayloadNames :: SignaturePayload -> [Name]
-signaturePayloadNames payload =
-  case payload of
-    SignatureType signatureType -> signatureTypeNames signatureType
-    ConstrainedSignature constraints signatureType ->
-      concatMap signatureConstraintNames constraints <> signatureTypeNames signatureType
-    UnsupportedSignature tokens ->
-      [name | SignatureNameToken name <- tokens]
-
-signatureConstraintNames :: SignatureConstraint -> [Name]
-signatureConstraintNames (SignatureConstraint name arguments) =
-  name : concatMap signatureTypeNames arguments
-
-signatureTypeNames :: SignatureType -> [Name]
-signatureTypeNames signatureType =
-  case signatureType of
-    TypeVariable {} -> []
-    TypeName name -> [name]
-    TypeApplication name arguments -> name : concatMap signatureTypeNames arguments
-    TypeList innerType -> signatureTypeNames innerType
-    TypeTuple elementTypes -> concatMap signatureTypeNames elementTypes
-    TypeFunction argumentType resultType ->
-      signatureTypeNames argumentType <> signatureTypeNames resultType
-    _ -> []

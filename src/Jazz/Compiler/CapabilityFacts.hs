@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -33,11 +34,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
-import Jazz.Compiler.AST
-  ( SignaturePayload,
-    SignatureToken,
-    SignatureType,
-  )
+import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFromName,
     renderNumericTypeName,
@@ -45,6 +42,9 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.Name
   ( IdentifierLike (identifierText),
     Name (..),
+    ResolvedName,
+    ResolvedUserName (..),
+    mkIdentifier,
     renderName,
   )
 import Jazz.Compiler.SignatureRendering
@@ -77,13 +77,19 @@ import Jazz.Compiler.TypeRepresentation
     pattern UnsupportedSignature,
   )
 
-data ConcreteImplFact = ConcreteImplFact Name SignatureType
+type SignaturePayload = AST.SignaturePayload 'AST.Resolved
+
+type SignatureToken = AST.SignatureToken 'AST.Resolved
+
+type SignatureType = AST.SignatureType 'AST.Resolved
+
+data ConcreteImplFact = ConcreteImplFact ResolvedName SignatureType
   deriving stock (Generic, Show)
   deriving anyclass (NFData)
 
 -- | Concrete facts preserve the legacy text-key collision semantics: the
 -- capability and complete argument compare by rendered identity, rather than
--- the implementation-specific 'Name' origins used to construct them. Keeping
+-- the implementation-specific 'ResolvedName' origins used to construct them. Keeping
 -- the rendered argument also retains legacy collisions such as 'TypeInt' and
 -- @TypeName "Int"@.
 instance Eq ConcreteImplFact where
@@ -96,7 +102,7 @@ concreteImplFactIdentity :: ConcreteImplFact -> (Text, Text)
 concreteImplFactIdentity (ConcreteImplFact capabilityName argument) =
   (renderName capabilityName, renderSignatureType argument)
 
-concreteImplFact :: Name -> [SignatureType] -> Maybe ConcreteImplFact
+concreteImplFact :: ResolvedName -> [SignatureType] -> Maybe ConcreteImplFact
 concreteImplFact capabilityName arguments =
   case arguments of
     [argument]
@@ -111,7 +117,7 @@ renderConcreteImplFact (ConcreteImplFact capabilityName argument) =
 concreteImplFactClassName :: ConcreteImplFact -> Text
 concreteImplFactClassName (ConcreteImplFact capabilityName _) = renderName capabilityName
 
-qualifiedMethodKey :: Name -> Name -> Text
+qualifiedMethodKey :: ResolvedName -> ResolvedName -> Text
 qualifiedMethodKey capabilityName methodName =
   renderName capabilityName <> "::" <> renderName methodName
 
@@ -212,7 +218,7 @@ unsupportedSignatureAtomToConstraintType tokens =
         _ -> Nothing
     _ -> Nothing
 
-signatureTypeForName :: Name -> SignatureType
+signatureTypeForName :: ResolvedName -> SignatureType
 signatureTypeForName name =
   case renderName name of
     "Int" -> TypeInt
@@ -345,16 +351,24 @@ constraintSignatureAliasVariants signatureType =
       ]
     _ -> [signatureType]
 
-constraintSignatureAliasNames :: Name -> [Name]
+constraintSignatureAliasNames :: ResolvedName -> [ResolvedName]
 constraintSignatureAliasNames name =
   case renderName name of
-    "Int" -> ["Int", "Int64"]
-    "Int64" -> ["Int64", "Int"]
-    "Float" -> ["Float", "Float64"]
-    "Float64" -> ["Float64", "Float"]
+    "Int" -> map (`renameResolved` name) ["Int", "Int64"]
+    "Int64" -> map (`renameResolved` name) ["Int64", "Int"]
+    "Float" -> map (`renameResolved` name) ["Float", "Float64"]
+    "Float64" -> map (`renameResolved` name) ["Float64", "Float"]
     _ -> [name]
 
-identifierLooksLikeTypeVariable :: Name -> Bool
+renameResolved :: Text -> ResolvedName -> ResolvedName
+renameResolved replacement name =
+  case name of
+    UserName (ResolvedUserName origin namespace _) ->
+      UserName (ResolvedUserName origin namespace (mkIdentifier replacement))
+    BuiltinName _ -> BuiltinName (mkIdentifier replacement)
+    GeneratedName {} -> name
+
+identifierLooksLikeTypeVariable :: ResolvedName -> Bool
 identifierLooksLikeTypeVariable name =
   case Text.uncons (terminalIdentifierText name) of
     Just (firstChar, _) -> isLower firstChar
@@ -362,9 +376,7 @@ identifierLooksLikeTypeVariable name =
   where
     terminalIdentifierText candidate =
       case candidate of
-        SourceName identifier -> identifierText identifier
-        QualifiedName _ member -> identifierText member
-        ResolvedName _ _ identifier -> identifierText identifier
+        UserName (ResolvedUserName _ _ identifier) -> identifierText identifier
         BuiltinName identifier -> identifierText identifier
         GeneratedName {} -> ""
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 -- | Internal contracts shared by inference and Typed Core elaboration.
 --
 -- The production outcome stays abstract so its raw program and validation
@@ -37,12 +39,13 @@ import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Literal,
+  ( CorePhase (..),
+    Literal,
     Pattern,
     Statement (..),
   )
 import Jazz.Compiler.Diagnostics (SourceSpan)
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
@@ -158,7 +161,7 @@ data TypedCoreProductionMode
 -- | Keep the unsupported block classification beside the failure contract so
 -- root and nested production traversals cannot drift apart.
 blockProductionFailureKindAndDetail ::
-  [Statement] ->
+  [Statement 'Resolved] ->
   (TypedCoreProductionFailureKind, TypedCoreProductionFailureDetail)
 blockProductionFailureKindAndDetail statements
   | any isDataStatement statements =
@@ -193,8 +196,8 @@ data ProvisionalTypedExpr
   | ProvisionalTupleExpression ExpressionType [ProvisionalTypedExpr]
   | ProvisionalLiteralExpression Literal ExpressionType
   | ProvisionalBinaryExpression Text ExpressionType ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
-  | ProvisionalVariableExpression Name ExpressionType
-  | ProvisionalLambdaExpression Name ExpressionType ProvisionalTypedExpr
+  | ProvisionalVariableExpression ResolvedName ExpressionType
+  | ProvisionalLambdaExpression ResolvedName ExpressionType ProvisionalTypedExpr
   | ProvisionalApplyExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr
   | ProvisionalIfExpression ExpressionType ProvisionalTypedExpr ProvisionalTypedExpr ProvisionalTypedExpr
   | ProvisionalPatternCaseExpression ExpressionType ProvisionalTypedExpr [ProvisionalPatternCaseArm]
@@ -205,15 +208,15 @@ data ProvisionalTypedExpr
 
 data ProvisionalPatternCaseArm
   = ProvisionalPatternCaseArm
-      Pattern
+      (Pattern 'Resolved)
       (Maybe ProvisionalTypedExpr)
       ProvisionalTypedExpr
   deriving (Eq, Show)
 
 data ProvisionalTypedStatement
-  = ProvisionalSignature Int Name SourceSpan ExpressionType
+  = ProvisionalSignature Int ResolvedName SourceSpan ExpressionType
   | ProvisionalFunctionBinding ProvisionalCallableDeclaration ProvisionalTypedExpr
-  | ProvisionalScalarBinding Int Name SourceSpan ExpressionType ProvisionalTypedExpr
+  | ProvisionalScalarBinding Int ResolvedName SourceSpan ExpressionType ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
   | ProvisionalDataStatement ProvisionalDataDeclaration
   | ProvisionalUnsupportedCallableBinding ProvisionalCallableDeclaration TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
@@ -221,21 +224,21 @@ data ProvisionalTypedStatement
   deriving (Eq, Show)
 
 data ProvisionalConstructorDeclaration
-  = ProvisionalConstructorDeclaration Name [ExpressionType]
+  = ProvisionalConstructorDeclaration ResolvedName [ExpressionType]
   deriving (Eq, Show)
 
 data ProvisionalDataDeclaration
   = ProvisionalDataDeclaration
       Int
       SourceSpan
-      Name
-      [Name]
+      ResolvedName
+      [ResolvedName]
       [ProvisionalConstructorDeclaration]
   deriving (Eq, Show)
 
 data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration
   { provisionalCallableStatementIndex :: Int,
-    provisionalCallableName :: Name,
+    provisionalCallableName :: ResolvedName,
     provisionalCallableSpan :: SourceSpan,
     provisionalCallableType :: ExpressionType,
     provisionalCallableBinding :: Maybe TypeBinding,
@@ -262,17 +265,17 @@ data ExpressionEvaluation
 data FinalizationEnv = FinalizationEnv
   { finalizationInferState :: InferState,
     finalizationModulePath :: [Text],
-    finalizationFunctions :: Map Name FunctionProfile,
-    finalizationCallableShapes :: Map Name TypedCallableShape,
+    finalizationFunctions :: Map ResolvedName FunctionProfile,
+    finalizationCallableShapes :: Map ResolvedName TypedCallableShape,
     finalizationScalarCaptureTypes :: Map TypedBinderId ExpressionType,
-    finalizationEagerClosureCaptureStatements :: Map Name Int
+    finalizationEagerClosureCaptureStatements :: Map ResolvedName Int
   }
 
 data FinalizationLocation = FinalizationLocation
   { finalizationStatementIndex :: Int,
     finalizationChildPath :: [Int],
-    finalizationParameters :: Map Name TypedBinderId,
-    finalizationScalarBindings :: Map Name TypedBinderId,
+    finalizationParameters :: Map ResolvedName TypedBinderId,
+    finalizationScalarBindings :: Map ResolvedName TypedBinderId,
     finalizationExpressionEvaluation :: ExpressionEvaluation,
     finalizationExpressionRole :: ExpressionRole
   }

@@ -1,8 +1,10 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Pure exhaustiveness and arm-usefulness analysis for typed Jazz patterns.
 module Jazz.Compiler.PatternCoverage
   ( ConstructorInventory,
+    CoveragePattern,
     PatternCoverageFailure (..),
     PatternCoverageSite (..),
     analyzePatternCoverage,
@@ -23,6 +25,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CorePhase (Resolved),
     Literal (..),
     Pattern (..),
   )
@@ -30,7 +33,9 @@ import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (ConstructorNamespace),
+    ResolvedName,
     ResolvedNameOrigin (CurrentModule),
+    ResolvedUserName (..),
     identifierText,
     renderName,
   )
@@ -45,7 +50,7 @@ import Jazz.Compiler.TypeInference.Types
   )
 
 data PatternCoverageFailure
-  = NonExhaustivePattern Pattern
+  = NonExhaustivePattern CoveragePattern
   | UnreachablePatternArm Int
   deriving (Eq, Show)
 
@@ -53,7 +58,7 @@ data PatternCoverageSite = PatternCoverageSite
   { patternCoverageSiteOrdinal :: Int,
     patternCoverageSiteConstructorInventory :: ConstructorInventory,
     patternCoverageSiteScrutineeType :: ExpressionType,
-    patternCoverageSiteArms :: [CaseArm]
+    patternCoverageSiteArms :: [CaseArm 'Resolved]
   }
   deriving (Eq, Show)
 
@@ -61,7 +66,7 @@ data PatternCoverageSite = PatternCoverageSite
 -- shared with inference state; analysis materializes only data types reachable
 -- from that match's scrutinee.
 data ConstructorInventory = ConstructorInventory
-  { constructorInventoryWitnessNames :: Map Name Name,
+  { constructorInventoryWitnessNames :: Map ResolvedName ResolvedName,
     constructorInventoryDataTypes :: Map Text DataTypeBinding,
     constructorInventoryEnvironment :: TypeEnv
   }
@@ -73,16 +78,16 @@ data ConstructorInventory = ConstructorInventory
 newtype PreparedConstructorInventory = PreparedConstructorInventory (Map Text DataConstructorInventory)
 
 data DataConstructorInventory = DataConstructorInventory
-  { inventoryTypeParameters :: [Name],
+  { inventoryTypeParameters :: [ResolvedName],
     inventoryConstructors :: [VisibleConstructor],
     inventoryIsClosed :: Bool
   }
   deriving (Eq, Show)
 
 data VisibleConstructor = VisibleConstructor
-  { visibleConstructorName :: Name,
+  { visibleConstructorName :: ResolvedName,
     -- Keep diagnostic spelling separate from the canonical matching identity.
-    visibleConstructorWitnessName :: Maybe Name,
+    visibleConstructorWitnessName :: Maybe ResolvedName,
     visibleConstructorArguments :: [ConstructorArgumentType]
   }
   deriving (Eq, Show)
@@ -98,7 +103,7 @@ constructorInventoryFromBindings =
   constructorInventoryFromBindingsWithWitnessNames Map.empty
 
 constructorInventoryFromBindingsWithWitnessNames ::
-  Map Name Name ->
+  Map ResolvedName ResolvedName ->
   Map Text DataTypeBinding ->
   TypeEnv ->
   ConstructorInventory
@@ -196,7 +201,7 @@ prepareConstructorInventory source expressionType =
               [(constructorName, argumentTypes)]
               constructorsByType,
             case constructorName of
-              ResolvedName CurrentModule ConstructorNamespace member ->
+              UserName (ResolvedUserName CurrentModule ConstructorNamespace member) ->
                 Set.insert (identifierText member) localNames
               _ -> localNames
           )
@@ -204,8 +209,10 @@ prepareConstructorInventory source expressionType =
 
     accessibleWitnessName constructorName witnessName =
       case (constructorName, witnessName) of
-        (ResolvedName _ ConstructorNamespace _, SourceName member)
-          | Set.member (identifierText member) localConstructorNames -> Nothing
+        ( UserName (ResolvedUserName _ ConstructorNamespace _),
+          UserName (ResolvedUserName CurrentModule ConstructorNamespace member)
+          )
+            | Set.member (identifierText member) localConstructorNames -> Nothing
         _ -> Just witnessName
 
 -- | Analyze one source-ordered match. Guarded arms are checked for usefulness
@@ -213,7 +220,7 @@ prepareConstructorInventory source expressionType =
 analyzePatternCoverage ::
   ConstructorInventory ->
   ExpressionType ->
-  [CaseArm] ->
+  [CaseArm 'Resolved] ->
   [PatternCoverageFailure]
 analyzePatternCoverage inventory expressionType arms =
   reverse unreachableFailuresReversed <> exhaustivenessFailure
@@ -223,7 +230,7 @@ analyzePatternCoverage inventory expressionType arms =
     (coveredRowsReversed, unreachableFailuresReversed) =
       foldl' analyzeArm ([], []) (zip [1 ..] arms)
 
-    analyzeArm (previousRows, failures) (armIndex, CaseArm patternValue maybeGuard _) =
+    analyzeArm (previousRows, failures) (armIndex, CaseArm _ patternValue maybeGuard _) =
       let normalizedPattern =
             simplifyCoveragePattern
               preparedInventory
@@ -250,8 +257,8 @@ analyzePatternCoverage inventory expressionType arms =
     exhaustivenessFailure =
       case usefulPatternVector preparedInventory [expressionType] (reverse coveredRowsReversed) [CoverageWildcard] of
         Nothing -> []
-        Just [missing] -> [NonExhaustivePattern (coveragePatternToPattern missing)]
-        Just _ -> [NonExhaustivePattern PWildcard]
+        Just [missing] -> [NonExhaustivePattern missing]
+        Just _ -> [NonExhaustivePattern CoverageWildcard]
 
 hasWitness :: Maybe value -> Bool
 hasWitness = isJust
@@ -268,7 +275,7 @@ data CoverageConstructor
   | CoverageListNil
   | CoverageListCons
   | CoverageTuple Int
-  | CoverageData Name (Maybe Name)
+  | CoverageData ResolvedName (Maybe ResolvedName)
   | CoverageLiteral Literal
   deriving (Show)
 
@@ -334,28 +341,28 @@ data ConstructorShape = ConstructorShape
 
 type PatternMatrix = [[CoveragePattern]]
 
-normalizePattern :: Pattern -> CoveragePattern
+normalizePattern :: Pattern 'Resolved -> CoveragePattern
 normalizePattern patternValue =
   case patternValue of
-    PWildcard -> CoverageWildcard
-    PVariable _ -> CoverageWildcard
-    PLiteral (LBool value) -> CoverageConstructor (CoverageBool value) []
-    PLiteral literal -> CoverageConstructor (CoverageLiteral literal) []
-    PConstructor name fields ->
+    PWildcard _ -> CoverageWildcard
+    PVariable _ _ -> CoverageWildcard
+    PLiteral _ (LBool value) -> CoverageConstructor (CoverageBool value) []
+    PLiteral _ literal -> CoverageConstructor (CoverageLiteral literal) []
+    PConstructor _ name fields ->
       normalizeConstructor (CoverageData name (Just name)) fields
-    PList elements -> normalizeList elements
-    PConsList headPattern tailPattern ->
+    PList _ elements -> normalizeList elements
+    PConsList _ headPattern tailPattern ->
       normalizeConstructor CoverageListCons [headPattern, tailPattern]
-    PTuple [] -> CoverageConstructor CoverageUnit []
-    PTuple elements -> normalizeConstructor (CoverageTuple (length elements)) elements
-    PAs _ innerPattern -> normalizePattern innerPattern
-    POr alternatives -> CoverageOr (map normalizePattern alternatives)
+    PTuple _ [] -> CoverageConstructor CoverageUnit []
+    PTuple _ elements -> normalizeConstructor (CoverageTuple (length elements)) elements
+    PAs _ _ innerPattern -> normalizePattern innerPattern
+    POr _ alternatives -> CoverageOr (map normalizePattern alternatives)
 
-normalizeConstructor :: CoverageConstructor -> [Pattern] -> CoveragePattern
+normalizeConstructor :: CoverageConstructor -> [Pattern 'Resolved] -> CoveragePattern
 normalizeConstructor constructor fields =
   CoverageConstructor constructor (map normalizePattern fields)
 
-normalizeList :: [Pattern] -> CoveragePattern
+normalizeList :: [Pattern 'Resolved] -> CoveragePattern
 normalizeList elements =
   case elements of
     [] -> CoverageConstructor CoverageListNil []
@@ -559,7 +566,7 @@ constructorDomain inventory expressionType =
 
 dataConstructorDomain ::
   PreparedConstructorInventory ->
-  Name ->
+  ResolvedName ->
   [ExpressionType] ->
   Maybe ConstructorDomain
 dataConstructorDomain (PreparedConstructorInventory inventories) typeName actualTypeArguments = do
@@ -659,58 +666,40 @@ constructorPresent shape = any rowHasConstructor
           any (rowHasConstructor . (: rest)) alternatives
         _ -> False
 
-coveragePatternToPattern :: CoveragePattern -> Pattern
-coveragePatternToPattern coveragePattern =
-  case coveragePattern of
-    CoverageWildcard -> PWildcard
-    CoverageOr alternatives -> POr (map coveragePatternToPattern alternatives)
-    CoverageConstructor constructor fields ->
-      case constructor of
-        CoverageBool value -> PLiteral (LBool value)
-        CoverageUnit -> PTuple []
-        CoverageListNil -> PList []
-        CoverageListCons ->
-          case fields of
-            [headPattern, tailPattern] ->
-              PConsList
-                (coveragePatternToPattern headPattern)
-                (coveragePatternToPattern tailPattern)
-            _ -> PWildcard
-        CoverageTuple _ -> PTuple (map coveragePatternToPattern fields)
-        CoverageData _ maybeWitnessName ->
-          case maybeWitnessName of
-            Just witnessName ->
-              PConstructor witnessName (map coveragePatternToPattern fields)
-            Nothing -> PWildcard
-        CoverageLiteral literal -> PLiteral literal
-
-renderCoveragePattern :: Pattern -> Text
+renderCoveragePattern :: CoveragePattern -> Text
 renderCoveragePattern patternValue =
   case patternValue of
-    PWildcard -> "_"
-    PVariable name -> renderName name
-    PLiteral literal -> renderLiteral literal
-    PConstructor name fields ->
-      Text.unwords (renderCoverageConstructorName name : map renderCoveragePatternAtom fields)
-    PList elements -> "[" <> Text.intercalate ", " (map renderCoveragePatternAtom elements) <> "]"
-    PConsList headPattern tailPattern ->
-      "[" <> renderCoveragePatternAtom headPattern <> " | " <> renderCoveragePatternAtom tailPattern <> "]"
-    PTuple elements -> "(" <> Text.intercalate ", " (map renderCoveragePatternAtom elements) <> ")"
-    PAs name innerPattern -> renderName name <> " @ " <> renderCoveragePatternAtom innerPattern
-    POr alternatives -> Text.intercalate " | " (map renderCoveragePattern alternatives)
+    CoverageWildcard -> "_"
+    CoverageOr alternatives -> Text.intercalate " | " (map renderCoveragePattern alternatives)
+    CoverageConstructor constructor fields -> renderCoverageConstructor constructor fields
 
-renderCoverageConstructorName :: Name -> Text
+renderCoverageConstructor :: CoverageConstructor -> [CoveragePattern] -> Text
+renderCoverageConstructor constructor fields =
+  case constructor of
+    CoverageBool value -> if value then "True" else "False"
+    CoverageUnit -> "()"
+    CoverageListNil -> "[]"
+    CoverageListCons ->
+      case fields of
+        [headPattern, tailPattern] ->
+          "[" <> renderCoveragePatternAtom headPattern <> " | " <> renderCoveragePatternAtom tailPattern <> "]"
+        _ -> "_"
+    CoverageTuple _ -> "(" <> Text.intercalate ", " (map renderCoveragePatternAtom fields) <> ")"
+    CoverageData name maybeWitnessName ->
+      Text.unwords (renderCoverageConstructorName (maybe name id maybeWitnessName) : map renderCoveragePatternAtom fields)
+    CoverageLiteral literal -> renderLiteral literal
+
+renderCoverageConstructorName :: ResolvedName -> Text
 renderCoverageConstructorName name =
   case name of
-    ResolvedName _ ConstructorNamespace member -> identifierText member
+    UserName (ResolvedUserName _ ConstructorNamespace member) -> identifierText member
     _ -> renderName name
 
-renderCoveragePatternAtom :: Pattern -> Text
+renderCoveragePatternAtom :: CoveragePattern -> Text
 renderCoveragePatternAtom patternValue =
   case patternValue of
-    PConstructor _ (_ : _) -> grouped
-    PAs {} -> grouped
-    POr {} -> grouped
+    CoverageConstructor (CoverageData _ _) (_ : _) -> grouped
+    CoverageOr {} -> grouped
     _ -> renderCoveragePattern patternValue
   where
     grouped = "(" <> renderCoveragePattern patternValue <> ")"

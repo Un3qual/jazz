@@ -1,9 +1,14 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
--- | Structured names used after surface syntax is lowered into the core AST.
+-- | Phase-safe names used by canonical core.
 module Jazz.Compiler.Name
   ( Identifier,
     IdentifierLike (..),
@@ -18,8 +23,13 @@ module Jazz.Compiler.Name
     splitQualifiedIdentifierText,
     GeneratedNameKind (..),
     Name (..),
+    SourceName (..),
+    ResolvedUserName (..),
+    UnresolvedName,
+    ResolvedName,
     NameNamespace (..),
     ResolvedNameOrigin (..),
+    UserNameLike (..),
     generatedName,
     namePurity,
     operatorBindingName,
@@ -30,15 +40,13 @@ module Jazz.Compiler.Name
     resolvedAmbientName,
     resolvedImportedName,
     resolvedLocalName,
+    resolvedValueScopeName,
     sourceName,
   )
 where
 
 import Control.DeepSeq (NFData)
-import Data.Char
-  ( ord,
-    toUpper,
-  )
+import Data.Char (ord, toUpper)
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -115,78 +123,126 @@ data GeneratedNameKind
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data Name
-  = SourceName Identifier
-  | QualifiedName Identifier Identifier
-  | ResolvedName ResolvedNameOrigin NameNamespace Identifier
-  | BuiltinName Identifier
-  | GeneratedName GeneratedNameKind
+data SourceName
+  = UnqualifiedSourceName Identifier
+  | QualifiedSourceName Identifier Identifier
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-instance IsString Name where
-  fromString = SourceName . fromString
+data ResolvedUserName = ResolvedUserName ResolvedNameOrigin NameNamespace Identifier
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
-instance IdentifierLike Name where
+-- | User spelling varies by compiler phase. Builtins and compiler-generated
+-- names are phase-independent and therefore live outside the user payload.
+data Name user
+  = UserName user
+  | BuiltinName Identifier
+  | GeneratedName GeneratedNameKind
+  deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
+  deriving anyclass (NFData)
+
+type UnresolvedName = Name SourceName
+
+type ResolvedName = Name ResolvedUserName
+
+class UserNameLike user where
+  renderUserName :: user -> Text
+  userNamePurity :: user -> Purity
+
+instance UserNameLike SourceName where
+  renderUserName source =
+    case source of
+      UnqualifiedSourceName identifier -> identifierText identifier
+      QualifiedSourceName qualifier member ->
+        identifierText qualifier <> "::" <> identifierText member
+  userNamePurity source =
+    case source of
+      UnqualifiedSourceName identifier -> identifierPurity identifier
+      QualifiedSourceName _ member -> identifierPurity member
+
+instance UserNameLike ResolvedUserName where
+  renderUserName (ResolvedUserName origin _ member) =
+    case origin of
+      CurrentModule -> identifierText member
+      ImportedModule modulePath -> renderModulePath modulePath <> "::" <> identifierText member
+      AmbientPrelude -> identifierText member
+  userNamePurity (ResolvedUserName _ _ member) = identifierPurity member
+
+instance IsString UnresolvedName where
+  fromString = sourceName . fromString
+
+instance (UserNameLike user) => IdentifierLike (Name user) where
   identifierText = renderName
   identifierPurity = namePurity
 
-sourceName :: Identifier -> Name
-sourceName = SourceName
+sourceName :: Identifier -> UnresolvedName
+sourceName = UserName . UnqualifiedSourceName
 
-qualifiedName :: Identifier -> Identifier -> Name
-qualifiedName = QualifiedName
+qualifiedName :: Identifier -> Identifier -> UnresolvedName
+qualifiedName qualifier member = UserName (QualifiedSourceName qualifier member)
 
-qualifiedMemberName :: Name -> Name -> Name
+qualifiedMemberName :: ResolvedName -> ResolvedName -> ResolvedName
 qualifiedMemberName qualifier member =
   case (qualifier, member) of
-    (SourceName qualifierIdentifier, SourceName memberIdentifier) ->
-      QualifiedName qualifierIdentifier memberIdentifier
-    (ResolvedName origin CapabilityNamespace qualifierIdentifier, ResolvedName _ ValueNamespace memberIdentifier) ->
-      ResolvedName
-        origin
-        ValueNamespace
-        (mkIdentifier (identifierText qualifierIdentifier <> "::" <> identifierText memberIdentifier))
+    ( UserName (ResolvedUserName origin CapabilityNamespace qualifierIdentifier),
+      UserName (ResolvedUserName _ ValueNamespace memberIdentifier)
+      ) ->
+        UserName
+          ( ResolvedUserName
+              origin
+              ValueNamespace
+              (mkIdentifier (identifierText qualifierIdentifier <> "::" <> identifierText memberIdentifier))
+          )
     _ ->
-      SourceName (mkIdentifier (renderName qualifier <> "::" <> renderName member))
+      UserName
+        ( ResolvedUserName
+            CurrentModule
+            ValueNamespace
+            (mkIdentifier (renderName qualifier <> "::" <> renderName member))
+        )
 
-resolvedLocalName :: NameNamespace -> Identifier -> Name
-resolvedLocalName = ResolvedName CurrentModule
+resolvedLocalName :: NameNamespace -> Identifier -> ResolvedName
+resolvedLocalName namespace = UserName . ResolvedUserName CurrentModule namespace
 
-resolvedImportedName :: ModulePath -> NameNamespace -> Identifier -> Name
-resolvedImportedName modulePath = ResolvedName (ImportedModule modulePath)
+resolvedImportedName :: ModulePath -> NameNamespace -> Identifier -> ResolvedName
+resolvedImportedName modulePath namespace = UserName . ResolvedUserName (ImportedModule modulePath) namespace
 
-resolvedAmbientName :: NameNamespace -> Identifier -> Name
-resolvedAmbientName = ResolvedName AmbientPrelude
+resolvedAmbientName :: NameNamespace -> Identifier -> ResolvedName
+resolvedAmbientName namespace = UserName . ResolvedUserName AmbientPrelude namespace
 
-generatedName :: GeneratedNameKind -> Name
+-- | Key a resolved name in the analyzer's shared value scope. Constructors
+-- are values when checking lexical visibility and rebinding; all other names
+-- retain their namespace. Builtin and generated names have no user payload,
+-- so the lawful 'Functor' traversal leaves them unchanged.
+resolvedValueScopeName :: ResolvedName -> ResolvedName
+resolvedValueScopeName = fmap enterValueScope
+  where
+    enterValueScope userName@(ResolvedUserName origin namespace identifier) =
+      case namespace of
+        ConstructorNamespace -> ResolvedUserName origin ValueNamespace identifier
+        _ -> userName
+
+generatedName :: GeneratedNameKind -> Name user
 generatedName = GeneratedName
 
-operatorBindingName :: Text -> Name
+operatorBindingName :: Text -> Name user
 operatorBindingName = GeneratedName . OperatorBinding . operatorBindingIdentifierText
 
-operatorBindingNameFromIdentifier :: Identifier -> Name
+operatorBindingNameFromIdentifier :: Identifier -> Name user
 operatorBindingNameFromIdentifier = GeneratedName . OperatorBinding . identifierText
 
-renderName :: Name -> Text
+renderName :: (UserNameLike user) => Name user -> Text
 renderName name =
   case name of
-    SourceName identifier -> identifierText identifier
-    QualifiedName qualifier member ->
-      identifierText qualifier <> "::" <> identifierText member
-    ResolvedName CurrentModule _ member -> identifierText member
-    ResolvedName (ImportedModule modulePath) _ member ->
-      renderModulePath modulePath <> "::" <> identifierText member
-    ResolvedName AmbientPrelude _ member -> identifierText member
+    UserName user -> renderUserName user
     BuiltinName identifier -> identifierText identifier
     GeneratedName (OperatorBinding storageName) -> storageName
     GeneratedName generated -> "<generated:" <> Text.pack (show generated) <> ">"
 
-namePurity :: Name -> Purity
+namePurity :: (UserNameLike user) => Name user -> Purity
 namePurity name =
   case name of
-    SourceName identifier -> identifierPurity identifier
-    QualifiedName _ member -> identifierPurity member
-    ResolvedName _ _ member -> identifierPurity member
+    UserName user -> userNamePurity user
     BuiltinName identifier -> identifierPurity identifier
     GeneratedName _ -> Pure

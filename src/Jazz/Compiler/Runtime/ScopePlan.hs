@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -34,6 +35,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CorePhase (..),
     Expr (..),
     ImplMethod (..),
     SignaturePayload,
@@ -47,10 +49,11 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeFromName,
   )
 import Jazz.Compiler.Name
-  ( Name,
+  ( NameNamespace (..),
+    ResolvedName,
     identifierText,
     mkIdentifier,
-    sourceName,
+    resolvedAmbientName,
   )
 import Jazz.Compiler.RecursiveBindings
   ( buildRecursiveScopeFacts,
@@ -70,12 +73,12 @@ import Jazz.Compiler.TypeRepresentation
   )
 
 data RuntimeScopePlan = RuntimeScopePlan
-  { runtimeScopePlanIndexedStatements :: [(Int, Statement)],
-    runtimeScopePlanStatementsByIndex :: IntMap Statement,
+  { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Resolved)],
+    runtimeScopePlanStatementsByIndex :: IntMap (Statement 'Resolved),
     runtimeScopePlanModulePathsByStatement :: IntMap (Maybe [Text]),
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
-    runtimeScopePlanBindingNames :: IntMap Name,
+    runtimeScopePlanBindingNames :: IntMap ResolvedName,
     runtimeScopePlanHostRecursiveBindings :: IntSet
   }
 
@@ -83,8 +86,8 @@ buildRuntimeScopePlan ::
   Set Int ->
   Maybe [Text] ->
   BuiltinResolutionMode ->
-  Set Name ->
-  [Statement] ->
+  Set ResolvedName ->
+  [Statement 'Resolved] ->
   RuntimeScopePlan
 buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode outerBindingNames statements =
   RuntimeScopePlan
@@ -102,7 +105,7 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
     recursionOuterBindingNames =
       Set.union
         outerBindingNames
-        (Set.map (sourceName . mkIdentifier) (builtinNamesInMode builtinMode))
+        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
     recursiveScopeFactsValue =
       buildRecursiveScopeFacts
         recursionOuterBindingNames
@@ -143,10 +146,10 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
         Just (SLet _ _ valueExpr) -> runtimeExprRequiresHost valueExpr
         _ -> False
 
-scopePlanIndexedStatements :: RuntimeScopePlan -> [(Int, Statement)]
+scopePlanIndexedStatements :: RuntimeScopePlan -> [(Int, Statement 'Resolved)]
 scopePlanIndexedStatements = runtimeScopePlanIndexedStatements
 
-scopePlanStatementAt :: RuntimeScopePlan -> Int -> Maybe Statement
+scopePlanStatementAt :: RuntimeScopePlan -> Int -> Maybe (Statement 'Resolved)
 scopePlanStatementAt plan statementIndex =
   IntMap.lookup statementIndex (runtimeScopePlanStatementsByIndex plan)
 
@@ -154,7 +157,7 @@ scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe [Text]
 scopePlanModulePathForStatement plan statementIndex =
   IntMap.findWithDefault Nothing statementIndex (runtimeScopePlanModulePathsByStatement plan)
 
-runtimeModulePathAfterStatements :: Maybe [Text] -> [Statement] -> Maybe [Text]
+runtimeModulePathAfterStatements :: Maybe [Text] -> [Statement 'Resolved] -> Maybe [Text]
 runtimeModulePathAfterStatements =
   foldl'
     ( \activeModulePath statement ->
@@ -175,7 +178,7 @@ scopePlanIsSelfRecursiveFunction :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsSelfRecursiveFunction plan statementIndex =
   IntSet.member statementIndex (runtimeScopePlanSelfRecursiveFunctions plan)
 
-scopePlanBindingNameAt :: RuntimeScopePlan -> Int -> Maybe Name
+scopePlanBindingNameAt :: RuntimeScopePlan -> Int -> Maybe ResolvedName
 scopePlanBindingNameAt plan statementIndex =
   IntMap.lookup statementIndex (runtimeScopePlanBindingNames plan)
 
@@ -183,15 +186,15 @@ scopePlanIsHostRecursiveBinding :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsHostRecursiveBinding plan statementIndex =
   IntSet.member statementIndex (runtimeScopePlanHostRecursiveBindings plan)
 
-scopePlanPreviousSignaturePayload :: RuntimeScopePlan -> Int -> Name -> Maybe SignaturePayload
+scopePlanPreviousSignaturePayload :: RuntimeScopePlan -> Int -> ResolvedName -> Maybe (SignaturePayload 'Resolved)
 scopePlanPreviousSignaturePayload plan statementIndex bindingName =
   case scopePlanStatementAt plan (statementIndex - 1) of
-    Just (SSignature signatureName _ signaturePayload)
+    Just (SSignature _ signatureName signaturePayload)
       | identifierText signatureName == identifierText bindingName ->
           Just signaturePayload
     _ -> Nothing
 
-runtimeSignatureNumericTarget :: SignaturePayload -> Maybe NumericType
+runtimeSignatureNumericTarget :: SignaturePayload 'Resolved -> Maybe NumericType
 runtimeSignatureNumericTarget signaturePayload =
   case signaturePayload of
     SignatureType TypeInt -> Just NumericInt64
@@ -212,35 +215,35 @@ runtimeSignatureNumericTarget signaturePayload =
             typeNameText -> numericTypeFromName typeNameText
         _ -> Nothing
 
-runtimeExprRequiresHost :: Expr -> Bool
+runtimeExprRequiresHost :: Expr 'Resolved -> Bool
 runtimeExprRequiresHost expr =
   case expr of
-    ELit _ -> False
-    EVar name -> runtimeNameRequiresHost name
-    ELambda _ bodyExpr -> runtimeExprRequiresHost bodyExpr
-    EOperatorValue _ -> False
-    EList elements -> any runtimeExprRequiresHost elements
-    ETuple elements -> any runtimeExprRequiresHost elements
-    EApply functionExpr argumentExpr ->
+    ELit _ _ -> False
+    EVar _ name -> runtimeNameRequiresHost name
+    ELambda _ _ bodyExpr -> runtimeExprRequiresHost bodyExpr
+    EOperatorValue _ _ -> False
+    EList _ elements -> any runtimeExprRequiresHost elements
+    ETuple _ elements -> any runtimeExprRequiresHost elements
+    EApply _ functionExpr argumentExpr ->
       runtimeExprRequiresHost functionExpr || runtimeExprRequiresHost argumentExpr
-    ETypeApplication functionExpr _ _ -> runtimeExprRequiresHost functionExpr
-    EIf conditionExpr thenExpr elseExpr ->
+    ETypeApplication _ functionExpr _ _ -> runtimeExprRequiresHost functionExpr
+    EIf _ conditionExpr thenExpr elseExpr ->
       any runtimeExprRequiresHost [conditionExpr, thenExpr, elseExpr]
-    EPatternCase scrutineeExpr caseArms ->
+    EPatternCase _ scrutineeExpr caseArms ->
       runtimeExprRequiresHost scrutineeExpr || any caseArmRequiresHost caseArms
-    EBinary _ leftExpr rightExpr ->
+    EBinary _ _ leftExpr rightExpr ->
       runtimeExprRequiresHost leftExpr || runtimeExprRequiresHost rightExpr
-    ESectionLeft leftExpr _ -> runtimeExprRequiresHost leftExpr
-    ESectionRight _ rightExpr -> runtimeExprRequiresHost rightExpr
-    EBlock statements -> any runtimeStatementRequiresHost statements
+    ESectionLeft _ leftExpr _ -> runtimeExprRequiresHost leftExpr
+    ESectionRight _ _ rightExpr -> runtimeExprRequiresHost rightExpr
+    EBlock _ statements -> any runtimeStatementRequiresHost statements
   where
-    caseArmRequiresHost (CaseArm _ maybeGuard bodyExpr) =
+    caseArmRequiresHost (CaseArm _ _ maybeGuard bodyExpr) =
       maybe False runtimeExprRequiresHost maybeGuard || runtimeExprRequiresHost bodyExpr
 
-runtimeStatementRequiresHost :: Statement -> Bool
+runtimeStatementRequiresHost :: Statement 'Resolved -> Bool
 runtimeStatementRequiresHost statement =
   case statement of
-    SLet name _ (EVar referencedName)
+    SLet _ name (EVar _ referencedName)
       | identifierText name == identifierText referencedName,
         runtimeNameRequiresHost name ->
           False
@@ -251,7 +254,7 @@ runtimeStatementRequiresHost statement =
   where
     implMethodRequiresHost (ImplMethod _ _ bodyExpr) = runtimeExprRequiresHost bodyExpr
 
-runtimeNameRequiresHost :: Name -> Bool
+runtimeNameRequiresHost :: ResolvedName -> Bool
 runtimeNameRequiresHost name =
   case lookupBuiltinSymbolInMode ResolveKernelOnly (identifierText name) of
     Just BuiltinReadTextRaw -> True
@@ -263,23 +266,23 @@ runtimeNameRequiresHost name =
     Just BuiltinExit -> True
     _ -> False
 
-exprDefinitelyNotFunctionValue :: Expr -> Bool
+exprDefinitelyNotFunctionValue :: Expr 'Resolved -> Bool
 exprDefinitelyNotFunctionValue expr =
   case expr of
     ELit {} -> True
     EList {} -> True
     ETuple {} -> True
     EBinary {} -> True
-    ETypeApplication functionExpr _ _ ->
+    ETypeApplication _ functionExpr _ _ ->
       exprDefinitelyNotFunctionValue functionExpr
-    EIf _ thenExpr elseExpr ->
+    EIf _ _ thenExpr elseExpr ->
       exprDefinitelyNotFunctionValue thenExpr
         && exprDefinitelyNotFunctionValue elseExpr
     EPatternCase {} -> False
-    EBlock statements -> scopeDefinitelyNotFunctionValue statements
+    EBlock _ statements -> scopeDefinitelyNotFunctionValue statements
     _ -> False
 
-scopeDefinitelyNotFunctionValue :: [Statement] -> Bool
+scopeDefinitelyNotFunctionValue :: [Statement 'Resolved] -> Bool
 scopeDefinitelyNotFunctionValue statements =
   case reverse statements of
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr

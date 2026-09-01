@@ -19,7 +19,7 @@ import Jazz.Compiler.AST (Pattern (..))
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeIsIntegral,
   )
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.Pattern (patternBinderNames)
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
@@ -138,7 +138,7 @@ specializeProvisionalExpression state maybeExpected expression =
   where
     selectArmScrutineeType selectedType (ProvisionalPatternCaseArm pattern maybeGuard body) =
       case pattern of
-        PVariable name ->
+        PVariable _ name ->
           foldl'
             (\nextType referenceType -> specializeCompatibleType state referenceType nextType)
             selectedType
@@ -149,7 +149,7 @@ specializeProvisionalExpression state maybeExpected expression =
 
     specializeArmBinder selectedType (ProvisionalPatternCaseArm pattern maybeGuard body) =
       case pattern of
-        PVariable name ->
+        PVariable _ name ->
           ProvisionalPatternCaseArm
             pattern
             (specializeProvisionalParameterReferences state name selectedType <$> maybeGuard)
@@ -161,7 +161,7 @@ specializeProvisionalExpression state maybeExpected expression =
         Just expectedType -> specializeExpressionType state expectedType expressionType
         Nothing -> resolveType state expressionType
 
-specializeProvisionalParameterReferences :: InferState -> Name -> ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
+specializeProvisionalParameterReferences :: InferState -> ResolvedName -> ExpressionType -> ProvisionalTypedExpr -> ProvisionalTypedExpr
 specializeProvisionalParameterReferences state parameterName selectedType = expressionReferences False
   where
     expressionReferences shadowed expression =
@@ -252,7 +252,7 @@ specializeProvisionalCallableCapture state captureType expression =
        in ProvisionalLambdaExpression parameterName specializedFunctionType selectedBody
     _ -> specializeProvisionalExpression state (Just captureType) expression
 
-provisionalParameterApplicationTypes :: InferState -> ExpressionType -> Name -> ProvisionalTypedExpr -> [ExpressionType]
+provisionalParameterApplicationTypes :: InferState -> ExpressionType -> ResolvedName -> ProvisionalTypedExpr -> [ExpressionType]
 provisionalParameterApplicationTypes state captureType parameterName = expressionApplicationTypes False
   where
     expressionApplicationTypes shadowed expression =
@@ -323,7 +323,7 @@ provisionalParameterApplicationTypes state captureType parameterName = expressio
           expressionApplicationTypes shadowed nestedExpression <> scopeApplicationTypes shadowed rest
         _ -> scopeApplicationTypes shadowed rest
 
-provisionalParameterReferenceTypes :: Name -> ProvisionalTypedExpr -> [ExpressionType]
+provisionalParameterReferenceTypes :: ResolvedName -> ProvisionalTypedExpr -> [ExpressionType]
 provisionalParameterReferenceTypes parameterName = expressionReferenceTypes False
   where
     expressionReferenceTypes shadowed expression =

@@ -16,6 +16,8 @@ import qualified Data.Text as Text
 import Jazz.Compiler.Name
   ( IdentifierLike (identifierText),
     Name (..),
+    ResolvedName,
+    ResolvedUserName (..),
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
@@ -187,12 +189,10 @@ mapSummary runtimeValue =
               }
     _ -> Nothing
 
-constructorHasName :: Text -> Name -> Bool
+constructorHasName :: Text -> ResolvedName -> Bool
 constructorHasName expectedName constructorName =
   case constructorName of
-    SourceName identifier -> identifierText identifier == expectedName
-    QualifiedName _ member -> identifierText member == expectedName
-    ResolvedName _ _ identifier -> identifierText identifier == expectedName
+    UserName (ResolvedUserName _ _ identifier) -> identifierText identifier == expectedName
     BuiltinName identifier -> identifierText identifier == expectedName
     GeneratedName _ -> False
 

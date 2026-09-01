@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -18,11 +19,12 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CorePhase (..),
     Literal (..),
     Pattern (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
-import Jazz.Compiler.Name (Name, identifierText)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
     patternBinderNames,
@@ -60,14 +62,14 @@ import Jazz.Compiler.TypeInference.Types
 
 data InferredPatternCaseArm
   = InferredPatternCaseArm
-      Pattern
+      (Pattern 'Resolved)
       (Maybe InferredExpr)
       (Maybe InferredExpr)
   deriving (Eq, Show)
 
 data PatternCaseArmResult result
   = PatternCaseArmResult
-      Pattern
+      (Pattern 'Resolved)
       (Maybe result)
       (Maybe result)
 
@@ -77,7 +79,7 @@ inferPatternCaseType ::
   TypeEnv ->
   ExpressionType ->
   InferState ->
-  [CaseArm] ->
+  [CaseArm 'Resolved] ->
   (Maybe ExpressionType, InferState)
 inferPatternCaseType inferExpression builtinMode env scrutineeType initialState caseArms =
   let (expressionType, finalState, _) =
@@ -98,7 +100,7 @@ inferPatternCaseTypeWithResults ::
   TypeEnv ->
   ExpressionType ->
   InferState ->
-  [CaseArm] ->
+  [CaseArm 'Resolved] ->
   (Maybe ExpressionType, InferState, [InferredPatternCaseArm])
 inferPatternCaseTypeWithResults inferExpression mode builtinMode env scrutineeType initialState caseArms =
   let (expressionType, finalState, armResults) =
@@ -122,14 +124,14 @@ inferPatternCaseTypeInternal ::
   TypeEnv ->
   ExpressionType ->
   InferState ->
-  [CaseArm] ->
+  [CaseArm 'Resolved] ->
   (Maybe ExpressionType, InferState, [PatternCaseArmResult InferredExpr])
 inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType initialState caseArms =
   let (expressionType, finalState, reversedResults) =
         foldl' step (Nothing, initialState, []) caseArms
    in (expressionType, finalState, reverse reversedResults)
   where
-    step (maybeExpectedBodyType, stateAcc, resultsAcc) (CaseArm pattern guardExpr bodyExpr) =
+    step (maybeExpectedBodyType, stateAcc, resultsAcc) (CaseArm _ pattern guardExpr bodyExpr) =
       let (rawPatternTyping, stateAfterPatternCheck) =
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
@@ -192,22 +194,22 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
                     stateAfterGuard
            in (checkedState, Just guardResult)
 
-newtype PatternBindings = PatternBindings (Map Name ExpressionType)
+newtype PatternBindings = PatternBindings (Map ResolvedName ExpressionType)
   deriving stock (Eq, Show)
   deriving newtype (Semigroup, Monoid)
 
-singletonPatternBinding :: Name -> ExpressionType -> PatternBindings
+singletonPatternBinding :: ResolvedName -> ExpressionType -> PatternBindings
 singletonPatternBinding name expressionType =
   PatternBindings (Map.singleton name expressionType)
 
-lookupPatternBinding :: Name -> PatternBindings -> Maybe ExpressionType
+lookupPatternBinding :: ResolvedName -> PatternBindings -> Maybe ExpressionType
 lookupPatternBinding name (PatternBindings bindings) = Map.lookup name bindings
 
-insertPatternBinding :: Name -> ExpressionType -> PatternBindings -> PatternBindings
+insertPatternBinding :: ResolvedName -> ExpressionType -> PatternBindings -> PatternBindings
 insertPatternBinding name expressionType (PatternBindings bindings) =
   PatternBindings (Map.insert name expressionType bindings)
 
-patternBindingNames :: PatternBindings -> Set Name
+patternBindingNames :: PatternBindings -> Set ResolvedName
 patternBindingNames (PatternBindings bindings) = Map.keysSet bindings
 
 extendTypeEnvWithPatternBindings :: PatternBindings -> TypeEnv -> TypeEnv
@@ -243,7 +245,7 @@ skipBranchPatternTyping :: PatternTyping
 skipBranchPatternTyping =
   mempty {patternSkipsBranchType = True}
 
-rejectDuplicatePatternBinders :: Pattern -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
+rejectDuplicatePatternBinders :: Pattern 'Resolved -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
 rejectDuplicatePatternBinders pattern typing stableState checkedState =
   case patternDuplicateBinderNames pattern of
     [] -> (typing, checkedState)
@@ -257,36 +259,36 @@ rejectDuplicatePatternBinders pattern typing stableState checkedState =
     addDuplicateError stateAcc duplicateName =
       addTypeError stateAcc (mkDuplicatePatternBinderError duplicateName)
 
-patternDuplicateBinderNames :: Pattern -> [Name]
+patternDuplicateBinderNames :: Pattern 'Resolved -> [ResolvedName]
 patternDuplicateBinderNames pattern =
   Set.toList duplicates
   where
     (_, duplicates) = collect pattern Set.empty Set.empty
 
-    collect :: Pattern -> Set Name -> Set Name -> (Set Name, Set Name)
+    collect :: Pattern 'Resolved -> Set ResolvedName -> Set ResolvedName -> (Set ResolvedName, Set ResolvedName)
     collect candidate seen duplicatesAcc =
       case candidate of
-        PVariable name ->
+        PVariable _ name ->
           if Set.member name seen
             then (seen, Set.insert name duplicatesAcc)
             else (Set.insert name seen, duplicatesAcc)
-        PWildcard -> (seen, duplicatesAcc)
+        PWildcard _ -> (seen, duplicatesAcc)
         PLiteral {} -> (seen, duplicatesAcc)
-        PConstructor _ nestedPatterns ->
+        PConstructor _ _ nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
-        PList nestedPatterns ->
+        PList _ nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
-        PConsList headPattern tailPattern ->
+        PConsList _ headPattern tailPattern ->
           collectNested seen duplicatesAcc [headPattern, tailPattern]
-        PTuple nestedPatterns ->
+        PTuple _ nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
-        PAs name nestedPattern ->
+        PAs _ name nestedPattern ->
           let (seenAfterName, duplicatesAfterName) =
                 if Set.member name seen
                   then (seen, Set.insert name duplicatesAcc)
                   else (Set.insert name seen, duplicatesAcc)
            in collect nestedPattern seenAfterName duplicatesAfterName
-        POr alternatives ->
+        POr _ alternatives ->
           let duplicatesAfterAlternatives =
                 foldl'
                   ( \duplicatesAcc' alternative ->
@@ -303,10 +305,10 @@ patternDuplicateBinderNames pattern =
         )
         (seen, duplicatesAcc)
 
-inferPatternType :: TypeEnv -> ExpressionType -> Pattern -> InferState -> (PatternTyping, InferState)
+inferPatternType :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
 inferPatternType env scrutineeType pattern state =
   case pattern of
-    PVariable name ->
+    PVariable _ name ->
       ( mempty
           { patternBindings =
               singletonPatternBinding
@@ -315,8 +317,8 @@ inferPatternType env scrutineeType pattern state =
           },
         state
       )
-    PWildcard -> (mempty, state)
-    PLiteral literal ->
+    PWildcard _ -> (mempty, state)
+    PLiteral _ literal ->
       let (literalType, stateAfterLiteral) = literalExpressionType literal state
        in case unifyTypes scrutineeType literalType stateAfterLiteral of
             Just unifiedState -> (mempty, unifiedState)
@@ -329,15 +331,15 @@ inferPatternType env scrutineeType pattern state =
                       (diagnosticType stateAfterLiteral literalType)
                   )
               )
-    PConstructor constructorName patterns ->
+    PConstructor _ constructorName patterns ->
       inferConstructorPatternType env scrutineeType constructorName patterns state
-    PList patterns ->
+    PList _ patterns ->
       inferListPatternType env scrutineeType patterns state
-    PConsList headPattern tailPattern ->
+    PConsList _ headPattern tailPattern ->
       inferConsListPatternType env scrutineeType headPattern tailPattern state
-    PTuple patterns ->
+    PTuple _ patterns ->
       inferTuplePatternType env scrutineeType patterns state
-    PAs name nestedPattern ->
+    PAs _ name nestedPattern ->
       let (typing, stateAfterPattern) =
             inferPatternType env scrutineeType nestedPattern state
        in if patternSkipsBranchType typing
@@ -352,13 +354,13 @@ inferPatternType env scrutineeType pattern state =
                   },
                 stateAfterPattern
               )
-    POr alternatives ->
+    POr _ alternatives ->
       inferOrPatternType env scrutineeType alternatives state
 
 inferOrPatternType ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferOrPatternType env scrutineeType alternatives initialState =
@@ -470,8 +472,8 @@ resolvePatternBindings state (PatternBindings bindings) =
 inferConstructorPatternType ::
   TypeEnv ->
   ExpressionType ->
-  Name ->
-  [Pattern] ->
+  ResolvedName ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferConstructorPatternType env scrutineeType constructorName patterns state =
@@ -521,7 +523,7 @@ inferConstructorPatternType env scrutineeType constructorName patterns state =
 inferConstructorArgumentPatterns ::
   TypeEnv ->
   [ExpressionType] ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferConstructorArgumentPatterns env argumentTypes patterns initialState =
@@ -541,7 +543,7 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
 inferListPatternType ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferListPatternType env scrutineeType patterns state =
@@ -568,7 +570,7 @@ inferListPatternType env scrutineeType patterns state =
 inferListElementPatterns ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferListElementPatterns env elementType patterns initialState =
@@ -588,8 +590,8 @@ inferListElementPatterns env elementType patterns initialState =
 inferConsListPatternType ::
   TypeEnv ->
   ExpressionType ->
-  Pattern ->
-  Pattern ->
+  Pattern 'Resolved ->
+  Pattern 'Resolved ->
   InferState ->
   (PatternTyping, InferState)
 inferConsListPatternType env scrutineeType headPattern tailPattern state =
@@ -617,8 +619,8 @@ inferConsListPatternType env scrutineeType headPattern tailPattern state =
 inferConsListSubpatterns ::
   TypeEnv ->
   ExpressionType ->
-  Pattern ->
-  Pattern ->
+  Pattern 'Resolved ->
+  Pattern 'Resolved ->
   InferState ->
   (PatternTyping, InferState)
 inferConsListSubpatterns env elementType headPattern tailPattern initialState =
@@ -638,7 +640,7 @@ inferConsListSubpatterns env elementType headPattern tailPattern initialState =
 inferTuplePatternType ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferTuplePatternType env scrutineeType patterns state =
@@ -717,8 +719,8 @@ instantiateConstructorBinding binding state =
     _ -> Nothing
 
 instantiateConstructorType ::
-  Name ->
-  [Name] ->
+  ResolvedName ->
+  [ResolvedName] ->
   [ConstructorArgumentType] ->
   InferState ->
   ([ExpressionType], ExpressionType, InferState)
@@ -733,7 +735,7 @@ instantiateConstructorType typeName typeParameters argumentTypes state =
       )
 
 instantiateConstructorTypeParameters ::
-  [Name] ->
+  [ResolvedName] ->
   InferState ->
   (Map Text ExpressionType, [ExpressionType], InferState)
 instantiateConstructorTypeParameters typeParameters initialState =

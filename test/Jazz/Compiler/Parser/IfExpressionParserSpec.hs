@@ -3,9 +3,7 @@
 module Main (main) where
 
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -21,6 +19,13 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBlock,
+    loweredIf,
+    loweredLet,
+    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -196,14 +201,14 @@ testLowerIfExpression =
   assertRight
     "parse + lower if"
     (parseSurfaceProgram "x = if True then 1 else 2.")
-    (\surfaceProgram -> assertEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered if AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
+            (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)))
         ]
 
 testLoweredIfIsCanonical :: IO ()
@@ -212,18 +217,18 @@ testLoweredIfIsCanonical =
     "parse + canonical lower if"
     (parseSurfaceProgram "x = if True then 1 else 2.")
     ( \surfaceProgram ->
-        assertEqual
+        assertLoweredCoreEqual
           "canonical lowered if AST"
           expectedProgram
           (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
+            (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)))
         ]
 
 e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr

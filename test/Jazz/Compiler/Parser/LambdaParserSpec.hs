@@ -4,11 +4,7 @@ module Main (main) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    Expr (..),
-    Literal (..),
-    Pattern (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -32,6 +28,23 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBinary,
+    loweredBlock,
+    loweredCaseArm,
+    loweredConstructorPattern,
+    loweredLambda,
+    loweredLet,
+    loweredLiteral,
+    loweredOrPattern,
+    loweredPatternCase,
+    loweredTuple,
+    loweredTuplePattern,
+    loweredVariable,
+    loweredVariablePattern,
+    loweredWildcardPattern,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -183,14 +196,14 @@ testLowerNestsMultiArgumentLambda =
   assertRight
     "parse + lower multi-argument lambda"
     (parseSurfaceProgram "const = \\(x, y) -> x.")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "const"
             (SourceSpan 1 1)
-            (ELambda "x" (ELambda "y" (EVar "x")))
+            (loweredLambda "x" (loweredLambda "y" (loweredVariable "x")))
         ]
 
 testLowerDesugarsPatternParametersThroughCase :: IO ()
@@ -198,22 +211,22 @@ testLowerDesugarsPatternParametersThroughCase =
   assertRight
     "parse + lower tuple-pattern lambda"
     (parseSurfaceProgram "sumPair = \\((left, right)) -> left + right.")
-    (\surfaceProgram -> assertEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "sumPair"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 generatedParameter
-                ( EPatternCase
-                    (EVar generatedParameter)
-                    [ CaseArm
-                        (PTuple [PVariable "left", PVariable "right"])
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [ loweredCaseArm
+                        (loweredTuplePattern [loweredVariablePattern "left", loweredVariablePattern "right"])
                         Nothing
-                        (EBinary "+" (EVar "left") (EVar "right"))
+                        (loweredBinary "+" (loweredVariable "left") (loweredVariable "right"))
                     ]
                 )
             )
@@ -224,14 +237,14 @@ testLowerPreservesDuplicateParameterShadowing =
   assertRight
     "parse + lower duplicate-parameter lambda"
     (parseSurfaceProgram "shadow = \\(x, x) -> x.")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "shadow"
             (SourceSpan 1 1)
-            (ELambda "x" (ELambda "x" (EVar "x")))
+            (loweredLambda "x" (loweredLambda "x" (loweredVariable "x")))
         ]
 
 testParsesUnitLambdaShorthand :: IO ()
@@ -291,19 +304,19 @@ testLowersUnitLambdaShorthand =
   assertRight
     "parse + lower Unit lambda"
     (parseSurfaceProgram "thunk = \\() -> 42.")
-    (\surfaceProgram -> assertEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "thunk"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 generatedParameter
-                ( EPatternCase
-                    (EVar generatedParameter)
-                    [CaseArm (PTuple []) Nothing (ELit (LInt 42))]
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [loweredCaseArm (loweredTuplePattern []) Nothing (loweredLiteral (LInt 42))]
                 )
             )
         ]
@@ -450,26 +463,26 @@ testLowerDesugarsOrPatternParameterThroughCase =
   assertRight
     "parse + lower or-pattern lambda"
     (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
-    (\surfaceProgram -> assertEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "choose"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 generatedParameter
-                ( EPatternCase
-                    (EVar generatedParameter)
-                    [ CaseArm
-                        ( POr
-                            [ PConstructor "Just" [PVariable "item"],
-                              PConstructor "Also" [PVariable "item"]
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [ loweredCaseArm
+                        ( loweredOrPattern
+                            [ loweredConstructorPattern "Just" [loweredVariablePattern "item"],
+                              loweredConstructorPattern "Also" [loweredVariablePattern "item"]
                             ]
                         )
                         Nothing
-                        (EVar "item")
+                        (loweredVariable "item")
                     ]
                 )
             )
@@ -544,29 +557,29 @@ testLowersPatternLambdaClausesToOneCase =
   assertRight
     "parse + lower pattern-lambda clauses"
     (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
-    (\surfaceProgram -> assertEqual "lowered pattern-lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered pattern-lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     firstArgument = generatedName (LambdaPatternArgument 1)
     secondArgument = generatedName (LambdaPatternArgument 2)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "choose"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 firstArgument
-                ( ELambda
+                ( loweredLambda
                     secondArgument
-                    ( EPatternCase
-                        (ETuple [EVar firstArgument, EVar secondArgument])
-                        [ CaseArm
-                            (PTuple [PConstructor "Nothing" [], PVariable "fallback"])
+                    ( loweredPatternCase
+                        (loweredTuple [loweredVariable firstArgument, loweredVariable secondArgument])
+                        [ loweredCaseArm
+                            (loweredTuplePattern [loweredConstructorPattern "Nothing" [], loweredVariablePattern "fallback"])
                             Nothing
-                            (EVar "fallback"),
-                          CaseArm
-                            (PTuple [PConstructor "Just" [PVariable "item"], PWildcard])
+                            (loweredVariable "fallback"),
+                          loweredCaseArm
+                            (loweredTuplePattern [loweredConstructorPattern "Just" [loweredVariablePattern "item"], loweredWildcardPattern])
                             Nothing
-                            (EVar "item")
+                            (loweredVariable "item")
                         ]
                     )
                 )
