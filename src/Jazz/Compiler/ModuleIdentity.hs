@@ -60,11 +60,20 @@ newtype ModuleQualifier = ModuleQualifier Identifier
   deriving anyclass (NFData)
 
 data ModuleIdentity = ModuleIdentity
-  { moduleIdentityPath :: ModulePath,
-    moduleIdentitySource :: SourceFile
+  { storedModuleIdentityPath :: ModulePath,
+    storedModuleIdentitySource :: SourceFile
   }
-  deriving stock (Eq, Generic, Ord, Show)
+  deriving stock (Eq, Generic, Ord)
   deriving anyclass (NFData)
+
+instance Show ModuleIdentity where
+  showsPrec precedence identity =
+    showParen (precedence > 10) $
+      showString "ModuleIdentity {moduleIdentityPath = "
+        . shows (moduleIdentityPath identity)
+        . showString ", moduleIdentitySource = "
+        . shows (moduleIdentitySource identity)
+        . showChar '}'
 
 mkModulePath :: NonEmpty Identifier -> ModulePath
 mkModulePath = ModulePath
@@ -88,6 +97,12 @@ sourceFilePath (SourceFile path) = path
 
 moduleIdentity :: ModulePath -> SourceFile -> ModuleIdentity
 moduleIdentity = ModuleIdentity
+
+moduleIdentityPath :: ModuleIdentity -> ModulePath
+moduleIdentityPath = storedModuleIdentityPath
+
+moduleIdentitySource :: ModuleIdentity -> SourceFile
+moduleIdentitySource = storedModuleIdentitySource
 
 parseModulePathText :: Text -> Either Diagnostic ModulePath
 parseModulePathText rawModulePath

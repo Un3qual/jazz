@@ -48,6 +48,7 @@ import Jazz.Repository.JazzSourceFormat
     renderJazzSourceFormatViolation,
     validateJazzModule,
   )
+import Jazz.Repository.OpaqueCarrierContracts (opaqueCarrierRecordUpdateTests)
 import Jazz.Repository.PackagePolicy
   ( PackagePolicyViolation (..),
     renderPackagePolicyViolation,
@@ -137,6 +138,7 @@ tests =
     ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths),
     ("keeps repository infrastructure on the canonical Jazz identity", testCanonicalRepositoryInfrastructure)
   ]
+    <> opaqueCarrierRecordUpdateTests
 
 testPartialErrorIdentifierPolicy :: IO ()
 testPartialErrorIdentifierPolicy =

@@ -161,13 +161,22 @@ data PreludeArtifact (phase :: CorePhase) = PreludeArtifact
 type role PreludeArtifact nominal
 
 data CoreProgram (phase :: CorePhase) = CoreProgram
-  { coreProgramPrelude :: PreludeArtifact phase,
-    coreProgramEntry :: ModulePath,
-    coreProgramModules :: NonEmpty (CoreModule phase),
-    coreProgramModuleIndex :: Map ModulePath (CoreModule phase)
+  { storedCoreProgramPrelude :: PreludeArtifact phase,
+    storedCoreProgramEntry :: ModulePath,
+    storedCoreProgramModules :: NonEmpty (CoreModule phase),
+    storedCoreProgramModuleIndex :: Map ModulePath (CoreModule phase)
   }
 
 type role CoreProgram nominal
+
+coreProgramPrelude :: CoreProgram phase -> PreludeArtifact phase
+coreProgramPrelude = storedCoreProgramPrelude
+
+coreProgramEntry :: CoreProgram phase -> ModulePath
+coreProgramEntry = storedCoreProgramEntry
+
+coreProgramModules :: CoreProgram phase -> NonEmpty (CoreModule phase)
+coreProgramModules = storedCoreProgramModules
 
 data ProgramInvariantFailure
   = MissingEntryModule ModulePath
@@ -188,10 +197,10 @@ mkCoreProgram prelude entry modules =
     Nothing ->
       Right
         CoreProgram
-          { coreProgramPrelude = prelude,
-            coreProgramEntry = entry,
-            coreProgramModules = modules,
-            coreProgramModuleIndex = moduleIndex
+          { storedCoreProgramPrelude = prelude,
+            storedCoreProgramEntry = entry,
+            storedCoreProgramModules = modules,
+            storedCoreProgramModuleIndex = moduleIndex
           }
   where
     moduleList = NonEmpty.toList modules
@@ -233,7 +242,7 @@ duplicatePaths = third . foldl collect (Set.empty, Set.empty, Seq.empty)
       | otherwise = (Set.insert value seen, reported, duplicates)
 
 lookupCoreModule :: ModulePath -> CoreProgram phase -> Maybe (CoreModule phase)
-lookupCoreModule modulePath = Map.lookup modulePath . coreProgramModuleIndex
+lookupCoreModule modulePath = Map.lookup modulePath . storedCoreProgramModuleIndex
 
 foldCoreModules :: (Monoid result) => (CoreModule phase -> result) -> CoreProgram phase -> result
 foldCoreModules project = foldMap project . coreProgramModules

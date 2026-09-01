@@ -927,6 +927,7 @@ test-suite repository-audit-spec
       Jazz.Repository.FeatureInventory
       Jazz.Repository.HaskellSourcePolicy
       Jazz.Repository.JazzSourceFormat
+      Jazz.Repository.OpaqueCarrierContracts
       Jazz.Repository.PackagePolicy
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout

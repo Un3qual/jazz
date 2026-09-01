@@ -119,14 +119,31 @@ import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
 data CompiledModule = CompiledModule
-  { compiledModulePath :: ModulePath,
-    compiledModuleImports :: [ModuleImport 'Resolved],
-    compiledModuleExportInventory :: ModuleExportInventory,
-    compiledModuleInterface :: ModuleInterface,
-    compiledModuleDiagnostics :: [Diagnostic],
-    compiledModuleExpr :: Expr 'Resolved
+  { storedCompiledModulePath :: ModulePath,
+    storedCompiledModuleImports :: [ModuleImport 'Resolved],
+    storedCompiledModuleExportInventory :: ModuleExportInventory,
+    storedCompiledModuleInterface :: ModuleInterface,
+    storedCompiledModuleDiagnostics :: [Diagnostic],
+    storedCompiledModuleExpr :: Expr 'Resolved
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq)
+
+instance Show CompiledModule where
+  showsPrec precedence compiledModule =
+    showParen (precedence > 10) $
+      showString "CompiledModule {compiledModulePath = "
+        . shows (compiledModulePath compiledModule)
+        . showString ", compiledModuleImports = "
+        . shows (compiledModuleImports compiledModule)
+        . showString ", compiledModuleExportInventory = "
+        . shows (compiledModuleExportInventory compiledModule)
+        . showString ", compiledModuleInterface = "
+        . shows (compiledModuleInterface compiledModule)
+        . showString ", compiledModuleDiagnostics = "
+        . shows (compiledModuleDiagnostics compiledModule)
+        . showString ", compiledModuleExpr = "
+        . shows (compiledModuleExpr compiledModule)
+        . showChar '}'
 
 instance NFData CompiledModule where
   rnf (CompiledModule modulePath imports exports moduleInterface diagnostics expr) =
@@ -138,12 +155,25 @@ instance NFData CompiledModule where
               rnf expr
 
 data CompiledProgram = CompiledProgram
-  { compiledProgramPrelude :: CompiledPrelude,
-    compiledProgramPreludePath :: ModulePath,
-    compiledProgramEntryPath :: ModulePath,
-    compiledProgramModules :: [CompiledModule]
+  { storedCompiledProgramPrelude :: CompiledPrelude,
+    storedCompiledProgramPreludePath :: ModulePath,
+    storedCompiledProgramEntryPath :: ModulePath,
+    storedCompiledProgramModules :: [CompiledModule]
   }
-  deriving stock (Eq, Show)
+  deriving stock (Eq)
+
+instance Show CompiledProgram where
+  showsPrec precedence compiledProgram =
+    showParen (precedence > 10) $
+      showString "CompiledProgram {compiledProgramPrelude = "
+        . shows (compiledProgramPrelude compiledProgram)
+        . showString ", compiledProgramPreludePath = "
+        . shows (compiledProgramPreludePath compiledProgram)
+        . showString ", compiledProgramEntryPath = "
+        . shows (compiledProgramEntryPath compiledProgram)
+        . showString ", compiledProgramModules = "
+        . shows (compiledProgramModules compiledProgram)
+        . showChar '}'
 
 instance NFData CompiledProgram where
   rnf (CompiledProgram prelude preludePath entryPath modules) =
@@ -151,6 +181,36 @@ instance NFData CompiledProgram where
       rnf preludePath `seq`
         rnf entryPath `seq`
           rnf modules
+
+compiledModulePath :: CompiledModule -> ModulePath
+compiledModulePath = storedCompiledModulePath
+
+compiledModuleImports :: CompiledModule -> [ModuleImport 'Resolved]
+compiledModuleImports = storedCompiledModuleImports
+
+compiledModuleExportInventory :: CompiledModule -> ModuleExportInventory
+compiledModuleExportInventory = storedCompiledModuleExportInventory
+
+compiledModuleInterface :: CompiledModule -> ModuleInterface
+compiledModuleInterface = storedCompiledModuleInterface
+
+compiledModuleDiagnostics :: CompiledModule -> [Diagnostic]
+compiledModuleDiagnostics = storedCompiledModuleDiagnostics
+
+compiledModuleExpr :: CompiledModule -> Expr 'Resolved
+compiledModuleExpr = storedCompiledModuleExpr
+
+compiledProgramPrelude :: CompiledProgram -> CompiledPrelude
+compiledProgramPrelude = storedCompiledProgramPrelude
+
+compiledProgramPreludePath :: CompiledProgram -> ModulePath
+compiledProgramPreludePath = storedCompiledProgramPreludePath
+
+compiledProgramEntryPath :: CompiledProgram -> ModulePath
+compiledProgramEntryPath = storedCompiledProgramEntryPath
+
+compiledProgramModules :: CompiledProgram -> [CompiledModule]
+compiledProgramModules = storedCompiledProgramModules
 
 compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
 compiledProgramDiagnostics compiledProgram =
@@ -240,12 +300,12 @@ compileResolvedProgram inputs resolvedProgram =
 projectCompiledProgram :: CompileInputs -> CoreProgram 'Resolved -> [CompiledModule] -> CompiledProgram
 projectCompiledProgram inputs resolvedProgram compiledModules =
   CompiledProgram
-    { compiledProgramPrelude = compileInputPrelude inputs,
-      compiledProgramPreludePath =
+    { storedCompiledProgramPrelude = compileInputPrelude inputs,
+      storedCompiledProgramPreludePath =
         moduleIdentityPath
           (ModuleGraph.preludeIdentity (ModuleGraph.coreProgramPrelude resolvedProgram)),
-      compiledProgramEntryPath = coreProgramEntry resolvedProgram,
-      compiledProgramModules = compiledModules
+      storedCompiledProgramEntryPath = coreProgramEntry resolvedProgram,
+      storedCompiledProgramModules = compiledModules
     }
 
 compileResolvedModule :: CompileInputs -> [CompiledModule] -> CoreModule 'Resolved -> IO CompiledModule
@@ -285,12 +345,12 @@ compileResolvedModuleWithIndex inputs ambientInterface preludePath compiledDepen
       moduleExpr
   pure
     CompiledModule
-      { compiledModulePath = modulePath,
-        compiledModuleImports = coreModuleImports resolvedModule,
-        compiledModuleExportInventory = ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
-        compiledModuleInterface = inferredModuleInterface inference,
-        compiledModuleDiagnostics = inferredDiagnostics inference,
-        compiledModuleExpr = inferredExpr inference
+      { storedCompiledModulePath = modulePath,
+        storedCompiledModuleImports = coreModuleImports resolvedModule,
+        storedCompiledModuleExportInventory = ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
+        storedCompiledModuleInterface = inferredModuleInterface inference,
+        storedCompiledModuleDiagnostics = inferredDiagnostics inference,
+        storedCompiledModuleExpr = inferredExpr inference
       }
 
 data CompiledDependency = CompiledDependency
