@@ -28,9 +28,15 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CorePhase (..),
-    Expr (EBlock),
-    Statement,
+  ( CaseArm (..),
+    ClassMethodSignature (..),
+    CoreNode (..),
+    CorePhase (..),
+    DataConstructor (..),
+    Expr (..),
+    ImplMethod (..),
+    Pattern (..),
+    Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E3020))
@@ -51,11 +57,12 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( AnalyzedModuleFacts (..),
-    CoreModule,
+    CoreModule (..),
     CoreProgram,
     ImportExposure (..),
     ModuleImport,
     PreludeArtifact (..),
+    ResolvedModuleFacts (..),
     coreModuleExpr,
     coreModuleFacts,
     coreModuleImports,
@@ -226,18 +233,21 @@ evaluateAnalyzedProgramWithHostObserved ::
   m (RuntimeObservationResult RuntimeProgram)
 evaluateAnalyzedProgramWithHostObserved observationRequest host resolvedProgram analyzedProgram =
   {-# SCC "jazz-stage:evaluation" #-}
-  case analyzedProgramErrors analyzedProgram of
-    firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
-    [] ->
-      case observationRequest of
-        RuntimeObservationDisabled -> do
-          outcome <- evaluateAnalyzedProgramWithHostUnobserved host resolvedProgram analyzedProgram
-          pure (RuntimeObservationResult outcome Nothing)
-        _ -> do
-          (outcome, observationState) <-
-            runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-              evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgram analyzedProgram
-          pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
+  case validateProgramCorrespondence resolvedProgram analyzedProgram of
+    Left diagnostic -> pure (RuntimeObservationResult (RuntimeOutcomeFailed diagnostic) Nothing)
+    Right () ->
+      case analyzedProgramErrors analyzedProgram of
+        firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
+        [] ->
+          case observationRequest of
+            RuntimeObservationDisabled -> do
+              outcome <- evaluateAnalyzedProgramWithHostUnobserved host resolvedProgram analyzedProgram
+              pure (RuntimeObservationResult outcome Nothing)
+            _ -> do
+              (outcome, observationState) <-
+                runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
+                  evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgram analyzedProgram
+              pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateAnalyzedProgramWithHostUnobserved ::
   (Monad m) =>
@@ -457,6 +467,238 @@ requireAnalyzedModule resolvedModule analyzedProgram =
 requireAnalyzedModuleControl :: CoreModule 'Resolved -> CoreProgram 'Analyzed -> Either RuntimeControl (CoreModule 'Analyzed)
 requireAnalyzedModuleControl resolvedModule =
   either (Left . RuntimeDiagnostic) Right . requireAnalyzedModule resolvedModule
+
+validateProgramCorrespondence :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> Either Diagnostic ()
+validateProgramCorrespondence resolvedProgram analyzedProgram =
+  if programsCorrespond
+    then Right ()
+    else analyzedProgramMismatch
+  where
+    programsCorrespond =
+      coreProgramEntry resolvedProgram == coreProgramEntry analyzedProgram
+        && preludesCorrespond
+          (coreProgramPrelude resolvedProgram)
+          (coreProgramPrelude analyzedProgram)
+        && listsCorrespond
+          modulesCorrespond
+          (NonEmpty.toList (coreProgramModules resolvedProgram))
+          (NonEmpty.toList (coreProgramModules analyzedProgram))
+
+preludesCorrespond :: PreludeArtifact 'Resolved -> PreludeArtifact 'Analyzed -> Bool
+preludesCorrespond resolvedPrelude analyzedPrelude =
+  preludeIdentity resolvedPrelude == preludeIdentity analyzedPrelude
+    && preludeBuiltinMode resolvedPrelude == preludeBuiltinMode analyzedPrelude
+    && case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
+      (Nothing, Nothing) -> True
+      (Just resolvedModule, Just analyzedModule) -> modulesCorrespond resolvedModule analyzedModule
+      _ -> False
+
+modulesCorrespond :: CoreModule 'Resolved -> CoreModule 'Analyzed -> Bool
+modulesCorrespond resolvedModule analyzedModule =
+  coreModuleIdentity resolvedModule == coreModuleIdentity analyzedModule
+    && nodesCorrespond
+      (coreModuleBodyNode resolvedModule)
+      (coreModuleBodyNode analyzedModule)
+    && listsCorrespond importsCorrespond (coreModuleImports resolvedModule) (coreModuleImports analyzedModule)
+    && listsCorrespond statementsCorrespond (coreModuleStatements resolvedModule) (coreModuleStatements analyzedModule)
+    && resolvedModuleExports resolvedFacts == analyzedModuleExports analyzedFacts
+    && resolvedModuleExportSelectors resolvedFacts == analyzedModuleExportSelectors analyzedFacts
+  where
+    resolvedFacts = coreModuleFacts resolvedModule
+    analyzedFacts = coreModuleFacts analyzedModule
+
+importsCorrespond :: ModuleImport 'Resolved -> ModuleImport 'Analyzed -> Bool
+importsCorrespond resolvedImport analyzedImport =
+  nodesCorrespond
+    (ModuleGraph.moduleImportNode resolvedImport)
+    (ModuleGraph.moduleImportNode analyzedImport)
+    && ModuleGraph.importedModule resolvedImport == ModuleGraph.importedModule analyzedImport
+    && ModuleGraph.importAlias resolvedImport == ModuleGraph.importAlias analyzedImport
+    && ModuleGraph.importExposure resolvedImport == ModuleGraph.importExposure analyzedImport
+
+nodesCorrespond :: CoreNode 'Resolved sort -> CoreNode 'Analyzed sort -> Bool
+nodesCorrespond resolvedNode analyzedNode =
+  coreNodeId resolvedNode == coreNodeId analyzedNode
+    && coreNodeSpan resolvedNode == coreNodeSpan analyzedNode
+
+expressionsCorrespond :: Expr 'Resolved -> Expr 'Analyzed -> Bool
+expressionsCorrespond resolvedExpression analyzedExpression =
+  case (resolvedExpression, analyzedExpression) of
+    (ELit resolvedNode resolvedLiteral, ELit analyzedNode analyzedLiteral) ->
+      nodesCorrespond resolvedNode analyzedNode && resolvedLiteral == analyzedLiteral
+    (EVar resolvedNode resolvedName, EVar analyzedNode analyzedName) ->
+      nodesCorrespond resolvedNode analyzedNode && resolvedName == analyzedName
+    (ELambda resolvedNode resolvedName resolvedBody, ELambda analyzedNode analyzedName analyzedBody) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedName == analyzedName
+        && expressionsCorrespond resolvedBody analyzedBody
+    (EOperatorValue resolvedNode resolvedOperator, EOperatorValue analyzedNode analyzedOperator) ->
+      nodesCorrespond resolvedNode analyzedNode && resolvedOperator == analyzedOperator
+    (EList resolvedNode resolvedElements, EList analyzedNode analyzedElements) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && listsCorrespond expressionsCorrespond resolvedElements analyzedElements
+    (ETuple resolvedNode resolvedElements, ETuple analyzedNode analyzedElements) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && listsCorrespond expressionsCorrespond resolvedElements analyzedElements
+    (EApply resolvedNode resolvedFunction resolvedArgument, EApply analyzedNode analyzedFunction analyzedArgument) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && expressionsCorrespond resolvedFunction analyzedFunction
+        && expressionsCorrespond resolvedArgument analyzedArgument
+    ( ETypeApplication resolvedNode resolvedFunction resolvedSpan resolvedType,
+      ETypeApplication analyzedNode analyzedFunction analyzedSpan analyzedType
+      ) ->
+        nodesCorrespond resolvedNode analyzedNode
+          && expressionsCorrespond resolvedFunction analyzedFunction
+          && resolvedSpan == analyzedSpan
+          && resolvedType == analyzedType
+    ( EIf resolvedNode resolvedCondition resolvedThen resolvedElse,
+      EIf analyzedNode analyzedCondition analyzedThen analyzedElse
+      ) ->
+        nodesCorrespond resolvedNode analyzedNode
+          && expressionsCorrespond resolvedCondition analyzedCondition
+          && expressionsCorrespond resolvedThen analyzedThen
+          && expressionsCorrespond resolvedElse analyzedElse
+    (EPatternCase resolvedNode resolvedScrutinee resolvedArms, EPatternCase analyzedNode analyzedScrutinee analyzedArms) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && expressionsCorrespond resolvedScrutinee analyzedScrutinee
+        && listsCorrespond caseArmsCorrespond resolvedArms analyzedArms
+    (EBinary resolvedNode resolvedOperator resolvedLeft resolvedRight, EBinary analyzedNode analyzedOperator analyzedLeft analyzedRight) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedOperator == analyzedOperator
+        && expressionsCorrespond resolvedLeft analyzedLeft
+        && expressionsCorrespond resolvedRight analyzedRight
+    (ESectionLeft resolvedNode resolvedLeft resolvedOperator, ESectionLeft analyzedNode analyzedLeft analyzedOperator) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && expressionsCorrespond resolvedLeft analyzedLeft
+        && resolvedOperator == analyzedOperator
+    (ESectionRight resolvedNode resolvedOperator resolvedRight, ESectionRight analyzedNode analyzedOperator analyzedRight) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedOperator == analyzedOperator
+        && expressionsCorrespond resolvedRight analyzedRight
+    (EBlock resolvedNode resolvedStatements, EBlock analyzedNode analyzedStatements) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && listsCorrespond statementsCorrespond resolvedStatements analyzedStatements
+    _ -> False
+
+caseArmsCorrespond :: CaseArm 'Resolved -> CaseArm 'Analyzed -> Bool
+caseArmsCorrespond
+  (CaseArm resolvedNode resolvedPattern resolvedGuard resolvedBody)
+  (CaseArm analyzedNode analyzedPattern analyzedGuard analyzedBody) =
+    nodesCorrespond resolvedNode analyzedNode
+      && patternsCorrespond resolvedPattern analyzedPattern
+      && maybesCorrespond expressionsCorrespond resolvedGuard analyzedGuard
+      && expressionsCorrespond resolvedBody analyzedBody
+
+patternsCorrespond :: Pattern 'Resolved -> Pattern 'Analyzed -> Bool
+patternsCorrespond resolvedPattern analyzedPattern =
+  case (resolvedPattern, analyzedPattern) of
+    (PWildcard resolvedNode, PWildcard analyzedNode) -> nodesCorrespond resolvedNode analyzedNode
+    (PVariable resolvedNode resolvedName, PVariable analyzedNode analyzedName) ->
+      nodesCorrespond resolvedNode analyzedNode && resolvedName == analyzedName
+    (PLiteral resolvedNode resolvedLiteral, PLiteral analyzedNode analyzedLiteral) ->
+      nodesCorrespond resolvedNode analyzedNode && resolvedLiteral == analyzedLiteral
+    (PConstructor resolvedNode resolvedName resolvedPatterns, PConstructor analyzedNode analyzedName analyzedPatterns) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedName == analyzedName
+        && listsCorrespond patternsCorrespond resolvedPatterns analyzedPatterns
+    (PList resolvedNode resolvedPatterns, PList analyzedNode analyzedPatterns) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && listsCorrespond patternsCorrespond resolvedPatterns analyzedPatterns
+    (PConsList resolvedNode resolvedHead resolvedTail, PConsList analyzedNode analyzedHead analyzedTail) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && patternsCorrespond resolvedHead analyzedHead
+        && patternsCorrespond resolvedTail analyzedTail
+    (PTuple resolvedNode resolvedPatterns, PTuple analyzedNode analyzedPatterns) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && listsCorrespond patternsCorrespond resolvedPatterns analyzedPatterns
+    (PAs resolvedNode resolvedName resolvedNested, PAs analyzedNode analyzedName analyzedNested) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedName == analyzedName
+        && patternsCorrespond resolvedNested analyzedNested
+    (POr resolvedNode resolvedAlternatives, POr analyzedNode analyzedAlternatives) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && listsCorrespond patternsCorrespond resolvedAlternatives analyzedAlternatives
+    _ -> False
+
+statementsCorrespond :: Statement 'Resolved -> Statement 'Analyzed -> Bool
+statementsCorrespond resolvedStatement analyzedStatement =
+  case (resolvedStatement, analyzedStatement) of
+    (SLet resolvedNode resolvedName resolvedValue, SLet analyzedNode analyzedName analyzedValue) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedName == analyzedName
+        && expressionsCorrespond resolvedValue analyzedValue
+    (SSignature resolvedNode resolvedName resolvedSignature, SSignature analyzedNode analyzedName analyzedSignature) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedName == analyzedName
+        && resolvedSignature == analyzedSignature
+    ( SData resolvedNode resolvedName resolvedParameters resolvedConstructors,
+      SData analyzedNode analyzedName analyzedParameters analyzedConstructors
+      ) ->
+        nodesCorrespond resolvedNode analyzedNode
+          && resolvedName == analyzedName
+          && resolvedParameters == analyzedParameters
+          && listsCorrespond constructorsCorrespond resolvedConstructors analyzedConstructors
+    ( SClass resolvedNode resolvedName resolvedParameters resolvedMethods,
+      SClass analyzedNode analyzedName analyzedParameters analyzedMethods
+      ) ->
+        nodesCorrespond resolvedNode analyzedNode
+          && resolvedName == analyzedName
+          && resolvedParameters == analyzedParameters
+          && listsCorrespond classMethodsCorrespond resolvedMethods analyzedMethods
+    (SImpl resolvedNode resolvedName resolvedArguments resolvedMethods, SImpl analyzedNode analyzedName analyzedArguments analyzedMethods) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && resolvedName == analyzedName
+        && resolvedArguments == analyzedArguments
+        && listsCorrespond implMethodsCorrespond resolvedMethods analyzedMethods
+    (SModule resolvedNode resolvedPath, SModule analyzedNode analyzedPath) ->
+      nodesCorrespond resolvedNode analyzedNode && resolvedPath == analyzedPath
+    ( SImport resolvedNode resolvedPath resolvedAlias resolvedNames,
+      SImport analyzedNode analyzedPath analyzedAlias analyzedNames
+      ) ->
+        nodesCorrespond resolvedNode analyzedNode
+          && resolvedPath == analyzedPath
+          && resolvedAlias == analyzedAlias
+          && resolvedNames == analyzedNames
+    (SExpr resolvedNode resolvedValue, SExpr analyzedNode analyzedValue) ->
+      nodesCorrespond resolvedNode analyzedNode
+        && expressionsCorrespond resolvedValue analyzedValue
+    _ -> False
+
+constructorsCorrespond :: DataConstructor 'Resolved -> DataConstructor 'Analyzed -> Bool
+constructorsCorrespond
+  (DataConstructor resolvedNode resolvedName resolvedArguments)
+  (DataConstructor analyzedNode analyzedName analyzedArguments) =
+    nodesCorrespond resolvedNode analyzedNode
+      && resolvedName == analyzedName
+      && resolvedArguments == analyzedArguments
+
+classMethodsCorrespond :: ClassMethodSignature 'Resolved -> ClassMethodSignature 'Analyzed -> Bool
+classMethodsCorrespond
+  (ClassMethodSignature resolvedNode resolvedName resolvedSignature)
+  (ClassMethodSignature analyzedNode analyzedName analyzedSignature) =
+    nodesCorrespond resolvedNode analyzedNode
+      && resolvedName == analyzedName
+      && resolvedSignature == analyzedSignature
+
+implMethodsCorrespond :: ImplMethod 'Resolved -> ImplMethod 'Analyzed -> Bool
+implMethodsCorrespond
+  (ImplMethod resolvedNode resolvedName resolvedBody)
+  (ImplMethod analyzedNode analyzedName analyzedBody) =
+    nodesCorrespond resolvedNode analyzedNode
+      && resolvedName == analyzedName
+      && expressionsCorrespond resolvedBody analyzedBody
+
+listsCorrespond :: (left -> right -> Bool) -> [left] -> [right] -> Bool
+listsCorrespond correspond leftValues rightValues =
+  length leftValues == length rightValues
+    && and (zipWith correspond leftValues rightValues)
+
+maybesCorrespond :: (left -> right -> Bool) -> Maybe left -> Maybe right -> Bool
+maybesCorrespond correspond leftValue rightValue =
+  case (leftValue, rightValue) of
+    (Nothing, Nothing) -> True
+    (Just left, Just right) -> correspond left right
+    _ -> False
 
 -- This can only be reached when callers mix independently produced resolved
 -- and analyzed programs. The driver always passes the two views from one

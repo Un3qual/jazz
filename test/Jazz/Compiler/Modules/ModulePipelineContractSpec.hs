@@ -30,7 +30,10 @@ import Jazz.Compiler.AST
     Pattern (..),
     Statement (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.BuiltinCatalog
+  ( BuiltinResolutionMode (ResolveKernelOnly),
+    BuiltinSymbol (BuiltinToInt8),
+  )
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..))
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
@@ -118,8 +121,9 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
+    AnalyzedType,
     CapabilityId (..),
-    CoreBinderId,
+    CoreBinderId (..),
     EvidenceReference (..),
     ExpressionFacts (..),
     ImplId (..),
@@ -156,7 +160,10 @@ import Jazz.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
   )
-import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (NumericInt8),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
@@ -190,7 +197,11 @@ tests =
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract),
-    ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames)
+    ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames),
+    ("explicit instantiations retain lexical binder identities through shadowing", testExplicitInstantiationBinderShadowing),
+    ("statement schemes are captured at each definition site", testStatementSchemesAreDefinitionSiteFacts),
+    ("runtime rejects non-corresponding resolved and analyzed programs", testRuntimeRejectsNonCorrespondingPrograms),
+    ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme)
   ]
 
 testAnalyzedProgramFactsAreComplete :: IO ()
@@ -305,6 +316,25 @@ testAnalyzedFactInvariantFailures = do
     (Left (DuplicateExpressionFacts expressionId :| []))
     (attachAnalyzedExpression modulePath Map.empty evidenceTwice expression)
 
+  let typeApplicationId = CoreNodeId 53
+      typeApplicationFunctionId = CoreNodeId 54
+      missingBinderName = BuiltinName (mkIdentifier "identity")
+      typeApplication =
+        ETypeApplication
+          (CoreNode typeApplicationId (SourceSpan 1 1) ())
+          (EVar (CoreNode typeApplicationFunctionId (SourceSpan 1 1) ()) missingBinderName)
+          (SourceSpan 1 10)
+          TypeInt
+      typeApplicationState =
+        recordExpressionFactType
+          typeApplicationId
+          SemanticInt
+          (recordExpressionFactType typeApplicationFunctionId SemanticInt initialInferState)
+  assertEqual
+    "explicit type application requires a lexical binder identity"
+    (Left (MissingExplicitInstantiationBinder typeApplicationId missingBinderName :| []))
+    (attachAnalyzedExpression modulePath Map.empty typeApplicationState typeApplication)
+
   let caseId = CoreNodeId 42
       scrutineeId = CoreNodeId 43
       armId = CoreNodeId 44
@@ -355,6 +385,33 @@ testAnalyzedFactInvariantFailures = do
     "duplicate statement fact"
     (Left (DuplicateStatementFacts statementId :| []))
     (attachAnalyzedExpression modulePath Map.empty statementTwice blockExpression)
+
+  let aliasBlockId = CoreNodeId 55
+      aliasStatementId = CoreNodeId 56
+      aliasExpressionId = CoreNodeId 57
+      aliasName = BuiltinName (mkIdentifier "alias")
+      aliasExpression = EVar (CoreNode aliasExpressionId (SourceSpan 1 9) ()) (BuiltinName (mkIdentifier "__kernel_toInt8"))
+      aliasBlock =
+        EBlock
+          (CoreNode aliasBlockId (SourceSpan 1 1) ())
+          [SLet (CoreNode aliasStatementId (SourceSpan 1 1) ()) aliasName aliasExpression]
+      aliasState =
+        recordStatementFactSeed
+          aliasStatementId
+          ([(aliasName, BuiltinAliasTypeBinding BuiltinToInt8)], ValueDeclaration aliasName)
+          ( recordExpressionFactType
+              aliasBlockId
+              (SemanticFunction SemanticInt (SemanticNumeric NumericInt8))
+              ( recordExpressionFactType
+                  aliasExpressionId
+                  (SemanticFunction SemanticInt (SemanticNumeric NumericInt8))
+                  initialInferState
+              )
+          )
+  assertEqual
+    "statement binders cannot silently drop an unprojected scheme"
+    (Left (MissingStatementScheme aliasStatementId (CoreBinderId (modulePath, aliasStatementId)) :| []))
+    (attachAnalyzedExpression modulePath Map.empty aliasState aliasBlock)
 
   let rangeBlockId = CoreNodeId 50
       rangeStatementId = CoreNodeId 51
@@ -813,6 +870,187 @@ testLexicalBindersShadowImportedAndBuiltinNames = do
             """
           )
         ]
+
+testExplicitInstantiationBinderShadowing :: IO ()
+testExplicitInstantiationBinderShadowing = do
+  (_, analyzed) <- analyzeFixtureProgram sources
+  coreModule <-
+    maybe
+      (fail "missing analyzed App::Main module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  let identityBinderIds = identityDefinitionBinderIds (coreModuleExpr coreModule)
+      instantiations = expressionInstantiationInventory (coreModuleExpr coreModule)
+      instantiatedBinderTypes =
+        [ (binder, instantiatedType)
+        | SemanticInstantiation binder (instantiatedType :| []) <- instantiations
+        ]
+      runtimeInstantiations = runtimeInstantiationInventory (coreModuleExpr coreModule)
+  assertEqual "two lexical identity definitions" 2 (length identityBinderIds)
+  assertEqual
+    "explicit applications reference their lexical definition-node binders"
+    (Set.fromList [(identityBinderIds !! 0, SemanticInt), (identityBinderIds !! 1, SemanticBool)])
+    (Set.fromList instantiatedBinderTypes)
+  assertEqual
+    "runtime plans retain both exact type instantiations"
+    (Set.fromList [SemanticInt :| [], SemanticBool :| []])
+    (Set.fromList runtimeInstantiations)
+  where
+    sources =
+      Map.singleton
+        "src/App/Main.jz"
+        """
+        module App::Main {
+          identity = \\(item) -> item.
+          outer = identity @Int 1.
+          nested = {
+            identity = \\(item) -> item.
+            identity @Bool True.
+          }.
+          (outer, nested).
+        }
+        """
+
+testStatementSchemesAreDefinitionSiteFacts :: IO ()
+testStatementSchemesAreDefinitionSiteFacts = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      (Map.singleton "src/App/Main.jz" "module App::Main { x = 1. x = True. x. }")
+  coreModule <-
+    maybe
+      (fail "missing analyzed App::Main module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  case namedLetSchemes "x" (coreModuleExpr coreModule) of
+    [firstScheme, secondScheme] -> do
+      assertEqual "first rebinding scheme is numeric" True (isNumericType (analyzedSchemeType firstScheme))
+      assertEqual "second rebinding scheme is Bool" SemanticBool (analyzedSchemeType secondScheme)
+    schemes -> fail ("expected two definition-site x schemes, got " <> show schemes)
+  where
+    isNumericType expressionType =
+      case expressionType of
+        SemanticInt -> True
+        SemanticNumeric _ -> True
+        _ -> False
+
+testBuiltinAliasStatementScheme :: IO ()
+testBuiltinAliasStatementScheme = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      (Map.singleton "src/App/Main.jz" "module App::Main { alias = __kernel_toInt8. alias. }")
+  coreModule <-
+    maybe
+      (fail "missing analyzed App::Main module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  case namedLetSchemes "alias" (coreModuleExpr coreModule) of
+    [scheme] -> do
+      case (analyzedSchemeVariables scheme, analyzedSchemePrimitiveConstraints scheme, analyzedSchemeType scheme) of
+        ( [variable],
+          [AnalyzedNumericPrimitiveConstraint AnalyzedAnyNumericConstraint (SemanticVariable constrainedVariable)],
+          SemanticFunction (SemanticVariable sourceVariable) (SemanticNumeric NumericInt8)
+          ) ->
+            assertEqual
+              "builtin alias quantifies the exact numeric source variable"
+              (variable, variable)
+              (constrainedVariable, sourceVariable)
+        facts -> fail ("builtin alias did not retain its full conversion scheme: " <> show facts)
+      assertEqual "builtin alias has no class constraints" [] (analyzedSchemeConstraints scheme)
+    schemes -> assertEqual "builtin alias owns exactly one meaningful scheme" 1 (length schemes)
+
+testRuntimeRejectsNonCorrespondingPrograms :: IO ()
+testRuntimeRejectsNonCorrespondingPrograms = do
+  intProgram@(intResolved, _) <-
+    analyzeFixtureProgram
+      (Map.singleton "src/App/Main.jz" "module App::Main { answer = 1. answer. }")
+  (_, boolAnalyzed) <-
+    analyzeFixtureProgram
+      (Map.singleton "src/App/Main.jz" "module App::Main { answer = True. answer. }")
+  case evaluateAnalyzedProgram intResolved boolAnalyzed of
+    Left diagnostic -> assertContains "cross-program mismatch diagnostic" "E3020" (renderDiagnostic diagnostic)
+    Right _ -> assertEqual "cross-paired programs must be rejected" True False
+  case evaluateFixtureProgram intProgram of
+    Left diagnostic -> fail ("corresponding program was rejected: " <> Text.unpack (renderDiagnostic diagnostic))
+    Right runtime ->
+      assertEqual
+        "corresponding program still executes"
+        (Just "1")
+        (renderRuntimeValue <$> runtimeProgramOutput runtime)
+
+identityDefinitionBinderIds :: Expr 'Analyzed -> [CoreBinderId]
+identityDefinitionBinderIds expression =
+  case expression of
+    ELambda _ _ body -> identityDefinitionBinderIds body
+    EList _ values -> foldMap identityDefinitionBinderIds values
+    ETuple _ values -> foldMap identityDefinitionBinderIds values
+    EApply _ function argument -> identityDefinitionBinderIds function <> identityDefinitionBinderIds argument
+    ETypeApplication _ function _ _ -> identityDefinitionBinderIds function
+    EIf _ condition whenTrue whenFalse -> foldMap identityDefinitionBinderIds [condition, whenTrue, whenFalse]
+    EPatternCase _ scrutinee arms -> identityDefinitionBinderIds scrutinee <> foldMap armIds arms
+    EBinary _ _ left right -> identityDefinitionBinderIds left <> identityDefinitionBinderIds right
+    ESectionLeft _ left _ -> identityDefinitionBinderIds left
+    ESectionRight _ _ right -> identityDefinitionBinderIds right
+    EBlock _ statements -> foldMap statementIds statements
+    _ -> []
+  where
+    armIds (CaseArm _ _ guard body) = foldMap identityDefinitionBinderIds guard <> identityDefinitionBinderIds body
+    statementIds statement =
+      case statement of
+        SLet (CoreNode _ _ facts) name value ->
+          [binder | identifierText name == "identity", binder <- statementBinderIds facts]
+            <> identityDefinitionBinderIds value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> identityDefinitionBinderIds body) methods
+        SExpr _ value -> identityDefinitionBinderIds value
+        _ -> []
+
+runtimeInstantiationInventory :: Expr 'Analyzed -> [NonEmpty AnalyzedType]
+runtimeInstantiationInventory expression =
+  nodeInstantiations expression
+    <> case expression of
+      ELambda _ _ body -> runtimeInstantiationInventory body
+      EList _ values -> foldMap runtimeInstantiationInventory values
+      ETuple _ values -> foldMap runtimeInstantiationInventory values
+      EApply _ function argument -> runtimeInstantiationInventory function <> runtimeInstantiationInventory argument
+      ETypeApplication _ function _ _ -> runtimeInstantiationInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap runtimeInstantiationInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> runtimeInstantiationInventory scrutinee <> foldMap armInstantiations arms
+      EBinary _ _ left right -> runtimeInstantiationInventory left <> runtimeInstantiationInventory right
+      ESectionLeft _ left _ -> runtimeInstantiationInventory left
+      ESectionRight _ _ right -> runtimeInstantiationInventory right
+      EBlock _ statements -> foldMap statementInstantiations statements
+      _ -> []
+  where
+    nodeInstantiations value =
+      case exprNode value of
+        CoreNode _ _ facts ->
+          [types | InstantiateTypes types <- toList obligations]
+          where
+            RuntimePlan obligations = expressionRuntimePlan facts
+    armInstantiations (CaseArm (CoreNode _ _ facts) _ guard body) =
+      [types | InstantiateTypes types <- toList obligations]
+        <> foldMap runtimeInstantiationInventory guard
+        <> runtimeInstantiationInventory body
+      where
+        RuntimePlan obligations = expressionRuntimePlan facts
+    statementInstantiations statement =
+      case statement of
+        SLet _ _ value -> runtimeInstantiationInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> runtimeInstantiationInventory body) methods
+        SExpr _ value -> runtimeInstantiationInventory value
+        _ -> []
+
+namedLetSchemes :: Text -> Expr 'Analyzed -> [AnalyzedScheme]
+namedLetSchemes expectedName expression =
+  case expression of
+    EBlock _ statements -> foldMap statementSchemes statements
+    _ -> []
+  where
+    statementSchemes :: Statement 'Analyzed -> [AnalyzedScheme]
+    statementSchemes statement =
+      case statement of
+        SLet (CoreNode _ _ facts) name _
+          | identifierText name == expectedName -> Map.elems (statementGeneralizedSchemes facts)
+        _ -> []
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
 testRuntimeModulePublishesDeclaredExports = do

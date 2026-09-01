@@ -169,8 +169,12 @@ data SemanticFactInvariantFailure
   | MissingExpressionFacts CoreNodeId
   | MissingExpressionEvidence CoreNodeId
   | AmbiguousExpressionEvidence CoreNodeId
+  | MissingExplicitInstantiationBinder CoreNodeId ResolvedName
+  | UnidentifiedExplicitInstantiationBinder CoreNodeId
+  | InvalidExplicitInstantiationType CoreNodeId
   | MissingPatternFacts CoreNodeId
   | MissingStatementFacts CoreNodeId
+  | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)

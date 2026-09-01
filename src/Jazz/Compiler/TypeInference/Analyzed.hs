@@ -11,6 +11,7 @@ module Jazz.Compiler.TypeInference.Analyzed
   )
 where
 
+import Data.List (mapAccumL)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
@@ -35,6 +36,7 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact (..))
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName)
+import Jazz.Compiler.RecursiveBindings (inferRecursiveGroupsOrdered)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedCapabilityFacts (..),
     AnalyzedConcreteImplFact (..),
@@ -115,18 +117,22 @@ attachAnalyzedExpression modulePath importedBinders state expression =
             )
   where
     Attachment attachmentFailures maybeAnalyzed =
-      attachExpr modulePath state (binderIndex modulePath importedBinders expression) expression
+      attachExpr modulePath state importedBinders expression
     foldFailures = foldr (:) [] attachmentFailures
 
 missing :: SemanticFactInvariantFailure -> Attachment value
 missing failure = Attachment (Seq.singleton failure) Nothing
 
-attachExpr :: ModulePath -> InferState -> Map ResolvedName (Maybe CoreBinderId) -> Expr 'Resolved -> Attachment (Expr 'Analyzed)
+attachExpr :: ModulePath -> InferState -> Map ResolvedName CoreBinderId -> Expr 'Resolved -> Attachment (Expr 'Analyzed)
 attachExpr modulePath state binders expression =
   case expression of
     ELit node literal -> ELit <$> attachNode expression node <*> pure literal
     EVar node name -> EVar <$> attachNode expression node <*> pure name
-    ELambda node name body -> ELambda <$> attachNode expression node <*> pure name <*> recur body
+    ELambda node name body ->
+      ELambda
+        <$> attachNode expression node
+        <*> pure name
+        <*> attachExpr modulePath state (insertBinder modulePath name node binders) body
     EOperatorValue node name -> EOperatorValue <$> attachNode expression node <*> pure name
     EList node elements -> EList <$> attachNode expression node <*> traverse recur elements
     ETuple node elements -> ETuple <$> attachNode expression node <*> traverse recur elements
@@ -144,57 +150,68 @@ attachExpr modulePath state binders expression =
     EBinary node operator left right -> EBinary <$> attachNode expression node <*> pure operator <*> recur left <*> recur right
     ESectionLeft node left operator -> ESectionLeft <$> attachNode expression node <*> recur left <*> pure operator
     ESectionRight node operator right -> ESectionRight <$> attachNode expression node <*> pure operator <*> recur right
-    EBlock node statements -> EBlock <$> attachNode expression node <*> traverse attachStatement statements
+    EBlock node statements ->
+      EBlock
+        <$> attachNode expression node
+        <*> traverse (uncurry attachStatement) (statementEnvironments modulePath binders statements)
   where
     recur = attachExpr modulePath state binders
     attachNode = attachExpressionNode state binders
     attachPattern = attachPatternNode state
-    attachStatement = attachStatementNode modulePath state binders
+    attachStatement statementBinders = attachStatementNode modulePath state statementBinders
     attachArm (CaseArm armNode pattern guard body) =
-      CaseArm
-        <$> attachNode body armNode
-        <*> attachPattern pattern
-        <*> traverse recur guard
-        <*> recur body
+      let armBinders = extendPatternBinders modulePath binders pattern
+          recurArm = attachExpr modulePath state armBinders
+       in CaseArm
+            <$> attachExpressionNode state armBinders body armNode
+            <*> attachPattern pattern
+            <*> traverse recurArm guard
+            <*> recurArm body
 
-attachExpressionNode :: InferState -> Map ResolvedName (Maybe CoreBinderId) -> Expr 'Resolved -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
+attachExpressionNode :: InferState -> Map ResolvedName CoreBinderId -> Expr 'Resolved -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
 attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
   case Map.lookup nodeId (inferExpressionFactTypes state) of
     Nothing -> missing (MissingExpressionFacts nodeId)
     Just inferredType ->
       let semanticType = resolveType state inferredType
-          instantiations = explicitInstantiations state binders expression
           evidence = expressionEvidenceFacts state nodeId
           evidenceObligations =
             maybe Seq.empty (Seq.singleton . SupplyEvidence) (NonEmpty.nonEmpty evidence)
-          runtimePlan =
-            RuntimePlan
-              ( foldMap (Seq.singleton . InstantiateTypes . instantiatedTypes) instantiations
-                  <> evidenceObligations
-                  <> numericLiteralObligations expression semanticType
-                  <> Seq.singleton (ConstrainResult semanticType)
-              )
-       in pure
-            ( CoreNode
-                nodeId
-                spanValue
-                ExpressionFacts
-                  { expressionSemanticType = semanticType,
-                    expressionInstantiations = instantiations,
-                    expressionEvidence = evidence,
-                    expressionRuntimePlan = runtimePlan
-                  }
-            )
+       in makeNode semanticType evidence evidenceObligations
+            <$> explicitInstantiations state binders nodeId expression
+      where
+        makeNode semanticType evidence evidenceObligations instantiations =
+          CoreNode
+            nodeId
+            spanValue
+            ExpressionFacts
+              { expressionSemanticType = semanticType,
+                expressionInstantiations = instantiations,
+                expressionEvidence = evidence,
+                expressionRuntimePlan =
+                  RuntimePlan
+                    ( foldMap (Seq.singleton . InstantiateTypes . instantiatedTypes) instantiations
+                        <> evidenceObligations
+                        <> numericLiteralObligations expression semanticType
+                        <> Seq.singleton (ConstrainResult semanticType)
+                    )
+              }
 
-explicitInstantiations :: InferState -> Map ResolvedName (Maybe CoreBinderId) -> Expr 'Resolved -> [SemanticInstantiation]
-explicitInstantiations state binders expression =
+explicitInstantiations :: InferState -> Map ResolvedName CoreBinderId -> CoreNodeId -> Expr 'Resolved -> Attachment [SemanticInstantiation]
+explicitInstantiations state binders nodeId expression =
   case expression of
     ETypeApplication _ function _ signatureType ->
-      case (referencedBinder binders function, Signature.signatureTypeToExpressionType state Map.empty signatureType) of
-        (Just binder, Right argumentType) ->
-          [SemanticInstantiation binder (NonEmpty.singleton (resolveType state argumentType))]
-        _ -> []
-    _ -> []
+      case referencedBinder binders function of
+        Nothing ->
+          case referencedName function of
+            Just name -> missing (MissingExplicitInstantiationBinder nodeId name)
+            Nothing -> missing (UnidentifiedExplicitInstantiationBinder nodeId)
+        Just binder ->
+          case Signature.signatureTypeToExpressionType state Map.empty signatureType of
+            Left _ -> missing (InvalidExplicitInstantiationType nodeId)
+            Right argumentType ->
+              pure [SemanticInstantiation binder (NonEmpty.singleton (resolveType state argumentType))]
+    _ -> pure []
 
 expressionEvidenceFacts :: InferState -> CoreNodeId -> [EvidenceReference]
 expressionEvidenceFacts state nodeId =
@@ -223,11 +240,18 @@ numericLiteralObligations expression expressionType =
         _ -> Seq.empty
     _ -> Seq.empty
 
-referencedBinder :: Map ResolvedName (Maybe CoreBinderId) -> Expr 'Resolved -> Maybe CoreBinderId
+referencedBinder :: Map ResolvedName CoreBinderId -> Expr 'Resolved -> Maybe CoreBinderId
 referencedBinder binders expression =
   case expression of
-    EVar _ name -> Map.lookup name binders >>= id
+    EVar _ name -> Map.lookup name binders
     ETypeApplication _ function _ _ -> referencedBinder binders function
+    _ -> Nothing
+
+referencedName :: Expr 'Resolved -> Maybe ResolvedName
+referencedName expression =
+  case expression of
+    EVar _ name -> Just name
+    ETypeApplication _ function _ _ -> referencedName function
     _ -> Nothing
 
 attachPatternNode :: InferState -> Pattern 'Resolved -> Attachment (Pattern 'Analyzed)
@@ -257,7 +281,7 @@ attachPatternNode state pattern =
                   }
             )
 
-attachStatementNode :: ModulePath -> InferState -> Map ResolvedName (Maybe CoreBinderId) -> Statement 'Resolved -> Attachment (Statement 'Analyzed)
+attachStatementNode :: ModulePath -> InferState -> Map ResolvedName CoreBinderId -> Statement 'Resolved -> Attachment (Statement 'Analyzed)
 attachStatementNode modulePath state binders statement =
   case statement of
     SLet node name value -> SLet <$> facts node <*> pure name <*> recur value
@@ -273,7 +297,19 @@ attachStatementNode modulePath state binders statement =
     facts = attachStatementFacts modulePath state
     attachConstructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
     attachClassMethod (ClassMethodSignature node name signature) = ClassMethodSignature <$> facts node <*> pure name <*> pure signature
-    attachImplMethod (ImplMethod node name body) = ImplMethod <$> facts node <*> pure name <*> recur body
+    attachImplMethod (ImplMethod node name body) =
+      ImplMethod
+        <$> facts node
+        <*> pure name
+        <*> attachExpr modulePath state methodBinders body
+    methodBinders =
+      case statement of
+        SImpl _ _ _ methods ->
+          foldl
+            (\acc (ImplMethod node name _) -> insertBinder modulePath name node acc)
+            binders
+            methods
+        _ -> binders
 
 attachStatementFacts :: ModulePath -> InferState -> CoreNode 'Resolved 'StatementSort -> Attachment (CoreNode 'Analyzed 'StatementSort)
 attachStatementFacts modulePath state (CoreNode nodeId spanValue ()) =
@@ -300,18 +336,16 @@ projectStatementFacts modulePath state nodeId =
     Nothing -> missing (MissingStatementFacts nodeId)
     Just (bindings, declarationFact) ->
       let binderId = CoreBinderId (modulePath, nodeId)
-          schemes =
-            Map.fromList
-              [ (binderId, scheme)
-              | (_, binding) <- bindings,
-                Just scheme <- [projectTypeBinding state binding]
-              ]
-       in pure
-            StatementFacts
-              { statementBinderIds = [binderId | not (null bindings)],
-                statementGeneralizedSchemes = schemes,
-                statementDeclarationFact = declarationFact
-              }
+       in case traverse (projectTypeBinding state . snd) bindings of
+            Nothing -> missing (MissingStatementScheme nodeId binderId)
+            Just projectedSchemes ->
+              pure
+                StatementFacts
+                  { statementBinderIds = [binderId | not (null bindings)],
+                    statementGeneralizedSchemes =
+                      Map.fromList [(binderId, scheme) | scheme <- projectedSchemes],
+                    statementDeclarationFact = declarationFact
+                  }
 
 projectTypeBinding :: InferState -> TypeBinding -> Maybe AnalyzedScheme
 projectTypeBinding state binding =
@@ -414,52 +448,55 @@ emptyAnalyzedCapabilityFacts :: AnalyzedCapabilityFacts
 emptyAnalyzedCapabilityFacts =
   AnalyzedCapabilityFacts Map.empty Set.empty Set.empty Map.empty Map.empty
 
-binderIndex :: ModulePath -> Map ResolvedName CoreBinderId -> Expr 'Resolved -> Map ResolvedName (Maybe CoreBinderId)
-binderIndex modulePath importedBinders =
-  foldExpressionBindings (Map.map Just importedBinders)
+statementEnvironments :: ModulePath -> Map ResolvedName CoreBinderId -> [Statement 'Resolved] -> [(Map ResolvedName CoreBinderId, Statement 'Resolved)]
+statementEnvironments modulePath outerBinders statements =
+  snd (mapAccumL step outerBinders indexedStatements)
   where
-    foldExpressionBindings :: Map ResolvedName (Maybe CoreBinderId) -> Expr 'Resolved -> Map ResolvedName (Maybe CoreBinderId)
-    foldExpressionBindings bindings expression =
-      case expression of
-        ELambda node name body -> insert name node (foldExpressionBindings bindings body)
-        EList _ values -> foldl foldExpressionBindings bindings values
-        ETuple _ values -> foldl foldExpressionBindings bindings values
-        EApply _ function argument -> foldExpressionBindings (foldExpressionBindings bindings function) argument
-        ETypeApplication _ function _ _ -> foldExpressionBindings bindings function
-        EIf _ condition whenTrue whenFalse -> foldExpressionBindings (foldExpressionBindings (foldExpressionBindings bindings condition) whenTrue) whenFalse
-        EPatternCase _ scrutinee arms -> foldl foldArmBindings (foldExpressionBindings bindings scrutinee) arms
-        EBinary _ _ left right -> foldExpressionBindings (foldExpressionBindings bindings left) right
-        ESectionLeft _ left _ -> foldExpressionBindings bindings left
-        ESectionRight _ _ right -> foldExpressionBindings bindings right
-        EBlock _ statements -> foldl foldStatementBindings bindings statements
-        _ -> bindings
-    foldArmBindings :: Map ResolvedName (Maybe CoreBinderId) -> CaseArm 'Resolved -> Map ResolvedName (Maybe CoreBinderId)
-    foldArmBindings bindings (CaseArm _ pattern guard body) =
-      foldExpressionBindings (maybe bindings (foldExpressionBindings bindings) guard) body
-        <> foldPatternBindings Map.empty pattern
-    foldStatementBindings :: Map ResolvedName (Maybe CoreBinderId) -> Statement 'Resolved -> Map ResolvedName (Maybe CoreBinderId)
-    foldStatementBindings bindings statement =
+    indexedStatements = zip [0 ..] statements
+    bindingNodes =
+      Map.fromList
+        [ (statementIndex, (name, node))
+        | (statementIndex, SLet node name _) <- indexedStatements
+        ]
+    recursiveGroups =
+      inferRecursiveGroupsOrdered (Map.keysSet outerBinders) indexedStatements
+
+    step visibleBinders (statementIndex, statement) =
+      (publishStatementBinders visibleBinders statement, (definitionBinders, statement))
+      where
+        definitionBinders =
+          foldl
+            (\acc peerIndex -> maybe acc (\(name, node) -> insertBinder modulePath name node acc) (Map.lookup peerIndex bindingNodes))
+            visibleBinders
+            (Map.findWithDefault [] statementIndex recursiveGroups)
+
+    publishStatementBinders bindings statement =
       case statement of
-        SLet node name value -> insert name node (foldExpressionBindings bindings value)
-        SData _ _ _ constructors -> foldl (\acc (DataConstructor node name _) -> insert name node acc) bindings constructors
-        SImpl _ _ _ methods -> foldl (\acc (ImplMethod _ _ body) -> foldExpressionBindings acc body) bindings methods
-        SExpr _ value -> foldExpressionBindings bindings value
+        SLet node name _ -> insertBinder modulePath name node bindings
+        SData _ _ _ constructors ->
+          foldl
+            (\acc (DataConstructor node name _) -> insertBinder modulePath name node acc)
+            bindings
+            constructors
         _ -> bindings
-    foldPatternBindings :: Map ResolvedName (Maybe CoreBinderId) -> Pattern 'Resolved -> Map ResolvedName (Maybe CoreBinderId)
-    foldPatternBindings bindings pattern =
+
+extendPatternBinders :: ModulePath -> Map ResolvedName CoreBinderId -> Pattern 'Resolved -> Map ResolvedName CoreBinderId
+extendPatternBinders modulePath = go
+  where
+    go bindings pattern =
       case pattern of
-        PVariable node name -> insert name node bindings
-        PConstructor _ _ patterns -> foldl foldPatternBindings bindings patterns
-        PList _ patterns -> foldl foldPatternBindings bindings patterns
-        PConsList _ headPattern tailPattern -> foldPatternBindings (foldPatternBindings bindings headPattern) tailPattern
-        PTuple _ patterns -> foldl foldPatternBindings bindings patterns
-        PAs node name nested -> insert name node (foldPatternBindings bindings nested)
-        POr _ alternatives -> foldl foldPatternBindings bindings alternatives
+        PVariable node name -> insertBinder modulePath name node bindings
+        PConstructor _ _ patterns -> foldl go bindings patterns
+        PList _ patterns -> foldl go bindings patterns
+        PConsList _ headPattern tailPattern -> go (go bindings headPattern) tailPattern
+        PTuple _ patterns -> foldl go bindings patterns
+        PAs node name nested -> insertBinder modulePath name node (go bindings nested)
+        POr _ alternatives -> foldl go bindings alternatives
         _ -> bindings
-    insert :: ResolvedName -> CoreNode 'Resolved (sort :: CoreSort) -> Map ResolvedName (Maybe CoreBinderId) -> Map ResolvedName (Maybe CoreBinderId)
-    insert name node = Map.insertWith collide name (Just (CoreBinderId (modulePath, coreNodeId node)))
-    collide :: Maybe CoreBinderId -> Maybe CoreBinderId -> Maybe CoreBinderId
-    collide _ _ = Nothing
+
+insertBinder :: ModulePath -> ResolvedName -> CoreNode 'Resolved (sort :: CoreSort) -> Map ResolvedName CoreBinderId -> Map ResolvedName CoreBinderId
+insertBinder modulePath name node =
+  Map.insert name (CoreBinderId (modulePath, coreNodeId node))
 
 expressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
 expressionNode expression =
