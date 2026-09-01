@@ -6,22 +6,27 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 10"
+plan_section: "Task 11"
 target_paths:
-  - src/Jazz/Compiler/SemanticFacts.hs
-  - src/Jazz/Compiler/TypeInference/Result.hs
-  - src/Jazz/Compiler/TypeInference/State.hs
-  - src/Jazz/Compiler/TypeInference/Scope.hs
-  - src/Jazz/Compiler/TypeInference/Capabilities.hs
-  - src/Jazz/Compiler/TypeInference/Signature.hs
-  - src/Jazz/Compiler/ModuleInterface.hs
+  - src/Jazz/Compiler/Runtime.hs
+  - src/Jazz/Compiler/Runtime/Request.hs
+  - src/Jazz/Compiler/Runtime/Engine.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
+  - src/Jazz/Compiler/Runtime/ScopePlan.hs
+  - src/Jazz/Compiler/Runtime/HostEvaluation.hs
+  - src/Jazz/Compiler/Runtime/Semantics.hs
+  - src/Jazz/Compiler/Runtime/Primitives.hs
+  - src/Jazz/Compiler/ModuleRuntime.hs
+  - src/Jazz/Compiler/Driver.hs
   - src/Jazz/Compiler/RuntimeHints.hs
-  - test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs
+  - jazz.cabal
+  - test/Jazz/Compiler/Semantics/RuntimeSemanticsSpec.hs
+  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
   - test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs
   - test/Jazz/Compiler/ProfilingSpec.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test binding-signature-coherence-spec runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec --test-show-details=direct --jobs=1
-deliverable: "Populate analyzed node-local runtime plans from final inference decisions, retain only a private interpreter parity projection, and remove inference- and interface-owned runtime hint production."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test cli-spec runtime-semantics-spec module-pipeline-contract-spec loader-spec profiling-spec runtime-observation-spec --test-show-details=direct --jobs=1
+deliverable: "Move the retained interpreter onto analyzed core, consume node-local runtime plans directly, and delete the temporary runtime-hint projection protocol."
 last_verified: 2026-09-01
 ---
 

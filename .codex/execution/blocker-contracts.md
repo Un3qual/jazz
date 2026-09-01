@@ -279,32 +279,38 @@ Each blocked item should answer these questions:
   modules, prelude artifacts, and resolved programs behind one opaque,
   dependency-ordered phase-indexed program; Task 9 attached complete
   success-only analyzed facts and removed the temporary compiled syntax
-  carriers while preserving the hosted schema and retained interpreter.
-- Smallest unblocker: execute `JN-COMPILER-ANALYZED-CORE-001` through Task 10 of
+  carriers; Task 10 completed node-local runtime plans and removed inference-
+  and interface-owned hint production while preserving the hosted schema and
+  retained interpreter.
+- Smallest unblocker: execute `JN-COMPILER-ANALYZED-CORE-001` through Task 11 of
   the approved compiler architecture simplification plan.
 - Decision needed: none. Preserve public behavior and interpreter-backed
-  compile/run while moving final runtime decisions from inference hint maps to
-  analyzed node-local plans.
-- Recommended default: complete node-local runtime plans and retain the private
-  parity projection before direct analyzed-core interpretation in Task 11.
+  compile/run while moving the retained interpreter from resolved syntax plus
+  the private hint projection onto analyzed core and node-local plans.
+- Recommended default: preserve the existing interpreter algorithm while
+  changing its semantic input ownership, then delete the projection protocol.
 - Ready child: `JN-COMPILER-ANALYZED-CORE-001`.
-- Target paths: `src/Jazz/Compiler/SemanticFacts.hs`,
-  `src/Jazz/Compiler/TypeInference/Result.hs`,
-  `src/Jazz/Compiler/TypeInference/State.hs`,
-  `src/Jazz/Compiler/TypeInference/Scope.hs`,
-  `src/Jazz/Compiler/TypeInference/Capabilities.hs`,
-  `src/Jazz/Compiler/TypeInference/Signature.hs`,
-  `src/Jazz/Compiler/ModuleInterface.hs`,
+- Target paths: `src/Jazz/Compiler/Runtime.hs`,
+  `src/Jazz/Compiler/Runtime/Request.hs`,
+  `src/Jazz/Compiler/Runtime/Engine.hs`,
+  `src/Jazz/Compiler/Runtime/Types.hs`,
+  `src/Jazz/Compiler/Runtime/ScopePlan.hs`,
+  `src/Jazz/Compiler/Runtime/HostEvaluation.hs`,
+  `src/Jazz/Compiler/Runtime/Semantics.hs`,
+  `src/Jazz/Compiler/Runtime/Primitives.hs`,
+  `src/Jazz/Compiler/ModuleRuntime.hs`,
+  `src/Jazz/Compiler/Driver.hs`,
   `src/Jazz/Compiler/RuntimeHints.hs`,
-  `test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs`,
+  `jazz.cabal`,
+  `test/Jazz/Compiler/Semantics/RuntimeSemanticsSpec.hs`,
+  `test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs`,
   `test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs`, and
   `test/Jazz/Compiler/ProfilingSpec.hs`.
 - Verification:
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test binding-signature-coherence-spec runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec --test-show-details=direct --jobs=1`
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test cli-spec runtime-semantics-spec module-pipeline-contract-spec loader-spec profiling-spec runtime-observation-spec --test-show-details=direct --jobs=1`
 - Still not in scope for the ready child: public syntax or semantic changes, a
-  Typed Core interpreter, raw-core interpreter removal, direct analyzed-core
-  interpretation, normal compile/run cutover, or Task 11 and later architecture
-  work.
+  Typed Core interpreter, raw-core interpreter removal, normal compile/run
+  cutover, checked-build consolidation, or Task 12 and later architecture work.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
