@@ -164,14 +164,17 @@ data StatementDeclarationFact
 -- compiler invariant failures, not source diagnostics.
 data SemanticFactInvariantFailure
   = DuplicateExpressionFacts CoreNodeId
+  | DuplicateExplicitInstantiationSeed CoreNodeId
   | DuplicatePatternFacts CoreNodeId
   | DuplicateStatementFacts CoreNodeId
   | MissingExpressionFacts CoreNodeId
   | MissingExpressionEvidence CoreNodeId
   | AmbiguousExpressionEvidence CoreNodeId
+  | MissingExplicitInstantiationSeed CoreNodeId
+  | MismatchedExplicitInstantiationSeed CoreNodeId ResolvedName ResolvedName
+  | UnexpectedExplicitInstantiationSeed CoreNodeId
   | MissingExplicitInstantiationBinder CoreNodeId ResolvedName
   | UnidentifiedExplicitInstantiationBinder CoreNodeId
-  | InvalidExplicitInstantiationType CoreNodeId
   | MissingPatternFacts CoreNodeId
   | MissingStatementFacts CoreNodeId
   | MissingStatementScheme CoreNodeId CoreBinderId

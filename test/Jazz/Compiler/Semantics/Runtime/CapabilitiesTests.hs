@@ -10,6 +10,7 @@ import Control.Exception
   ( SomeException,
     try,
   )
+import Data.Foldable (toList)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -45,7 +46,7 @@ import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleIdentity (mkModulePath, preludeModulePath)
+import Jazz.Compiler.ModuleIdentity (mkModulePath, preludeModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (ResolvedName, identifierText, mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
@@ -67,9 +68,13 @@ import Jazz.Compiler.RuntimeHints
     projectSourceUnitRuntimeHints,
   )
 import Jazz.Compiler.SemanticFacts
-  ( EvidenceReference (..),
+  ( CapabilityId (..),
+    EvidenceReference (..),
     ExpressionFacts (..),
     ImplId (..),
+    MethodId (..),
+    RuntimeObligation (..),
+    RuntimePlan (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
@@ -80,6 +85,7 @@ import Jazz.Compiler.TypeInference
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
+    SemanticType (..),
     SignaturePayload (..),
     SignatureType (..),
   )
@@ -113,6 +119,7 @@ capabilityTests =
     ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint),
     ("qualified method dispatch selects a nullary body by explicit target", testQualifiedMethodDispatchSelectsNullaryBodyByExplicitTarget),
     ("qualified method dispatch selects a nullary body by binding result type", testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType),
+    ("nullary method selection records canonical analyzed evidence", testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence),
     ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint),
     ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter),
     ("qualified method dispatch preserves partially instantiated function templates", testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate),
@@ -492,6 +499,68 @@ testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
+
+testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence :: IO ()
+testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
+  (inference, analyzedExpression, _) <-
+    analyzeRuntimePlan
+      Set.empty
+      """
+      class RuntimeDefault(a) {
+      defaultValue :: a.
+      }.
+      impl RuntimeDefault(Int) {
+      defaultValue = 41.
+      }.
+      impl RuntimeDefault(Bool) {
+      defaultValue = True.
+      }.
+      class UniqueDefault(a) {
+      defaultValue :: a.
+      }.
+      impl UniqueDefault(Int) {
+      defaultValue = 42.
+      }.
+      expected :: Int.
+      expected = RuntimeDefault::defaultValue.
+      (expected, RuntimeDefault::defaultValue @Bool, UniqueDefault::defaultValue).
+      """
+  assertEqual "nullary evidence inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
+  case implementationIdentities analyzedExpression of
+    [(runtimeCapability, runtimeIntImpl), (_, runtimeBoolImpl), (uniqueCapability, uniqueIntImpl)] -> do
+      let expectedResultEvidence = evidenceReference runtimeCapability runtimeIntImpl SemanticInt
+          explicitTargetEvidence = evidenceReference runtimeCapability runtimeBoolImpl SemanticBool
+          uniqueBareEvidence = evidenceReference uniqueCapability uniqueIntImpl SemanticInt
+      assertEqual
+        "all nullary selection modes retain their exact selected evidence"
+        [expectedResultEvidence, explicitTargetEvidence, uniqueBareEvidence]
+        (expressionEvidenceInventory analyzedExpression)
+      assertEqual
+        "nullary selection evidence is supplied before its result constraint"
+        [ ([expectedResultEvidence], [SupplyEvidence (expectedResultEvidence NonEmpty.:| []), ConstrainResult SemanticInt]),
+          ( [explicitTargetEvidence],
+            [ InstantiateTypes (SemanticBool NonEmpty.:| []),
+              SupplyEvidence (explicitTargetEvidence NonEmpty.:| []),
+              ConstrainResult SemanticBool
+            ]
+          ),
+          ([uniqueBareEvidence], [SupplyEvidence (uniqueBareEvidence NonEmpty.:| []), ConstrainResult SemanticInt])
+        ]
+        (expressionEvidencePlanInventory analyzedExpression)
+    implementations ->
+      failTest ("expected three nullary implementation identities, got " <> Text.pack (show implementations))
+  where
+    implementationIdentities expression =
+      [ (capabilityName, ImplId (standaloneModulePath, coreNodeId implementationNode))
+      | SImpl implementationNode capabilityName [_] _ <- sourceUnitStatements expression
+      ]
+    evidenceReference capabilityName implementationId targetType =
+      EvidenceReference
+        { evidenceCapability = CapabilityId capabilityName,
+          evidenceImplementation = implementationId,
+          evidenceMethod = Just (MethodId (implementationId, mkIdentifier "defaultValue")),
+          evidenceType = targetType
+        }
 
 testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint :: IO ()
 testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = do
@@ -2112,45 +2181,55 @@ sourceUnitStatements expression =
     _ -> []
 
 expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
-expressionEvidenceInventory expression =
-  nodeEvidence expression
+expressionEvidenceInventory = foldMap fst . expressionEvidencePlanInventory
+
+expressionEvidencePlanInventory :: Expr 'Analyzed -> [([EvidenceReference], [RuntimeObligation])]
+expressionEvidencePlanInventory expression =
+  nodeEvidencePlan expression
     <> case expression of
-      ELambda _ _ body -> expressionEvidenceInventory body
-      EList _ elements -> foldMap expressionEvidenceInventory elements
-      ETuple _ elements -> foldMap expressionEvidenceInventory elements
-      EApply _ function argument -> expressionEvidenceInventory function <> expressionEvidenceInventory argument
-      ETypeApplication _ function _ _ -> expressionEvidenceInventory function
-      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidenceInventory [condition, whenTrue, whenFalse]
-      EPatternCase _ scrutinee arms -> expressionEvidenceInventory scrutinee <> foldMap armEvidence arms
-      EBinary _ _ left right -> expressionEvidenceInventory left <> expressionEvidenceInventory right
-      ESectionLeft _ left _ -> expressionEvidenceInventory left
-      ESectionRight _ _ right -> expressionEvidenceInventory right
-      EBlock _ statements -> foldMap statementEvidence statements
+      ELambda _ _ body -> expressionEvidencePlanInventory body
+      EList _ elements -> foldMap expressionEvidencePlanInventory elements
+      ETuple _ elements -> foldMap expressionEvidencePlanInventory elements
+      EApply _ function argument -> expressionEvidencePlanInventory function <> expressionEvidencePlanInventory argument
+      ETypeApplication _ function _ _ -> expressionEvidencePlanInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidencePlanInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionEvidencePlanInventory scrutinee <> foldMap armEvidencePlans arms
+      EBinary _ _ left right -> expressionEvidencePlanInventory left <> expressionEvidencePlanInventory right
+      ESectionLeft _ left _ -> expressionEvidencePlanInventory left
+      ESectionRight _ _ right -> expressionEvidencePlanInventory right
+      EBlock _ statements -> foldMap statementEvidencePlans statements
       _ -> []
   where
-    nodeEvidence value =
+    nodeEvidencePlan value =
       case value of
-        ELit (CoreNode _ _ facts) _ -> expressionEvidence facts
-        EVar (CoreNode _ _ facts) _ -> expressionEvidence facts
-        ELambda (CoreNode _ _ facts) _ _ -> expressionEvidence facts
-        EOperatorValue (CoreNode _ _ facts) _ -> expressionEvidence facts
-        EList (CoreNode _ _ facts) _ -> expressionEvidence facts
-        ETuple (CoreNode _ _ facts) _ -> expressionEvidence facts
-        EApply (CoreNode _ _ facts) _ _ -> expressionEvidence facts
-        ETypeApplication (CoreNode _ _ facts) _ _ _ -> expressionEvidence facts
-        EIf (CoreNode _ _ facts) _ _ _ -> expressionEvidence facts
-        EPatternCase (CoreNode _ _ facts) _ _ -> expressionEvidence facts
-        EBinary (CoreNode _ _ facts) _ _ _ -> expressionEvidence facts
-        ESectionLeft (CoreNode _ _ facts) _ _ -> expressionEvidence facts
-        ESectionRight (CoreNode _ _ facts) _ _ -> expressionEvidence facts
-        EBlock (CoreNode _ _ facts) _ -> expressionEvidence facts
-    armEvidence (CaseArm (CoreNode _ _ facts) _ guard body) =
-      expressionEvidence facts <> foldMap expressionEvidenceInventory guard <> expressionEvidenceInventory body
-    statementEvidence statement =
+        ELit (CoreNode _ _ facts) _ -> plan facts
+        EVar (CoreNode _ _ facts) _ -> plan facts
+        ELambda (CoreNode _ _ facts) _ _ -> plan facts
+        EOperatorValue (CoreNode _ _ facts) _ -> plan facts
+        EList (CoreNode _ _ facts) _ -> plan facts
+        ETuple (CoreNode _ _ facts) _ -> plan facts
+        EApply (CoreNode _ _ facts) _ _ -> plan facts
+        ETypeApplication (CoreNode _ _ facts) _ _ _ -> plan facts
+        EIf (CoreNode _ _ facts) _ _ _ -> plan facts
+        EPatternCase (CoreNode _ _ facts) _ _ -> plan facts
+        EBinary (CoreNode _ _ facts) _ _ _ -> plan facts
+        ESectionLeft (CoreNode _ _ facts) _ _ -> plan facts
+        ESectionRight (CoreNode _ _ facts) _ _ -> plan facts
+        EBlock (CoreNode _ _ facts) _ -> plan facts
+    plan facts =
+      case expressionEvidence facts of
+        [] -> []
+        evidence ->
+          [(evidence, toList obligations)]
+          where
+            RuntimePlan obligations = expressionRuntimePlan facts
+    armEvidencePlans (CaseArm (CoreNode _ _ facts) _ guard body) =
+      plan facts <> foldMap expressionEvidencePlanInventory guard <> expressionEvidencePlanInventory body
+    statementEvidencePlans statement =
       case statement of
-        SLet _ _ value -> expressionEvidenceInventory value
-        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
-        SExpr _ value -> expressionEvidenceInventory value
+        SLet _ _ value -> expressionEvidencePlanInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidencePlanInventory body) methods
+        SExpr _ value -> expressionEvidencePlanInventory value
         _ -> []
 
 analyzeRuntimeHints :: Set.Set Int -> Text.Text -> IO (InferenceResult, Map.Map BindingRuntimeHintKey (SignatureType ResolvedName ResolvedName))

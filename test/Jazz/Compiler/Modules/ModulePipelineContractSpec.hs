@@ -145,8 +145,11 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression)
 import Jazz.Compiler.TypeInference.State
-  ( ExpressionEvidenceSeed (..),
+  ( ExplicitInstantiationSeed (..),
+    ExplicitInstantiationTarget (..),
+    ExpressionEvidenceSeed (..),
     initialInferState,
+    recordExplicitInstantiationSeed,
     recordExpressionEvidenceSeed,
     recordExpressionFactType,
     recordPatternFactSeed,
@@ -357,6 +360,8 @@ testAnalyzedFactInvariantFailures = do
   let typeApplicationId = CoreNodeId 53
       typeApplicationFunctionId = CoreNodeId 54
       missingBinderName = BuiltinName (mkIdentifier "identity")
+      mismatchedBinderName = BuiltinName (mkIdentifier "otherIdentity")
+      lexicalBinderId = CoreBinderId (modulePath, CoreNodeId 52)
       typeApplication =
         ETypeApplication
           (CoreNode typeApplicationId (SourceSpan 1 1) ())
@@ -366,12 +371,56 @@ testAnalyzedFactInvariantFailures = do
       typeApplicationState =
         recordExpressionFactType
           typeApplicationId
-          SemanticInt
-          (recordExpressionFactType typeApplicationFunctionId SemanticInt initialInferState)
+          SemanticBool
+          (recordExpressionFactType typeApplicationFunctionId SemanticBool initialInferState)
+      explicitSeed =
+        ExplicitInstantiationSeed
+          { explicitInstantiationSeedTarget = ExplicitBinderInstantiation missingBinderName,
+            explicitInstantiationSeedArguments = SemanticBool :| []
+          }
+      seededTypeApplicationState =
+        recordExplicitInstantiationSeed typeApplicationId explicitSeed typeApplicationState
   assertEqual
-    "explicit type application requires a lexical binder identity"
-    (Left (MissingExplicitInstantiationBinder typeApplicationId missingBinderName :| []))
+    "explicit type application requires a recorded inference decision"
+    (Left (MissingExplicitInstantiationSeed typeApplicationId :| []))
     (attachAnalyzedExpression modulePath Map.empty typeApplicationState typeApplication)
+  case attachAnalyzedExpression
+    modulePath
+    (Map.singleton missingBinderName lexicalBinderId)
+    seededTypeApplicationState
+    typeApplication of
+    Right (ETypeApplication (CoreNode _ _ facts) _ _ _) ->
+      assertEqual
+        "attachment trusts the final solver argument rather than reconstructing common source syntax"
+        [SemanticInstantiation lexicalBinderId (SemanticBool :| [])]
+        (expressionInstantiations facts)
+    result -> fail ("expected a seeded analyzed explicit type application, got " <> show result)
+  assertEqual
+    "explicit type application seed is unique per node"
+    (Left (DuplicateExplicitInstantiationSeed typeApplicationId :| []))
+    ( attachAnalyzedExpression
+        modulePath
+        (Map.singleton missingBinderName lexicalBinderId)
+        (recordExplicitInstantiationSeed typeApplicationId explicitSeed seededTypeApplicationState)
+        typeApplication
+    )
+  let mismatchedSeed =
+        explicitSeed
+          { explicitInstantiationSeedTarget = ExplicitBinderInstantiation mismatchedBinderName
+          }
+  assertEqual
+    "explicit type application seed target matches the resolved expression"
+    (Left (MismatchedExplicitInstantiationSeed typeApplicationId missingBinderName mismatchedBinderName :| []))
+    ( attachAnalyzedExpression
+        modulePath
+        (Map.singleton missingBinderName lexicalBinderId)
+        (recordExplicitInstantiationSeed typeApplicationId mismatchedSeed typeApplicationState)
+        typeApplication
+    )
+  assertEqual
+    "explicit type application still requires a lexical binder identity"
+    (Left (MissingExplicitInstantiationBinder typeApplicationId missingBinderName :| []))
+    (attachAnalyzedExpression modulePath Map.empty seededTypeApplicationState typeApplication)
 
   let caseId = CoreNodeId 42
       scrutineeId = CoreNodeId 43

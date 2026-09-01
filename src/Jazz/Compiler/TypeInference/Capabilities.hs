@@ -1226,32 +1226,34 @@ structuralRuntimeEqualityType state argumentType =
     _ ->
       False
 
-instantiateQualifiedMethodType :: Text -> InferState -> Maybe (Maybe ExpressionType, InferState)
-instantiateQualifiedMethodType nameText state =
+instantiateQualifiedMethodType :: CoreNodeId -> Text -> InferState -> Maybe (Maybe ExpressionType, InferState)
+instantiateQualifiedMethodType nodeId nameText state =
   case splitQualifiedMethodKey nameText of
     Just (capabilityName, _)
       | Map.member capabilityName (inferClassFacts state) ->
-          Just (resolveQualifiedMethodType nameText state)
+          Just (resolveQualifiedMethodType nodeId nameText state)
     _ -> Nothing
 
 instantiateQualifiedMethodTypeWithExpected ::
+  CoreNodeId ->
   Text ->
   ExpressionType ->
   InferState ->
   Maybe (Maybe ExpressionType, InferState)
-instantiateQualifiedMethodTypeWithExpected nameText expectedType state =
+instantiateQualifiedMethodTypeWithExpected nodeId nameText expectedType state =
   case splitQualifiedMethodKey nameText of
     Just (capabilityName, _)
       | Map.member capabilityName (inferClassFacts state) ->
-          Just (resolveQualifiedMethodTypeWithExpected nameText expectedType state)
+          Just (resolveQualifiedMethodTypeWithExpected nodeId nameText expectedType state)
     _ -> Nothing
 
 resolveQualifiedMethodTypeWithExpected ::
+  CoreNodeId ->
   Text ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
+resolveQualifiedMethodTypeWithExpected nodeId methodKey expectedType state =
   case Map.lookup methodKey (inferClassMethodSignatures state) of
     Nothing ->
       (Nothing, addTypeError state (mkMissingClassMethodError methodKey))
@@ -1263,8 +1265,12 @@ resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
               state
               (mkNoMatchingQualifiedMethodBodyError methodKey [defaultLiteralTypes state (resolveType state expectedType)])
           )
-        [(_, matchedType, matchedState)] ->
-          (Just matchedType, matchedState)
+        [(implMethodType, matchedType, matchedState)] ->
+          recordSelectedQualifiedMethodResult
+            nodeId
+            methodKey
+            implMethodType
+            (Just matchedType, matchedState)
         _ ->
           (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
       where
@@ -1296,8 +1302,8 @@ resolveQualifiedMethodTypeWithExpected methodKey expectedType state =
                   constraintSignatureTypeExactlyMatchesExpressionType state candidateSignature expectedType
                 Nothing -> False
 
-resolveQualifiedMethodType :: Text -> InferState -> (Maybe ExpressionType, InferState)
-resolveQualifiedMethodType methodKey state =
+resolveQualifiedMethodType :: CoreNodeId -> Text -> InferState -> (Maybe ExpressionType, InferState)
+resolveQualifiedMethodType nodeId methodKey state =
   case Map.lookup methodKey (inferClassMethodSignatures state) of
     Nothing
       | not (null (Map.findWithDefault [] methodKey (inferConcreteImplMethods state))) ->
@@ -1309,16 +1315,21 @@ resolveQualifiedMethodType methodKey state =
         [] ->
           (Nothing, addTypeError state (mkMissingImplMethodBodyError methodKey))
         [implMethodType] ->
-          qualifiedMethodSignatureType methodKey classMethodType implMethodType state
+          recordSelectedQualifiedMethodResult
+            nodeId
+            methodKey
+            implMethodType
+            (qualifiedMethodSignatureType methodKey classMethodType implMethodType state)
         _ ->
           (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyError methodKey))
 
 instantiateQualifiedMethodTypeWithExplicitTarget ::
+  CoreNodeId ->
   Text ->
   ExpressionType ->
   InferState ->
   (Maybe ExpressionType, InferState)
-instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitTarget state =
+instantiateQualifiedMethodTypeWithExplicitTarget nodeId methodKey explicitTarget state =
   case Map.lookup methodKey (inferClassMethodSignatures state) of
     Nothing ->
       (Nothing, addTypeError state (mkMissingClassMethodError methodKey))
@@ -1327,7 +1338,11 @@ instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitTarget state 
         [] ->
           (Nothing, addTypeError state (mkNoMatchingQualifiedMethodBodyError methodKey [explicitTarget]))
         [implMethodType] ->
-          qualifiedMethodSignatureType methodKey classMethodType implMethodType state
+          recordSelectedQualifiedMethodResult
+            nodeId
+            methodKey
+            implMethodType
+            (qualifiedMethodSignatureType methodKey classMethodType implMethodType state)
         _ ->
           (Nothing, addTypeError state (mkAmbiguousQualifiedMethodBodyForArgumentsError methodKey [explicitTarget]))
   where
@@ -1359,19 +1374,15 @@ resolveQualifiedMethodApplicationType nodeId methodKey env state typedArguments 
             [] ->
               (Nothing, addTypeError state (mkMissingImplMethodBodyError methodKey))
             [implMethodType] ->
-              recordSelectedResult
+              recordSelectedQualifiedMethodResult
+                nodeId
+                methodKey
                 implMethodType
                 (applyQualifiedMethodCandidateWithErrors methodKey classMethodType implMethodType state argumentTypes)
             implMethodTypes ->
               selectQualifiedMethodCandidate nodeId methodKey classMethodType implMethodTypes env state typedArguments
   where
     argumentTypes = map snd typedArguments
-    recordSelectedResult implMethodType (maybeResultType, selectedState) =
-      ( maybeResultType,
-        case maybeResultType of
-          Nothing -> selectedState
-          Just _ -> recordSelectedQualifiedMethodEvidence nodeId methodKey implMethodType selectedState
-      )
 
 inferQualifiedMethodRequirement ::
   Text ->
@@ -1508,6 +1519,19 @@ recordSelectedQualifiedMethodEvidence nodeId methodKey (ImplMethodType selectedT
       filter
         ((== selectedTarget) . implementationCandidateTarget)
         (Map.findWithDefault [] methodKey (inferImplementationEvidenceCandidates state))
+
+recordSelectedQualifiedMethodResult ::
+  CoreNodeId ->
+  Text ->
+  ImplMethodType ->
+  (Maybe ExpressionType, InferState) ->
+  (Maybe ExpressionType, InferState)
+recordSelectedQualifiedMethodResult nodeId methodKey implMethodType (maybeResultType, selectedState) =
+  ( maybeResultType,
+    case maybeResultType of
+      Nothing -> selectedState
+      Just _ -> recordSelectedQualifiedMethodEvidence nodeId methodKey implMethodType selectedState
+  )
 
 recordInvariantFailure :: SemanticFactInvariantFailure -> InferState -> InferState
 recordInvariantFailure failure =

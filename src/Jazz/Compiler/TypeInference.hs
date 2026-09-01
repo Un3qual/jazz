@@ -1007,8 +1007,8 @@ inferExprTypeDetailedRaw builtinMode env state expr =
       let (failureKind, failureDetail) =
             blockProductionFailureKindAndDetail statements
        in inferUnsupportedWithProduction failureKind failureDetail
-    EVar _ name ->
-      let (expressionType, finalState) = inferVariableType name state
+    EVar node name ->
+      let (expressionType, finalState) = inferVariableType (coreNodeId node) name state
        in (InferredExpr expressionType (ProvisionalVariableExpression name <$> expressionType) [], finalState)
     ELambda _ parameterName bodyExpr ->
       let (parameterType, stateAfterParameter) = freshTypeVar state
@@ -1094,14 +1094,14 @@ inferExprTypeDetailedRaw builtinMode env state expr =
           failures = [InferredProductionFailure [] failureKind failureDetail]
        in (InferredExpr expressionType (Just (ProvisionalUnsupportedExpression failureKind failureDetail)) failures, finalState)
 
-    inferVariableType name initialState =
+    inferVariableType nodeId name initialState =
       case Map.lookup name env of
         Just localType -> instantiateEnvBinding localType initialState
         Nothing ->
           case instantiateBuiltinType builtinMode (identifierText name) initialState of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing ->
-              case instantiateQualifiedMethodType (identifierText name) initialState of
+              case instantiateQualifiedMethodType nodeId (identifierText name) initialState of
                 Just qualifiedMethodResult -> qualifiedMethodResult
                 Nothing -> (Nothing, initialState)
 
@@ -1110,7 +1110,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
         ELit _ literal ->
           let (literalType, stateAfterLiteral) = literalExpressionType literal initialState
            in (Just literalType, checkLiteralType stateAfterLiteral literal)
-        EVar _ name -> inferVariableType name initialState
+        EVar node name -> inferVariableType (coreNodeId node) name initialState
         EOperatorValue _ operatorSymbol ->
           case instantiateOperatorType operatorSymbol initialState of
             Just (operatorType, nextState) -> (Just operatorType, nextState)
@@ -1678,7 +1678,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                 failureKind
                 failureDetail
                 (childFailures 0 functionResult <> childFailures 1 argumentResult)
-        ETypeApplication _ functionExpr typeArgumentSpan typeArgument ->
+        ETypeApplication applicationNode functionExpr typeArgumentSpan typeArgument ->
           let (expressionType, finalState, maybeFunctionResult) =
                 inferExplicitTypeApplicationWithResult
                   inferExprTypeDetailedWithMode
@@ -1686,6 +1686,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                   builtinMode
                   env
                   state
+                  (coreNodeId applicationNode)
                   functionExpr
                   typeArgumentSpan
                   typeArgument

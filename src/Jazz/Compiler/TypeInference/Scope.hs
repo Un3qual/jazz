@@ -20,6 +20,7 @@ module Jazz.Compiler.TypeInference.Scope
 where
 
 import Data.List (uncons, unsnoc)
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
@@ -29,6 +30,7 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeId, coreNodeSpan),
+    CoreNodeId,
     CorePhase (..),
     CoreSort (ExpressionSort),
     DataConstructor (..),
@@ -102,6 +104,8 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
+    ExplicitInstantiationSeed (..),
+    ExplicitInstantiationTarget (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -117,6 +121,7 @@ import Jazz.Compiler.TypeInference.State
     inferStrictEqualityVars,
     modifyDeclarationState,
     modifyInferenceOutput,
+    recordExplicitInstantiationSeed,
     recordExpressionFactType,
     recordStatementFactSeed,
   )
@@ -193,10 +198,11 @@ inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expe
   where
     inferInferenceOnly =
       case (resolveType state expectedType, expr) of
-        (_, EVar _ name)
+        (_, EVar node name)
           | Map.notMember name env,
             Just (expressionType, nextState) <-
               instantiateQualifiedMethodTypeWithExpected
+                (coreNodeId node)
                 (identifierText name)
                 expectedType
                 state ->
@@ -226,10 +232,11 @@ inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expe
 
     inferProduction =
       case (resolveType state expectedType, expr) of
-        (_, EVar _ name)
+        (_, EVar node name)
           | Map.notMember name env,
             Just (expressionType, nextState) <-
               instantiateQualifiedMethodTypeWithExpected
+                (coreNodeId node)
                 (identifierText name)
                 expectedType
                 state ->
@@ -2651,11 +2658,12 @@ inferExplicitTypeApplication ::
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
+  CoreNodeId ->
   Expr 'Resolved ->
   SourceSpan ->
   SignatureType 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExplicitTypeApplication inferExpression builtinMode env state functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplication inferExpression builtinMode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
   let (expressionType, finalState, _) =
         inferExplicitTypeApplicationInternal
           inferExpression
@@ -2663,6 +2671,7 @@ inferExplicitTypeApplication inferExpression builtinMode env state functionExpr 
           builtinMode
           env
           state
+          applicationNodeId
           functionExpr
           typeArgumentSpan
           typeArgument
@@ -2674,17 +2683,19 @@ inferExplicitTypeApplicationWithResult ::
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
+  CoreNodeId ->
   Expr 'Resolved ->
   SourceSpan ->
   SignatureType 'Resolved ->
   (Maybe ExpressionType, InferState, Maybe InferredExpr)
-inferExplicitTypeApplicationWithResult inferExpression mode builtinMode env state functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplicationWithResult inferExpression mode builtinMode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
   inferExplicitTypeApplicationInternal
     inferExpression
     mode
     builtinMode
     env
     state
+    applicationNodeId
     functionExpr
     typeArgumentSpan
     typeArgument
@@ -2695,27 +2706,42 @@ inferExplicitTypeApplicationInternal ::
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
+  CoreNodeId ->
   Expr 'Resolved ->
   SourceSpan ->
   SignatureType 'Resolved ->
   (Maybe ExpressionType, InferState, Maybe InferredExpr)
-inferExplicitTypeApplicationInternal inferExpression mode builtinMode env state functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplicationInternal inferExpression mode builtinMode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (_, Just explicitArgumentType)
-      | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr ->
+      | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr,
+        Just targetName <- explicitTypeApplicationTargetName functionExpr ->
           let (maybeInstantiatedType, nextState) =
-                instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
+                instantiateQualifiedMethodTypeWithExplicitTarget applicationNodeId methodKey explicitArgumentType state
            in ( maybeInstantiatedType,
-                recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState,
+                recordExplicitInstantiationDecision
+                  applicationNodeId
+                  (ExplicitQualifiedMethodInstantiation targetName)
+                  explicitArgumentType
+                  maybeInstantiatedType
+                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState),
                 Nothing
               )
-    (Just typeScheme, Just explicitArgumentType) ->
-      let (maybeInstantiatedType, nextState) =
-            instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
-       in ( maybeInstantiatedType,
-            recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState,
-            Nothing
-          )
+    (Just typeScheme, Just explicitArgumentType)
+      | Just targetName <- explicitTypeApplicationTargetName functionExpr ->
+          let (maybeInstantiatedType, nextState) =
+                instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
+           in ( maybeInstantiatedType,
+                recordExplicitInstantiationDecision
+                  applicationNodeId
+                  (ExplicitBinderInstantiation targetName)
+                  explicitArgumentType
+                  maybeInstantiatedType
+                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState),
+                Nothing
+              )
+    (Just _, Just _) ->
+      (Nothing, addTypeError state mkExplicitTypeApplicationTargetError, Nothing)
     (Just _, Nothing) ->
       (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument), Nothing)
     (Nothing, _) ->
@@ -2734,6 +2760,33 @@ recordExplicitFunctionFact functionExpr maybeExpressionType state =
     (EOperatorValue node _, Just expressionType) ->
       recordExpressionFactType (coreNodeId node) expressionType state
     _ -> state
+
+recordExplicitInstantiationDecision ::
+  CoreNodeId ->
+  ExplicitInstantiationTarget ->
+  ExpressionType ->
+  Maybe ExpressionType ->
+  InferState ->
+  InferState
+recordExplicitInstantiationDecision applicationNodeId target argumentType maybeInstantiatedType state =
+  case maybeInstantiatedType of
+    Nothing -> state
+    Just _ ->
+      recordExplicitInstantiationSeed
+        applicationNodeId
+        ( ExplicitInstantiationSeed
+            { explicitInstantiationSeedTarget = target,
+              explicitInstantiationSeedArguments = argumentType :| []
+            }
+        )
+        state
+
+explicitTypeApplicationTargetName :: Expr 'Resolved -> Maybe ResolvedName
+explicitTypeApplicationTargetName functionExpr =
+  case functionExpr of
+    EVar _ name -> Just name
+    EOperatorValue _ operatorSymbol -> Just (operatorBindingName operatorSymbol)
+    _ -> Nothing
 
 explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe Text
 explicitQualifiedMethodTypeApplicationKey env state functionExpr =

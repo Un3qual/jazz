@@ -36,7 +36,7 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact (..))
 import Jazz.Compiler.ModuleIdentity (ModulePath)
-import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
+import Jazz.Compiler.Name (ResolvedName, operatorBindingName)
 import Jazz.Compiler.RecursiveBindings (inferRecursiveGroupsOrdered)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedCapabilityFacts (..),
@@ -67,12 +67,14 @@ import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
-  ( ExpressionEvidenceSeed (..),
+  ( ExplicitInstantiationSeed (..),
+    ExplicitInstantiationTarget (..),
+    ExpressionEvidenceSeed (..),
     InferState,
+    inferExplicitInstantiationSeeds,
     inferExpressionEvidenceSeeds,
     inferExpressionFactTypes,
     inferFactInvariantFailures,
-    inferImplementationEvidenceCandidates,
     inferNumericVars,
     inferPatternFactSeeds,
     inferStatementFactSeeds,
@@ -94,6 +96,11 @@ import Jazz.Compiler.TypeInference.Types
   )
 
 data Attachment value = Attachment !(Seq SemanticFactInvariantFailure) (Maybe value)
+
+data AttachedExplicitInstantiation = AttachedExplicitInstantiation
+  { attachedSemanticInstantiations :: [SemanticInstantiation],
+    attachedRuntimeArguments :: [NonEmpty ExpressionType]
+  }
 
 instance Functor Attachment where
   fmap project (Attachment failures value) = Attachment failures (fmap project value)
@@ -232,42 +239,73 @@ attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
           evidenceObligations =
             maybe Seq.empty (Seq.singleton . SupplyEvidence) (NonEmpty.nonEmpty evidence)
        in makeNode semanticType evidence evidenceObligations
-            <$> explicitInstantiations state binders nodeId expression
+            <$> explicitInstantiationFacts state binders nodeId expression
       where
-        makeNode semanticType evidence evidenceObligations instantiations =
+        makeNode semanticType evidence evidenceObligations explicitFacts =
           CoreNode
             nodeId
             spanValue
             ExpressionFacts
               { expressionSemanticType = semanticType,
-                expressionInstantiations = instantiations,
+                expressionInstantiations = attachedSemanticInstantiations explicitFacts,
                 expressionEvidence = evidence,
                 expressionRuntimePlan =
                   RuntimePlan
-                    ( foldMap (Seq.singleton . InstantiateTypes . instantiatedTypes) instantiations
+                    ( foldMap (Seq.singleton . InstantiateTypes) (attachedRuntimeArguments explicitFacts)
                         <> evidenceObligations
                         <> numericLiteralObligations state expression semanticType
                         <> Seq.singleton (ConstrainResult semanticType)
                     )
               }
 
-explicitInstantiations :: InferState -> Map ResolvedName CoreBinderId -> CoreNodeId -> Expr 'Resolved -> Attachment [SemanticInstantiation]
-explicitInstantiations state binders nodeId expression =
-  case expression of
-    ETypeApplication _ function _ signatureType ->
-      case referencedBinder binders function of
-        Nothing ->
-          case referencedName function of
-            Just name
-              | Map.member (identifierText name) (inferImplementationEvidenceCandidates state) -> pure []
-              | otherwise -> missing (MissingExplicitInstantiationBinder nodeId name)
-            Nothing -> missing (UnidentifiedExplicitInstantiationBinder nodeId)
-        Just binder ->
-          case Signature.signatureTypeToExpressionType state Map.empty signatureType of
-            Left _ -> missing (InvalidExplicitInstantiationType nodeId)
-            Right argumentType ->
-              pure [SemanticInstantiation binder (NonEmpty.singleton (resolveType state argumentType))]
-    _ -> pure []
+explicitInstantiationFacts :: InferState -> Map ResolvedName CoreBinderId -> CoreNodeId -> Expr 'Resolved -> Attachment AttachedExplicitInstantiation
+explicitInstantiationFacts state binders nodeId expression =
+  case (expression, Map.lookup nodeId (inferExplicitInstantiationSeeds state)) of
+    (ETypeApplication {}, Nothing) ->
+      missing (MissingExplicitInstantiationSeed nodeId)
+    (ETypeApplication _ function _ _, Just seed) ->
+      attachSeed function seed
+    (_, Nothing) -> pure noExplicitInstantiation
+    (_, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
+  where
+    attachSeed function seed =
+      case referencedName function of
+        Nothing -> missing (UnidentifiedExplicitInstantiationBinder nodeId)
+        Just referencedTarget
+          | referencedTarget /= seededTarget ->
+              missing (MismatchedExplicitInstantiationSeed nodeId referencedTarget seededTarget)
+          | otherwise ->
+              case explicitInstantiationSeedTarget seed of
+                ExplicitBinderInstantiation _ ->
+                  case referencedBinder binders function of
+                    Nothing -> missing (MissingExplicitInstantiationBinder nodeId referencedTarget)
+                    Just binder ->
+                      pure
+                        AttachedExplicitInstantiation
+                          { attachedSemanticInstantiations = [SemanticInstantiation binder resolvedArguments],
+                            attachedRuntimeArguments = [resolvedArguments]
+                          }
+                ExplicitQualifiedMethodInstantiation _ ->
+                  case (referencedBinder binders function, Map.lookup nodeId (inferExpressionEvidenceSeeds state)) of
+                    (Nothing, Just _) ->
+                      pure
+                        AttachedExplicitInstantiation
+                          { attachedSemanticInstantiations = [],
+                            attachedRuntimeArguments = [resolvedArguments]
+                          }
+                    (_, Nothing) -> missing (MissingExpressionEvidence nodeId)
+                    (Just _, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)
+      where
+        resolvedArguments = fmap (resolveType state) (explicitInstantiationSeedArguments seed)
+        seededTarget = explicitInstantiationTargetName (explicitInstantiationSeedTarget seed)
+
+    noExplicitInstantiation = AttachedExplicitInstantiation [] []
+
+explicitInstantiationTargetName :: ExplicitInstantiationTarget -> ResolvedName
+explicitInstantiationTargetName target =
+  case target of
+    ExplicitBinderInstantiation name -> name
+    ExplicitQualifiedMethodInstantiation name -> name
 
 expressionEvidenceFacts :: InferState -> CoreNodeId -> [EvidenceReference]
 expressionEvidenceFacts state nodeId =

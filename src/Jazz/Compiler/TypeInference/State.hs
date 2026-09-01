@@ -4,6 +4,8 @@
 module Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
     DeferredExplicitConstraint (..),
+    ExplicitInstantiationSeed (..),
+    ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
     ImplementationEvidenceCandidate (..),
     InferState (..),
@@ -24,6 +26,7 @@ module Jazz.Compiler.TypeInference.State
     inferErrorsRev,
     inferExpressionFactTypes,
     inferExpressionEvidenceSeeds,
+    inferExplicitInstantiationSeeds,
     inferImplementationEvidenceCandidates,
     inferFactInvariantFailures,
     inferGeneratedEqualityClassFacts,
@@ -45,6 +48,7 @@ module Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState,
     recordExpressionFactType,
     recordExpressionEvidenceSeed,
+    recordExplicitInstantiationSeed,
     recordPatternFactSeed,
     recordStatementFactSeed,
     recordPatternCoverageSite,
@@ -53,6 +57,7 @@ module Jazz.Compiler.TypeInference.State
 where
 
 import Data.Foldable (toList)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
@@ -120,6 +125,7 @@ data ModuleInferenceState = ModuleInferenceState
 data InferenceOutput = InferenceOutput
   { outputExpressionFactTypes :: Map CoreNodeId ExpressionType,
     outputExpressionEvidenceSeeds :: Map CoreNodeId ExpressionEvidenceSeed,
+    outputExplicitInstantiationSeeds :: Map CoreNodeId ExplicitInstantiationSeed,
     outputPatternFactSeeds :: Map CoreNodeId PatternFacts,
     outputStatementFactSeeds :: Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact),
     outputFactInvariantFailures :: Seq SemanticFactInvariantFailure,
@@ -138,6 +144,17 @@ data ExpressionEvidenceSeed = ExpressionEvidenceSeed
     evidenceSeedImplementation :: ImplId,
     evidenceSeedMethod :: MethodId,
     evidenceSeedType :: ExpressionType
+  }
+  deriving (Eq, Show)
+
+data ExplicitInstantiationTarget
+  = ExplicitBinderInstantiation ResolvedName
+  | ExplicitQualifiedMethodInstantiation ResolvedName
+  deriving (Eq, Show)
+
+data ExplicitInstantiationSeed = ExplicitInstantiationSeed
+  { explicitInstantiationSeedTarget :: ExplicitInstantiationTarget,
+    explicitInstantiationSeedArguments :: NonEmpty ExpressionType
   }
   deriving (Eq, Show)
 
@@ -212,6 +229,7 @@ initialInferState =
         InferenceOutput
           { outputExpressionFactTypes = Map.empty,
             outputExpressionEvidenceSeeds = Map.empty,
+            outputExplicitInstantiationSeeds = Map.empty,
             outputPatternFactSeeds = Map.empty,
             outputStatementFactSeeds = Map.empty,
             outputFactInvariantFailures = Seq.empty,
@@ -279,6 +297,9 @@ inferExpressionFactTypes = outputExpressionFactTypes . inferOutput
 inferExpressionEvidenceSeeds :: InferState -> Map CoreNodeId ExpressionEvidenceSeed
 inferExpressionEvidenceSeeds = outputExpressionEvidenceSeeds . inferOutput
 
+inferExplicitInstantiationSeeds :: InferState -> Map CoreNodeId ExplicitInstantiationSeed
+inferExplicitInstantiationSeeds = outputExplicitInstantiationSeeds . inferOutput
+
 inferImplementationEvidenceCandidates :: InferState -> Map Text [ImplementationEvidenceCandidate]
 inferImplementationEvidenceCandidates = inferenceImplementationEvidenceCandidates . inferModule
 
@@ -306,6 +327,15 @@ recordExpressionEvidenceSeed nodeId seed =
     outputExpressionEvidenceSeeds
     (\seeds output -> output {outputExpressionEvidenceSeeds = seeds})
     DuplicateExpressionFacts
+    nodeId
+    seed
+
+recordExplicitInstantiationSeed :: CoreNodeId -> ExplicitInstantiationSeed -> InferState -> InferState
+recordExplicitInstantiationSeed nodeId seed =
+  recordFact
+    outputExplicitInstantiationSeeds
+    (\seeds output -> output {outputExplicitInstantiationSeeds = seeds})
+    DuplicateExplicitInstantiationSeed
     nodeId
     seed
 
