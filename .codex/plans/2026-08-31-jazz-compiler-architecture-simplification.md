@@ -6,26 +6,22 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 9"
+plan_section: "Task 10"
 target_paths:
   - src/Jazz/Compiler/SemanticFacts.hs
-  - src/Jazz/Compiler/AST.hs
-  - src/Jazz/Compiler/TypeInference.hs
   - src/Jazz/Compiler/TypeInference/Result.hs
   - src/Jazz/Compiler/TypeInference/State.hs
   - src/Jazz/Compiler/TypeInference/Scope.hs
   - src/Jazz/Compiler/TypeInference/Capabilities.hs
-  - src/Jazz/Compiler/TypeInference/Traversal.hs
-  - src/Jazz/Compiler/ModuleCompiler.hs
+  - src/Jazz/Compiler/TypeInference/Signature.hs
   - src/Jazz/Compiler/ModuleInterface.hs
-  - src/Jazz/Compiler/Driver.hs
-  - src/Jazz/Compiler/Force.hs
-  - test/Jazz/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
-  - test/Jazz/Compiler/Semantics/PatternSemanticsSpec.hs
-  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
+  - src/Jazz/Compiler/RuntimeHints.hs
+  - test/Jazz/Compiler/Semantics/Runtime/CapabilitiesTests.hs
+  - test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs
+  - test/Jazz/Compiler/ProfilingSpec.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test binding-signature-coherence-spec pattern-semantics-spec recursive-bindings-spec module-pipeline-contract-spec prelude-loading-spec loader-spec --test-show-details=direct --jobs=1
-deliverable: "Attach complete semantic facts to analyzed core, remove the temporary compiled syntax carriers, and preserve compiler and interpreter behavior."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test binding-signature-coherence-spec runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec --test-show-details=direct --jobs=1
+deliverable: "Populate analyzed node-local runtime plans from final inference decisions, retain only a private interpreter parity projection, and remove inference- and interface-owned runtime hint production."
 last_verified: 2026-09-01
 ---
 
