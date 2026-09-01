@@ -3,11 +3,13 @@
 -- | Generates the compiler-owned bundled prelude used when callers do not
 -- supply an explicit prelude file.
 module Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource,
+  ( bundledPreludeIdentity,
+    bundledPreludeSource,
     loadBundledPreludeSource,
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.BuiltinCatalog
@@ -18,7 +20,20 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolOwnership,
     renderNumericTypeName,
   )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
+  )
+import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
+
+bundledPreludeIdentity :: ModuleIdentity
+bundledPreludeIdentity =
+  moduleIdentity
+    (mkModulePath (mkIdentifier "Prelude" :| []))
+    (mkSourceFile "jazz/stdlib/Prelude.jz")
 
 -- | Pre-generated prelude text that exposes all builtin kernel bridges and
 -- their public aliases in a deterministic order.

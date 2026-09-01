@@ -1,13 +1,16 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.AST (CorePhase (Lowered, Resolved), coreNodeSpan)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog
   ( diagnosticCodeText,
@@ -25,15 +28,22 @@ import Jazz.Compiler.Diagnostics.Render
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
     exportInventory,
     exportInventoryEntries,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
-  ( mkModulePath,
+  ( ModulePath,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
+    moduleIdentitySource,
     modulePathRelativeFile,
     modulePathTextSegments,
+    moduleQualifierIdentifier,
     renderModulePath,
+    sourceFilePath,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -42,8 +52,11 @@ import Jazz.Compiler.ModuleResolver
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    identifierText,
     mkIdentifier,
   )
+import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceModule)
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -61,47 +74,89 @@ data ResolvedModuleSummary = ResolvedModuleSummary
   }
   deriving (Eq, Show)
 
-resolvedModuleSummary :: ModuleGraph.ResolvedModule -> ResolvedModuleSummary
+data ImportExposureSummary
+  = AllUnqualifiedSummary
+  | OnlyUnqualifiedSummary [Text]
+  | QualifiedOnlySummary
+  deriving (Eq, Show)
+
+data ResolvedImportSummary = ResolvedImportSummary
+  { summaryImportSpan :: SourceSpan,
+    summaryImportPath :: [Text],
+    summaryImportAlias :: Maybe Text,
+    summaryImportExposure :: ImportExposureSummary
+  }
+  deriving (Eq, Show)
+
+resolvedImportSummary :: ModuleGraph.ModuleImport 'Resolved -> ResolvedImportSummary
+resolvedImportSummary importDecl =
+  ResolvedImportSummary
+    { summaryImportSpan = coreNodeSpan (ModuleGraph.moduleImportNode importDecl),
+      summaryImportPath = modulePathSegments (ModuleGraph.importedModule importDecl),
+      summaryImportAlias =
+        identifierText . moduleQualifierIdentifier <$> ModuleGraph.importAlias importDecl,
+      summaryImportExposure =
+        case ModuleGraph.importExposure importDecl of
+          ModuleGraph.ImportAllUnqualified -> AllUnqualifiedSummary
+          ModuleGraph.ImportOnlyUnqualified names ->
+            OnlyUnqualifiedSummary (map identifierText (NonEmpty.toList names))
+          ModuleGraph.ImportQualifiedOnly -> QualifiedOnlySummary
+    }
+
+resolvedModuleSummary :: ModuleGraph.CoreModule 'Resolved -> ResolvedModuleSummary
 resolvedModuleSummary resolvedModule =
   ResolvedModuleSummary
-    { summaryModulePath = ModuleGraph.resolvedModulePath resolvedModule,
-      summarySourcePath = ModuleGraph.resolvedSourcePath resolvedModule,
-      summaryImports = normalizedImportPaths (ModuleGraph.resolvedModuleImports resolvedModule)
+    { summaryModulePath = resolvedModulePathSegments resolvedModule,
+      summarySourcePath = sourceFilePath (moduleIdentitySource (ModuleGraph.coreModuleIdentity resolvedModule)),
+      summaryImports = normalizedImportPaths (ModuleGraph.coreModuleImports resolvedModule)
     }
   where
     normalizedImportPaths imports =
       map snd . sortOn fst $
         [ (Text.intercalate "::" modulePath, modulePath)
-        | modulePath <- Set.toList (Set.fromList (map ModuleGraph.resolvedImportPath imports))
+        | modulePath <- Set.toList (Set.fromList (map (modulePathSegments . ModuleGraph.importedModule) imports))
         ]
+
+resolvedModulePathSegments :: ModuleGraph.CoreModule phase -> [Text]
+resolvedModulePathSegments = modulePathSegments . ModuleGraph.coreModulePath
+
+modulePathSegments :: ModulePath -> [Text]
+modulePathSegments = NonEmpty.toList . modulePathTextSegments
+
+programModules :: ModuleGraph.CoreProgram phase -> [ModuleGraph.CoreModule phase]
+programModules = NonEmpty.toList . ModuleGraph.coreProgramModules
+
+resolvedModuleExportInventory :: ModuleGraph.CoreModule 'Resolved -> ModuleExportInventory
+resolvedModuleExportInventory =
+  ModuleGraph.resolvedModuleExports . ModuleGraph.coreModuleFacts
 
 resolveTestProgram ::
   ModuleResolutionConfig ->
   BuiltinResolutionMode ->
   (FilePath -> IO (Maybe Text)) ->
   [Text] ->
-  IO (Either Diagnostic ModuleGraph.ResolvedProgram)
+  IO (Either Diagnostic (ModuleGraph.CoreProgram 'Resolved))
 resolveTestProgram config builtinMode =
-  resolveProgramWithAmbientExports config builtinMode (exportInventory [])
+  resolveProgramWithAmbientExports config (testPrelude builtinMode) (exportInventory [])
 
 resolveTestModuleGraph ::
   ModuleResolutionConfig ->
   Map.Map FilePath Text ->
   [Text] ->
-  IO (Either Diagnostic [ModuleGraph.ResolvedModule])
+  IO (Either Diagnostic [ModuleGraph.CoreModule 'Resolved])
 resolveTestModuleGraph config sources entryModulePath =
-  fmap (fmap ModuleGraph.resolvedProgramModules) $
+  fmap (fmap programModules) $
     resolveProgramWithAmbientExports
       config
-      ResolveKernelOnly
+      (testPrelude ResolveKernelOnly)
       (exportInventory [])
       (\path -> pure (Map.lookup path sources))
       entryModulePath
 
 assertTestModulesRight ::
   Text ->
-  IO (Either Diagnostic [ModuleGraph.ResolvedModule]) ->
-  ([ModuleGraph.ResolvedModule] -> IO ()) ->
+  IO (Either Diagnostic [ModuleGraph.CoreModule 'Resolved]) ->
+  ([ModuleGraph.CoreModule 'Resolved] -> IO ()) ->
   IO ()
 assertTestModulesRight label resolution check =
   resolution >>= \result -> assertRight label result check
@@ -110,7 +165,7 @@ assertTestModulesLeftDiagnostic ::
   Text ->
   Text ->
   Text ->
-  IO (Either Diagnostic [ModuleGraph.ResolvedModule]) ->
+  IO (Either Diagnostic [ModuleGraph.CoreModule 'Resolved]) ->
   IO ()
 assertTestModulesLeftDiagnostic label expectedCode needle resolution =
   resolution >>= assertLeftDiagnosticCodeAndContains label expectedCode needle
@@ -120,7 +175,12 @@ main = runTestSuite "ModuleResolution" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
+  [ ("core programs reject a missing entry module", testCoreProgramRejectsMissingEntry),
+    ("core programs reject duplicate module paths", testCoreProgramRejectsDuplicatePath),
+    ("core programs reject dependencies ordered after dependents", testCoreProgramRejectsDependencyAfterDependent),
+    ("core programs reject imports outside the program", testCoreProgramRejectsUnknownImport),
+    ("core programs preserve dependency-first module order", testCoreProgramPreservesDependencyOrder),
+    ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
     ("resolves mixed module facts without changing inventories", testResolvesMixedModuleFacts),
@@ -190,6 +250,94 @@ tests =
     ("module lexer failures retain source-qualified structured detail", testModuleLexerFailureRetainsStructuredDetail)
   ]
 
+testCoreProgramRejectsMissingEntry :: IO ()
+testCoreProgramRejectsMissingEntry = do
+  dependency <- lowerInvariantModule ["Lib", "Value"] "answer = 1."
+  assertEqual
+    "missing entry failure"
+    (Left (ModuleGraph.MissingEntryModule entryPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (dependency :| []))
+
+testCoreProgramRejectsDuplicatePath :: IO ()
+testCoreProgramRejectsDuplicatePath = do
+  entry <- lowerInvariantModule ["App", "Main"] "0."
+  duplicate <- lowerInvariantModule ["App", "Main"] "1."
+  assertEqual
+    "duplicate module path failure"
+    (Left (ModuleGraph.DuplicateModulePath entryPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (entry :| [duplicate]))
+
+testCoreProgramRejectsDependencyAfterDependent :: IO ()
+testCoreProgramRejectsDependencyAfterDependent = do
+  entry <- lowerInvariantModule ["App", "Main"] "import Lib::Value. answer."
+  dependency <- lowerInvariantModule ["Lib", "Value"] "answer = 1."
+  assertEqual
+    "dependency order failure"
+    (Left (ModuleGraph.DependencyAfterDependent entryPath dependencyPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (entry :| [dependency]))
+
+testCoreProgramRejectsUnknownImport :: IO ()
+testCoreProgramRejectsUnknownImport = do
+  entry <- lowerInvariantModule ["App", "Main"] "import Lib::Value. answer."
+  assertEqual
+    "unknown import failure"
+    (Left (ModuleGraph.UnknownImportedModule entryPath dependencyPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (entry :| []))
+
+testCoreProgramPreservesDependencyOrder :: IO ()
+testCoreProgramPreservesDependencyOrder = do
+  dependency <- lowerInvariantModule ["Lib", "Value"] "answer = 1."
+  entry <- lowerInvariantModule ["App", "Main"] "import Lib::Value. answer."
+  case ModuleGraph.mkCoreProgram absentPrelude entryPath (dependency :| [entry]) of
+    Left failures -> failTest ("expected valid core program, got " <> Text.pack (show failures))
+    Right program ->
+      assertEqual
+        "dependency-first order"
+        [dependencyPath, entryPath]
+        (map ModuleGraph.coreModulePath (NonEmpty.toList (ModuleGraph.coreProgramModules program)))
+
+lowerInvariantModule :: [Text] -> Text -> IO (ModuleGraph.CoreModule 'Lowered)
+lowerInvariantModule path source =
+  case parseSurfaceProgram source of
+    Left diagnostic -> failTest ("invariant fixture parse failed: " <> renderDiagnostic diagnostic)
+    Right surface ->
+      case NonEmpty.nonEmpty (map mkIdentifier path) of
+        Nothing -> failTest "invariant fixture module path must be nonempty"
+        Just pathSegments ->
+          case lowerSurfaceModule
+            ( moduleIdentity
+                (mkModulePath pathSegments)
+                (mkSourceFile (Text.unpack (Text.intercalate "/" path) <> ".jz"))
+            )
+            surface of
+            Left diagnostic -> failTest ("invariant fixture lowering failed: " <> renderDiagnostic diagnostic)
+            Right coreModule -> pure coreModule
+
+absentPrelude :: ModuleGraph.PreludeArtifact 'Lowered
+absentPrelude =
+  ModuleGraph.PreludeArtifact
+    { ModuleGraph.preludeIdentity =
+        moduleIdentity
+          (mkModulePath (mkIdentifier "Jazz" :| [mkIdentifier "Prelude"]))
+          (mkSourceFile "<absent-prelude>"),
+      ModuleGraph.preludeBuiltinMode = ResolveKernelOnly,
+      ModuleGraph.preludeModule = Nothing
+    }
+
+testPrelude :: BuiltinResolutionMode -> ModuleGraph.PreludeArtifact phase
+testPrelude builtinMode =
+  ModuleGraph.PreludeArtifact
+    { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity absentPrelude,
+      ModuleGraph.preludeBuiltinMode = builtinMode,
+      ModuleGraph.preludeModule = Nothing
+    }
+
+entryPath :: ModulePath
+entryPath = mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"])
+
+dependencyPath :: ModulePath
+dependencyPath = mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Value"])
+
 testResolvedProgramRetainsLoweredModules :: IO ()
 testResolvedProgramRetainsLoweredModules = do
   result <-
@@ -202,9 +350,9 @@ testResolvedProgramRetainsLoweredModules = do
     assertEqual
       "module order"
       [["Lib", "Value"], ["App", "Main"]]
-      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
-    assertEqual "entry path" ["App", "Main"] (ModuleGraph.resolvedProgramEntryPath program)
-    assertEqual "module count" 2 (length (ModuleGraph.resolvedProgramModules program))
+      (map resolvedModulePathSegments (programModules program))
+    assertEqual "entry path" ["App", "Main"] (modulePathSegments (ModuleGraph.coreProgramEntry program))
+    assertEqual "module count" 2 (length (programModules program))
   where
     resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sources =
@@ -224,15 +372,15 @@ testResolvedModuleCarriesExplicitPublicInventory = do
       ["App", "Main"]
   assertRight "resolved explicit public inventory" result $ \program ->
     case [ resolvedModule
-         | resolvedModule <- ModuleGraph.resolvedProgramModules program,
-           ModuleGraph.resolvedModulePath resolvedModule == ["Lib", "Value"]
+         | resolvedModule <- programModules program,
+           resolvedModulePathSegments resolvedModule == ["Lib", "Value"]
          ] of
       [resolvedModule] ->
         assertEqual
           "public inventory contains only answer"
           (Set.singleton (ModuleExport ValueNamespace "answer"))
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+              (resolvedModuleExportInventory resolvedModule)
           )
       modules -> failTest ("expected one resolved Lib::Value module, got " <> Text.pack (show (length modules)))
   where
@@ -269,10 +417,10 @@ testResolvesMixedModuleFacts = do
     assertEqual
       "dependency order"
       [["Lib", "Types"], ["Lib", "Values"], ["App", "Main"]]
-      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
+      (map resolvedModulePathSegments (programModules program))
     case [ resolvedModule
-         | resolvedModule <- ModuleGraph.resolvedProgramModules program,
-           ModuleGraph.resolvedModulePath resolvedModule == ["App", "Main"]
+         | resolvedModule <- programModules program,
+           resolvedModulePathSegments resolvedModule == ["App", "Main"]
          ] of
       [resolvedModule] ->
         assertEqual
@@ -283,7 +431,7 @@ testResolvesMixedModuleFacts = do
                 ModuleExport ValueNamespace "main"
               ]
           )
-          (exportInventoryEntries (ModuleGraph.resolvedModuleExportInventory resolvedModule))
+          (exportInventoryEntries (resolvedModuleExportInventory resolvedModule))
       modules -> failTest ("expected one resolved App::Main module, got " <> Text.pack (show (length modules)))
   where
     sources =
@@ -315,15 +463,15 @@ testEmptyExportListProducesEmptyInventory = do
       ["App", "Main"]
   assertRight "resolved empty public inventory" result $ \program ->
     case [ resolvedModule
-         | resolvedModule <- ModuleGraph.resolvedProgramModules program,
-           ModuleGraph.resolvedModulePath resolvedModule == ["Lib", "Value"]
+         | resolvedModule <- programModules program,
+           resolvedModulePathSegments resolvedModule == ["Lib", "Value"]
          ] of
       [resolvedModule] ->
         assertEqual
           "public inventory is empty"
           Set.empty
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+              (resolvedModuleExportInventory resolvedModule)
           )
       modules -> failTest ("expected one resolved Lib::Value module, got " <> Text.pack (show (length modules)))
   where
@@ -356,7 +504,7 @@ testNamespaceAwareExportsSelectExactEntries = do
       lookupSource
       ["Lib", "Box"]
   assertRight "resolved namespace-aware public inventory" result $ \program ->
-    case ModuleGraph.resolvedProgramModules program of
+    case programModules program of
       [resolvedModule] ->
         assertEqual
           "public inventory contains exact type and value exports"
@@ -366,7 +514,7 @@ testNamespaceAwareExportsSelectExactEntries = do
               ]
           )
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+              (resolvedModuleExportInventory resolvedModule)
           )
       modules -> failTest ("expected one resolved Lib::Box module, got " <> Text.pack (show (length modules)))
   where
@@ -433,7 +581,7 @@ testGroupedTypeExportsExpandFlatInventory :: IO ()
 testGroupedTypeExportsExpandFlatInventory = do
   result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Types"]
   assertRight "resolved grouped public inventory" result $ \program ->
-    case ModuleGraph.resolvedProgramModules program of
+    case programModules program of
       [resolvedModule] ->
         assertEqual
           "grouped selectors expand and deduplicate"
@@ -447,7 +595,7 @@ testGroupedTypeExportsExpandFlatInventory = do
                 ModuleExport ConstructorNamespace "Unit"
               ]
           )
-          (exportInventoryEntries (ModuleGraph.resolvedModuleExportInventory resolvedModule))
+          (exportInventoryEntries (resolvedModuleExportInventory resolvedModule))
       modules -> failTest ("expected one resolved Lib::Types module, got " <> Text.pack (show (length modules)))
   where
     sources =
@@ -827,13 +975,13 @@ testRetainsCheckedImportExposureInDeclarationOrder =
     ( \modules ->
         case [ resolvedModule
              | resolvedModule <- modules,
-               ModuleGraph.resolvedModulePath resolvedModule == ["App", "Main"]
+               resolvedModulePathSegments resolvedModule == ["App", "Main"]
              ] of
           [resolvedModule] ->
             assertEqual
               "checked imports preserve declaration, duplicate, and selector order"
               expectedImports
-              (ModuleGraph.resolvedModuleImports resolvedModule)
+              (map resolvedImportSummary (ModuleGraph.coreModuleImports resolvedModule))
           _ -> failTest "expected exactly one resolved App::Main module"
     )
   where
@@ -854,25 +1002,29 @@ testRetainsCheckedImportExposureInDeclarationOrder =
           ("src/Lib/Zulu.jz", "zulu = 4.")
         ]
     expectedImports =
-      [ ModuleGraph.ResolvedImport
-          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 1 1,
-            ModuleGraph.resolvedImportPath = ["Lib", "Zulu"],
-            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportQualified "Zed"
+      [ ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 1 1,
+            summaryImportPath = ["Lib", "Zulu"],
+            summaryImportAlias = Just "Zed",
+            summaryImportExposure = QualifiedOnlySummary
           },
-        ModuleGraph.ResolvedImport
-          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 2 1,
-            ModuleGraph.resolvedImportPath = ["Lib", "Alpha"],
-            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportOnly ("second" :| ["first"])
+        ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 2 1,
+            summaryImportPath = ["Lib", "Alpha"],
+            summaryImportAlias = Nothing,
+            summaryImportExposure = OnlyUnqualifiedSummary ["second", "first"]
           },
-        ModuleGraph.ResolvedImport
-          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 3 1,
-            ModuleGraph.resolvedImportPath = ["Lib", "Middle"],
-            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportAll
+        ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 3 1,
+            summaryImportPath = ["Lib", "Middle"],
+            summaryImportAlias = Nothing,
+            summaryImportExposure = AllUnqualifiedSummary
           },
-        ModuleGraph.ResolvedImport
-          { ModuleGraph.resolvedImportSpan = SourceSpanIn "src/App/Main.jz" 4 1,
-            ModuleGraph.resolvedImportPath = ["Lib", "Alpha"],
-            ModuleGraph.resolvedImportExposure = ModuleGraph.ImportOnly ("second" :| ["first"])
+        ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 4 1,
+            summaryImportPath = ["Lib", "Alpha"],
+            summaryImportAlias = Nothing,
+            summaryImportExposure = OnlyUnqualifiedSummary ["second", "first"]
           }
       ]
 

@@ -1,18 +1,27 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Fixture manifests, source programs, and module resolution.
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.AST (CorePhase (Resolved))
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleExports (exportInventory)
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
+  )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     resolveProgramWithAmbientExports,
@@ -212,24 +221,41 @@ sourceFixtureNoExports :: Text -> Text -> Fixture
 sourceFixtureNoExports name source =
   sourceFixture name (emptyExportModuleSource source)
 
-resolveFixture :: Fixture -> IO (Either Diagnostic ModuleGraph.ResolvedModule)
+resolveFixture :: Fixture -> IO (Either Diagnostic (ModuleGraph.CoreModule 'Resolved))
 resolveFixture fixture =
   resolveFixtureWithLookup fixture (pure . (`Map.lookup` fixtureSourceFiles fixture))
 
-resolveFixtureWithLookup :: Fixture -> (FilePath -> IO (Maybe Text)) -> IO (Either Diagnostic ModuleGraph.ResolvedModule)
+resolveFixtureWithLookup ::
+  Fixture ->
+  (FilePath -> IO (Maybe Text)) ->
+  IO (Either Diagnostic (ModuleGraph.CoreModule 'Resolved))
 resolveFixtureWithLookup fixture loadSource =
   fmap (fmap resolverEntryModule) $
     resolveProgramWithAmbientExports
       fixtureResolverConfig
-      (inferenceBuiltinMode (fixtureInputs fixture))
+      (fixturePrelude (inferenceBuiltinMode (fixtureInputs fixture)))
       (exportInventory [])
       loadSource
       modulePath
   where
     resolverEntryModule program =
-      case filter ((== modulePath) . ModuleGraph.resolvedModulePath) (ModuleGraph.resolvedProgramModules program) of
-        [resolvedModule] -> resolvedModule
-        _ -> error "typed-core fixture resolver did not produce one entry module"
+      case ModuleGraph.lookupCoreModule fixtureModulePath program of
+        Just resolvedModule -> resolvedModule
+        Nothing -> error "typed-core fixture resolver did not produce one entry module"
+
+fixturePrelude :: BuiltinResolutionMode -> ModuleGraph.PreludeArtifact phase
+fixturePrelude builtinMode =
+  ModuleGraph.PreludeArtifact
+    { ModuleGraph.preludeIdentity =
+        moduleIdentity
+          (mkModulePath (mkIdentifier "Prelude" :| []))
+          (mkSourceFile "<typed-core-fixture-prelude>"),
+      ModuleGraph.preludeBuiltinMode = builtinMode,
+      ModuleGraph.preludeModule = Nothing
+    }
+
+fixtureModulePath :: ModulePath
+fixtureModulePath = mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"])
 
 fixtureResolverConfig :: ModuleResolutionConfig
 fixtureResolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}

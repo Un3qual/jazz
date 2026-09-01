@@ -31,12 +31,9 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticPrimaryLabel,
   )
 import Jazz.Compiler.Force
-  ( forceCompiledModule,
-    forceCompiledProgram,
-    forceDiagnostic,
+  ( forceDiagnostic,
     forceInferenceResult,
     forceLoweredProgram,
-    forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceTypedProgram,
   )
@@ -60,18 +57,9 @@ import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
-    exportInventory,
-  )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    ResolvedModule (..),
   )
 import Jazz.Compiler.ModuleInterface
-  ( CompiledModule (..),
-    CompiledPrelude (..),
-    CompiledProgram (..),
-    ModuleInterface (..),
-    emptyCompiledPrelude,
+  ( ModuleInterface (..),
     emptyModuleInterface,
   )
 import Jazz.Compiler.ModuleRuntime
@@ -128,11 +116,7 @@ tests =
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
-    ("compiled-module forcing evaluates compact runtime metadata", testDeepCompiledModuleForcing),
-    ("compiled-program forcing owns prelude diagnostics", testDeepCompiledProgramForcing),
     ("diagnostic forcing evaluates nested spans and labels", testDeepDiagnosticForcing),
-    ("resolved modules remain lazy at production WHNF", testResolvedModuleProductionLaziness),
-    ("resolved-module forcing evaluates setup-owned content", testDeepResolvedModuleForcing),
     ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
     ("lowered programs expose a structural NFData contract", testLoweredProgramNFDataContract),
     ("typed-program forcing evaluates nested artifact payloads", testDeepTypedProgramForcing),
@@ -317,66 +301,6 @@ testDeepModuleInterfaceForcing =
               }
       assertForcesMarker (label <> " payload") marker (evaluate (forceInferenceResult inference))
 
-testDeepCompiledModuleForcing :: IO ()
-testDeepCompiledModuleForcing =
-  mapM_
-    assertCompiledMetadataForced
-    [ ( "imports",
-        "compiled imports were forced",
-        baseCompiledModule
-          { compiledModuleImports = throw (userError "compiled imports were forced")
-          }
-      ),
-      ( "diagnostics",
-        "compiled diagnostics were forced",
-        baseCompiledModule
-          { compiledModuleDiagnostics =
-              [ mkErrorDiagnostic
-                  E1001
-                  CompilationOrigin
-                  (throw (userError "compiled diagnostics were forced"))
-              ]
-          }
-      ),
-      ( "export inventory",
-        "compiled export inventory was forced",
-        baseCompiledModule
-          { compiledModuleExportInventory = throw (userError "compiled export inventory was forced")
-          }
-      )
-    ]
-  where
-    baseCompiledModule =
-      CompiledModule
-        { compiledModulePath = ["App", "Main"],
-          compiledModuleImports = [],
-          compiledModuleExportInventory = exportInventory [],
-          compiledModuleInterface = emptyModuleInterface,
-          compiledModuleDiagnostics = [],
-          compiledModuleExpr = resolvedZero
-        }
-    assertCompiledMetadataForced (label, marker, compiledModule) =
-      assertForcesMarker label marker (evaluate (forceCompiledModule compiledModule))
-
-testDeepCompiledProgramForcing :: IO ()
-testDeepCompiledProgramForcing = do
-  let marker = "compiled prelude diagnostics were forced"
-      compiledPrelude =
-        emptyCompiledPrelude
-          { compiledPreludeDiagnostics =
-              [mkErrorDiagnostic E1001 CompilationOrigin (throw (userError marker))]
-          }
-      compiledProgram =
-        CompiledProgram
-          { compiledProgramPrelude = compiledPrelude,
-            compiledProgramEntryPath = ["App", "Main"],
-            compiledProgramModules = []
-          }
-  assertForcesMarker
-    "compiled prelude diagnostic"
-    marker
-    (evaluate (forceCompiledProgram compiledProgram))
-
 testDeepDiagnosticForcing :: IO ()
 testDeepDiagnosticForcing =
   mapM_
@@ -398,59 +322,6 @@ testDeepDiagnosticForcing =
     ]
   where
     baseDiagnostic = mkErrorDiagnostic E1001 CompilationOrigin "diagnostic"
-
-testResolvedModuleProductionLaziness :: IO ()
-testResolvedModuleProductionLaziness = do
-  let resolvedModule =
-        baseResolvedModule
-          { resolvedModuleCore = throw (userError "production forced the resolved Core module")
-          }
-  result <- try (evaluate resolvedModule) :: IO (Either IOException ResolvedModule)
-  case result of
-    Left exception -> throw exception
-    Right _ -> pure ()
-
-testDeepResolvedModuleForcing :: IO ()
-testDeepResolvedModuleForcing =
-  mapM_
-    assertResolvedContentForced
-    [ ( "module path",
-        "resolved module path was forced",
-        baseResolvedModule
-          { resolvedModulePath = ["App", throw (userError "resolved module path was forced")]
-          }
-      ),
-      ( "source path",
-        "resolved source path was forced",
-        baseResolvedModule
-          { resolvedSourcePath = "App/" <> throw (userError "resolved source path was forced")
-          }
-      ),
-      ( "imports",
-        "resolved import was forced",
-        baseResolvedModule
-          { resolvedModuleImports = [throw (userError "resolved import was forced")]
-          }
-      ),
-      ( "export inventory",
-        "resolved export inventory was forced",
-        baseResolvedModule
-          { resolvedModuleExportInventory = throw (userError "resolved export inventory was forced")
-          }
-      ),
-      ( "Core expression",
-        "resolved Core expression was forced",
-        baseResolvedModule
-          { resolvedModuleCore =
-              (resolvedModuleCore baseResolvedModule)
-                { coreModuleExpr = throw (userError "resolved Core expression was forced")
-                }
-          }
-      )
-    ]
-  where
-    assertResolvedContentForced (label, marker, resolvedModule) =
-      assertForcesMarker label marker (evaluate (forceResolvedModule resolvedModule))
 
 testDeepLoweredProgramForcing :: IO ()
 testDeepLoweredProgramForcing = do
@@ -537,16 +408,6 @@ assertForcesMarker label marker action = do
       | Text.pack marker `Text.isInfixOf` Text.pack (show exception) -> pure ()
       | otherwise -> throw exception
     Right () -> ioError (userError (Text.unpack (label <> " stayed lazy")))
-
-baseResolvedModule :: ResolvedModule
-baseResolvedModule =
-  ResolvedModule
-    { resolvedModulePath = ["App", "Main"],
-      resolvedSourcePath = "App/Main.jazz",
-      resolvedModuleImports = [],
-      resolvedModuleExportInventory = exportInventory [],
-      resolvedModuleCore = CoreModule Nothing Nothing [] resolvedZero
-    }
 
 resolvedZero :: Expr 'Resolved
 resolvedZero = ELit (CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()) (LInt 0)

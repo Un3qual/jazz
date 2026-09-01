@@ -71,17 +71,16 @@ import Jazz.Compiler.Force
     forceInferenceResult,
   )
 import Jazz.Compiler.ModuleCompiler
-  ( compilePreparedPrelude,
+  ( CompiledProgram,
+    compilePreparedPrelude,
     compileResolvedProgram,
-  )
-import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleInterface
-  ( CompiledProgram (..),
-    compileInputs,
     compiledProgramDiagnostics,
   )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleInterface (compileInputs)
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
+    resolvePreludeArtifact,
     resolveProgramWithAmbientExports,
     resolveStandaloneExprNames,
   )
@@ -93,6 +92,8 @@ import Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
     preparePrelude,
+    preparedPreludeBuiltinMode,
+    preparedPreludeExpr,
     resolvedExplicitPrelude,
   )
 import Jazz.Compiler.Profiling
@@ -565,20 +566,29 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
   case preparePrelude resolvedPrelude of
     Left preludeError -> pure (Left preludeError)
     Right preparedPrelude -> do
-      resolvedResult <-
-        withCompilerStage ModuleDiscoveryStage $
-          resolveProgramWithAmbientExports
-            resolutionConfig
-            (preparedPreludeBuiltinMode preparedPrelude)
-            (preparedPreludeVisibleExports preparedPrelude)
-            profiledSourceLookup
-            entryModulePath
-      case resolvedResult of
+      case resolvePreludeArtifact
+        (preparedPreludeVisibleExports preparedPrelude)
+        (preparedPreludeArtifact preparedPrelude) of
         Left resolutionError -> pure (Left resolutionError)
-        Right resolvedProgram ->
-          withCompilerStageResult RuntimePreparationStage (evaluate . forceCompiledProgramResult) $ do
-            compiledPrelude <- compilePreparedPrelude settings preparedPrelude
-            Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
+        Right resolvedPreludeArtifact -> do
+          resolvedResult <-
+            withCompilerStage ModuleDiscoveryStage $
+              resolveProgramWithAmbientExports
+                resolutionConfig
+                resolvedPreludeArtifact
+                (preparedPreludeVisibleExports preparedPrelude)
+                profiledSourceLookup
+                entryModulePath
+          case resolvedResult of
+            Left resolutionError -> pure (Left resolutionError)
+            Right resolvedProgram ->
+              withCompilerStageResult RuntimePreparationStage (evaluate . forceCompiledProgramResult) $ do
+                compiledPrelude <-
+                  compilePreparedPrelude
+                    settings
+                    (preparedPreludeHiddenStatementIndices preparedPrelude)
+                    resolvedPreludeArtifact
+                Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
   where
     profiledSourceLookup sourcePath =
       withCompilerStageResult

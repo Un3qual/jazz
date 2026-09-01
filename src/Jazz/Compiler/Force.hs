@@ -31,8 +31,8 @@ import Jazz.Compiler.AST (CorePhase (Lowered, Resolved), Expr)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.LoweredIR (LoweredProgram)
-import Jazz.Compiler.ModuleGraph (ResolvedModule)
-import Jazz.Compiler.ModuleInterface (CompiledModule, CompiledProgram)
+import Jazz.Compiler.ModuleCompiler (CompiledModule, CompiledProgram)
+import Jazz.Compiler.ModuleGraph (CoreModule)
 import Jazz.Compiler.ModuleRuntime (RuntimeProgram (runtimeProgramOutput))
 import Jazz.Compiler.Parser.AST (SurfaceExpr)
 import Jazz.Compiler.Parser.Lexer (Token)
@@ -82,7 +82,7 @@ forceLoweredProgram = rnf
 forceCompiledModule :: CompiledModule -> ()
 forceCompiledModule = rnf
 
-forceResolvedModule :: ResolvedModule -> ()
+forceResolvedModule :: CoreModule 'Resolved -> ()
 forceResolvedModule = rnf
 
 forceCompiledModules :: [CompiledModule] -> ()

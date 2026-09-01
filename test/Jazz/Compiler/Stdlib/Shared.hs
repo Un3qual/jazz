@@ -37,14 +37,21 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
   )
-import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
-import Jazz.Compiler.ModuleInterface
-  ( CompiledModule (..),
-    CompiledPrelude (..),
-    CompiledProgram (..),
-    ModuleInterface (interfaceRuntimeHints),
+import Jazz.Compiler.ModuleCompiler
+  ( CompiledProgram,
+    compiledModuleExpr,
+    compiledModuleInterface,
+    compiledModulePath,
     compiledProgramErrors,
+    compiledProgramModules,
+    compiledProgramPrelude,
+    compiledProgramPreludePath,
+  )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath, modulePathTextSegments)
+import Jazz.Compiler.ModuleInterface
+  ( CompiledPrelude (..),
+    ModuleInterface (interfaceRuntimeHints),
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -176,7 +183,10 @@ modulePathFile =
 
 evaluateCompiledPrivateProbeValue :: [Text] -> Text -> CompiledProgram -> Either Diagnostic (Maybe RuntimeValue)
 evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram = do
-  ambientEnvironment <- evaluateTestPrelude (compiledProgramPrelude compiledProgram)
+  ambientEnvironment <-
+    evaluateTestPrelude
+      (compiledProgramPreludePath compiledProgram)
+      (compiledProgramPrelude compiledProgram)
   targetScope <- evaluateModules ambientEnvironment Nothing (compiledProgramModules compiledProgram)
   case targetScope of
     Nothing -> Left (privateProbeDiagnostic targetModulePath)
@@ -199,35 +209,36 @@ evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram =
           (scopeStatements probeExpression)
       pure (scopeResultValue probeResult)
   where
+    targetNominalPath = nominalModulePath targetModulePath
     evaluateModules _ targetScope [] = Right targetScope
     evaluateModules availableEnvironment targetScope (compiledModule : rest) = do
       let modulePath = compiledModulePath compiledModule
-          evaluationMode = if modulePath == targetModulePath then EvaluateEntryModule else EvaluateDependencyModule
+          evaluationMode = if modulePath == targetNominalPath then EvaluateEntryModule else EvaluateDependencyModule
       scopeResult <-
         evaluateModuleScope
-          (Just modulePath)
+          (Just (NonEmpty.toList (modulePathTextSegments modulePath)))
           evaluationMode
           (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
           (interfaceRuntimeHints (compiledModuleInterface compiledModule))
           availableEnvironment
           (scopeStatements (compiledModuleExpr compiledModule))
       let fullEnvironment = scopeResultEnvironment scopeResult
-          publishedEnvironment = publishTestScope (ImportedModule (nominalModulePath modulePath)) fullEnvironment
+          publishedEnvironment = publishTestScope (ImportedModule modulePath) fullEnvironment
           nextAvailableEnvironment = Map.union publishedEnvironment availableEnvironment
           nextTargetScope =
-            if modulePath == targetModulePath
+            if modulePath == targetNominalPath
               then Just (compiledModule, fullEnvironment)
               else targetScope
       evaluateModules nextAvailableEnvironment nextTargetScope rest
 
-evaluateTestPrelude :: CompiledPrelude -> Either Diagnostic RuntimeEnv
-evaluateTestPrelude compiledPrelude =
+evaluateTestPrelude :: ModulePath -> CompiledPrelude -> Either Diagnostic RuntimeEnv
+evaluateTestPrelude preludePath compiledPrelude =
   case compiledPreludeExpr compiledPrelude of
     Nothing -> Right Map.empty
     Just expression -> do
       scopeResult <-
         evaluateModuleScope
-          (Just [])
+          (Just (NonEmpty.toList (modulePathTextSegments preludePath)))
           EvaluateDependencyModule
           (compiledPreludeBuiltinMode compiledPrelude)
           (compiledPreludeRuntimeHints compiledPrelude)

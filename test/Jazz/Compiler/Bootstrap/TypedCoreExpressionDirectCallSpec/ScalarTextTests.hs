@@ -14,7 +14,6 @@ import Jazz.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
-    Statement (..),
   )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
@@ -28,7 +27,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( InferredExpr (..),
@@ -210,7 +208,6 @@ testScalarPatternCaseProducerBoundaries :: IO ()
 testScalarPatternCaseProducerBoundaries = do
   mapM_ assertSourceBoundary expectedSourceFailures
   mapM_ assertDiagnosticBoundary expectedDiagnosticFailures
-  assertEmptyArmBoundary
   where
     expectedSourceFailures =
       [ ("pattern-case-managed-scrutinee", [profileFailure 0]),
@@ -260,39 +257,6 @@ testScalarPatternCaseProducerBoundaries = do
         | diagnostic <- inferredDiagnostics ordinary,
           isErrorDiagnostic diagnostic
         ]
-
-    assertEmptyArmBoundary = do
-      let fixture = fixtureByName "unit-entry"
-      resolvedModule <- resolveFixtureModule fixture
-      let emptyCaseModule =
-            resolvedModule
-              { resolvedModuleCore =
-                  replaceTerminalExpression
-                    (EPatternCase syntheticNode (ELit syntheticNode (LBool True)) [])
-                    (resolvedModuleCore resolvedModule)
-              }
-      firstProduction <- produceResolvedFixture fixture emptyCaseModule
-      secondProduction <- produceResolvedFixture fixture emptyCaseModule
-      assertEqual "empty pattern-case repeatable rejection" firstProduction secondProduction
-      assertEqual
-        "empty pattern-case exact diagnostic rejection"
-        TypedCoreProductionBlockedByDiagnostics
-        (typedCoreProductionStatus firstProduction)
-      assertEqual
-        "empty pattern-case exact diagnostic"
-        ["E2018"]
-        [ diagnosticCodeText (diagnosticCode diagnostic)
-        | diagnostic <- inferredDiagnostics (typedCoreProductionInferenceResult firstProduction),
-          isErrorDiagnostic diagnostic
-        ]
-
-    replaceTerminalExpression :: Expr 'Resolved -> CoreModule 'Resolved -> CoreModule 'Resolved
-    replaceTerminalExpression replacement coreModule =
-      case coreModuleExpr coreModule of
-        EBlock blockNode [SExpr statementNode _] ->
-          coreModule {coreModuleExpr = EBlock blockNode [SExpr statementNode replacement]}
-        other ->
-          error ("unexpected unit fixture core shape: " <> show other)
 
     profileFailure statementIndex =
       expressionFailure

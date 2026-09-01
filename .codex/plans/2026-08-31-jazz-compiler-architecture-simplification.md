@@ -1,29 +1,31 @@
 ---
-id: JN-COMPILER-LOCATED-PHASED-CORE-001
+id: JN-COMPILER-ANALYZED-CORE-001
 status: ready
 priority: P1
 size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 8"
+plan_section: "Task 9"
 target_paths:
-  - src/Jazz/Compiler/ModuleGraph.hs
-  - src/Jazz/Compiler/ModuleResolver.hs
-  - src/Jazz/Compiler/Parser/Lower.hs
-  - src/Jazz/Compiler/ModuleExports.hs
+  - src/Jazz/Compiler/SemanticFacts.hs
+  - src/Jazz/Compiler/AST.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - src/Jazz/Compiler/TypeInference/Result.hs
+  - src/Jazz/Compiler/TypeInference/State.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
+  - src/Jazz/Compiler/TypeInference/Capabilities.hs
+  - src/Jazz/Compiler/TypeInference/Traversal.hs
   - src/Jazz/Compiler/ModuleCompiler.hs
   - src/Jazz/Compiler/ModuleInterface.hs
-  - src/Jazz/Compiler/BundledPrelude.hs
-  - src/Jazz/Compiler/Prelude.hs
   - src/Jazz/Compiler/Driver.hs
-  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
+  - src/Jazz/Compiler/Force.hs
+  - test/Jazz/Compiler/Semantics/BindingSignatureCoherenceSpec.hs
+  - test/Jazz/Compiler/Semantics/PatternSemanticsSpec.hs
   - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
-  - test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs
-  - test/Jazz/Compiler/Modules/Loader/VisibilityTests.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test module-resolution-spec module-exports-spec module-pipeline-contract-spec prelude-loading-spec loader-spec --test-show-details=direct --jobs=1
-deliverable: "Replace overlapping import, module, prelude, and resolved-program carriers with one opaque phase-indexed CoreProgram while preserving compiler and interpreter behavior."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test binding-signature-coherence-spec pattern-semantics-spec recursive-bindings-spec module-pipeline-contract-spec prelude-loading-spec loader-spec --test-show-details=direct --jobs=1
+deliverable: "Attach complete semantic facts to analyzed core, remove the temporary compiled syntax carriers, and preserve compiler and interpreter behavior."
 last_verified: 2026-09-01
 ---
 

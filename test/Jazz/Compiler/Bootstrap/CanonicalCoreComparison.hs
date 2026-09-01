@@ -42,8 +42,15 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
-    CoreResolvedImport (..),
+    DeclaredImportExposure (..),
     DeclaredModuleExports (..),
+    DeclaredModuleFacts (..),
+    ModuleImport (..),
+    coreModuleExpr,
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( modulePathTextSegments,
+    moduleQualifierIdentifier,
   )
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
@@ -147,25 +154,27 @@ canonicalCoreExprRuntimeValue expression =
         <$> canonicalCoreExprRuntimeValue right
     EBlock _ statements -> constructor1 "CoreBlockExpression" <$> listRuntimeValue coreStatementRuntimeValue statements
 
-canonicalCoreModuleRuntimeValue :: CoreModule 'Lowered -> Either Text RuntimeValue
-canonicalCoreModuleRuntimeValue coreModule =
+canonicalCoreModuleRuntimeValue :: Maybe [Text] -> CoreModule 'Lowered -> Either Text RuntimeValue
+canonicalCoreModuleRuntimeValue declaredPath coreModule =
   canonicalConstructor "CoreModule"
     <$> sequence
-      [ pure (maybeRuntimeValuePure (listRuntimeValuePure VText) (coreModuleDeclaredPath coreModule)),
-        maybeRuntimeValue coreDeclaredModuleExportsRuntimeValue (coreModuleDeclaredExports coreModule),
+      [ pure (maybeRuntimeValuePure (listRuntimeValuePure VText) declaredPath),
+        maybeRuntimeValue
+          coreDeclaredModuleExportsRuntimeValue
+          (declaredModuleExports (coreModuleFacts coreModule)),
         listRuntimeValue coreResolvedImportRuntimeValue (coreModuleImports coreModule),
         canonicalCoreExprRuntimeValue (coreModuleExpr coreModule)
       ]
 
-canonicalCoreModuleResultRuntimeValue :: Either ModuleLoweringFailure (CoreModule 'Lowered) -> Either Text RuntimeValue
-canonicalCoreModuleResultRuntimeValue result =
+canonicalCoreModuleResultRuntimeValue :: Maybe [Text] -> Either ModuleLoweringFailure (CoreModule 'Lowered) -> Either Text RuntimeValue
+canonicalCoreModuleResultRuntimeValue declaredPath result =
   case result of
-    Right coreModule -> constructor1 "CoreModuleLowered" <$> canonicalCoreModuleRuntimeValue coreModule
+    Right coreModule -> constructor1 "CoreModuleLowered" <$> canonicalCoreModuleRuntimeValue declaredPath coreModule
     Left failure -> constructor1 "CoreModuleLoweringFailed" <$> coreModuleLoweringFailureRuntimeValue failure
 
 canonicalCoreSourceResultRuntimeValue ::
   CanonicalSourcePath ->
-  Either LexicalFailure (Either ParserFailure (Either ModuleLoweringFailure (CoreModule 'Lowered))) ->
+  Either LexicalFailure (Either ParserFailure (Maybe [Text], Either ModuleLoweringFailure (CoreModule 'Lowered))) ->
   Either Text RuntimeValue
 canonicalCoreSourceResultRuntimeValue sourcePath result =
   case result of
@@ -183,9 +192,9 @@ canonicalCoreSourceResultRuntimeValue sourcePath result =
             "CanonicalCoreSourceParserFailure"
             [canonicalSourcePathRuntimeValue sourcePath, parserFailureRuntimeValue parserFailure]
         )
-    Right (Right moduleResult) ->
+    Right (Right (declaredPath, moduleResult)) ->
       constructor1 "CanonicalCoreSourceModuleResult"
-        <$> canonicalCoreModuleResultRuntimeValue moduleResult
+        <$> canonicalCoreModuleResultRuntimeValue declaredPath moduleResult
 
 coreModuleLoweringFailureRuntimeValue :: ModuleLoweringFailure -> Either Text RuntimeValue
 coreModuleLoweringFailureRuntimeValue failure =
@@ -199,6 +208,13 @@ coreModuleLoweringFailureRuntimeValue failure =
         <$> coreSourcePathRuntimeValue sourcePath
         <*> pure (listRuntimeValuePure VText expectedPath)
         <*> coreModuleDeclarationRuntimeValue sourcePath declaration
+    EmptyImportSymbolList sourcePath _ modulePath ->
+      Left
+        ( "canonical core comparison cannot encode an empty import list in "
+            <> Text.pack sourcePath
+            <> " for "
+            <> Text.intercalate "::" modulePath
+        )
 
 coreModuleDeclarationRuntimeValue :: FilePath -> ModuleDeclaration -> Either Text RuntimeValue
 coreModuleDeclarationRuntimeValue sourcePath declaration =
@@ -452,14 +468,29 @@ coreDeclaredModuleExportsRuntimeValue declaredExports =
     <$> coreSpanRuntimeValue (declaredModuleExportsSpan declaredExports)
     <*> listRuntimeValue coreModuleExportSelectorRuntimeValue (declaredModuleExportSelectors declaredExports)
 
-coreResolvedImportRuntimeValue :: CoreResolvedImport -> Either Text RuntimeValue
+coreResolvedImportRuntimeValue :: ModuleImport 'Lowered -> Either Text RuntimeValue
 coreResolvedImportRuntimeValue resolvedImport =
   canonicalConstructor "CoreResolvedImport"
     <$> sequence
-      [ coreSpanRuntimeValue (coreResolvedImportSpan resolvedImport),
-        pure (listRuntimeValuePure VText (coreResolvedImportPath resolvedImport)),
-        pure (maybeRuntimeValuePure VText (coreResolvedImportAlias resolvedImport)),
-        pure (maybeRuntimeValuePure (listRuntimeValuePure VText) (coreResolvedImportSymbols resolvedImport))
+      [ coreSpanRuntimeValue (coreNodeSpan (moduleImportNode resolvedImport)),
+        pure
+          ( listRuntimeValuePure
+              VText
+              (NonEmpty.toList (modulePathTextSegments (importedModule resolvedImport)))
+          ),
+        pure
+          ( maybeRuntimeValuePure
+              (VText . identifierText . moduleQualifierIdentifier)
+              (importAlias resolvedImport)
+          ),
+        pure
+          ( maybeRuntimeValuePure
+              (listRuntimeValuePure (VText . identifierText) . NonEmpty.toList)
+              ( case importExposure resolvedImport of
+                  DeclaredImportAll -> Nothing
+                  DeclaredImportOnly identifiers -> Just identifiers
+              )
+          )
       ]
 
 coreModuleExportSelectorRuntimeValue :: ModuleExportSelector -> Either Text RuntimeValue

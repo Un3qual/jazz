@@ -14,8 +14,15 @@ import Jazz.Compiler.ModuleExports
     ModuleTypeConstructorSelector (..),
   )
 import Jazz.Compiler.ModuleGraph
-  ( CoreModule (coreModuleDeclaredExports),
+  ( CoreModule (coreModuleFacts),
     DeclaredModuleExports (..),
+    DeclaredModuleFacts (declaredModuleExports),
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
   )
 import Jazz.Compiler.Name
   ( Identifier,
@@ -292,8 +299,10 @@ testLowersModuleExportList =
                   )
               )
           )
-          ( coreModuleDeclaredExports
-              <$> lowerSurfaceModule "src/Lib/Value.jz" ["Lib", "Value"] surfaceProgram
+          ( declaredModuleExports . coreModuleFacts
+              <$> lowerSurfaceModule
+                (testModuleIdentity "src/Lib/Value.jz" ("Lib" :| ["Value"]))
+                surfaceProgram
           )
     )
 
@@ -321,10 +330,16 @@ testLowersGroupedModuleExportList =
                   )
               )
           )
-          ( coreModuleDeclaredExports
-              <$> lowerSurfaceModule "src/Lib/Choice.jz" ["Lib", "Choice"] surfaceProgram
+          ( declaredModuleExports . coreModuleFacts
+              <$> lowerSurfaceModule
+                (testModuleIdentity "src/Lib/Choice.jz" ("Lib" :| ["Choice"]))
+                surfaceProgram
           )
     )
+
+testModuleIdentity :: FilePath -> NonEmpty Identifier -> ModuleIdentity
+testModuleIdentity sourcePath modulePath =
+  moduleIdentity (mkModulePath modulePath) (mkSourceFile sourcePath)
 
 testParsesCanonicalModuleDeclarationBoundary :: IO ()
 testParsesCanonicalModuleDeclarationBoundary =

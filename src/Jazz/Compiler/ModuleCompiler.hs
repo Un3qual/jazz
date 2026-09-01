@@ -1,23 +1,52 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Compile resolved modules once against explicit dependency interfaces.
 module Jazz.Compiler.ModuleCompiler
-  ( compilePreparedPrelude,
+  ( CompiledModule,
+    CompiledProgram,
+    compilePreparedPrelude,
     compileResolvedModule,
     compileResolvedProgram,
+    compiledModuleErrors,
+    compiledModuleDiagnostics,
+    compiledModuleExportInventory,
+    compiledModuleExpr,
+    compiledModuleImports,
+    compiledModuleInterface,
+    compiledModulePath,
+    compiledModuleWarnings,
+    compiledProgramDiagnostics,
+    compiledProgramEntryPath,
+    compiledProgramErrors,
+    compiledProgramModules,
+    compiledProgramPreludePath,
+    compiledProgramPrelude,
+    compiledProgramWarnings,
+    firstCompiledProgramError,
+    lookupCompiledModule,
   )
 where
 
+import Control.DeepSeq (NFData)
+import Control.Monad (foldM)
 import Data.Bifunctor (bimap)
+import Data.Foldable (toList)
+import Data.List (find)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( CorePhase (..),
+    Expr,
     SignaturePayload,
     SignatureType,
   )
@@ -25,24 +54,36 @@ import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
   )
+import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic, isWarningDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleImportMode (..),
-    exportInventory,
     exportNamesInNamespace,
     inventoryHasExport,
     visibleImportInventory,
   )
 import Jazz.Compiler.ModuleGraph
-  ( CoreModule (coreModuleExpr),
+  ( CoreModule,
+    CoreProgram,
     ImportExposure (..),
-    ResolvedImport (..),
-    ResolvedModule (..),
-    ResolvedProgram (..),
+    ModuleImport,
+    PreludeArtifact,
+    coreModuleExpr,
+    coreModuleFacts,
+    coreModuleImports,
+    coreModulePath,
+    coreProgramEntry,
+    coreProgramModules,
   )
-import Jazz.Compiler.ModuleIdentity (mkModulePath, renderModulePath)
+import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    moduleIdentityPath,
+    modulePathTextSegments,
+    moduleQualifierIdentifier,
+    renderModulePath,
+  )
 import Jazz.Compiler.ModuleInterface
-import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace),
@@ -55,7 +96,6 @@ import Jazz.Compiler.Name
     qualifiedName,
     sourceName,
   )
-import Jazz.Compiler.Prelude (PreparedPrelude (..))
 import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     inferExpressionWithInputs,
@@ -80,89 +120,130 @@ import Jazz.Compiler.TypeInference.Types
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
-compilePreparedPrelude :: WarningSettings -> PreparedPrelude -> IO CompiledPrelude
-compilePreparedPrelude settings preparedPrelude =
-  case preparedPreludeExpr preparedPrelude of
+data CompiledModule = CompiledModule
+  { compiledModulePath :: ModulePath,
+    compiledModuleImports :: [ModuleImport 'Resolved],
+    compiledModuleExportInventory :: ModuleExportInventory,
+    compiledModuleInterface :: ModuleInterface,
+    compiledModuleDiagnostics :: [Diagnostic],
+    compiledModuleExpr :: Expr 'Resolved
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data CompiledProgram = CompiledProgram
+  { compiledProgramPrelude :: CompiledPrelude,
+    compiledProgramPreludePath :: ModulePath,
+    compiledProgramEntryPath :: ModulePath,
+    compiledProgramModules :: [CompiledModule]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
+compiledProgramDiagnostics compiledProgram =
+  compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)
+    <> concatMap compiledModuleDiagnostics (compiledProgramModules compiledProgram)
+
+compiledModuleWarnings :: CompiledModule -> [Diagnostic]
+compiledModuleWarnings = filter isWarningDiagnostic . compiledModuleDiagnostics
+
+compiledModuleErrors :: CompiledModule -> [Diagnostic]
+compiledModuleErrors = filter isErrorDiagnostic . compiledModuleDiagnostics
+
+compiledProgramWarnings :: CompiledProgram -> [Diagnostic]
+compiledProgramWarnings = filter isWarningDiagnostic . compiledProgramDiagnostics
+
+compiledProgramErrors :: CompiledProgram -> [Diagnostic]
+compiledProgramErrors = filter isErrorDiagnostic . compiledProgramDiagnostics
+
+firstCompiledProgramError :: CompiledProgram -> Maybe Diagnostic
+firstCompiledProgramError = find isErrorDiagnostic . compiledProgramDiagnostics
+
+lookupCompiledModule :: ModulePath -> CompiledProgram -> Maybe CompiledModule
+lookupCompiledModule modulePath =
+  find ((== modulePath) . compiledModulePath) . compiledProgramModules
+
+compilePreparedPrelude :: WarningSettings -> Set.Set Int -> PreludeArtifact 'Resolved -> IO CompiledPrelude
+compilePreparedPrelude settings hiddenStatementIndices prelude =
+  case ModuleGraph.preludeModule prelude of
     Nothing ->
       pure
         emptyCompiledPrelude
-          { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
+          { compiledPreludeBuiltinMode = ModuleGraph.preludeBuiltinMode prelude
           }
-    Just preludeExpr ->
-      case resolveStandaloneExprNames (preparedPreludeBuiltinMode preparedPrelude) (exportInventory []) preludeExpr of
-        Left diagnostics ->
-          pure
-            emptyCompiledPrelude
-              { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
-                compiledPreludeDiagnostics = NonEmpty.toList diagnostics
-              }
-        Right resolvedPreludeExpr -> do
-          inference <-
-            inferExpressionWithInputsAndHiddenStatements
-              InferenceInputs
-                { inferenceBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
-                  inferenceWarningSettings = settings,
-                  inferenceImportedTypes = Map.empty,
-                  inferenceImportedDataTypes = Map.empty,
-                  inferenceImportedConstructorWitnessNames = Map.empty,
-                  inferenceImportedCapabilities = emptyScopeCapabilityFacts,
-                  inferenceImportedClassNames = Set.empty,
-                  inferenceCurrentModulePath = Just []
-                }
-              (preparedPreludeHiddenStatementIndices preparedPrelude)
-              resolvedPreludeExpr
-          pure
-            CompiledPrelude
-              { compiledPreludeBuiltinMode = preparedPreludeBuiltinMode preparedPrelude,
-                compiledPreludeInterface = inferredModuleInterface inference,
-                compiledPreludeDiagnostics = inferredDiagnostics inference,
-                compiledPreludeExpr = Just (inferredExpr inference),
-                compiledPreludeRuntimeHints = inferredRuntimeTypeHints inference
-              }
+    Just resolvedPreludeModule -> do
+      inference <-
+        inferExpressionWithInputsAndHiddenStatements
+          InferenceInputs
+            { inferenceBuiltinMode = ModuleGraph.preludeBuiltinMode prelude,
+              inferenceWarningSettings = settings,
+              inferenceImportedTypes = Map.empty,
+              inferenceImportedDataTypes = Map.empty,
+              inferenceImportedConstructorWitnessNames = Map.empty,
+              inferenceImportedCapabilities = emptyScopeCapabilityFacts,
+              inferenceImportedClassNames = Set.empty,
+              inferenceCurrentModulePath =
+                Just (modulePathTexts (moduleIdentityPath (ModuleGraph.preludeIdentity prelude)))
+            }
+          hiddenStatementIndices
+          (coreModuleExpr resolvedPreludeModule)
+      pure
+        CompiledPrelude
+          { compiledPreludeBuiltinMode = ModuleGraph.preludeBuiltinMode prelude,
+            compiledPreludeInterface = inferredModuleInterface inference,
+            compiledPreludeDiagnostics = inferredDiagnostics inference,
+            compiledPreludeExpr = Just (inferredExpr inference),
+            compiledPreludeRuntimeHints = inferredRuntimeTypeHints inference
+          }
 
-compileResolvedProgram :: CompileInputs -> ResolvedProgram -> IO CompiledProgram
+compileResolvedProgram :: CompileInputs -> CoreProgram 'Resolved -> IO CompiledProgram
 compileResolvedProgram inputs resolvedProgram =
   {-# SCC "jazz-stage:runtime-preparation" #-}
   do
-    compiledModules <- reverse . fst <$> foldModules [] Map.empty (resolvedProgramModules resolvedProgram)
-    let compiledPrelude = compileInputPrelude inputs
-    pure
-      CompiledProgram
-        { compiledProgramPrelude = compiledPrelude,
-          compiledProgramEntryPath = resolvedProgramEntryPath resolvedProgram,
-          compiledProgramModules = compiledModules
-        }
+    (compiledModules, _) <-
+      foldM compileModule (Seq.empty, Map.empty) (NonEmpty.toList (coreProgramModules resolvedProgram))
+    pure (projectCompiledProgram inputs resolvedProgram (toList compiledModules))
   where
     ambientInterface = ambientPreludeInterface (compileInputPrelude inputs)
-    foldModules compiledReversed compiledByPath remaining =
-      case remaining of
-        [] -> pure (compiledReversed, compiledByPath)
-        resolvedModule : rest -> do
-          compiledModule <- compileResolvedModuleWithIndex inputs ambientInterface compiledByPath resolvedModule
-          foldModules
-            (compiledModule : compiledReversed)
-            (Map.insert (resolvedModulePath resolvedModule) (compiledDependency compiledModule) compiledByPath)
-            rest
+    compileModule (compiledModules, compiledByPath) resolvedModule = do
+      compiledModule <- compileResolvedModuleWithIndex inputs ambientInterface compiledByPath resolvedModule
+      pure
+        ( compiledModules Seq.|> compiledModule,
+          Map.insert (coreModulePath resolvedModule) (compiledDependency compiledModule) compiledByPath
+        )
 
-compileResolvedModule :: CompileInputs -> [CompiledModule] -> ResolvedModule -> IO CompiledModule
+-- The only projection into the temporary runtime carrier. Task 9 removes it.
+projectCompiledProgram :: CompileInputs -> CoreProgram 'Resolved -> [CompiledModule] -> CompiledProgram
+projectCompiledProgram inputs resolvedProgram compiledModules =
+  CompiledProgram
+    { compiledProgramPrelude = compileInputPrelude inputs,
+      compiledProgramPreludePath =
+        moduleIdentityPath
+          (ModuleGraph.preludeIdentity (ModuleGraph.coreProgramPrelude resolvedProgram)),
+      compiledProgramEntryPath = coreProgramEntry resolvedProgram,
+      compiledProgramModules = compiledModules
+    }
+
+compileResolvedModule :: CompileInputs -> [CompiledModule] -> CoreModule 'Resolved -> IO CompiledModule
 compileResolvedModule inputs compiledDependencies =
   compileResolvedModuleWithIndex
     inputs
     (ambientPreludeInterface (compileInputPrelude inputs))
     (buildCompiledDependencyPathIndex compiledDependencies)
 
-compileResolvedModuleWithIndex :: CompileInputs -> ImportedInterface -> Map [Text] CompiledDependency -> ResolvedModule -> IO CompiledModule
+compileResolvedModuleWithIndex :: CompileInputs -> ImportedInterface -> Map ModulePath CompiledDependency -> CoreModule 'Resolved -> IO CompiledModule
 compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPath resolvedModule = do
   let importedInterface =
         ambientInterface
           <> foldMap
             (uncurry dependencyImportInterface)
             [ (importDecl, dependency)
-            | importDecl <- resolvedModuleImports resolvedModule,
-              Just dependency <- [Map.lookup (resolvedImportPath importDecl) compiledDependenciesByPath]
+            | importDecl <- coreModuleImports resolvedModule,
+              Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) compiledDependenciesByPath]
             ]
-      modulePath = resolvedModulePath resolvedModule
-      moduleExpr = coreModuleExpr (resolvedModuleCore resolvedModule)
+      modulePath = coreModulePath resolvedModule
+      moduleExpr = coreModuleExpr resolvedModule
   inference <-
     inferExpressionWithInputs
       InferenceInputs
@@ -174,14 +255,14 @@ compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPat
             interfaceConstructorWitnessNames importedInterface,
           inferenceImportedCapabilities = interfaceCapabilities importedInterface,
           inferenceImportedClassNames = importedClassNames importedInterface,
-          inferenceCurrentModulePath = Just modulePath
+          inferenceCurrentModulePath = Just (modulePathTexts modulePath)
         }
       moduleExpr
   pure
     CompiledModule
       { compiledModulePath = modulePath,
-        compiledModuleImports = resolvedModuleImports resolvedModule,
-        compiledModuleExportInventory = resolvedModuleExportInventory resolvedModule,
+        compiledModuleImports = coreModuleImports resolvedModule,
+        compiledModuleExportInventory = ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
         compiledModuleInterface = inferredModuleInterface inference,
         compiledModuleDiagnostics = inferredDiagnostics inference,
         compiledModuleExpr = inferredExpr inference
@@ -199,7 +280,7 @@ compiledDependency compiledModule =
       dependencyWholeInterface = importWholeCompiledModuleInterface compiledModule
     }
 
-buildCompiledDependencyPathIndex :: [CompiledModule] -> Map [Text] CompiledDependency
+buildCompiledDependencyPathIndex :: [CompiledModule] -> Map ModulePath CompiledDependency
 buildCompiledDependencyPathIndex =
   Map.fromListWith (\_ firstDependency -> firstDependency)
     . map
@@ -209,21 +290,21 @@ ambientPreludeInterface :: CompiledPrelude -> ImportedInterface
 ambientPreludeInterface compiledPrelude =
   importWholeInterface AmbientPrelude (compiledPreludeInterface compiledPrelude)
 
-dependencyImportInterface :: ResolvedImport -> CompiledDependency -> ImportedInterface
+dependencyImportInterface :: ModuleImport 'Resolved -> CompiledDependency -> ImportedInterface
 dependencyImportInterface importDecl dependency =
-  case resolvedImportExposure importDecl of
-    ImportAll -> dependencyWholeInterface dependency
-    ImportOnly symbolNames ->
+  case ModuleGraph.importExposure importDecl of
+    ImportAllUnqualified -> dependencyWholeInterface dependency
+    ImportOnlyUnqualified symbolNames ->
       importSelectedInterface
-        (moduleOrigin (resolvedImportPath importDecl))
+        (moduleOrigin (ModuleGraph.importedModule importDecl))
         Nothing
-        (Just (NonEmpty.toList symbolNames))
+        (Just (map identifierText (NonEmpty.toList symbolNames)))
         (compiledModuleExportInventory compiledModule)
         (compiledModuleInterface compiledModule)
-    ImportQualified aliasName ->
+    ImportQualifiedOnly ->
       importSelectedInterface
-        (moduleOrigin (resolvedImportPath importDecl))
-        (Just aliasName)
+        (moduleOrigin (ModuleGraph.importedModule importDecl))
+        (fmap (identifierText . moduleQualifierIdentifier) (ModuleGraph.importAlias importDecl))
         Nothing
         (compiledModuleExportInventory compiledModule)
         (compiledModuleInterface compiledModule)
@@ -375,10 +456,11 @@ qualifiedKey origin name =
     ImportedModule modulePath -> renderModulePath modulePath <> "::" <> name
     _ -> name
 
-moduleOrigin :: [Text] -> ResolvedNameOrigin
-moduleOrigin =
-  maybe AmbientPrelude (ImportedModule . mkModulePath . fmap mkIdentifier)
-    . NonEmpty.nonEmpty
+moduleOrigin :: ModulePath -> ResolvedNameOrigin
+moduleOrigin = ImportedModule
+
+modulePathTexts :: ModulePath -> [Text]
+modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
 factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
 factUsesClass classNames fact = Set.member (concreteImplFactClassName fact) classNames

@@ -1,45 +1,76 @@
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- | Parse-once module graph shared by semantic compilation and runtime.
+-- | Phase-indexed module and whole-program carriers.
 module Jazz.Compiler.ModuleGraph
-  ( DeclaredModuleExports (..),
+  ( AnalyzedModuleFacts (..),
     CoreModule (..),
-    CoreResolvedImport (..),
+    CoreProgram,
+    DeclaredImportExposure (..),
+    DeclaredModuleExports (..),
+    DeclaredModuleFacts (..),
     ImportExposure (..),
-    ResolvedImport (..),
-    ResolvedModule (..),
-    ResolvedProgram (..),
+    ImportExposureAt,
+    ModuleFactsAt,
+    ModuleImport (..),
+    PreludeArtifact (..),
+    ProgramInvariantFailure (..),
+    ResolvedModuleFacts (..),
+    coreModuleExpr,
+    coreModulePath,
+    coreProgramEntry,
+    coreProgramModules,
+    coreProgramPrelude,
+    foldCoreModules,
+    lookupCoreModule,
+    mkCoreProgram,
   )
 where
 
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData (..))
+import Data.Foldable (toList)
+import Data.Kind (Type)
 import Data.List.NonEmpty (NonEmpty)
-import Data.Text (Text)
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( CoreNameAt,
+    CoreNode,
     CorePhase (..),
     CoreSort (..),
-    Expr,
+    Expr (EBlock),
     FactsAt,
+    Statement,
   )
-import Jazz.Compiler.Diagnostics (SourceSpan)
+import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleExportSelector,
   )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    ModulePath,
+    ModuleQualifier,
+    moduleIdentityPath,
+  )
+import Jazz.Compiler.ModuleInterface (ModuleInterface)
+import Jazz.Compiler.Name (Identifier)
 
--- | A source-qualified explicit export clause retained after lowering.
--- Absence means the module uses the default export-all policy; a present
--- empty selector list represents an explicit export-none clause.
 data DeclaredModuleExports = DeclaredModuleExports
   { declaredModuleExportsSpan :: SourceSpan,
     declaredModuleExportSelectors :: [ModuleExportSelector]
@@ -47,77 +78,226 @@ data DeclaredModuleExports = DeclaredModuleExports
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data CoreModule phase = CoreModule
-  { coreModuleDeclaredPath :: Maybe [Text],
-    coreModuleDeclaredExports :: Maybe DeclaredModuleExports,
-    coreModuleImports :: [CoreResolvedImport],
-    coreModuleExpr :: Expr phase
+data DeclaredImportExposure
+  = DeclaredImportAll
+  | DeclaredImportOnly (NonEmpty Identifier)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data ImportExposure
+  = ImportAllUnqualified
+  | ImportOnlyUnqualified (NonEmpty Identifier)
+  | ImportQualifiedOnly
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+type family ImportExposureAt (phase :: CorePhase) :: Type where
+  ImportExposureAt 'Lowered = DeclaredImportExposure
+  ImportExposureAt 'Resolved = ImportExposure
+  ImportExposureAt 'Analyzed = ImportExposure
+
+data ModuleImport (phase :: CorePhase) = ModuleImport
+  { moduleImportNode :: CoreNode phase 'StatementSort,
+    importedModule :: ModulePath,
+    importAlias :: Maybe ModuleQualifier,
+    importExposure :: ImportExposureAt phase
+  }
+  deriving stock (Generic)
+
+type role ModuleImport nominal
+
+data DeclaredModuleFacts = DeclaredModuleFacts
+  { declaredModuleExports :: Maybe DeclaredModuleExports
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data ResolvedModuleFacts = ResolvedModuleFacts
+  { resolvedModuleExports :: ModuleExportInventory
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data AnalyzedModuleFacts = AnalyzedModuleFacts
+  { analyzedModuleExports :: ModuleExportInventory,
+    analyzedModuleInterface :: ModuleInterface,
+    analyzedModuleDiagnostics :: [Diagnostic]
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+type family ModuleFactsAt (phase :: CorePhase) :: Type where
+  ModuleFactsAt 'Lowered = DeclaredModuleFacts
+  ModuleFactsAt 'Resolved = ResolvedModuleFacts
+  ModuleFactsAt 'Analyzed = AnalyzedModuleFacts
+
+data CoreModule (phase :: CorePhase) = CoreModule
+  { coreModuleIdentity :: ModuleIdentity,
+    coreModuleBodyNode :: CoreNode phase 'ExpressionSort,
+    coreModuleImports :: [ModuleImport phase],
+    coreModuleStatements :: [Statement phase],
+    coreModuleFacts :: ModuleFactsAt phase
   }
   deriving stock (Generic)
 
 type role CoreModule nominal
 
-deriving stock instance
+coreModulePath :: CoreModule phase -> ModulePath
+coreModulePath = moduleIdentityPath . coreModuleIdentity
+
+coreModuleExpr :: CoreModule phase -> Expr phase
+coreModuleExpr coreModule =
+  EBlock (coreModuleBodyNode coreModule) (coreModuleStatements coreModule)
+
+data PreludeArtifact (phase :: CorePhase) = PreludeArtifact
+  { preludeIdentity :: ModuleIdentity,
+    preludeBuiltinMode :: BuiltinResolutionMode,
+    preludeModule :: Maybe (CoreModule phase)
+  }
+  deriving stock (Generic)
+
+type role PreludeArtifact nominal
+
+data CoreProgram (phase :: CorePhase) = CoreProgram
+  { coreProgramPrelude :: PreludeArtifact phase,
+    coreProgramEntry :: ModulePath,
+    coreProgramModules :: NonEmpty (CoreModule phase),
+    coreProgramModuleIndex :: Map ModulePath (CoreModule phase)
+  }
+  deriving stock (Generic)
+
+type role CoreProgram nominal
+
+data ProgramInvariantFailure
+  = MissingEntryModule ModulePath
+  | DuplicateModulePath ModulePath
+  | DependencyAfterDependent ModulePath ModulePath
+  | UnknownImportedModule ModulePath ModulePath
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+mkCoreProgram ::
+  PreludeArtifact phase ->
+  ModulePath ->
+  NonEmpty (CoreModule phase) ->
+  Either (NonEmpty ProgramInvariantFailure) (CoreProgram phase)
+mkCoreProgram prelude entry modules =
+  case NonEmpty.nonEmpty (toList failures) of
+    Just invariantFailures -> Left invariantFailures
+    Nothing ->
+      Right
+        CoreProgram
+          { coreProgramPrelude = prelude,
+            coreProgramEntry = entry,
+            coreProgramModules = modules,
+            coreProgramModuleIndex = moduleIndex
+          }
+  where
+    moduleList = NonEmpty.toList modules
+    modulePaths = map coreModulePath moduleList
+    pathSet = Set.fromList modulePaths
+    moduleIndex = Map.fromList [(coreModulePath coreModule, coreModule) | coreModule <- moduleList]
+    failures =
+      missingEntryFailures
+        <> duplicatePathFailures
+        <> snd (foldl validateModule (Set.empty, Seq.empty) moduleList)
+    missingEntryFailures =
+      if entry `Set.member` pathSet then Seq.empty else Seq.singleton (MissingEntryModule entry)
+    duplicatePathFailures = fmap DuplicateModulePath (duplicatePaths modulePaths)
+
+    validateModule (seen, failuresByModule) coreModule =
+      ( Set.insert dependentPath seen,
+        failuresByModule <> foldMap (validateImport dependentPath seen) (coreModuleImports coreModule)
+      )
+      where
+        dependentPath = coreModulePath coreModule
+
+    validateImport dependentPath seen importDecl
+      | dependencyPath `Set.notMember` pathSet =
+          Seq.singleton (UnknownImportedModule dependentPath dependencyPath)
+      | dependencyPath `Set.notMember` seen =
+          Seq.singleton (DependencyAfterDependent dependentPath dependencyPath)
+      | otherwise = Seq.empty
+      where
+        dependencyPath = importedModule importDecl
+
+duplicatePaths :: (Ord value) => [value] -> Seq value
+duplicatePaths = third . foldl collect (Set.empty, Set.empty, Seq.empty)
+  where
+    third (_, _, values) = values
+    collect (seen, reported, duplicates) value
+      | value `Set.member` seen,
+        value `Set.notMember` reported =
+          (seen, Set.insert value reported, duplicates Seq.|> value)
+      | otherwise = (Set.insert value seen, reported, duplicates)
+
+lookupCoreModule :: ModulePath -> CoreProgram phase -> Maybe (CoreModule phase)
+lookupCoreModule modulePath = Map.lookup modulePath . coreProgramModuleIndex
+
+foldCoreModules :: (Monoid result) => (CoreModule phase -> result) -> CoreProgram phase -> result
+foldCoreModules project = foldMap project . coreProgramModules
+
+type CoreEq phase =
   ( Eq (CoreNameAt phase),
     Eq (FactsAt phase 'ExpressionSort),
     Eq (FactsAt phase 'PatternSort),
-    Eq (FactsAt phase 'StatementSort)
-  ) =>
-  Eq (CoreModule phase)
+    Eq (FactsAt phase 'StatementSort),
+    Eq (ImportExposureAt phase),
+    Eq (ModuleFactsAt phase)
+  )
 
-deriving stock instance
+type CoreShow phase =
   ( Show (CoreNameAt phase),
     Show (FactsAt phase 'ExpressionSort),
     Show (FactsAt phase 'PatternSort),
-    Show (FactsAt phase 'StatementSort)
-  ) =>
-  Show (CoreModule phase)
+    Show (FactsAt phase 'StatementSort),
+    Show (ImportExposureAt phase),
+    Show (ModuleFactsAt phase)
+  )
 
-instance
+type CoreNFData phase =
   ( NFData (CoreNameAt phase),
     NFData (FactsAt phase 'ExpressionSort),
     NFData (FactsAt phase 'PatternSort),
-    NFData (FactsAt phase 'StatementSort)
-  ) =>
-  NFData (CoreModule phase)
+    NFData (FactsAt phase 'StatementSort),
+    NFData (ImportExposureAt phase),
+    NFData (ModuleFactsAt phase)
+  )
 
-data CoreResolvedImport = CoreResolvedImport
-  { coreResolvedImportSpan :: SourceSpan,
-    coreResolvedImportPath :: [Text],
-    coreResolvedImportAlias :: Maybe Text,
-    coreResolvedImportSymbols :: Maybe [Text]
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+deriving stock instance (CoreEq phase) => Eq (ModuleImport phase)
 
-data ImportExposure
-  = ImportAll
-  | ImportOnly (NonEmpty Text)
-  | ImportQualified Text
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+deriving stock instance (CoreShow phase) => Show (ModuleImport phase)
 
-data ResolvedImport = ResolvedImport
-  { resolvedImportSpan :: SourceSpan,
-    resolvedImportPath :: [Text],
-    resolvedImportExposure :: ImportExposure
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+instance (CoreNFData phase) => NFData (ModuleImport phase)
 
-data ResolvedModule = ResolvedModule
-  { resolvedModulePath :: [Text],
-    resolvedSourcePath :: FilePath,
-    resolvedModuleImports :: [ResolvedImport],
-    resolvedModuleExportInventory :: ModuleExportInventory,
-    resolvedModuleCore :: CoreModule 'Resolved
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+deriving stock instance (CoreEq phase) => Eq (CoreModule phase)
 
-data ResolvedProgram = ResolvedProgram
-  { resolvedProgramEntryPath :: [Text],
-    resolvedProgramModules :: [ResolvedModule]
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+deriving stock instance (CoreShow phase) => Show (CoreModule phase)
+
+instance (CoreNFData phase) => NFData (CoreModule phase)
+
+deriving stock instance (CoreEq phase) => Eq (PreludeArtifact phase)
+
+deriving stock instance (CoreShow phase) => Show (PreludeArtifact phase)
+
+instance (CoreNFData phase) => NFData (PreludeArtifact phase)
+
+instance (CoreEq phase) => Eq (CoreProgram phase) where
+  left == right =
+    coreProgramPrelude left == coreProgramPrelude right
+      && coreProgramEntry left == coreProgramEntry right
+      && coreProgramModules left == coreProgramModules right
+
+instance (CoreShow phase) => Show (CoreProgram phase) where
+  showsPrec precedence program =
+    showParen (precedence > 10) $
+      showString "CoreProgram "
+        . shows (coreProgramPrelude program)
+        . showChar ' '
+        . shows (coreProgramEntry program)
+        . showChar ' '
+        . shows (coreProgramModules program)
+
+instance (CoreNFData phase) => NFData (CoreProgram phase) where
+  rnf (CoreProgram prelude entry modules moduleIndex) =
+    rnf prelude `seq` rnf entry `seq` rnf modules `seq` rnf moduleIndex

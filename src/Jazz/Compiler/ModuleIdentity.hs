@@ -10,11 +10,13 @@ module Jazz.Compiler.ModuleIdentity
     ModuleQualifier,
     ModuleIdentity,
     mkModulePath,
+    mkModuleQualifier,
     mkSourceFile,
     sourceFilePath,
     moduleIdentity,
     moduleIdentityPath,
     moduleIdentitySource,
+    moduleQualifierIdentifier,
     parseModulePathText,
     modulePathSegments,
     modulePathTextSegments,
@@ -65,6 +67,12 @@ data ModuleIdentity = ModuleIdentity
 
 mkModulePath :: NonEmpty Identifier -> ModulePath
 mkModulePath = ModulePath
+
+mkModuleQualifier :: Identifier -> ModuleQualifier
+mkModuleQualifier = ModuleQualifier
+
+moduleQualifierIdentifier :: ModuleQualifier -> Identifier
+moduleQualifierIdentifier (ModuleQualifier identifier) = identifier
 
 mkSourceFile :: FilePath -> SourceFile
 mkSourceFile = SourceFile

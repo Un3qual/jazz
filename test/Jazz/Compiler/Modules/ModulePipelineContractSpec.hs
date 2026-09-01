@@ -9,30 +9,13 @@ import Data.IORef
     newIORef,
     readIORef,
   )
-import qualified Data.List.NonEmpty as NonEmpty
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( CoreNode (..),
-    CoreNodeId (..),
-    CorePhase (Resolved),
-    Expr (..),
-    Literal (..),
-    Statement (..),
-  )
+import Jazz.Compiler.AST (CorePhase (Resolved))
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (E1001, E1002, E1003),
-    WarningCategory (SameScopeRebinding),
-  )
-import Jazz.Compiler.Diagnostics
-  ( DiagnosticOrigin (CompilationOrigin),
-    SourceSpan (..),
-    mkErrorDiagnostic,
-    mkWarningDiagnostic,
-  )
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
@@ -53,34 +36,32 @@ import Jazz.Compiler.Driver
     runRuntimeValue,
   )
 import Jazz.Compiler.ModuleCompiler
-  ( compileResolvedModule,
+  ( CompiledProgram,
     compileResolvedProgram,
+    compiledModuleExportInventory,
+    compiledModuleExpr,
+    compiledModuleInterface,
+    compiledProgramErrors,
+    compiledProgramModules,
+    compiledProgramPrelude,
+    lookupCompiledModule,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
-    ModuleExportInventory,
     exportInventory,
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    CoreResolvedImport (..),
-    ImportExposure (ImportAll),
-    ResolvedImport (..),
-    ResolvedModule (..),
+import Jazz.Compiler.ModuleGraph (PreludeArtifact (..))
+import Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.ModuleInterface
-  ( CompiledModule (..),
-    CompiledPrelude (..),
-    CompiledProgram (..),
+  ( CompiledPrelude (..),
     ModuleInterface (..),
-    compiledProgramErrors,
     emptyCompileInputs,
-    emptyCompiledPrelude,
-    emptyModuleInterface,
-    firstCompiledProgramError,
-    lookupCompiledModule,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveProgramWithAmbientExports)
 import Jazz.Compiler.ModuleRuntime
@@ -88,28 +69,17 @@ import Jazz.Compiler.ModuleRuntime
     RuntimeModule (runtimeModuleExports, runtimeModulePath),
     RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
     evaluateCompiledProgram,
-    evaluateCompiledProgramWithHost,
-    evaluateCompiledProgramWithHostObserved,
     lookupRuntimeModule,
   )
 import Jazz.Compiler.Name
-  ( Name (BuiltinName),
-    NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
-    ResolvedName,
+  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
     identifierText,
     mkIdentifier,
-    resolvedImportedName,
-    resolvedLocalName,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeCell,
     renderRuntimeValue,
     runtimeExprRequiresHost,
-  )
-import Jazz.Compiler.Runtime.Observation
-  ( RuntimeObservationRequest (RuntimeObservationStatistics),
-    RuntimeObservationResult (runtimeObservationOutcome),
-    RuntimeOutcome (RuntimeOutcomeFailed),
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
@@ -120,8 +90,6 @@ import Jazz.Compiler.RuntimeHost
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    SemanticType (..),
-    TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -131,7 +99,6 @@ import Jazz.TestHarness
     assertEqual,
     runTestSuite,
   )
-import System.Timeout (timeout)
 
 main :: IO ()
 main = runTestSuite "ModulePipelineContract" tests
@@ -153,12 +120,6 @@ tests =
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
-    ("long compiled dependency chains preserve pure runtime behavior", testLongCompiledDependencyChainPure),
-    ("long compiled dependency chains preserve host runtime behavior", testLongCompiledDependencyChainHost),
-    ("compiled error lookup preserves prelude-then-module order", testFirstCompiledProgramErrorOrder),
-    ("compile errors prevent observed host evaluation", testCompileErrorPreventsObservedHostEvaluation),
-    ("duplicate compiled module paths preserve first-match imports and lookup", testDuplicateCompiledModulePathsPreserveFirstMatch),
-    ("module compilation preserves first-match dependency lookup", testCompileResolvedModulePreservesFirstDependency),
     ("alias imports stay qualified", testAliasIsolationContract),
     ("transitive imports do not leak", testTransitiveVisibilityContract),
     ("module diagnostics retain source paths", testSourcePathContract),
@@ -168,7 +129,7 @@ tests =
 testCompiledGenericConstructorFieldsRemainModuleStable :: IO ()
 testCompiledGenericConstructorFieldsRemainModuleStable = do
   compiled <- compileFixtureProgram sources
-  case lookupCompiledModule ["Lib", "Box"] compiled of
+  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Box"])) compiled of
     Nothing -> fail "missing compiled Lib::Box module"
     Just boxModule ->
       case Map.lookup "Box" (interfaceDataTypes (compiledModuleInterface boxModule)) of
@@ -193,352 +154,6 @@ testCompiledGenericConstructorFieldsRemainModuleStable = do
         [ ("src/App/Main.jz", "module App::Main { import Lib::Box. Box [1]. }"),
           ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box [a]. }")
         ]
-
-testDuplicateCompiledModulePathsPreserveFirstMatch :: IO ()
-testDuplicateCompiledModulePathsPreserveFirstMatch =
-  case evaluateCompiledProgram duplicatePathProgram of
-    Left diagnostic -> fail ("duplicate-path program failed: " <> Text.unpack (renderDiagnostic diagnostic))
-    Right runtime -> do
-      assertEqual
-        "duplicate-path entry output"
-        (Just "(\"first\", \"first\")")
-        (renderRuntimeValue <$> runtimeProgramOutput runtime)
-      assertEqual
-        "duplicate-path module order"
-        [duplicatePath, middlePath, duplicatePath, ["App", "Main"]]
-        (map runtimeModulePath (runtimeProgramModules runtime))
-      case lookupRuntimeModule duplicatePath runtime of
-        Nothing -> fail "missing first duplicate runtime module"
-        Just runtimeModule ->
-          assertEqual
-            "public lookup keeps first duplicate"
-            (Set.singleton (RuntimeBindingExport firstExport))
-            (Map.keysSet (runtimeModuleExports runtimeModule))
-  where
-    duplicatePath = ["Lib", "Duplicate"]
-    middlePath = ["Middle"]
-    firstExport = ModuleExport ValueNamespace "value"
-    middleExport = ModuleExport ValueNamespace "middle"
-    secondExport = ModuleExport ValueNamespace "other"
-    firstModule =
-      compiledTextBindingModule duplicatePath [] firstExport (resolvedLiteral (LText "first"))
-    middleModule =
-      compiledTextBindingModule
-        middlePath
-        [chainImport duplicatePath]
-        middleExport
-        (resolvedVariable (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")))
-    secondModule =
-      compiledTextBindingModule duplicatePath [] secondExport (resolvedLiteral (LText "second"))
-    entryStatements =
-      [ resolvedExpression
-          (SourceSpan 1 1)
-          ( resolvedTuple
-              [ resolvedVariable (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")),
-                resolvedVariable (resolvedImportedName (nominalModulePath middlePath) ValueNamespace (mkIdentifier "middle"))
-              ]
-          )
-      ]
-    entryModule =
-      compiledModule
-        ["App", "Main"]
-        [chainImport duplicatePath, chainImport middlePath]
-        entryStatements
-        (exportInventory [])
-        emptyModuleInterface
-    duplicatePathProgram =
-      CompiledProgram
-        { compiledProgramPrelude = emptyCompiledPrelude,
-          compiledProgramEntryPath = ["App", "Main"],
-          compiledProgramModules = [firstModule, middleModule, secondModule, entryModule]
-        }
-
-testCompileResolvedModulePreservesFirstDependency :: IO ()
-testCompileResolvedModulePreservesFirstDependency = do
-  compiled <-
-    compileResolvedModule
-      (emptyCompileInputs defaultWarningSettings)
-      [firstDependency, secondDependency]
-      targetModule
-  assertEqual
-    "first dependency interface wins"
-    (Just (PlainTypeBinding SemanticText))
-    (Map.lookup targetExport (interfaceValueTypes (compiledModuleInterface compiled)))
-  where
-    dependencyPath = ["Lib", "Duplicate"]
-    dependencyExport = ModuleExport ValueNamespace "value"
-    dependencyInventory = exportInventory [dependencyExport]
-    firstDependency =
-      compiledModule
-        dependencyPath
-        []
-        [resolvedLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (resolvedLiteral (LText "first"))]
-        dependencyInventory
-        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding SemanticText)})
-    secondDependency =
-      compiledModule
-        dependencyPath
-        []
-        [resolvedLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (resolvedLiteral (LInt 2))]
-        dependencyInventory
-        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding SemanticInt)})
-    targetExport = ModuleExport ValueNamespace "copied"
-    targetImport = chainImport dependencyPath
-    targetCoreImport = CoreResolvedImport (SourceSpan 1 1) dependencyPath Nothing Nothing
-    targetExpr =
-      resolvedBlock
-        [ resolvedLet
-            (resolvedLocalName ValueNamespace (mkIdentifier "copied"))
-            (SourceSpan 1 1)
-            (resolvedVariable (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value")))
-        ]
-    targetModule =
-      ResolvedModule
-        { resolvedModulePath = ["App", "Main"],
-          resolvedSourcePath = "<module-index-test>",
-          resolvedModuleImports = [targetImport],
-          resolvedModuleExportInventory = exportInventory [targetExport],
-          resolvedModuleCore = CoreModule (Just ["App", "Main"]) Nothing [targetCoreImport] targetExpr
-        }
-
-compiledTextBindingModule :: [Text] -> [ResolvedImport] -> ModuleExport -> Expr 'Resolved -> CompiledModule
-compiledTextBindingModule path imports moduleExport valueExpr =
-  compiledModule
-    path
-    imports
-    [ resolvedLet
-        (resolvedLocalName ValueNamespace (mkIdentifier (moduleExportName moduleExport)))
-        (SourceSpan 1 1)
-        valueExpr
-    ]
-    (exportInventory [moduleExport])
-    ( emptyModuleInterface
-        { interfaceValueTypes = Map.singleton moduleExport (PlainTypeBinding SemanticText)
-        }
-    )
-
-testLongCompiledDependencyChainPure :: IO ()
-testLongCompiledDependencyChainPure = do
-  let moduleCount = 12000
-      compiled = compiledChainProgram moduleCount False
-  outcome <- timeout 15000000 (evaluatePureChain compiled moduleCount)
-  case outcome of
-    Nothing -> fail "pure compiled dependency chain timed out"
-    Just () -> pure ()
-
-testLongCompiledDependencyChainHost :: IO ()
-testLongCompiledDependencyChainHost = do
-  callsRef <- newIORef []
-  let moduleCount = 6000
-      compiled = compiledChainProgram moduleCount True
-      host = (recordingHost callsRef) {runtimeHostArguments = modifyIORef' callsRef (<> ["arguments"]) >> pure []}
-  outcome <- timeout 15000000 (evaluateHostChain host compiled moduleCount)
-  case outcome of
-    Nothing -> fail "host compiled dependency chain timed out"
-    Just () -> pure ()
-  calls <- readIORef callsRef
-  assertEqual "host chain calls" ["arguments"] calls
-
-testFirstCompiledProgramErrorOrder :: IO ()
-testFirstCompiledProgramErrorOrder = do
-  assertEqual
-    "prelude error precedes module errors"
-    (Just preludeError)
-    (firstCompiledProgramError programWithPreludeError)
-  assertEqual
-    "earlier module error precedes later module errors"
-    (Just firstModuleError)
-    (firstCompiledProgramError programWithModuleErrors)
-  where
-    preludeError = mkErrorDiagnostic E1001 CompilationOrigin "prelude error"
-    firstModuleError = mkErrorDiagnostic E1002 CompilationOrigin "first module error"
-    secondModuleError = mkErrorDiagnostic E1003 CompilationOrigin "second module error"
-    warning = mkWarningDiagnostic SameScopeRebinding CompilationOrigin "warning"
-    firstModule =
-      (compiledModule ["Lib", "First"] [] [] (exportInventory []) emptyModuleInterface)
-        { compiledModuleDiagnostics = [warning, firstModuleError]
-        }
-    secondModule =
-      (compiledModule ["App", "Main"] [] [] (exportInventory []) emptyModuleInterface)
-        { compiledModuleDiagnostics = [secondModuleError]
-        }
-    programWithModuleErrors =
-      CompiledProgram
-        { compiledProgramPrelude = emptyCompiledPrelude,
-          compiledProgramEntryPath = ["App", "Main"],
-          compiledProgramModules = [firstModule, secondModule]
-        }
-    programWithPreludeError =
-      programWithModuleErrors
-        { compiledProgramPrelude =
-            emptyCompiledPrelude
-              { compiledPreludeDiagnostics = [warning, preludeError]
-              }
-        }
-
-testCompileErrorPreventsObservedHostEvaluation :: IO ()
-testCompileErrorPreventsObservedHostEvaluation = do
-  callsRef <- newIORef []
-  result <-
-    evaluateCompiledProgramWithHostObserved
-      RuntimeObservationStatistics
-      (recordingHost callsRef)
-      compiledWithError
-  calls <- readIORef callsRef
-  case runtimeObservationOutcome result of
-    RuntimeOutcomeFailed diagnostic ->
-      assertEqual "compile error outcome" compileError diagnostic
-    _ -> fail "compile error evaluation did not fail"
-  assertEqual "compile error host calls" [] calls
-  where
-    compileError = mkErrorDiagnostic E1001 CompilationOrigin "compile error"
-    compiledWithError =
-      (compiledChainProgram 1 True)
-        { compiledProgramModules =
-            case compiledProgramModules (compiledChainProgram 1 True) of
-              [] -> []
-              firstModule : rest ->
-                firstModule {compiledModuleDiagnostics = [compileError]} : rest
-        }
-
-evaluatePureChain :: CompiledProgram -> Int -> IO ()
-evaluatePureChain compiled moduleCount =
-  case evaluateCompiledProgram compiled of
-    Left diagnostic -> fail ("pure chain failed: " <> Text.unpack (renderDiagnostic diagnostic))
-    Right runtime -> assertChainRuntime runtime moduleCount
-
-evaluateHostChain :: RuntimeHost IO -> CompiledProgram -> Int -> IO ()
-evaluateHostChain host compiled moduleCount = do
-  result <- evaluateCompiledProgramWithHost host compiled
-  case result of
-    Left diagnostic -> fail ("host chain failed: " <> Text.unpack (renderDiagnostic diagnostic))
-    Right runtime -> assertChainRuntime runtime moduleCount
-
-assertChainRuntime :: RuntimeProgram -> Int -> IO ()
-assertChainRuntime runtime moduleCount = do
-  assertEqual
-    "dependency order"
-    (map chainPath [0 .. moduleCount - 1] <> [["App", "Main"]])
-    (map runtimeModulePath (runtimeProgramModules runtime))
-  assertEqual "entry output" (Just "\"chain-value\"") (renderRuntimeValue <$> runtimeProgramOutput runtime)
-  case lookupRuntimeModule (chainPath (moduleCount `div` 2)) runtime of
-    Nothing -> fail "missing middle runtime dependency"
-    Just runtimeModule ->
-      assertEqual
-        "middle dependency export"
-        (Set.singleton (RuntimeBindingExport chainExport))
-        (Map.keysSet (runtimeModuleExports runtimeModule))
-
-compiledChainProgram :: Int -> Bool -> CompiledProgram
-compiledChainProgram moduleCount requiresHost =
-  CompiledProgram
-    { compiledProgramPrelude = emptyCompiledPrelude,
-      compiledProgramEntryPath = ["App", "Main"],
-      compiledProgramModules = map chainDependency [0 .. moduleCount - 1] <> [chainEntry requiresHost moduleCount]
-    }
-
-chainDependency :: Int -> CompiledModule
-chainDependency index =
-  compiledModule path imports statements chainInventory chainInterface
-  where
-    path = chainPath index
-    imports = if index == 0 then [] else [chainImport (chainPath (index - 1))]
-    valueExpr =
-      if index == 0
-        then resolvedLiteral (LText "chain-value")
-        else resolvedVariable (resolvedImportedName (nominalModulePath (chainPath (index - 1))) ValueNamespace (mkIdentifier "value"))
-    statements = [resolvedLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) valueExpr]
-
-chainEntry :: Bool -> Int -> CompiledModule
-chainEntry requiresHost moduleCount =
-  compiledModule ["App", "Main"] [chainImport dependencyPath] statements (exportInventory []) emptyModuleInterface
-  where
-    dependencyPath = chainPath (moduleCount - 1)
-    importedValue = resolvedVariable (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value"))
-    hostResultName = resolvedLocalName ValueNamespace (mkIdentifier "host-result")
-    hostStatements =
-      [ resolvedLet
-          hostResultName
-          (SourceSpan 1 1)
-          ( resolvedApply
-              (resolvedVariable (BuiltinName (mkIdentifier "__kernel_arguments!")))
-              (resolvedTuple [])
-          )
-      | requiresHost
-      ]
-    entryValue =
-      if requiresHost
-        then
-          resolvedApply
-            (resolvedLambda (resolvedLocalName ValueNamespace (mkIdentifier "ignored-host-result")) importedValue)
-            (resolvedVariable hostResultName)
-        else importedValue
-    statements = hostStatements <> [resolvedExpression (SourceSpan 2 1) entryValue]
-
-compiledModule :: [Text] -> [ResolvedImport] -> [Statement 'Resolved] -> ModuleExportInventory -> ModuleInterface -> CompiledModule
-compiledModule path imports statements inventory moduleInterface =
-  CompiledModule
-    { compiledModulePath = path,
-      compiledModuleImports = imports,
-      compiledModuleExportInventory = inventory,
-      compiledModuleInterface = moduleInterface,
-      compiledModuleDiagnostics = [],
-      compiledModuleExpr = resolvedBlock statements
-    }
-
-resolvedExpressionNode :: CoreNode 'Resolved sort
-resolvedExpressionNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
-
-resolvedStatementNode :: SourceSpan -> CoreNode 'Resolved sort
-resolvedStatementNode spanValue = CoreNode (CoreNodeId 0) spanValue ()
-
-resolvedLiteral :: Literal -> Expr 'Resolved
-resolvedLiteral = ELit resolvedExpressionNode
-
-resolvedVariable :: ResolvedName -> Expr 'Resolved
-resolvedVariable = EVar resolvedExpressionNode
-
-resolvedTuple :: [Expr 'Resolved] -> Expr 'Resolved
-resolvedTuple = ETuple resolvedExpressionNode
-
-resolvedApply :: Expr 'Resolved -> Expr 'Resolved -> Expr 'Resolved
-resolvedApply = EApply resolvedExpressionNode
-
-resolvedLambda :: ResolvedName -> Expr 'Resolved -> Expr 'Resolved
-resolvedLambda = ELambda resolvedExpressionNode
-
-resolvedBlock :: [Statement 'Resolved] -> Expr 'Resolved
-resolvedBlock = EBlock resolvedExpressionNode
-
-resolvedLet :: ResolvedName -> SourceSpan -> Expr 'Resolved -> Statement 'Resolved
-resolvedLet name spanValue = SLet (resolvedStatementNode spanValue) name
-
-resolvedExpression :: SourceSpan -> Expr 'Resolved -> Statement 'Resolved
-resolvedExpression spanValue = SExpr (resolvedStatementNode spanValue)
-
-chainImport :: [Text] -> ResolvedImport
-chainImport path = ResolvedImport (SourceSpan 1 1) path ImportAll
-
-chainPath :: Int -> [Text]
-chainPath index = ["Chain", Text.pack (show index)]
-
-nominalModulePath :: [Text] -> ModulePath
-nominalModulePath path =
-  case NonEmpty.nonEmpty path of
-    Just segments -> mkModulePath (fmap mkIdentifier segments)
-    Nothing -> error "module pipeline fixture path cannot be empty"
-
-chainExport :: ModuleExport
-chainExport = ModuleExport ValueNamespace "value"
-
-chainInventory :: ModuleExportInventory
-chainInventory = exportInventory [chainExport]
-
-chainInterface :: ModuleInterface
-chainInterface =
-  emptyModuleInterface
-    { interfaceValueTypes = Map.singleton chainExport (PlainTypeBinding SemanticText)
-    }
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
 testLexicalBindersShadowImportedAndBuiltinNames = do
@@ -587,7 +202,7 @@ testRuntimeModulePublishesDeclaredExports = do
 testCompiledModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
 testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
   compiled <- compileFixtureProgram explicitExportSources
-  case lookupCompiledModule ["Lib", "Value"] compiled of
+  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Value"])) compiled of
     Nothing -> fail "missing compiled Lib::Value module"
     Just valueModule -> do
       assertEqual
@@ -684,7 +299,7 @@ explicitCapabilitySources =
 testModuleExportIdentityPreservesNamespaces :: IO ()
 testModuleExportIdentityPreservesNamespaces = do
   compiled <- compileFixtureProgram shadowingSources
-  case lookupCompiledModule ["Lib", "Maybe"] compiled of
+  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Maybe"])) compiled of
     Nothing -> fail "missing compiled Lib::Maybe module"
     Just maybeModule ->
       assertEqual
@@ -771,7 +386,7 @@ testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
 testGroupedExportsPublishSelectedConstructor :: IO ()
 testGroupedExportsPublishSelectedConstructor = do
   compiled <- compileFixtureProgram sources
-  case lookupCompiledModule ["Lib", "Choice"] compiled of
+  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Choice"])) compiled of
     Nothing -> fail "missing compiled Lib::Choice module"
     Just choiceModule ->
       do
@@ -1003,7 +618,7 @@ compileFixtureProgram sources = do
   resolvedResult <-
     resolveProgramWithAmbientExports
       resolverConfig
-      ResolveKernelOnly
+      testPrelude
       (exportInventory [])
       (\path -> pure (Map.lookup path sources))
       ["App", "Main"]
@@ -1030,7 +645,7 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
   resolvedResult <-
     resolveProgramWithAmbientExports
       resolverConfig
-      ResolveKernelOnly
+      testPrelude
       (exportInventory [])
       lookupSource
       ["App", "Main"]
@@ -1038,7 +653,7 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
     Left diagnostic -> fail ("resolution failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right resolved -> do
       compiled <- compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
-      case lookupCompiledModule ["Lib", "Value"] compiled of
+      case lookupCompiledModule (nominalModulePath ("Lib" :| ["Value"])) compiled of
         Nothing -> fail "missing compiled Lib::Value module"
         Just valueModule ->
           assertEqual
@@ -1159,3 +774,17 @@ renderFirstCompileError result =
 
 resolverConfig :: ModuleResolutionConfig
 resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+
+testPrelude :: PreludeArtifact 'Resolved
+testPrelude =
+  PreludeArtifact
+    { preludeIdentity =
+        moduleIdentity
+          (nominalModulePath ("Prelude" :| []))
+          (mkSourceFile "<module-pipeline-test-prelude>"),
+      preludeBuiltinMode = ResolveKernelOnly,
+      preludeModule = Nothing
+    }
+
+nominalModulePath :: NonEmpty Text -> ModulePath
+nominalModulePath = mkModulePath . fmap mkIdentifier

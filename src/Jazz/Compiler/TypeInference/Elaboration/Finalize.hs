@@ -18,7 +18,7 @@ import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CorePhase (..), DataConstructor (..), Expr (..), Literal (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST (CorePhase (..), DataConstructor (..), Literal (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
     BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
@@ -29,13 +29,12 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.ModuleExports
-  ( LocatedModuleExportName (..),
-    ModuleExport (..),
-    ModuleExportSelector (..),
-    ModuleTypeConstructorSelector (..),
+  ( ModuleExport (..),
+    exportedConstructorOwners,
     inventoryHasExport,
   )
-import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
+import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModuleFacts (..), coreModulePath)
+import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.Name
   ( GeneratedNameKind (OperatorBinding),
     Name (..),
@@ -111,7 +110,7 @@ import Jazz.Compiler.TypedCore.Validate
 -- downstream lowering handoff.
 finalizeValidatedTypedCoreExpressionDirectCall ::
   TypedSourcePath ->
-  ResolvedModule ->
+  CoreModule 'Resolved ->
   InferState ->
   ProvisionalTypedExpr ->
   TypedCoreProductionOutcome
@@ -181,7 +180,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       unsupportedTypedCoreProductionOutcome
         (NonEmpty.singleton (failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail))
   where
-    modulePath = resolvedModulePath resolvedModule
+    modulePath = NonEmpty.toList (modulePathTextSegments (coreModulePath resolvedModule))
 
     typedProgram typedInterface typedRecursiveGroups typedStatements moduleInfo =
       TypedProgram
@@ -2082,37 +2081,17 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             Nothing -> False
 
         selectedConstructorOwner constructorName =
-          case coreModuleDeclaredExports (resolvedModuleCore resolvedModule) of
-            Nothing -> Map.lookup constructorName visibleConstructorOwners
-            Just declaredExports ->
-              case Set.toList (Set.fromList (concatMap selectorOwners (declaredModuleExportSelectors declaredExports))) of
-                [owner] -> Just owner
-                _ -> Nothing
-          where
-            selectorOwners selector =
-              case selector of
-                ModuleExportSelector maybeNamespace name
-                  | name == constructorName,
-                    maybeNamespace `elem` [Nothing, Just ConstructorNamespace] ->
-                      maybe [] pure (Map.lookup constructorName visibleConstructorOwners)
-                ModuleTypeExportSelector typeName _ constructorSelector
-                  | constructorSelectorIncludes typeName constructorName constructorSelector ->
-                      [typeName]
-                _ -> []
+          declaredConstructorOwner constructorName
+            <|> Map.lookup constructorName visibleConstructorOwners
 
-        constructorSelectorIncludes typeName constructorName constructorSelector =
-          case constructorSelector of
-            AbstractType -> False
-            AllTypeConstructors _ ->
-              Set.member constructorName (Map.findWithDefault Set.empty typeName constructorsByDataName)
-            SelectedTypeConstructors constructors ->
-              any ((== constructorName) . locatedModuleExportName) (NonEmpty.toList constructors)
-
-        constructorsByDataName =
-          Map.fromList
-            [ (typeName, constructorNames)
-            | (typeName, constructorNames, _) <- localDataDeclarations
-            ]
+        declaredConstructorOwner constructorName =
+          case Set.toList
+            ( exportedConstructorOwners
+                constructorName
+                (resolvedModuleExports (coreModuleFacts resolvedModule))
+            ) of
+            [owner] -> Just owner
+            _ -> Nothing
 
         flattenedConstructorOwner constructorName =
           case exportedCandidates of
@@ -2139,33 +2118,14 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             )
 
         directlySelectedDataNames =
-          case coreModuleDeclaredExports (resolvedModuleCore resolvedModule) of
-            Nothing -> concatMap dataNamesForExport orderedModuleExports
-            Just declaredExports ->
-              concatMap
-                dataNamesForSelector
-                (declaredModuleExportSelectors declaredExports)
-
-        dataNamesForSelector selector =
-          case selector of
-            ModuleTypeExportSelector typeName _ _
-              | Map.member typeName localDataByName -> [typeName]
-              | otherwise -> []
-            ModuleExportSelector maybeNamespace name ->
-              concatMap
-                dataNamesForExport
-                [ export
-                | export <- orderedModuleExports,
-                  moduleExportName export == name,
-                  maybe True (== moduleExportNamespace export) maybeNamespace
-                ]
+          concatMap dataNamesForExport orderedModuleExports
 
         dataNamesForExport (ModuleExport namespace name) =
           case namespace of
             TypeNamespace
               | Map.member name localDataByName -> [name]
             ConstructorNamespace ->
-              case Map.lookup name visibleConstructorOwners of
+              case selectedConstructorOwner name of
                 Just owner -> [owner]
                 Nothing -> []
             _ -> []
@@ -2254,19 +2214,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     orderedModuleExports =
       stableUniqueExports
-        ( case coreModuleDeclaredExports coreModule of
-            Nothing -> filter publicExport sourceOrderedDeclarations
-            Just declaredExports ->
-              concatMap exportsForSelector (declaredModuleExportSelectors declaredExports)
-        )
+        (filter publicExport sourceOrderedDeclarations)
       where
-        coreModule = resolvedModuleCore resolvedModule
-        publicInventory = resolvedModuleExportInventory resolvedModule
+        publicInventory = resolvedModuleExports (coreModuleFacts resolvedModule)
         publicExport = (`inventoryHasExport` publicInventory)
         sourceOrderedDeclarations =
-          case coreModuleExpr coreModule of
-            EBlock _ statements -> concatMap statementExports statements
-            _ -> []
+          concatMap statementExports (coreModuleStatements resolvedModule)
 
         statementExports statement =
           case statement of
@@ -2286,53 +2239,6 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           case name of
             GeneratedName (OperatorBinding _) -> True
             _ -> False
-
-        exportsForSelector selector =
-          case selector of
-            ModuleExportSelector maybeNamespace name ->
-              let matchingDeclarations =
-                    [ export
-                    | export <- sourceOrderedDeclarations,
-                      moduleExportName export == name,
-                      maybe True (== moduleExportNamespace export) maybeNamespace,
-                      publicExport export
-                    ]
-               in case matchingDeclarations of
-                    _ : _ -> matchingDeclarations
-                    [] ->
-                      [ export
-                      | namespace <- maybe exportNamespaces (: []) maybeNamespace,
-                        let export = ModuleExport namespace name,
-                        publicExport export
-                      ]
-            ModuleTypeExportSelector typeName _ constructorSelector ->
-              filter publicExport (ModuleExport TypeNamespace typeName : selectedConstructors typeName constructorSelector)
-
-        selectedConstructors typeName constructorSelector =
-          case constructorSelector of
-            AbstractType -> []
-            AllTypeConstructors _ -> sourceConstructors typeName
-            SelectedTypeConstructors constructors ->
-              [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
-              | constructor <- NonEmpty.toList constructors
-              ]
-
-        sourceConstructors typeName =
-          case coreModuleExpr coreModule of
-            EBlock _ statements ->
-              concat
-                [ [ModuleExport ConstructorNamespace (identifierText constructorName) | DataConstructor _ constructorName _ <- constructors]
-                | SData _ sourceTypeName _ constructors <- statements,
-                  identifierText sourceTypeName == typeName
-                ]
-            _ -> []
-
-        exportNamespaces =
-          [ ValueNamespace,
-            ConstructorNamespace,
-            TypeNamespace,
-            CapabilityNamespace
-          ]
 
         stableUniqueExports = reverse . snd . foldl' keep (Set.empty, [])
           where

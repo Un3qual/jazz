@@ -15,6 +15,7 @@ where
 
 import Control.DeepSeq (NFData (rnf))
 import Control.Exception (evaluate)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -68,21 +69,28 @@ import Jazz.Compiler.LoweredIR.Lower
     validatedLoweredProgram,
   )
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import Jazz.Compiler.ModuleCompiler (compileResolvedModule)
-import Jazz.Compiler.ModuleGraph
-  ( ResolvedModule (..),
-    ResolvedProgram (..),
-  )
-import Jazz.Compiler.ModuleInterface
-  ( CompileInputs,
-    CompiledModule (..),
-    CompiledProgram (..),
-    compileInputs,
+import Jazz.Compiler.ModuleCompiler
+  ( CompiledModule,
+    CompiledProgram,
+    compileResolvedModule,
     compiledModuleErrors,
+    compiledModulePath,
+    compiledProgramEntryPath,
     compiledProgramErrors,
+    compiledProgramModules,
+    compiledProgramPrelude,
   )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule,
+    CoreProgram,
+    coreModulePath,
+    coreProgramModules,
+  )
+import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
+import Jazz.Compiler.ModuleInterface (CompileInputs, compileInputs)
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig,
+    resolvePreludeArtifact,
     resolveProgramWithAmbientExports,
   )
 import Jazz.Compiler.ModuleRuntime
@@ -130,14 +138,14 @@ import Jazz.ProgramCorpus.Types
 
 data PreparedBenchmark
   = PreparedParseLower Text
-  | PreparedAnalysis CompileInputs [CompiledModule] ResolvedModule
+  | PreparedAnalysis CompileInputs [CompiledModule] (CoreModule 'Resolved)
   | PreparedModulePreparation ProgramCase
   | PreparedRuntime ExpectedProgramBehavior CompiledProgram
   | PreparedWholeProgram ProgramCase
 
 data PreparedCompilerScaleBenchmark
   = PreparedCompilerScaleParseLower Text
-  | PreparedCompilerScaleAnalysis CompileInputs [CompiledModule] ResolvedModule
+  | PreparedCompilerScaleAnalysis CompileInputs [CompiledModule] (CoreModule 'Resolved)
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
   | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput CompiledProgram
   | PreparedCompilerScaleLoweredValidation LoweredProgram
@@ -614,25 +622,32 @@ prepareValidCompilerScaleProgram programCase = do
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
     Right compiledProgram -> requireNoCompileErrors compiledProgram >> pure compiledProgram
 
-resolveBenchmarkProgram :: ModuleResolutionConfig -> [Text] -> (FilePath -> IO (Maybe Text)) -> IO ResolvedProgram
+resolveBenchmarkProgram :: ModuleResolutionConfig -> [Text] -> (FilePath -> IO (Maybe Text)) -> IO (CoreProgram 'Resolved)
 resolveBenchmarkProgram resolutionConfig entryModulePath sourceLookup =
   case preparePrelude (PreludeBundled bundledPreludeSource) of
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
     Right preparedPrelude -> do
-      resolvedResult <-
-        resolveProgramWithAmbientExports
-          resolutionConfig
-          (preparedPreludeBuiltinMode preparedPrelude)
-          (preparedPreludeVisibleExports preparedPrelude)
-          sourceLookup
-          entryModulePath
-      case resolvedResult of
+      case resolvePreludeArtifact
+        (preparedPreludeVisibleExports preparedPrelude)
+        (preparedPreludeArtifact preparedPrelude) of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
-        Right resolvedProgram -> pure resolvedProgram
+        Right resolvedPrelude -> do
+          resolvedResult <-
+            resolveProgramWithAmbientExports
+              resolutionConfig
+              resolvedPrelude
+              (preparedPreludeVisibleExports preparedPrelude)
+              sourceLookup
+              entryModulePath
+          case resolvedResult of
+            Left diagnostic -> failBenchmarkDiagnostic diagnostic
+            Right resolvedProgram -> pure resolvedProgram
 
-requireResolvedEntryModule :: [Text] -> ResolvedProgram -> IO ResolvedModule
+requireResolvedEntryModule :: [Text] -> CoreProgram 'Resolved -> IO (CoreModule 'Resolved)
 requireResolvedEntryModule entryModulePath resolvedProgram =
-  case filter ((== entryModulePath) . resolvedModulePath) (resolvedProgramModules resolvedProgram) of
+  case filter
+    ((== entryModulePath) . NonEmpty.toList . modulePathTextSegments . coreModulePath)
+    (NonEmpty.toList (coreProgramModules resolvedProgram)) of
     value : _ -> pure value
     [] ->
       ioError

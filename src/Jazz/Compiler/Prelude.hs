@@ -5,11 +5,14 @@
 module Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
+    preparedPreludeBuiltinMode,
+    preparedPreludeExpr,
     preparePrelude,
     resolvedExplicitPrelude,
   )
 where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -20,11 +23,14 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.BundledPrelude (bundledPreludeIdentity)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
+  ( Diagnostic (..),
+    DiagnosticLabel (..),
+    SourceSpan (..),
     prependDiagnosticSummary,
     setDiagnosticErrorCode,
   )
@@ -33,14 +39,25 @@ import Jazz.Compiler.ModuleExports
     ModuleExportInventory,
     exportInventory,
   )
+import Jazz.Compiler.ModuleGraph
+  ( CoreModule (..),
+    PreludeArtifact (..),
+    coreModuleExpr,
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
+  )
 import Jazz.Compiler.Name
   ( NameNamespace (..),
+    mkIdentifier,
     renderName,
   )
 import Jazz.Compiler.Parser (parseSurfaceProgram)
-import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceModule)
 import Jazz.Compiler.PreludeContract (validatePreludeKernelBridges)
-import Jazz.Compiler.SourceProgram (scopeStatements)
 
 data ResolvedPrelude
   = PreludeAbsent
@@ -49,12 +66,17 @@ data ResolvedPrelude
   deriving (Eq, Show)
 
 data PreparedPrelude = PreparedPrelude
-  { preparedPreludeExpr :: Maybe (Expr 'Lowered),
+  { preparedPreludeArtifact :: PreludeArtifact 'Lowered,
     preparedPreludeHiddenStatementIndices :: Set Int,
-    preparedPreludeVisibleExports :: ModuleExportInventory,
-    preparedPreludeBuiltinMode :: BuiltinResolutionMode
+    preparedPreludeVisibleExports :: ModuleExportInventory
   }
   deriving (Eq, Show)
+
+preparedPreludeBuiltinMode :: PreparedPrelude -> BuiltinResolutionMode
+preparedPreludeBuiltinMode = preludeBuiltinMode . preparedPreludeArtifact
+
+preparedPreludeExpr :: PreparedPrelude -> Maybe (Expr 'Lowered)
+preparedPreludeExpr = fmap coreModuleExpr . preludeModule . preparedPreludeArtifact
 
 preparePrelude :: ResolvedPrelude -> Either Diagnostic PreparedPrelude
 preparePrelude resolvedPrelude =
@@ -62,27 +84,32 @@ preparePrelude resolvedPrelude =
     PreludeAbsent ->
       Right
         PreparedPrelude
-          { preparedPreludeExpr = Nothing,
+          { preparedPreludeArtifact = preludeArtifact absentPreludeIdentity Nothing,
             preparedPreludeHiddenStatementIndices = Set.empty,
-            preparedPreludeVisibleExports = exportInventory [],
-            preparedPreludeBuiltinMode = ResolveKernelOnly
+            preparedPreludeVisibleExports = exportInventory []
           }
-    PreludeBundled source -> prepare True source
-    PreludeExplicit source -> prepare False source
+    PreludeBundled source -> prepare bundledPreludeIdentity True source
+    PreludeExplicit source -> prepare explicitPreludeIdentity False source
   where
-    prepare hidden source = do
-      loweredPrelude <- validateAndLowerPrelude source
-      let statements = scopeStatements loweredPrelude
+    prepare identity hidden source = do
+      loweredPrelude <- validateAndLowerPrelude identity source
+      let statements = coreModuleStatements loweredPrelude
       pure
         PreparedPrelude
-          { preparedPreludeExpr = Just loweredPrelude,
+          { preparedPreludeArtifact = preludeArtifact identity (Just loweredPrelude),
             preparedPreludeHiddenStatementIndices =
               if hidden
                 then Set.fromList [0 .. length statements - 1]
                 else Set.empty,
-            preparedPreludeVisibleExports = collectPreludeExports loweredPrelude,
-            preparedPreludeBuiltinMode = ResolveKernelOnly
+            preparedPreludeVisibleExports = collectPreludeExports loweredPrelude
           }
+
+    preludeArtifact identity maybeModule =
+      PreludeArtifact
+        { preludeIdentity = identity,
+          preludeBuiltinMode = ResolveKernelOnly,
+          preludeModule = maybeModule
+        }
 
 resolvedExplicitPrelude :: Maybe Text -> ResolvedPrelude
 resolvedExplicitPrelude maybePrelude =
@@ -90,23 +117,42 @@ resolvedExplicitPrelude maybePrelude =
     Nothing -> PreludeAbsent
     Just preludeText -> PreludeExplicit preludeText
 
-validateAndLowerPrelude :: Text -> Either Diagnostic (Expr 'Lowered)
-validateAndLowerPrelude preludeText =
+absentPreludeIdentity :: ModuleIdentity
+absentPreludeIdentity = syntheticPreludeIdentity "<absent-prelude>"
+
+explicitPreludeIdentity :: ModuleIdentity
+explicitPreludeIdentity = syntheticPreludeIdentity "<explicit-prelude>"
+
+syntheticPreludeIdentity :: FilePath -> ModuleIdentity
+syntheticPreludeIdentity sourcePath =
+  moduleIdentity
+    (mkModulePath (mkIdentifier "Prelude" :| []))
+    (mkSourceFile sourcePath)
+
+validateAndLowerPrelude :: ModuleIdentity -> Text -> Either Diagnostic (CoreModule 'Lowered)
+validateAndLowerPrelude identity preludeText =
   case parseSurfaceProgram preludeText of
     Left parseError ->
       Left (setDiagnosticErrorCode E0002 (prependDiagnosticSummary "prelude parse error: " parseError))
-    Right preludeSurfaceExpr ->
-      let loweredPrelude = lowerSurfaceExpr preludeSurfaceExpr
-       in case validatePreludeKernelBridges loweredPrelude of
-            [] -> Right loweredPrelude
-            firstValidationError : _ -> Left firstValidationError
+    Right preludeSurfaceExpr -> do
+      loweredPrelude <- lowerSurfaceModule identity preludeSurfaceExpr
+      case map unqualifyDiagnosticSpans (validatePreludeKernelBridges (coreModuleExpr loweredPrelude)) of
+        [] -> Right loweredPrelude
+        firstValidationError : _ -> Left firstValidationError
 
-collectPreludeExports :: Expr 'Lowered -> ModuleExportInventory
-collectPreludeExports expression =
-  exportInventory $
-    case expression of
-      EBlock _ statements -> concatMap statementExports statements
-      _ -> []
+unqualifyDiagnosticSpans :: Diagnostic -> Diagnostic
+unqualifyDiagnosticSpans diagnostic =
+  diagnostic
+    { diagnosticPrimaryLabel = unqualifyLabel <$> diagnosticPrimaryLabel diagnostic,
+      diagnosticSecondaryLabels = map unqualifyLabel (diagnosticSecondaryLabels diagnostic)
+    }
+  where
+    unqualifyLabel label = label {labelSpan = unqualifySpan (labelSpan label)}
+    unqualifySpan spanValue = SourceSpan (spanLine spanValue) (spanColumn spanValue)
+
+collectPreludeExports :: CoreModule 'Lowered -> ModuleExportInventory
+collectPreludeExports coreModule =
+  exportInventory (concatMap statementExports (coreModuleStatements coreModule))
   where
     statementExports statement =
       case statement of

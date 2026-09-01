@@ -74,6 +74,7 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralIntegralValue,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     emptyModuleInterface,
@@ -449,12 +450,12 @@ forceListWith forceValue values =
 inferResolvedModuleTypedCoreExpressionDirectCall ::
   InferenceInputs ->
   TypedSourcePath ->
-  ModuleGraph.ResolvedModule ->
+  ModuleGraph.CoreModule 'Resolved ->
   IO TypedCoreProductionResult
 inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule =
   {-# SCC "jazz-stage:type-inference" #-}
   do
-    let sourceExpression = ModuleGraph.coreModuleExpr (ModuleGraph.resolvedModuleCore resolvedModule)
+    let sourceExpression = ModuleGraph.coreModuleExpr resolvedModule
         (inferredResult, finalState, forwardBindings, inferenceSubject) =
           inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs Set.empty sourceExpression
         expression = inferenceSubjectExpr inferenceSubject
@@ -472,7 +473,7 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
     let outcome = productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
     pure (TypedCoreProductionResult inferenceResult outcome)
 
-productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.ResolvedModule -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionOutcome
+productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionOutcome
 productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
   | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = blockedTypedCoreProductionOutcome
   | otherwise =
@@ -484,14 +485,14 @@ productionOutcome inputs sourcePath resolvedModule finalState inferenceResult in
             Nothing ->
               unsupportedTypedCoreProductionOutcome
                 ( NonEmpty.singleton
-                    (TypedCoreProductionFailure (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule)) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
+                    (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
                 )
   where
     profileFailures = inputFailures <> moduleFailures
     inputFailures =
       concat
         [ [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail
-          | inferenceCurrentModulePath inputs /= Just (ModuleGraph.resolvedModulePath resolvedModule)
+          | inferenceCurrentModulePath inputs /= Just modulePath
           ],
           [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail
           | not (validTypedSourcePath sourcePath)
@@ -507,11 +508,13 @@ productionOutcome inputs sourcePath resolvedModule finalState inferenceResult in
         ]
     moduleFailures =
       [ TypedCoreProductionFailure
-          (TypedCoreProductionModulePath (ModuleGraph.resolvedModulePath resolvedModule))
+          (TypedCoreProductionModulePath modulePath)
           TypedCoreResolvedImportsUnsupported
           TypedCoreNoFailureDetail
-      | not (null (ModuleGraph.resolvedModuleImports resolvedModule))
+      | not (null (ModuleGraph.coreModuleImports resolvedModule))
       ]
+    modulePath =
+      NonEmpty.toList (modulePathTextSegments (ModuleGraph.coreModulePath resolvedModule))
 
 emptyInferenceInputs :: BuiltinResolutionMode -> WarningSettings -> InferenceInputs
 emptyInferenceInputs builtinMode settings =

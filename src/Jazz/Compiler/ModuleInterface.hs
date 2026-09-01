@@ -6,31 +6,21 @@
 -- | Compile-time and runtime-facing module boundary records.
 module Jazz.Compiler.ModuleInterface
   ( CompileInputs (..),
-    CompiledModule (..),
     CompiledPrelude (..),
-    CompiledProgram (..),
-    compiledModuleErrors,
-    compiledModuleWarnings,
     compiledPreludeErrors,
     compiledPreludeWarnings,
-    compiledProgramDiagnostics,
-    compiledProgramErrors,
-    compiledProgramWarnings,
-    firstCompiledProgramError,
     ModuleExport (..),
     ModuleInterface (..),
     compileInputs,
     emptyCompileInputs,
     emptyCompiledPrelude,
     emptyModuleInterface,
-    lookupCompiledModule,
     moduleExportForBinding,
     moduleInterfaceExportInventory,
   )
 where
 
 import Control.DeepSeq (NFData)
-import Data.List (find)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
@@ -50,7 +40,6 @@ import Jazz.Compiler.ModuleExports
     ModuleExportInventory,
     exportInventory,
   )
-import Jazz.Compiler.ModuleGraph (ResolvedImport)
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
@@ -129,50 +118,11 @@ emptyCompiledPrelude =
       compiledPreludeRuntimeHints = Map.empty
     }
 
-data CompiledModule = CompiledModule
-  { compiledModulePath :: [Text],
-    compiledModuleImports :: [ResolvedImport],
-    compiledModuleExportInventory :: ModuleExportInventory,
-    compiledModuleInterface :: ModuleInterface,
-    compiledModuleDiagnostics :: [Diagnostic],
-    compiledModuleExpr :: Expr 'Resolved
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-data CompiledProgram = CompiledProgram
-  { compiledProgramPrelude :: CompiledPrelude,
-    compiledProgramEntryPath :: [Text],
-    compiledProgramModules :: [CompiledModule]
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
-compiledProgramDiagnostics compiledProgram =
-  compiledPreludeDiagnostics (compiledProgramPrelude compiledProgram)
-    <> concatMap compiledModuleDiagnostics (compiledProgramModules compiledProgram)
-
 compiledPreludeWarnings :: CompiledPrelude -> [Diagnostic]
 compiledPreludeWarnings = filter isWarningDiagnostic . compiledPreludeDiagnostics
 
 compiledPreludeErrors :: CompiledPrelude -> [Diagnostic]
 compiledPreludeErrors = filter isErrorDiagnostic . compiledPreludeDiagnostics
-
-compiledModuleWarnings :: CompiledModule -> [Diagnostic]
-compiledModuleWarnings = filter isWarningDiagnostic . compiledModuleDiagnostics
-
-compiledModuleErrors :: CompiledModule -> [Diagnostic]
-compiledModuleErrors = filter isErrorDiagnostic . compiledModuleDiagnostics
-
-compiledProgramWarnings :: CompiledProgram -> [Diagnostic]
-compiledProgramWarnings = filter isWarningDiagnostic . compiledProgramDiagnostics
-
-compiledProgramErrors :: CompiledProgram -> [Diagnostic]
-compiledProgramErrors = filter isErrorDiagnostic . compiledProgramDiagnostics
-
-firstCompiledProgramError :: CompiledProgram -> Maybe Diagnostic
-firstCompiledProgramError = find isErrorDiagnostic . compiledProgramDiagnostics
 
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,
@@ -195,7 +145,3 @@ compileInputs settings compiledPrelude =
       compileInputBuiltinMode = compiledPreludeBuiltinMode compiledPrelude,
       compileInputPrelude = compiledPrelude
     }
-
-lookupCompiledModule :: [Text] -> CompiledProgram -> Maybe CompiledModule
-lookupCompiledModule modulePath =
-  find ((== modulePath) . compiledModulePath) . compiledProgramModules

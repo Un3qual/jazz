@@ -12,6 +12,7 @@ module Jazz.Compiler.ModuleResolver
     ResolutionContext,
     parseModulePathText,
     resolveExprNames,
+    resolvePreludeArtifact,
     resolveStandaloneExprNames,
     resolveProgramWithAmbientExports,
   )
@@ -19,12 +20,15 @@ where
 
 import Control.Monad (foldM)
 import Data.Bifunctor (bimap)
+import Data.Foldable (toList)
 import Data.List (find, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, listToMaybe)
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -51,7 +55,7 @@ import Jazz.Compiler.DiagnosticCatalog
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     DiagnosticOrigin (..),
-    SourceSpan,
+    SourceSpan (..),
     mkErrorDiagnostic,
     prependDiagnosticSummary,
     qualifyDiagnosticSpans,
@@ -85,8 +89,10 @@ import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
     mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
     modulePathRelativeFile,
-    modulePathTextSegments,
+    moduleQualifierIdentifier,
     parseModulePathText,
     renderModulePath,
   )
@@ -151,41 +157,14 @@ data ModuleResolutionConfig = ModuleResolutionConfig
   }
   deriving (Eq, Show)
 
--- | Import declaration details retained after parsing so validation can report
--- diagnostics with the original import span.
-data ParsedImport = ParsedImport
-  { parsedImportSpan :: SourceSpan,
-    parsedImportModulePath :: ModulePath,
-    parsedImportAlias :: Maybe Text,
-    parsedImportSymbols :: Maybe [Text]
-  }
-  deriving (Eq, Show)
-
--- | Resolver-local view of a parsed module. It deliberately stores only import,
--- export, and reference inventories, not the lowered executable program.
-data ParsedModule = ParsedModule
-  { parsedModuleImports :: [ParsedImport],
-    parsedModuleLocalInventory :: ModuleExportInventory,
-    parsedModulePublicInventory :: ModuleExportInventory,
-    parsedModuleReferences :: Set Text,
-    parsedModuleQualifiedReferences :: Set (Text, Text),
-    parsedModuleQualifiedTypeReferences :: Set (Text, Text),
-    parsedModuleCore :: ModuleGraph.CoreModule 'Lowered
+data ModuleDiscoveryFacts = ModuleDiscoveryFacts
+  { discoveryLocalInventory :: ModuleExportInventory,
+    discoveryPublicInventory :: ModuleExportInventory,
+    discoveryReferences :: ReferenceInventory,
+    discoveryCoreModule :: ModuleGraph.CoreModule 'Lowered
   }
 
--- | All resolver-only facts derived from the parser surface tree. Keeping this
--- as one product makes the single traversal explicit and prevents new module
--- validation facts from quietly adding another whole-tree walk.
-data SurfaceModuleFacts = SurfaceModuleFacts
-  { surfaceFactImports :: [ModuleGraph.CoreResolvedImport],
-    surfaceFactLocalInventory :: ModuleExportInventory,
-    surfaceFactConstructorOwners :: Map Text (Set Text),
-    surfaceFactReferences :: Set Text,
-    surfaceFactQualifiedReferences :: Set (Text, Text),
-    surfaceFactQualifiedTypeReferences :: Set (Text, Text)
-  }
-
-data SurfaceReferenceFacts = SurfaceReferenceFacts
+data ReferenceInventory = ReferenceInventory
   { referenceFactUnqualified :: !(Set Text),
     referenceFactQualifiedValues :: !(Set (Text, Text)),
     referenceFactQualifiedTypes :: !(Set (Text, Text))
@@ -200,7 +179,7 @@ data BindingOrigin = BindingOrigin
 
 data ResolvedState = ResolvedState
   { resolvedSetState :: Set ModulePath,
-    resolvedModulesRevState :: [ModuleGraph.ResolvedModule],
+    resolvedModulesState :: Seq (ModuleGraph.CoreModule 'Resolved),
     resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory
   }
 
@@ -210,48 +189,64 @@ modulePathFromTextSegments segments =
     Just identifiers -> Right (mkModulePath identifiers)
     Nothing -> Left (mkErrorDiagnostic E4016 CompilationOrigin "empty entry module path")
 
-modulePathTexts :: ModulePath -> [Text]
-modulePathTexts = NonEmpty.toList . modulePathTextSegments
+declaredImportSpan :: ModuleGraph.ModuleImport 'Lowered -> SourceSpan
+declaredImportSpan importDecl =
+  let spanValue = coreNodeSpan (ModuleGraph.moduleImportNode importDecl)
+   in SourceSpan (spanLine spanValue) (spanColumn spanValue)
 
-parsedImportFromCore :: ModuleGraph.CoreResolvedImport -> Either Diagnostic ParsedImport
-parsedImportFromCore coreImport = do
-  importedPath <- modulePathFromTextSegments (ModuleGraph.coreResolvedImportPath coreImport)
-  pure
-    ParsedImport
-      { parsedImportSpan = ModuleGraph.coreResolvedImportSpan coreImport,
-        parsedImportModulePath = importedPath,
-        parsedImportAlias = ModuleGraph.coreResolvedImportAlias coreImport,
-        parsedImportSymbols = ModuleGraph.coreResolvedImportSymbols coreImport
-      }
+declaredImportAliasText :: ModuleGraph.ModuleImport phase -> Maybe Text
+declaredImportAliasText = fmap (identifierText . moduleQualifierIdentifier) . ModuleGraph.importAlias
+
+declaredImportSymbols :: ModuleGraph.ModuleImport 'Lowered -> Maybe [Text]
+declaredImportSymbols importDecl =
+  case ModuleGraph.importExposure importDecl of
+    ModuleGraph.DeclaredImportAll -> Nothing
+    ModuleGraph.DeclaredImportOnly names -> Just (map identifierText (NonEmpty.toList names))
+
+type ResolverImport = ModuleGraph.ModuleImport 'Lowered
+
+resolverImportSpan :: ResolverImport -> SourceSpan
+resolverImportSpan = declaredImportSpan
+
+resolverImportModulePath :: ResolverImport -> ModulePath
+resolverImportModulePath = ModuleGraph.importedModule
+
+resolverImportAlias :: ResolverImport -> Maybe Text
+resolverImportAlias = declaredImportAliasText
+
+resolverImportSymbols :: ResolverImport -> Maybe [Text]
+resolverImportSymbols = declaredImportSymbols
 
 resolveProgramWithAmbientExports ::
   ModuleResolutionConfig ->
-  BuiltinResolutionMode ->
+  ModuleGraph.PreludeArtifact 'Resolved ->
   ModuleExportInventory ->
   (FilePath -> IO (Maybe Text)) ->
   [Text] ->
-  IO (Either Diagnostic ModuleGraph.ResolvedProgram)
-resolveProgramWithAmbientExports config builtinMode ambientExports loadSource entryModulePath =
+  IO (Either Diagnostic (ModuleGraph.CoreProgram 'Resolved))
+resolveProgramWithAmbientExports config prelude ambientExports loadSource entryModulePath =
   {-# SCC "jazz-stage:module-discovery" #-}
   case modulePathFromTextSegments entryModulePath of
     Left diagnostic -> pure (Left diagnostic)
     Right nominalEntryPath ->
-      fmap
-        ( fmap
-            ( \state ->
-                ModuleGraph.ResolvedProgram
-                  { ModuleGraph.resolvedProgramEntryPath = entryModulePath,
-                    ModuleGraph.resolvedProgramModules = reverse (resolvedModulesRevState state)
-                  }
-            )
-        )
-        ( resolveStateWithLookupAndVisibleSymbols
-            config
-            builtinMode
-            ambientExports
-            loadSource
-            nominalEntryPath
-        )
+      fmap (>>= finalizeProgram nominalEntryPath) $
+        resolveStateWithLookupAndVisibleSymbols
+          config
+          (ModuleGraph.preludeBuiltinMode prelude)
+          ambientExports
+          loadSource
+          nominalEntryPath
+  where
+    finalizeProgram nominalEntryPath state =
+      case NonEmpty.nonEmpty (toList (resolvedModulesState state)) of
+        Nothing -> Left (mkErrorDiagnostic E4016 CompilationOrigin "resolved program has no entry module")
+        Just modules ->
+          case ModuleGraph.mkCoreProgram prelude nominalEntryPath modules of
+            Left failures -> Left (mkProgramInvariantDiagnostic failures)
+            Right program -> Right program
+
+    mkProgramInvariantDiagnostic failures =
+      mkErrorDiagnostic E4016 CompilationOrigin ("resolved program invariant failed: " <> Text.pack (show failures))
 
 resolveStateWithLookupAndVisibleSymbols ::
   (Monad m) =>
@@ -267,7 +262,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
     initialState =
       ResolvedState
         { resolvedSetState = Set.empty,
-          resolvedModulesRevState = [],
+          resolvedModulesState = Seq.empty,
           resolvedExportInventoriesState = Map.empty
         }
 
@@ -283,9 +278,12 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
             Right (sourcePath, sourceText) ->
               case parseModuleDetails sourcePath modulePath sourceText of
                 Left err -> pure (Left err)
-                Right parsedModule -> do
+                Right discovery -> do
                   let nextStack = modulePath : callStack
-                      sortedImports = sortModulePaths (collectImportPaths (parsedModuleImports parsedModule))
+                      coreModule = discoveryCoreModule discovery
+                      imports = ModuleGraph.coreModuleImports coreModule
+                      references = discoveryReferences discovery
+                      sortedImports = sortModulePaths (collectImportPaths imports)
                   resolvedDepsResult <-
                     foldM
                       (visitDependency nextStack)
@@ -297,11 +295,11 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                       case validateImportBindings
                         sourcePath
                         modulePath
-                        (parsedModuleImports parsedModule)
-                        (exportNamesInNamespace CapabilityNamespace (parsedModuleLocalInventory parsedModule))
-                        (parsedModuleReferences parsedModule)
-                        (parsedModuleQualifiedReferences parsedModule)
-                        (parsedModuleQualifiedTypeReferences parsedModule)
+                        imports
+                        (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
+                        (referenceFactUnqualified references)
+                        (referenceFactQualifiedValues references)
+                        (referenceFactQualifiedTypes references)
                         ambientVisibleSymbols
                         ambientVisibleClassNames
                         (resolvedExportInventoriesState stateAfterDeps) of
@@ -310,36 +308,27 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                           case resolveCoreModuleNames
                             builtinMode
                             ambientExports
-                            (parsedModuleLocalInventory parsedModule)
+                            (discoveryLocalInventory discovery)
+                            (discoveryPublicInventory discovery)
                             (resolvedExportInventoriesState stateAfterDeps)
-                            (parsedModuleImports parsedModule)
-                            (parsedModuleCore parsedModule) of
+                            imports
+                            coreModule of
                             Left resolutionFailures -> pure (Left (NonEmpty.head resolutionFailures))
-                            Right resolvedCore -> case traverse (resolveImportExposure modulePath) (ModuleGraph.coreModuleImports resolvedCore) of
-                              Left err -> pure (Left err)
-                              Right resolvedImports ->
-                                let resolvedModule =
-                                      ModuleGraph.ResolvedModule
-                                        { ModuleGraph.resolvedModulePath = modulePathTexts modulePath,
-                                          ModuleGraph.resolvedSourcePath = sourcePath,
-                                          ModuleGraph.resolvedModuleImports = resolvedImports,
-                                          ModuleGraph.resolvedModuleExportInventory = parsedModulePublicInventory parsedModule,
-                                          ModuleGraph.resolvedModuleCore = resolvedCore
-                                        }
-                                 in pure
-                                      ( Right
-                                          stateAfterDeps
-                                            { resolvedSetState =
-                                                Set.insert modulePath (resolvedSetState stateAfterDeps),
-                                              resolvedModulesRevState =
-                                                resolvedModule : resolvedModulesRevState stateAfterDeps,
-                                              resolvedExportInventoriesState =
-                                                Map.insert
-                                                  modulePath
-                                                  (parsedModulePublicInventory parsedModule)
-                                                  (resolvedExportInventoriesState stateAfterDeps)
-                                            }
-                                      )
+                            Right resolvedModule ->
+                              pure
+                                ( Right
+                                    stateAfterDeps
+                                      { resolvedSetState =
+                                          Set.insert modulePath (resolvedSetState stateAfterDeps),
+                                        resolvedModulesState =
+                                          resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
+                                        resolvedExportInventoriesState =
+                                          Map.insert
+                                            modulePath
+                                            (discoveryPublicInventory discovery)
+                                            (resolvedExportInventoriesState stateAfterDeps)
+                                      }
+                                )
 
     ambientVisibleSymbols =
       exportNamesInNamespaces
@@ -402,33 +391,33 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                   )
               )
 
-resolveImportExposure :: ModulePath -> ModuleGraph.CoreResolvedImport -> Either Diagnostic ModuleGraph.ResolvedImport
+resolveImportExposure :: ModulePath -> ResolverImport -> Either Diagnostic (ModuleGraph.ModuleImport 'Resolved)
 resolveImportExposure importerPath coreImport = do
-  importedPath <- modulePathFromTextSegments (ModuleGraph.coreResolvedImportPath coreImport)
-  ModuleGraph.ResolvedImport
-    (ModuleGraph.coreResolvedImportSpan coreImport)
-    (modulePathTexts importedPath)
-    <$> exposure
+  resolvedExposure <- exposure
+  pure
+    ModuleGraph.ModuleImport
+      { ModuleGraph.moduleImportNode = resolveNode (ModuleGraph.moduleImportNode coreImport),
+        ModuleGraph.importedModule = ModuleGraph.importedModule coreImport,
+        ModuleGraph.importAlias = ModuleGraph.importAlias coreImport,
+        ModuleGraph.importExposure = resolvedExposure
+      }
   where
     exposure =
-      case (ModuleGraph.coreResolvedImportAlias coreImport, ModuleGraph.coreResolvedImportSymbols coreImport) of
-        (Nothing, Nothing) -> Right ModuleGraph.ImportAll
-        (Nothing, Just symbolNames) ->
-          case NonEmpty.nonEmpty symbolNames of
-            Just nonEmptySymbolNames -> Right (ModuleGraph.ImportOnly nonEmptySymbolNames)
-            Nothing -> Left (mkImportExposureInvariantError importerPath coreImport)
-        (Just aliasName, Nothing) -> Right (ModuleGraph.ImportQualified aliasName)
-        (Just _, Just _) -> Left (mkImportExposureInvariantError importerPath coreImport)
+      case (ModuleGraph.importAlias coreImport, ModuleGraph.importExposure coreImport) of
+        (Nothing, ModuleGraph.DeclaredImportAll) -> Right ModuleGraph.ImportAllUnqualified
+        (Nothing, ModuleGraph.DeclaredImportOnly symbolNames) -> Right (ModuleGraph.ImportOnlyUnqualified symbolNames)
+        (Just _, ModuleGraph.DeclaredImportAll) -> Right ModuleGraph.ImportQualifiedOnly
+        (Just _, ModuleGraph.DeclaredImportOnly _) -> Left (mkImportExposureInvariantError importerPath coreImport)
 
-mkImportExposureInvariantError :: ModulePath -> ModuleGraph.CoreResolvedImport -> Diagnostic
+mkImportExposureInvariantError :: ModulePath -> ResolverImport -> Diagnostic
 mkImportExposureInvariantError importerPath coreImport =
   setDiagnosticPrimarySpan
-    (ModuleGraph.coreResolvedImportSpan coreImport)
+    (declaredImportSpan coreImport)
     ( mkErrorDiagnostic
         E4010
         CompilationOrigin
         ( "internal resolver invariant failed while finalizing import '"
-            <> Text.intercalate "::" (ModuleGraph.coreResolvedImportPath coreImport)
+            <> renderModulePath (ModuleGraph.importedModule coreImport)
             <> "' for module '"
             <> renderModulePath importerPath
             <> "'"
@@ -442,7 +431,7 @@ appendRelativePath relativePath root
 
 -- | Parse a module's surface source and extract only the details needed by the
 -- resolver: declarations, imports, and top-level exports.
-parseModuleDetails :: FilePath -> ModulePath -> Text -> Either Diagnostic ParsedModule
+parseModuleDetails :: FilePath -> ModulePath -> Text -> Either Diagnostic ModuleDiscoveryFacts
 parseModuleDetails sourcePath expectedModulePath sourceText =
   {-# SCC "jazz-stage:module-resolution" #-}
   case parseSurfaceProgram sourceText of
@@ -456,26 +445,24 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             )
         )
     Right surfaceExpr -> do
-      coreModule <- lowerSurfaceModule sourcePath (modulePathTexts expectedModulePath) surfaceExpr
-      let facts = collectSurfaceModuleFacts surfaceExpr
-          localInventory = surfaceFactLocalInventory facts
-      parsedImports <- traverse parsedImportFromCore (surfaceFactImports facts)
+      coreModule <-
+        lowerSurfaceModule
+          (moduleIdentity expectedModulePath (mkSourceFile sourcePath))
+          surfaceExpr
+      let (localInventory, constructorOwners, references) = discoverModuleFacts surfaceExpr
       publicInventory <-
         validatePublicExportInventory
           sourcePath
           expectedModulePath
-          (ModuleGraph.coreModuleDeclaredExports coreModule)
-          (surfaceFactConstructorOwners facts)
+          (ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule))
+          constructorOwners
           localInventory
       Right
-        ParsedModule
-          { parsedModuleImports = parsedImports,
-            parsedModuleLocalInventory = localInventory,
-            parsedModulePublicInventory = publicInventory,
-            parsedModuleReferences = surfaceFactReferences facts,
-            parsedModuleQualifiedReferences = surfaceFactQualifiedReferences facts,
-            parsedModuleQualifiedTypeReferences = surfaceFactQualifiedTypeReferences facts,
-            parsedModuleCore = coreModule
+        ModuleDiscoveryFacts
+          { discoveryLocalInventory = localInventory,
+            discoveryPublicInventory = publicInventory,
+            discoveryReferences = references,
+            discoveryCoreModule = coreModule
           }
 
 validatePublicExportInventory ::
@@ -591,26 +578,25 @@ data InvalidModuleExport = InvalidModuleExport
     invalidExportSummary :: Text
   }
 
-collectSurfaceModuleFacts :: SurfaceExpr -> SurfaceModuleFacts
-collectSurfaceModuleFacts surfaceExpr =
+discoverModuleFacts :: SurfaceExpr -> (ModuleExportInventory, Map Text (Set Text), ReferenceInventory)
+discoverModuleFacts surfaceExpr =
   case surfaceExprForm surfaceExpr of
-    SEBlock statements -> go [] [] Set.empty Map.empty emptySurfaceReferenceFacts statements
+    SEBlock statements -> go [] Set.empty Map.empty emptySurfaceReferenceFacts statements
     _ ->
-      finalize [] [] Set.empty Map.empty (collectExprReferenceFacts Set.empty surfaceExpr emptySurfaceReferenceFacts)
+      finalize [] Set.empty Map.empty (collectExprReferenceFacts Set.empty surfaceExpr emptySurfaceReferenceFacts)
   where
-    go !importsRev !exports !operatorBindings !constructorOwners !referenceFacts statements =
+    go !exports !operatorBindings !constructorOwners !referenceFacts statements =
       case statements of
-        [] -> finalize importsRev exports operatorBindings constructorOwners referenceFacts
+        [] -> finalize exports operatorBindings constructorOwners referenceFacts
         statement : rest ->
           go
-            (collectImport statement importsRev)
             (collectExports statement exports)
             (collectOperatorBinding statement operatorBindings)
             (collectConstructorOwners statement constructorOwners)
             (collectStatementReferenceFacts Set.empty statement referenceFacts)
             rest
 
-    finalize importsRev exportsRev operatorBindings constructorOwners referenceFacts =
+    finalize exportsRev operatorBindings constructorOwners referenceFacts =
       let localInventory = exportInventory (reverse exportsRev)
           topLevelBindings =
             Set.unions
@@ -618,14 +604,12 @@ collectSurfaceModuleFacts surfaceExpr =
                 exportNamesInNamespace ValueNamespace localInventory,
                 exportNamesInNamespace ConstructorNamespace localInventory
               ]
-       in SurfaceModuleFacts
-            { surfaceFactImports = reverse importsRev,
-              surfaceFactLocalInventory = localInventory,
-              surfaceFactConstructorOwners = constructorOwners,
-              surfaceFactReferences = referenceFactUnqualified referenceFacts Set.\\ topLevelBindings,
-              surfaceFactQualifiedReferences = referenceFactQualifiedValues referenceFacts,
-              surfaceFactQualifiedTypeReferences = referenceFactQualifiedTypes referenceFacts
-            }
+       in ( localInventory,
+            constructorOwners,
+            referenceFacts
+              { referenceFactUnqualified = referenceFactUnqualified referenceFacts Set.\\ topLevelBindings
+              }
+          )
 
     collectOperatorBinding statement bindingNames =
       case statement of
@@ -650,12 +634,6 @@ collectSurfaceModuleFacts surfaceExpr =
           ModuleExport CapabilityNamespace (identifierText className) : exportsRev
         _ -> exportsRev
 
-    collectImport statement importsRev =
-      case statement of
-        SSImport spanValue modulePath alias importedSymbols ->
-          ModuleGraph.CoreResolvedImport spanValue modulePath alias importedSymbols : importsRev
-        _ -> importsRev
-
     collectConstructorOwners statement owners =
       case statement of
         SSData _ typeName _ constructors ->
@@ -669,9 +647,9 @@ collectSurfaceModuleFacts surfaceExpr =
             owners
         _ -> owners
 
-collectImportPaths :: [ParsedImport] -> [ModulePath]
+collectImportPaths :: [ModuleGraph.ModuleImport phase] -> [ModulePath]
 collectImportPaths imports =
-  [ parsedImportModulePath importDecl
+  [ ModuleGraph.importedModule importDecl
   | importDecl <- imports
   ]
 
@@ -680,7 +658,7 @@ data ResolutionContext = ResolutionContext
     resolutionAmbientExports :: ModuleExportInventory,
     resolutionLocalInventory :: ModuleExportInventory,
     resolutionInventoriesByModule :: Map ModulePath ModuleExportInventory,
-    resolutionImports :: [ParsedImport]
+    resolutionImports :: [ModuleGraph.ModuleImport 'Lowered]
   }
 
 resolveNode :: CoreNode 'Lowered sort -> CoreNode 'Resolved sort
@@ -690,19 +668,33 @@ resolveCoreModuleNames ::
   BuiltinResolutionMode ->
   ModuleExportInventory ->
   ModuleExportInventory ->
+  ModuleExportInventory ->
   Map ModulePath ModuleExportInventory ->
-  [ParsedImport] ->
+  [ModuleGraph.ModuleImport 'Lowered] ->
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
-resolveCoreModuleNames builtinMode ambientExports localInventory inventoriesByModule imports coreModule = do
+resolveCoreModuleNames builtinMode ambientExports localInventory publicInventory inventoriesByModule imports coreModule = do
   resolvedExpr <- resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
-  pure
-    ModuleGraph.CoreModule
-      { ModuleGraph.coreModuleDeclaredPath = ModuleGraph.coreModuleDeclaredPath coreModule,
-        ModuleGraph.coreModuleDeclaredExports = ModuleGraph.coreModuleDeclaredExports coreModule,
-        ModuleGraph.coreModuleImports = ModuleGraph.coreModuleImports coreModule,
-        ModuleGraph.coreModuleExpr = resolvedExpr
-      }
+  resolvedImports <-
+    either
+      (Left . NonEmpty.singleton)
+      Right
+      (traverse (resolveImportExposure (ModuleGraph.coreModulePath coreModule)) imports)
+  case resolvedExpr of
+    EBlock bodyNode statements ->
+      pure
+        ModuleGraph.CoreModule
+          { ModuleGraph.coreModuleIdentity = ModuleGraph.coreModuleIdentity coreModule,
+            ModuleGraph.coreModuleBodyNode = bodyNode,
+            ModuleGraph.coreModuleImports = resolvedImports,
+            ModuleGraph.coreModuleStatements = statements,
+            ModuleGraph.coreModuleFacts = ModuleGraph.ResolvedModuleFacts publicInventory
+          }
+    _ ->
+      Left
+        ( NonEmpty.singleton
+            (mkErrorDiagnostic E4016 CompilationOrigin "resolved module body is not a block")
+        )
   where
     context =
       ResolutionContext
@@ -711,6 +703,38 @@ resolveCoreModuleNames builtinMode ambientExports localInventory inventoriesByMo
           resolutionLocalInventory = localInventory,
           resolutionInventoriesByModule = inventoriesByModule,
           resolutionImports = imports
+        }
+
+resolvePreludeArtifact ::
+  ModuleExportInventory ->
+  ModuleGraph.PreludeArtifact 'Lowered ->
+  Either Diagnostic (ModuleGraph.PreludeArtifact 'Resolved)
+resolvePreludeArtifact publicInventory artifact =
+  case ModuleGraph.preludeModule artifact of
+    Nothing -> Right (artifactWithoutModule artifact)
+    Just loweredModule ->
+      case resolveCoreModuleNames
+        (ModuleGraph.preludeBuiltinMode artifact)
+        (exportInventory [])
+        publicInventory
+        publicInventory
+        Map.empty
+        (ModuleGraph.coreModuleImports loweredModule)
+        loweredModule of
+        Left failures -> Left (NonEmpty.head failures)
+        Right resolvedModule ->
+          Right
+            ModuleGraph.PreludeArtifact
+              { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity artifact,
+                ModuleGraph.preludeBuiltinMode = ModuleGraph.preludeBuiltinMode artifact,
+                ModuleGraph.preludeModule = Just resolvedModule
+              }
+  where
+    artifactWithoutModule loweredArtifact =
+      ModuleGraph.PreludeArtifact
+        { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity loweredArtifact,
+          ModuleGraph.preludeBuiltinMode = ModuleGraph.preludeBuiltinMode loweredArtifact,
+          ModuleGraph.preludeModule = Nothing
         }
 
 resolveExprNames ::
@@ -735,17 +759,17 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
 
     aliasPaths =
       Map.fromList
-        [ (aliasName, parsedImportModulePath importDecl)
+        [ (aliasName, resolverImportModulePath importDecl)
         | importDecl <- imports,
-          Just aliasName <- [parsedImportAlias importDecl]
+          Just aliasName <- [resolverImportAlias importDecl]
         ]
 
     visibleValueOrigins =
       Map.fromList
         [ (name, modulePath)
         | importDecl <- imports,
-          parsedImportAlias importDecl == Nothing,
-          let modulePath = parsedImportModulePath importDecl,
+          resolverImportAlias importDecl == Nothing,
+          let modulePath = resolverImportModulePath importDecl,
           name <- Set.toList (exportNamesInNamespace ValueNamespace (visibleDependencyInventory importDecl))
         ]
 
@@ -753,8 +777,8 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
       Map.fromList
         [ (name, modulePath)
         | importDecl <- imports,
-          parsedImportAlias importDecl == Nothing,
-          let modulePath = parsedImportModulePath importDecl,
+          resolverImportAlias importDecl == Nothing,
+          let modulePath = resolverImportModulePath importDecl,
           name <- Set.toList (exportNamesInNamespace ConstructorNamespace (visibleDependencyInventory importDecl))
         ]
 
@@ -762,8 +786,8 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
       Map.fromList
         [ (name, modulePath)
         | importDecl <- imports,
-          parsedImportAlias importDecl == Nothing,
-          let modulePath = parsedImportModulePath importDecl,
+          resolverImportAlias importDecl == Nothing,
+          let modulePath = resolverImportModulePath importDecl,
           name <- Set.toList (exportNamesInNamespace TypeNamespace (visibleDependencyInventory importDecl))
         ]
 
@@ -771,18 +795,18 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
       Map.fromList
         [ (name, modulePath)
         | importDecl <- imports,
-          parsedImportAlias importDecl == Nothing,
-          let modulePath = parsedImportModulePath importDecl,
+          resolverImportAlias importDecl == Nothing,
+          let modulePath = resolverImportModulePath importDecl,
           name <- Set.toList (exportNamesInNamespace CapabilityNamespace (visibleDependencyInventory importDecl))
         ]
 
     visibleDependencyInventory importDecl =
-      case Map.lookup (parsedImportModulePath importDecl) inventoriesByModule of
+      case Map.lookup (resolverImportModulePath importDecl) inventoriesByModule of
         Nothing -> exportInventory []
         Just inventory ->
           visibleImportInventory
             UnqualifiedImport
-            (parsedImportSymbols importDecl)
+            (resolverImportSymbols importDecl)
             inventory
 
     resolveName boundValues namespace name =
@@ -1143,10 +1167,10 @@ standaloneLocalInventory expression =
 
 -- | The resolver needs three reference namespaces with identical expression
 -- recursion. Collect them together so each surface node is visited once.
-emptySurfaceReferenceFacts :: SurfaceReferenceFacts
-emptySurfaceReferenceFacts = SurfaceReferenceFacts Set.empty Set.empty Set.empty
+emptySurfaceReferenceFacts :: ReferenceInventory
+emptySurfaceReferenceFacts = ReferenceInventory Set.empty Set.empty Set.empty
 
-collectExprReferenceFacts :: Set Text -> SurfaceExpr -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectExprReferenceFacts :: Set Text -> SurfaceExpr -> ReferenceInventory -> ReferenceInventory
 collectExprReferenceFacts boundNames surfaceExpr facts =
   case surfaceExprForm surfaceExpr of
     SELit _ -> facts
@@ -1201,14 +1225,14 @@ collectExprReferenceFacts boundNames surfaceExpr facts =
     SESectionRight _ right -> collectExprReferenceFacts boundNames right facts
     SEBlock statements -> collectBlockReferenceFacts boundNames statements facts
 
-collectExprReferenceFactList :: Set Text -> [SurfaceExpr] -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectExprReferenceFactList :: Set Text -> [SurfaceExpr] -> ReferenceInventory -> ReferenceInventory
 collectExprReferenceFactList boundNames expressions initialFacts =
   foldl'
     (\current expr -> collectExprReferenceFacts boundNames expr current)
     initialFacts
     expressions
 
-collectBlockReferenceFacts :: Set Text -> [SurfaceStatement] -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectBlockReferenceFacts :: Set Text -> [SurfaceStatement] -> ReferenceInventory -> ReferenceInventory
 collectBlockReferenceFacts boundNames statements facts =
   foldl'
     (\current statement -> collectStatementReferenceFacts blockBoundNames statement current)
@@ -1222,7 +1246,7 @@ collectBlockReferenceFacts boundNames statements facts =
         ]
     blockBoundNames = Set.union boundNames blockBindingNames
 
-collectStatementReferenceFacts :: Set Text -> SurfaceStatement -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectStatementReferenceFacts :: Set Text -> SurfaceStatement -> ReferenceInventory -> ReferenceInventory
 collectStatementReferenceFacts boundNames statement facts =
   case statement of
     SSLet _ _ valueExpr -> collectExprReferenceFacts boundNames valueExpr facts
@@ -1249,21 +1273,21 @@ collectStatementReferenceFacts boundNames statement facts =
     SSImport {} -> facts
     SSExpr _ expr -> collectExprReferenceFacts boundNames expr facts
 
-collectCaseArmReferenceFacts :: Set Text -> SurfaceCaseArm -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectCaseArmReferenceFacts :: Set Text -> SurfaceCaseArm -> ReferenceInventory -> ReferenceInventory
 collectCaseArmReferenceFacts boundNames (SurfaceCaseArm patternValue guard body) facts =
   let armBoundNames = Set.union boundNames (collectPatternBinders patternValue)
       patternFacts = collectPatternReferenceFacts patternValue facts
       guardFacts = maybe patternFacts (\guardExpr -> collectExprReferenceFacts armBoundNames guardExpr patternFacts) guard
    in collectExprReferenceFacts armBoundNames body guardFacts
 
-collectPatternLambdaClauseReferenceFacts :: Set Text -> SurfacePatternLambdaClause -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectPatternLambdaClauseReferenceFacts :: Set Text -> SurfacePatternLambdaClause -> ReferenceInventory -> ReferenceInventory
 collectPatternLambdaClauseReferenceFacts boundNames (SurfacePatternLambdaClause _ patterns body) facts =
   let patternList = NonEmpty.toList patterns
       clauseBoundNames = Set.union boundNames (Set.unions (map collectPatternBinders patternList))
       patternFacts = foldl' (flip collectPatternReferenceFacts) facts patternList
    in collectExprReferenceFacts clauseBoundNames body patternFacts
 
-collectPatternReferenceFacts :: SurfacePattern -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectPatternReferenceFacts :: SurfacePattern -> ReferenceInventory -> ReferenceInventory
 collectPatternReferenceFacts patternValue facts =
   case surfacePatternForm patternValue of
     SPWildcard -> facts
@@ -1318,13 +1342,13 @@ collectLambdaParameterBinders parameter =
     SurfaceLambdaIdentifier _ name -> Set.singleton (identifierText name)
     SurfaceLambdaPattern patternValue -> collectPatternBinders patternValue
 
-collectLambdaParameterReferenceFacts :: SurfaceLambdaParameter -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectLambdaParameterReferenceFacts :: SurfaceLambdaParameter -> ReferenceInventory -> ReferenceInventory
 collectLambdaParameterReferenceFacts parameter facts =
   case parameter of
     SurfaceLambdaIdentifier _ _ -> facts
     SurfaceLambdaPattern patternValue -> collectPatternReferenceFacts patternValue facts
 
-collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> ReferenceInventory -> ReferenceInventory
 collectSignaturePayloadReferenceFacts payload facts =
   case payload of
     SignatureType signatureType ->
@@ -1342,7 +1366,7 @@ collectSignaturePayloadReferenceFacts payload facts =
         )
     UnsupportedSignature _ -> facts
 
-collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> ReferenceInventory -> ReferenceInventory
 collectSignatureTypeReferenceFacts signatureType facts =
   case signatureType of
     TypeVariable name -> collectQualifiedTypeReference name facts
@@ -1361,7 +1385,7 @@ collectSignatureTypeReferenceFacts signatureType facts =
         (collectSignatureTypeReferenceFacts argumentType facts)
     _ -> facts
 
-collectQualifiedTypeReference :: Identifier -> SurfaceReferenceFacts -> SurfaceReferenceFacts
+collectQualifiedTypeReference :: Identifier -> ReferenceInventory -> ReferenceInventory
 collectQualifiedTypeReference name facts =
   case splitQualifiedIdentifierText (identifierText name) of
     Nothing -> facts
@@ -1375,7 +1399,7 @@ collectQualifiedTypeReference name facts =
 validateImportBindings ::
   FilePath ->
   ModulePath ->
-  [ParsedImport] ->
+  [ResolverImport] ->
   Set Text ->
   Set Text ->
   Set (Text, Text) ->
@@ -1401,17 +1425,17 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
         Nothing -> Right ()
   where
     dependencyInventory importDecl =
-      Map.lookup (parsedImportModulePath importDecl) inventoriesByModule
+      Map.lookup (resolverImportModulePath importDecl) inventoriesByModule
 
     eligibleImportNames = selectorEligibleNames
 
     visibleUnqualifiedInventory importDecl inventory =
-      case parsedImportAlias importDecl of
+      case resolverImportAlias importDecl of
         Just _ -> exportInventory []
         Nothing ->
           visibleImportInventory
             UnqualifiedImport
-            (parsedImportSymbols importDecl)
+            (resolverImportSymbols importDecl)
             inventory
 
     aliasMemberNames inventory =
@@ -1437,9 +1461,9 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           seenTypesAfterImport <- validateImportTypes seenTypes importDecl
           go seenSymbolsAfterImport seenTypesAfterImport seenAliasesAfterImport rest
 
-    validateImportAlias :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportAlias :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportAlias seenAliases importDecl =
-      case parsedImportAlias importDecl of
+      case resolverImportAlias importDecl of
         Nothing ->
           Right seenAliases
         Just aliasName ->
@@ -1451,15 +1475,15 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 ( Map.insert
                     aliasName
                     BindingOrigin
-                      { bindingOriginModulePath = parsedImportModulePath importDecl,
-                        bindingOriginSpan = parsedImportSpan importDecl
+                      { bindingOriginModulePath = resolverImportModulePath importDecl,
+                        bindingOriginSpan = resolverImportSpan importDecl
                       }
                     seenAliases
                 )
 
-    validateImportSymbols :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportSymbols :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportSymbols seenSymbols importDecl =
-      case parsedImportAlias importDecl of
+      case resolverImportAlias importDecl of
         Just _ ->
           Right seenSymbols
         Nothing ->
@@ -1472,14 +1496,14 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     ( "internal resolver error while validating imports for '"
                         <> renderModulePath importerPath
                         <> "': missing exports for module '"
-                        <> renderModulePath (parsedImportModulePath importDecl)
+                        <> renderModulePath (resolverImportModulePath importDecl)
                         <> "'"
                     )
                 )
             Just inventory ->
               let exportedImportSymbols = eligibleImportNames inventory
                   importedSymbolNames =
-                    case parsedImportSymbols importDecl of
+                    case resolverImportSymbols importDecl of
                       Nothing -> Set.toAscList exportedImportSymbols
                       Just explicitSymbolNames -> explicitSymbolNames
                in foldM
@@ -1487,9 +1511,9 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     seenSymbols
                     importedSymbolNames
 
-    validateImportTypes :: Map Text BindingOrigin -> ParsedImport -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportTypes :: Map Text BindingOrigin -> ResolverImport -> Either Diagnostic (Map Text BindingOrigin)
     validateImportTypes seenTypes importDecl =
-      case parsedImportAlias importDecl of
+      case resolverImportAlias importDecl of
         Just _ ->
           Right seenTypes
         Nothing ->
@@ -1502,7 +1526,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     ( "internal resolver error while validating type imports for '"
                         <> renderModulePath importerPath
                         <> "': missing exports for module '"
-                        <> renderModulePath (parsedImportModulePath importDecl)
+                        <> renderModulePath (resolverImportModulePath importDecl)
                         <> "'"
                     )
                 )
@@ -1514,11 +1538,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     (exportNamesInNamespace TypeNamespace (visibleUnqualifiedInventory importDecl inventory))
                 )
 
-    validateImportType :: ParsedImport -> Map Text BindingOrigin -> Text -> Either Diagnostic (Map Text BindingOrigin)
+    validateImportType :: ResolverImport -> Map Text BindingOrigin -> Text -> Either Diagnostic (Map Text BindingOrigin)
     validateImportType importDecl seenTypes typeName =
       case Map.lookup typeName seenTypes of
         Just previousOrigin
-          | bindingOriginModulePath previousOrigin == parsedImportModulePath importDecl ->
+          | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
               Right seenTypes
           | otherwise ->
               Left (mkImportTypeCollisionError typeName previousOrigin importDecl)
@@ -1527,8 +1551,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
             ( Map.insert
                 typeName
                 BindingOrigin
-                  { bindingOriginModulePath = parsedImportModulePath importDecl,
-                    bindingOriginSpan = parsedImportSpan importDecl
+                  { bindingOriginModulePath = resolverImportModulePath importDecl,
+                    bindingOriginSpan = resolverImportSpan importDecl
                   }
                 seenTypes
             )
@@ -1558,7 +1582,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                             ( "internal resolver error while validating imports for '"
                                 <> renderModulePath importerPath
                                 <> "': missing exports for module '"
-                                <> renderModulePath (parsedImportModulePath importDecl)
+                                <> renderModulePath (resolverImportModulePath importDecl)
                                 <> "'"
                             )
                         )
@@ -1590,7 +1614,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                         ( "internal resolver error while validating type imports for '"
                             <> renderModulePath importerPath
                             <> "': missing exports for module '"
-                            <> renderModulePath (parsedImportModulePath importDecl)
+                            <> renderModulePath (resolverImportModulePath importDecl)
                             <> "'"
                         )
                     )
@@ -1600,16 +1624,16 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                         then Right ()
                         else Left (mkMissingQualifiedAliasSymbolError typeName importDecl aliasName exportedTypes)
 
-    findAliasImport :: Text -> Maybe ParsedImport
+    findAliasImport :: Text -> Maybe ResolverImport
     findAliasImport aliasName =
       listToMaybe
         [ importDecl
         | importDecl <- imports,
-          parsedImportAlias importDecl == Just aliasName
+          resolverImportAlias importDecl == Just aliasName
         ]
 
     validateImportSymbol ::
-      ParsedImport ->
+      ResolverImport ->
       Set Text ->
       Map Text BindingOrigin ->
       Text ->
@@ -1620,7 +1644,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       | otherwise =
           case Map.lookup symbolName seenSymbols of
             Just previousOrigin
-              | bindingOriginModulePath previousOrigin == parsedImportModulePath importDecl ->
+              | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
                   Right seenSymbols
               | otherwise ->
                   Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
@@ -1629,24 +1653,24 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 ( Map.insert
                     symbolName
                     BindingOrigin
-                      { bindingOriginModulePath = parsedImportModulePath importDecl,
-                        bindingOriginSpan = parsedImportSpan importDecl
+                      { bindingOriginModulePath = resolverImportModulePath importDecl,
+                        bindingOriginSpan = resolverImportSpan importDecl
                       }
                     seenSymbols
                 )
 
-    mkMissingImportSymbolError :: Text -> ParsedImport -> Set Text -> Diagnostic
+    mkMissingImportSymbolError :: Text -> ResolverImport -> Set Text -> Diagnostic
     mkMissingImportSymbolError symbolName importDecl exportedSymbols =
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
-          (parsedImportSpan importDecl)
+          (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4007
               CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not exported by module '"
-                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' imported by '"
                   <> renderModulePath importerPath
                   <> "' in '"
@@ -1656,13 +1680,13 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               )
           )
 
-    mkImportSymbolCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
+    mkImportSymbolCollisionError :: Text -> BindingOrigin -> ResolverImport -> Diagnostic
     mkImportSymbolCollisionError symbolName previousOrigin importDecl =
       setDiagnosticSubject symbolName $
         setDiagnosticRelatedSpan
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
-              (parsedImportSpan importDecl)
+              (resolverImportSpan importDecl)
               ( mkErrorDiagnostic
                   E4008
                   CompilationOrigin
@@ -1675,19 +1699,19 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                       <> "'; already imported from '"
                       <> renderModulePath (bindingOriginModulePath previousOrigin)
                       <> "', cannot re-import from '"
-                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> renderModulePath (resolverImportModulePath importDecl)
                       <> "'"
                   )
               )
           )
 
-    mkImportTypeCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
+    mkImportTypeCollisionError :: Text -> BindingOrigin -> ResolverImport -> Diagnostic
     mkImportTypeCollisionError typeName previousOrigin importDecl =
       setDiagnosticSubject typeName $
         setDiagnosticRelatedSpan
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
-              (parsedImportSpan importDecl)
+              (resolverImportSpan importDecl)
               ( mkErrorDiagnostic
                   E4008
                   CompilationOrigin
@@ -1700,7 +1724,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                       <> "'; already imported from '"
                       <> renderModulePath (bindingOriginModulePath previousOrigin)
                       <> "', cannot re-import from '"
-                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> renderModulePath (resolverImportModulePath importDecl)
                       <> "'"
                   )
               )
@@ -1725,18 +1749,18 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               <> "'"
           )
 
-    mkMissingQualifiedAliasSymbolError :: Text -> ParsedImport -> Text -> Set Text -> Diagnostic
+    mkMissingQualifiedAliasSymbolError :: Text -> ResolverImport -> Text -> Set Text -> Diagnostic
     mkMissingQualifiedAliasSymbolError symbolName importDecl aliasName exportedSymbols =
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
-          (parsedImportSpan importDecl)
+          (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4014
               CompilationOrigin
               ( "qualified import symbol '"
                   <> symbolName
                   <> "' is not exported by module '"
-                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' imported as '"
                   <> aliasName
                   <> "' by '"
@@ -1750,11 +1774,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 
     -- Visible imports include all bare imports and explicit symbol-list imports;
     -- alias-only imports intentionally expose nothing unqualified.
-    collectVisibleImportSymbols :: [ParsedImport] -> Either Diagnostic (Set Text)
+    collectVisibleImportSymbols :: [ResolverImport] -> Either Diagnostic (Set Text)
     collectVisibleImportSymbols =
       foldM collectVisibleImportSymbol Set.empty
 
-    collectVisibleImportSymbol :: Set Text -> ParsedImport -> Either Diagnostic (Set Text)
+    collectVisibleImportSymbol :: Set Text -> ResolverImport -> Either Diagnostic (Set Text)
     collectVisibleImportSymbol visibleSymbols importDecl =
       case dependencyInventory importDecl of
         Nothing ->
@@ -1765,7 +1789,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 ( "internal resolver error while validating imports for '"
                     <> renderModulePath importerPath
                     <> "': missing exports for module '"
-                    <> renderModulePath (parsedImportModulePath importDecl)
+                    <> renderModulePath (resolverImportModulePath importDecl)
                     <> "'"
                 )
             )
@@ -1778,11 +1802,11 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 )
             )
 
-    collectVisibleImportClassNames :: [ParsedImport] -> Either Diagnostic (Set Text)
+    collectVisibleImportClassNames :: [ResolverImport] -> Either Diagnostic (Set Text)
     collectVisibleImportClassNames =
       foldM collectVisibleImportClassName Set.empty
 
-    collectVisibleImportClassName :: Set Text -> ParsedImport -> Either Diagnostic (Set Text)
+    collectVisibleImportClassName :: Set Text -> ResolverImport -> Either Diagnostic (Set Text)
     collectVisibleImportClassName visibleClassNames importDecl =
       case dependencyInventory importDecl of
         Nothing ->
@@ -1793,7 +1817,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 ( "internal resolver error while validating imports for '"
                     <> renderModulePath importerPath
                     <> "': missing exports for module '"
-                    <> renderModulePath (parsedImportModulePath importDecl)
+                    <> renderModulePath (resolverImportModulePath importDecl)
                     <> "'"
                 )
             )
@@ -1807,12 +1831,12 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 )
             )
 
-    findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ParsedImport)
+    findHiddenExplicitImportReference :: Set Text -> Maybe (Text, ResolverImport)
     findHiddenExplicitImportReference visibleSymbols =
       listToMaybe
         [ (symbolName, importDecl)
         | importDecl <- imports,
-          Just symbolNames <- [parsedImportSymbols importDecl],
+          Just symbolNames <- [resolverImportSymbols importDecl],
           Just inventory <- [dependencyInventory importDecl],
           let exportedSymbols = valueAndConstructorNames inventory,
           let hiddenSymbols = Set.difference exportedSymbols (Set.fromList symbolNames),
@@ -1821,12 +1845,12 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           not (Set.member symbolName visibleSymbols)
         ]
 
-    findHiddenAliasImportReference :: Set Text -> Maybe (Text, ParsedImport, Text)
+    findHiddenAliasImportReference :: Set Text -> Maybe (Text, ResolverImport, Text)
     findHiddenAliasImportReference visibleSymbols =
       listToMaybe
         [ (symbolName, importDecl, aliasName)
         | importDecl <- imports,
-          Just aliasName <- [parsedImportAlias importDecl],
+          Just aliasName <- [resolverImportAlias importDecl],
           Just inventory <- [dependencyInventory importDecl],
           let exportedSymbols = valueAndConstructorNames inventory,
           symbolName <- Set.toList exportedSymbols,
@@ -1834,18 +1858,18 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
           not (Set.member symbolName visibleSymbols)
         ]
 
-    mkHiddenExplicitImportSymbolError :: Text -> ParsedImport -> Diagnostic
+    mkHiddenExplicitImportSymbolError :: Text -> ResolverImport -> Diagnostic
     mkHiddenExplicitImportSymbolError symbolName importDecl =
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
-          (parsedImportSpan importDecl)
+          (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4011
               CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not visible from explicit import of module '"
-                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' by '"
                   <> renderModulePath importerPath
                   <> "' in '"
@@ -1854,18 +1878,18 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               )
           )
 
-    mkHiddenAliasImportSymbolError :: Text -> ParsedImport -> Text -> Diagnostic
+    mkHiddenAliasImportSymbolError :: Text -> ResolverImport -> Text -> Diagnostic
     mkHiddenAliasImportSymbolError symbolName importDecl aliasName =
       setDiagnosticSubject symbolName $
         setDiagnosticPrimarySpan
-          (parsedImportSpan importDecl)
+          (resolverImportSpan importDecl)
           ( mkErrorDiagnostic
               E4012
               CompilationOrigin
               ( "import symbol '"
                   <> symbolName
                   <> "' is not visible unqualified from alias import of module '"
-                  <> renderModulePath (parsedImportModulePath importDecl)
+                  <> renderModulePath (resolverImportModulePath importDecl)
                   <> "' as '"
                   <> aliasName
                   <> "' by '"
@@ -1876,13 +1900,13 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
               )
           )
 
-    mkImportAliasCollisionError :: Text -> BindingOrigin -> ParsedImport -> Diagnostic
+    mkImportAliasCollisionError :: Text -> BindingOrigin -> ResolverImport -> Diagnostic
     mkImportAliasCollisionError aliasName previousOrigin importDecl =
       setDiagnosticSubject aliasName $
         setDiagnosticRelatedSpan
           (bindingOriginSpan previousOrigin)
           ( setDiagnosticPrimarySpan
-              (parsedImportSpan importDecl)
+              (resolverImportSpan importDecl)
               ( mkErrorDiagnostic
                   E4009
                   CompilationOrigin
@@ -1895,7 +1919,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                       <> "'; already aliased to module '"
                       <> renderModulePath (bindingOriginModulePath previousOrigin)
                       <> "', cannot alias module '"
-                      <> renderModulePath (parsedImportModulePath importDecl)
+                      <> renderModulePath (resolverImportModulePath importDecl)
                       <> "'"
                   )
               )

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
@@ -28,6 +29,7 @@ import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
+import Jazz.Compiler.AST (CorePhase (Resolved))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
@@ -38,7 +40,7 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.LoweredIR (LoweredProgram)
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModule (..))
+import Jazz.Compiler.ModuleGraph (CoreModule, coreModuleExpr)
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypedCore (TypedCoreValidationFailure, TypedProgram)
@@ -214,7 +216,7 @@ statusFailureKinds status =
     TypedCoreProductionInvariantFailures _ -> []
     TypedCoreProductionSucceeded _ -> []
 
-resolveFixtureModule :: Fixture -> IO ResolvedModule
+resolveFixtureModule :: Fixture -> IO (CoreModule 'Resolved)
 resolveFixtureModule fixture = do
   result <- resolveFixture fixture
   case result of
@@ -229,7 +231,7 @@ resolveFixtureModule fixture = do
 inferFixture :: Fixture -> IO InferenceResult
 inferFixture fixture = do
   resolvedModule <- resolveFixtureModule fixture
-  inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr (resolvedModuleCore resolvedModule))
+  inferExpressionWithInputs (fixtureInputs fixture) (coreModuleExpr resolvedModule)
 
 produceFixture :: Fixture -> IO TypedCoreProductionResult
 produceFixture fixture = do
@@ -250,7 +252,7 @@ produceFixtureWithTrace fixture = do
   lookupPathsValue <- readIORef lookupPaths
   pure (productionResult, lookupPathsValue)
 
-produceResolvedFixture :: Fixture -> ResolvedModule -> IO TypedCoreProductionResult
+produceResolvedFixture :: Fixture -> CoreModule 'Resolved -> IO TypedCoreProductionResult
 produceResolvedFixture fixture resolvedModule =
   inferResolvedModuleTypedCoreExpressionDirectCall
     (fixtureInputs fixture)

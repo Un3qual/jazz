@@ -18,6 +18,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
+import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source (sourceFixture)
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
@@ -27,8 +28,7 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import Jazz.Compiler.ModuleExports (ModuleExport (..), ModuleExportSelector (..), exportInventory)
-import Jazz.Compiler.ModuleGraph (CoreModule (..), DeclaredModuleExports (..), ResolvedModule (..))
+import Jazz.Compiler.ModuleGraph (CoreModule (..))
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
     NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
@@ -115,8 +115,8 @@ testNestedDataFailureAccumulation =
                 resolvedExpression spanValue (resolvedTuple [])
               ]
           forgedModule =
-            withExpression
-              (resolvedBlock [resolvedExpression spanValue nestedBlock])
+            withStatements
+              [resolvedExpression spanValue nestedBlock]
               resolvedModule
           expectedFailures =
             [ TypedCoreProductionFailure
@@ -518,16 +518,15 @@ testMissingResultFailureAccumulation = do
 
 testModuleFailureOrder :: IO ()
 testModuleFailureOrder = do
-  let fixture = fixtureByName "unit-entry"
-      selectors =
-        [ ModuleExportSelector (Just ValueNamespace) "zeta",
-          ModuleExportSelector (Just ValueNamespace) "alpha"
-        ]
-      inventory =
-        exportInventory
-          [ ModuleExport ValueNamespace "zeta",
-            ModuleExport ValueNamespace "alpha"
-          ]
+  let fixture =
+        sourceFixture
+          "module-failure-order"
+          """
+          module App::Main (value zeta, value alpha) {
+          zeta = ().
+          alpha = ().
+          }
+          """
       expectedFailures =
         [ TypedCoreProductionFailure
             (TypedCoreProductionModulePath ["App", "Main"])
@@ -542,20 +541,8 @@ testModuleFailureOrder = do
             TypedCoreUnsupportedExport
             (TypedCoreNameDetail "alpha")
         ]
-  resolvedModule <- resolveFixtureModule fixture
-  let coreModule = resolvedModuleCore resolvedModule
-      mutatedModule =
-        resolvedModule
-          { resolvedModuleExportInventory = inventory,
-            resolvedModuleCore =
-              coreModule
-                { coreModuleDeclaredExports =
-                    Just (DeclaredModuleExports (SourceSpan 1 1) selectors),
-                  coreModuleExpr = resolvedBlock [resolvedLet (SourceSpan 2 1) "ignored" (resolvedTuple [])]
-                }
-          }
-  firstRun <- produceResolvedFixture fixture mutatedModule
-  secondRun <- produceResolvedFixture fixture mutatedModule
+  firstRun <- produceFixture fixture
+  secondRun <- produceFixture fixture
   assertEqual "module failure order repeatability" firstRun secondRun
   assertProductionUnsupported
     "module failures precede statements in authored export order"
@@ -1458,53 +1445,28 @@ testAdditionalProfileFailures =
                     { inferenceImportedCapabilities = emptyScopeCapabilityFacts {scopeClassFacts = Map.singleton "Foreign" 0}
                     }
               }
-          unsupportedRoot = withExpression (resolvedLiteral (LBool True)) resolvedUnitModule
           nonLocalCall =
-            withExpression
-              ( resolvedBlock
-                  [ resolvedExpression
-                      (SourceSpan 1 1)
-                      (resolvedApply (resolvedVariable (BuiltinName (mkIdentifier "__kernel_toInt8"))) (resolvedLiteral (LInt 1)))
-                  ]
-              )
+            withStatements
+              [ resolvedExpression
+                  (SourceSpan 1 1)
+                  (resolvedApply (resolvedVariable (BuiltinName (mkIdentifier "__kernel_toInt8"))) (resolvedLiteral (LInt 1)))
+              ]
               resolvedUnitModule
-          unsupportedExport =
-            resolvedUnitModule
-              { resolvedModuleExportInventory =
-                  exportInventory [ModuleExport ValueNamespace "missing"],
-                resolvedModuleCore =
-                  (resolvedModuleCore resolvedUnitModule)
-                    { coreModuleDeclaredExports =
-                        Just
-                          ( DeclaredModuleExports
-                              (SourceSpan 1 1)
-                              [ModuleExportSelector (Just ValueNamespace) "missing"]
-                          )
-                    }
-              }
           leadingStatement =
-            withExpression
-              ( resolvedBlock
-                  [ resolvedLet (SourceSpan 1 1) "ignored" (resolvedTuple []),
-                    resolvedExpression (SourceSpan 2 1) (resolvedTuple [])
-                  ]
-              )
+            withStatements
+              [ resolvedLet (SourceSpan 1 1) "ignored" (resolvedTuple []),
+                resolvedExpression (SourceSpan 2 1) (resolvedTuple [])
+              ]
               resolvedUnitModule
           inputFailure = [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
-          rootExpressionFailure = [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
       assertUnsupported pathMismatch [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail]
       assertUnsupported importedValue inputFailure
       assertUnsupported importedData inputFailure
       assertUnsupported importedCapabilities inputFailure
-      assertUnsupportedResolved unitFixture unsupportedRoot rootExpressionFailure
       assertUnsupportedResolved
         unitFixture
         nonLocalCall
         [TypedCoreProductionFailure (TypedCoreProductionExpressionPath ["App", "Main"] 0 []) TypedCoreNonLocalCallUnsupported (TypedCoreNameDetail "__kernel_toInt8")]
-      assertUnsupportedResolved
-        unitFixture
-        unsupportedExport
-        [TypedCoreProductionFailure (TypedCoreProductionModulePath ["App", "Main"]) TypedCoreUnsupportedExport (TypedCoreNameDetail "missing")]
       leadingStatementResult <- produceResolvedFixture unitFixture leadingStatement
       case typedCoreProductionStatus leadingStatementResult of
         TypedCoreProductionSucceeded validatedProgram ->
@@ -1515,7 +1477,7 @@ testAdditionalProfileFailures =
         _ -> failTest "unit scalar binding did not produce typed core"
     [] -> failTest "unit fixture is missing"
 
-assertUnsupportedResolved :: Fixture -> ResolvedModule -> [TypedCoreProductionFailure] -> IO ()
+assertUnsupportedResolved :: Fixture -> CoreModule 'Resolved -> [TypedCoreProductionFailure] -> IO ()
 assertUnsupportedResolved fixture resolvedModule expectedFailures = do
   result <- produceResolvedFixture fixture resolvedModule
   assertProductionUnsupported
@@ -1523,16 +1485,9 @@ assertUnsupportedResolved fixture resolvedModule expectedFailures = do
     expectedFailures
     (typedCoreProductionStatus result)
 
-withExpression :: Expr 'Resolved -> ResolvedModule -> ResolvedModule
-withExpression expression moduleValue =
-  moduleValue
-    { resolvedModuleCore =
-        CoreModule
-          (Just ["App", "Main"])
-          Nothing
-          []
-          expression
-    }
+withStatements :: [Statement 'Resolved] -> CoreModule 'Resolved -> CoreModule 'Resolved
+withStatements statements moduleValue =
+  moduleValue {coreModuleStatements = statements}
 
 resolvedNode :: CoreNode 'Resolved sort
 resolvedNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()

@@ -29,9 +29,13 @@ import Jazz.Compiler.ModuleExports
     ModuleTypeConstructorSelector (..),
   )
 import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    CoreResolvedImport (..),
-    DeclaredModuleExports (..),
+  ( CoreModule,
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name
@@ -45,10 +49,11 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (SEBlock),
-    SurfaceStatement (SSModule),
+    SurfaceStatement (SSImport, SSModule),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceModuleDetailed,
+  ( ModuleLoweringFailure,
+    lowerSurfaceModuleDetailed,
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
 import Jazz.Compiler.TypeRepresentation
@@ -195,7 +200,14 @@ testNumericFidelity = do
 
 testModuleInventory :: IO ()
 testModuleInventory = do
-  value <- expectRight "core module adapter" (canonicalCoreModuleRuntimeValue moduleInventory)
+  coreModule <-
+    case moduleInventoryResult of
+      Left failure -> failTest ("lower core module inventory failed: " <> Text.pack (show failure))
+      Right inventoryModule -> pure inventoryModule
+  value <-
+    expectRight
+      "core module adapter"
+      (canonicalCoreModuleRuntimeValue (Just ["App", "Main"]) coreModule)
   let rendered = renderRuntimeValue value
   assertContains "declared path" "[\"App\", \"Main\"]" rendered
   assertContains "qualified span" "CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 1, 1)" rendered
@@ -211,9 +223,9 @@ testModuleFailureBoundary = do
     expectRight
       "multiple module declarations"
       ( canonicalCoreModuleResultRuntimeValue
+          (Just ["App", "First"])
           ( lowerSurfaceModuleDetailed
-              "src/App/Main.jz"
-              ["App", "Main"]
+              testModuleIdentity
               ( SurfaceExpr
                   span1
                   ( SEBlock
@@ -233,9 +245,9 @@ testModuleFailureBoundary = do
     expectRight
       "module path mismatch"
       ( canonicalCoreModuleResultRuntimeValue
+          (Just ["Wrong", "Path"])
           ( lowerSurfaceModuleDetailed
-              "src/App/Main.jz"
-              ["App", "Main"]
+              testModuleIdentity
               (SurfaceExpr span2 (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing]))
           )
       )
@@ -247,7 +259,7 @@ testModuleFailureBoundary = do
   successfulModule <-
     expectRight
       "successful module result"
-      (canonicalCoreModuleResultRuntimeValue (Right moduleInventory))
+      (canonicalCoreModuleResultRuntimeValue (Just ["App", "Main"]) moduleInventoryResult)
   assertContains "successful module result" "CoreModuleLowered" (renderRuntimeValue successfulModule)
 
 simpleCoreExpression :: Expr 'Lowered
@@ -372,33 +384,36 @@ signatureTokenInventory =
     SignatureOtherToken "?"
   ]
 
-moduleInventory :: CoreModule 'Lowered
-moduleInventory =
-  CoreModule
-    { coreModuleDeclaredPath = Just ["App", "Main"],
-      coreModuleDeclaredExports =
-        Just
-          ( DeclaredModuleExports
-              qualifiedSpan1
-              [ ModuleExportSelector (Just ValueNamespace) "value",
-                ModuleTypeExportSelector "Box" qualifiedSpan1 AbstractType,
-                ModuleTypeExportSelector "Choice" qualifiedSpan1 (AllTypeConstructors qualifiedSpan1),
-                ModuleTypeExportSelector
-                  "Maybe"
-                  qualifiedSpan1
-                  (SelectedTypeConstructors (LocatedModuleExportName "Some" qualifiedSpan1 :| [LocatedModuleExportName "None" qualifiedSpan1]))
-              ]
-          ),
-      coreModuleImports =
-        [ CoreResolvedImport
-            { coreResolvedImportSpan = qualifiedSpan2,
-              coreResolvedImportPath = ["Lib", "Value"],
-              coreResolvedImportAlias = Just "Value",
-              coreResolvedImportSymbols = Just ["item"]
-            }
-        ],
-      coreModuleExpr = loweredBlock [loweredExpression qualifiedSpan2 simpleCoreExpression]
-    }
+moduleInventoryResult :: Either ModuleLoweringFailure (CoreModule 'Lowered)
+moduleInventoryResult =
+  lowerSurfaceModuleDetailed
+    testModuleIdentity
+    ( SurfaceExpr
+        span1
+        ( SEBlock
+            [ SSModule
+                span1
+                ["App", "Main"]
+                ( Just
+                    [ ModuleExportSelector (Just ValueNamespace) "value",
+                      ModuleTypeExportSelector "Box" span1 AbstractType,
+                      ModuleTypeExportSelector "Choice" span1 (AllTypeConstructors span1),
+                      ModuleTypeExportSelector
+                        "Maybe"
+                        span1
+                        (SelectedTypeConstructors (LocatedModuleExportName "Some" span1 :| [LocatedModuleExportName "None" span1]))
+                    ]
+                ),
+              SSImport span2 ["Lib", "Value"] (Just "Value") (Just ["item"])
+            ]
+        )
+    )
+
+testModuleIdentity :: ModuleIdentity
+testModuleIdentity =
+  moduleIdentity
+    (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))
+    (mkSourceFile "src/App/Main.jz")
 
 expectedConstructors :: [Text.Text]
 expectedConstructors =
@@ -511,12 +526,6 @@ span1 = SourceSpan 1 1
 
 span2 :: SourceSpan
 span2 = SourceSpan 2 3
-
-qualifiedSpan1 :: SourceSpan
-qualifiedSpan1 = SourceSpanIn "src/App/Main.jz" 1 1
-
-qualifiedSpan2 :: SourceSpan
-qualifiedSpan2 = SourceSpanIn "src/App/Main.jz" 2 3
 
 expectRight :: Text.Text -> Either Text.Text value -> IO value
 expectRight label result =

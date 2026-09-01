@@ -38,7 +38,7 @@ import Jazz.Compiler.Driver
     runRuntimeObservation,
     runWarnings,
   )
-import Jazz.Compiler.ModuleInterface (CompiledProgram)
+import Jazz.Compiler.ModuleCompiler (CompiledProgram)
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationReport (..),

@@ -18,11 +18,13 @@ import Control.Monad.Trans.Except
   ( ExceptT (..),
     runExceptT,
   )
+import Data.Foldable (toList)
 import Data.Functor.Identity (runIdentity)
 import Data.List (find)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
@@ -32,6 +34,20 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.ModuleCompiler
+  ( CompiledModule,
+    CompiledProgram,
+    compiledModuleExportInventory,
+    compiledModuleExpr,
+    compiledModuleImports,
+    compiledModuleInterface,
+    compiledModulePath,
+    compiledProgramEntryPath,
+    compiledProgramModules,
+    compiledProgramPrelude,
+    compiledProgramPreludePath,
+    firstCompiledProgramError,
+  )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -41,14 +57,12 @@ import Jazz.Compiler.ModuleExports
     inventoryHasExport,
     visibleImportInventory,
   )
-import Jazz.Compiler.ModuleGraph (ImportExposure (..), ResolvedImport (..))
-import Jazz.Compiler.ModuleIdentity (mkModulePath)
+import Jazz.Compiler.ModuleGraph (ImportExposure (..), ModuleImport)
+import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments)
 import Jazz.Compiler.ModuleInterface
-  ( CompiledModule (..),
-    CompiledPrelude (..),
-    CompiledProgram (..),
+  ( CompiledPrelude (..),
     ModuleInterface (..),
-    firstCompiledProgramError,
     moduleInterfaceExportInventory,
   )
 import Jazz.Compiler.Name
@@ -112,12 +126,12 @@ data RuntimeProgram = RuntimeProgram
   }
 
 data RuntimeModuleAccumulator = RuntimeModuleAccumulator
-  { accumulatedRuntimeModulesReversed :: ![RuntimeModule],
-    accumulatedRuntimeModulesByPath :: !(Map [Text] RuntimeModule)
+  { accumulatedRuntimeModules :: !(Seq.Seq RuntimeModule),
+    accumulatedRuntimeModulesByPath :: !(Map ModulePath RuntimeModule)
   }
 
 data PreparedModuleEvaluation = PreparedModuleEvaluation
-  { preparedModulePath :: [Text],
+  { preparedModulePath :: ModulePath,
     preparedModuleEvaluationMode :: ModuleEvaluationMode,
     preparedModuleImportedEnvironment :: RuntimeEnv
   }
@@ -139,7 +153,7 @@ evaluateCompiledProgramObserved observationRequest compiledProgram =
 
 evaluateCompiledProgramPureUnchecked :: CompiledProgram -> Either Diagnostic RuntimeProgram
 evaluateCompiledProgramPureUnchecked compiledProgram = do
-  ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
+  ambientEnv <- evaluatePrelude (compiledProgramPreludePath compiledProgram) (compiledProgramPrelude compiledProgram)
   evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
@@ -155,7 +169,7 @@ evaluateCompiledProgramPureUnchecked compiledProgram = do
                 prepareModuleEvaluation entryPath compiledModules ambientEnv runtimeModules compiledModule
           scopeResult <-
             evaluateModuleScope
-              (Just (preparedModulePath preparedModule))
+              (Just (modulePathTexts (preparedModulePath preparedModule)))
               (preparedModuleEvaluationMode preparedModule)
               (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
               (interfaceRuntimeHints (compiledModuleInterface compiledModule))
@@ -165,14 +179,14 @@ evaluateCompiledProgramPureUnchecked compiledProgram = do
                 completeModuleEvaluation preparedModule compiledModule scopeResult runtimeModules output
           evaluateModules compiledModules ambientEnv nextRuntimeModules nextOutput rest
 
-evaluatePrelude :: CompiledPrelude -> Either Diagnostic RuntimeEnv
-evaluatePrelude compiledPrelude =
+evaluatePrelude :: ModulePath -> CompiledPrelude -> Either Diagnostic RuntimeEnv
+evaluatePrelude preludePath compiledPrelude =
   case compiledPreludeExpr compiledPrelude of
     Nothing -> Right Map.empty
     Just expression -> do
       scopeResult <-
         evaluateModuleScope
-          (Just [])
+          (Just (modulePathTexts preludePath))
           EvaluateDependencyModule
           (compiledPreludeBuiltinMode compiledPrelude)
           (compiledPreludeRuntimeHints compiledPrelude)
@@ -239,7 +253,13 @@ evaluateCompiledProgramWithEvaluationHostUnchecked ::
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
 evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram =
   runExceptT $ do
-    ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
+    ambientEnv <-
+      ExceptT
+        ( evaluatePreludeWithEvaluationHost
+            evaluationHost
+            (compiledProgramPreludePath compiledProgram)
+            (compiledProgramPrelude compiledProgram)
+        )
     evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
   where
     entryPath = compiledProgramEntryPath compiledProgram
@@ -257,7 +277,7 @@ evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgra
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
-                  (Just (preparedModulePath preparedModule))
+                  (Just (modulePathTexts (preparedModulePath preparedModule)))
                   (preparedModuleEvaluationMode preparedModule)
                   (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
                   (interfaceRuntimeHints (compiledModuleInterface compiledModule))
@@ -269,8 +289,8 @@ evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgra
           evaluateModules compiledModules ambientEnv nextRuntimeModules nextOutput rest
 
 prepareModuleEvaluation ::
-  [Text] ->
-  Map [Text] CompiledModule ->
+  ModulePath ->
+  Map ModulePath CompiledModule ->
   RuntimeEnv ->
   RuntimeModuleAccumulator ->
   CompiledModule ->
@@ -299,7 +319,7 @@ completeModuleEvaluation ::
   Maybe RuntimeValue ->
   (RuntimeModuleAccumulator, Maybe RuntimeValue)
 completeModuleEvaluation preparedModule compiledModule scopeResult runtimeModules output =
-  ( accumulateRuntimeModule runtimeModule runtimeModules,
+  ( accumulateRuntimeModule (preparedModulePath preparedModule) runtimeModule runtimeModules,
     case preparedModuleEvaluationMode preparedModule of
       EvaluateEntryModule -> scopeResultValue scopeResult
       EvaluateDependencyModule -> output
@@ -307,7 +327,7 @@ completeModuleEvaluation preparedModule compiledModule scopeResult runtimeModule
   where
     runtimeModule =
       RuntimeModule
-        { runtimeModulePath = preparedModulePath preparedModule,
+        { runtimeModulePath = modulePathTexts (preparedModulePath preparedModule),
           runtimeModuleExports =
             publishExports
               CurrentModule
@@ -324,16 +344,17 @@ compiledProgramRequiresHost compiledProgram =
 evaluatePreludeWithEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  ModulePath ->
   CompiledPrelude ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
-evaluatePreludeWithEvaluationHost host compiledPrelude =
+evaluatePreludeWithEvaluationHost host preludePath compiledPrelude =
   case compiledPreludeExpr compiledPrelude of
     Nothing -> pure (Right Map.empty)
     Just expression -> do
       scopeResult <-
         evaluateModuleScopeWithRequiredEvaluationHostControl
           host
-          (Just [])
+          (Just (modulePathTexts preludePath))
           EvaluateDependencyModule
           (compiledPreludeBuiltinMode compiledPrelude)
           (compiledPreludeRuntimeHints compiledPrelude)
@@ -350,7 +371,7 @@ evaluatePreludeWithEvaluationHost host compiledPrelude =
           )
           scopeResult
 
-importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
+importRuntimeModule :: Map ModulePath CompiledModule -> Map ModulePath RuntimeModule -> ModuleImport 'Resolved -> RuntimeEnv -> RuntimeEnv
 importRuntimeModule compiledModules runtimeModules importDecl env =
   case (Map.lookup dependencyPath compiledModules, Map.lookup dependencyPath runtimeModules) of
     (Just compiledDependency, Just runtimeDependency) ->
@@ -374,24 +395,20 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
        in foldr insertExport env selectedExports
     _ -> env
   where
-    dependencyPath = resolvedImportPath importDecl
-    dependencyOrigin =
-      maybe
-        AmbientPrelude
-        (ImportedModule . mkModulePath . fmap mkIdentifier)
-        (NonEmpty.nonEmpty dependencyPath)
+    dependencyPath = ModuleGraph.importedModule importDecl
+    dependencyOrigin = ImportedModule dependencyPath
 
 emptyRuntimeModuleAccumulator :: RuntimeModuleAccumulator
-emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator [] Map.empty
+emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator Seq.empty Map.empty
 
-accumulateRuntimeModule :: RuntimeModule -> RuntimeModuleAccumulator -> RuntimeModuleAccumulator
-accumulateRuntimeModule runtimeModule runtimeModules =
+accumulateRuntimeModule :: ModulePath -> RuntimeModule -> RuntimeModuleAccumulator -> RuntimeModuleAccumulator
+accumulateRuntimeModule modulePath runtimeModule runtimeModules =
   RuntimeModuleAccumulator
-    { accumulatedRuntimeModulesReversed = runtimeModule : accumulatedRuntimeModulesReversed runtimeModules,
+    { accumulatedRuntimeModules = accumulatedRuntimeModules runtimeModules Seq.|> runtimeModule,
       accumulatedRuntimeModulesByPath =
         Map.insertWith
           (\_ firstRuntimeModule -> firstRuntimeModule)
-          (runtimeModulePath runtimeModule)
+          modulePath
           runtimeModule
           (accumulatedRuntimeModulesByPath runtimeModules)
     }
@@ -399,16 +416,19 @@ accumulateRuntimeModule runtimeModule runtimeModules =
 finishRuntimeProgram :: RuntimeModuleAccumulator -> Maybe RuntimeValue -> RuntimeProgram
 finishRuntimeProgram runtimeModules output =
   RuntimeProgram
-    { runtimeProgramModules = reverse (accumulatedRuntimeModulesReversed runtimeModules),
+    { runtimeProgramModules = toList (accumulatedRuntimeModules runtimeModules),
       runtimeProgramOutput = output
     }
 
-buildCompiledModulePathIndex :: CompiledProgram -> Map [Text] CompiledModule
+buildCompiledModulePathIndex :: CompiledProgram -> Map ModulePath CompiledModule
 buildCompiledModulePathIndex =
   Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
     . map
       (\compiledModule -> (compiledModulePath compiledModule, compiledModule))
     . compiledProgramModules
+
+modulePathTexts :: ModulePath -> [Text]
+modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin publicInventory moduleInterface env =
@@ -442,12 +462,12 @@ interfaceExports publicInventory moduleInterface =
   where
     publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
 
-runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> RuntimeExport -> Bool
+runtimeExportSelected :: ModuleImport 'Resolved -> ModuleExportInventory -> RuntimeExport -> Bool
 runtimeExportSelected importDecl publicInventory runtimeExport =
-  case resolvedImportExposure importDecl of
-    ImportAll -> selectedBy UnqualifiedImport Nothing True
-    ImportOnly symbolNames -> selectedBy UnqualifiedImport (Just (NonEmpty.toList symbolNames)) True
-    ImportQualified _ -> selectedBy QualifiedAliasImport Nothing False
+  case ModuleGraph.importExposure importDecl of
+    ImportAllUnqualified -> selectedBy UnqualifiedImport Nothing True
+    ImportOnlyUnqualified symbolNames -> selectedBy UnqualifiedImport (Just (map identifierText (NonEmpty.toList symbolNames))) True
+    ImportQualifiedOnly -> selectedBy QualifiedAliasImport Nothing False
   where
     selectedBy importMode symbolNames includeCapabilityMethods =
       case runtimeExport of

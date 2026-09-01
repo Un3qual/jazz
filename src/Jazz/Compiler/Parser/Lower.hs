@@ -15,8 +15,10 @@ where
 
 import Control.Monad.Trans.State.Strict (State, evalState, state)
 import Data.Bifunctor (bimap)
+import Data.Either (partitionEithers)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -46,14 +48,26 @@ import Jazz.Compiler.Diagnostics
     SourceSpan,
     mkErrorDiagnostic,
     qualifySourceSpan,
+    setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.ModuleExports
   ( qualifyModuleExportSelectorSpans,
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
-    CoreResolvedImport (..),
+    DeclaredImportExposure (..),
     DeclaredModuleExports (..),
+    DeclaredModuleFacts (..),
+    ModuleImport (..),
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkModuleQualifier,
+    moduleIdentityPath,
+    moduleIdentitySource,
+    modulePathTextSegments,
+    sourceFilePath,
   )
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
@@ -102,32 +116,38 @@ data ModuleDeclaration = ModuleDeclaration
 data ModuleLoweringFailure
   = MultipleModuleDeclarations FilePath [ModuleDeclaration]
   | ModulePathMismatch FilePath [Text] ModuleDeclaration
+  | EmptyImportSymbolList FilePath SourceSpan [Text]
   deriving (Eq, Show)
 
 -- | Validate and lower one parsed module exactly once. Module/import forms are
 -- retained as graph metadata and removed from the executable core scope.
-lowerSurfaceModule :: FilePath -> [Text] -> SurfaceExpr -> Either Diagnostic (CoreModule 'Lowered)
-lowerSurfaceModule sourcePath expectedPath surfaceExpr =
-  case lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr of
+lowerSurfaceModule :: ModuleIdentity -> SurfaceExpr -> Either Diagnostic (CoreModule 'Lowered)
+lowerSurfaceModule identity surfaceExpr =
+  case lowerSurfaceModuleDetailed identity surfaceExpr of
     Left failure -> Left (moduleLoweringFailureDiagnostic failure)
     Right coreModule -> Right coreModule
 
 -- | Preserve the semantic inputs for the two module-lowering failures. The
 -- public compiler entry point above renders these into the existing E4005 and
 -- E4006 diagnostics, so production behavior remains unchanged.
-lowerSurfaceModuleDetailed :: FilePath -> [Text] -> SurfaceExpr -> Either ModuleLoweringFailure (CoreModule 'Lowered)
-lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
+lowerSurfaceModuleDetailed :: ModuleIdentity -> SurfaceExpr -> Either ModuleLoweringFailure (CoreModule 'Lowered)
+lowerSurfaceModuleDetailed identity surfaceExpr =
   {-# SCC "jazz-stage:lowering" #-}
   do
-    (declaredPath, declaredExports) <- validateDeclaration
+    declaredExports <- validateDeclaration
+    (bodyNode, imports, executableStatements) <- runLowering lowerModuleBody
+    let (qualifiedBodyNode, qualifiedStatements) = qualifyModuleBody bodyNode executableStatements
     pure
       CoreModule
-        { coreModuleDeclaredPath = declaredPath,
-          coreModuleDeclaredExports = declaredExports,
-          coreModuleImports = imports,
-          coreModuleExpr = qualifyExprSourceSpans sourcePath loweredBody
+        { coreModuleIdentity = identity,
+          coreModuleBodyNode = qualifiedBodyNode,
+          coreModuleImports = map qualifyImport imports,
+          coreModuleStatements = qualifiedStatements,
+          coreModuleFacts = DeclaredModuleFacts declaredExports
         }
   where
+    sourcePath = sourceFilePath (moduleIdentitySource identity)
+    expectedPath = NonEmpty.toList (modulePathTextSegments (moduleIdentityPath identity))
     statements =
       case surfaceExprForm surfaceExpr of
         SEBlock moduleStatements -> moduleStatements
@@ -138,41 +158,64 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
       | SSModule spanValue modulePath moduleExports <- statements
       ]
 
-    imports =
-      [ CoreResolvedImport
-          { coreResolvedImportSpan = qualifySourceSpan sourcePath spanValue,
-            coreResolvedImportPath = modulePath,
-            coreResolvedImportAlias = alias,
-            coreResolvedImportSymbols = importedSymbols
-          }
-      | SSImport spanValue modulePath alias importedSymbols <- statements
-      ]
+    qualifyModuleBody bodyNode bodyStatements =
+      ( qualifyLoweredNode sourcePath bodyNode,
+        map (qualifyStatementSourceSpans sourcePath) bodyStatements
+      )
 
-    executableStatements =
-      [ statement
-      | statement <- statements,
-        case statement of
-          SSModule {} -> False
-          SSImport {} -> False
-          _ -> True
-      ]
+    qualifyImport importDecl =
+      importDecl
+        { moduleImportNode = qualifyNode (moduleImportNode importDecl)
+        }
+      where
+        qualifyNode (CoreNode nodeId spanValue facts) =
+          CoreNode nodeId (qualifySourceSpan sourcePath spanValue) facts
 
-    loweredBody =
-      runLowering $
-        case surfaceExprForm surfaceExpr of
-          SEBlock _ -> do
-            node <- freshNode (surfaceExprSpan surfaceExpr)
-            EBlock node <$> traverse lowerSurfaceStatement executableStatements
-          _ -> lowerSurfaceExprWithoutCostCentre surfaceExpr
+    lowerModuleBody = do
+      bodyNode <- freshNode (surfaceExprSpan surfaceExpr)
+      loweredItems <- traverse lowerModuleStatement statements
+      pure $ do
+        items <- sequence loweredItems
+        let (imports, maybeStatements) = partitionEithers items
+        Right (bodyNode, imports, catMaybes maybeStatements)
+
+    lowerModuleStatement statement =
+      case statement of
+        SSModule {} -> pure (Right (Right Nothing))
+        SSImport spanValue modulePath alias importedSymbols -> do
+          node <- freshNode spanValue
+          pure $ do
+            importedPath <-
+              maybe
+                (Left (EmptyImportSymbolList sourcePath spanValue modulePath))
+                (Right . mkModulePath . fmap mkIdentifier)
+                (NonEmpty.nonEmpty modulePath)
+            exposure <-
+              case importedSymbols of
+                Nothing -> Right DeclaredImportAll
+                Just symbols ->
+                  maybe
+                    (Left (EmptyImportSymbolList sourcePath spanValue modulePath))
+                    (Right . DeclaredImportOnly . fmap mkIdentifier)
+                    (NonEmpty.nonEmpty symbols)
+            Right
+              ( Left
+                  ModuleImport
+                    { moduleImportNode = node,
+                      importedModule = importedPath,
+                      importAlias = mkModuleQualifier . mkIdentifier <$> alias,
+                      importExposure = exposure
+                    }
+              )
+        _ -> Right . Right . Just <$> lowerSurfaceStatement statement
 
     validateDeclaration =
       case declarations of
-        [] -> Right (Nothing, Nothing)
+        [] -> Right Nothing
         [(declaration, declaredExportSelectors)]
           | moduleDeclarationPath declaration == expectedPath ->
               Right
-                ( Just (moduleDeclarationPath declaration),
-                  DeclaredModuleExports
+                ( DeclaredModuleExports
                     (qualifySourceSpan sourcePath (moduleDeclarationSpan declaration))
                     . map (qualifyModuleExportSelectorSpans sourcePath)
                     <$> declaredExportSelectors
@@ -206,72 +249,87 @@ moduleLoweringFailureDiagnostic failure =
             <> renderModulePath (moduleDeclarationPath declaration)
             <> "'"
         )
+    EmptyImportSymbolList sourcePath spanValue modulePath ->
+      setDiagnosticPrimarySpan spanValue $
+        mkErrorDiagnostic
+          E4010
+          CompilationOrigin
+          ( "invalid empty module import in '"
+              <> Text.pack sourcePath
+              <> "' for '"
+              <> Text.intercalate "::" modulePath
+              <> "'"
+          )
   where
     renderModulePath = Text.intercalate "::"
 
 qualifyExprSourceSpans :: FilePath -> Expr 'Lowered -> Expr 'Lowered
 qualifyExprSourceSpans sourcePath expr =
   case expr of
-    ELit node literal -> ELit (qualifyNode node) literal
-    EVar node name -> EVar (qualifyNode node) name
-    ELambda node parameter body -> ELambda (qualifyNode node) parameter (go body)
-    EOperatorValue node symbol -> EOperatorValue (qualifyNode node) symbol
-    EList node items -> EList (qualifyNode node) (map go items)
-    ETuple node items -> ETuple (qualifyNode node) (map go items)
-    EApply node function argument -> EApply (qualifyNode node) (go function) (go argument)
+    ELit node literal -> ELit (qualifyLoweredNode sourcePath node) literal
+    EVar node name -> EVar (qualifyLoweredNode sourcePath node) name
+    ELambda node parameter body -> ELambda (qualifyLoweredNode sourcePath node) parameter (go body)
+    EOperatorValue node symbol -> EOperatorValue (qualifyLoweredNode sourcePath node) symbol
+    EList node items -> EList (qualifyLoweredNode sourcePath node) (map go items)
+    ETuple node items -> ETuple (qualifyLoweredNode sourcePath node) (map go items)
+    EApply node function argument -> EApply (qualifyLoweredNode sourcePath node) (go function) (go argument)
     ETypeApplication node function spanValue signatureType ->
-      ETypeApplication (qualifyNode node) (go function) (qualifySpan spanValue) signatureType
+      ETypeApplication (qualifyLoweredNode sourcePath node) (go function) (qualifySpan spanValue) signatureType
     EIf node condition trueBranch falseBranch ->
-      EIf (qualifyNode node) (go condition) (go trueBranch) (go falseBranch)
+      EIf (qualifyLoweredNode sourcePath node) (go condition) (go trueBranch) (go falseBranch)
     EPatternCase node scrutinee arms ->
-      EPatternCase (qualifyNode node) (go scrutinee) (map qualifyCaseArm arms)
-    EBinary node symbol left right -> EBinary (qualifyNode node) symbol (go left) (go right)
-    ESectionLeft node left symbol -> ESectionLeft (qualifyNode node) (go left) symbol
-    ESectionRight node symbol right -> ESectionRight (qualifyNode node) symbol (go right)
-    EBlock node statements -> EBlock (qualifyNode node) (map qualifyStatement statements)
+      EPatternCase (qualifyLoweredNode sourcePath node) (go scrutinee) (map qualifyCaseArm arms)
+    EBinary node symbol left right -> EBinary (qualifyLoweredNode sourcePath node) symbol (go left) (go right)
+    ESectionLeft node left symbol -> ESectionLeft (qualifyLoweredNode sourcePath node) (go left) symbol
+    ESectionRight node symbol right -> ESectionRight (qualifyLoweredNode sourcePath node) symbol (go right)
+    EBlock node statements -> EBlock (qualifyLoweredNode sourcePath node) (map (qualifyStatementSourceSpans sourcePath) statements)
   where
     go = qualifyExprSourceSpans sourcePath
     qualifySpan = qualifySourceSpan sourcePath
-    qualifyNode (CoreNode nodeId spanValue ()) = CoreNode nodeId (qualifySpan spanValue) ()
 
     qualifyCaseArm (CaseArm node patternValue guardExpr bodyExpr) =
-      CaseArm (qualifyNode node) (qualifyPattern patternValue) (fmap go guardExpr) (go bodyExpr)
+      CaseArm (qualifyLoweredNode sourcePath node) (qualifyPattern patternValue) (fmap go guardExpr) (go bodyExpr)
 
     qualifyPattern patternValue =
       case patternValue of
-        PWildcard node -> PWildcard (qualifyNode node)
-        PVariable node name -> PVariable (qualifyNode node) name
-        PLiteral node literal -> PLiteral (qualifyNode node) literal
-        PConstructor node name patterns -> PConstructor (qualifyNode node) name (map qualifyPattern patterns)
-        PList node patterns -> PList (qualifyNode node) (map qualifyPattern patterns)
+        PWildcard node -> PWildcard (qualifyLoweredNode sourcePath node)
+        PVariable node name -> PVariable (qualifyLoweredNode sourcePath node) name
+        PLiteral node literal -> PLiteral (qualifyLoweredNode sourcePath node) literal
+        PConstructor node name patterns -> PConstructor (qualifyLoweredNode sourcePath node) name (map qualifyPattern patterns)
+        PList node patterns -> PList (qualifyLoweredNode sourcePath node) (map qualifyPattern patterns)
         PConsList node headPattern tailPattern ->
-          PConsList (qualifyNode node) (qualifyPattern headPattern) (qualifyPattern tailPattern)
-        PTuple node patterns -> PTuple (qualifyNode node) (map qualifyPattern patterns)
-        PAs node name nestedPattern -> PAs (qualifyNode node) name (qualifyPattern nestedPattern)
-        POr node alternatives -> POr (qualifyNode node) (map qualifyPattern alternatives)
+          PConsList (qualifyLoweredNode sourcePath node) (qualifyPattern headPattern) (qualifyPattern tailPattern)
+        PTuple node patterns -> PTuple (qualifyLoweredNode sourcePath node) (map qualifyPattern patterns)
+        PAs node name nestedPattern -> PAs (qualifyLoweredNode sourcePath node) name (qualifyPattern nestedPattern)
+        POr node alternatives -> POr (qualifyLoweredNode sourcePath node) (map qualifyPattern alternatives)
 
+qualifyLoweredNode :: FilePath -> CoreNode 'Lowered sort -> CoreNode 'Lowered sort
+qualifyLoweredNode sourcePath (CoreNode nodeId spanValue facts) =
+  CoreNode nodeId (qualifySourceSpan sourcePath spanValue) facts
+
+qualifyStatementSourceSpans :: FilePath -> Statement 'Lowered -> Statement 'Lowered
+qualifyStatementSourceSpans sourcePath statement =
+  case statement of
+    SLet node name valueExpr -> SLet (qualifyNode node) name (go valueExpr)
+    SSignature node name payload -> SSignature (qualifyNode node) name payload
+    SData node name parameters constructors ->
+      SData (qualifyNode node) name parameters (map qualifyDataConstructor constructors)
+    SClass node name parameters methods ->
+      SClass (qualifyNode node) name parameters (map qualifyClassMethod methods)
+    SImpl node name arguments methods ->
+      SImpl (qualifyNode node) name arguments (map qualifyImplMethod methods)
+    SModule node path -> SModule (qualifyNode node) path
+    SImport node path alias symbols -> SImport (qualifyNode node) path alias symbols
+    SExpr node valueExpr -> SExpr (qualifyNode node) (go valueExpr)
+  where
+    qualifyNode = qualifyLoweredNode sourcePath
+    go = qualifyExprSourceSpans sourcePath
     qualifyDataConstructor (DataConstructor node name fieldTypes) =
       DataConstructor (qualifyNode node) name fieldTypes
-
     qualifyClassMethod (ClassMethodSignature node name payload) =
       ClassMethodSignature (qualifyNode node) name payload
-
     qualifyImplMethod (ImplMethod node name bodyExpr) =
       ImplMethod (qualifyNode node) name (go bodyExpr)
-
-    qualifyStatement statement =
-      case statement of
-        SLet node name valueExpr -> SLet (qualifyNode node) name (go valueExpr)
-        SSignature node name payload -> SSignature (qualifyNode node) name payload
-        SData node name parameters constructors ->
-          SData (qualifyNode node) name parameters (map qualifyDataConstructor constructors)
-        SClass node name parameters methods ->
-          SClass (qualifyNode node) name parameters (map qualifyClassMethod methods)
-        SImpl node name arguments methods ->
-          SImpl (qualifyNode node) name arguments (map qualifyImplMethod methods)
-        SModule node path -> SModule (qualifyNode node) path
-        SImport node path alias symbols -> SImport (qualifyNode node) path alias symbols
-        SExpr node valueExpr -> SExpr (qualifyNode node) (go valueExpr)
 
 -- | Convert parser-surface nodes into located lowered core. Node identities are
 -- allocated in strict source pre-order and every core node retains its source
