@@ -661,17 +661,29 @@ inferScopeTypeInternal
                 | otherwise -> []
           recordDefinition stateAcc definitionIndex =
             case Map.lookup definitionIndex statementsByIndex of
-              Just definition@SLet {} ->
-                recordStatementSemanticFacts
-                  visibleTypes
-                  definition
-                  (recordCommittedSignature stateAcc definitionIndex)
+              Just definition@(SLet _ name _) ->
+                let definitionVisibleTypes =
+                      case Map.lookup definitionIndex pendingSignatures of
+                        Nothing -> visibleTypes
+                        Just pendingSignature ->
+                          Map.insert
+                            name
+                            ( generalizedExplicitSignatureBinding
+                                (freeTypeVariablesInEnv state (Map.delete name visibleTypes))
+                                state
+                                pendingSignature
+                            )
+                            visibleTypes
+                 in recordStatementSemanticFacts
+                      definitionVisibleTypes
+                      definition
+                      (recordCommittedSignature definitionVisibleTypes stateAcc definitionIndex)
               _ -> stateAcc
-          recordCommittedSignature stateAcc definitionIndex
+          recordCommittedSignature definitionVisibleTypes stateAcc definitionIndex
             | Map.member definitionIndex pendingSignatures =
                 case Map.lookup (definitionIndex - 1) statementsByIndex of
                   Just signature@SSignature {} ->
-                    recordStatementSemanticFacts visibleTypes signature stateAcc
+                    recordStatementSemanticFacts definitionVisibleTypes signature stateAcc
                   _ -> stateAcc
             | otherwise = stateAcc
 

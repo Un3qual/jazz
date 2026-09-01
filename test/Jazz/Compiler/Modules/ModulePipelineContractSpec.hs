@@ -201,7 +201,8 @@ tests =
     ("explicit instantiations retain lexical binder identities through shadowing", testExplicitInstantiationBinderShadowing),
     ("statement schemes are captured at each definition site", testStatementSchemesAreDefinitionSiteFacts),
     ("runtime rejects non-corresponding resolved and analyzed programs", testRuntimeRejectsNonCorrespondingPrograms),
-    ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme)
+    ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme),
+    ("signed builtin aliases retain their authored schemes", testSignedBuiltinAliasStatementScheme)
   ]
 
 testAnalyzedProgramFactsAreComplete :: IO ()
@@ -957,6 +958,35 @@ testBuiltinAliasStatementScheme = do
         facts -> fail ("builtin alias did not retain its full conversion scheme: " <> show facts)
       assertEqual "builtin alias has no class constraints" [] (analyzedSchemeConstraints scheme)
     schemes -> assertEqual "builtin alias owns exactly one meaningful scheme" 1 (length schemes)
+
+testSignedBuiltinAliasStatementScheme :: IO ()
+testSignedBuiltinAliasStatementScheme = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      ( Map.singleton
+          "src/App/Main.jz"
+          "module App::Main { prepend :: a -> [a] -> [a]. prepend = __kernel_listPrependRaw. prepend. }"
+      )
+  coreModule <-
+    maybe
+      (fail "missing analyzed App::Main module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  case namedLetSchemes "prepend" (coreModuleExpr coreModule) of
+    [scheme] ->
+      case (analyzedSchemeVariables scheme, analyzedSchemePrimitiveConstraints scheme, analyzedSchemeType scheme) of
+        ( [variable],
+          [],
+          SemanticFunction
+            (SemanticVariable argumentVariable)
+            (SemanticFunction (SemanticList (SemanticVariable listVariable)) (SemanticList (SemanticVariable resultVariable)))
+          ) ->
+            assertEqual
+              "signed builtin alias preserves one authored type variable"
+              (variable, variable, variable)
+              (argumentVariable, listVariable, resultVariable)
+        facts -> fail ("signed builtin alias did not retain its authored scheme: " <> show facts)
+    schemes -> assertEqual "signed builtin alias owns exactly one meaningful scheme" 1 (length schemes)
 
 testRuntimeRejectsNonCorrespondingPrograms :: IO ()
 testRuntimeRejectsNonCorrespondingPrograms = do
