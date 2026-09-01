@@ -605,7 +605,7 @@ testImportedWitnessRendering =
         (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Choice"]))
         ConstructorNamespace
         (mkIdentifier "Only")
-    sourceWitness = resolvedLocalName ConstructorNamespace (mkIdentifier "Only")
+    sourceWitness = sourceName (mkIdentifier "Only")
     importedWitnessInventory =
       constructorInventoryFromBindingsWithWitnessNames
         (Map.singleton importedName sourceWitness)

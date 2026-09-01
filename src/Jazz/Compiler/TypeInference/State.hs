@@ -53,7 +53,7 @@ import Data.Text (Text)
 import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.Name (ResolvedName)
+import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
@@ -94,7 +94,7 @@ data ModuleInferenceState = ModuleInferenceState
     inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
-    inferenceConstructorWitnessNames :: Map ResolvedName ResolvedName,
+    inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
@@ -228,7 +228,7 @@ inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModul
 inferModuleCapabilityFacts :: InferState -> Map [Text] ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
-inferConstructorWitnessNames :: InferState -> Map ResolvedName ResolvedName
+inferConstructorWitnessNames :: InferState -> Map ResolvedName UnresolvedName
 inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 
 inferVisibleTypes :: InferState -> TypeEnv

@@ -49,8 +49,11 @@ import Jazz.Compiler.Name
     ResolvedName,
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
+    UnresolvedName,
     identifierText,
     mkIdentifier,
+    qualifiedName,
+    sourceName,
   )
 import Jazz.Compiler.Prelude (PreparedPrelude (..))
 import Jazz.Compiler.TypeInference
@@ -241,7 +244,7 @@ importWholeCompiledModuleInterface compiledModule =
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,
     importedDataTypes :: Map Text DataTypeBinding,
-    importedConstructorWitnessNames :: Map ResolvedName ResolvedName,
+    importedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     importedCapabilities :: ScopeCapabilityFacts,
     importedClassNames :: Set.Set Text
   }
@@ -276,7 +279,7 @@ interfaceTypeEnv = importedTypes
 interfaceCapabilities :: ImportedInterface -> ScopeCapabilityFacts
 interfaceCapabilities = importedCapabilities
 
-interfaceConstructorWitnessNames :: ImportedInterface -> Map ResolvedName ResolvedName
+interfaceConstructorWitnessNames :: ImportedInterface -> Map ResolvedName UnresolvedName
 interfaceConstructorWitnessNames = importedConstructorWitnessNames
 
 importWholeInterface :: ResolvedNameOrigin -> ModuleInterface -> ImportedInterface
@@ -307,7 +310,7 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
           ],
       importedConstructorWitnessNames =
         Map.fromList
-          [ (importedName export, importedName export)
+          [ (importedName export, sourceConstructorName export)
           | export <- Map.keys selectedValueTypes,
             moduleExportNamespace export == ConstructorNamespace
           ],
@@ -323,6 +326,13 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
             (moduleExportNamespace export)
             (mkIdentifier (moduleExportName export))
         )
+
+    sourceConstructorName export =
+      case maybeAlias of
+        Nothing -> sourceName member
+        Just alias -> qualifiedName (mkIdentifier alias) member
+      where
+        member = mkIdentifier (moduleExportName export)
 
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)

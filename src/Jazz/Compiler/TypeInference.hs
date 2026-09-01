@@ -84,6 +84,7 @@ import Jazz.Compiler.Name
     Name (..),
     NameNamespace (CapabilityNamespace, ValueNamespace),
     ResolvedName,
+    UnresolvedName,
     generatedName,
     identifierText,
     mkIdentifier,
@@ -208,7 +209,7 @@ data InferenceInputs = InferenceInputs
     inferenceWarningSettings :: WarningSettings,
     inferenceImportedTypes :: TypeEnv,
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
-    inferenceImportedConstructorWitnessNames :: Map ResolvedName ResolvedName,
+    inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
     inferenceImportedCapabilities :: ScopeCapabilityFacts,
     inferenceImportedClassNames :: Set Text,
     inferenceCurrentModulePath :: Maybe [Text]
