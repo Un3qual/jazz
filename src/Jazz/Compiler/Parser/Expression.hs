@@ -16,7 +16,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
-import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
 import Jazz.Compiler.FractionalLiteral
   ( fractionalLiteralExceedsMagnitude,
     mkFractionalLiteralSource,
@@ -28,10 +28,12 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType,
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
     SurfaceSignatureType,
   )
@@ -100,12 +102,14 @@ parseExprWithMinPrecedenceUntil ::
   Int ->
   Parser SurfaceExpr
 parseExprWithMinPrecedenceUntil parseBlock context stop minPrecedence = do
+  maybeStartToken <- peekToken
   leftExpr <- parseApplicationExprUntil parseBlock context stop
   parseInfixTailWithUntil
     context
     stop
     (parseExprWithMinPrecedenceUntil parseBlock context)
     minPrecedence
+    (maybe (surfaceExprSpan leftExpr) tokenSpan maybeStartToken)
     leftExpr
 
 parseApplicationExprUntil ::
@@ -114,16 +118,23 @@ parseApplicationExprUntil ::
   Stop ->
   Parser SurfaceExpr
 parseApplicationExprUntil parseBlock context stop = do
+  maybeStartToken <- peekToken
   functionExpr <- parsePrimaryExpr parseBlock context stop
-  parseApplicationTailUntil parseBlock context stop functionExpr
+  parseApplicationTailUntil
+    parseBlock
+    context
+    stop
+    (maybe (surfaceExprSpan functionExpr) tokenSpan maybeStartToken)
+    functionExpr
 
 parseApplicationTailUntil ::
   StatementBlockParser ->
   ParserContext ->
   Stop ->
+  SourceSpan ->
   SurfaceExpr ->
   Parser SurfaceExpr
-parseApplicationTailUntil parseBlock context stop functionExpr = do
+parseApplicationTailUntil parseBlock context stop applicationSpan functionExpr = do
   tokens <- MP.getInput
   if stop tokens
     then pure functionExpr
@@ -135,11 +146,17 @@ parseApplicationTailUntil parseBlock context stop functionExpr = do
           parseBlock
           context
           stop
-          (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument)
+          applicationSpan
+          (SurfaceExpr applicationSpan (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument))
       firstToken :< _
         | startsPrimaryExpr firstToken -> do
             argumentExpr <- parsePrimaryExpr parseBlock context stop
-            parseApplicationTailUntil parseBlock context stop (SEApply functionExpr argumentExpr)
+            parseApplicationTailUntil
+              parseBlock
+              context
+              stop
+              applicationSpan
+              (SurfaceExpr applicationSpan (SEApply functionExpr argumentExpr))
       _ -> pure functionExpr
 
 parseTypeApplicationArgument :: Token -> Parser SurfaceSignatureType
@@ -182,9 +199,10 @@ parseInfixTailWithUntil ::
   Stop ->
   (Stop -> Int -> Parser SurfaceExpr) ->
   Int ->
+  SourceSpan ->
   SurfaceExpr ->
   Parser SurfaceExpr
-parseInfixTailWithUntil context stop parseRhs minPrecedence leftExpr = do
+parseInfixTailWithUntil context stop parseRhs minPrecedence expressionSpan leftExpr = do
   tokens <- MP.getInput
   if stop tokens
     then pure leftExpr
@@ -213,7 +231,8 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence leftExpr = do
                       stop
                       parseRhs
                       minPrecedence
-                      (SEBinary symbol leftExpr rightExpr)
+                      expressionSpan
+                      (SurfaceExpr expressionSpan (SEBinary symbol leftExpr rightExpr))
       _ -> pure leftExpr
 
 operatorNextMinPrecedence :: OperatorInfo -> Int
@@ -274,16 +293,17 @@ parsePrimaryExpr parseBlock context stop = do
     Just token -> do
       void parseAnyToken
       case tokenKind token of
-        TInt value ->
-          SELit <$> parseNumericSurfaceLiteral token value
+        TInt value -> do
+          literal <- parseNumericSurfaceLiteral token value
+          pure (locatedExpr token (SELit literal))
         TChar value ->
-          pure (SELit (SLChar value))
+          pure (locatedExpr token (SELit (SLChar value)))
         TText value ->
-          pure (SELit (SLText value))
+          pure (locatedExpr token (SELit (SLText value)))
         TIdentifier "True" ->
-          pure (SELit (SLBool True))
+          pure (locatedExpr token (SELit (SLBool True)))
         TIdentifier "False" ->
-          pure (SELit (SLBool False))
+          pure (locatedExpr token (SELit (SLBool False)))
         TIdentifier name ->
           parseIdentifierExpr token name
         TIf ->
@@ -293,16 +313,16 @@ parsePrimaryExpr parseBlock context stop = do
         TLambda ->
           parseLambdaExpr parseBlock context stop token
         TLParen ->
-          parseParenExpr parseBlock context
+          parseParenExpr parseBlock context token
         TLBrace -> do
           statements <-
             parseBlock
               context
                 { parserStatementContext = NestedBlockContext
                 }
-          pure (SEBlock statements)
+          pure (locatedExpr token (SEBlock statements))
         TLBracket ->
-          parseListExpr parseBlock context
+          parseListExpr parseBlock context token
         _ ->
           failTokenParserAt
             (tokenSpan token)
@@ -320,7 +340,11 @@ parseIdentifierExpr identifierToken name = do
         isImmediatelyAfter colonToken memberToken -> do
           void parseAnyToken
           void parseAnyToken
-          pure (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
+          pure
+            ( locatedExpr
+                identifierToken
+                (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
+            )
     colonToken@Token {tokenKind = TColonColon} :< EmptyTokens
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParser
@@ -337,7 +361,7 @@ parseIdentifierExpr identifierToken name = do
                 (ParserFoundToken (tokenKind memberToken) (tokenLexeme memberToken))
             )
     _ ->
-      pure (SEVar (mkIdentifier name))
+      pure (locatedExpr identifierToken (SEVar (mkIdentifier name)))
 
 parseNumericSurfaceLiteral :: Token -> Integer -> Parser SurfaceLiteral
 parseNumericSurfaceLiteral wholeToken wholeValue = do
@@ -429,24 +453,24 @@ failUndeclaredOperator operatorToken symbol =
     (tokenSpan operatorToken)
     (UndeclaredOperator symbol OperatorUseInExpression)
 
-parseParenExpr :: StatementBlockParser -> ParserContext -> Parser SurfaceExpr
-parseParenExpr parseBlock context = do
+parseParenExpr :: StatementBlockParser -> ParserContext -> Token -> Parser SurfaceExpr
+parseParenExpr parseBlock context leftParenToken = do
   tokens <- MP.getInput
   case tokens of
     Token {tokenKind = TRParen} :< _ -> do
       void parseAnyToken
-      pure (SETuple [])
+      pure (locatedExpr leftParenToken (SETuple []))
     operatorToken@Token {tokenKind = TOperator symbol} :< rest -> do
       void parseAnyToken
       requireOperatorVisible context operatorToken
       case rest of
         Token {tokenKind = TRParen} :< _ -> do
           void parseAnyToken
-          pure (SEOperatorValue symbol)
+          pure (locatedExpr leftParenToken (SEOperatorValue symbol))
         _ -> do
           rightExpr <- parseExpressionParser parseBlock context
           void (parseToken TRParen)
-          pure (SESectionRight symbol rightExpr)
+          pure (locatedExpr leftParenToken (SESectionRight symbol rightExpr))
     _ -> do
       innerExpr <- parseExpressionParser parseBlock context
       afterInner <- MP.getInput
@@ -455,12 +479,12 @@ parseParenExpr parseBlock context = do
           void parseAnyToken
           tupleElements <- parseTupleElements parseBlock context [innerExpr]
           void (parseToken TRParen)
-          pure (SETuple tupleElements)
+          pure (locatedExpr leftParenToken (SETuple tupleElements))
         operatorToken@Token {tokenKind = TOperator symbol} :< Token {tokenKind = TRParen} :< _ -> do
           void parseAnyToken
           void parseAnyToken
           requireOperatorVisible context operatorToken
-          pure (SESectionLeft innerExpr symbol)
+          pure (locatedExpr leftParenToken (SESectionLeft innerExpr symbol))
         _ -> do
           void (parseToken TRParen)
           pure innerExpr
@@ -479,17 +503,17 @@ parseTupleElements parseBlock context reversedElements = do
       parseTupleElements parseBlock context (nextElement : reversedElements)
     _ -> pure (reverse (nextElement : reversedElements))
 
-parseListExpr :: StatementBlockParser -> ParserContext -> Parser SurfaceExpr
-parseListExpr parseBlock context = do
+parseListExpr :: StatementBlockParser -> ParserContext -> Token -> Parser SurfaceExpr
+parseListExpr parseBlock context leftBracketToken = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TRBracket} -> do
       void parseAnyToken
-      pure (SEList [])
+      pure (locatedExpr leftBracketToken (SEList []))
     _ -> do
       elements <- parseListElements parseBlock context
       void (parseToken TRBracket)
-      pure (SEList elements)
+      pure (locatedExpr leftBracketToken (SEList elements))
 
 parseListElements :: StatementBlockParser -> ParserContext -> Parser [SurfaceExpr]
 parseListElements parseBlock context = do
@@ -530,7 +554,7 @@ parseIfExpr parseBlock context stop ifToken = do
     Just Token {tokenKind = TElse} -> do
       void parseAnyToken
       elseExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
-      pure (SEIf conditionExpr thenExpr elseExpr)
+      pure (locatedExpr ifToken (SEIf conditionExpr thenExpr elseExpr))
     Nothing ->
       failTokenParserAt
         (tokenSpan ifToken)
@@ -549,7 +573,7 @@ parseCaseExpr parseBlock context caseToken = do
     Token {tokenKind = TLBrace} :< _ -> do
       void parseAnyToken
       caseArms <- parseCaseArms parseBlock context
-      pure (SECase scrutineeExpr caseArms)
+      pure (locatedExpr caseToken (SECase scrutineeExpr caseArms))
     EmptyTokens ->
       failTokenParserAt
         (tokenSpan caseToken)
@@ -648,12 +672,20 @@ parseCaseArmGuard parseBlock context rhsStop parentOperator minPrecedence = do
     Token {tokenKind = TOperator "|"} :< _ ->
       failTokenParser (ExpectedSyntax "guard expression" (ParserBeforeBoundary "next case arm"))
     _ -> do
+      maybeStartToken <- peekToken
       leftExpr <-
         parseApplicationExprUntil
           parseBlock
           context
           (stopsBeforeCaseGuardTerminatorOr rhsStop)
-      parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence leftExpr
+      parseCaseGuardInfixTail
+        parseBlock
+        context
+        rhsStop
+        parentOperator
+        minPrecedence
+        (maybe (surfaceExprSpan leftExpr) tokenSpan maybeStartToken)
+        leftExpr
 
 parseCaseArmBodyExpr ::
   StatementBlockParser ->
@@ -663,12 +695,20 @@ parseCaseArmBodyExpr ::
   Int ->
   Parser SurfaceExpr
 parseCaseArmBodyExpr parseBlock context rhsStop parentOperator minPrecedence = do
+  maybeStartToken <- peekToken
   leftExpr <-
     parseApplicationExprUntil
       parseBlock
       context
       (stopsBeforeCaseArmBoundaryOr rhsStop)
-  parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedence leftExpr
+  parseCaseArmBodyInfixTail
+    parseBlock
+    context
+    rhsStop
+    parentOperator
+    minPrecedence
+    (maybe (surfaceExprSpan leftExpr) tokenSpan maybeStartToken)
+    leftExpr
 
 parseCaseArmBodyInfixTail ::
   StatementBlockParser ->
@@ -676,9 +716,10 @@ parseCaseArmBodyInfixTail ::
   Stop ->
   Maybe Text ->
   Int ->
+  SourceSpan ->
   SurfaceExpr ->
   Parser SurfaceExpr
-parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedence leftExpr = do
+parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedence expressionSpan leftExpr = do
   tokens <- MP.getInput
   if stopsBeforeCaseArmTerminator tokens || rhsStop tokens
     then pure leftExpr
@@ -714,7 +755,8 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
                       rhsStop
                       parentOperator
                       minPrecedence
-                      (SEBinary symbol leftExpr rightExpr)
+                      expressionSpan
+                      (SurfaceExpr expressionSpan (SEBinary symbol leftExpr rightExpr))
       _ -> pure leftExpr
 
 parseCaseGuardInfixTail ::
@@ -723,9 +765,10 @@ parseCaseGuardInfixTail ::
   Stop ->
   Maybe Text ->
   Int ->
+  SourceSpan ->
   SurfaceExpr ->
   Parser SurfaceExpr
-parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence leftExpr = do
+parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence expressionSpan leftExpr = do
   tokens <- MP.getInput
   if stopsBeforeCaseGuardTerminator tokens || rhsStop tokens
     then pure leftExpr
@@ -761,7 +804,8 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
                       rhsStop
                       parentOperator
                       minPrecedence
-                      (SEBinary symbol leftExpr rightExpr)
+                      expressionSpan
+                      (SurfaceExpr expressionSpan (SEBinary symbol leftExpr rightExpr))
       _ -> pure leftExpr
 
 stopsBeforeCaseArmTerminator :: Stop
@@ -837,7 +881,7 @@ casePipeCanContinueExpression context parentOperator minPrecedence leftExpr =
     caseGuardPipePrecedence =
       maybe 0 operatorPrecedence (lookupOperatorInfoIn (parserDeclaredOperators context) "|")
     leftExprHasBoundaryPrecedenceRoot expression =
-      case expression of
+      case surfaceExprForm expression of
         SEBinary operatorSymbol' _ _ ->
           maybe
             False
@@ -845,7 +889,7 @@ casePipeCanContinueExpression context parentOperator minPrecedence leftExpr =
             (lookupOperatorInfoIn (parserDeclaredOperators context) operatorSymbol')
         _ -> False
     samePrecedenceGuardPipeCanBind parent expression =
-      case expression of
+      case surfaceExprForm expression of
         SELit {} -> parentOperatorAllowsLiteralPipe parent
         _ -> True
     parentOperatorAllowsLiteralPipe parent =
@@ -906,7 +950,7 @@ hasTopLevelElseBeforeArrow =
 
 guardBoundaryPatternIsDefinite :: SurfacePattern -> Bool
 guardBoundaryPatternIsDefinite casePattern =
-  case casePattern of
+  case surfacePatternForm casePattern of
     SPVariable {} -> False
     _ -> True
 
@@ -930,7 +974,7 @@ startsAllLiteralOrPatternCaseArm remainingTokens =
 
 orPatternStartsDefiniteArmBoundary :: SurfacePattern -> Bool
 orPatternStartsDefiniteArmBoundary casePattern =
-  case casePattern of
+  case surfacePatternForm casePattern of
     SPOr alternatives ->
       any patternIsWildcard alternatives
         || all patternIsVariable alternatives
@@ -943,13 +987,13 @@ orPatternStartsDefiniteArmBoundary casePattern =
 
 orPatternIsAllLiteral :: SurfacePattern -> Bool
 orPatternIsAllLiteral casePattern =
-  case casePattern of
+  case surfacePatternForm casePattern of
     SPOr alternatives -> not (null alternatives) && all patternIsLiteral alternatives
     _ -> False
 
 patternCanStartOrArmBoundary :: SurfacePattern -> Bool
 patternCanStartOrArmBoundary casePattern =
-  case casePattern of
+  case surfacePatternForm casePattern of
     SPConstructor {} -> True
     SPList {} -> True
     SPConsList {} -> True
@@ -958,15 +1002,15 @@ patternCanStartOrArmBoundary casePattern =
     _ -> False
 
 patternIsWildcard :: SurfacePattern -> Bool
-patternIsWildcard SPWildcard = True
+patternIsWildcard SurfacePattern {surfacePatternForm = SPWildcard} = True
 patternIsWildcard _ = False
 
 patternIsVariable :: SurfacePattern -> Bool
-patternIsVariable SPVariable {} = True
+patternIsVariable SurfacePattern {surfacePatternForm = SPVariable {}} = True
 patternIsVariable _ = False
 
 patternIsLiteral :: SurfacePattern -> Bool
-patternIsLiteral SPLiteral {} = True
+patternIsLiteral SurfacePattern {surfacePatternForm = SPLiteral {}} = True
 patternIsLiteral _ = False
 
 alternativesBindSameNames :: [SurfacePattern] -> Bool
@@ -980,7 +1024,7 @@ alternativesBindSameNames alternatives =
 
 patternBinderNames :: SurfacePattern -> Set.Set Text
 patternBinderNames casePattern =
-  case casePattern of
+  case surfacePatternForm casePattern of
     SPVariable name -> Set.singleton (identifierText name)
     SPWildcard -> Set.empty
     SPLiteral {} -> Set.empty
@@ -1023,15 +1067,15 @@ parseLambdaExpr parseBlock context stop lambdaToken = do
   case tokens of
     Token {tokenKind = TOperator "|"} :< _ ->
       parsePatternLambdaExpr parseBlock context stop lambdaToken
-    Token {tokenKind = TLParen} :< _ -> do
+    leftParenToken@Token {tokenKind = TLParen} :< _ -> do
       void parseAnyToken
-      parameters <- parseLambdaParameters
+      parameters <- parseLambdaParameters leftParenToken
       tokensAfterParameters <- MP.getInput
       case tokensAfterParameters of
         Token {tokenKind = TArrow} :< _ -> do
           void parseAnyToken
           bodyExpr <- parseExprWithMinPrecedenceUntil parseBlock context stop 1
-          pure (SELambda parameters bodyExpr)
+          pure (locatedExpr lambdaToken (SELambda parameters bodyExpr))
         EmptyTokens ->
           failTokenParserAt
             (tokenSpan lambdaToken)
@@ -1074,7 +1118,7 @@ parsePatternLambdaExpr parseBlock context stop lambdaToken = do
                 clauseSpan
                 (PatternFailure (PatternLambdaClauseArityMismatch expectedArity actualArity))
         else
-          pure (SEPatternLambda (firstClause :| reverse reversedRemaining))
+          pure (locatedExpr lambdaToken (SEPatternLambda (firstClause :| reverse reversedRemaining)))
 
 parsePatternLambdaClause ::
   StatementBlockParser ->
@@ -1085,17 +1129,18 @@ parsePatternLambdaClause ::
 parsePatternLambdaClause parseBlock context stop lambdaToken = do
   clauseToken <- parsePatternLambdaClausePipe lambdaToken
   tokens <- MP.getInput
-  case tokens of
-    Token {tokenKind = TLParen} :< _ -> void parseAnyToken
-    EmptyTokens ->
-      failTokenParserAt
-        (tokenSpan clauseToken)
-        (ExpectedSyntax "'('" (ParserEndOfInputAfter "pattern-lambda clause introducer"))
-    token :< _ ->
-      failTokenParserAt
-        (tokenSpan token)
-        (ExpectedSyntax "'('" (ParserAtToken (tokenKind token) (tokenLexeme token)))
-  parameters <- parseLambdaParameters
+  leftParenToken <-
+    case tokens of
+      token@Token {tokenKind = TLParen} :< _ -> token <$ parseAnyToken
+      EmptyTokens ->
+        failTokenParserAt
+          (tokenSpan clauseToken)
+          (ExpectedSyntax "'('" (ParserEndOfInputAfter "pattern-lambda clause introducer"))
+      token :< _ ->
+        failTokenParserAt
+          (tokenSpan token)
+          (ExpectedSyntax "'('" (ParserAtToken (tokenKind token) (tokenLexeme token)))
+  parameters <- parseLambdaParameters leftParenToken
   consumeArrow (ParserEndOfInputAfter "pattern-lambda clause head")
   bodyExpr <-
     parseExprWithMinPrecedenceUntil
@@ -1129,7 +1174,7 @@ parsePatternLambdaClausePipe lambdaToken = do
 surfaceLambdaParameterPattern :: SurfaceLambdaParameter -> SurfacePattern
 surfaceLambdaParameterPattern parameter =
   case parameter of
-    SurfaceLambdaIdentifier name -> SPVariable name
+    SurfaceLambdaIdentifier spanValue name -> SurfacePattern spanValue (SPVariable name)
     SurfaceLambdaPattern patternValue -> patternValue
 
 patternLambdaClauseBoundaryOr :: Stop -> Stop
@@ -1162,13 +1207,17 @@ parenthesizedHeadEndsAtArrow tokens =
           | otherwise -> go (depth - 1) rest
         _ -> go depth rest
 
-parseLambdaParameters :: Parser (NonEmpty SurfaceLambdaParameter)
-parseLambdaParameters = do
+parseLambdaParameters :: Token -> Parser (NonEmpty SurfaceLambdaParameter)
+parseLambdaParameters leftParenToken = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TRParen} -> do
       void parseAnyToken
-      pure (SurfaceLambdaPattern (SPTuple []) :| [])
+      pure
+        ( SurfaceLambdaPattern
+            (SurfacePattern (tokenSpan leftParenToken) (SPTuple []))
+            :| []
+        )
     _ -> do
       firstParameter <- Pattern.parseLambdaParameterParser
       collect firstParameter []
@@ -1206,6 +1255,9 @@ startsRightParen tokens =
   case tokens of
     Token {tokenKind = TRParen} :< _ -> True
     _ -> False
+
+locatedExpr :: Token -> SurfaceExprForm -> SurfaceExpr
+locatedExpr token = SurfaceExpr (tokenSpan token)
 
 hasTopLevelArrowBeforeTerminator :: TokenStream -> Bool
 hasTopLevelArrowBeforeTerminator =

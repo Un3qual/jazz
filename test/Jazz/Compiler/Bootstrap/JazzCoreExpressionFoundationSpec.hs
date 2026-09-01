@@ -24,6 +24,7 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
+import Jazz.Compiler.Name (Identifier)
 import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -117,54 +118,54 @@ testComposedBoundaries = do
 
 foundationExpressions :: [SurfaceExpr]
 foundationExpressions =
-  [ SELit (SLInt 1234567890123456789012345678901234567890),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) Nothing),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat16)),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32)),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat64)),
-    SELit (SLBool True),
-    SELit (SLChar 'x'),
-    SELit (SLText "Jazz"),
-    SEVar "value",
-    SEQualifiedVar "Text" "length",
-    SEOperatorValue "+",
-    SEList [],
-    SEList [seInt 1, SETuple [SEVar "value", SELit (SLBool False)]],
-    SETuple [],
-    SETuple [seInt 1, SELit (SLText "two")],
-    SEApply (SEApply (SEVar "f") (seInt 1)) (SELit (SLBool True)),
-    SEBinary "+" (seInt 1) (SEBinary "*" (seInt 2) (seInt 3)),
-    SESectionLeft (seInt 1) "+",
-    SESectionRight "+" (seInt 2),
-    SEBlock
+  [ seLit (SLInt 1234567890123456789012345678901234567890),
+    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) Nothing),
+    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat16)),
+    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32)),
+    seLit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat64)),
+    seLit (SLBool True),
+    seLit (SLChar 'x'),
+    seLit (SLText "Jazz"),
+    seVar "value",
+    seQualifiedVar "Text" "length",
+    seOperatorValue "+",
+    seList [],
+    seList [seInt 1, seTuple [seVar "value", seLit (SLBool False)]],
+    seTuple [],
+    seTuple [seInt 1, seLit (SLText "two")],
+    seApply (seApply (seVar "f") (seInt 1)) (seLit (SLBool True)),
+    seBinary "+" (seInt 1) (seBinary "*" (seInt 2) (seInt 3)),
+    seSectionLeft (seInt 1) "+",
+    seSectionRight "+" (seInt 2),
+    seBlock
       [ SSLet "answer" (SourceSpan 3 5) (seInt 42),
         SSExpr
           (SourceSpan 4 3)
-          (SEApply (SEQualifiedVar "Text" "length") (SEList [SELit (SLText "Jazz")]))
+          (seApply (seQualifiedVar "Text" "length") (seList [seLit (SLText "Jazz")]))
       ],
-    SEBlock
-      [ SSLet "nested" (SourceSpan 7 2) (SEBlock [SSExpr (SourceSpan 8 4) (SETuple [])]),
-        SSExpr (SourceSpan 9 2) (SEVar "nested")
+    seBlock
+      [ SSLet "nested" (SourceSpan 7 2) (seBlock [SSExpr (SourceSpan 8 4) (seTuple [])]),
+        SSExpr (SourceSpan 9 2) (seVar "nested")
       ]
   ]
 
 unsupportedExpressions :: [SurfaceExpr]
 unsupportedExpressions =
-  [ SELambda (SurfaceLambdaIdentifier "value" :| []) (SEVar "value"),
-    SECase (SEVar "value") [],
-    SEIf (SELit (SLBool True)) (seInt 1) (seInt 0),
-    SETypeApplication (SEVar "identity") span1 TypeInt,
-    SEBinary "$" (SEVar "f") (seInt 1),
-    SEBlock [SSSignature "value" span1 (SignatureType TypeInt)],
-    SEBlock [SSData span1 "Thing" [] []],
-    SEBlock [SSClass span1 "Show" ["a"] []],
-    SEBlock [SSImpl span1 "Show" [TypeText] []],
-    SEBlock [SSModule span1 ["App", "Main"] Nothing],
-    SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing],
-    SEBlock [SSLet "$operator:2B" span1 (SEVar "add")],
-    SEList [seInt 1, SEIf (SELit (SLBool True)) (seInt 2) (seInt 3)],
-    SEApply (SEVar "f") (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x")),
-    SEBlock [SSLet "value" span1 (SECase (SEVar "value") [])]
+  [ seLambda (SurfaceLambdaIdentifier span1 "value" :| []) (seVar "value"),
+    seCase (seVar "value") [],
+    seIf (seLit (SLBool True)) (seInt 1) (seInt 0),
+    seTypeApplication (seVar "identity") span1 TypeInt,
+    seBinary "$" (seVar "f") (seInt 1),
+    seBlock [SSSignature "value" span1 (SignatureType TypeInt)],
+    seBlock [SSData span1 "Thing" [] []],
+    seBlock [SSClass span1 "Show" ["a"] []],
+    seBlock [SSImpl span1 "Show" [TypeText] []],
+    seBlock [SSModule span1 ["App", "Main"] Nothing],
+    seBlock [SSImport span1 ["Core", "Text"] Nothing Nothing],
+    seBlock [SSLet "$operator:2B" span1 (seVar "add")],
+    seList [seInt 1, seIf (seLit (SLBool True)) (seInt 2) (seInt 3)],
+    seApply (seVar "f") (seLambda (SurfaceLambdaIdentifier span1 "x" :| []) (seVar "x")),
+    seBlock [SSLet "value" span1 (seCase (seVar "value") [])]
   ]
 
 composedSources :: [Text.Text]
@@ -190,8 +191,57 @@ deferredSource = "\\(subject) -> subject."
 span1 :: SourceSpan
 span1 = SourceSpan 1 1
 
+se :: SurfaceExprForm -> SurfaceExpr
+se = SurfaceExpr span1
+
+seApply :: SurfaceExpr -> SurfaceExpr -> SurfaceExpr
+seApply function argument = se (SEApply function argument)
+
+seBinary :: Text.Text -> SurfaceExpr -> SurfaceExpr -> SurfaceExpr
+seBinary operator left right = se (SEBinary operator left right)
+
+seBlock :: [SurfaceStatement] -> SurfaceExpr
+seBlock = se . SEBlock
+
+seCase :: SurfaceExpr -> [SurfaceCaseArm] -> SurfaceExpr
+seCase scrutinee arms = se (SECase scrutinee arms)
+
+seIf :: SurfaceExpr -> SurfaceExpr -> SurfaceExpr -> SurfaceExpr
+seIf condition thenBranch elseBranch = se (SEIf condition thenBranch elseBranch)
+
+seLambda :: NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> SurfaceExpr
+seLambda parameters body = se (SELambda parameters body)
+
+seList :: [SurfaceExpr] -> SurfaceExpr
+seList = se . SEList
+
+seLit :: SurfaceLiteral -> SurfaceExpr
+seLit = se . SELit
+
+seOperatorValue :: Text.Text -> SurfaceExpr
+seOperatorValue = se . SEOperatorValue
+
+seQualifiedVar :: Identifier -> Identifier -> SurfaceExpr
+seQualifiedVar qualifier member = se (SEQualifiedVar qualifier member)
+
+seSectionLeft :: SurfaceExpr -> Text.Text -> SurfaceExpr
+seSectionLeft left operator = se (SESectionLeft left operator)
+
+seSectionRight :: Text.Text -> SurfaceExpr -> SurfaceExpr
+seSectionRight operator right = se (SESectionRight operator right)
+
+seTuple :: [SurfaceExpr] -> SurfaceExpr
+seTuple = se . SETuple
+
+seTypeApplication :: SurfaceExpr -> SourceSpan -> SurfaceSignatureType -> SurfaceExpr
+seTypeApplication function typeApplicationSpan signatureType =
+  se (SETypeApplication function typeApplicationSpan signatureType)
+
+seVar :: Identifier -> SurfaceExpr
+seVar = se . SEVar
+
 seInt :: Integer -> SurfaceExpr
-seInt = SELit . SLInt
+seInt = seLit . SLInt
 
 assertSuccessfulOutput :: Text.Text -> Text.Text -> RunResult -> IO ()
 assertSuccessfulOutput label expected result = do

@@ -18,10 +18,11 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan,
+    SourceSpan (..),
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Context
@@ -84,8 +85,14 @@ parseSurfaceProgramTokensDetailed tokens =
     expressionParser = parseExpressionParser blockParser
     statementParser = parseStatementParser expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
-    programParser =
-      SEBlock <$> parseProgramStatements statementParser initialParserContext
+    programParser = do
+      maybeFirstToken <- peekToken
+      statements <- parseProgramStatements statementParser initialParserContext
+      pure
+        ( SurfaceExpr
+            (maybe (SourceSpan 1 1) tokenSpan maybeFirstToken)
+            (SEBlock statements)
+        )
 
 -- | Stable prefix parser retained for callers that parse an expression from an
 -- already-tokenized stream.

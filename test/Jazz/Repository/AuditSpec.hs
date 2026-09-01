@@ -294,7 +294,7 @@ testStandardLibraryModuleInventory =
 
 surfaceModulePaths :: Surface.SurfaceExpr -> Set.Set [Text]
 surfaceModulePaths expression =
-  case expression of
+  case Surface.surfaceExprForm expression of
     Surface.SEBlock statements ->
       Set.fromList
         [ modulePath

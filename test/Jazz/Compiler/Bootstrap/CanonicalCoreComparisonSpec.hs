@@ -43,7 +43,8 @@ import Jazz.Compiler.Name
     sourceName,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceExpr (SEBlock),
+  ( SurfaceExpr (..),
+    SurfaceExprForm (SEBlock),
     SurfaceStatement (SSModule),
   )
 import Jazz.Compiler.Parser.Lower
@@ -186,10 +187,13 @@ testModuleFailureBoundary = do
           ( lowerSurfaceModuleDetailed
               "src/App/Main.jz"
               ["App", "Main"]
-              ( SEBlock
-                  [ SSModule span1 ["App", "First"] Nothing,
-                    SSModule span2 ["App", "Second"] Nothing
-                  ]
+              ( SurfaceExpr
+                  span1
+                  ( SEBlock
+                      [ SSModule span1 ["App", "First"] Nothing,
+                        SSModule span2 ["App", "Second"] Nothing
+                      ]
+                  )
               )
           )
       )
@@ -205,7 +209,7 @@ testModuleFailureBoundary = do
           ( lowerSurfaceModuleDetailed
               "src/App/Main.jz"
               ["App", "Main"]
-              (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing])
+              (SurfaceExpr span2 (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing]))
           )
       )
   assertEqual

@@ -479,22 +479,31 @@ assertManifestViolation label expectedViolation manifest =
 
 completeExpressions :: [SurfaceExpr]
 completeExpressions =
-  [ SEBlock
-      [ SSModule span1 ["App", "Main"] (Just []),
-        SSImport span2 ["Core", "Text"] (Just "Text") (Just ["length", "uncons"]),
-        SSExpr span3 (SELit (SLInt 1))
-      ],
-    SEBlock
-      [ SSLet
-          "nested"
-          span1
-          ( SEBlock
-              [ SSImport span2 ["Core", "List"] Nothing Nothing,
-                SSExpr span3 (SEVar "item")
-              ]
-          ),
-        SSExpr span3 (SEVar "nested")
-      ]
+  [ e
+      span1
+      ( SEBlock
+          [ SSModule span1 ["App", "Main"] (Just []),
+            SSImport span2 ["Core", "Text"] (Just "Text") (Just ["length", "uncons"]),
+            SSExpr span3 (e span3 (SELit (SLInt 1)))
+          ]
+      ),
+    e
+      span1
+      ( SEBlock
+          [ SSLet
+              "nested"
+              span1
+              ( e
+                  span1
+                  ( SEBlock
+                      [ SSImport span2 ["Core", "List"] Nothing Nothing,
+                        SSExpr span3 (e span3 (SEVar "item"))
+                      ]
+                  )
+              ),
+            SSExpr span3 (e span3 (SEVar "nested"))
+          ]
+      )
   ]
 
 data DirectModuleFixture = DirectModuleFixture
@@ -620,8 +629,8 @@ directModuleInputs =
 
 directModuleFixtures :: [DirectModuleFixture]
 directModuleFixtures =
-  [ directFixture "non-block-no-metadata" (SELit (SLInt 1)),
-    directFixture "block-no-declaration" (SEBlock [SSExpr span1 (SELit (SLInt 1))]),
+  [ directFixture "non-block-no-metadata" (e span1 (SELit (SLInt 1))),
+    directFixture "block-no-declaration" (e span1 (SEBlock [SSExpr span1 (e span1 (SELit (SLInt 1)))])),
     directFixture "module-exports-omitted" (moduleBlock Nothing),
     directFixture "module-exports-empty" (moduleBlock (Just [])),
     directFixture
@@ -655,47 +664,59 @@ directModuleFixtures =
               ]
           )
       ),
-    directFixture "import-plain" (SEBlock [SSImport span1 ["Core", "List"] Nothing Nothing]),
-    directFixture "import-alias" (SEBlock [SSImport span1 ["Core", "Text"] (Just "Text") Nothing]),
-    directFixture "import-symbols" (SEBlock [SSImport span1 ["Core", "Text"] Nothing (Just ["length", "uncons"])]),
+    directFixture "import-plain" (e span1 (SEBlock [SSImport span1 ["Core", "List"] Nothing Nothing])),
+    directFixture "import-alias" (e span1 (SEBlock [SSImport span1 ["Core", "Text"] (Just "Text") Nothing])),
+    directFixture "import-symbols" (e span1 (SEBlock [SSImport span1 ["Core", "Text"] Nothing (Just ["length", "uncons"])])),
     directFixture
       "imports-source-order"
-      ( SEBlock
-          [ SSImport span1 ["Core", "List"] Nothing Nothing,
-            SSImport span2 ["Core", "Text"] (Just "Text") Nothing,
-            SSImport span3 ["Core", "Maybe"] Nothing (Just ["map"])
-          ]
+      ( e
+          span1
+          ( SEBlock
+              [ SSImport span1 ["Core", "List"] Nothing Nothing,
+                SSImport span2 ["Core", "Text"] (Just "Text") Nothing,
+                SSImport span3 ["Core", "Maybe"] Nothing (Just ["map"])
+              ]
+          )
       ),
     directFixture
       "nested-import-preserved"
-      ( SEBlock
-          [ SSImport span1 ["Top", "Level"] Nothing Nothing,
-            SSLet
-              "nested"
-              span2
-              (SEBlock [SSImport span3 ["Nested", "Level"] Nothing Nothing])
-          ]
+      ( e
+          span1
+          ( SEBlock
+              [ SSImport span1 ["Top", "Level"] Nothing Nothing,
+                SSLet
+                  "nested"
+                  span2
+                  (e span2 (SEBlock [SSImport span3 ["Nested", "Level"] Nothing Nothing]))
+              ]
+          )
       ),
     directFixture "complete-span-qualification" completeSpanExpression,
     DirectModuleFixture
       "path-mismatch"
       moduleSourcePath
       moduleExpectedPath
-      (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing]),
+      (e span2 (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing])),
     directFixture
       "multiple-declarations-two"
-      ( SEBlock
-          [ SSModule span1 ["App", "First"] Nothing,
-            SSModule span2 ["App", "Second"] Nothing
-          ]
+      ( e
+          span1
+          ( SEBlock
+              [ SSModule span1 ["App", "First"] Nothing,
+                SSModule span2 ["App", "Second"] Nothing
+              ]
+          )
       ),
     directFixture
       "multiple-declarations-three"
-      ( SEBlock
-          [ SSModule span1 ["App", "First"] Nothing,
-            SSModule span2 ["App", "Second"] Nothing,
-            SSModule span3 ["App", "Third"] Nothing
-          ]
+      ( e
+          span1
+          ( SEBlock
+              [ SSModule span1 ["App", "First"] Nothing,
+                SSModule span2 ["App", "Second"] Nothing,
+                SSModule span3 ["App", "Third"] Nothing
+              ]
+          )
       )
   ]
 
@@ -705,51 +726,70 @@ directFixture name expression =
 
 moduleBlock :: Maybe [ModuleExportSelector] -> SurfaceExpr
 moduleBlock exports =
-  SEBlock
-    [ SSModule span1 moduleExpectedPath exports,
-      SSExpr span4 (SELit (SLInt 1))
-    ]
+  e
+    span1
+    ( SEBlock
+        [ SSModule span1 moduleExpectedPath exports,
+          SSExpr span4 (e span4 (SELit (SLInt 1)))
+        ]
+    )
 
 completeSpanExpression :: SurfaceExpr
 completeSpanExpression =
-  SEBlock
-    [ SSModule
-        span1
-        moduleExpectedPath
-        ( Just
-            [ ModuleTypeExportSelector
-                "Maybe"
+  e
+    span1
+    ( SEBlock
+        [ SSModule
+            span1
+            moduleExpectedPath
+            ( Just
+                [ ModuleTypeExportSelector
+                    "Maybe"
+                    span2
+                    ( SelectedTypeConstructors
+                        (LocatedModuleExportName "Some" span3 :| [LocatedModuleExportName "None" span4])
+                    )
+                ]
+            ),
+          SSImport span2 ["Core", "Text"] Nothing (Just ["length"]),
+          SSLet "typed" span3 (e span3 (SETypeApplication (e span3 (SEVar "identity")) span4 TypeInt)),
+          SSSignature "typed" span4 (SignatureType TypeInt),
+          SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [TypeVariable "a"]],
+          SSClass
+            span2
+            "Eq"
+            ["a"]
+            [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)],
+          SSImpl
+            span3
+            "Eq"
+            [TypeInt]
+            [SurfaceImplMethod "equals" span4 (e span4 (SEBlock [SSExpr span1 (e span1 (SELit (SLBool True)))]))],
+          SSLet
+            "nested"
+            span4
+            (e span4 (SEBlock [SSImport span1 ["Nested", "Module"] Nothing Nothing])),
+          SSExpr
+            span2
+            ( e
                 span2
-                ( SelectedTypeConstructors
-                    (LocatedModuleExportName "Some" span3 :| [LocatedModuleExportName "None" span4])
+                ( SECase
+                    (e span2 (SEVar "typed"))
+                    [ SurfaceCaseArm
+                        (p span2 SPWildcard)
+                        (Just (e span2 (SELit (SLBool True))))
+                        (e span2 (SEIf (e span2 (SELit (SLBool True))) (e span2 (SELit (SLInt 1))) (e span2 (SELit (SLInt 0)))))
+                    ]
                 )
-            ]
-        ),
-      SSImport span2 ["Core", "Text"] Nothing (Just ["length"]),
-      SSLet "typed" span3 (SETypeApplication (SEVar "identity") span4 TypeInt),
-      SSSignature "typed" span4 (SignatureType TypeInt),
-      SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [TypeVariable "a"]],
-      SSClass
-        span2
-        "Eq"
-        ["a"]
-        [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)],
-      SSImpl
-        span3
-        "Eq"
-        [TypeInt]
-        [SurfaceImplMethod "equals" span4 (SEBlock [SSExpr span1 (SELit (SLBool True))])],
-      SSLet
-        "nested"
-        span4
-        (SEBlock [SSImport span1 ["Nested", "Module"] Nothing Nothing]),
-      SSExpr
-        span2
-        ( SECase
-            (SEVar "typed")
-            [SurfaceCaseArm SPWildcard (Just (SELit (SLBool True))) (SEIf (SELit (SLBool True)) (SELit (SLInt 1)) (SELit (SLInt 0)))]
-        )
-    ]
+            )
+        ]
+    )
+
+e :: SourceSpan -> SurfaceExprForm -> SurfaceExpr
+e = SurfaceExpr
+
+p :: SourceSpan -> SurfacePatternForm -> SurfacePattern
+p = SurfacePattern
 
 moduleSourcePath :: FilePath
 moduleSourcePath = "fixtures/core/modules-corpus-closure.jz"

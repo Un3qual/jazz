@@ -29,19 +29,21 @@ import Jazz.Benchmark.StageInputs
     runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
     benchmarkIngredientsWithFinalizer,
     parseBenchmarkCommand,
   )
+import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lexer (tokenize)
@@ -152,8 +154,8 @@ testRuntimeEvidenceScaleFamilies = do
         compilerScaleCaseBenchmarks programCase,
         compilerScaleCaseExpectedOutput programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == NestedRuntimeApplications
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == NestedRuntimeApplications
     ]
   assertEqual
     "runtime import width registry"
@@ -169,8 +171,8 @@ testRuntimeEvidenceScaleFamilies = do
         compilerScaleCaseBenchmarks programCase,
         compilerScaleCaseExpectedOutput programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == RuntimeImportWidth
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == RuntimeImportWidth
     ]
 
 testRuntimeEvidenceSmallestCases :: IO ()
@@ -502,8 +504,8 @@ assertScenarioRegistry label scenario expected =
         compilerScaleCaseSize programCase,
         compilerScaleCaseBenchmarks programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == scenario
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == scenario
     ]
 
 testTypedRecursiveStatementGraphSmallestCase :: IO ()
@@ -539,8 +541,8 @@ testCapabilityCandidateWidthRegistry =
         compilerScaleCaseBenchmarks programCase,
         compilerScaleCaseExpectedOutput programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == CapabilityCandidateWidth
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == CapabilityCandidateWidth
     ]
 
 testCapabilityCandidateWidthSemantics :: IO ()
@@ -672,19 +674,27 @@ testAmbiguousCaseArmPipesParseLower = do
       Left diagnostic -> failTest ("ambiguous case-arm pipe source did not parse: " <> Text.pack (show diagnostic))
       Right value -> pure value
   case surfaceProgram of
-    SEBlock
-      [ SSLet bindingName bindingSpan
-          ( SECase
-              (SELit (SLInt scrutinee))
-              [SurfaceCaseArm SPWildcard Nothing body]
-            )
-        ] -> do
-          assertEqual "ambiguous case-arm pipe binding" "ambiguousPipe" (identifierText bindingName)
-          assertEqual "ambiguous case-arm pipe binding span" (SourceSpan 1 1) bindingSpan
-          assertEqual "ambiguous case-arm pipe scrutinee" 0 scrutinee
-          case leftAssociatedPipeOperands body of
-            Nothing -> failTest ("ambiguous case-arm pipe body was not exactly left-associated: " <> Text.pack (show body))
-            Just operands -> assertEqual "ambiguous case-arm pipe operands" [0 .. 63] operands
+    SurfaceExpr
+      _
+      ( SEBlock
+          [ SSLet
+              bindingName
+              bindingSpan
+              ( SurfaceExpr
+                  _
+                  ( SECase
+                      (SurfaceExpr _ (SELit (SLInt scrutinee)))
+                      [SurfaceCaseArm (SurfacePattern _ SPWildcard) Nothing body]
+                    )
+                )
+            ]
+        ) -> do
+        assertEqual "ambiguous case-arm pipe binding" "ambiguousPipe" (identifierText bindingName)
+        assertEqual "ambiguous case-arm pipe binding span" (SourceSpan 1 1) bindingSpan
+        assertEqual "ambiguous case-arm pipe scrutinee" 0 scrutinee
+        case leftAssociatedPipeOperands body of
+          Nothing -> failTest ("ambiguous case-arm pipe body was not exactly left-associated: " <> Text.pack (show body))
+          Just operands -> assertEqual "ambiguous case-arm pipe operands" [0 .. 63] operands
     other ->
       failTest
         ( "ambiguous case-arm pipe source did not preserve exactly one wildcard arm: "
@@ -697,8 +707,8 @@ leftAssociatedPipeOperands :: SurfaceExpr -> Maybe [Integer]
 leftAssociatedPipeOperands = go []
   where
     go trailingOperands expression =
-      case expression of
-        SEBinary "|" left (SELit (SLInt rightOperand)) ->
+      case surfaceExprForm expression of
+        SEBinary "|" left (SurfaceExpr _ (SELit (SLInt rightOperand))) ->
           go (rightOperand : trailingOperands) left
         SELit (SLInt firstOperand) -> Just (firstOperand : trailingOperands)
         _ -> Nothing

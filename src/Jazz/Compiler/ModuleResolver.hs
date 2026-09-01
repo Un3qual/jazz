@@ -100,9 +100,11 @@ import Jazz.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
     SurfaceSignaturePayload,
     SurfaceSignatureType,
@@ -582,7 +584,7 @@ data InvalidModuleExport = InvalidModuleExport
 
 collectSurfaceModuleFacts :: SurfaceExpr -> SurfaceModuleFacts
 collectSurfaceModuleFacts surfaceExpr =
-  case surfaceExpr of
+  case surfaceExprForm surfaceExpr of
     SEBlock statements -> go [] [] Set.empty Map.empty emptySurfaceReferenceFacts statements
     _ ->
       finalize [] [] Set.empty Map.empty (collectExprReferenceFacts Set.empty surfaceExpr emptySurfaceReferenceFacts)
@@ -1024,7 +1026,7 @@ emptySurfaceReferenceFacts = SurfaceReferenceFacts Set.empty Set.empty Set.empty
 
 collectExprReferenceFacts :: Set Text -> SurfaceExpr -> SurfaceReferenceFacts -> SurfaceReferenceFacts
 collectExprReferenceFacts boundNames surfaceExpr facts =
-  case surfaceExpr of
+  case surfaceExprForm surfaceExpr of
     SELit _ -> facts
     SEVar name
       | identifierText name `Set.member` boundNames -> facts
@@ -1141,7 +1143,7 @@ collectPatternLambdaClauseReferenceFacts boundNames (SurfacePatternLambdaClause 
 
 collectPatternReferenceFacts :: SurfacePattern -> SurfaceReferenceFacts -> SurfaceReferenceFacts
 collectPatternReferenceFacts patternValue facts =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPWildcard -> facts
     SPVariable _ -> facts
     SPLiteral _ -> facts
@@ -1161,7 +1163,7 @@ collectPatternReferenceFacts patternValue facts =
 
 collectPatternBinders :: SurfacePattern -> Set Text
 collectPatternBinders patternValue =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPWildcard -> Set.empty
     SPVariable name -> Set.singleton (identifierText name)
     SPLiteral _ -> Set.empty
@@ -1191,13 +1193,13 @@ commonPatternBinders alternatives =
 collectLambdaParameterBinders :: SurfaceLambdaParameter -> Set Text
 collectLambdaParameterBinders parameter =
   case parameter of
-    SurfaceLambdaIdentifier name -> Set.singleton (identifierText name)
+    SurfaceLambdaIdentifier _ name -> Set.singleton (identifierText name)
     SurfaceLambdaPattern patternValue -> collectPatternBinders patternValue
 
 collectLambdaParameterReferenceFacts :: SurfaceLambdaParameter -> SurfaceReferenceFacts -> SurfaceReferenceFacts
 collectLambdaParameterReferenceFacts parameter facts =
   case parameter of
-    SurfaceLambdaIdentifier _ -> facts
+    SurfaceLambdaIdentifier _ _ -> facts
     SurfaceLambdaPattern patternValue -> collectPatternReferenceFacts patternValue facts
 
 collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> SurfaceReferenceFacts -> SurfaceReferenceFacts

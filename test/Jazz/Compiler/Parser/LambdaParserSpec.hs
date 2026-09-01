@@ -22,9 +22,11 @@ import Jazz.Compiler.Parser
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
     SurfaceStatement (..),
   )
@@ -84,9 +86,16 @@ testParsesSingleArgumentLambda =
   assertEqual
     "single-argument lambda AST"
     ( Right
-        ( SEBlock
-            [ SSLet "id" (SourceSpan 1 1) (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x"))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "id"
+                    (SourceSpan 1 1)
+                    (e 1 6 (SELambda (SurfaceLambdaIdentifier (SourceSpan 1 8) "x" :| []) (e 1 14 (SEVar "x"))))
+                ]
+            )
         )
     )
     (parseSurfaceProgram "id = \\(x) -> x.")
@@ -96,9 +105,23 @@ testParsesMultiArgumentLambda =
   assertEqual
     "multi-argument lambda AST"
     ( Right
-        ( SEBlock
-            [ SSLet "const" (SourceSpan 1 1) (SELambda (SurfaceLambdaIdentifier "x" :| [SurfaceLambdaIdentifier "y"]) (SEVar "x"))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "const"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaIdentifier (SourceSpan 1 11) "x" :| [SurfaceLambdaIdentifier (SourceSpan 1 14) "y"])
+                            (e 1 20 (SEVar "x"))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "const = \\(x, y) -> x.")
@@ -108,15 +131,23 @@ testParsesLambdaBodyApplication =
   assertEqual
     "lambda application body AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "apply"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaIdentifier "f" :| [SurfaceLambdaIdentifier "x"])
-                    (SEApply (SEVar "f") (SEVar "x"))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "apply"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaIdentifier (SourceSpan 1 11) "f" :| [SurfaceLambdaIdentifier (SourceSpan 1 14) "x"])
+                            (e 1 20 (SEApply (e 1 20 (SEVar "f")) (e 1 22 (SEVar "x"))))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "apply = \\(f, x) -> f x.")
@@ -126,12 +157,23 @@ testParsesParenthesizedLambdaApplication =
   assertEqual
     "parenthesized lambda application AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "run"
-                (SourceSpan 1 1)
-                (SEApply (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x")) (SELit (SLInt 1)))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "run"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        7
+                        ( SEApply
+                            (e 1 8 (SELambda (SurfaceLambdaIdentifier (SourceSpan 1 10) "x" :| []) (e 1 16 (SEVar "x"))))
+                            (e 1 19 (SELit (SLInt 1)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "run = (\\(x) -> x) 1.")
@@ -197,15 +239,23 @@ testParsesUnitLambdaShorthand =
   assertEqual
     "Unit lambda shorthand AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "thunk"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaPattern (SPTuple []) :| [])
-                    (SELit (SLInt 42))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "thunk"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaPattern (p 1 10 (SPTuple [])) :| [])
+                            (e 1 16 (SELit (SLInt 42)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "thunk = \\() -> 42.")
@@ -215,15 +265,23 @@ testParsesExplicitUnitLambdaParameter =
   assertEqual
     "explicit Unit lambda AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "thunk"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaPattern (SPTuple []) :| [])
-                    (SELit (SLInt 42))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "thunk"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaPattern (p 1 11 (SPTuple [])) :| [])
+                            (e 1 18 (SELit (SLInt 42)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "thunk = \\(()) -> 42.")
@@ -318,22 +376,34 @@ testParsesOrPatternLambdaParameter =
   assertEqual
     "or-pattern lambda parameter AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "choose"
-                (SourceSpan 1 1)
-                ( SELambda
-                    ( SurfaceLambdaPattern
-                        ( SPOr
-                            [ SPConstructor "Just" [SPVariable "item"],
-                              SPConstructor "Also" [SPVariable "item"]
-                            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "choose"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        10
+                        ( SELambda
+                            ( SurfaceLambdaPattern
+                                ( p
+                                    1
+                                    12
+                                    ( SPOr
+                                        [ p 1 12 (SPConstructor "Just" [p 1 17 (SPVariable "item")]),
+                                          p 1 24 (SPConstructor "Also" [p 1 29 (SPVariable "item")])
+                                        ]
+                                    )
+                                )
+                                :| []
+                            )
+                            (e 1 38 (SEVar "item"))
                         )
-                        :| []
                     )
-                    (SEVar "item")
-                )
-            ]
+                ]
+            )
         )
     )
     (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
@@ -343,22 +413,34 @@ testParsesCommaAfterOrPatternLambdaParameter =
   assertEqual
     "comma after or-pattern lambda parameter AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "choose"
-                (SourceSpan 1 1)
-                ( SELambda
-                    ( SurfaceLambdaPattern
-                        ( SPOr
-                            [ SPConstructor "Just" [SPVariable "item"],
-                              SPConstructor "Also" [SPVariable "item"]
-                            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "choose"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        10
+                        ( SELambda
+                            ( SurfaceLambdaPattern
+                                ( p
+                                    1
+                                    12
+                                    ( SPOr
+                                        [ p 1 12 (SPConstructor "Just" [p 1 17 (SPVariable "item")]),
+                                          p 1 24 (SPConstructor "Also" [p 1 29 (SPVariable "item")])
+                                        ]
+                                    )
+                                )
+                                :| [SurfaceLambdaIdentifier (SourceSpan 1 35) "extra"]
+                            )
+                            (e 1 45 (SEVar "item"))
                         )
-                        :| [SurfaceLambdaIdentifier "extra"]
                     )
-                    (SEVar "item")
-                )
-            ]
+                ]
+            )
         )
     )
     (parseSurfaceProgram "choose = \\(Just item | Also item, extra) -> item.")
@@ -428,23 +510,31 @@ testParsesPatternLambdaClausesStructurally =
   assertEqual
     "pattern-lambda surface AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "choose"
-                (SourceSpan 1 1)
-                ( SEPatternLambda
-                    ( SurfacePatternLambdaClause
-                        (SourceSpan 1 11)
-                        (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
-                        (SEVar "fallback")
-                        :| [ SurfacePatternLambdaClause
-                               (SourceSpan 1 44)
-                               (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
-                               (SEVar "item")
-                           ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "choose"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        10
+                        ( SEPatternLambda
+                            ( SurfacePatternLambdaClause
+                                (SourceSpan 1 11)
+                                (p 1 13 (SPConstructor "Nothing" []) :| [p 1 22 (SPVariable "fallback")])
+                                (e 1 35 (SEVar "fallback"))
+                                :| [ SurfacePatternLambdaClause
+                                       (SourceSpan 1 44)
+                                       (p 1 46 (SPConstructor "Just" [p 1 51 (SPVariable "item")]) :| [p 1 57 SPWildcard])
+                                       (e 1 63 (SEVar "item"))
+                                   ]
+                            )
+                        )
                     )
-                )
-            ]
+                ]
+            )
         )
     )
     (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
@@ -519,3 +609,9 @@ testRejectsPatternLambdaWithoutBody =
     "pattern lambda without body"
     "expected expression"
     (parseSurfaceProgram "choose = \\|(item) ->.")
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e line column = SurfaceExpr (SourceSpan line column)
+
+p :: Int -> Int -> SurfacePatternForm -> SurfacePattern
+p line column = SurfacePattern (SourceSpan line column)

@@ -66,10 +66,12 @@ import Jazz.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
     SurfaceSignatureConstraint,
     SurfaceSignaturePayload,
@@ -120,7 +122,7 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
         }
   where
     statements =
-      case surfaceExpr of
+      case surfaceExprForm surfaceExpr of
         SEBlock moduleStatements -> moduleStatements
         _ -> []
 
@@ -149,7 +151,7 @@ lowerSurfaceModuleDetailed sourcePath expectedPath surfaceExpr =
       ]
 
     loweredBody =
-      case surfaceExpr of
+      case surfaceExprForm surfaceExpr of
         SEBlock _ -> EBlock (map lowerSurfaceStatement executableStatements)
         _ -> lowerSurfaceExprWithoutCostCentre surfaceExpr
 
@@ -240,10 +242,9 @@ qualifyExprSourceSpans sourcePath expr =
         SImport spanValue path alias symbols -> SImport (qualifySpan spanValue) path alias symbols
         SExpr spanValue valueExpr -> SExpr (qualifySpan spanValue) (go valueExpr)
 
--- | Convert parser-surface nodes into core nodes while preserving statement
--- source spans. Expression constructors like `ELit`, `EVar`, `EApply`, and
--- `EBinary` do not carry spans in the core AST, so expression-level location
--- handling stays in later phases.
+-- | Convert parser-surface nodes into core nodes. The current core AST does not
+-- yet retain the surface-node locations; the phase-indexed core migration owns
+-- that transition.
 lowerSurfaceExpr :: SurfaceExpr -> Expr
 lowerSurfaceExpr surfaceExpr =
   {-# SCC "jazz-stage:lowering" #-}
@@ -251,7 +252,7 @@ lowerSurfaceExpr surfaceExpr =
 
 lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Expr
 lowerSurfaceExprWithoutCostCentre surfaceExpr =
-  case surfaceExpr of
+  case surfaceExprForm surfaceExpr of
     SELit literal -> ELit (lowerSurfaceLiteral literal)
     SEVar name -> EVar (sourceName name)
     SEQualifiedVar qualifier member ->
@@ -301,7 +302,7 @@ lowerSurfaceLambda parameters bodyExpr =
     (lowerSurfaceExprWithoutCostCentre bodyExpr)
     (zip [1 :: Int ..] (NonEmpty.toList parameters))
   where
-    lowerParameter (_, SurfaceLambdaIdentifier parameterName) loweredBody =
+    lowerParameter (_, SurfaceLambdaIdentifier _ parameterName) loweredBody =
       ELambda (sourceName parameterName) loweredBody
     lowerParameter (parameterIndex, SurfaceLambdaPattern parameterPattern) loweredBody =
       let parameterName =
@@ -356,7 +357,7 @@ lowerSurfaceLiteral literal =
 
 lowerSurfacePattern :: SurfacePattern -> Pattern
 lowerSurfacePattern surfacePattern =
-  case surfacePattern of
+  case surfacePatternForm surfacePattern of
     SPWildcard -> PWildcard
     SPVariable name -> PVariable (sourceName name)
     SPLiteral literal -> PLiteral (lowerSurfaceLiteral literal)

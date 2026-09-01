@@ -129,7 +129,7 @@ testJazzSchemaRendering = do
   path <- normalizedPath "fixtures/parser/basic.jz"
   let expected =
         renderCanonicalParserResult
-          (canonicalizeParserResult path (Right (SELit (SLInt 42))))
+          (canonicalizeParserResult path (Right (seInt 42)))
   assertEqual "Jazz schema compile errors" [] (runCompileErrors result)
   assertEqual "Jazz schema runtime errors" [] (runRuntimeErrors result)
   assertEqual "Jazz schema output" (Just expected) (runOutput result)
@@ -239,93 +239,103 @@ testSurfaceNumericTypeEnumeration =
 
 surfaceInventory :: SurfaceExpr
 surfaceInventory =
-  SEBlock
-    [ SSLet "allExpressions" span1 (SEList allExpressions),
-      SSLet
-        "identity"
-        span1
-        (SELambda (SurfaceLambdaPattern (SPVariable "item") :| []) (SEVar "item")),
-      SSSignature "plain" span1 (SignatureType TypeInt),
-      SSSignature
-        "constrained"
-        span1
-        ( ConstrainedSignature
-            [SignatureConstraint "Comparable" [TypeVariable "a"]]
-            (TypeFunction (TypeVariable "a") TypeBool)
-        ),
-      SSSignature "unsupported" span1 (UnsupportedSignature allSignatureTokens),
-      SSData
-        span1
-        "Thing"
-        ["a"]
-        [ SurfaceDataConstructor
+  se
+    ( SEBlock
+        [ SSLet "allExpressions" span1 (se (SEList allExpressions)),
+          SSLet
+            "identity"
+            span1
+            (se (SELambda (SurfaceLambdaPattern (sp (SPVariable "item")) :| []) (se (SEVar "item")))),
+          SSSignature "plain" span1 (SignatureType TypeInt),
+          SSSignature
+            "constrained"
+            span1
+            ( ConstrainedSignature
+                [SignatureConstraint "Comparable" [TypeVariable "a"]]
+                (TypeFunction (TypeVariable "a") TypeBool)
+            ),
+          SSSignature "unsupported" span1 (UnsupportedSignature allSignatureTokens),
+          SSData
+            span1
             "Thing"
-            [TypeVariable "a", TypeList TypeText]
-        ],
-      SSClass
-        span1
-        "Show"
-        ["a"]
-        [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)],
-      SSImpl
-        span1
-        "Show"
-        allSignatureTypes
-        [SurfaceImplMethod "show" span1 (seText "shown")],
-      SSModule span1 ["App", "Main"] (Just allModuleExports),
-      SSImport span1 ["Core", "Text"] (Just "TextCore") (Just ["length"]),
-      SSExpr span1 patternInventory
-    ]
+            ["a"]
+            [ SurfaceDataConstructor
+                "Thing"
+                [TypeVariable "a", TypeList TypeText]
+            ],
+          SSClass
+            span1
+            "Show"
+            ["a"]
+            [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)],
+          SSImpl
+            span1
+            "Show"
+            allSignatureTypes
+            [SurfaceImplMethod "show" span1 (seText "shown")],
+          SSModule span1 ["App", "Main"] (Just allModuleExports),
+          SSImport span1 ["Core", "Text"] (Just "TextCore") (Just ["length"]),
+          SSExpr span1 patternInventory
+        ]
+    )
 
 allExpressions :: [SurfaceExpr]
 allExpressions =
-  [ SELit (SLInt 42),
-    SELit (SLFloat 0.0 (mkFractionalLiteralSource 0 10 4) Nothing),
-    SELit (SLBool True),
-    SELit (SLChar 'x'),
-    SELit (SLText "Jazz"),
-    SEVar "value",
-    SEQualifiedVar "Text" "length",
-    SELambda (SurfaceLambdaIdentifier "value" :| [SurfaceLambdaPattern SPWildcard]) (SEVar "value"),
-    SEPatternLambda
-      ( SurfacePatternLambdaClause
-          span1
-          (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
-          (SEVar "fallback")
-          :| [ SurfacePatternLambdaClause
-                 span2
-                 (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
-                 (SEVar "item")
-             ]
+  [ se (SELit (SLInt 42)),
+    se (SELit (SLFloat 0.0 (mkFractionalLiteralSource 0 10 4) Nothing)),
+    se (SELit (SLBool True)),
+    se (SELit (SLChar 'x')),
+    se (SELit (SLText "Jazz")),
+    se (SEVar "value"),
+    se (SEQualifiedVar "Text" "length"),
+    se
+      ( SELambda
+          (SurfaceLambdaIdentifier span1 "value" :| [SurfaceLambdaPattern (sp SPWildcard)])
+          (se (SEVar "value"))
       ),
-    SEOperatorValue "+",
-    SEList [seInt 1],
-    SETuple [seInt 1, seInt 2],
-    SEApply (SEVar "identity") (seInt 1),
-    SETypeApplication (SEVar "identity") span1 (TypeName "Int"),
-    SEIf (SELit (SLBool True)) (seInt 1) (seInt 0),
+    se
+      ( SEPatternLambda
+          ( SurfacePatternLambdaClause
+              span1
+              (sp (SPConstructor "Nothing" []) :| [sp (SPVariable "fallback")])
+              (se (SEVar "fallback"))
+              :| [ SurfacePatternLambdaClause
+                     span2
+                     (sp (SPConstructor "Just" [sp (SPVariable "item")]) :| [sp SPWildcard])
+                     (se (SEVar "item"))
+                 ]
+          )
+      ),
+    se (SEOperatorValue "+"),
+    se (SEList [seInt 1]),
+    se (SETuple [seInt 1, seInt 2]),
+    se (SEApply (se (SEVar "identity")) (seInt 1)),
+    se (SETypeApplication (se (SEVar "identity")) span1 (TypeName "Int")),
+    se (SEIf (se (SELit (SLBool True))) (seInt 1) (seInt 0)),
     patternInventory,
-    SEBinary "+" (seInt 1) (seInt 2),
-    SESectionLeft (seInt 1) "+",
-    SESectionRight "+" (seInt 1),
-    SEBlock [SSExpr span1 (seInt 1)]
+    se (SEBinary "+" (seInt 1) (seInt 2)),
+    se (SESectionLeft (seInt 1) "+"),
+    se (SESectionRight "+" (seInt 1)),
+    se (SEBlock [SSExpr span1 (seInt 1)])
   ]
-    <> [SELit (SLFloat 0.0 (mkFractionalLiteralSource 1 5 1) (Just numericType)) | numericType <- allNumericTypes]
+    <> [se (SELit (SLFloat 0.0 (mkFractionalLiteralSource 1 5 1) (Just numericType))) | numericType <- allNumericTypes]
 
 patternInventory :: SurfaceExpr
 patternInventory =
-  SECase
-    (SEVar "value")
-    [ SurfaceCaseArm SPWildcard Nothing (seInt 0),
-      SurfaceCaseArm (SPVariable "name") (Just (SELit (SLBool True))) (seInt 1),
-      SurfaceCaseArm (SPLiteral (SLInt 2)) Nothing (seInt 2),
-      SurfaceCaseArm (SPConstructor "Just" [SPVariable "item"]) Nothing (seInt 3),
-      SurfaceCaseArm (SPList [SPWildcard]) Nothing (seInt 4),
-      SurfaceCaseArm (SPConsList SPWildcard (SPVariable "rest")) Nothing (seInt 5),
-      SurfaceCaseArm (SPTuple [SPWildcard, SPWildcard]) Nothing (seInt 6),
-      SurfaceCaseArm (SPAs "whole" SPWildcard) Nothing (seInt 7),
-      SurfaceCaseArm (SPOr [SPLiteral (SLInt 8), SPLiteral (SLInt 9)]) Nothing (seInt 8)
-    ]
+  se
+    ( SECase
+        (se (SEVar "value"))
+        [ SurfaceCaseArm (sp SPWildcard) Nothing (seInt 0),
+          SurfaceCaseArm (sp (SPVariable "name")) (Just (se (SELit (SLBool True)))) (seInt 1),
+          SurfaceCaseArm (sp (SPLiteral (SLInt 2))) Nothing (seInt 2),
+          SurfaceCaseArm (sp (SPConstructor "Just" [sp (SPVariable "item")])) Nothing (seInt 3),
+          SurfaceCaseArm (sp (SPList [sp SPWildcard])) Nothing (seInt 4),
+          SurfaceCaseArm (sp (SPConsList (sp SPWildcard) (sp (SPVariable "rest")))) Nothing (seInt 5),
+          SurfaceCaseArm (sp (SPTuple [sp SPWildcard, sp SPWildcard])) Nothing (seInt 6),
+          SurfaceCaseArm (sp (SPAs "whole" (sp SPWildcard))) Nothing (seInt 7),
+          SurfaceCaseArm (sp (SPOr [sp (SPLiteral (SLInt 8)), sp (SPLiteral (SLInt 9))])) Nothing (seInt 8)
+        ]
+    )
 
 allSignatureTypes :: [SurfaceSignatureType]
 allSignatureTypes =
@@ -1004,10 +1014,16 @@ span2 :: SourceSpan
 span2 = SourceSpan 2 3
 
 seInt :: Integer -> SurfaceExpr
-seInt = SELit . SLInt
+seInt = se . SELit . SLInt
 
 seText :: Text.Text -> SurfaceExpr
-seText = SELit . SLText
+seText = se . SELit . SLText
+
+se :: SurfaceExprForm -> SurfaceExpr
+se = SurfaceExpr span1
+
+sp :: SurfacePatternForm -> SurfacePattern
+sp = SurfacePattern span1
 
 numericConstructorName :: SurfaceNumericType -> Text.Text
 numericConstructorName numericType =

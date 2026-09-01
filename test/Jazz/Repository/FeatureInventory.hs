@@ -128,7 +128,7 @@ erasedSourceFeatures source =
 
 inventoryExpr :: SurfaceExpr -> Set SurfaceFeature
 inventoryExpr expression =
-  case expression of
+  case surfaceExprForm expression of
     SELit literal -> Set.singleton LiteralFeature <> inventoryLiteral literal
     SEVar _ -> Set.empty
     SEQualifiedVar _ _ -> Set.singleton QualifiedMethodFeature
@@ -197,25 +197,28 @@ inventoryExpr expression =
 
     lambdaParameterIsPattern parameter =
       case parameter of
-        SurfaceLambdaIdentifier _ -> False
+        SurfaceLambdaIdentifier _ _ -> False
         SurfaceLambdaPattern _ -> True
 
     lambdaParameterIsOrPattern parameter =
       case parameter of
-        SurfaceLambdaPattern (SPOr _) -> True
+        SurfaceLambdaPattern patternValue ->
+          case surfacePatternForm patternValue of
+            SPOr _ -> True
+            _ -> False
         _ -> False
 
     clausePatterns (SurfacePatternLambdaClause _ patterns _) =
       NonEmpty.toList patterns
 
     patternIsOrPattern patternValue =
-      case patternValue of
+      case surfacePatternForm patternValue of
         SPOr _ -> True
         _ -> False
 
 containsPartialApplication :: Map Text Int -> SurfaceExpr -> Bool
 containsPartialApplication arities expression =
-  case expression of
+  case surfaceExprForm expression of
     SELit _ -> False
     SEVar _ -> False
     SEQualifiedVar _ _ -> False
@@ -263,14 +266,14 @@ applicationSpine :: SurfaceExpr -> (SurfaceExpr, [SurfaceExpr])
 applicationSpine = go []
   where
     go arguments candidate =
-      case candidate of
+      case surfaceExprForm candidate of
         SEApply function argument ->
           go (argument : arguments) function
         _ -> (candidate, arguments)
 
 callableArity :: Map Text Int -> SurfaceExpr -> Maybe Int
 callableArity arities expression =
-  case expression of
+  case surfaceExprForm expression of
     SEVar name -> Map.lookup (identifierText name) arities
     SELambda parameters _ -> Just (NonEmpty.length parameters)
     SEPatternLambda clauses ->
@@ -330,12 +333,12 @@ patternLambdaClauseContainsPartialApplication arities (SurfacePatternLambdaClaus
 lambdaParameterBindings :: SurfaceLambdaParameter -> Set Text
 lambdaParameterBindings parameter =
   case parameter of
-    SurfaceLambdaIdentifier name -> Set.singleton (identifierText name)
+    SurfaceLambdaIdentifier _ name -> Set.singleton (identifierText name)
     SurfaceLambdaPattern patternValue -> patternBindings patternValue
 
 patternBindings :: SurfacePattern -> Set Text
 patternBindings patternValue =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPVariable name -> Set.singleton (identifierText name)
     SPConstructor _ arguments -> Set.unions (map patternBindings arguments)
     SPList items -> Set.unions (map patternBindings items)
@@ -402,7 +405,7 @@ inventoryStatement statement =
 inventoryLambdaParameter :: SurfaceLambdaParameter -> Set SurfaceFeature
 inventoryLambdaParameter parameter =
   case parameter of
-    SurfaceLambdaIdentifier _ -> Set.singleton VariablePatternFeature
+    SurfaceLambdaIdentifier _ _ -> Set.singleton VariablePatternFeature
     SurfaceLambdaPattern patternValue -> inventoryPattern patternValue
 
 inventoryCaseArm :: SurfaceCaseArm -> Set SurfaceFeature
@@ -417,7 +420,7 @@ inventoryPatternLambdaClause (SurfacePatternLambdaClause _ patterns body) =
 
 inventoryPattern :: SurfacePattern -> Set SurfaceFeature
 inventoryPattern patternValue =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPWildcard -> Set.singleton WildcardPatternFeature
     SPVariable _ -> Set.singleton VariablePatternFeature
     SPLiteral literal ->

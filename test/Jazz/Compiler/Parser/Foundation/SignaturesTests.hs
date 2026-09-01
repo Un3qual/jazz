@@ -21,6 +21,7 @@ import Jazz.Compiler.Parser
 import Jazz.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLiteral (..),
     SurfaceStatement (..),
   )
@@ -79,10 +80,11 @@ testParseSignatureSpan =
   assertEqual
     "signature span"
     ( Right
-        ( SEBlock
-            [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeInt)),
-              SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeInt)),
+                SSLet "x" (SourceSpan 2 1) (e 2 5 $ SELit (SLInt 1))
+              ]
         )
     )
     (parseSurfaceProgram "x :: Int.\nx = 1.")
@@ -92,14 +94,15 @@ testParsesCharAndTextSignatures =
   assertEqual
     "Char/Text signatures"
     ( Right
-        ( SEBlock
-            [ SSSignature "character" (SourceSpan 1 1) (SignatureType TypeChar),
-              SSSignature "message" (SourceSpan 2 1) (SignatureType TypeText),
-              SSSignature
-                "render"
-                (SourceSpan 3 1)
-                (SignatureType (TypeFunction TypeChar TypeText))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature "character" (SourceSpan 1 1) (SignatureType TypeChar),
+                SSSignature "message" (SourceSpan 2 1) (SignatureType TypeText),
+                SSSignature
+                  "render"
+                  (SourceSpan 3 1)
+                  (SignatureType (TypeFunction TypeChar TypeText))
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -115,26 +118,27 @@ testParsesGenericNamedSignatures =
   assertEqual
     "generic named signatures"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "maybeCharacter"
-                (SourceSpan 1 1)
-                ( SignatureType
-                    (TypeApplication "Maybe" [TypeChar])
-                ),
-              SSSignature
-                "map"
-                (SourceSpan 2 1)
-                ( SignatureType
-                    ( TypeFunction
-                        (TypeFunction (TypeVariable "a") (TypeVariable "b"))
-                        ( TypeFunction
-                            (TypeList (TypeVariable "a"))
-                            (TypeList (TypeVariable "b"))
-                        )
-                    )
-                )
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "maybeCharacter"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      (TypeApplication "Maybe" [TypeChar])
+                  ),
+                SSSignature
+                  "map"
+                  (SourceSpan 2 1)
+                  ( SignatureType
+                      ( TypeFunction
+                          (TypeFunction (TypeVariable "a") (TypeVariable "b"))
+                          ( TypeFunction
+                              (TypeList (TypeVariable "a"))
+                              (TypeList (TypeVariable "b"))
+                          )
+                      )
+                  )
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -149,16 +153,17 @@ testNormalizesListApplicationSyntax =
   assertEqual
     "List(a) and [a] normalization"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "left"
-                (SourceSpan 1 1)
-                (SignatureType (TypeList (TypeVariable "a"))),
-              SSSignature
-                "right"
-                (SourceSpan 2 1)
-                (SignatureType (TypeList (TypeVariable "a")))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "left"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeList (TypeVariable "a"))),
+                SSSignature
+                  "right"
+                  (SourceSpan 2 1)
+                  (SignatureType (TypeList (TypeVariable "a")))
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -173,18 +178,19 @@ testParseParenthesizedFunctionSignature =
   assertEqual
     "parenthesized function signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "f"
-                (SourceSpan 1 1)
-                ( SignatureType
-                    ( TypeFunction
-                        (TypeList TypeInt)
-                        (TypeList TypeInt)
-                    )
-                ),
-              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      ( TypeFunction
+                          (TypeList TypeInt)
+                          (TypeList TypeInt)
+                      )
+                  ),
+                SSLet "f" (SourceSpan 2 1) (e 2 5 $ SEOperatorValue "+")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -199,13 +205,14 @@ testParseTupleSignature =
   assertEqual
     "tuple signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "pair"
-                (SourceSpan 1 1)
-                (SignatureType (TypeTuple [TypeInt, TypeBool])),
-              SSLet "pair" (SourceSpan 2 1) (SETuple [SELit (SLInt 1), SELit (SLBool True)])
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "pair"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeTuple [TypeInt, TypeBool])),
+                SSLet "pair" (SourceSpan 2 1) (e 2 8 $ SETuple [e 2 9 $ SELit (SLInt 1), e 2 12 $ SELit (SLBool True)])
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -220,13 +227,14 @@ testParseUnitValueAndSignature =
   assertEqual
     "Unit value and signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "unit"
-                (SourceSpan 1 1)
-                (SignatureType (TypeTuple [])),
-              SSLet "unit" (SourceSpan 2 1) (SETuple [])
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "unit"
+                  (SourceSpan 1 1)
+                  (SignatureType (TypeTuple [])),
+                SSLet "unit" (SourceSpan 2 1) (e 2 8 $ SETuple [])
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -241,13 +249,14 @@ testParseConstrainedUnitSignature =
   assertEqual
     "constrained Unit signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "unit"
-                (SourceSpan 1 1)
-                (ConstrainedSignature [] (TypeTuple [])),
-              SSLet "unit" (SourceSpan 2 1) (SETuple [])
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "unit"
+                  (SourceSpan 1 1)
+                  (ConstrainedSignature [] (TypeTuple [])),
+                SSLet "unit" (SourceSpan 2 1) (e 2 8 $ SETuple [])
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -262,10 +271,11 @@ testParseNumericWidthSignatureTypes = do
   assertEqual
     "Int8 signature"
     ( Right
-        ( SEBlock
-            [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
-              SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
+                SSLet "x" (SourceSpan 2 1) (e 2 5 $ SELit (SLInt 1))
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -277,15 +287,16 @@ testParseNumericWidthSignatureTypes = do
   assertEqual
     "Float alias signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "f"
-                (SourceSpan 1 1)
-                ( SignatureType
-                    (TypeFunction TypeFloat (TypeNumeric NumericFloat64))
-                ),
-              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      (TypeFunction TypeFloat (TypeNumeric NumericFloat64))
+                  ),
+                SSLet "f" (SourceSpan 2 1) (e 2 5 $ SEOperatorValue "+")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -300,15 +311,16 @@ testParseChainedFunctionSignature =
   assertEqual
     "right-associated function signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "f"
-                (SourceSpan 1 1)
-                ( SignatureType
-                    (TypeFunction TypeInt (TypeFunction TypeInt TypeInt))
-                ),
-              SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      (TypeFunction TypeInt (TypeFunction TypeInt TypeInt))
+                  ),
+                SSLet "f" (SourceSpan 2 1) (e 2 5 $ SEOperatorValue "+")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -323,15 +335,16 @@ testParseParenthesizedFunctionOverrideSignature =
   assertEqual
     "parenthesized function override signature"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "f"
-                (SourceSpan 1 1)
-                ( SignatureType
-                    (TypeFunction (TypeFunction TypeInt TypeInt) TypeInt)
-                ),
-              SSLet "f" (SourceSpan 2 1) (SEVar "applyToOne")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      (TypeFunction (TypeFunction TypeInt TypeInt) TypeInt)
+                  ),
+                SSLet "f" (SourceSpan 2 1) (e 2 5 $ SEVar "applyToOne")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -346,15 +359,16 @@ testParseFunctionListSignature =
   assertEqual
     "list of parenthesized function types"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "fns"
-                (SourceSpan 1 1)
-                ( SignatureType
-                    (TypeList (TypeFunction TypeInt TypeInt))
-                ),
-              SSLet "fns" (SourceSpan 2 1) (SEList [SESectionRight "+" (SELit (SLInt 1))])
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "fns"
+                  (SourceSpan 1 1)
+                  ( SignatureType
+                      (TypeList (TypeFunction TypeInt TypeInt))
+                  ),
+                SSLet "fns" (SourceSpan 2 1) (e 2 7 $ SEList [e 2 8 $ SESectionRight "+" (e 2 11 $ SELit (SLInt 1))])
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -369,21 +383,22 @@ testParseConstrainedSignaturePayload =
   assertEqual
     "constrained signature payload"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "f"
-                (SourceSpan 1 1)
-                ( ConstrainedSignature
-                    [ SignatureConstraint "Eq" [TypeVariable "a"],
-                      SignatureConstraint "Ord" [TypeVariable "b"]
-                    ]
-                    ( TypeFunction
-                        (TypeVariable "a")
-                        (TypeFunction (TypeVariable "b") (TypeVariable "c"))
-                    )
-                ),
-              SSLet "f" (SourceSpan 2 1) (SEVar "combine")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  ( ConstrainedSignature
+                      [ SignatureConstraint "Eq" [TypeVariable "a"],
+                        SignatureConstraint "Ord" [TypeVariable "b"]
+                      ]
+                      ( TypeFunction
+                          (TypeVariable "a")
+                          (TypeFunction (TypeVariable "b") (TypeVariable "c"))
+                      )
+                  ),
+                SSLet "f" (SourceSpan 2 1) (e 2 5 $ SEVar "combine")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -398,13 +413,14 @@ testParseEmptyConstraintBlockSignaturePayload =
   assertEqual
     "empty constrained signature payload"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "f"
-                (SourceSpan 1 1)
-                (ConstrainedSignature [] TypeInt),
-              SSLet "f" (SourceSpan 2 1) (SEVar "input")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "f"
+                  (SourceSpan 1 1)
+                  (ConstrainedSignature [] TypeInt),
+                SSLet "f" (SourceSpan 2 1) (e 2 5 $ SEVar "input")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -419,16 +435,17 @@ testParseConstrainedTupleSignaturePayload =
   assertEqual
     "constrained tuple signature payload"
     ( Right
-        ( SEBlock
-            [ SSSignature
-                "pair"
-                (SourceSpan 1 1)
-                ( ConstrainedSignature
-                    []
-                    (TypeTuple [TypeInt, TypeBool])
-                ),
-              SSLet "pair" (SourceSpan 2 1) (SETuple [SELit (SLInt 1), SELit (SLBool True)])
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature
+                  "pair"
+                  (SourceSpan 1 1)
+                  ( ConstrainedSignature
+                      []
+                      (TypeTuple [TypeInt, TypeBool])
+                  ),
+                SSLet "pair" (SourceSpan 2 1) (e 2 8 $ SETuple [e 2 9 $ SELit (SLInt 1), e 2 12 $ SELit (SLBool True)])
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -716,14 +733,15 @@ testParsesAbstractionKeywordsAsSignatureNames =
   assertEqual
     "abstraction keyword signature names"
     ( Right
-        ( SEBlock
-            [ SSSignature "class" (SourceSpan 1 1) (SignatureType TypeInt),
-              SSLet "class" (SourceSpan 2 1) (SELit (SLInt 1)),
-              SSSignature "impl" (SourceSpan 3 1) (SignatureType TypeBool),
-              SSLet "impl" (SourceSpan 4 1) (SELit (SLBool True)),
-              SSSignature "trait" (SourceSpan 5 1) (SignatureType TypeInt),
-              SSLet "trait" (SourceSpan 6 1) (SELit (SLInt 2))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature "class" (SourceSpan 1 1) (SignatureType TypeInt),
+                SSLet "class" (SourceSpan 2 1) (e 2 9 $ SELit (SLInt 1)),
+                SSSignature "impl" (SourceSpan 3 1) (SignatureType TypeBool),
+                SSLet "impl" (SourceSpan 4 1) (e 4 8 $ SELit (SLBool True)),
+                SSSignature "trait" (SourceSpan 5 1) (SignatureType TypeInt),
+                SSLet "trait" (SourceSpan 6 1) (e 6 9 $ SELit (SLInt 2))
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -742,10 +760,11 @@ testParsesOperatorKeywordAsSignatureName =
   assertEqual
     "operator keyword signature name"
     ( Right
-        ( SEBlock
-            [ SSSignature "operator" (SourceSpan 1 1) (SignatureType TypeInt),
-              SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSSignature "operator" (SourceSpan 1 1) (SignatureType TypeInt),
+                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (SLInt 1))
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -782,15 +801,16 @@ testParsesClassMethodSignatureMetadata =
                 )
         assertEqual
           "surface class method metadata"
-          ( SEBlock
-              [ SSClass
-                  (SourceSpan 1 1)
-                  "Eq"
-                  ["a"]
-                  [ SurfaceClassMethodSignature "equals" (SourceSpan 2 1) surfacePayload,
-                    SurfaceClassMethodSignature "notEquals" (SourceSpan 3 1) surfacePayload
-                  ]
-              ]
+          ( e 1 1 $
+              SEBlock
+                [ SSClass
+                    (SourceSpan 1 1)
+                    "Eq"
+                    ["a"]
+                    [ SurfaceClassMethodSignature "equals" (SourceSpan 2 1) surfacePayload,
+                      SurfaceClassMethodSignature "notEquals" (SourceSpan 3 1) surfacePayload
+                    ]
+                ]
           )
           surfaceProgram
         assertEqual
@@ -807,3 +827,6 @@ testParsesClassMethodSignatureMetadata =
           )
           (lowerSurfaceExpr surfaceProgram)
     )
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e line column = SurfaceExpr (SourceSpan line column)

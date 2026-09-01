@@ -19,7 +19,9 @@ import Jazz.Compiler.Parser
   ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceExpr (..),
+  ( SurfaceCaseArm (..),
+    SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLiteral (..),
     SurfaceStatement (..),
   )
@@ -32,6 +34,7 @@ import Jazz.TestHarness
     assertContains,
     assertEqual,
     assertRight,
+    failTest,
   )
 
 expressionTests :: [NamedTest]
@@ -39,6 +42,7 @@ expressionTests =
   [ ("parses let binding and expression statement", testParseLetAndExpr),
     ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
     ("parses tuple literal into structured nodes", testParseTupleLiteral),
+    ("tracks every nested expression location", testTracksEveryNestedExpressionLocation),
     ("lowers Char and Text literals into analyzer AST", testLowersCharAndTextLiterals),
     ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
     ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes),
@@ -60,16 +64,103 @@ expressionTests =
     ("lowers impl method binding metadata", testLowersImplMethodBindingMetadata)
   ]
 
+testTracksEveryNestedExpressionLocation :: IO ()
+testTracksEveryNestedExpressionLocation =
+  assertRight
+    "nested expression locations parse"
+    ( parseSurfaceProgram
+        ( Text.unlines
+            [ "entry = \\(input) ->",
+              "  (f @Int input,",
+              "   [if True then case input { | Just item -> item + 1 | _ -> 0 } else 0],",
+              "   (10 +),",
+              "   (+ 20))."
+            ]
+        )
+    )
+    assertLocations
+  where
+    assertLocations surfaceProgram =
+      case surfaceExprForm surfaceProgram of
+        SEBlock [SSLet _ _ lambdaExpr] -> do
+          assertExprLocation "program block" (SourceSpan 1 1) surfaceProgram
+          assertExprLocation "lambda" (SourceSpan 1 9) lambdaExpr
+          case surfaceExprForm lambdaExpr of
+            SELambda _ tupleExpr -> do
+              assertExprLocation "tuple" (SourceSpan 2 3) tupleExpr
+              case surfaceExprForm tupleExpr of
+                SETuple tupleElements -> assertTupleLocations tupleElements
+                _ -> unexpected "tuple" tupleExpr
+            _ -> unexpected "lambda" lambdaExpr
+        _ -> failTest ("nested expression locations: unexpected AST " <> Text.pack (show surfaceProgram))
+
+    assertTupleLocations tupleElements =
+      case tupleElements of
+        [applicationExpr, listExpr, leftSectionExpr, rightSectionExpr] -> do
+          assertExprLocation "application" (SourceSpan 2 4) applicationExpr
+          case surfaceExprForm applicationExpr of
+            SEApply typeApplicationExpr argumentExpr -> do
+              assertExprLocation "type application" (SourceSpan 2 4) typeApplicationExpr
+              assertExprLocation "application argument" (SourceSpan 2 11) argumentExpr
+              case surfaceExprForm typeApplicationExpr of
+                SETypeApplication functionExpr _ _ ->
+                  assertExprLocation "type-applied function" (SourceSpan 2 4) functionExpr
+                _ -> unexpected "type application" typeApplicationExpr
+            _ -> unexpected "application" applicationExpr
+          assertExprLocation "list" (SourceSpan 3 4) listExpr
+          case surfaceExprForm listExpr of
+            SEList [ifExpr] -> assertIfLocations ifExpr
+            _ -> unexpected "list" listExpr
+          assertExprLocation "left section" (SourceSpan 4 4) leftSectionExpr
+          case surfaceExprForm leftSectionExpr of
+            SESectionLeft leftSectionValue _ ->
+              assertExprLocation "left section value" (SourceSpan 4 5) leftSectionValue
+            _ -> unexpected "left section" leftSectionExpr
+          assertExprLocation "right section" (SourceSpan 5 4) rightSectionExpr
+          case surfaceExprForm rightSectionExpr of
+            SESectionRight _ rightSectionValue ->
+              assertExprLocation "right section value" (SourceSpan 5 7) rightSectionValue
+            _ -> unexpected "right section" rightSectionExpr
+        _ -> failTest ("nested expression locations: unexpected tuple " <> Text.pack (show tupleElements))
+
+    assertIfLocations ifExpr = do
+      assertExprLocation "if" (SourceSpan 3 5) ifExpr
+      case surfaceExprForm ifExpr of
+        SEIf conditionExpr caseExpr elseExpr -> do
+          assertExprLocation "if condition" (SourceSpan 3 8) conditionExpr
+          assertExprLocation "case" (SourceSpan 3 18) caseExpr
+          assertExprLocation "if else branch" (SourceSpan 3 71) elseExpr
+          case surfaceExprForm caseExpr of
+            SECase scrutineeExpr caseArms -> do
+              assertExprLocation "case scrutinee" (SourceSpan 3 23) scrutineeExpr
+              assertCaseArmLocations caseArms
+            _ -> unexpected "case" caseExpr
+        _ -> unexpected "if" ifExpr
+
+    assertCaseArmLocations caseArms =
+      case caseArms of
+        [SurfaceCaseArm _ Nothing binaryExpr, SurfaceCaseArm _ Nothing fallbackExpr] -> do
+          assertExprLocation "case binary body" (SourceSpan 3 46) binaryExpr
+          case surfaceExprForm binaryExpr of
+            SEBinary _ leftExpr rightExpr -> do
+              assertExprLocation "case binary left" (SourceSpan 3 46) leftExpr
+              assertExprLocation "case binary right" (SourceSpan 3 53) rightExpr
+            _ -> unexpected "binary" binaryExpr
+          assertExprLocation "case fallback body" (SourceSpan 3 62) fallbackExpr
+        _ -> failTest ("nested expression locations: unexpected case arms " <> Text.pack (show caseArms))
+
+    assertExprLocation label expected expression =
+      assertEqual label expected (surfaceExprSpan expression)
+
+    unexpected label expression =
+      failTest ("nested expression locations: unexpected " <> label <> " " <> Text.pack (show expression))
+
 testParseLetAndExpr :: IO ()
 testParseLetAndExpr =
   assertEqual
     "surface AST"
     ( Right
-        ( SEBlock
-            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSExpr (SourceSpan 2 1) (SEVar "x")
-            ]
-        )
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
     ( parseSurfaceProgram
         """
@@ -89,11 +180,7 @@ testParseSurfaceProgramAcceptsTextInput = do
   assertEqual
     "surface AST from Text source"
     ( Right
-        ( SEBlock
-            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSExpr (SourceSpan 2 1) (SEVar "x")
-            ]
-        )
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 2 1) (e 2 1 $ SEVar "x")])
     )
     (parseSurfaceProgram sourceText)
 
@@ -102,19 +189,20 @@ testParseTupleLiteral =
   assertEqual
     "tuple literal surface AST"
     ( Right
-        ( SEBlock
-            [ SSExpr
-                (SourceSpan 1 1)
-                (SETuple [SELit (SLInt 1), SELit (SLBool True)])
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSExpr
+                  (SourceSpan 1 1)
+                  (e 1 1 $ SETuple [e 1 2 $ SELit (SLInt 1), e 1 5 $ SELit (SLBool True)])
+              ]
         )
     )
     (parseSurfaceProgram "(1, True).")
 
 testLowersCharAndTextLiterals :: IO ()
 testLowersCharAndTextLiterals = do
-  assertEqual "lower Char" (ELit (LChar 'a')) (lowerSurfaceExpr (SELit (SLChar 'a')))
-  assertEqual "lower Text" (ELit (LText "Jazz")) (lowerSurfaceExpr (SELit (SLText "Jazz")))
+  assertEqual "lower Char" (ELit (LChar 'a')) (lowerSurfaceExpr (e 1 1 $ SELit (SLChar 'a')))
+  assertEqual "lower Text" (ELit (LText "Jazz")) (lowerSurfaceExpr (e 1 1 $ SELit (SLText "Jazz")))
 
 testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
@@ -157,11 +245,7 @@ testIgnoresHashLineComments =
   assertEqual
     "comments ignored"
     ( Right
-        ( SEBlock
-            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSExpr (SourceSpan 3 1) (SEVar "x")
-            ]
-        )
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)), SSExpr (SourceSpan 3 1) (e 3 1 $ SEVar "x")])
     )
     (parseSurfaceProgram "x = 1.\n# parser should ignore this line comment\nx.")
 
@@ -170,10 +254,7 @@ testTabAlignedExpressionSpan =
   assertEqual
     "tab-aligned span"
     ( Right
-        ( SEBlock
-            [ SSExpr (SourceSpan 1 9) (SEVar "x")
-            ]
-        )
+        (e 1 9 $ SEBlock [SSExpr (SourceSpan 1 9) (e 1 9 $ SEVar "x")])
     )
     (parseSurfaceProgram "\tx.")
 
@@ -182,14 +263,13 @@ testParseNestedScopeExpression =
   assertEqual
     "nested block AST"
     ( Right
-        ( SEBlock
-            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSExpr
-                (SourceSpan 2 1)
-                ( SEBlock
-                    [SSExpr (SourceSpan 2 3) (SEVar "x")]
-                )
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 1)),
+                SSExpr
+                  (SourceSpan 2 1)
+                  (e 2 1 $ SEBlock [SSExpr (SourceSpan 2 3) (e 2 3 $ SEVar "x")])
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -204,19 +284,22 @@ testParseBlockArgumentExpression =
   assertEqual
     "block argument AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "result"
-                (SourceSpan 1 1)
-                ( SEApply
-                    (SEVar "f")
-                    ( SEBlock
-                        [ SSLet "x" (SourceSpan 2 3) (SELit (SLInt 1)),
-                          SSExpr (SourceSpan 3 3) (SEVar "x")
-                        ]
-                    )
-                )
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSLet
+                  "result"
+                  (SourceSpan 1 1)
+                  ( e 1 10 $
+                      SEApply
+                        (e 1 10 $ SEVar "f")
+                        ( e 1 12 $
+                            SEBlock
+                              [ SSLet "x" (SourceSpan 2 3) (e 2 7 $ SELit (SLInt 1)),
+                                SSExpr (SourceSpan 3 3) (e 3 3 $ SEVar "x")
+                              ]
+                        )
+                  )
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -283,10 +366,7 @@ testParsesLargeIntegerLiteral =
     (parseSurfaceProgram "x = 9223372036854775808.")
     ( assertEqual
         "large integer surface AST"
-        ( SEBlock
-            [ SSLet "x" (SourceSpan 1 1) (SELit (SLInt 9223372036854775808))
-            ]
-        )
+        (e 1 1 $ SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 5 $ SELit (SLInt 9223372036854775808))])
     )
 
 testParsesAbstractionKeywordsAsBindingNames :: IO ()
@@ -294,11 +374,12 @@ testParsesAbstractionKeywordsAsBindingNames =
   assertEqual
     "abstraction keyword binding names"
     ( Right
-        ( SEBlock
-            [ SSLet "class" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSLet "impl" (SourceSpan 2 1) (SEVar "class"),
-              SSLet "trait" (SourceSpan 3 1) (SEVar "impl")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSLet "class" (SourceSpan 1 1) (e 1 9 $ SELit (SLInt 1)),
+                SSLet "impl" (SourceSpan 2 1) (e 2 8 $ SEVar "class"),
+                SSLet "trait" (SourceSpan 3 1) (e 3 9 $ SEVar "impl")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -314,10 +395,11 @@ testParsesOperatorKeywordAsBindingName =
   assertEqual
     "operator keyword binding name"
     ( Right
-        ( SEBlock
-            [ SSLet "operator" (SourceSpan 1 1) (SELit (SLInt 1)),
-              SSLet "result" (SourceSpan 2 1) (SEVar "operator")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSLet "operator" (SourceSpan 1 1) (e 1 12 $ SELit (SLInt 1)),
+                SSLet "result" (SourceSpan 2 1) (e 2 10 $ SEVar "operator")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -332,16 +414,18 @@ testParsesOperatorKeywordAsNestedBlockBindingName =
   assertEqual
     "operator keyword nested block binding name"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "scope"
-                (SourceSpan 1 1)
-                ( SEBlock
-                    [ SSLet "operator" (SourceSpan 2 3) (SELit (SLInt 1)),
-                      SSExpr (SourceSpan 3 3) (SEVar "operator")
-                    ]
-                )
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSLet
+                  "scope"
+                  (SourceSpan 1 1)
+                  ( e 1 9 $
+                      SEBlock
+                        [ SSLet "operator" (SourceSpan 2 3) (e 2 14 $ SELit (SLInt 1)),
+                          SSExpr (SourceSpan 3 3) (e 3 3 $ SEVar "operator")
+                        ]
+                  )
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -358,9 +442,10 @@ testParsesParameterizedClassCapabilityDeclaration =
   assertEqual
     "parameterized class capability declaration"
     ( Right
-        ( SEBlock
-            [ SSClass (SourceSpan 1 1) "Eq" ["a"] []
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSClass (SourceSpan 1 1) "Eq" ["a"] []
+              ]
         )
     )
     (parseSurfaceProgram "class Eq(a) { }.")
@@ -370,13 +455,14 @@ testParsesImplCapabilityDeclaration =
   assertEqual
     "impl capability declaration"
     ( Right
-        ( SEBlock
-            [ SSImpl
-                (SourceSpan 1 1)
-                "Eq"
-                [TypeInt]
-                []
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSImpl
+                  (SourceSpan 1 1)
+                  "Eq"
+                  [TypeInt]
+                  []
+              ]
         )
     )
     (parseSurfaceProgram "impl Eq(Int) { }.")
@@ -437,3 +523,6 @@ testLowersImplMethodBindingMetadata =
         assertContains "lowered impl method name" "SourceName (Identifier \"equals\" Pure)" rendered
         assertContains "lowered impl method expression" "EBinary \"==\"" rendered
     )
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e line column = SurfaceExpr (SourceSpan line column)

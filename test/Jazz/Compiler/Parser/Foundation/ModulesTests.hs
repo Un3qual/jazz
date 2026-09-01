@@ -25,6 +25,7 @@ import Jazz.Compiler.Parser
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLiteral (..),
     SurfaceStatement (..),
   )
@@ -52,13 +53,14 @@ testParsesValueExportSelector =
   assertEqual
     "reserved value export selector"
     ( Right
-        ( SEBlock
-            [ SSModule
-                (SourceSpan 1 1)
-                ["Example"]
-                (Just [ModuleExportSelector (Just ValueNamespace) "answer"]),
-              SSLet "answer" (SourceSpan 2 3) (SELit (SLInt 42))
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSModule
+                  (SourceSpan 1 1)
+                  ["Example"]
+                  (Just [ModuleExportSelector (Just ValueNamespace) "answer"]),
+                SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (SLInt 42))
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -74,11 +76,12 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
   assertEqual
     "operator keyword module-body binding name"
     ( Right
-        ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-              SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1)),
-              SSLet "result" (SourceSpan 3 1) (SEVar "operator")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
+                SSLet "operator" (SourceSpan 2 1) (e 2 12 $ SELit (SLInt 1)),
+                SSLet "result" (SourceSpan 3 1) (e 3 10 $ SEVar "operator")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -95,10 +98,11 @@ testParsesTraitAsImportAlias =
   assertEqual
     "trait import alias lookup"
     ( Right
-        ( SEBlock
-            [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "trait") Nothing,
-              SSExpr (SourceSpan 2 1) (SEQualifiedVar "trait" "subtract")
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSImport (SourceSpan 1 1) ["Lib", "Math"] (Just "trait") Nothing,
+                SSExpr (SourceSpan 2 1) (e 2 1 $ SEQualifiedVar "trait" "subtract")
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -140,11 +144,12 @@ testParsesCapabilityDeclarationsInModuleBody =
   assertEqual
     "module body capability declarations"
     ( Right
-        ( SEBlock
-            [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
-              SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-              SSImpl (SourceSpan 3 1) "Eq" [TypeInt] []
-            ]
+        ( e 1 1 $
+            SEBlock
+              [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
+                SSClass (SourceSpan 2 1) "Eq" ["a"] [],
+                SSImpl (SourceSpan 3 1) "Eq" [TypeInt] []
+              ]
         )
     )
     ( parseSurfaceProgram
@@ -155,3 +160,6 @@ testParsesCapabilityDeclarationsInModuleBody =
         }
         """
     )
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e line column = SurfaceExpr (SourceSpan line column)

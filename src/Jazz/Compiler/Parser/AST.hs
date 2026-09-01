@@ -9,12 +9,14 @@ module Jazz.Compiler.Parser.AST
     SurfaceClassMethodSignature (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfaceNumericType,
     SurfacePatternLambdaClause (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfaceSignatureConstraint,
     SurfaceSignaturePayload,
     SurfaceSignatureToken,
@@ -63,7 +65,14 @@ data SurfaceLiteral
 
 -- | Surface patterns accepted by the current parser slice for general case
 -- expressions.
-data SurfacePattern
+data SurfacePattern = SurfacePattern
+  { surfacePatternSpan :: SourceSpan,
+    surfacePatternForm :: SurfacePatternForm
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data SurfacePatternForm
   = SPWildcard
   | SPVariable Identifier
   | SPLiteral SurfaceLiteral
@@ -85,7 +94,7 @@ data SurfaceCaseArm = SurfaceCaseArm SurfacePattern (Maybe SurfaceExpr) SurfaceE
 -- destructuring patterns so lowering can keep the direct core lambda shape for
 -- the common case.
 data SurfaceLambdaParameter
-  = SurfaceLambdaIdentifier Identifier
+  = SurfaceLambdaIdentifier SourceSpan Identifier
   | SurfaceLambdaPattern SurfacePattern
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -105,7 +114,14 @@ data SurfaceDataConstructor = SurfaceDataConstructor Identifier [SurfaceSignatur
 
 -- | Parser-facing expression tree. This remains separate from the core AST so
 -- the surface syntax can grow without forcing analyzer/runtime rewrites.
-data SurfaceExpr
+data SurfaceExpr = SurfaceExpr
+  { surfaceExprSpan :: SourceSpan,
+    surfaceExprForm :: SurfaceExprForm
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data SurfaceExprForm
   = SELit SurfaceLiteral
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier

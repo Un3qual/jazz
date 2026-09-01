@@ -5,27 +5,28 @@ module Main (main) where
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLiteral (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertRight,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -50,9 +51,12 @@ testParsesBareOperatorValue =
   assertEqual
     "bare operator value AST"
     ( Right
-        ( SEBlock
-            [ SSLet "f" (SourceSpan 1 1) (SEOperatorValue "+")
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [SSLet "f" (SourceSpan 1 1) (e 1 5 (SEOperatorValue "+"))]
+            )
         )
     )
     (parseSurfaceProgram "f = (+).")
@@ -62,12 +66,23 @@ testParsesBareOperatorValueApplication =
   assertEqual
     "bare operator value application AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "f"
-                (SourceSpan 1 1)
-                (SEApply (SEApply (SEOperatorValue "+") (SELit (SLInt 1))) (SELit (SLInt 2)))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "f"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        5
+                        ( SEApply
+                            (e 1 5 (SEApply (e 1 5 (SEOperatorValue "+")) (e 1 9 (SELit (SLInt 1)))))
+                            (e 1 11 (SELit (SLInt 2)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "f = (+) 1 2.")
@@ -77,9 +92,10 @@ testParsesLeftSection =
   assertEqual
     "left section AST"
     ( Right
-        ( SEBlock
-            [ SSLet "f" (SourceSpan 1 1) (SESectionLeft (SELit (SLInt 10)) "+")
-            ]
+        ( e
+            1
+            1
+            (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionLeft (e 1 6 (SELit (SLInt 10))) "+"))])
         )
     )
     (parseSurfaceProgram "f = (10 +).")
@@ -89,9 +105,10 @@ testParsesRightSection =
   assertEqual
     "right section AST"
     ( Right
-        ( SEBlock
-            [ SSLet "f" (SourceSpan 1 1) (SESectionRight "+" (SELit (SLInt 10)))
-            ]
+        ( e
+            1
+            1
+            (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionRight "+" (e 1 8 (SELit (SLInt 10)))))])
         )
     )
     (parseSurfaceProgram "f = (+ 10).")
@@ -101,9 +118,10 @@ testGroupedExpressionIsNotSection =
   assertEqual
     "grouped binary expression"
     ( Right
-        ( SEBlock
-            [ SSLet "x" (SourceSpan 1 1) (SEBinary "+" (SELit (SLInt 1)) (SELit (SLInt 2)))
-            ]
+        ( e
+            1
+            1
+            (SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 6 (SEBinary "+" (e 1 6 (SELit (SLInt 1))) (e 1 10 (SELit (SLInt 2)))))])
         )
     )
     (parseSurfaceProgram "x = (1 + 2).")
@@ -113,16 +131,24 @@ testSectionApplicationBeforeInfix =
   assertEqual
     "section application before infix"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "x"
-                (SourceSpan 1 1)
-                ( SEBinary
-                    "*"
-                    (SEApply (SESectionRight "+" (SELit (SLInt 1))) (SELit (SLInt 2)))
-                    (SELit (SLInt 3))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "x"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        5
+                        ( SEBinary
+                            "*"
+                            (e 1 5 (SEApply (e 1 5 (SESectionRight "+" (e 1 8 (SELit (SLInt 1))))) (e 1 11 (SELit (SLInt 2)))))
+                            (e 1 15 (SELit (SLInt 3)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "x = (+ 1) 2 * 3.")
@@ -174,3 +200,6 @@ testLoweredBareOperatorValueIsCanonical =
       EBlock
         [ SLet "f" (SourceSpan 1 1) (EOperatorValue "+")
         ]
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e line column = SurfaceExpr (SourceSpan line column)

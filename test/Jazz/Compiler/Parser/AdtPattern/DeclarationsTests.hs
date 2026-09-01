@@ -19,14 +19,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Parser
   ( parseSurfaceProgram,
   )
-import Jazz.Compiler.Parser.AST
-  ( SurfaceCaseArm (..),
-    SurfaceDataConstructor (..),
-    SurfaceExpr (..),
-    SurfaceLiteral (..),
-    SurfacePattern (..),
-    SurfaceStatement (..),
-  )
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
   )
@@ -55,19 +47,19 @@ testKeepsHigherPrecedencePipeInComparisonGuardRhs =
   assertRight
     "comparison guard keeps pipe expression in RHS"
     (parseSurfaceProgram "x = case subject { | item if left == right | True -> 1 }.")
-    (\surfaceProgram -> assertEqual "comparison guard pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+    (\surfaceProgram -> assertEqual "comparison guard pipe RHS lowered AST" expectedSurfaceProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
+      EBlock
+        [ SLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPVariable "item")
-                    (Just (SEBinary "==" (SEVar "left") (SEBinary "|" (SEVar "right") (SELit (SLBool True)))))
-                    (SELit (SLInt 1))
+            ( EPatternCase
+                (EVar "subject")
+                [ CaseArm
+                    (PVariable "item")
+                    (Just (EBinary "==" (EVar "left") (EBinary "|" (EVar "right") (ELit (LBool True)))))
+                    (ELit (LInt 1))
                 ]
             )
         ]
@@ -77,23 +69,23 @@ testKeepsLiteralPipeOperandInEqualityGuardRhs =
   assertRight
     "equality guard keeps literal pipe operand in RHS"
     (parseSurfaceProgram "x = case m { | item if item == 0 | Just -> item | _ -> m }.")
-    (\surfaceProgram -> assertEqual "equality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+    (\surfaceProgram -> assertEqual "equality guard literal pipe RHS lowered AST" expectedSurfaceProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
+      EBlock
+        [ SLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "m")
-                [ SurfaceCaseArm
-                    (SPVariable "item")
-                    (Just (SEBinary "==" (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
+            ( EPatternCase
+                (EVar "m")
+                [ CaseArm
+                    (PVariable "item")
+                    (Just (EBinary "==" (EVar "item") (EBinary "|" (ELit (LInt 0)) (EVar "Just"))))
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
                     Nothing
-                    (SEVar "m")
+                    (EVar "m")
                 ]
             )
         ]
@@ -103,23 +95,23 @@ testKeepsLiteralPipeOperandInInequalityGuardRhs =
   assertRight
     "inequality guard keeps literal pipe operand in RHS"
     (parseSurfaceProgram "x = case m { | item if item != 0 | Just -> item | _ -> m }.")
-    (\surfaceProgram -> assertEqual "inequality guard literal pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+    (\surfaceProgram -> assertEqual "inequality guard literal pipe RHS lowered AST" expectedSurfaceProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
+      EBlock
+        [ SLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "m")
-                [ SurfaceCaseArm
-                    (SPVariable "item")
-                    (Just (SEBinary "!=" (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
+            ( EPatternCase
+                (EVar "m")
+                [ CaseArm
+                    (PVariable "item")
+                    (Just (EBinary "!=" (EVar "item") (EBinary "|" (ELit (LInt 0)) (EVar "Just"))))
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
                     Nothing
-                    (SEVar "m")
+                    (EVar "m")
                 ]
             )
         ]
@@ -135,23 +127,23 @@ testKeepsLiteralPipeOperandInOrderingGuardRhs = do
       assertRight
         ("ordering guard keeps literal pipe operand in RHS for " <> operator)
         (parseSurfaceProgram source)
-        (\surfaceProgram -> assertEqual "ordering guard literal pipe RHS surface AST" (expectedSurfaceProgram operator) surfaceProgram)
+        (\surfaceProgram -> assertEqual "ordering guard literal pipe RHS lowered AST" (expectedSurfaceProgram operator) (lowerSurfaceExpr surfaceProgram))
 
     expectedSurfaceProgram operator =
-      SEBlock
-        [ SSLet
+      EBlock
+        [ SLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "m")
-                [ SurfaceCaseArm
-                    (SPVariable "item")
-                    (Just (SEBinary operator (SEVar "item") (SEBinary "|" (SELit (SLInt 0)) (SEVar "Just"))))
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
+            ( EPatternCase
+                (EVar "m")
+                [ CaseArm
+                    (PVariable "item")
+                    (Just (EBinary operator (EVar "item") (EBinary "|" (ELit (LInt 0)) (EVar "Just"))))
+                    (EVar "item"),
+                  CaseArm
+                    PWildcard
                     Nothing
-                    (SEVar "m")
+                    (EVar "m")
                 ]
             )
         ]
@@ -162,18 +154,18 @@ testParsesGenericDataDeclarationParameters =
     "generic data declaration parse + lower"
     (parseSurfaceProgram "data Maybe a = Nothing | Just a.")
     ( \surfaceProgram -> do
-        assertEqual "generic data declaration surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "generic data declaration lowered AST" expectedSurfaceProgram (lowerSurfaceExpr surfaceProgram)
         assertEqual "generic data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     expectedSurfaceProgram =
-      SEBlock
-        [ SSData
+      EBlock
+        [ SData
             (SourceSpan 1 1)
             "Maybe"
             ["a"]
-            [ SurfaceDataConstructor "Nothing" [],
-              SurfaceDataConstructor "Just" [TypeVariable "a"]
+            [ DataConstructor "Nothing" [],
+              DataConstructor "Just" [TypeVariable "a"]
             ]
         ]
     expectedLoweredProgram =
@@ -203,34 +195,34 @@ testParsesStructuredDataConstructorFieldTypes =
         """
     )
     ( \surfaceProgram -> do
-        assertEqual "structured constructor field surface AST" expectedSurfaceProgram surfaceProgram
+        assertEqual "structured constructor field lowered AST" expectedSurfaceProgram (lowerSurfaceExpr surfaceProgram)
         assertEqual "structured constructor field lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
     treeOfA = TypeApplication "Tree" [TypeVariable "a"]
     loweredTreeOfA = TypeApplication "Tree" [TypeVariable "a"]
     expectedSurfaceProgram =
-      SEBlock
-        [ SSData
+      EBlock
+        [ SData
             (SourceSpan 1 1)
             "Tree"
             ["a"]
-            [ SurfaceDataConstructor "Leaf" [TypeVariable "a"],
-              SurfaceDataConstructor "Branch" [treeOfA, treeOfA]
+            [ DataConstructor "Leaf" [TypeVariable "a"],
+              DataConstructor "Branch" [treeOfA, treeOfA]
             ],
-          SSData
+          SData
             (SourceSpan 4 1)
             "Callback"
             ["a", "b"]
-            [ SurfaceDataConstructor
+            [ DataConstructor
                 "Callback"
                 [TypeFunction (TypeVariable "a") (TypeVariable "b")]
             ],
-          SSData
+          SData
             (SourceSpan 6 1)
             "Forest"
             ["a"]
-            [SurfaceDataConstructor "Forest" [TypeList treeOfA]]
+            [DataConstructor "Forest" [TypeList treeOfA]]
         ]
     expectedLoweredProgram =
       EBlock

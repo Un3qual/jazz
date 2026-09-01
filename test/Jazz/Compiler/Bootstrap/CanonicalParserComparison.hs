@@ -145,7 +145,7 @@ fractionalDigits fractionalPart scale =
 
 surfacePatternRuntimeValue :: SurfacePattern -> RuntimeValue
 surfacePatternRuntimeValue patternValue =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPWildcard -> canonicalNullaryConstructor "WildcardPattern"
     SPVariable name -> canonicalConstructor "VariablePattern" [identifierRuntimeValue name]
     SPLiteral literalValue -> canonicalConstructor "LiteralPattern" [surfaceLiteralRuntimeValue literalValue]
@@ -175,7 +175,7 @@ surfaceCaseArmRuntimeValue (SurfaceCaseArm patternValue guardExpression bodyExpr
 surfaceLambdaParameterRuntimeValue :: SurfaceLambdaParameter -> RuntimeValue
 surfaceLambdaParameterRuntimeValue parameter =
   case parameter of
-    SurfaceLambdaIdentifier name -> canonicalConstructor "IdentifierParameter" [identifierRuntimeValue name]
+    SurfaceLambdaIdentifier _ name -> canonicalConstructor "IdentifierParameter" [identifierRuntimeValue name]
     SurfaceLambdaPattern patternValue -> canonicalConstructor "PatternParameter" [surfacePatternRuntimeValue patternValue]
 
 surfacePatternLambdaClauseRuntimeValue :: SurfacePatternLambdaClause -> RuntimeValue
@@ -195,7 +195,7 @@ surfaceDataConstructorRuntimeValue (SurfaceDataConstructor name arguments) =
 
 surfaceExprRuntimeValue :: SurfaceExpr -> RuntimeValue
 surfaceExprRuntimeValue expression =
-  case expression of
+  case surfaceExprForm expression of
     SELit literalValue -> canonicalConstructor "LiteralExpression" [surfaceLiteralRuntimeValue literalValue]
     SEVar name -> canonicalConstructor "VariableExpression" [identifierRuntimeValue name]
     SEQualifiedVar qualifier member ->
