@@ -4,6 +4,7 @@
 module Main (main) where
 
 import Data.Foldable (toList)
+import Data.Functor.Identity (runIdentity)
 import Data.IORef
   ( IORef,
     modifyIORef',
@@ -95,6 +96,7 @@ import Jazz.Compiler.ModuleRuntime
     RuntimeModule (runtimeModuleExports, runtimeModulePath),
     RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
     evaluateAnalyzedProgram,
+    interpretAnalyzedProgram,
     lookupRuntimeModule,
   )
 import Jazz.Compiler.Name
@@ -111,10 +113,11 @@ import Jazz.Compiler.Runtime
     renderRuntimeValue,
     runtimeExprRequiresHost,
   )
-import Jazz.Compiler.RuntimeHints
-  ( BindingRuntimeHintKey (..),
-    projectRuntimeHints,
+import Jazz.Compiler.Runtime.Observation
+  ( RuntimeObservationRequest (RuntimeObservationDisabled),
+    RuntimeObservationResult (runtimeObservationOutcome),
   )
+import Jazz.Compiler.Runtime.Outcome (runtimeOutcomeAsDiagnosticResult)
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     RuntimeHostExit (..),
@@ -169,7 +172,7 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (NumericInt64, NumericInt8),
+  ( NumericType (NumericInt8),
     SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -186,7 +189,6 @@ main = runTestSuite "ModulePipelineContract" tests
 tests :: [NamedTest]
 tests =
   [ ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
-    ("analyzed runtime plans exactly project legacy runtime hints", testRuntimePlanHintParity),
     ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -210,40 +212,9 @@ tests =
     ("explicit instantiations retain lexical binder identities through shadowing", testExplicitInstantiationBinderShadowing),
     ("explicit operator instantiations retain their binder identity", testExplicitOperatorInstantiationBinder),
     ("statement schemes are captured at each definition site", testStatementSchemesAreDefinitionSiteFacts),
-    ("runtime rejects non-corresponding resolved and analyzed programs", testRuntimeRejectsNonCorrespondingPrograms),
     ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme),
     ("signed builtin aliases retain their authored schemes", testSignedBuiltinAliasStatementScheme)
   ]
-
-testRuntimePlanHintParity :: IO ()
-testRuntimePlanHintParity = do
-  (_, analyzed) <- analyzeFixtureProgram factCompletenessSources
-  assertEqual
-    "node-local plans preserve the complete legacy hint projection"
-    expectedLegacyHints
-    (projectRuntimeHints analyzed)
-  where
-    expectedLegacyHints =
-      Map.fromList
-        [ ( BindingRuntimeHintKey (Just ["App", "Main"]) (SourceSpanIn "src/App/Main.jz" 3 1) (moduleValueName "result"),
-            TypeInt
-          ),
-          ( BindingRuntimeHintKey (Just ["Lib", "Facts"]) (SourceSpanIn "src/Lib/Facts.jz" 3 1) (moduleValueName "identity"),
-            TypeFunction typeVariableT0 typeVariableT0
-          ),
-          ( BindingRuntimeHintKey (Just ["Lib", "Facts"]) (SourceSpanIn "src/Lib/Facts.jz" 5 1) (moduleValueName "countdown"),
-            TypeFunction TypeInt TypeInt
-          ),
-          ( BindingRuntimeHintKey (Just ["Lib", "Facts"]) (SourceSpanIn "src/Lib/Facts.jz" 6 1) (moduleValueName "increment"),
-            TypeFunction (TypeNumeric NumericInt64) (TypeNumeric NumericInt64)
-          ),
-          ( ExplicitTypeApplicationRuntimeHintKey (Just ["App", "Main"]) (SourceSpanIn "src/App/Main.jz" 3 19),
-            TypeFunction TypeInt TypeInt
-          )
-        ]
-    typeVariableT0 = TypeVariable (ambientTypeName "t0")
-    moduleValueName name = UserName (ResolvedUserName CurrentModule ValueNamespace (mkIdentifier name))
-    ambientTypeName name = UserName (ResolvedUserName AmbientPrelude TypeNamespace (mkIdentifier name))
 
 testAnalyzedProgramFactsAreComplete :: IO ()
 testAnalyzedProgramFactsAreComplete = do
@@ -913,7 +884,7 @@ factCompletenessSources =
 
 testAnalyzedGenericConstructorFieldsRemainModuleStable :: IO ()
 testAnalyzedGenericConstructorFieldsRemainModuleStable = do
-  (resolved, analyzed) <- analyzeFixtureProgram sources
+  (_, analyzed) <- analyzeFixtureProgram sources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Box"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Box module"
     Just boxModule ->
@@ -926,7 +897,7 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
             assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
         binding ->
           fail ("unexpected analyzed Box constructor metadata: " <> show binding)
-  case evaluateAnalyzedProgram resolved analyzed of
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       assertEqual
@@ -942,8 +913,8 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
 testLexicalBindersShadowImportedAndBuiltinNames = do
-  (resolved, analyzed) <- analyzeFixtureProgram sources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram sources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       assertEqual
@@ -1125,25 +1096,6 @@ testSignedBuiltinAliasStatementScheme = do
         facts -> fail ("signed builtin alias did not retain its authored scheme: " <> show facts)
     schemes -> assertEqual "signed builtin alias owns exactly one meaningful scheme" 1 (length schemes)
 
-testRuntimeRejectsNonCorrespondingPrograms :: IO ()
-testRuntimeRejectsNonCorrespondingPrograms = do
-  intProgram@(intResolved, _) <-
-    analyzeFixtureProgram
-      (Map.singleton "src/App/Main.jz" "module App::Main { answer = 1. answer. }")
-  (_, boolAnalyzed) <-
-    analyzeFixtureProgram
-      (Map.singleton "src/App/Main.jz" "module App::Main { answer = True. answer. }")
-  case evaluateAnalyzedProgram intResolved boolAnalyzed of
-    Left diagnostic -> assertContains "cross-program mismatch diagnostic" "E3020" (renderDiagnostic diagnostic)
-    Right _ -> assertEqual "cross-paired programs must be rejected" True False
-  case evaluateFixtureProgram intProgram of
-    Left diagnostic -> fail ("corresponding program was rejected: " <> Text.unpack (renderDiagnostic diagnostic))
-    Right runtime ->
-      assertEqual
-        "corresponding program still executes"
-        (Just "1")
-        (renderRuntimeValue <$> runtimeProgramOutput runtime)
-
 identityDefinitionBinderIds :: Expr 'Analyzed -> [CoreBinderId]
 identityDefinitionBinderIds expression =
   case expression of
@@ -1221,8 +1173,8 @@ namedLetSchemes expectedName expression =
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
 testRuntimeModulePublishesDeclaredExports = do
-  (resolved, analyzed) <- analyzeFixtureProgram simpleSources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram simpleSources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Value"] runtime of
@@ -1252,8 +1204,8 @@ testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory = do
 
 testRuntimeModulePublishesExplicitExportsOnly :: IO ()
 testRuntimeModulePublishesExplicitExportsOnly = do
-  (resolved, analyzed) <- analyzeFixtureProgram explicitExportSources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram explicitExportSources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail (Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Value"] runtime of
@@ -1266,8 +1218,8 @@ testRuntimeModulePublishesExplicitExportsOnly = do
 
 testRuntimeModulePublishesPublicClassMethodsOnly :: IO ()
 testRuntimeModulePublishesPublicClassMethodsOnly = do
-  (resolved, analyzed) <- analyzeFixtureProgram explicitCapabilitySources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram explicitCapabilitySources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail (Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Facts"] runtime of
@@ -1332,7 +1284,7 @@ explicitCapabilitySources =
 
 testModuleExportIdentityPreservesNamespaces :: IO ()
 testModuleExportIdentityPreservesNamespaces = do
-  (resolved, analyzed) <- analyzeFixtureProgram shadowingSources
+  (_, analyzed) <- analyzeFixtureProgram shadowingSources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Maybe"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Maybe module"
     Just maybeModule ->
@@ -1345,7 +1297,7 @@ testModuleExportIdentityPreservesNamespaces = do
                 (interfaceValueTypes (analyzedInterface maybeModule))
             )
         )
-  case evaluateAnalyzedProgram resolved analyzed of
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Maybe"] runtime of
@@ -1379,8 +1331,8 @@ testModuleExportIdentityPreservesNamespaces = do
 
 testNamespaceAwareRuntimeExportPublishesValueOnly :: IO ()
 testNamespaceAwareRuntimeExportPublishesValueOnly = do
-  (resolved, analyzed) <- analyzeFixtureProgram sources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram sources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Maybe"] runtime of
@@ -1399,8 +1351,8 @@ testNamespaceAwareRuntimeExportPublishesValueOnly = do
 
 testNamespaceAwareRuntimeExportPublishesConstructorOnly :: IO ()
 testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
-  (resolved, analyzed) <- analyzeFixtureProgram sources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram sources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Maybe"] runtime of
@@ -1419,7 +1371,7 @@ testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
 
 testGroupedExportsPublishSelectedConstructor :: IO ()
 testGroupedExportsPublishSelectedConstructor = do
-  (resolved, analyzed) <- analyzeFixtureProgram sources
+  (_, analyzed) <- analyzeFixtureProgram sources
   case lookupCoreModule (nominalModulePath ("Lib" :| ["Choice"])) analyzed of
     Nothing -> fail "missing analyzed Lib::Choice module"
     Just choiceModule ->
@@ -1442,7 +1394,7 @@ testGroupedExportsPublishSelectedConstructor = do
           ( exportInventoryEntries
               (analyzedExportInventory choiceModule)
           )
-  case evaluateAnalyzedProgram resolved analyzed of
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Choice"] runtime of
@@ -1461,8 +1413,8 @@ testGroupedExportsPublishSelectedConstructor = do
 
 testAnalyzedDependencyTerminalExpressionIsSkipped :: IO ()
 testAnalyzedDependencyTerminalExpressionIsSkipped = do
-  (resolved, analyzed) <- analyzeFixtureProgram dependencyExpressionSources
-  case evaluateAnalyzedProgram resolved analyzed of
+  (_, analyzed) <- analyzeFixtureProgram dependencyExpressionSources
+  case evaluateAnalyzedProgram analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       assertEqual
@@ -1472,18 +1424,18 @@ testAnalyzedDependencyTerminalExpressionIsSkipped = do
 
 testModuleRuntimePathParity :: IO ()
 testModuleRuntimePathParity = do
-  hostFreeProgram@(hostFreeResolved, _) <- analyzeFixtureProgram hostFreeParitySources
-  hostCapableProgram@(hostCapableResolved, _) <- analyzeFixtureProgram hostCapableParitySources
+  hostFreeProgram@(_, hostFreeAnalyzed) <- analyzeFixtureProgram hostFreeParitySources
+  hostCapableProgram@(_, hostCapableAnalyzed) <- analyzeFixtureProgram hostCapableParitySources
   assertAbsentPrelude "host-free program" hostFreeProgram
   assertAbsentPrelude "host-capable program" hostCapableProgram
   assertEqual
     "host-free module requirements select the pure path"
     [False, False]
-    (map (runtimeExprRequiresHost . coreModuleExpr) (NonEmpty.toList (coreProgramModules hostFreeResolved)))
+    (map (runtimeExprRequiresHost . coreModuleExpr) (NonEmpty.toList (coreProgramModules hostFreeAnalyzed)))
   assertEqual
     "unselected host call selects the host-capable path"
     [False, True]
-    (map (runtimeExprRequiresHost . coreModuleExpr) (NonEmpty.toList (coreProgramModules hostCapableResolved)))
+    (map (runtimeExprRequiresHost . coreModuleExpr) (NonEmpty.toList (coreProgramModules hostCapableAnalyzed)))
   case (evaluateFixtureProgram hostFreeProgram, evaluateFixtureProgram hostCapableProgram) of
     (Right hostFreeRuntime, Right hostCapableRuntime) -> do
       let hostFreeProjection = observableRuntimeProgram hostFreeRuntime
@@ -1656,7 +1608,11 @@ analyzeFixtureProgram sources = do
     Just analyzed -> pure (resolved, analyzed)
 
 evaluateFixtureProgram :: (CoreProgram 'Resolved, CoreProgram 'Analyzed) -> Either Diagnostic RuntimeProgram
-evaluateFixtureProgram (resolved, analyzed) = evaluateAnalyzedProgram resolved analyzed
+evaluateFixtureProgram (_, analyzed) =
+  runtimeOutcomeAsDiagnosticResult
+    ( runtimeObservationOutcome
+        (runIdentity (interpretAnalyzedProgram RuntimeObservationDisabled disabledRuntimeHost analyzed))
+    )
 
 analyzedInterface :: CoreModule 'Analyzed -> ModuleInterface
 analyzedInterface = analyzedModuleInterface . coreModuleFacts

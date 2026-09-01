@@ -530,15 +530,15 @@ matchCaseArm ::
   Maybe [Text] ->
   RuntimeEnv ->
   RuntimeValue ->
-  CaseArm 'Resolved ->
-  Maybe (RuntimeEnv, Maybe (Expr 'Resolved), Expr 'Resolved)
+  CaseArm 'Analyzed ->
+  Maybe (RuntimeEnv, Maybe (Expr 'Analyzed), Expr 'Analyzed)
 matchCaseArm currentModulePath env scrutineeValue (CaseArm _ casePattern guardExpr bodyExpr) =
   case matchPattern currentModulePath scrutineeValue casePattern of
     Just patternBindings ->
       Just (Map.union patternBindings env, guardExpr, bodyExpr)
     Nothing -> Nothing
 
-matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern 'Resolved -> Maybe RuntimeEnv
+matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern 'Analyzed -> Maybe RuntimeEnv
 matchPattern currentModulePath scrutineeValue casePattern =
   case casePattern of
     PWildcard _ -> Just Map.empty
@@ -583,7 +583,7 @@ matchPattern currentModulePath scrutineeValue casePattern =
     POr _ alternatives ->
       matchFirstAlternative currentModulePath scrutineeValue alternatives
 
-matchFirstAlternative :: Maybe [Text] -> RuntimeValue -> [Pattern 'Resolved] -> Maybe RuntimeEnv
+matchFirstAlternative :: Maybe [Text] -> RuntimeValue -> [Pattern 'Analyzed] -> Maybe RuntimeEnv
 matchFirstAlternative currentModulePath scrutineeValue alternatives =
   case alternatives of
     [] -> Nothing
@@ -592,7 +592,7 @@ matchFirstAlternative currentModulePath scrutineeValue alternatives =
         Just patternBindings -> Just patternBindings
         Nothing -> matchFirstAlternative currentModulePath scrutineeValue rest
 
-matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern 'Resolved] -> Maybe RuntimeEnv
+matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern 'Analyzed] -> Maybe RuntimeEnv
 matchPatternList currentModulePath values patterns =
   foldM step Map.empty (zip values patterns)
   where

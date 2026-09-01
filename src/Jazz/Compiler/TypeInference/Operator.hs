@@ -245,6 +245,7 @@ applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rig
                       rightLiteralRange
                       stateAfterUnify
                       leftType
+                      rightType
                in constrainNumericOperand resolvedOperandType stateAfterResultRange
             Nothing -> numericOperandError state
   where
@@ -362,19 +363,26 @@ numericBinaryOperandType ::
   Maybe IntegerLiteralRange ->
   InferState ->
   ExpressionType ->
+  ExpressionType ->
   (ExpressionType, InferState)
-numericBinaryOperandType operatorSymbol resultRule leftLiteralRange rightLiteralRange state leftType =
-  case (resultRule, leftLiteralRange, rightLiteralRange, resolvedLeftType) of
+numericBinaryOperandType operatorSymbol resultRule leftLiteralRange rightLiteralRange state leftType rightType =
+  case (resultRule, leftLiteralRange, rightLiteralRange, resolvedOperandType) of
     (NumericSameTypeResult, Just leftRange, Just rightRange, SemanticVariable resultVar) ->
-      ( resolvedLeftType,
+      ( resolvedOperandType,
         addNumericTypeVarConstraint
           resultVar
           (IntegralLiteralNumericConstraint (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange))
           state
       )
-    _ -> (resolvedLeftType, state)
+    _ -> (resolvedOperandType, state)
   where
     resolvedLeftType = resolveType state leftType
+    resolvedRightType = resolveType state rightType
+    resolvedOperandType =
+      case (resolvedLeftType, resolvedRightType) of
+        (SemanticFloat, concreteFloat64@(SemanticNumeric NumericFloat64)) -> concreteFloat64
+        (concreteFloat64@(SemanticNumeric NumericFloat64), SemanticFloat) -> concreteFloat64
+        _ -> resolvedLeftType
 
 applyApplicationBinaryRule ::
   ExpressionType ->

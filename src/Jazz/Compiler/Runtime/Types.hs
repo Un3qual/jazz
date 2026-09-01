@@ -91,10 +91,7 @@ import Jazz.Compiler.AST
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan,
-  )
+import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
@@ -103,7 +100,7 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import Jazz.Compiler.SemanticFacts (CapabilityId, CoreNodeId, ImplId, MethodId)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -116,11 +113,11 @@ newtype RuntimeIntMetadata = RuntimeIntMetadata
   }
   deriving stock (Eq, Show)
 
-data RuntimeEvidence = RuntimeEvidence Text (SignatureType 'Resolved) (Maybe Text)
+data RuntimeEvidence = RuntimeEvidence CapabilityId ImplId (Maybe MethodId) (SignatureType 'Resolved) (Maybe Text)
   deriving (Eq, Show)
 
 runtimeEvidenceTarget :: RuntimeEvidence -> SignatureType 'Resolved
-runtimeEvidenceTarget (RuntimeEvidence _ implTarget _) = implTarget
+runtimeEvidenceTarget (RuntimeEvidence _ _ _ implTarget _) = implTarget
 
 data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
 
@@ -134,7 +131,7 @@ newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq (SignatureT
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
-data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId (Maybe [Text]) SourceSpan ResolvedName
+data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId CoreNodeId ResolvedName
   deriving (Eq, Ord, Show)
 
 data DeferredHostBindingState
@@ -154,9 +151,9 @@ type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
     runtimeClosureEnvironmentMayReachHostCells :: Bool,
-    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints 'Resolved,
+    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
     runtimeClosureParameter :: ResolvedName,
-    runtimeClosureBody :: Expr 'Resolved,
+    runtimeClosureBody :: Expr 'Analyzed,
     runtimeClosureTypeHint :: Maybe (SignatureType 'Resolved),
     runtimeClosureModulePath :: Maybe [Text],
     runtimeClosureCallableIdentity :: RuntimeCallableIdentity
@@ -199,11 +196,8 @@ data RuntimeValue
       DeferredHostBindingKey
       Diagnostic
       (Maybe [Text])
-      (Expr 'Resolved)
+      (Expr 'Analyzed)
       RuntimeEnv
-      (Map BindingRuntimeHintKey (SignatureType 'Resolved))
-      (Maybe NumericType)
-      (Maybe (SignatureType 'Resolved))
 
 instance Show RuntimeValue where
   show value =

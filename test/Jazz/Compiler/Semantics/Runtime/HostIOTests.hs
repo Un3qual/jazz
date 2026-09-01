@@ -25,7 +25,7 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CorePhase (Analyzed),
     Expr,
     Literal (..),
   )
@@ -57,7 +57,6 @@ import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity (ClosureCallable),
   )
 import Jazz.Compiler.Runtime.Types (RuntimeClosure (..))
-import Jazz.Compiler.RuntimeHints (explicitTypeApplicationRuntimeHintKeyInModule)
 import Jazz.Compiler.RuntimeHost
   ( HostIOCategory (..),
     HostIOFailure (..),
@@ -109,7 +108,7 @@ hostIOTests =
     ("host map callbacks preserve the active host cache and effect order", testHostMapCallbackPreservesActiveHostCacheAndEffectOrder),
     ("public host scopes keep imported deferred cells on the active host", testPublicHostScopeKeepsImportedDeferredCellOnActiveHost),
     ("host dependency scopes keep deferred cells on the active host", testHostDependencyScopeKeepsDeferredCellsOnActiveHost),
-    ("host dependency bindings retain their runtime hints", testHostDependencyBindingRetainsRuntimeHints),
+    ("host dependency bindings retain their analyzed runtime plans", testHostDependencyBindingRetainsRuntimePlan),
     ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
     ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
     ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
@@ -413,7 +412,10 @@ testHostScopePreservesBindingSignatureHints = do
   let expression =
         expressionBlock
           [ statementSignature "itemValue" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
-            statementLet "itemValue" (SourceSpan 2 1) (expressionLiteral (LInt 1)),
+            statementLet
+              "itemValue"
+              (SourceSpan 2 1)
+              (expressionConstrainedAs (TypeNumeric NumericInt8) (expressionLiteral (LInt 1))),
             statementExpression (SourceSpan 3 1) (hostCall "__kernel_writeStdoutRaw!" [expressionLiteral (LText "once")]),
             statementExpression (SourceSpan 4 1) (expressionVariable "itemValue")
           ]
@@ -443,7 +445,6 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
               EvaluateDependencyModule
               ResolveKernelOnly
               Map.empty
-              Map.empty
               statements
           )
           []
@@ -471,7 +472,6 @@ testHostDependencyBindingIsShared = do
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
-            Map.empty
             dependencyStatements
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
@@ -481,7 +481,6 @@ testHostDependencyBindingIsShared = do
               (Just ["Main"])
               EvaluateEntryModule
               ResolveKernelOnly
-              Map.empty
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
@@ -523,7 +522,6 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
               EvaluateDependencyModule
               ResolveKernelOnly
               Map.empty
-              Map.empty
               dependencyStatements
           case dependencyResult of
             Left diagnostic -> pure (Left diagnostic)
@@ -533,7 +531,6 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
                 (Just ["Main"])
                 EvaluateEntryModule
                 ResolveKernelOnly
-                Map.empty
                 (scopeResultEnvironment dependencyScope)
                 entryStatements
       (result, calls) = runState action []
@@ -566,7 +563,6 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
-            Map.empty
             dependencyStatements
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
@@ -576,7 +572,6 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
               (Just ["Main"])
               EvaluateEntryModule
               ResolveKernelOnly
-              Map.empty
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
@@ -616,7 +611,6 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
-            Map.empty
             dependencyStatements
         case dependencyResult of
           Left diagnostic -> pure (Left diagnostic)
@@ -626,7 +620,6 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
               (Just ["Main"])
               EvaluateEntryModule
               ResolveKernelOnly
-              Map.empty
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
@@ -669,7 +662,6 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
               Nothing
               EvaluateEntryModule
               ResolveKernelOnly
-              Map.empty
               (Map.singleton (fixtureValueName "convert") (Right stackedFunction))
               statements
           )
@@ -690,20 +682,16 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
         Nothing -> assertEqual "stacked result obligations produce a itemValue" True False
     Left _ -> assertEqual "stacked result obligations evaluate" True False
 
-testHostDependencyBindingRetainsRuntimeHints :: IO ()
-testHostDependencyBindingRetainsRuntimeHints = do
+testHostDependencyBindingRetainsRuntimePlan :: IO ()
+testHostDependencyBindingRetainsRuntimePlan = do
   let typeArgumentSpan = SourceSpan 2 18
-      dependencyHints =
-        Map.singleton
-          (explicitTypeApplicationRuntimeHintKeyInModule (Just ["Dependency"]) typeArgumentSpan)
-          (TypeFunction (TypeNumeric NumericUInt8) (TypeNumeric NumericUInt8))
       dependencyStatements =
         [ statementLet "identity" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
           statementLet
             "token!"
             (SourceSpan 2 1)
             ( expressionApply
-                (expressionTypeApplication (expressionVariable "identity") typeArgumentSpan TypeInt)
+                (expressionTypeApplication (expressionVariable "identity") typeArgumentSpan (TypeNumeric NumericUInt8))
                 (expressionLiteral (LInt 1))
             )
         ]
@@ -715,7 +703,6 @@ testHostDependencyBindingRetainsRuntimeHints = do
             (Just ["Dependency"])
             EvaluateDependencyModule
             ResolveKernelOnly
-            dependencyHints
             Map.empty
             dependencyStatements
         case dependencyResult of
@@ -726,17 +713,16 @@ testHostDependencyBindingRetainsRuntimeHints = do
               (Just ["Main"])
               EvaluateEntryModule
               ResolveKernelOnly
-              Map.empty
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
-  assertEqual "hinted dependency host calls" [] calls
+  assertEqual "planned dependency host calls" [] calls
   case result of
     Right scopeResult ->
       case scopeResultValue scopeResult of
         Just itemValue ->
           assertEqual
-            "dependency keeps UInt8 runtime hint"
+            "dependency keeps UInt8 runtime plan"
             True
             (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) itemValue)
         Nothing -> assertEqual "dependency produces a hinted itemValue" True False
@@ -942,7 +928,7 @@ statefulHost =
       modify (<> [call])
       pure result
 
-hostCall :: UnresolvedName -> [Expr 'Resolved] -> Expr 'Resolved
+hostCall :: UnresolvedName -> [Expr 'Analyzed] -> Expr 'Analyzed
 hostCall name = foldl expressionApply (expressionVariable name)
 
 rawFailure :: HostIOCategory -> RuntimeValue

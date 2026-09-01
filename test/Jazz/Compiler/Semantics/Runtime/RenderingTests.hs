@@ -9,7 +9,6 @@ import Control.Exception
   ( SomeException,
     try,
   )
-import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Literal (..),
@@ -36,7 +35,7 @@ import Jazz.Compiler.FractionalLiteral
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints,
+    evaluateRuntimeExprWithBuiltins,
   )
 import Jazz.Compiler.Runtime.Semantics
   ( literalRuntimeValue,
@@ -46,9 +45,6 @@ import Jazz.Compiler.Runtime.Semantics
 import Jazz.Compiler.Runtime.Types
   ( RuntimeIntMetadata (..),
     prependRuntimeExplicitResultHint,
-  )
-import Jazz.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
@@ -710,40 +706,40 @@ testStructuralAdtEqualityRuntimeSuccess = do
 testStructuralAdtEqualitySeesThroughRuntimeTypeHints :: IO ()
 testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
   let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
+        evaluateRuntimeExprWithBuiltins
           ResolveKernelOnly
-          ( Map.fromList
-              [ (bindingRuntimeHintKey (fixtureValueName "left") (SourceSpan 2 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8]),
-                (bindingRuntimeHintKey (fixtureValueName "right") (SourceSpan 3 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8])
-              ]
-          )
           ( expressionBlock
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
-                statementLet "left" (SourceSpan 2 1) (expressionConstructor "Tag"),
-                statementLet "right" (SourceSpan 3 1) (expressionConstructor "Tag"),
+                statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
+                statementLet "right" (SourceSpan 3 1) (typedTag NumericUInt8),
                 statementExpression (SourceSpan 4 1) (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))
               ]
           )
   assertRuntimeBool "typed ADT structural equality runtime result" True result
+  where
+    typedTag numericType =
+      expressionConstrainedAs
+        (TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric numericType])
+        (expressionConstructor "Tag")
 
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
   let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
+        evaluateRuntimeExprWithBuiltins
           ResolveKernelOnly
-          ( Map.fromList
-              [ (bindingRuntimeHintKey (fixtureValueName "left") (SourceSpan 2 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt8]),
-                (bindingRuntimeHintKey (fixtureValueName "right") (SourceSpan 3 1), TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric NumericUInt16])
-              ]
-          )
           ( expressionBlock
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
-                statementLet "left" (SourceSpan 2 1) (expressionConstructor "Tag"),
-                statementLet "right" (SourceSpan 3 1) (expressionConstructor "Tag"),
+                statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
+                statementLet "right" (SourceSpan 3 1) (typedTag NumericUInt16),
                 statementExpression (SourceSpan 4 1) (expressionBinary "==" (expressionVariable "left") (expressionVariable "right"))
               ]
           )
   assertRuntimeBool "incompatible typed ADT structural equality runtime result" False result
+  where
+    typedTag numericType =
+      expressionConstrainedAs
+        (TypeApplication (fixtureResolvedTypeName "Tag") [TypeNumeric numericType])
+        (expressionConstructor "Tag")
 
 testRuntimeFallbackRejectsDirectCallableEquality :: IO ()
 testRuntimeFallbackRejectsDirectCallableEquality = do

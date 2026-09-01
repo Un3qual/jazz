@@ -14,7 +14,7 @@ import Control.Exception
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CorePhase (Analyzed),
     Expr,
     Literal (..),
   )
@@ -79,7 +79,7 @@ testLargeNestedBlockAliasScopeCompletes =
     (nestedBlockAliasScope 50000)
     "True"
 
-nestedBlockAliasScope :: Int -> Expr 'Resolved
+nestedBlockAliasScope :: Int -> Expr 'Analyzed
 nestedBlockAliasScope bindingCount =
   expressionBlock
     [ statementClass
@@ -129,7 +129,7 @@ indexedBindingName :: Int -> UnresolvedName
 indexedBindingName index =
   sourceName (mkIdentifier ("binding" <> Text.pack (show index)))
 
-assertRuntimeCompletesWithin :: Int -> Text -> Expr 'Resolved -> Text -> IO ()
+assertRuntimeCompletesWithin :: Int -> Text -> Expr 'Analyzed -> Text -> IO ()
 assertRuntimeCompletesWithin timeoutMicros label expression expectedRendering = do
   outcome <-
     try

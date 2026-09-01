@@ -75,8 +75,8 @@ import Jazz.Compiler.TypeRepresentation
   )
 
 data RuntimeScopePlan = RuntimeScopePlan
-  { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Resolved)],
-    runtimeScopePlanStatementsByIndex :: IntMap (Statement 'Resolved),
+  { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
+    runtimeScopePlanStatementsByIndex :: IntMap (Statement 'Analyzed),
     runtimeScopePlanModulePathsByStatement :: IntMap (Maybe [Text]),
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
@@ -90,7 +90,7 @@ buildRuntimeScopePlan ::
   Maybe [Text] ->
   BuiltinResolutionMode ->
   Set ResolvedName ->
-  [Statement 'Resolved] ->
+  [Statement 'Analyzed] ->
   RuntimeScopePlan
 buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath builtinMode outerBindingNames statements =
   RuntimeScopePlan
@@ -140,10 +140,10 @@ buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath buil
         Just (SLet _ _ valueExpr) -> runtimeExprRequiresHost valueExpr
         _ -> False
 
-scopePlanIndexedStatements :: RuntimeScopePlan -> [(Int, Statement 'Resolved)]
+scopePlanIndexedStatements :: RuntimeScopePlan -> [(Int, Statement 'Analyzed)]
 scopePlanIndexedStatements = runtimeScopePlanIndexedStatements
 
-scopePlanStatementAt :: RuntimeScopePlan -> Int -> Maybe (Statement 'Resolved)
+scopePlanStatementAt :: RuntimeScopePlan -> Int -> Maybe (Statement 'Analyzed)
 scopePlanStatementAt plan statementIndex =
   IntMap.lookup statementIndex (runtimeScopePlanStatementsByIndex plan)
 
@@ -151,7 +151,7 @@ scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe [Text]
 scopePlanModulePathForStatement plan statementIndex =
   IntMap.findWithDefault Nothing statementIndex (runtimeScopePlanModulePathsByStatement plan)
 
-runtimeModulePathAfterStatements :: Maybe [Text] -> [Statement 'Resolved] -> Maybe [Text]
+runtimeModulePathAfterStatements :: Maybe [Text] -> [Statement 'Analyzed] -> Maybe [Text]
 runtimeModulePathAfterStatements =
   foldl'
     ( \activeModulePath statement ->
@@ -209,7 +209,7 @@ runtimeSignatureNumericTarget signaturePayload =
             typeNameText -> numericTypeFromName typeNameText
         _ -> Nothing
 
-runtimeExprRequiresHost :: Expr 'Resolved -> Bool
+runtimeExprRequiresHost :: Expr 'Analyzed -> Bool
 runtimeExprRequiresHost expr =
   case expr of
     ELit _ _ -> False
@@ -234,7 +234,7 @@ runtimeExprRequiresHost expr =
     caseArmRequiresHost (CaseArm _ _ maybeGuard bodyExpr) =
       maybe False runtimeExprRequiresHost maybeGuard || runtimeExprRequiresHost bodyExpr
 
-runtimeStatementRequiresHost :: Statement 'Resolved -> Bool
+runtimeStatementRequiresHost :: Statement 'Analyzed -> Bool
 runtimeStatementRequiresHost statement =
   case statement of
     SLet _ name (EVar _ referencedName)
@@ -260,7 +260,7 @@ runtimeNameRequiresHost name =
     Just BuiltinExit -> True
     _ -> False
 
-exprDefinitelyNotFunctionValue :: Expr 'Resolved -> Bool
+exprDefinitelyNotFunctionValue :: Expr 'Analyzed -> Bool
 exprDefinitelyNotFunctionValue expr =
   case expr of
     ELit {} -> True
@@ -276,7 +276,7 @@ exprDefinitelyNotFunctionValue expr =
     EBlock _ statements -> scopeDefinitelyNotFunctionValue statements
     _ -> False
 
-scopeDefinitelyNotFunctionValue :: [Statement 'Resolved] -> Bool
+scopeDefinitelyNotFunctionValue :: [Statement 'Analyzed] -> Bool
 scopeDefinitelyNotFunctionValue statements =
   case reverse statements of
     SExpr _ expr : _ -> exprDefinitelyNotFunctionValue expr

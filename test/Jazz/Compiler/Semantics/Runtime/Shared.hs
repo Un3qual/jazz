@@ -30,7 +30,7 @@ where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CorePhase (Analyzed),
     Expr,
     Literal (..),
     Statement,
@@ -62,7 +62,7 @@ import Jazz.TestHarness
     failTest,
   )
 
-patternCaseNoMatchExpr :: Expr 'Resolved
+patternCaseNoMatchExpr :: Expr 'Analyzed
 patternCaseNoMatchExpr =
   expressionPatternCase
     (expressionLiteral (LInt 1))
@@ -72,7 +72,7 @@ patternCaseNoMatchExpr =
         (expressionLiteral (LInt 2))
     ]
 
-overAppliedConstructorExpr :: Expr 'Resolved
+overAppliedConstructorExpr :: Expr 'Analyzed
 overAppliedConstructorExpr =
   expressionBlock
     [ statementData
@@ -85,7 +85,7 @@ overAppliedConstructorExpr =
         (expressionApply (expressionApply (expressionConstructor "Just") (expressionLiteral (LInt 1))) (expressionLiteral (LInt 2)))
     ]
 
-qualifiedMethodStructuralEqualityExpr :: Expr 'Resolved
+qualifiedMethodStructuralEqualityExpr :: Expr 'Analyzed
 qualifiedMethodStructuralEqualityExpr =
   expressionBlock
     [ statementClass
@@ -121,7 +121,7 @@ qualifiedMethodStructuralEqualityExpr =
         )
     ]
 
-runtimeTypedCallableArgumentHintExpr :: Expr 'Resolved -> Expr 'Resolved
+runtimeTypedCallableArgumentHintExpr :: Expr 'Analyzed -> Expr 'Analyzed
 runtimeTypedCallableArgumentHintExpr callableExpr =
   expressionBlock
     ( runtimePickStatements
@@ -130,7 +130,7 @@ runtimeTypedCallableArgumentHintExpr callableExpr =
            ]
     )
 
-runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr 'Resolved -> Expr 'Resolved
+runtimeTypedCallableArgumentHintThroughPrefixDollarExpr :: Expr 'Analyzed -> Expr 'Analyzed
 runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
   expressionBlock
     ( runtimePickStatements
@@ -139,7 +139,7 @@ runtimeTypedCallableArgumentHintThroughPrefixDollarExpr callableExpr =
            ]
     )
 
-runtimePickStatements :: [Statement 'Resolved]
+runtimePickStatements :: [Statement 'Analyzed]
 runtimePickStatements =
   [ statementClass
       (SourceSpan 1 1)
@@ -162,7 +162,7 @@ runtimePickStatements =
       [implMethod "pick" (SourceSpan 6 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))]
   ]
 
-ambiguousQualifiedMethodRuntimeExpr :: Expr 'Resolved
+ambiguousQualifiedMethodRuntimeExpr :: Expr 'Analyzed
 ambiguousQualifiedMethodRuntimeExpr =
   expressionBlock
     [ statementClass
@@ -204,7 +204,7 @@ runtimeEqSource =
 
   """
 
-runtimeExpr :: Expr 'Resolved -> Expr 'Resolved
+runtimeExpr :: Expr 'Analyzed -> Expr 'Analyzed
 runtimeExpr expr =
   expressionBlock
     [ statementExpression
@@ -212,43 +212,43 @@ runtimeExpr expr =
         expr
     ]
 
-closureValue :: Expr 'Resolved
+closureValue :: Expr 'Analyzed
 closureValue =
   expressionLambda "itemValue" (expressionVariable "itemValue")
 
-builtinValue :: Expr 'Resolved
+builtinValue :: Expr 'Analyzed
 builtinValue =
   expressionVariable "__kernel_hd"
 
-operatorValue :: Expr 'Resolved
+operatorValue :: Expr 'Analyzed
 operatorValue =
   expressionOperatorValue "+"
 
-leftSectionValue :: Expr 'Resolved
+leftSectionValue :: Expr 'Analyzed
 leftSectionValue =
   expressionSectionLeft (expressionLiteral (LInt 1)) "+"
 
-rightSectionValue :: Expr 'Resolved
+rightSectionValue :: Expr 'Analyzed
 rightSectionValue =
   expressionSectionRight "+" (expressionLiteral (LInt 1))
 
-targetedFloat :: UnresolvedName -> Expr 'Resolved
+targetedFloat :: UnresolvedName -> Expr 'Analyzed
 targetedFloat conversionName =
   expressionApply (expressionVariable conversionName) (expressionLiteral (LInt 1))
 
-targetedInt :: UnresolvedName -> Expr 'Resolved
+targetedInt :: UnresolvedName -> Expr 'Analyzed
 targetedInt conversionName =
   expressionApply (expressionVariable conversionName) (expressionLiteral (LInt 1))
 
-untypedFloatOne :: Expr 'Resolved
+untypedFloatOne :: Expr 'Analyzed
 untypedFloatOne =
   expressionLiteral (LFloat 1.0 (mkFractionalLiteralSource 1 0 1) Nothing)
 
-untypedFloatTwo :: Expr 'Resolved
+untypedFloatTwo :: Expr 'Analyzed
 untypedFloatTwo =
   expressionLiteral (LFloat 2.0 (mkFractionalLiteralSource 2 0 1) Nothing)
 
-tooLargeFloat64Integer :: Expr 'Resolved
+tooLargeFloat64Integer :: Expr 'Analyzed
 tooLargeFloat64Integer =
   expressionLiteral (LInt ((floor (1.7976931348623157e308 :: Double) :: Integer) + 1))
 
@@ -262,7 +262,7 @@ assertRuntimeBool label expected result =
     Left runtimeError ->
       failTest ("expected " <> label <> " to succeed, got " <> renderDiagnostic runtimeError)
 
-assertCallableRuntimeEqualityRejected :: Text -> Expr 'Resolved -> IO ()
+assertCallableRuntimeEqualityRejected :: Text -> Expr 'Analyzed -> IO ()
 assertCallableRuntimeEqualityRejected label expr = do
   let result = evaluateRuntimeExpr (runtimeExpr expr)
   assertRuntimeErrorContains (label <> " code") "E3007" result

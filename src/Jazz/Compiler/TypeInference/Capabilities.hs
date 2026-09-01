@@ -764,7 +764,7 @@ concreteInferredMethodConstraintHasUniqueCandidate facts state constraintName me
   where
     satisfyingMethodHints =
       [ argumentHint
-      | argumentHint <- inferredConstraintCandidateRuntimeHints facts state (Just methodKey) argumentType,
+      | argumentHint <- inferredConstraintCandidateSignatures facts state (Just methodKey) argumentType,
         concreteImplFactExists constraintName argumentHint facts,
         concreteImplMethodBodyExists methodKey argumentHint facts
       ]
@@ -1024,7 +1024,7 @@ resolveDeferredExplicitConstraint state deferredConstraint =
             | classArity /= 1 ->
                 addTypeError state (mkExplicitConstraintArityError constraintName classArity)
             | otherwise ->
-                case uncons (constraintRuntimeHintsForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
+                case uncons (constraintCandidateSignaturesForDeferred facts state inferredConstraint constraintName maybeMethodKey unresolvedArgumentType) of
                   Nothing ->
                     addTypeError state (mkAmbiguousDeferredConstraintError inferredConstraint constraintName resolvedArgumentType)
                   Just (firstArgumentHint, remainingArgumentHints) ->
@@ -1086,7 +1086,7 @@ expressionTypeContainsUncommittedIntegerLiteral state expressionType
             || expressionTypeContainsUncommittedIntegerLiteral state resultType
         _ -> False
 
-constraintRuntimeHintsForDeferred ::
+constraintCandidateSignaturesForDeferred ::
   ScopeCapabilityFacts ->
   InferState ->
   Bool ->
@@ -1094,9 +1094,9 @@ constraintRuntimeHintsForDeferred ::
   Maybe Text ->
   ExpressionType ->
   [SignatureType 'Resolved]
-constraintRuntimeHintsForDeferred facts state inferredConstraint _ maybeMethodKey argumentType
+constraintCandidateSignaturesForDeferred facts state inferredConstraint _ maybeMethodKey argumentType
   | inferredConstraint =
-      inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType
+      inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType
   | otherwise =
       case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
@@ -1108,8 +1108,8 @@ constraintImplFactExistsForDeferred facts inferredConstraint constraintName argu
     then concreteImplFactExists constraintName argumentHint facts
     else concreteImplFactExistsExactly constraintName argumentHint facts
 
-inferredConstraintCandidateRuntimeHints :: ScopeCapabilityFacts -> InferState -> Maybe Text -> ExpressionType -> [SignatureType 'Resolved]
-inferredConstraintCandidateRuntimeHints facts state maybeMethodKey argumentType =
+inferredConstraintCandidateSignatures :: ScopeCapabilityFacts -> InferState -> Maybe Text -> ExpressionType -> [SignatureType 'Resolved]
+inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType =
   dedupeSignatureTypes (defaultHint ++ methodCandidateHints)
   where
     defaultHint =
@@ -1575,8 +1575,33 @@ qualifiedMethodCandidateExactlyMatchesArguments state env (ClassMethodType class
   where
     exactCandidateArgumentMatches targetArgumentPosition signatureType (argumentExpr, expressionType) =
       not targetArgumentPosition
-        || constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType
-          && constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr
+        || case scalarApplicationRuntimeHint state env expressionType argumentExpr of
+          Just runtimeHint -> runtimeHint == signatureType
+          Nothing ->
+            constraintSignatureTypeExactlyMatchesExpressionType state signatureType expressionType
+              && constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr
+
+scalarApplicationRuntimeHint :: InferState -> TypeEnv -> ExpressionType -> Expr 'Resolved -> Maybe (SignatureType 'Resolved)
+scalarApplicationRuntimeHint state env expressionType argumentExpr =
+  case argumentExpr of
+    EApply {} ->
+      constraintSignatureExpressionRuntimeHint state env argumentExpr
+        <|> inferredScalarHint
+    _ -> Nothing
+  where
+    inferredScalarHint =
+      Signature.expressionTypeToRuntimeHint
+        =<< if integerLiteralRangeFor state resolvedType /= Nothing
+          then Just (SemanticNumeric NumericInt64)
+          else case resolvedType of
+            SemanticInt -> Just (SemanticNumeric NumericInt64)
+            scalarType@SemanticFloat -> Just scalarType
+            scalarType@SemanticNumeric {} -> Just scalarType
+            scalarType@SemanticBool -> Just scalarType
+            scalarType@SemanticChar -> Just scalarType
+            scalarType@SemanticText -> Just scalarType
+            _ -> Nothing
+    resolvedType = resolveType state expressionType
 
 constraintSignatureExpressionHasExactEvidence :: InferState -> TypeEnv -> SignatureType 'Resolved -> Expr 'Resolved -> Bool
 constraintSignatureExpressionHasExactEvidence state env signatureType argumentExpr =

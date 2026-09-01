@@ -6,6 +6,7 @@ module Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (..),
     RuntimeModule (..),
     RuntimeProgram (..),
+    interpretAnalyzedProgram,
     evaluateAnalyzedProgram,
     evaluateAnalyzedProgramObserved,
     evaluateAnalyzedProgramWithHost,
@@ -28,23 +29,13 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    ClassMethodSignature (..),
-    CoreNode (..),
-    CorePhase (..),
-    DataConstructor (..),
+  ( CorePhase (..),
     Expr (..),
-    ImplMethod (..),
-    Pattern (..),
-    SignatureType,
-    Statement (..),
+    Statement,
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
-import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E3020))
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    DiagnosticOrigin (RuntimeOrigin),
-    mkErrorDiagnostic,
   )
 import Jazz.Compiler.ModuleCompiler (analyzedProgramErrors)
 import Jazz.Compiler.ModuleExports
@@ -63,7 +54,6 @@ import Jazz.Compiler.ModuleGraph
     ImportExposure (..),
     ModuleImport,
     PreludeArtifact (..),
-    ResolvedModuleFacts (..),
     coreModuleExpr,
     coreModuleFacts,
     coreModuleImports,
@@ -113,10 +103,6 @@ import Jazz.Compiler.Runtime.Outcome
     runtimeControlOutcome,
     runtimeOutcomeAsDiagnosticResult,
   )
-import Jazz.Compiler.RuntimeHints
-  ( BindingRuntimeHintKey,
-    projectRuntimeHints,
-  )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
@@ -157,60 +143,56 @@ lookupRuntimeModule :: [Text] -> RuntimeProgram -> Maybe RuntimeModule
 lookupRuntimeModule modulePath =
   find ((== modulePath) . runtimeModulePath) . runtimeProgramModules
 
-evaluateAnalyzedProgram :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
-evaluateAnalyzedProgram resolvedProgram =
+evaluateAnalyzedProgram :: CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
+evaluateAnalyzedProgram =
   runtimeOutcomeAsDiagnosticResult
     . runtimeObservationOutcome
-    . evaluateAnalyzedProgramObserved RuntimeObservationDisabled resolvedProgram
+    . evaluateAnalyzedProgramObserved RuntimeObservationDisabled
 
-evaluateAnalyzedProgramObserved :: RuntimeObservationRequest -> CoreProgram 'Resolved -> CoreProgram 'Analyzed -> RuntimeObservationResult RuntimeProgram
-evaluateAnalyzedProgramObserved observationRequest resolvedProgram analyzedProgram =
+evaluateAnalyzedProgramObserved :: RuntimeObservationRequest -> CoreProgram 'Analyzed -> RuntimeObservationResult RuntimeProgram
+evaluateAnalyzedProgramObserved observationRequest analyzedProgram =
   runIdentity
-    (evaluateAnalyzedProgramWithHostObserved observationRequest disabledRuntimeHost resolvedProgram analyzedProgram)
+    (interpretAnalyzedProgram observationRequest disabledRuntimeHost analyzedProgram)
 
-evaluateAnalyzedProgramPureUnchecked :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
-evaluateAnalyzedProgramPureUnchecked resolvedProgram analyzedProgram = do
-  ambientEnv <- evaluatePrelude runtimeHints (coreProgramPrelude resolvedProgram) (coreProgramPrelude analyzedProgram)
-  evaluateModules analyzedProgram ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules resolvedProgram))
+evaluateAnalyzedProgramPureUnchecked :: CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
+evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
+  ambientEnv <- evaluatePrelude (coreProgramPrelude analyzedProgram)
+  evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
-    entryPath = coreProgramEntry resolvedProgram
-    builtinMode = preludeBuiltinMode (coreProgramPrelude resolvedProgram)
-    runtimeHints = projectRuntimeHints analyzedProgram
+    entryPath = coreProgramEntry analyzedProgram
+    builtinMode = preludeBuiltinMode (coreProgramPrelude analyzedProgram)
 
-    evaluateModules analyzed ambientEnv runtimeModules output remainingModules =
+    evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           Right
             (finishRuntimeProgram runtimeModules output)
-        resolvedModule : rest -> do
-          analyzedModule <- requireAnalyzedModule resolvedModule analyzed
+        analyzedModule : rest -> do
           let preparedModule =
-                prepareModuleEvaluation entryPath analyzed ambientEnv runtimeModules resolvedModule
+                prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             evaluateModuleScope
               (Just (modulePathTexts (preparedModulePath preparedModule)))
               (preparedModuleEvaluationMode preparedModule)
               builtinMode
-              runtimeHints
               (preparedModuleImportedEnvironment preparedModule)
-              (scopeStatements (coreModuleExpr resolvedModule))
+              (scopeStatements (coreModuleExpr analyzedModule))
           let (nextRuntimeModules, nextOutput) =
                 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
-          evaluateModules analyzed ambientEnv nextRuntimeModules nextOutput rest
+          evaluateModules ambientEnv nextRuntimeModules nextOutput rest
 
-evaluatePrelude :: Map BindingRuntimeHintKey (SignatureType 'Resolved) -> PreludeArtifact 'Resolved -> PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
-evaluatePrelude runtimeHints resolvedPrelude analyzedPrelude =
-  case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
-    (Nothing, Nothing) -> Right Map.empty
-    (Just resolvedModule, Just analyzedModule) -> do
+evaluatePrelude :: PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
+evaluatePrelude analyzedPrelude =
+  case preludeModule analyzedPrelude of
+    Nothing -> Right Map.empty
+    Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScope
-          (Just (modulePathTexts (coreModulePath resolvedModule)))
+          (Just (modulePathTexts (coreModulePath analyzedModule)))
           EvaluateDependencyModule
-          (preludeBuiltinMode resolvedPrelude)
-          runtimeHints
+          (preludeBuiltinMode analyzedPrelude)
           Map.empty
-          (scopeStatements (coreModuleExpr resolvedModule))
+          (scopeStatements (coreModuleExpr analyzedModule))
       pure
         ( publishEnvironment
             AmbientPrelude
@@ -218,91 +200,87 @@ evaluatePrelude runtimeHints resolvedPrelude analyzedPrelude =
             (coreModuleInterface analyzedModule)
             (scopeResultEnvironment scopeResult)
         )
-    _ -> analyzedProgramMismatch
 
 evaluateAnalyzedProgramWithHost ::
   (Monad m) =>
   RuntimeHost m ->
-  CoreProgram 'Resolved ->
   CoreProgram 'Analyzed ->
   m (Either Diagnostic RuntimeProgram)
-evaluateAnalyzedProgramWithHost host resolvedProgram analyzedProgram =
+evaluateAnalyzedProgramWithHost host analyzedProgram =
   runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
-    <$> evaluateAnalyzedProgramWithHostObserved RuntimeObservationDisabled host resolvedProgram analyzedProgram
+    <$> interpretAnalyzedProgram RuntimeObservationDisabled host analyzedProgram
 
 evaluateAnalyzedProgramWithHostObserved ::
   (Monad m) =>
   RuntimeObservationRequest ->
   RuntimeHost m ->
-  CoreProgram 'Resolved ->
   CoreProgram 'Analyzed ->
   m (RuntimeObservationResult RuntimeProgram)
-evaluateAnalyzedProgramWithHostObserved observationRequest host resolvedProgram analyzedProgram =
+evaluateAnalyzedProgramWithHostObserved = interpretAnalyzedProgram
+
+interpretAnalyzedProgram ::
+  (Monad m) =>
+  RuntimeObservationRequest ->
+  RuntimeHost m ->
+  CoreProgram 'Analyzed ->
+  m (RuntimeObservationResult RuntimeProgram)
+interpretAnalyzedProgram observationRequest host analyzedProgram =
   {-# SCC "jazz-stage:evaluation" #-}
-  case validateProgramCorrespondence resolvedProgram analyzedProgram of
-    Left diagnostic -> pure (RuntimeObservationResult (RuntimeOutcomeFailed diagnostic) Nothing)
-    Right () ->
-      case analyzedProgramErrors analyzedProgram of
-        firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
-        [] ->
-          case observationRequest of
-            RuntimeObservationDisabled -> do
-              outcome <- evaluateAnalyzedProgramWithHostUnobserved host resolvedProgram analyzedProgram
-              pure (RuntimeObservationResult outcome Nothing)
-            _ -> do
-              (outcome, observationState) <-
-                runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-                  evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgram analyzedProgram
-              pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
+  case analyzedProgramErrors analyzedProgram of
+    firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
+    [] ->
+      case observationRequest of
+        RuntimeObservationDisabled -> do
+          outcome <- evaluateAnalyzedProgramWithHostUnobserved host analyzedProgram
+          pure (RuntimeObservationResult outcome Nothing)
+        _ -> do
+          (outcome, observationState) <-
+            runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
+              evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram
+          pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
 evaluateAnalyzedProgramWithHostUnobserved ::
   (Monad m) =>
   RuntimeHost m ->
-  CoreProgram 'Resolved ->
   CoreProgram 'Analyzed ->
   m (RuntimeOutcome RuntimeProgram)
-evaluateAnalyzedProgramWithHostUnobserved host resolvedProgram analyzedProgram =
-  if resolvedProgramRequiresHost resolvedProgram
+evaluateAnalyzedProgramWithHostUnobserved host analyzedProgram =
+  if analyzedProgramRequiresHost analyzedProgram
     then
       runtimeControlOutcome
         <$> runRuntimeHostEvaluation
           host
           ( \evaluationHost ->
-              evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgram analyzedProgram
+              evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram
           )
-    else pure (diagnosticResultOutcome (evaluateAnalyzedProgramPureUnchecked resolvedProgram analyzedProgram))
+    else pure (diagnosticResultOutcome (evaluateAnalyzedProgramPureUnchecked analyzedProgram))
 
 evaluateAnalyzedProgramWithEvaluationHostUnchecked ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  CoreProgram 'Resolved ->
   CoreProgram 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
-evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgram analyzedProgram =
+evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram =
   runExceptT $ do
     ambientEnv <-
       ExceptT
         ( evaluatePreludeWithEvaluationHost
             evaluationHost
-            runtimeHints
-            (coreProgramPrelude resolvedProgram)
             (coreProgramPrelude analyzedProgram)
         )
-    evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules resolvedProgram))
+    evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
-    entryPath = coreProgramEntry resolvedProgram
-    builtinMode = preludeBuiltinMode (coreProgramPrelude resolvedProgram)
-    runtimeHints = projectRuntimeHints analyzedProgram
+    entryPath = coreProgramEntry analyzedProgram
+    builtinMode = preludeBuiltinMode (coreProgramPrelude analyzedProgram)
 
     evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           pure
             (finishRuntimeProgram runtimeModules output)
-        resolvedModule : rest -> do
-          analyzedModule <- ExceptT (pure (requireAnalyzedModuleControl resolvedModule analyzedProgram))
+        analyzedModule : rest -> do
           let preparedModule =
-                prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules resolvedModule
+                prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
@@ -310,9 +288,8 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgra
                   (Just (modulePathTexts (preparedModulePath preparedModule)))
                   (preparedModuleEvaluationMode preparedModule)
                   builtinMode
-                  runtimeHints
                   (preparedModuleImportedEnvironment preparedModule)
-                  (scopeStatements (coreModuleExpr resolvedModule))
+                  (scopeStatements (coreModuleExpr analyzedModule))
               )
           let (nextRuntimeModules, nextOutput) =
                 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
@@ -323,9 +300,9 @@ prepareModuleEvaluation ::
   CoreProgram 'Analyzed ->
   RuntimeEnv ->
   RuntimeModuleAccumulator ->
-  CoreModule 'Resolved ->
+  CoreModule 'Analyzed ->
   PreparedModuleEvaluation
-prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules resolvedModule =
+prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule =
   PreparedModuleEvaluation
     { preparedModulePath = modulePath,
       preparedModuleEvaluationMode =
@@ -334,13 +311,12 @@ prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules reso
           else EvaluateDependencyModule,
       preparedModuleImportedEnvironment =
         foldr
-          (importRuntimeModule analyzedModules (accumulatedRuntimeModulesByPath runtimeModules))
+          (importRuntimeModule analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules))
           ambientEnv
-          (coreModuleImports resolvedModule)
+          (coreModuleImports analyzedModule)
     }
   where
-    modulePath = coreModulePath resolvedModule
-    analyzedModules = buildAnalyzedModulePathIndex analyzedProgram
+    modulePath = coreModulePath analyzedModule
 
 completeModuleEvaluation ::
   PreparedModuleEvaluation ->
@@ -367,31 +343,28 @@ completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModule
               (scopeResultEnvironment scopeResult)
         }
 
-resolvedProgramRequiresHost :: CoreProgram 'Resolved -> Bool
-resolvedProgramRequiresHost resolvedProgram =
-  maybe False (runtimeExprRequiresHost . coreModuleExpr) (preludeModule (coreProgramPrelude resolvedProgram))
-    || any (runtimeExprRequiresHost . coreModuleExpr) (coreProgramModules resolvedProgram)
+analyzedProgramRequiresHost :: CoreProgram 'Analyzed -> Bool
+analyzedProgramRequiresHost analyzedProgram =
+  maybe False (runtimeExprRequiresHost . coreModuleExpr) (preludeModule (coreProgramPrelude analyzedProgram))
+    || any (runtimeExprRequiresHost . coreModuleExpr) (coreProgramModules analyzedProgram)
 
 evaluatePreludeWithEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Map BindingRuntimeHintKey (SignatureType 'Resolved) ->
-  PreludeArtifact 'Resolved ->
   PreludeArtifact 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
-evaluatePreludeWithEvaluationHost host runtimeHints resolvedPrelude analyzedPrelude =
-  case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
-    (Nothing, Nothing) -> pure (Right Map.empty)
-    (Just resolvedModule, Just analyzedModule) -> do
+evaluatePreludeWithEvaluationHost host analyzedPrelude =
+  case preludeModule analyzedPrelude of
+    Nothing -> pure (Right Map.empty)
+    Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScopeWithRequiredEvaluationHostControl
           host
-          (Just (modulePathTexts (coreModulePath resolvedModule)))
+          (Just (modulePathTexts (coreModulePath analyzedModule)))
           EvaluateDependencyModule
-          (preludeBuiltinMode resolvedPrelude)
-          runtimeHints
+          (preludeBuiltinMode analyzedPrelude)
           Map.empty
-          (scopeStatements (coreModuleExpr resolvedModule))
+          (scopeStatements (coreModuleExpr analyzedModule))
       pure $
         fmap
           ( \result ->
@@ -402,11 +375,10 @@ evaluatePreludeWithEvaluationHost host runtimeHints resolvedPrelude analyzedPrel
                 (scopeResultEnvironment result)
           )
           scopeResult
-    _ -> pure (either (Left . RuntimeDiagnostic) Right analyzedProgramMismatch)
 
-importRuntimeModule :: Map ModulePath (CoreModule 'Analyzed) -> Map ModulePath RuntimeModule -> ModuleImport 'Resolved -> RuntimeEnv -> RuntimeEnv
-importRuntimeModule analyzedModules runtimeModules importDecl env =
-  case (Map.lookup dependencyPath analyzedModules, Map.lookup dependencyPath runtimeModules) of
+importRuntimeModule :: CoreProgram 'Analyzed -> Map ModulePath RuntimeModule -> ModuleImport 'Analyzed -> RuntimeEnv -> RuntimeEnv
+importRuntimeModule analyzedProgram runtimeModules importDecl env =
+  case (lookupCoreModule dependencyPath analyzedProgram, Map.lookup dependencyPath runtimeModules) of
     (Just analyzedDependency, Just runtimeDependency) ->
       let publicInventory =
             moduleExportInventory analyzedDependency
@@ -453,273 +425,11 @@ finishRuntimeProgram runtimeModules output =
       runtimeProgramOutput = output
     }
 
-buildAnalyzedModulePathIndex :: CoreProgram 'Analyzed -> Map ModulePath (CoreModule 'Analyzed)
-buildAnalyzedModulePathIndex =
-  Map.fromListWith (\_ firstAnalyzedModule -> firstAnalyzedModule)
-    . map
-      (\analyzedModule -> (coreModulePath analyzedModule, analyzedModule))
-    . NonEmpty.toList
-    . coreProgramModules
-
 coreModuleInterface :: CoreModule 'Analyzed -> ModuleInterface
 coreModuleInterface = analyzedModuleInterface . coreModuleFacts
 
 moduleExportInventory :: CoreModule 'Analyzed -> ModuleExportInventory
 moduleExportInventory = analyzedModuleExports . coreModuleFacts
-
-requireAnalyzedModule :: CoreModule 'Resolved -> CoreProgram 'Analyzed -> Either Diagnostic (CoreModule 'Analyzed)
-requireAnalyzedModule resolvedModule analyzedProgram =
-  case lookupCoreModule (coreModulePath resolvedModule) analyzedProgram of
-    Just analyzedModule -> Right analyzedModule
-    Nothing -> analyzedProgramMismatch
-
-requireAnalyzedModuleControl :: CoreModule 'Resolved -> CoreProgram 'Analyzed -> Either RuntimeControl (CoreModule 'Analyzed)
-requireAnalyzedModuleControl resolvedModule =
-  either (Left . RuntimeDiagnostic) Right . requireAnalyzedModule resolvedModule
-
-validateProgramCorrespondence :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> Either Diagnostic ()
-validateProgramCorrespondence resolvedProgram analyzedProgram =
-  if programsCorrespond
-    then Right ()
-    else analyzedProgramMismatch
-  where
-    programsCorrespond =
-      coreProgramEntry resolvedProgram == coreProgramEntry analyzedProgram
-        && preludesCorrespond
-          (coreProgramPrelude resolvedProgram)
-          (coreProgramPrelude analyzedProgram)
-        && listsCorrespond
-          modulesCorrespond
-          (NonEmpty.toList (coreProgramModules resolvedProgram))
-          (NonEmpty.toList (coreProgramModules analyzedProgram))
-
-preludesCorrespond :: PreludeArtifact 'Resolved -> PreludeArtifact 'Analyzed -> Bool
-preludesCorrespond resolvedPrelude analyzedPrelude =
-  preludeIdentity resolvedPrelude == preludeIdentity analyzedPrelude
-    && preludeBuiltinMode resolvedPrelude == preludeBuiltinMode analyzedPrelude
-    && case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
-      (Nothing, Nothing) -> True
-      (Just resolvedModule, Just analyzedModule) -> modulesCorrespond resolvedModule analyzedModule
-      _ -> False
-
-modulesCorrespond :: CoreModule 'Resolved -> CoreModule 'Analyzed -> Bool
-modulesCorrespond resolvedModule analyzedModule =
-  coreModuleIdentity resolvedModule == coreModuleIdentity analyzedModule
-    && nodesCorrespond
-      (coreModuleBodyNode resolvedModule)
-      (coreModuleBodyNode analyzedModule)
-    && listsCorrespond importsCorrespond (coreModuleImports resolvedModule) (coreModuleImports analyzedModule)
-    && listsCorrespond statementsCorrespond (coreModuleStatements resolvedModule) (coreModuleStatements analyzedModule)
-    && resolvedModuleExports resolvedFacts == analyzedModuleExports analyzedFacts
-    && resolvedModuleExportSelectors resolvedFacts == analyzedModuleExportSelectors analyzedFacts
-  where
-    resolvedFacts = coreModuleFacts resolvedModule
-    analyzedFacts = coreModuleFacts analyzedModule
-
-importsCorrespond :: ModuleImport 'Resolved -> ModuleImport 'Analyzed -> Bool
-importsCorrespond resolvedImport analyzedImport =
-  nodesCorrespond
-    (ModuleGraph.moduleImportNode resolvedImport)
-    (ModuleGraph.moduleImportNode analyzedImport)
-    && ModuleGraph.importedModule resolvedImport == ModuleGraph.importedModule analyzedImport
-    && ModuleGraph.importAlias resolvedImport == ModuleGraph.importAlias analyzedImport
-    && ModuleGraph.importExposure resolvedImport == ModuleGraph.importExposure analyzedImport
-
-nodesCorrespond :: CoreNode 'Resolved sort -> CoreNode 'Analyzed sort -> Bool
-nodesCorrespond resolvedNode analyzedNode =
-  coreNodeId resolvedNode == coreNodeId analyzedNode
-    && coreNodeSpan resolvedNode == coreNodeSpan analyzedNode
-
-expressionsCorrespond :: Expr 'Resolved -> Expr 'Analyzed -> Bool
-expressionsCorrespond resolvedExpression analyzedExpression =
-  case (resolvedExpression, analyzedExpression) of
-    (ELit resolvedNode resolvedLiteral, ELit analyzedNode analyzedLiteral) ->
-      nodesCorrespond resolvedNode analyzedNode && resolvedLiteral == analyzedLiteral
-    (EVar resolvedNode resolvedName, EVar analyzedNode analyzedName) ->
-      nodesCorrespond resolvedNode analyzedNode && resolvedName == analyzedName
-    (ELambda resolvedNode resolvedName resolvedBody, ELambda analyzedNode analyzedName analyzedBody) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedName == analyzedName
-        && expressionsCorrespond resolvedBody analyzedBody
-    (EOperatorValue resolvedNode resolvedOperator, EOperatorValue analyzedNode analyzedOperator) ->
-      nodesCorrespond resolvedNode analyzedNode && resolvedOperator == analyzedOperator
-    (EList resolvedNode resolvedElements, EList analyzedNode analyzedElements) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && listsCorrespond expressionsCorrespond resolvedElements analyzedElements
-    (ETuple resolvedNode resolvedElements, ETuple analyzedNode analyzedElements) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && listsCorrespond expressionsCorrespond resolvedElements analyzedElements
-    (EApply resolvedNode resolvedFunction resolvedArgument, EApply analyzedNode analyzedFunction analyzedArgument) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && expressionsCorrespond resolvedFunction analyzedFunction
-        && expressionsCorrespond resolvedArgument analyzedArgument
-    ( ETypeApplication resolvedNode resolvedFunction resolvedSpan resolvedType,
-      ETypeApplication analyzedNode analyzedFunction analyzedSpan analyzedType
-      ) ->
-        nodesCorrespond resolvedNode analyzedNode
-          && expressionsCorrespond resolvedFunction analyzedFunction
-          && resolvedSpan == analyzedSpan
-          && resolvedType == analyzedType
-    ( EIf resolvedNode resolvedCondition resolvedThen resolvedElse,
-      EIf analyzedNode analyzedCondition analyzedThen analyzedElse
-      ) ->
-        nodesCorrespond resolvedNode analyzedNode
-          && expressionsCorrespond resolvedCondition analyzedCondition
-          && expressionsCorrespond resolvedThen analyzedThen
-          && expressionsCorrespond resolvedElse analyzedElse
-    (EPatternCase resolvedNode resolvedScrutinee resolvedArms, EPatternCase analyzedNode analyzedScrutinee analyzedArms) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && expressionsCorrespond resolvedScrutinee analyzedScrutinee
-        && listsCorrespond caseArmsCorrespond resolvedArms analyzedArms
-    (EBinary resolvedNode resolvedOperator resolvedLeft resolvedRight, EBinary analyzedNode analyzedOperator analyzedLeft analyzedRight) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedOperator == analyzedOperator
-        && expressionsCorrespond resolvedLeft analyzedLeft
-        && expressionsCorrespond resolvedRight analyzedRight
-    (ESectionLeft resolvedNode resolvedLeft resolvedOperator, ESectionLeft analyzedNode analyzedLeft analyzedOperator) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && expressionsCorrespond resolvedLeft analyzedLeft
-        && resolvedOperator == analyzedOperator
-    (ESectionRight resolvedNode resolvedOperator resolvedRight, ESectionRight analyzedNode analyzedOperator analyzedRight) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedOperator == analyzedOperator
-        && expressionsCorrespond resolvedRight analyzedRight
-    (EBlock resolvedNode resolvedStatements, EBlock analyzedNode analyzedStatements) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && listsCorrespond statementsCorrespond resolvedStatements analyzedStatements
-    _ -> False
-
-caseArmsCorrespond :: CaseArm 'Resolved -> CaseArm 'Analyzed -> Bool
-caseArmsCorrespond
-  (CaseArm resolvedNode resolvedPattern resolvedGuard resolvedBody)
-  (CaseArm analyzedNode analyzedPattern analyzedGuard analyzedBody) =
-    nodesCorrespond resolvedNode analyzedNode
-      && patternsCorrespond resolvedPattern analyzedPattern
-      && maybesCorrespond expressionsCorrespond resolvedGuard analyzedGuard
-      && expressionsCorrespond resolvedBody analyzedBody
-
-patternsCorrespond :: Pattern 'Resolved -> Pattern 'Analyzed -> Bool
-patternsCorrespond resolvedPattern analyzedPattern =
-  case (resolvedPattern, analyzedPattern) of
-    (PWildcard resolvedNode, PWildcard analyzedNode) -> nodesCorrespond resolvedNode analyzedNode
-    (PVariable resolvedNode resolvedName, PVariable analyzedNode analyzedName) ->
-      nodesCorrespond resolvedNode analyzedNode && resolvedName == analyzedName
-    (PLiteral resolvedNode resolvedLiteral, PLiteral analyzedNode analyzedLiteral) ->
-      nodesCorrespond resolvedNode analyzedNode && resolvedLiteral == analyzedLiteral
-    (PConstructor resolvedNode resolvedName resolvedPatterns, PConstructor analyzedNode analyzedName analyzedPatterns) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedName == analyzedName
-        && listsCorrespond patternsCorrespond resolvedPatterns analyzedPatterns
-    (PList resolvedNode resolvedPatterns, PList analyzedNode analyzedPatterns) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && listsCorrespond patternsCorrespond resolvedPatterns analyzedPatterns
-    (PConsList resolvedNode resolvedHead resolvedTail, PConsList analyzedNode analyzedHead analyzedTail) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && patternsCorrespond resolvedHead analyzedHead
-        && patternsCorrespond resolvedTail analyzedTail
-    (PTuple resolvedNode resolvedPatterns, PTuple analyzedNode analyzedPatterns) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && listsCorrespond patternsCorrespond resolvedPatterns analyzedPatterns
-    (PAs resolvedNode resolvedName resolvedNested, PAs analyzedNode analyzedName analyzedNested) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedName == analyzedName
-        && patternsCorrespond resolvedNested analyzedNested
-    (POr resolvedNode resolvedAlternatives, POr analyzedNode analyzedAlternatives) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && listsCorrespond patternsCorrespond resolvedAlternatives analyzedAlternatives
-    _ -> False
-
-statementsCorrespond :: Statement 'Resolved -> Statement 'Analyzed -> Bool
-statementsCorrespond resolvedStatement analyzedStatement =
-  case (resolvedStatement, analyzedStatement) of
-    (SLet resolvedNode resolvedName resolvedValue, SLet analyzedNode analyzedName analyzedValue) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedName == analyzedName
-        && expressionsCorrespond resolvedValue analyzedValue
-    (SSignature resolvedNode resolvedName resolvedSignature, SSignature analyzedNode analyzedName analyzedSignature) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedName == analyzedName
-        && resolvedSignature == analyzedSignature
-    ( SData resolvedNode resolvedName resolvedParameters resolvedConstructors,
-      SData analyzedNode analyzedName analyzedParameters analyzedConstructors
-      ) ->
-        nodesCorrespond resolvedNode analyzedNode
-          && resolvedName == analyzedName
-          && resolvedParameters == analyzedParameters
-          && listsCorrespond constructorsCorrespond resolvedConstructors analyzedConstructors
-    ( SClass resolvedNode resolvedName resolvedParameters resolvedMethods,
-      SClass analyzedNode analyzedName analyzedParameters analyzedMethods
-      ) ->
-        nodesCorrespond resolvedNode analyzedNode
-          && resolvedName == analyzedName
-          && resolvedParameters == analyzedParameters
-          && listsCorrespond classMethodsCorrespond resolvedMethods analyzedMethods
-    (SImpl resolvedNode resolvedName resolvedArguments resolvedMethods, SImpl analyzedNode analyzedName analyzedArguments analyzedMethods) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && resolvedName == analyzedName
-        && resolvedArguments == analyzedArguments
-        && listsCorrespond implMethodsCorrespond resolvedMethods analyzedMethods
-    (SModule resolvedNode resolvedPath, SModule analyzedNode analyzedPath) ->
-      nodesCorrespond resolvedNode analyzedNode && resolvedPath == analyzedPath
-    ( SImport resolvedNode resolvedPath resolvedAlias resolvedNames,
-      SImport analyzedNode analyzedPath analyzedAlias analyzedNames
-      ) ->
-        nodesCorrespond resolvedNode analyzedNode
-          && resolvedPath == analyzedPath
-          && resolvedAlias == analyzedAlias
-          && resolvedNames == analyzedNames
-    (SExpr resolvedNode resolvedValue, SExpr analyzedNode analyzedValue) ->
-      nodesCorrespond resolvedNode analyzedNode
-        && expressionsCorrespond resolvedValue analyzedValue
-    _ -> False
-
-constructorsCorrespond :: DataConstructor 'Resolved -> DataConstructor 'Analyzed -> Bool
-constructorsCorrespond
-  (DataConstructor resolvedNode resolvedName resolvedArguments)
-  (DataConstructor analyzedNode analyzedName analyzedArguments) =
-    nodesCorrespond resolvedNode analyzedNode
-      && resolvedName == analyzedName
-      && resolvedArguments == analyzedArguments
-
-classMethodsCorrespond :: ClassMethodSignature 'Resolved -> ClassMethodSignature 'Analyzed -> Bool
-classMethodsCorrespond
-  (ClassMethodSignature resolvedNode resolvedName resolvedSignature)
-  (ClassMethodSignature analyzedNode analyzedName analyzedSignature) =
-    nodesCorrespond resolvedNode analyzedNode
-      && resolvedName == analyzedName
-      && resolvedSignature == analyzedSignature
-
-implMethodsCorrespond :: ImplMethod 'Resolved -> ImplMethod 'Analyzed -> Bool
-implMethodsCorrespond
-  (ImplMethod resolvedNode resolvedName resolvedBody)
-  (ImplMethod analyzedNode analyzedName analyzedBody) =
-    nodesCorrespond resolvedNode analyzedNode
-      && resolvedName == analyzedName
-      && expressionsCorrespond resolvedBody analyzedBody
-
-listsCorrespond :: (left -> right -> Bool) -> [left] -> [right] -> Bool
-listsCorrespond correspond leftValues rightValues =
-  length leftValues == length rightValues
-    && and (zipWith correspond leftValues rightValues)
-
-maybesCorrespond :: (left -> right -> Bool) -> Maybe left -> Maybe right -> Bool
-maybesCorrespond correspond leftValue rightValue =
-  case (leftValue, rightValue) of
-    (Nothing, Nothing) -> True
-    (Just left, Just right) -> correspond left right
-    _ -> False
-
--- This can only be reached when callers mix independently produced resolved
--- and analyzed programs. The driver always passes the two views from one
--- successful analysis.
-analyzedProgramMismatch :: Either Diagnostic value
-analyzedProgramMismatch =
-  Left
-    ( mkErrorDiagnostic
-        E3020
-        RuntimeOrigin
-        "runtime preparation received non-corresponding resolved and analyzed programs"
-    )
 
 modulePathTexts :: ModulePath -> [Text]
 modulePathTexts = NonEmpty.toList . modulePathTextSegments
@@ -756,7 +466,7 @@ interfaceExports publicInventory moduleInterface =
   where
     publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
 
-runtimeExportSelected :: ModuleImport 'Resolved -> ModuleExportInventory -> RuntimeExport -> Bool
+runtimeExportSelected :: ModuleImport 'Analyzed -> ModuleExportInventory -> RuntimeExport -> Bool
 runtimeExportSelected importDecl publicInventory runtimeExport =
   case ModuleGraph.importExposure importDecl of
     ImportAllUnqualified -> selectedBy UnqualifiedImport Nothing True
@@ -828,7 +538,7 @@ lookupRendered runtimeExport renderedLookupIndex =
     (runtimeExportNamespace runtimeExport, runtimeExportName runtimeExport)
     renderedLookupIndex
 
-scopeStatements :: Expr 'Resolved -> [Statement 'Resolved]
+scopeStatements :: Expr 'Analyzed -> [Statement 'Analyzed]
 scopeStatements expression =
   case expression of
     EBlock _ statements -> statements

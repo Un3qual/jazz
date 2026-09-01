@@ -112,14 +112,14 @@ data PreparedBenchmark
   = PreparedParseLower Text
   | PreparedAnalysis CompileInputs (CoreProgram 'Resolved)
   | PreparedModulePreparation ProgramCase
-  | PreparedRuntime ExpectedProgramBehavior (CoreProgram 'Resolved) (CoreProgram 'Analyzed)
+  | PreparedRuntime ExpectedProgramBehavior (CoreProgram 'Analyzed)
   | PreparedWholeProgram ProgramCase
 
 data PreparedCompilerScaleBenchmark
   = PreparedCompilerScaleParseLower Text
   | PreparedCompilerScaleAnalysis CompileInputs (CoreProgram 'Resolved)
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
-  | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput (CoreProgram 'Resolved) (CoreProgram 'Analyzed)
+  | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput (CoreProgram 'Analyzed)
   | PreparedCompilerScaleLoweredValidation LoweredProgram
   | PreparedCompilerScaleTypedValidation TypedProgram
   | PreparedCompilerScaleTypedLowering TypedProgram
@@ -138,8 +138,8 @@ instance NFData PreparedBenchmark where
         inputs `seq`
           rnf resolvedProgram
       PreparedModulePreparation programCase -> forceProgramCase programCase
-      PreparedRuntime expectedBehavior resolvedProgram analyzedProgram ->
-        forceExpectedProgramBehavior expectedBehavior `seq` rnf resolvedProgram `seq` forceAnalyzedProgram analyzedProgram
+      PreparedRuntime expectedBehavior analyzedProgram ->
+        forceExpectedProgramBehavior expectedBehavior `seq` forceAnalyzedProgram analyzedProgram
       PreparedWholeProgram programCase -> forceProgramCase programCase
 
 instance NFData PreparedCompilerScaleBenchmark where
@@ -150,8 +150,8 @@ instance NFData PreparedCompilerScaleBenchmark where
         inputs `seq`
           rnf resolvedProgram
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
-      PreparedCompilerScaleRuntime expectedOutput resolvedProgram analyzedProgram ->
-        forceExpectedCompilerScaleOutput expectedOutput `seq` rnf resolvedProgram `seq` forceAnalyzedProgram analyzedProgram
+      PreparedCompilerScaleRuntime expectedOutput analyzedProgram ->
+        forceExpectedCompilerScaleOutput expectedOutput `seq` forceAnalyzedProgram analyzedProgram
       PreparedCompilerScaleLoweredValidation loweredProgram -> forceLoweredProgram loweredProgram
       PreparedCompilerScaleTypedValidation typedProgram -> forceTypedProgram typedProgram
       PreparedCompilerScaleTypedLowering typedProgram -> forceTypedProgram typedProgram
@@ -186,11 +186,10 @@ prepareBenchmark benchmarkGroup programCase =
     LoweredValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     TypedLoweringBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     RuntimeBenchmark -> do
-      (resolvedProgram, analyzedProgram) <- prepareValidProgram programCase
+      (_, analyzedProgram) <- prepareValidProgram programCase
       prepareFully
         ( PreparedRuntime
             (expectedProgramBehavior programCase)
-            resolvedProgram
             analyzedProgram
         )
     WholeProgramBenchmark -> prepareFully (PreparedWholeProgram programCase)
@@ -260,11 +259,10 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
           ioError (userError ("typed-lowering scale fixture is invalid: " <> show failures))
     WholeProgramBenchmark -> prepareFully (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> do
-      (resolvedProgram, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
+      (_, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
       prepareFully
         ( PreparedCompilerScaleRuntime
             (expectedCompilerScaleOutput programCase)
-            resolvedProgram
             analyzedProgram
         )
 
@@ -286,9 +284,9 @@ runPreparedBenchmark preparedBenchmark =
       case analyzedResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
         Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
-    PreparedRuntime expectedBehavior resolvedProgram analyzedProgram ->
+    PreparedRuntime expectedBehavior analyzedProgram ->
       withCompilerStage EvaluationStage $ do
-        let runtimeResult = evaluateAnalyzedProgram resolvedProgram analyzedProgram
+        let runtimeResult = evaluateAnalyzedProgram analyzedProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedRuntimeResult expectedBehavior runtimeResult
     PreparedWholeProgram programCase -> do
@@ -313,9 +311,9 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
       case analyzedResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
         Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
-    PreparedCompilerScaleRuntime expectedOutput resolvedProgram analyzedProgram ->
+    PreparedCompilerScaleRuntime expectedOutput analyzedProgram ->
       withCompilerStage EvaluationStage $ do
-        let runtimeResult = evaluateAnalyzedProgram resolvedProgram analyzedProgram
+        let runtimeResult = evaluateAnalyzedProgram analyzedProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedCompilerScaleRuntimeResult expectedOutput runtimeResult
     PreparedCompilerScaleLoweredValidation loweredProgram ->
@@ -576,9 +574,9 @@ prepareValidCompilerScaleProgram programCase = do
 
 runCompilerScaleCase :: CompilerScaleCase -> IO Text
 runCompilerScaleCase programCase = do
-  (resolvedProgram, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
+  (_, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
   withCompilerStage EvaluationStage $ do
-    let runtimeResult = evaluateAnalyzedProgram resolvedProgram analyzedProgram
+    let runtimeResult = evaluateAnalyzedProgram analyzedProgram
     evaluate (forceRuntimeProgramOutputResult runtimeResult)
     case runtimeResult of
       Left diagnostic -> failBenchmarkDiagnostic diagnostic

@@ -54,7 +54,7 @@ import Jazz.Compiler.Analyzer
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
-    BuiltinSymbol,
+    BuiltinSymbol (BuiltinListPrependRaw),
     builtinNamesInMode,
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
@@ -1424,7 +1424,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
             inferExprTypeDetailed builtinMode env state functionExpr
           (argumentResult, stateAfterArgument) =
             inferExprTypeDetailed builtinMode env stateAfterFunction argumentExpr
-          (expressionType, finalState) =
+          (rawExpressionType, rawFinalState) =
             inferApplicationFromResults
               env
               state
@@ -1433,6 +1433,12 @@ inferExprTypeDetailedRaw builtinMode env state expr =
               functionResult
               argumentResult
               stateAfterArgument
+          (expressionType, finalState) =
+            specializeListPrependRawResult
+              functionExpr
+              argumentResult
+              rawExpressionType
+              rawFinalState
           specializedArgumentResult =
             case (expressionType, inferredExpressionType functionResult) of
               (Just _, Just functionType) ->
@@ -1451,6 +1457,50 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                 argument <- inferredProvisionalExpr specializedArgumentResult
                 pure (ProvisionalApplyExpression resultType function argument)
        in (InferredExpr expressionType provisionalExpr failures, finalState)
+
+    -- The raw prepend primitive deliberately adopts the concrete element type
+    -- carried by its list argument and coerces the prepended value to match.
+    -- Ordinary left-to-right application inference has already instantiated
+    -- the polymorphic callable from the head argument, so refine the recorded
+    -- callable spine from the tail here when it carries the more specific
+    -- Int64/Float64 representation behind an Int/Float alias.
+    specializeListPrependRawResult functionExpr argumentResult expressionType finalState =
+      case (functionExpr, inferredExpressionType argumentResult, expressionType) of
+        (EApply applicationNode builtinExpr _, Just (SemanticList tailElementType), Just _)
+          | builtinListPrependRawExpr builtinExpr ->
+              let resolvedElementType = resolveType finalState tailElementType
+                  listType = SemanticList resolvedElementType
+                  partialType = SemanticFunction listType listType
+                  callableType = SemanticFunction resolvedElementType partialType
+                  stateWithPartialFact =
+                    replaceExpressionFactType
+                      (coreNodeId applicationNode)
+                      partialType
+                      finalState
+                  stateWithCallableFact =
+                    replaceExpressionFactType
+                      (coreNodeId (expressionNode builtinExpr))
+                      callableType
+                      stateWithPartialFact
+               in (Just listType, stateWithCallableFact)
+        _ -> (expressionType, finalState)
+
+    replaceExpressionFactType nodeId expressionType =
+      modifyInferenceOutput
+        ( \output ->
+            output
+              { outputExpressionFactTypes =
+                  Map.insert nodeId expressionType (outputExpressionFactTypes output)
+              }
+        )
+
+    builtinListPrependRawExpr :: Expr 'Resolved -> Bool
+    builtinListPrependRawExpr expression =
+      case expression of
+        EVar _ name ->
+          lookupBuiltinSymbolInMode builtinMode (identifierText name)
+            == Just BuiltinListPrependRaw
+        _ -> False
 
     inferIfFromResults conditionResult thenResult elseResult stateAfterElse =
       let stateAfterConditionCheck =

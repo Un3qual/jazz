@@ -20,7 +20,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CorePhase (Analyzed),
     Expr,
     Literal (..),
   )
@@ -75,6 +75,7 @@ import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     scopeStatements,
   )
+import Jazz.Compiler.TypeInference (analyzeSourceUnitExpressionWithBuiltins)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SignatureType (..),
@@ -263,7 +264,7 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
     False
     (runtimeValueExactlyMatchesConstraint TypeInt appliedValue)
 
-mixedExplicitlyHintedCallable :: Int -> Expr 'Resolved
+mixedExplicitlyHintedCallable :: Int -> Expr 'Analyzed
 mixedExplicitlyHintedCallable recursionDepth =
   let uint8 = TypeNumeric NumericUInt8
       isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
@@ -286,7 +287,7 @@ mixedExplicitlyHintedCallable recursionDepth =
             (expressionApply (expressionVariable "collectUInt8") (expressionLiteral (LInt (fromIntegral recursionDepth))))
         ]
 
-explicitlyHintedCallable :: Int -> Expr 'Resolved
+explicitlyHintedCallable :: Int -> Expr 'Analyzed
 explicitlyHintedCallable recursionDepth =
   let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
@@ -303,7 +304,7 @@ explicitlyHintedCallable recursionDepth =
             (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
         ]
 
-requireRuntimeValue :: Text -> Expr 'Resolved -> IO RuntimeValue
+requireRuntimeValue :: Text -> Expr 'Analyzed -> IO RuntimeValue
 requireRuntimeValue label expression =
   case evaluateRuntimeExpr expression of
     Left diagnostic ->
@@ -329,7 +330,7 @@ assertStackSafeRunResult label action expectedOutput = do
       assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
       assertEqual (label <> " output") expectedOutput (runOutput result)
 
-diagnosticParityExpressions :: [Expr 'Resolved]
+diagnosticParityExpressions :: [Expr 'Analyzed]
 diagnosticParityExpressions =
   [ expressionVariable "missing",
     expressionIf (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)) (expressionLiteral (LInt 3)),
@@ -564,7 +565,20 @@ scopePlanForSource builtinMode source =
             ( "expected scope-plan witness source to resolve: "
                 <> Text.intercalate "\n" (map renderDiagnostic (toList diagnostics))
             )
-        Right expression ->
+        Right resolvedExpression -> do
+          (_, attachment) <-
+            analyzeSourceUnitExpressionWithBuiltins
+              builtinMode
+              preludeModulePath
+              Set.empty
+              Set.empty
+              defaultWarningSettings
+              resolvedExpression
+          analyzedExpression <-
+            case attachment of
+              Left failures -> failTest ("scope-plan witness facts failed: " <> Text.pack (show failures))
+              Right Nothing -> failTest "scope-plan witness produced no analyzed expression"
+              Right (Just expression) -> pure expression
           pure
             ( buildRuntimeScopePlan
                 preludeModulePath
@@ -572,7 +586,7 @@ scopePlanForSource builtinMode source =
                 Nothing
                 builtinMode
                 Set.empty
-                (scopeStatements expression)
+                (scopeStatements analyzedExpression)
             )
   where
     toList (diagnostic :| diagnostics) = diagnostic : diagnostics

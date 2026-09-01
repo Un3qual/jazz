@@ -161,7 +161,6 @@ library jazz-internal
       Jazz.Compiler.Runtime.Semantics
       Jazz.Compiler.Runtime.Types
       Jazz.Compiler.RuntimeHost
-      Jazz.Compiler.RuntimeHints
       Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
