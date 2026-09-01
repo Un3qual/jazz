@@ -27,7 +27,7 @@ import Jazz.Compiler.Driver
   )
 import Jazz.Compiler.Semantics.BindingSignature.Shared
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (..),
+  ( SemanticType (..),
     TypeScheme (..),
     emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
@@ -90,7 +90,7 @@ testTypeSchemeRecordPreservesFields :: IO ()
 testTypeSchemeRecordPreservesFields = do
   assertEqual
     "scheme result"
-    (TFunctionType (TVarType 0) (TVarType 0))
+    (SemanticFunction (SemanticVariable 0) (SemanticVariable 0))
     (schemeResultType scheme)
   assertEqual
     "scheme quantified membership"
@@ -107,7 +107,7 @@ testTypeSchemeRecordPreservesFields = do
           schemeClassConstraints = [],
           schemePrimitiveConstraints = [],
           schemeDefiningCapabilities = emptyScopeCapabilityFacts,
-          schemeResultType = TFunctionType (TVarType 0) (TVarType 0)
+          schemeResultType = SemanticFunction (SemanticVariable 0) (SemanticVariable 0)
         }
 
 testSignatureDirectlyAboveBinding :: IO ()

@@ -10,13 +10,14 @@ module Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
     ImplMethodType (..),
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
     QuantifiedVariables,
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -58,7 +59,7 @@ import Jazz.Compiler.StableSet
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),
-    NumericType,
+    SemanticType (..),
     pattern TypeApplication,
     pattern TypeBool,
     pattern TypeChar,
@@ -73,20 +74,7 @@ import Jazz.Compiler.TypeRepresentation
     pattern TypeVariable,
   )
 
-data ExpressionType
-  = TIntType
-  | TFloatType
-  | TNumericType NumericType
-  | TBoolType
-  | TCharType
-  | TTextType
-  | TListType ExpressionType
-  | TTupleType [ExpressionType]
-  | TDataType Name [ExpressionType]
-  | TFunctionType ExpressionType ExpressionType
-  | TVarType InferenceVariable
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+type ExpressionType = SemanticType Name InferenceVariable
 
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
@@ -102,35 +90,35 @@ instantiateConstructorFieldType ::
   Maybe ExpressionType
 instantiateConstructorFieldType typeParameterBindings fieldType =
   case fieldType of
-    TypeInt -> Just TIntType
-    TypeFloat -> Just TFloatType
-    TypeNumeric numericType -> Just (TNumericType numericType)
-    TypeBool -> Just TBoolType
-    TypeChar -> Just TCharType
-    TypeText -> Just TTextType
+    TypeInt -> Just SemanticInt
+    TypeFloat -> Just SemanticFloat
+    TypeNumeric numericType -> Just (SemanticNumeric numericType)
+    TypeBool -> Just SemanticBool
+    TypeChar -> Just SemanticChar
+    TypeText -> Just SemanticText
     TypeVariable name -> Map.lookup (identifierText name) typeParameterBindings
     TypeName name ->
       Just
         ( case identifierText name of
-            "Int" -> TIntType
-            "Float" -> TFloatType
-            "Bool" -> TBoolType
-            "Char" -> TCharType
-            "Text" -> TTextType
+            "Int" -> SemanticInt
+            "Float" -> SemanticFloat
+            "Bool" -> SemanticBool
+            "Char" -> SemanticChar
+            "Text" -> SemanticText
             namedTypeText ->
               maybe
-                (TDataType name [])
-                TNumericType
+                (SemanticData name [])
+                SemanticNumeric
                 (numericTypeFromName namedTypeText)
         )
     TypeApplication name arguments ->
-      TDataType name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
+      SemanticData name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
     TypeList elementType ->
-      TListType <$> instantiateConstructorFieldType typeParameterBindings elementType
+      SemanticList <$> instantiateConstructorFieldType typeParameterBindings elementType
     TypeTuple elementTypes ->
-      TTupleType <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
+      SemanticTuple <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
     TypeFunction argumentType resultType ->
-      TFunctionType
+      SemanticFunction
         <$> instantiateConstructorFieldType typeParameterBindings argumentType
         <*> instantiateConstructorFieldType typeParameterBindings resultType
 

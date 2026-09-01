@@ -93,8 +93,8 @@ import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
     ConstructorArgumentType (ConstructorArgumentMonomorphic),
     DataTypeBinding (DataTypeBinding),
-    ExpressionType (TListType),
     ImplMethodType (ImplMethodType),
+    SemanticType (..),
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypeRepresentation
@@ -265,7 +265,7 @@ testDeepModuleInterfaceForcing =
           { interfaceValueTypes =
               Map.singleton
                 (ModuleExport ValueNamespace "value")
-                (PlainTypeBinding (TListType deferredExpressionType))
+                (PlainTypeBinding (SemanticList deferredExpressionType))
           }
       ),
       ( "data type",
@@ -274,7 +274,7 @@ testDeepModuleInterfaceForcing =
           { interfaceDataTypes =
               Map.singleton
                 "Container"
-                (DataTypeBinding [] [[ConstructorArgumentMonomorphic (TListType deferredExpressionType)]])
+                (DataTypeBinding [] [[ConstructorArgumentMonomorphic (SemanticList deferredExpressionType)]])
           }
       ),
       ( "class method",
@@ -519,7 +519,7 @@ testDeepTypedProgramForcing =
         ]
         ["Main"]
     baseExpression = Typed.TypedLiteralExpr boolInfo (Typed.TypedBooleanLiteral True)
-    boolInfo = Typed.TypedNodeInfo Typed.TypedBoolType Typed.TypedBoolRecipe [] []
+    boolInfo = Typed.TypedNodeInfo SemanticBool Typed.TypedBoolRecipe [] []
 
 assertForcesMarker :: Text -> String -> IO () -> IO ()
 assertForcesMarker label marker action = do

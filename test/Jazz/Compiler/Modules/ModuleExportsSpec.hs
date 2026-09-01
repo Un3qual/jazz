@@ -30,7 +30,7 @@ import Jazz.Compiler.ModuleInterface
   )
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TIntType),
+  ( SemanticType (..),
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
@@ -222,6 +222,6 @@ testInterfaceInventory =
         { interfaceValueTypes =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
-              (PlainTypeBinding TIntType),
+              (PlainTypeBinding SemanticInt),
           interfaceClassFacts = Map.singleton "Eq" 1
         }

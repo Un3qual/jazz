@@ -43,6 +43,7 @@ import Jazz.Compiler.LoweredIR.Lower.Requirements
     textRuntimeServiceApplication,
   )
 import Jazz.Compiler.LoweredIR.Lower.Types
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Query (typedExpressionReferencesAnyBinder)
 
@@ -442,7 +443,7 @@ collectFunctionDeclarations =
 callableScheme :: TypedScheme -> Bool
 callableScheme (TypedScheme _ _ _ _ typeValue _ maybeCallableShape) =
   case (typeValue, maybeCallableShape) of
-    (TypedFunctionType {}, Just _) -> True
+    (SemanticFunction {}, Just _) -> True
     _ -> False
 
 duplicateLeadingParameters :: TypedExpr -> [([Int], TypedCoreName)]
@@ -747,7 +748,7 @@ collectUnaryClosureShape managedLayoutCatalog expectedType expectedRecipe revers
         else Nothing
       (argumentType, resultType) <-
         case expectedType of
-          TypedFunctionType argument result -> Just (argument, result)
+          SemanticFunction argument result -> Just (argument, result)
           _ -> Nothing
       (argumentRecipe, resultRecipe) <-
         case expectedRecipe of
@@ -790,7 +791,7 @@ flattenLeadingLambdas managedLayoutCatalog expectedType expectedRecipe reversedE
         else Nothing
       (argumentType, resultType) <-
         case expectedType of
-          TypedFunctionType argument result -> Just (argument, result)
+          SemanticFunction argument result -> Just (argument, result)
           _ -> Nothing
       (argumentRecipe, resultRecipe) <-
         case expectedRecipe of
@@ -829,23 +830,23 @@ flattenLeadingLambdas managedLayoutCatalog expectedType expectedRecipe reversedE
 scalarRepresentation :: ManagedLayoutCatalog -> TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
 scalarRepresentation managedLayoutCatalog typeValue recipe =
   case (typeValue, representationForRecipe managedLayoutCatalog recipe) of
-    (TypedTupleType [], Just LoweredUnitRepresentation) -> Just LoweredUnitRepresentation
-    (TypedBoolType, Just LoweredBoolRepresentation) -> Just LoweredBoolRepresentation
-    (TypedCharType, Just LoweredCharRepresentation) -> Just LoweredCharRepresentation
-    (TypedIntType, Just representation@LoweredSignedIntegerRepresentation {}) -> Just representation
-    (TypedFloatType, Just representation@LoweredFloatRepresentation {}) -> Just representation
-    (TypedNumericType _, Just representation@LoweredSignedIntegerRepresentation {}) -> Just representation
-    (TypedNumericType _, Just representation@LoweredUnsignedIntegerRepresentation {}) -> Just representation
-    (TypedNumericType _, Just representation@LoweredFloatRepresentation {}) -> Just representation
+    (SemanticTuple [], Just LoweredUnitRepresentation) -> Just LoweredUnitRepresentation
+    (SemanticBool, Just LoweredBoolRepresentation) -> Just LoweredBoolRepresentation
+    (SemanticChar, Just LoweredCharRepresentation) -> Just LoweredCharRepresentation
+    (SemanticInt, Just representation@LoweredSignedIntegerRepresentation {}) -> Just representation
+    (SemanticFloat, Just representation@LoweredFloatRepresentation {}) -> Just representation
+    (SemanticNumeric _, Just representation@LoweredSignedIntegerRepresentation {}) -> Just representation
+    (SemanticNumeric _, Just representation@LoweredUnsignedIntegerRepresentation {}) -> Just representation
+    (SemanticNumeric _, Just representation@LoweredFloatRepresentation {}) -> Just representation
     _ -> Nothing
 
 valueRepresentation :: ManagedLayoutCatalog -> TypedType -> TypedRepresentationRecipe -> Maybe LoweredRepresentation
 valueRepresentation managedLayoutCatalog typeValue recipe =
   case (typeValue, representationForRecipe managedLayoutCatalog recipe) of
-    (TypedFunctionType {}, Just representation@LoweredClosureRepresentation {}) -> Just representation
-    (TypedTextType, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
-    (TypedTupleType (_ : _), Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
-    (TypedDataType {}, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
+    (SemanticFunction {}, Just representation@LoweredClosureRepresentation {}) -> Just representation
+    (SemanticText, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
+    (SemanticTuple (_ : _), Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
+    (SemanticData {}, Just representation@LoweredManagedReferenceRepresentation {}) -> Just representation
     _ -> scalarRepresentation managedLayoutCatalog typeValue recipe
 
 validateStatementProfiles ::

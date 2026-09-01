@@ -33,6 +33,7 @@ import Jazz.Compiler.LoweredIR.Lower.Types (RuntimeRequirements (..))
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textLayout)
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgram,
@@ -397,7 +398,7 @@ testManagedConstructionLowererBoundaries =
               ( LoweredIRRecipeFailureDetail
                   ( TypedManagedVariantRecipe
                       (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Phantom")
-                      [TypedListType TypedIntType]
+                      [SemanticList SemanticInt]
                   )
               )
           ]
@@ -409,9 +410,9 @@ testManagedConstructionLowererBoundaries =
               ( LoweredIRRecipeFailureDetail
                   ( TypedManagedVariantRecipe
                       (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Phantom")
-                      [ TypedDataType
+                      [ SemanticData
                           (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Inner")
-                          [TypedListType TypedIntType]
+                          [SemanticList SemanticInt]
                       ]
                   )
               )
@@ -431,7 +432,7 @@ testManagedConstructionLowererBoundaries =
               ( LoweredIRRecipeFailureDetail
                   ( TypedManagedVariantRecipe
                       (TypedResolvedName TypedCurrentModule TypedTypeNamespace "Option")
-                      [TypedIntType]
+                      [SemanticInt]
                   )
               )
           ]
@@ -659,10 +660,10 @@ testManagedNestedVariantProductModuleIdentity = do
       let boxTypeName = TypedResolvedName TypedCurrentModule TypedTypeNamespace "Box"
           boxConstructorName = TypedResolvedName TypedCurrentModule TypedConstructorNamespace "Box"
           boxBinder = TypedBinderId (modulePath, [0, 0], boxConstructorName)
-          boxInfo = TypedNodeInfo (TypedDataType boxTypeName []) (TypedManagedVariantRecipe boxTypeName []) [] []
+          boxInfo = TypedNodeInfo (SemanticData boxTypeName []) (TypedManagedVariantRecipe boxTypeName []) [] []
           productInfo =
             TypedNodeInfo
-              (TypedTupleType [TypedDataType boxTypeName [], TypedIntType])
+              (SemanticTuple [SemanticData boxTypeName [], SemanticInt])
               (TypedManagedProductRecipe [TypedManagedVariantRecipe boxTypeName [], TypedSignedIntegerRecipe 64])
               []
               []
@@ -687,7 +688,7 @@ testManagedNestedVariantProductModuleIdentity = do
                       productInfo
                       [ TypedVariableExpr boxInfo boxConstructorName (Just boxBinder),
                         TypedLiteralExpr
-                          (TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] [])
+                          (TypedNodeInfo SemanticInt (TypedSignedIntegerRecipe 64) [] [])
                           (TypedIntegerLiteral "1")
                       ]
                   )
@@ -780,7 +781,7 @@ testManagedProductVariantLayoutCatalog = do
             someBinder
             [ TypedInstantiation
                 someBinder
-                [TypedTypeArgument (TypedTypeParameterId 0) TypedIntType]
+                [TypedTypeArgument (TypedTypeParameterId 0) SemanticInt]
                 Nothing
             ]
         )

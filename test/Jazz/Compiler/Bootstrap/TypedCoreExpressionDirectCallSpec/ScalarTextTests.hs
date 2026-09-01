@@ -27,7 +27,7 @@ import Jazz.Compiler.TypeInference.Pattern (InferredPatternCaseArm (..), inferPa
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TBoolType),
+  ( SemanticType (..),
   )
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
@@ -308,14 +308,14 @@ testScalarPatternCaseArmResultPositions =
         InferenceOnly
         ResolveKernelOnly
         Map.empty
-        TBoolType
+        SemanticBool
         initialInferState
         [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool False)),
           CaseArm PWildcard Nothing (ELit (LBool True))
         ]
     inferChild mode _ _ state _ =
       case mode of
-        InferenceOnly -> (InferredExpr (Just TBoolType) Nothing [], state)
+        InferenceOnly -> (InferredExpr (Just SemanticBool) Nothing [], state)
         ProduceTypedCoreExpressionDirectCall ->
           error "expected inference-only pattern callback invocation"
     inferredArmPattern (InferredPatternCaseArm pattern _ _) = pattern

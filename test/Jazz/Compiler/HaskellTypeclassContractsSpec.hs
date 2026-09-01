@@ -98,6 +98,7 @@ tests =
     ("inference accepts imported TypeName facts for source-origin constraints", testInferenceAcceptsImportedTypeNameFact),
     ("inference accepts imported TypeApplication facts for source-origin constraints", testInferenceAcceptsImportedTypeApplicationFact),
     ("signature types traverse constructor names and variables exactly once", testSignatureTypeBitraversal),
+    ("semantic types obey bifunctor laws and traverse both identities exactly once", testSemanticTypeBitraversal),
     ("module export inventories union without duplicates", testModuleExportInventory)
   ]
 
@@ -134,6 +135,45 @@ testSignatureTypeBitraversal =
                       TypeRepresentation.TypeApplication "maybe" [TypeRepresentation.TypeVariable 3]
                     ]
                 )
+            )
+        ]
+
+testSemanticTypeBitraversal :: IO ()
+testSemanticTypeBitraversal = do
+  assertEqual "bimap identity" semanticType (bimap id id semanticType)
+  assertEqual
+    "bimap composition"
+    (bimap (Text.reverse . Text.toUpper) ((* 2) . (+ 10)) semanticType)
+    (bimap Text.reverse (* 2) (bimap Text.toUpper (+ 10) semanticType))
+  assertEqual
+    "type names and variables are transformed throughout a nested semantic type"
+    ( TypeRepresentation.SemanticData
+        "RESULT"
+        [ TypeRepresentation.SemanticVariable 11,
+          TypeRepresentation.SemanticFunction
+            (TypeRepresentation.SemanticData "ITEM" [])
+            ( TypeRepresentation.SemanticTuple
+                [ TypeRepresentation.SemanticVariable 12,
+                  TypeRepresentation.SemanticList
+                    (TypeRepresentation.SemanticData "MAYBE" [TypeRepresentation.SemanticVariable 13])
+                ]
+            )
+        ]
+    )
+    (bimap Text.toUpper (+ 10) semanticType)
+  where
+    semanticType :: TypeRepresentation.SemanticType Text Int
+    semanticType =
+      TypeRepresentation.SemanticData
+        "result"
+        [ TypeRepresentation.SemanticVariable 1,
+          TypeRepresentation.SemanticFunction
+            (TypeRepresentation.SemanticData "item" [])
+            ( TypeRepresentation.SemanticTuple
+                [ TypeRepresentation.SemanticVariable 2,
+                  TypeRepresentation.SemanticList
+                    (TypeRepresentation.SemanticData "maybe" [TypeRepresentation.SemanticVariable 3])
+                ]
             )
         ]
 

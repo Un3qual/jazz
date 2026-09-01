@@ -19,7 +19,7 @@ import Jazz.Compiler.ModuleResolver
   )
 import Jazz.Compiler.TypeInference (InferenceInputs (..))
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TFunctionType, TIntType),
+  ( SemanticType (..),
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
   )
@@ -150,7 +150,7 @@ rejectedFixtures =
             { inferenceImportedTypes =
                 Map.singleton
                   "foreign"
-                  (PlainTypeBinding (TFunctionType TIntType TIntType))
+                  (PlainTypeBinding (SemanticFunction SemanticInt SemanticInt))
             }
       },
     sourceFixtureNoExports "user-defined-operator-call" userDefinedOperatorCallSource
@@ -822,25 +822,25 @@ entryModule =
     unitInfo
 
 unitInfo :: TypedNodeInfo
-unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
+unitInfo = TypedNodeInfo (SemanticTuple []) TypedUnitRecipe [] []
 
 boolInfo, boolCallableInfo, charInfo, intInfo, floatInfo, textInfo :: TypedNodeInfo
-boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
 boolCallableInfo =
   TypedNodeInfo
-    (TypedFunctionType TypedBoolType TypedBoolType)
+    (SemanticFunction SemanticBool SemanticBool)
     (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
     []
     []
-charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
-intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
+charInfo = TypedNodeInfo SemanticChar TypedCharRecipe [] []
+intInfo = TypedNodeInfo SemanticInt (TypedSignedIntegerRecipe 64) [] []
 
 inferredIntInfo :: TypedNodeInfo
-inferredIntInfo = TypedNodeInfo (TypedNumericType NumericInt64) (TypedSignedIntegerRecipe 64) [] []
+inferredIntInfo = TypedNodeInfo (SemanticNumeric NumericInt64) (TypedSignedIntegerRecipe 64) [] []
 
-floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
+floatInfo = TypedNodeInfo SemanticFloat (TypedFloatRecipe 64) [] []
 
-textInfo = TypedNodeInfo TypedTextType TypedManagedTextRecipe [] []
+textInfo = TypedNodeInfo SemanticText TypedManagedTextRecipe [] []
 
 boolExpr :: Bool -> TypedExpr
 boolExpr value = TypedLiteralExpr boolInfo (TypedBooleanLiteral value)
@@ -1101,7 +1101,7 @@ explicitNumericFunctions =
   ]
   where
     numericFunction name numericType recipe literal =
-      let resultInfo = TypedNodeInfo (TypedNumericType numericType) recipe [] []
+      let resultInfo = TypedNodeInfo (SemanticNumeric numericType) recipe [] []
        in ExpectedFunction
             name
             [("ignored", boolInfo)]
@@ -1237,7 +1237,7 @@ expectedFunctionInfo function parameters =
 functionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 functionInfo parameters resultInfo =
   TypedNodeInfo
-    (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
+    (foldr (SemanticFunction . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
     ( case parameters of
         [] -> typedExpressionRecipe resultInfo
         _ ->
@@ -1251,7 +1251,7 @@ functionInfo parameters resultInfo =
 stagedFunctionInfo :: [(Text, TypedNodeInfo)] -> TypedNodeInfo -> TypedNodeInfo
 stagedFunctionInfo parameters resultInfo =
   TypedNodeInfo
-    (foldr (TypedFunctionType . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
+    (foldr (SemanticFunction . typedExpressionType . snd) (typedExpressionType resultInfo) parameters)
     ( foldr
         (\(_, parameterInfo) resultRecipe -> TypedClosureRecipe [typedExpressionRecipe parameterInfo] resultRecipe)
         (typedExpressionRecipe resultInfo)

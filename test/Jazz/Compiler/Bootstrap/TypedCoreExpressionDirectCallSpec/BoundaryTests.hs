@@ -36,8 +36,8 @@ import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
-    ExpressionType (TBoolType, TFunctionType),
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
   )
@@ -716,7 +716,7 @@ testIncompleteRecursiveGroupOwnership :: IO ()
 testIncompleteRecursiveGroupOwnership = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let spanValue = SourceSpan 1 1
-      functionType = TFunctionType TBoolType TBoolType
+      functionType = SemanticFunction SemanticBool SemanticBool
       loopDeclaration =
         ProvisionalCallableDeclaration
           1
@@ -730,14 +730,14 @@ testIncompleteRecursiveGroupOwnership = do
           "item"
           functionType
           ( ProvisionalApplyExpression
-              TBoolType
+              SemanticBool
               (ProvisionalVariableExpression "loop" functionType)
-              (ProvisionalVariableExpression "item" TBoolType)
+              (ProvisionalVariableExpression "item" SemanticBool)
           )
       provisionalScope =
         ProvisionalScopeStatements
           [ ProvisionalFunctionBinding loopDeclaration loopExpression,
-            ProvisionalTerminalExpression 2 spanValue (ProvisionalLiteralExpression (LBool True) TBoolType)
+            ProvisionalTerminalExpression 2 spanValue (ProvisionalLiteralExpression (LBool True) SemanticBool)
           ]
       status =
         typedCoreProductionOutcomeStatus
@@ -1385,7 +1385,7 @@ testInputModuleFailureOrder = do
             fixtureInputs =
               (fixtureInputs fixture)
                 { inferenceCurrentModulePath = Just ["Other", "Main"],
-                  inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding TBoolType),
+                  inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding SemanticBool),
                   inferenceImportedClassNames = Set.singleton "PreludeClass"
                 }
           }
@@ -1425,7 +1425,7 @@ testAdditionalProfileFailures =
             unitFixture
               { fixtureInputs =
                   (fixtureInputs unitFixture)
-                    { inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding TBoolType)
+                    { inferenceImportedTypes = Map.singleton "foreign" (PlainTypeBinding SemanticBool)
                     }
               }
           importedData =

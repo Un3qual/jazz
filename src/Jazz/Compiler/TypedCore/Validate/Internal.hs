@@ -45,6 +45,7 @@ module Jazz.Compiler.TypedCore.Validate.Internal
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Foldable (asum)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -205,13 +206,7 @@ validateSpan path (TypedSpan line column)
   | otherwise = [failure path TypedInvalidSpan TypedNoValidationDetail]
 
 qualifyExternalType :: [Text] -> TypedType -> TypedType
-qualifyExternalType modulePath typeValue =
-  case typeValue of
-    TypedListType elementType -> TypedListType (qualifyExternalType modulePath elementType)
-    TypedTupleType elementTypes -> TypedTupleType (map (qualifyExternalType modulePath) elementTypes)
-    TypedDataType name arguments -> TypedDataType (qualifyExternalName modulePath name) (map (qualifyExternalType modulePath) arguments)
-    TypedFunctionType argument result -> TypedFunctionType (qualifyExternalType modulePath argument) (qualifyExternalType modulePath result)
-    _ -> typeValue
+qualifyExternalType modulePath = first (qualifyExternalName modulePath)
 
 qualifyExternalRecipe :: [Text] -> TypedRepresentationRecipe -> TypedRepresentationRecipe
 qualifyExternalRecipe modulePath recipe =

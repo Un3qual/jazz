@@ -51,7 +51,8 @@ import Jazz.Compiler.TypeInference.State
   )
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
+    SemanticType (..),
     TypeSchemeConstraint (..),
   )
 import Jazz.Compiler.TypeRepresentation
@@ -98,7 +99,7 @@ validateSignatureType state signatureType =
   where
     variables =
       Map.fromList
-        [ (variableName, TVarType (InferenceVariable (negate position - 1)))
+        [ (variableName, SemanticVariable (InferenceVariable (negate position - 1)))
         | (position, variableName) <-
             zip [0 :: Int ..] (constraintSignatureTypeVariableNamesInOrder signatureType)
         ]
@@ -110,12 +111,12 @@ convertSignatureType ::
   Either SignatureTypeFailure ExpressionType
 convertSignatureType dataTypes variables signatureType =
   case signatureType of
-    TypeInt -> Right TIntType
-    TypeFloat -> Right TFloatType
-    TypeNumeric numericType -> Right (TNumericType numericType)
-    TypeBool -> Right TBoolType
-    TypeChar -> Right TCharType
-    TypeText -> Right TTextType
+    TypeInt -> Right SemanticInt
+    TypeFloat -> Right SemanticFloat
+    TypeNumeric numericType -> Right (SemanticNumeric numericType)
+    TypeBool -> Right SemanticBool
+    TypeChar -> Right SemanticChar
+    TypeText -> Right SemanticText
     TypeVariable name ->
       maybe
         (Left (UnboundSignatureTypeVariable name))
@@ -130,23 +131,23 @@ convertSignatureType dataTypes variables signatureType =
           Left (TypeVariableApplicationHead name)
       | otherwise -> namedType name arguments
     TypeList innerType ->
-      TListType <$> convert innerType
+      SemanticList <$> convert innerType
     TypeTuple elementTypes ->
-      TTupleType <$> traverse convert elementTypes
+      SemanticTuple <$> traverse convert elementTypes
     TypeFunction argumentType resultType ->
-      TFunctionType <$> convert argumentType <*> convert resultType
+      SemanticFunction <$> convert argumentType <*> convert resultType
   where
     convert = convertSignatureType dataTypes variables
 
     builtinOrVariableType name =
       case identifierText name of
-        "Int" -> Just TIntType
-        "Float" -> Just TFloatType
-        "Bool" -> Just TBoolType
-        "Char" -> Just TCharType
-        "Text" -> Just TTextType
+        "Int" -> Just SemanticInt
+        "Float" -> Just SemanticFloat
+        "Bool" -> Just SemanticBool
+        "Char" -> Just SemanticChar
+        "Text" -> Just SemanticText
         typeName ->
-          (TNumericType <$> numericTypeFromName typeName)
+          (SemanticNumeric <$> numericTypeFromName typeName)
             <|> Map.lookup typeName variables
 
     namedType name arguments =
@@ -156,7 +157,7 @@ convertSignatureType dataTypes variables signatureType =
           | length parameters /= length arguments ->
               Left (NamedTypeArityMismatch name (length parameters) (length arguments))
           | otherwise ->
-              TDataType name <$> traverse convert arguments
+              SemanticData name <$> traverse convert arguments
 
 renderSignatureTypeFailure :: SignatureTypeFailure -> Text
 renderSignatureTypeFailure failure =
@@ -222,7 +223,7 @@ signaturePayloadFromType explicitConstraints signatureType state =
       variableOrder =
         [ typeVar
         | variableName <- variableNames,
-          Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
+          Just (SemanticVariable typeVar) <- [Map.lookup variableName signatureVariables]
         ]
    in case constraintSignatureTypeToExpressionTypeWithState nextState signatureVariables signatureType of
         Just expressionType ->
@@ -251,7 +252,7 @@ variableConstraintSignaturePayloadToExpressionType constraints signatureType sta
       variableOrder =
         [ typeVar
         | variableName <- variableNames,
-          Just (TVarType typeVar) <- [Map.lookup variableName signatureVariables]
+          Just (SemanticVariable typeVar) <- [Map.lookup variableName signatureVariables]
         ]
    in case (convertedType, convertedConstraints) of
         (Just expressionType, Just explicitConstraints) ->
@@ -388,26 +389,26 @@ data RuntimeSignaturePolicy
 expressionTypeToRuntimeSignature :: RuntimeSignaturePolicy -> ExpressionType -> Maybe SignatureType
 expressionTypeToRuntimeSignature policy expressionType =
   case expressionType of
-    TIntType -> Just TypeInt
-    TFloatType -> Just TypeFloat
-    TNumericType numericType -> Just (TypeNumeric numericType)
-    TBoolType -> Just TypeBool
-    TCharType -> Just TypeChar
-    TTextType -> Just TypeText
-    TListType elementType ->
+    SemanticInt -> Just TypeInt
+    SemanticFloat -> Just TypeFloat
+    SemanticNumeric numericType -> Just (TypeNumeric numericType)
+    SemanticBool -> Just TypeBool
+    SemanticChar -> Just TypeChar
+    SemanticText -> Just TypeText
+    SemanticList elementType ->
       TypeList <$> convert elementType
-    TTupleType elementTypes ->
+    SemanticTuple elementTypes ->
       TypeTuple <$> traverse convert elementTypes
-    TDataType typeName typeArguments ->
+    SemanticData typeName typeArguments ->
       case traverse convert typeArguments of
         Just [] -> Just (TypeName typeName)
         Just argumentTemplates -> Just (TypeApplication typeName argumentTemplates)
         Nothing -> Nothing
-    TFunctionType inputType outputType ->
+    SemanticFunction inputType outputType ->
       TypeFunction
         <$> convert inputType
         <*> convert outputType
-    TVarType typeVar ->
+    SemanticVariable typeVar ->
       case policy of
         RuntimeHintPolicy -> Nothing
         RuntimeTemplatePolicy variableNames ->

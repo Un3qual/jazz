@@ -12,6 +12,7 @@ import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR (LoweredProgram)
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 
 lowererBoundaryPrograms :: [(Text, TypedProgram)]
@@ -75,10 +76,10 @@ combinedStatementFailureOrderLowererProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    seedScheme = TypedScheme seedBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing
     messageName = resolvedName "message"
     messageBinder = TypedBinderId (modulePath, [1], messageName)
-    messageScheme = TypedScheme messageBinder [] [] [] TypedTextType TypedManagedTextRecipe Nothing
+    messageScheme = TypedScheme messageBinder [] [] [] SemanticText TypedManagedTextRecipe Nothing
 
 validIndependentLowererPrograms :: [(Text, TypedProgram)]
 validIndependentLowererPrograms =
@@ -221,7 +222,7 @@ managedDirectFunctionResultProgram =
     wholeBinder = ManagedProductsVariants.patternBinder [2, 0, 0, 0] wholeName
     callableInfo =
       TypedNodeInfo
-        (TypedFunctionType (typedExpressionType ManagedProductsVariants.optionIntInfo) TypedIntType)
+        (SemanticFunction (typedExpressionType ManagedProductsVariants.optionIntInfo) SemanticInt)
         (TypedClosureRecipe [typedExpressionRecipe ManagedProductsVariants.optionIntInfo] (TypedSignedIntegerRecipe 64))
         []
         []
@@ -272,7 +273,7 @@ managedCapturedScalarArmProgram :: TypedProgram
 managedCapturedScalarArmProgram =
   ManagedProductsVariants.managedProgram
     [ TypedDataStatement ManagedProductsVariants.optionDeclaration,
-      TypedLetStatement captureBinder captureName (TypedSpan 3 1) (TypedScheme captureBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing) (intExpr 7),
+      TypedLetStatement captureBinder captureName (TypedSpan 3 1) (TypedScheme captureBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing) (intExpr 7),
       TypedSignatureStatement signatureBinder functionName (TypedSpan 4 1) (scheme signatureBinder),
       TypedLetStatement
         functionBinder
@@ -299,7 +300,7 @@ managedCapturedScalarArmProgram =
     itemBinder = ManagedProductsVariants.patternBinder [3, 0, 0, 0, 0, 0] itemName
     callableInfo =
       TypedNodeInfo
-        (TypedFunctionType (typedExpressionType ManagedProductsVariants.optionIntInfo) TypedIntType)
+        (SemanticFunction (typedExpressionType ManagedProductsVariants.optionIntInfo) SemanticInt)
         (TypedClosureRecipe [typedExpressionRecipe ManagedProductsVariants.optionIntInfo] (TypedSignedIntegerRecipe 64))
         []
         []
@@ -444,7 +445,7 @@ managedNestedOrPatternProgram =
   where
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedBoolType, TypedBoolType])
+        (SemanticTuple [SemanticBool, SemanticBool])
         (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
         []
         []
@@ -572,7 +573,7 @@ managedUnsupportedFieldRecipeLowererProgram =
     boxConstructor = ManagedProductsVariants.constructorName "ListBox"
     boxBinder = ManagedProductsVariants.constructorBinder 0 boxConstructor
     listRecipe = TypedManagedListRecipe (TypedSignedIntegerRecipe 64)
-    listInfo = TypedNodeInfo (TypedListType TypedIntType) listRecipe [] []
+    listInfo = TypedNodeInfo (SemanticList SemanticInt) listRecipe [] []
     listExpression = TypedListExpr listInfo [intExpr 1]
     boxInfo = ManagedProductsVariants.variantInfo boxName []
     declaration =
@@ -583,7 +584,7 @@ managedUnsupportedFieldRecipeLowererProgram =
         [ TypedConstructorDeclaration
             boxBinder
             boxConstructor
-            [TypedListType TypedIntType]
+            [SemanticList SemanticInt]
             [listRecipe]
         ]
 
@@ -601,7 +602,7 @@ managedUnsupportedPhantomListArgumentLowererProgram =
     phantomName = ManagedProductsVariants.typeName "Phantom"
     constructor = ManagedProductsVariants.constructorName "Phantom"
     binder = ManagedProductsVariants.constructorBinder 0 constructor
-    phantomListInfo = ManagedProductsVariants.variantInfo phantomName [TypedListType TypedIntType]
+    phantomListInfo = ManagedProductsVariants.variantInfo phantomName [SemanticList SemanticInt]
     expression = ManagedProductsVariants.constructorCall binder constructor phantomListInfo [] []
     declaration =
       TypedDataDeclaration
@@ -626,7 +627,7 @@ managedUnsupportedNestedPhantomListArgumentLowererProgram =
     innerName = ManagedProductsVariants.typeName "Inner"
     innerConstructor = ManagedProductsVariants.constructorName "Inner"
     innerBinder = TypedBinderId (["App", "Main"], [0, 0], innerConstructor)
-    nestedArgument = TypedDataType innerName [TypedListType TypedIntType]
+    nestedArgument = SemanticData innerName [SemanticList SemanticInt]
     phantomName = ManagedProductsVariants.typeName "Phantom"
     phantomConstructor = ManagedProductsVariants.constructorName "Phantom"
     phantomBinder = TypedBinderId (["App", "Main"], [1, 0], phantomConstructor)
@@ -819,13 +820,13 @@ nonConcreteClosureRepresentationLowererProgram =
     parameterBinder = TypedBinderId (modulePath, [1, 0], parameterName)
     parameterInfo =
       TypedNodeInfo
-        (TypedTypeParameterType typeParameter)
+        (SemanticVariable typeParameter)
         (TypedRepresentationParameterRecipe typeParameter)
         []
         []
     polymorphicInfo =
       TypedNodeInfo
-        (TypedFunctionType (typedExpressionType parameterInfo) (typedExpressionType parameterInfo))
+        (SemanticFunction (typedExpressionType parameterInfo) (typedExpressionType parameterInfo))
         ( TypedClosureRecipe
             [typedExpressionRecipe parameterInfo]
             (typedExpressionRecipe parameterInfo)
@@ -861,7 +862,7 @@ callableShapeBodyDisagreementLowererProgram =
     binaryCallableInfo = functionInfo [("left", boolInfo), ("right", boolInfo)] boolInfo
     stagedChooserInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType (typedExpressionType binaryCallableInfo))
+        (SemanticFunction SemanticBool (typedExpressionType binaryCallableInfo))
         ( TypedClosureRecipe
             [TypedBoolRecipe]
             (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
@@ -943,7 +944,7 @@ directShapeStagedRecipeLowererProgram =
   where
     stagedInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
+        (SemanticFunction SemanticBool (SemanticFunction SemanticBool SemanticBool))
         (TypedClosureRecipe [TypedBoolRecipe] (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe))
         []
         []
@@ -1063,7 +1064,7 @@ invalidScalarBindingRhsProgram =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    seedScheme = TypedScheme seedBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing
 
 recursionDescendantFailureOrderLowererProgram :: TypedProgram
 recursionDescendantFailureOrderLowererProgram =
@@ -1094,7 +1095,7 @@ recursionDescendantFailureOrderLowererProgram =
     loopName = resolvedName "loop"
     loopBinder = TypedBinderId (modulePath, [2], loopName)
     bindings = Map.fromList [(seedName, seedBinder), (loopName, loopBinder)]
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    seedScheme = TypedScheme seedBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing
     scalarStatement =
       [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
     loopFunction =
@@ -1149,7 +1150,7 @@ interleavedCaptureMutualRecursiveLowererProgram =
           (seedName, seedBinder),
           (rightName, rightBinder)
         ]
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    seedScheme = TypedScheme seedBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing
     leftFunction =
       ExpectedFunction
         "left"
@@ -1199,7 +1200,7 @@ capturingLowererProgram =
     addSeedName = resolvedName "addSeed"
     addSeedBinder = TypedBinderId (modulePath, [2], addSeedName)
     bindings = Map.fromList [(seedName, seedBinder), (addSeedName, addSeedBinder)]
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    seedScheme = TypedScheme seedBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing
     scalarStatement =
       [TypedLetStatement seedBinder seedName (TypedSpan 1 1) seedScheme (intExpr 1)]
     addSeedFunction =
@@ -1391,7 +1392,7 @@ importedDirectCallLowererProgram =
         []
         []
         []
-        (TypedFunctionType TypedIntType TypedIntType)
+        (SemanticFunction SemanticInt SemanticInt)
         (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
         (Just TypedDirectCallableShape)
     providerModule =

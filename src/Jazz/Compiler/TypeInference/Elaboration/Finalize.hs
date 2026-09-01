@@ -97,7 +97,7 @@ import Jazz.Compiler.TypeInference.Solver
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
-import Jazz.Compiler.TypeInference.Types (ExpressionType (..), IntegerLiteralRange (..), TypeBinding (..))
+import Jazz.Compiler.TypeInference.Types (ExpressionType, IntegerLiteralRange (..), SemanticType (..), TypeBinding (..))
 import Jazz.Compiler.TypeRepresentation (NumericType (NumericInt64))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Query (typedExpressionReferencesAnyBinder)
@@ -246,7 +246,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               directArity = maybe (resolvedFunctionArity expressionType) functionArity (Map.lookup name functions)
               infoResult =
                 case defaultScalarLiterals state (resolveType state expressionType) of
-                  TFunctionType {} -> callableInfo structuredCatalog callableShape directArity statementIndex [] expressionType
+                  SemanticFunction {} -> callableInfo structuredCatalog callableShape directArity statementIndex [] expressionType
                   _ -> valueInfo structuredCatalog statementIndex [] expressionType
            in case infoResult of
                 Left failure -> ([failure], Nothing, scalarBindings)
@@ -445,7 +445,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         ProvisionalTupleExpression expressionType elements ->
           let selectedElements =
                 case defaultScalarLiterals finalizationState (resolveType finalizationState expressionType) of
-                  TTupleType elementTypes
+                  SemanticTuple elementTypes
                     | length elementTypes == length elements ->
                         zipWith
                           (\elementType -> specializeProvisionalExpression finalizationState (Just elementType))
@@ -536,7 +536,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     else case valueInfo structuredCatalog statementIndex childPath selectedExpressionType of
                       Left failure -> ([failure], Nothing)
                       Right info -> ([], Just (TypedVariableExpr info (resolvedValueName name) (Just parameterBinder)))
-          | TDataType {} <- resolveType finalizationState expressionType ->
+          | SemanticData {} <- resolveType finalizationState expressionType ->
               ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail],
                 Nothing
               )
@@ -801,7 +801,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                         Right literalValue -> ([], Just (TypedLiteralPattern currentInfo literalValue), Map.empty)
                     PTuple nested ->
                       case defaultScalarLiterals patternFinalizationState (resolveType patternFinalizationState currentType) of
-                        TTupleType elementTypes
+                        SemanticTuple elementTypes
                           | length elementTypes == length nested ->
                               finalizeChildren
                                 currentPath
@@ -1077,7 +1077,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                       let constructorInfo =
                             TypedNodeInfo
                               ( foldr
-                                  (TypedFunctionType . typedNodeType)
+                                  (SemanticFunction . typedNodeType)
                                   (typedNodeType resultInfo)
                                   fieldInfos
                               )
@@ -1109,7 +1109,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         [] -> resultInfo
         _ ->
           TypedNodeInfo
-            (foldr (TypedFunctionType . typedNodeType) (typedNodeType resultInfo) remainingFields)
+            (foldr (SemanticFunction . typedNodeType) (typedNodeType resultInfo) remainingFields)
             (TypedClosureRecipe (map typedNodeRecipe remainingFields) (typedNodeRecipe resultInfo))
             []
             []
@@ -1130,23 +1130,23 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     representationRecipeForTypedType typeValue =
       case typeValue of
-        TypedIntType -> Just (TypedSignedIntegerRecipe 64)
-        TypedFloatType -> Just (TypedFloatRecipe 64)
-        TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
-        TypedBoolType -> Just TypedBoolRecipe
-        TypedCharType -> Just TypedCharRecipe
-        TypedTextType -> Just TypedManagedTextRecipe
-        TypedListType {} -> Nothing
-        TypedTupleType elementTypes ->
+        SemanticInt -> Just (TypedSignedIntegerRecipe 64)
+        SemanticFloat -> Just (TypedFloatRecipe 64)
+        SemanticNumeric numericType -> Just (typedNumericRepresentationRecipe numericType)
+        SemanticBool -> Just TypedBoolRecipe
+        SemanticChar -> Just TypedCharRecipe
+        SemanticText -> Just TypedManagedTextRecipe
+        SemanticList {} -> Nothing
+        SemanticTuple elementTypes ->
           case elementTypes of
             [] -> Just TypedUnitRecipe
             _ -> TypedManagedProductRecipe <$> traverse representationRecipeForTypedType elementTypes
-        TypedDataType dataName arguments -> Just (TypedManagedVariantRecipe dataName arguments)
-        TypedFunctionType argument result ->
+        SemanticData dataName arguments -> Just (TypedManagedVariantRecipe dataName arguments)
+        SemanticFunction argument result ->
           TypedClosureRecipe
             <$> ((: []) <$> representationRecipeForTypedType argument)
             <*> representationRecipeForTypedType result
-        TypedTypeParameterType {} -> Nothing
+        SemanticVariable {} -> Nothing
 
     withInstantiations (TypedNodeInfo typeValue recipe _ evidence) instantiations =
       TypedNodeInfo typeValue recipe instantiations evidence
@@ -1194,7 +1194,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             _ -> provisionalType
         resultTypes selectedType =
           case resolveType state selectedType of
-            TFunctionType _ resultType -> resultType : resultTypes resultType
+            SemanticFunction _ resultType -> resultType : resultTypes resultType
             _ -> []
 
     applicationArguments expressionType provisionalArguments =
@@ -1209,7 +1209,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             _ -> (argumentPath, argument)
         argumentTypes selectedType =
           case resolveType state selectedType of
-            TFunctionType argumentType resultType -> argumentType : argumentTypes resultType
+            SemanticFunction argumentType resultType -> argumentType : argumentTypes resultType
             _ -> []
 
     specializeProvisionalNamedApplications functions = specializeProvisionalNamedApplicationsWith functions Set.empty
@@ -1223,7 +1223,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   specializedType =
                     maybe
                       expressionType
-                      TTupleType
+                      SemanticTuple
                       (traverse (provisionalExpressionType state) specializedElements)
                in ProvisionalTupleExpression specializedType specializedElements
             ProvisionalVariableExpression name expressionType
@@ -1298,11 +1298,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   resolvedExpectedType = resolveType state expectedType
                   (parameterType, resultType) =
                     case (resolvedExpressionType, resolvedExpectedType) of
-                      (TFunctionType fallbackParameter fallbackResult, TFunctionType expectedParameter expectedResult) ->
+                      (SemanticFunction fallbackParameter fallbackResult, SemanticFunction expectedParameter expectedResult) ->
                         ( specializeCompatibleType state expectedParameter fallbackParameter,
                           specializeCompatibleType state expectedResult fallbackResult
                         )
-                      (TFunctionType fallbackParameter fallbackResult, _) ->
+                      (SemanticFunction fallbackParameter fallbackResult, _) ->
                         (fallbackParameter, fallbackResult)
                       _ -> (resolvedExpressionType, resolvedExpressionType)
                   nextLexicalNames = Set.insert parameterName lexicalNames
@@ -1323,7 +1323,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   selectedResultType = maybe resultType id (provisionalExpressionType state specializedBody)
                in ProvisionalLambdaExpression
                     parameterName
-                    (TFunctionType selectedParameterType selectedResultType)
+                    (SemanticFunction selectedParameterType selectedResultType)
                     specializedBody
             _ -> specializeProvisionalExpression state (Just expectedType) expression
 
@@ -1412,13 +1412,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             Nothing -> selectedFunctionType
         specializeHigherOrderArgumentAt argumentIndex argumentType selectedFunctionType =
           case resolveType state selectedFunctionType of
-            TFunctionType parameterType resultType
+            SemanticFunction parameterType resultType
               | argumentIndex == 0,
-                TFunctionType {} <- resolveType state parameterType,
-                TFunctionType {} <- resolveType state argumentType ->
-                  TFunctionType (specializeCompatibleType state argumentType parameterType) resultType
+                SemanticFunction {} <- resolveType state parameterType,
+                SemanticFunction {} <- resolveType state argumentType ->
+                  SemanticFunction (specializeCompatibleType state argumentType parameterType) resultType
               | argumentIndex > 0 ->
-                  TFunctionType parameterType (specializeHigherOrderArgumentAt (argumentIndex - 1) argumentType resultType)
+                  SemanticFunction parameterType (specializeHigherOrderArgumentAt (argumentIndex - 1) argumentType resultType)
             _ -> selectedFunctionType
 
     callableOversaturationSupported directArity resultTypes =
@@ -1430,7 +1430,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             (drop (max 0 (directArity - 1)) resultTypes)
         isCallableResult expressionType =
           case defaultScalarLiterals state (resolveType state expressionType) of
-            TFunctionType {} -> True
+            SemanticFunction {} -> True
             _ -> False
 
     statementFailure statementIndex kind detail =
@@ -1461,12 +1461,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       where
         maybeCallableShape =
           case typedNodeType info of
-            TypedFunctionType {} -> Just callableShape
+            SemanticFunction {} -> Just callableShape
             _ -> Nothing
 
     callableInfo structuredCatalog callableShape directArity statementIndex childPath expressionType =
       case callableTypeAndRecipe structuredCatalog callableShape directArity statementIndex childPath expressionType of
-        Right (typeValue@TypedFunctionType {}, recipe@TypedClosureRecipe {}) ->
+        Right (typeValue@SemanticFunction {}, recipe@TypedClosureRecipe {}) ->
           Right (TypedNodeInfo typeValue recipe [] [])
         Right _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
         Left failure -> Left failure
@@ -1486,7 +1486,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     directTypeAndRecipe structuredCatalog remainingDirectArity statementIndex childPath expressionType =
       case (remainingDirectArity, defaultScalarLiterals state (resolveType state expressionType)) of
-        (remaining, TFunctionType argument result)
+        (remaining, SemanticFunction argument result)
           | remaining > 0 -> do
               (argumentType, argumentRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath argument
               (resultType, resultRecipe) <-
@@ -1497,25 +1497,25 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                     if remaining == 1
                       then TypedClosureRecipe [argumentRecipe] resultRecipe
                       else prependClosureRecipe argumentRecipe resultRecipe
-              Right (TypedFunctionType argumentType resultType, recipe)
+              Right (SemanticFunction argumentType resultType, recipe)
         (_, other) -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
     resolvedFunctionArity expressionType =
       case defaultScalarLiterals state (resolveType state expressionType) of
-        TFunctionType _ result -> 1 + resolvedFunctionArity result
+        SemanticFunction _ result -> 1 + resolvedFunctionArity result
         _ -> 0
 
     stagedTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals state (resolveType state expressionType) of
-        TFunctionType argument result -> do
+        SemanticFunction argument result -> do
           (argumentType, argumentRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath argument
           (resultType, resultRecipe) <- valueTypeAndRecipe structuredCatalog statementIndex childPath result
-          Right (TypedFunctionType argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe)
+          Right (SemanticFunction argumentType resultType, TypedClosureRecipe [argumentRecipe] resultRecipe)
         other -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
     valueTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals state (resolveType state expressionType) of
-        resolvedFunctionType@TFunctionType {} -> stagedTypeAndRecipe structuredCatalog statementIndex childPath resolvedFunctionType
+        resolvedFunctionType@SemanticFunction {} -> stagedTypeAndRecipe structuredCatalog statementIndex childPath resolvedFunctionType
         other -> scalarTypeAndRecipe structuredCatalog statementIndex childPath other
 
     scalarTypeAndRecipe structuredCatalog statementIndex childPath expressionType =
@@ -1947,7 +1947,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               let selectedTupleType = specializedType maybeExpected expressionType
                   elementExpectations =
                     case selectedTupleType of
-                      TTupleType elementTypes
+                      SemanticTuple elementTypes
                         | length elementTypes == length elements -> map Just elementTypes
                       _ -> replicate (length elements) Nothing
                in concat (zipWith child elementExpectations elements)
@@ -1972,18 +1972,18 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               let specializedFunctionType = specializedType maybeExpected expressionType
                   bodyExpected =
                     case specializedFunctionType of
-                      TFunctionType _ resultType -> Just resultType
+                      SemanticFunction _ resultType -> Just resultType
                       _ -> Nothing
                in go (Set.insert parameterName boundNames) bodyExpected body
             ProvisionalApplyExpression _ function argument ->
               let argumentExpected =
                     case provisionalExpressionType state function of
-                      Just (TFunctionType parameterType _) -> Just parameterType
+                      Just (SemanticFunction parameterType _) -> Just parameterType
                       _ -> Nothing
                in child Nothing function <> child argumentExpected argument
             ProvisionalIfExpression expressionType condition thenExpression elseExpression ->
               let resultType = specializedType maybeExpected expressionType
-               in child (Just TBoolType) condition
+               in child (Just SemanticBool) condition
                     <> child (Just resultType) thenExpression
                     <> child (Just resultType) elseExpression
             ProvisionalPatternCaseExpression expressionType scrutinee arms ->
@@ -1997,7 +1997,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             child = go boundNames
             armChildren resultType (ProvisionalPatternCaseArm pattern maybeGuard body) =
               let armChild = go (boundNames <> patternBinderNames pattern)
-               in maybe [] (armChild (Just TBoolType)) maybeGuard
+               in maybe [] (armChild (Just SemanticBool)) maybeGuard
                     <> armChild (Just resultType) body
             specializedType expected expressionType =
               case expected of
@@ -2215,11 +2215,11 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
         localTypedDataIdentifiers typeValue =
           case typeValue of
-            TypedListType elementType -> localTypedDataIdentifiers elementType
-            TypedTupleType elementTypes -> concatMap localTypedDataIdentifiers elementTypes
-            TypedDataType name arguments ->
+            SemanticList elementType -> localTypedDataIdentifiers elementType
+            SemanticTuple elementTypes -> concatMap localTypedDataIdentifiers elementTypes
+            SemanticData name arguments ->
               localIdentifier name <> concatMap localTypedDataIdentifiers arguments
-            TypedFunctionType argument result ->
+            SemanticFunction argument result ->
               localTypedDataIdentifiers argument <> localTypedDataIdentifiers result
             _ -> []
 
@@ -2340,26 +2340,26 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     scalarInfo structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals state (resolveType state expressionType) of
-        TIntType -> typedInfo TypedIntType
-        TFloatType -> typedInfo TypedFloatType
-        TNumericType numericType -> typedInfo (TypedNumericType numericType)
-        TBoolType -> typedInfo TypedBoolType
-        TCharType -> typedInfo TypedCharType
-        TTextType -> typedInfo TypedTextType
-        TListType {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreListValueDetail)
-        TTupleType [] -> Right unitInfo
-        resolvedTupleType@TTupleType {} ->
+        SemanticInt -> typedInfo SemanticInt
+        SemanticFloat -> typedInfo SemanticFloat
+        SemanticNumeric numericType -> typedInfo (SemanticNumeric numericType)
+        SemanticBool -> typedInfo SemanticBool
+        SemanticChar -> typedInfo SemanticChar
+        SemanticText -> typedInfo SemanticText
+        SemanticList {} -> Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreListValueDetail)
+        SemanticTuple [] -> Right unitInfo
+        resolvedTupleType@SemanticTuple {} ->
           maybe
             (Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail))
             Right
             (structuredNodeInfo structuredCatalog state resolvedTupleType)
-        resolvedDataType@TDataType {} ->
+        resolvedDataType@SemanticData {} ->
           maybe
             (Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail))
             Right
             (structuredNodeInfo structuredCatalog state resolvedDataType)
-        TFunctionType {} -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail)
-        TVarType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
+        SemanticFunction {} -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail)
+        SemanticVariable {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
       where
         typedInfo typeValue =
           case representationRecipeForTypedType typeValue of
@@ -2369,26 +2369,26 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
     literalFinalizationType literal expressionType =
       case (literal, integerLiteralRangeFor state expressionType) of
         (LInt value, Just _)
-          | integerLiteralRangeFitsNumericType (IntegerLiteralRange value value) NumericInt64 -> TIntType
+          | integerLiteralRangeFitsNumericType (IntegerLiteralRange value value) NumericInt64 -> SemanticInt
         _ -> expressionType
 
     isManagedStructuredEquality operatorSymbol operandType =
       operatorSymbol `elem` ["==", "!="]
         && case defaultScalarLiterals state (resolveType state operandType) of
-          TTupleType (_ : _) -> True
-          TDataType {} -> True
+          SemanticTuple (_ : _) -> True
+          SemanticData {} -> True
           _ -> False
 
     typedLiteral statementIndex childPath literal info =
       case (literal, typedNodeType info) of
-        (LInt value, TypedIntType) -> Right (TypedIntegerLiteral (Text.pack (show value)))
-        (LInt value, TypedNumericType _) -> Right (TypedIntegerLiteral (Text.pack (show value)))
-        (LFloat _ source _, TypedFloatType) -> Right (fractionalLiteral source Nothing)
-        (LFloat _ source (Just numericType), TypedNumericType _) -> Right (fractionalLiteral source (Just numericType))
-        (LFloat _ source Nothing, TypedNumericType numericType) -> Right (fractionalLiteral source (Just numericType))
-        (LBool value, TypedBoolType) -> Right (TypedBooleanLiteral value)
-        (LChar value, TypedCharType) -> Right (TypedCharacterLiteral value)
-        (LText value, TypedTextType) -> Right (TypedTextLiteral value)
+        (LInt value, SemanticInt) -> Right (TypedIntegerLiteral (Text.pack (show value)))
+        (LInt value, SemanticNumeric _) -> Right (TypedIntegerLiteral (Text.pack (show value)))
+        (LFloat _ source _, SemanticFloat) -> Right (fractionalLiteral source Nothing)
+        (LFloat _ source (Just numericType), SemanticNumeric _) -> Right (fractionalLiteral source (Just numericType))
+        (LFloat _ source Nothing, SemanticNumeric numericType) -> Right (fractionalLiteral source (Just numericType))
+        (LBool value, SemanticBool) -> Right (TypedBooleanLiteral value)
+        (LChar value, SemanticChar) -> Right (TypedCharacterLiteral value)
+        (LText value, SemanticText) -> Right (TypedTextLiteral value)
         _ -> Left (failureAt statementIndex childPath TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
 
     fractionalLiteral source maybeNumericType =
@@ -2401,7 +2401,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               (Text.pack (show (abs fractional)))
        in TypedFractionalLiteral (Text.pack (show whole)) fractionalDigits maybeNumericType
 
-    unitInfo = TypedNodeInfo (TypedTupleType []) TypedUnitRecipe [] []
+    unitInfo = TypedNodeInfo (SemanticTuple []) TypedUnitRecipe [] []
 
 -- | Operators whose representation is supported by direct-call production.
 isTypedCoreDirectCallOperator :: Text -> Bool

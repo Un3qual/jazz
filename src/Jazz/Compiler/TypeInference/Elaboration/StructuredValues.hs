@@ -38,7 +38,7 @@ import Jazz.Compiler.TypeInference.Solver
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
-import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
+import Jazz.Compiler.TypeInference.Types (ExpressionType, SemanticType (..))
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),
     NumericType (..),
@@ -204,7 +204,7 @@ concreteConstructorContract catalog state constructor resultExpressionType = do
   resultInfo@(TypedNodeInfo resultType _ _ _) <- structuredNodeInfo catalog state resultExpressionType
   concreteArguments <-
     case resultType of
-      TypedDataType dataName arguments
+      SemanticData dataName arguments
         | dataName == structuredConstructorDataName constructor -> Just arguments
       _ -> Nothing
   guard (length concreteArguments == length (structuredConstructorParameters constructor))
@@ -237,7 +237,7 @@ concreteConstructorFieldTypes ::
 concreteConstructorFieldTypes state constructor resultExpressionType = do
   concreteArguments <-
     case resolveType state resultExpressionType of
-      TDataType dataName arguments
+      SemanticData dataName arguments
         | dataName == structuredConstructorDataSourceName constructor -> Just arguments
       _ -> Nothing
   guard (length concreteArguments == length (structuredConstructorParameters constructor))
@@ -259,43 +259,43 @@ expressionContract ::
 expressionContract dataSkeletons parameterVariables state expressionType
   | Just literalRange <- integerLiteralRangeFor state expressionType,
     integerLiteralRangeFitsNumericType literalRange NumericInt64 =
-      scalar TypedIntType (TypedSignedIntegerRecipe 64)
+      scalar SemanticInt (TypedSignedIntegerRecipe 64)
   | otherwise =
       case resolveType state expressionType of
-        TIntType -> scalar TypedIntType (TypedSignedIntegerRecipe 64)
-        TFloatType -> scalar TypedFloatType (TypedFloatRecipe 64)
-        TNumericType numericType -> numericContract numericType
-        TBoolType -> scalar TypedBoolType TypedBoolRecipe
-        TCharType -> scalar TypedCharType TypedCharRecipe
-        TTextType -> scalar TypedTextType TypedManagedTextRecipe
-        TListType {} -> Nothing
-        TTupleType elementTypes -> do
+        SemanticInt -> scalar SemanticInt (TypedSignedIntegerRecipe 64)
+        SemanticFloat -> scalar SemanticFloat (TypedFloatRecipe 64)
+        SemanticNumeric numericType -> numericContract numericType
+        SemanticBool -> scalar SemanticBool TypedBoolRecipe
+        SemanticChar -> scalar SemanticChar TypedCharRecipe
+        SemanticText -> scalar SemanticText TypedManagedTextRecipe
+        SemanticList {} -> Nothing
+        SemanticTuple elementTypes -> do
           elementContracts <- traverse child elementTypes
           pure
-            ( TypedTupleType (map fst elementContracts),
+            ( SemanticTuple (map fst elementContracts),
               case elementContracts of
                 [] -> TypedUnitRecipe
                 _ -> TypedManagedProductRecipe (map snd elementContracts)
             )
-        TDataType sourceName arguments -> do
+        SemanticData sourceName arguments -> do
           skeleton <- Map.lookup sourceName dataSkeletons
           argumentContracts <- traverse child arguments
           let typedArguments = map fst argumentContracts
           pure
-            ( TypedDataType (skeletonName skeleton) typedArguments,
+            ( SemanticData (skeletonName skeleton) typedArguments,
               TypedManagedVariantRecipe (skeletonName skeleton) typedArguments
             )
-        TFunctionType argument result -> do
+        SemanticFunction argument result -> do
           (argumentType, argumentRecipe) <- child argument
           (resultType, resultRecipe) <- child result
           pure
-            ( TypedFunctionType argumentType resultType,
+            ( SemanticFunction argumentType resultType,
               TypedClosureRecipe [argumentRecipe] resultRecipe
             )
-        TVarType variable -> do
+        SemanticVariable variable -> do
           parameter <- Map.lookup variable parameterVariables
           pure
-            ( TypedTypeParameterType parameter,
+            ( SemanticVariable parameter,
               TypedRepresentationParameterRecipe parameter
             )
   where
@@ -304,16 +304,16 @@ expressionContract dataSkeletons parameterVariables state expressionType
 
 numericContract :: NumericType -> Maybe (TypedType, TypedRepresentationRecipe)
 numericContract numericType =
-  Just (TypedNumericType numericType, typedNumericRepresentationRecipe numericType)
+  Just (SemanticNumeric numericType, typedNumericRepresentationRecipe numericType)
 
 substituteConstructorExpressionType :: Map InferenceVariable ExpressionType -> ExpressionType -> Maybe ExpressionType
 substituteConstructorExpressionType bindings expressionType =
   case expressionType of
-    TListType elementType -> TListType <$> child elementType
-    TTupleType elementTypes -> TTupleType <$> traverse child elementTypes
-    TDataType dataName arguments -> TDataType dataName <$> traverse child arguments
-    TFunctionType argument result -> TFunctionType <$> child argument <*> child result
-    TVarType variable -> Map.lookup variable bindings
+    SemanticList elementType -> SemanticList <$> child elementType
+    SemanticTuple elementTypes -> SemanticTuple <$> traverse child elementTypes
+    SemanticData dataName arguments -> SemanticData dataName <$> traverse child arguments
+    SemanticFunction argument result -> SemanticFunction <$> child argument <*> child result
+    SemanticVariable variable -> Map.lookup variable bindings
     _ -> Just expressionType
   where
     child = substituteConstructorExpressionType bindings
@@ -324,11 +324,11 @@ substituteStructuredType ::
   Maybe TypedType
 substituteStructuredType bindings typeValue =
   case typeValue of
-    TypedListType elementType -> TypedListType <$> child elementType
-    TypedTupleType elementTypes -> TypedTupleType <$> traverse child elementTypes
-    TypedDataType dataName arguments -> TypedDataType dataName <$> traverse child arguments
-    TypedFunctionType argument result -> TypedFunctionType <$> child argument <*> child result
-    TypedTypeParameterType parameter -> fst <$> Map.lookup parameter bindings
+    SemanticList elementType -> SemanticList <$> child elementType
+    SemanticTuple elementTypes -> SemanticTuple <$> traverse child elementTypes
+    SemanticData dataName arguments -> SemanticData dataName <$> traverse child arguments
+    SemanticFunction argument result -> SemanticFunction <$> child argument <*> child result
+    SemanticVariable parameter -> fst <$> Map.lookup parameter bindings
     _ -> Just typeValue
   where
     child = substituteStructuredType bindings
@@ -352,23 +352,23 @@ substituteStructuredRecipe bindings recipe =
 representationRecipeForTypedType :: TypedType -> Maybe TypedRepresentationRecipe
 representationRecipeForTypedType typeValue =
   case typeValue of
-    TypedIntType -> Just (TypedSignedIntegerRecipe 64)
-    TypedFloatType -> Just (TypedFloatRecipe 64)
-    TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
-    TypedBoolType -> Just TypedBoolRecipe
-    TypedCharType -> Just TypedCharRecipe
-    TypedTextType -> Just TypedManagedTextRecipe
-    TypedListType {} -> Nothing
-    TypedTupleType elementTypes ->
+    SemanticInt -> Just (TypedSignedIntegerRecipe 64)
+    SemanticFloat -> Just (TypedFloatRecipe 64)
+    SemanticNumeric numericType -> Just (typedNumericRepresentationRecipe numericType)
+    SemanticBool -> Just TypedBoolRecipe
+    SemanticChar -> Just TypedCharRecipe
+    SemanticText -> Just TypedManagedTextRecipe
+    SemanticList {} -> Nothing
+    SemanticTuple elementTypes ->
       case elementTypes of
         [] -> Just TypedUnitRecipe
         _ -> TypedManagedProductRecipe <$> traverse representationRecipeForTypedType elementTypes
-    TypedDataType dataName arguments -> Just (TypedManagedVariantRecipe dataName arguments)
-    TypedFunctionType argument result ->
+    SemanticData dataName arguments -> Just (TypedManagedVariantRecipe dataName arguments)
+    SemanticFunction argument result ->
       TypedClosureRecipe
         <$> ((: []) <$> representationRecipeForTypedType argument)
         <*> representationRecipeForTypedType result
-    TypedTypeParameterType {} -> Nothing
+    SemanticVariable {} -> Nothing
 
 resolvedTypeName :: Name -> TypedCoreName
 resolvedTypeName sourceName = TypedResolvedName TypedCurrentModule TypedTypeNamespace (identifierText sourceName)

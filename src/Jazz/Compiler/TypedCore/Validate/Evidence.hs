@@ -60,6 +60,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.BuiltinCatalog (isBuiltinSymbolName, isKernelBuiltinSymbolName)
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Internal
 import Jazz.Compiler.TypedCore.Validate.TypeRecipes
@@ -137,16 +138,16 @@ validateEvidenceSelectionDataTypes context path selection =
 validateDataTypeApplications :: ModuleContext -> TypedCoreValidationPath -> TypedType -> [TypedCoreValidationFailure]
 validateDataTypeApplications context path typeValue =
   case typeValue of
-    TypedListType elementType -> validateDataTypeApplications context path elementType
-    TypedTupleType elementTypes -> concatMap (validateDataTypeApplications context path) elementTypes
-    TypedDataType name arguments ->
+    SemanticList elementType -> validateDataTypeApplications context path elementType
+    SemanticTuple elementTypes -> concatMap (validateDataTypeApplications context path) elementTypes
+    SemanticData name arguments ->
       concatMap (validateDataTypeApplications context path) arguments
         <> case resolvedNameKey (moduleContextPath context) name >>= (`Map.lookup` moduleContextDataArities context) of
           Nothing -> [failure path TypedDataTypeMismatch (TypedNameDetail name)]
           Just expectedArity
             | expectedArity /= length arguments -> [failure path TypedDataTypeMismatch (TypedArityDetail expectedArity (length arguments))]
             | otherwise -> []
-    TypedFunctionType argument result -> validateDataTypeApplications context path argument <> validateDataTypeApplications context path result
+    SemanticFunction argument result -> validateDataTypeApplications context path argument <> validateDataTypeApplications context path result
     _ -> []
 
 validateSourceSchemeDataTypes :: ModuleContext -> TypedCoreValidationPath -> TypedScheme -> [TypedCoreValidationFailure]
@@ -167,9 +168,9 @@ validateSourceSchemeDataTypes context path (TypedScheme _ _ evidenceParameters p
 validateSourceDataTypeApplications :: ModuleContext -> TypedCoreValidationPath -> TypedType -> [TypedCoreValidationFailure]
 validateSourceDataTypeApplications context path typeValue =
   case typeValue of
-    TypedListType elementType -> validateSourceDataTypeApplications context path elementType
-    TypedTupleType elementTypes -> concatMap (validateSourceDataTypeApplications context path) elementTypes
-    TypedDataType name arguments ->
+    SemanticList elementType -> validateSourceDataTypeApplications context path elementType
+    SemanticTuple elementTypes -> concatMap (validateSourceDataTypeApplications context path) elementTypes
+    SemanticData name arguments ->
       concatMap (validateSourceDataTypeApplications context path) arguments
         <> case resolvedNameKey (moduleContextPath context) name of
           Just key
@@ -177,7 +178,7 @@ validateSourceDataTypeApplications context path typeValue =
               Set.notMember key (moduleContextVisibleNames context) ->
                 [failure path TypedInvisibleName (TypedNameDetail name)]
           _ -> []
-    TypedFunctionType argument result ->
+    SemanticFunction argument result ->
       validateSourceDataTypeApplications context path argument
         <> validateSourceDataTypeApplications context path result
     _ -> []
@@ -231,7 +232,7 @@ validateInstantiatedPrimitiveConstraint context path scope constraint =
     TypedNumericPrimitiveConstraint required typeValue ->
       validateType path scope typeValue
         <> case typeValue of
-          TypedTypeParameterType _
+          SemanticVariable _
             | any (numericConstraintProvides required typeValue) (moduleContextPrimitiveConstraints context) -> []
             | otherwise -> unsupportedNumericTarget typeValue
           _ -> validateNumericConstraintTarget path required typeValue
@@ -239,7 +240,7 @@ validateInstantiatedPrimitiveConstraint context path scope constraint =
       validateType path scope typeValue
         <> if strictEqualityOperandTypeSupported context typeValue
           then []
-          else [failure path TypedBindingValueMismatch (TypedTypeDetail TypedBoolType typeValue)]
+          else [failure path TypedBindingValueMismatch (TypedTypeDetail SemanticBool typeValue)]
   where
     numericConstraintProvides required targetType provided =
       case provided of
@@ -247,7 +248,7 @@ validateInstantiatedPrimitiveConstraint context path scope constraint =
           candidateType == targetType && numericConstraintEntails candidate required
         _ -> False
     unsupportedNumericTarget typeValue =
-      [failure path TypedBindingValueMismatch (TypedTypeDetail TypedIntType typeValue)]
+      [failure path TypedBindingValueMismatch (TypedTypeDetail SemanticInt typeValue)]
 
 numericConstraintEntails :: TypedNumericConstraint -> TypedNumericConstraint -> Bool
 numericConstraintEntails provided required =
@@ -341,7 +342,7 @@ candidateConstraintCanDefer context methodKey suppliedArgumentCount constraint =
 targetArgumentRemains :: TypedTypeParameterId -> Int -> TypedType -> Bool
 targetArgumentRemains parameter suppliedArgumentCount methodType =
   case methodType of
-    TypedFunctionType argument result
+    SemanticFunction argument result
       | suppliedArgumentCount > 0 ->
           not (typeMentionsParameter parameter argument)
             && targetArgumentRemains parameter (suppliedArgumentCount - 1) result

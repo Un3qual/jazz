@@ -78,7 +78,7 @@ import qualified Data.Text as Text
 import Jazz.Compiler.BuiltinCatalog (numericTypeFloatMax)
 import Jazz.Compiler.Name (operatorBindingIdentifierText)
 import Jazz.Compiler.Parser.Operator (isValidUserOperatorSymbol)
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Internal
 
@@ -115,7 +115,7 @@ validatePrimitiveConstraint context path scope constraint =
 validateStrictEqualityTarget :: ModuleContext -> TypedCoreValidationPath -> TypedType -> [TypedCoreValidationFailure]
 validateStrictEqualityTarget context path typeValue
   | strictEqualityTypeSupported context typeValue = []
-  | otherwise = [failure path TypedBindingValueMismatch (TypedTypeDetail TypedBoolType typeValue)]
+  | otherwise = [failure path TypedBindingValueMismatch (TypedTypeDetail SemanticBool typeValue)]
 
 strictEqualityTypeSupported :: ModuleContext -> TypedType -> Bool
 strictEqualityTypeSupported context = strictEqualityTypeSupportedWith context (const True)
@@ -137,21 +137,21 @@ strictEqualityTypeSupportedWith context typeParameterSupported typeValue =
     supported _ [] = True
     supported expanded ((seen, currentType) : remaining) =
       case currentType of
-        TypedIntType -> supported expanded remaining
-        TypedFloatType -> supported expanded remaining
-        TypedNumericType _ -> supported expanded remaining
-        TypedBoolType -> supported expanded remaining
-        TypedCharType -> supported expanded remaining
-        TypedTextType -> supported expanded remaining
-        TypedListType elementType ->
+        SemanticInt -> supported expanded remaining
+        SemanticFloat -> supported expanded remaining
+        SemanticNumeric _ -> supported expanded remaining
+        SemanticBool -> supported expanded remaining
+        SemanticChar -> supported expanded remaining
+        SemanticText -> supported expanded remaining
+        SemanticList elementType ->
           supported expanded ((seen, elementType) : remaining)
-        TypedTupleType elementTypes ->
+        SemanticTuple elementTypes ->
           supported expanded (map (\elementType -> (seen, elementType)) elementTypes <> remaining)
-        TypedTypeParameterType _
+        SemanticVariable _
           | typeParameterSupported currentType -> supported expanded remaining
           | otherwise -> False
-        TypedFunctionType {} -> False
-        TypedDataType name arguments
+        SemanticFunction {} -> False
+        SemanticData name arguments
           | Set.member currentType expanded -> supported expanded remaining
           | otherwise ->
               case resolvedNameKey (moduleContextPath context) name of
@@ -229,11 +229,11 @@ typePositionUsesParameter ::
   (Bool, Set (ResolvedNameKey, TypedTypeParameterId))
 typePositionUsesParameter context seen parameter typeValue =
   case typeValue of
-    TypedListType elementType ->
+    SemanticList elementType ->
       typePositionUsesParameter context seen parameter elementType
-    TypedTupleType elementTypes ->
+    SemanticTuple elementTypes ->
       typePositionsUseParameter context seen parameter elementTypes
-    TypedDataType name arguments ->
+    SemanticData name arguments ->
       case resolvedNameKey (moduleContextPath context) name of
         Nothing -> (typeMentionsParameter parameter typeValue, seen)
         Just dataKey ->
@@ -242,11 +242,11 @@ typePositionUsesParameter context seen parameter typeValue =
               | length dataParameters == length arguments ->
                   dataArgumentsUseParameter context seen parameter dataKey (zip dataParameters arguments)
             _ -> (typeMentionsParameter parameter typeValue, seen)
-    TypedFunctionType argument result ->
+    SemanticFunction argument result ->
       case typePositionUsesParameter context seen parameter argument of
         (True, nextSeen) -> (True, nextSeen)
         (False, nextSeen) -> typePositionUsesParameter context nextSeen parameter result
-    TypedTypeParameterType candidate -> (candidate == parameter, seen)
+    SemanticVariable candidate -> (candidate == parameter, seen)
     _ -> (False, seen)
 
 dataArgumentsUseParameter ::
@@ -268,7 +268,7 @@ dataArgumentsUseParameter context seen sourceParameter dataKey ((dataParameter, 
 validateNumericConstraintTarget :: TypedCoreValidationPath -> TypedNumericConstraint -> TypedType -> [TypedCoreValidationFailure]
 validateNumericConstraintTarget path numericConstraint typeValue
   | numericConstraintAcceptsType numericConstraint typeValue = []
-  | otherwise = [failure path TypedBindingValueMismatch (TypedTypeDetail TypedIntType typeValue)]
+  | otherwise = [failure path TypedBindingValueMismatch (TypedTypeDetail SemanticInt typeValue)]
 
 numericConstraintAcceptsType :: TypedNumericConstraint -> TypedType -> Bool
 numericConstraintAcceptsType numericConstraint typeValue =
@@ -277,10 +277,10 @@ numericConstraintAcceptsType numericConstraint typeValue =
       integralLiteralConstraintAcceptsType lower upper typeValue
     _ ->
       case typeValue of
-        TypedTypeParameterType _ -> True
-        TypedIntType -> True
-        TypedFloatType -> not (integralConstraint numericConstraint)
-        TypedNumericType numericType
+        SemanticVariable _ -> True
+        SemanticInt -> True
+        SemanticFloat -> not (integralConstraint numericConstraint)
+        SemanticNumeric numericType
           | integralConstraint numericConstraint -> numericTypeIsIntegral numericType
           | otherwise -> True
         _ -> False
@@ -291,7 +291,7 @@ integralLiteralConstraintAcceptsType lowerText upperText typeValue =
     (Just lower, Just upper)
       | lower <= upper ->
           case typeValue of
-            TypedTypeParameterType _ -> True
+            SemanticVariable _ -> True
             _ ->
               case integralTypeBounds typeValue of
                 Just (minimumValue, maximumValue) ->
@@ -318,8 +318,8 @@ parseDecimalMagnitude digits
 integralTypeBounds :: TypedType -> Maybe (Integer, Integer)
 integralTypeBounds typeValue =
   case typeValue of
-    TypedIntType -> signedBounds 64
-    TypedNumericType numericType ->
+    SemanticInt -> signedBounds 64
+    SemanticNumeric numericType ->
       case numericType of
         NumericInt8 -> signedBounds 8
         NumericInt16 -> signedBounds 16
@@ -380,32 +380,32 @@ isUnicodeScalar character =
 concreteImplTargetType :: TypedType -> Bool
 concreteImplTargetType typeValue =
   case typeValue of
-    TypedListType elementType -> concreteImplTargetType elementType
-    TypedTupleType elementTypes -> all concreteImplTargetType elementTypes
-    TypedDataType _ arguments -> all concreteImplTargetType arguments
-    TypedFunctionType {} -> False
-    TypedTypeParameterType {} -> False
+    SemanticList elementType -> concreteImplTargetType elementType
+    SemanticTuple elementTypes -> all concreteImplTargetType elementTypes
+    SemanticData _ arguments -> all concreteImplTargetType arguments
+    SemanticFunction {} -> False
+    SemanticVariable {} -> False
     _ -> True
 
 literalMatchesType :: TypedLiteral -> TypedType -> Bool
 literalMatchesType literal typeValue =
   case (literal, typeValue) of
-    (TypedIntegerLiteral value, TypedIntType) -> integerLiteralFitsType value typeValue
-    (TypedIntegerLiteral value, TypedNumericType numericType) ->
+    (TypedIntegerLiteral value, SemanticInt) -> integerLiteralFitsType value typeValue
+    (TypedIntegerLiteral value, SemanticNumeric numericType) ->
       not (isFloatingNumericType numericType)
         && integerLiteralFitsType value typeValue
-    (TypedFractionalLiteral whole fractional Nothing, TypedFloatType) ->
+    (TypedFractionalLiteral whole fractional Nothing, SemanticFloat) ->
       fractionalLiteralFitsNumericType whole fractional NumericFloat64
-    (TypedFractionalLiteral whole fractional Nothing, TypedNumericType numericType) ->
+    (TypedFractionalLiteral whole fractional Nothing, SemanticNumeric numericType) ->
       isFloatingNumericType numericType
         && fractionalLiteralFitsNumericType whole fractional numericType
-    (TypedFractionalLiteral whole fractional (Just expectedType), TypedNumericType actualType) ->
+    (TypedFractionalLiteral whole fractional (Just expectedType), SemanticNumeric actualType) ->
       expectedType == actualType
         && isFloatingNumericType actualType
         && fractionalLiteralFitsNumericType whole fractional actualType
-    (TypedBooleanLiteral _, TypedBoolType) -> True
-    (TypedCharacterLiteral _, TypedCharType) -> True
-    (TypedTextLiteral _, TypedTextType) -> True
+    (TypedBooleanLiteral _, SemanticBool) -> True
+    (TypedCharacterLiteral _, SemanticChar) -> True
+    (TypedTextLiteral _, SemanticText) -> True
     _ -> False
 
 integerLiteralFitsType :: Text -> TypedType -> Bool
@@ -427,12 +427,12 @@ fractionalLiteralFitsNumericType whole fractional numericType =
 literalType :: TypedLiteral -> TypedType
 literalType literal =
   case literal of
-    TypedIntegerLiteral _ -> TypedIntType
-    TypedFractionalLiteral _ _ Nothing -> TypedFloatType
-    TypedFractionalLiteral _ _ (Just numericType) -> TypedNumericType numericType
-    TypedBooleanLiteral _ -> TypedBoolType
-    TypedCharacterLiteral _ -> TypedCharType
-    TypedTextLiteral _ -> TypedTextType
+    TypedIntegerLiteral _ -> SemanticInt
+    TypedFractionalLiteral _ _ Nothing -> SemanticFloat
+    TypedFractionalLiteral _ _ (Just numericType) -> SemanticNumeric numericType
+    TypedBooleanLiteral _ -> SemanticBool
+    TypedCharacterLiteral _ -> SemanticChar
+    TypedTextLiteral _ -> SemanticText
 
 isFloatingNumericType :: NumericType -> Bool
 isFloatingNumericType numericType = numericType `elem` [NumericFloat16, NumericFloat32, NumericFloat64]
@@ -440,22 +440,22 @@ isFloatingNumericType numericType = numericType `elem` [NumericFloat16, NumericF
 validateType :: TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedType -> [TypedCoreValidationFailure]
 validateType path scope typeValue =
   case typeValue of
-    TypedIntType -> []
-    TypedFloatType -> []
-    TypedNumericType _ -> []
-    TypedBoolType -> []
-    TypedCharType -> []
-    TypedTextType -> []
-    TypedListType elementType -> validateType path scope elementType
-    TypedTupleType elementTypes ->
+    SemanticInt -> []
+    SemanticFloat -> []
+    SemanticNumeric _ -> []
+    SemanticBool -> []
+    SemanticChar -> []
+    SemanticText -> []
+    SemanticList elementType -> validateType path scope elementType
+    SemanticTuple elementTypes ->
       ( if length elementTypes == 1
           then [failure path TypedCollectionShapeMismatch (TypedArityDetail 2 1)]
           else []
       )
         <> concatMap (validateType path scope) elementTypes
-    TypedDataType name arguments -> validateCoreName path name <> concatMap (validateType path scope) arguments
-    TypedFunctionType argument result -> validateType path scope argument <> validateType path scope result
-    TypedTypeParameterType parameterId
+    SemanticData name arguments -> validateCoreName path name <> concatMap (validateType path scope) arguments
+    SemanticFunction argument result -> validateType path scope argument <> validateType path scope result
+    SemanticVariable parameterId
       | Set.member parameterId scope -> []
       | otherwise -> [failure path TypedUnboundTypeParameter (TypedTypeParameterDetail parameterId)]
 
@@ -497,13 +497,13 @@ validateTypeRecipe path scope typeValue recipe
 validateCallableShape :: TypedCoreValidationPath -> TypedBinderId -> TypedType -> TypedRepresentationRecipe -> Maybe TypedCallableShape -> [TypedCoreValidationFailure]
 validateCallableShape path owner typeValue recipe callableShape =
   case (typeValue, callableShape) of
-    (TypedFunctionType {}, Nothing) -> mismatch
-    (TypedFunctionType {}, Just TypedDirectCallableShape)
+    (SemanticFunction {}, Nothing) -> mismatch
+    (SemanticFunction {}, Just TypedDirectCallableShape)
       | callableRecipeCompatible typeValue recipe,
         maybe True (<= 0) (directCallableRecipeArity recipe) ->
           mismatch
       | otherwise -> []
-    (TypedFunctionType {}, Just TypedClosureCallableShape)
+    (SemanticFunction {}, Just TypedClosureCallableShape)
       | callableRecipeCompatible typeValue recipe,
         not (stagedClosureRecipeCompatible typeValue recipe) ->
           mismatch
@@ -519,19 +519,19 @@ typeRecipeCompatible = recipeCompatibleWithCallableStaging False
 callableRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool
 callableRecipeCompatible typeValue =
   case typeValue of
-    TypedFunctionType {} -> recipeCompatibleWithCallableStaging False typeValue
+    SemanticFunction {} -> recipeCompatibleWithCallableStaging False typeValue
     _ -> const False
 
 stagedClosureRecipeCompatible :: TypedType -> TypedRepresentationRecipe -> Bool
 stagedClosureRecipeCompatible typeValue =
   case typeValue of
-    TypedFunctionType {} -> recipeCompatibleWithCallableStaging True typeValue
+    SemanticFunction {} -> recipeCompatibleWithCallableStaging True typeValue
     _ -> const False
 
 recipeCompatibleWithCallableStaging :: Bool -> TypedType -> TypedRepresentationRecipe -> Bool
 recipeCompatibleWithCallableStaging requireStagedCallable typeValue recipe =
   case typeValue of
-    TypedFunctionType argumentType resultType ->
+    SemanticFunction argumentType resultType ->
       case recipe of
         TypedClosureRecipe (argumentRecipe : remainingArguments) resultRecipe ->
           recipeCompatibleWithCallableStaging True argumentType argumentRecipe
@@ -553,7 +553,7 @@ recipeCompatibleWithCallableStaging requireStagedCallable typeValue recipe =
 stagedClosureRecipe :: TypedType -> Maybe TypedRepresentationRecipe
 stagedClosureRecipe typeValue =
   case typeValue of
-    TypedFunctionType {} -> expectedRecipeWithCallableStaging True typeValue
+    SemanticFunction {} -> expectedRecipeWithCallableStaging True typeValue
     _ -> Nothing
 
 expectedRecipe :: TypedType -> Maybe TypedRepresentationRecipe
@@ -565,17 +565,17 @@ expectedValueRecipe = expectedRecipeWithCallableStaging True
 expectedRecipeWithCallableStaging :: Bool -> TypedType -> Maybe TypedRepresentationRecipe
 expectedRecipeWithCallableStaging stageCallable typeValue =
   case typeValue of
-    TypedIntType -> Just (TypedSignedIntegerRecipe 64)
-    TypedFloatType -> Just (TypedFloatRecipe 64)
-    TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
-    TypedBoolType -> Just TypedBoolRecipe
-    TypedCharType -> Just TypedCharRecipe
-    TypedTextType -> Just TypedManagedTextRecipe
-    TypedListType elementType -> TypedManagedListRecipe <$> expectedRecipeWithCallableStaging True elementType
-    TypedTupleType [] -> Just TypedUnitRecipe
-    TypedTupleType elementTypes -> TypedManagedProductRecipe <$> traverse (expectedRecipeWithCallableStaging True) elementTypes
-    TypedDataType name arguments -> Just (TypedManagedVariantRecipe name arguments)
-    TypedFunctionType argumentType resultType -> do
+    SemanticInt -> Just (TypedSignedIntegerRecipe 64)
+    SemanticFloat -> Just (TypedFloatRecipe 64)
+    SemanticNumeric numericType -> Just (typedNumericRepresentationRecipe numericType)
+    SemanticBool -> Just TypedBoolRecipe
+    SemanticChar -> Just TypedCharRecipe
+    SemanticText -> Just TypedManagedTextRecipe
+    SemanticList elementType -> TypedManagedListRecipe <$> expectedRecipeWithCallableStaging True elementType
+    SemanticTuple [] -> Just TypedUnitRecipe
+    SemanticTuple elementTypes -> TypedManagedProductRecipe <$> traverse (expectedRecipeWithCallableStaging True) elementTypes
+    SemanticData name arguments -> Just (TypedManagedVariantRecipe name arguments)
+    SemanticFunction argumentType resultType -> do
       argumentRecipe <- expectedRecipeWithCallableStaging True argumentType
       resultRecipe <- expectedRecipeWithCallableStaging stageCallable resultType
       pure
@@ -586,10 +586,10 @@ expectedRecipeWithCallableStaging stageCallable typeValue =
                 TypedClosureRecipe (argumentRecipe : remainingArguments) finalResult
               _ -> TypedClosureRecipe [argumentRecipe] resultRecipe
         )
-    TypedTypeParameterType parameterId -> Just (TypedRepresentationParameterRecipe parameterId)
+    SemanticVariable parameterId -> Just (TypedRepresentationParameterRecipe parameterId)
 
 isFunctionType :: TypedType -> Bool
-isFunctionType TypedFunctionType {} = True
+isFunctionType SemanticFunction {} = True
 isFunctionType _ = False
 
 invalidRecipeWidth :: TypedRepresentationRecipe -> Maybe Int
@@ -612,11 +612,11 @@ validRecipeWidth = isNothing . invalidRecipeWidth
 hasUnboundTypeParameter :: Set TypedTypeParameterId -> TypedType -> Bool
 hasUnboundTypeParameter scope typeValue =
   case typeValue of
-    TypedListType elementType -> hasUnboundTypeParameter scope elementType
-    TypedTupleType elementTypes -> any (hasUnboundTypeParameter scope) elementTypes
-    TypedDataType _ arguments -> any (hasUnboundTypeParameter scope) arguments
-    TypedFunctionType argument result -> hasUnboundTypeParameter scope argument || hasUnboundTypeParameter scope result
-    TypedTypeParameterType parameterId -> not (Set.member parameterId scope)
+    SemanticList elementType -> hasUnboundTypeParameter scope elementType
+    SemanticTuple elementTypes -> any (hasUnboundTypeParameter scope) elementTypes
+    SemanticData _ arguments -> any (hasUnboundTypeParameter scope) arguments
+    SemanticFunction argument result -> hasUnboundTypeParameter scope argument || hasUnboundTypeParameter scope result
+    SemanticVariable parameterId -> not (Set.member parameterId scope)
     _ -> False
 
 hasUnboundRepresentationParameter :: Set TypedTypeParameterId -> TypedRepresentationRecipe -> Bool
@@ -725,15 +725,7 @@ validIdentifierSpelling identifier =
         || character == '!'
 
 typeMentionsParameter :: TypedTypeParameterId -> TypedType -> Bool
-typeMentionsParameter parameter typeValue =
-  case typeValue of
-    TypedListType elementType -> typeMentionsParameter parameter elementType
-    TypedTupleType elementTypes -> any (typeMentionsParameter parameter) elementTypes
-    TypedDataType _ arguments -> any (typeMentionsParameter parameter) arguments
-    TypedFunctionType argument result ->
-      typeMentionsParameter parameter argument || typeMentionsParameter parameter result
-    TypedTypeParameterType candidate -> candidate == parameter
-    _ -> False
+typeMentionsParameter = elem
 
 recipeMentionsParameter :: TypedTypeParameterId -> TypedRepresentationRecipe -> Bool
 recipeMentionsParameter parameter recipe =
@@ -758,11 +750,11 @@ directCallableRecipeArity recipe =
 substituteTypeParameters :: Map TypedTypeParameterId TypedType -> TypedType -> TypedType
 substituteTypeParameters substitutions typeValue =
   case typeValue of
-    TypedListType elementType -> TypedListType (substituteTypeParameters substitutions elementType)
-    TypedTupleType elementTypes -> TypedTupleType (map (substituteTypeParameters substitutions) elementTypes)
-    TypedDataType name arguments -> TypedDataType name (map (substituteTypeParameters substitutions) arguments)
-    TypedFunctionType argument result -> TypedFunctionType (substituteTypeParameters substitutions argument) (substituteTypeParameters substitutions result)
-    TypedTypeParameterType parameterId -> Map.findWithDefault typeValue parameterId substitutions
+    SemanticList elementType -> SemanticList (substituteTypeParameters substitutions elementType)
+    SemanticTuple elementTypes -> SemanticTuple (map (substituteTypeParameters substitutions) elementTypes)
+    SemanticData name arguments -> SemanticData name (map (substituteTypeParameters substitutions) arguments)
+    SemanticFunction argument result -> SemanticFunction (substituteTypeParameters substitutions argument) (substituteTypeParameters substitutions result)
+    SemanticVariable parameterId -> Map.findWithDefault typeValue parameterId substitutions
     _ -> typeValue
 
 substituteRepresentationParameters :: Map TypedTypeParameterId TypedType -> TypedRepresentationRecipe -> TypedRepresentationRecipe

@@ -37,7 +37,8 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     instantiateConstructorFieldType,
@@ -119,11 +120,11 @@ prepareConstructorInventory source expressionType =
 
     collectExpressionType visited collected currentType =
       case currentType of
-        TListType elementType ->
+        SemanticList elementType ->
           collectExpressionType visited collected elementType
-        TTupleType fieldTypes ->
+        SemanticTuple fieldTypes ->
           collectExpressionTypes (visited, collected) fieldTypes
-        TDataType typeName actualTypeArguments ->
+        SemanticData typeName actualTypeArguments ->
           let typeNameText = renderName typeName
               alreadyVisited = Set.member typeNameText visited
               visitedWithType = Set.insert typeNameText visited
@@ -529,7 +530,7 @@ data ConstructorDomain = ConstructorDomain
 constructorDomain :: PreparedConstructorInventory -> ExpressionType -> Maybe ConstructorDomain
 constructorDomain inventory expressionType =
   case expressionType of
-    TBoolType ->
+    SemanticBool ->
       Just
         ( ConstructorDomain
             True
@@ -537,22 +538,22 @@ constructorDomain inventory expressionType =
               ConstructorShape (CoverageBool True) []
             ]
         )
-    TListType elementType ->
+    SemanticList elementType ->
       Just
         ( ConstructorDomain
             True
             [ ConstructorShape CoverageListNil [],
-              ConstructorShape CoverageListCons [elementType, TListType elementType]
+              ConstructorShape CoverageListCons [elementType, SemanticList elementType]
             ]
         )
-    TTupleType [] -> Just (ConstructorDomain True [ConstructorShape CoverageUnit []])
-    TTupleType fields ->
+    SemanticTuple [] -> Just (ConstructorDomain True [ConstructorShape CoverageUnit []])
+    SemanticTuple fields ->
       Just
         ( ConstructorDomain
             True
             [ConstructorShape (CoverageTuple (length fields)) fields]
         )
-    TDataType typeName actualTypeArguments ->
+    SemanticData typeName actualTypeArguments ->
       dataConstructorDomain inventory typeName actualTypeArguments
     _ -> Nothing
 
@@ -594,7 +595,7 @@ instantiateArgument typeArguments argument =
     ConstructorArgumentFresh -> unknownFieldType
 
 unknownFieldType :: ExpressionType
-unknownFieldType = TVarType (-1)
+unknownFieldType = SemanticVariable (-1)
 
 constructorShape ::
   PreparedConstructorInventory ->

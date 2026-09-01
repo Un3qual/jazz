@@ -34,7 +34,7 @@ import Jazz.Compiler.TypeInference.Solver
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
-import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
+import Jazz.Compiler.TypeInference.Types (ExpressionType, SemanticType (..))
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 -- | Commit a successfully selected integral context into the provisional tree.
@@ -60,7 +60,7 @@ specializeProvisionalExpression state maybeExpected expression =
       let resultType = specializedType expressionType
           expectedElements =
             case resultType of
-              TTupleType elementTypes
+              SemanticTuple elementTypes
                 | length elementTypes == length elements -> map Just elementTypes
               _ -> replicate (length elements) Nothing
        in ProvisionalTupleExpression
@@ -90,7 +90,7 @@ specializeProvisionalExpression state maybeExpected expression =
       let specializedFunctionType = specializedType expressionType
           bodyExpected =
             case specializedFunctionType of
-              TFunctionType _ resultType -> Just resultType
+              SemanticFunction _ resultType -> Just resultType
               _ -> Nothing
        in ProvisionalLambdaExpression
             parameterName
@@ -100,7 +100,7 @@ specializeProvisionalExpression state maybeExpected expression =
       let resultType = specializedType expressionType
           argumentExpected =
             case provisionalExpressionType state function of
-              Just (TFunctionType parameterType _) -> Just parameterType
+              Just (SemanticFunction parameterType _) -> Just parameterType
               _ -> Nothing
        in ProvisionalApplyExpression
             resultType
@@ -110,7 +110,7 @@ specializeProvisionalExpression state maybeExpected expression =
       let resultType = specializedType expressionType
        in ProvisionalIfExpression
             resultType
-            (specializeProvisionalExpression state (Just TBoolType) condition)
+            (specializeProvisionalExpression state (Just SemanticBool) condition)
             (specializeProvisionalExpression state (Just resultType) thenExpression)
             (specializeProvisionalExpression state (Just resultType) elseExpression)
     ProvisionalPatternCaseExpression expressionType scrutinee arms ->
@@ -118,14 +118,14 @@ specializeProvisionalExpression state maybeExpected expression =
           initiallySpecializedArms =
             [ ProvisionalPatternCaseArm
                 pattern
-                (specializeProvisionalExpression state (Just TBoolType) <$> maybeGuard)
+                (specializeProvisionalExpression state (Just SemanticBool) <$> maybeGuard)
                 (specializeProvisionalExpression state (Just resultType) body)
             | ProvisionalPatternCaseArm pattern maybeGuard body <- arms
             ]
           initialScrutineeType =
             case provisionalExpressionType state scrutinee of
               Just scrutineeType -> scrutineeType
-              Nothing -> TTupleType []
+              Nothing -> SemanticTuple []
           selectedScrutineeType =
             foldl' selectArmScrutineeType initialScrutineeType initiallySpecializedArms
        in ProvisionalPatternCaseExpression
@@ -216,8 +216,8 @@ specializeProvisionalParameterReferences state parameterName selectedType = expr
 specializeCompatibleType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 specializeCompatibleType state expectedType expressionType =
   case (resolveType state expressionType, resolveType state expectedType) of
-    (TFunctionType expressionParameter expressionResult, TFunctionType expectedParameter expectedResult) ->
-      TFunctionType
+    (SemanticFunction expressionParameter expressionResult, SemanticFunction expectedParameter expectedResult) ->
+      SemanticFunction
         (specializeCompatibleType state expectedParameter expressionParameter)
         (specializeCompatibleType state expectedResult expressionResult)
     _ -> specializeExpressionType state expectedType expressionType
@@ -230,7 +230,7 @@ specializeProvisionalCallableCapture state captureType expression =
           fallbackFunctionType = specializeCallableCaptureType state captureType expressionType
           specializedFunctionType =
             case fallbackFunctionType of
-              TFunctionType parameterType resultType ->
+              SemanticFunction parameterType resultType ->
                 let selectedParameterType =
                       foldl'
                         (\selectedType referenceType -> specializeCompatibleType state referenceType selectedType)
@@ -240,13 +240,13 @@ specializeProvisionalCallableCapture state captureType expression =
                         )
                     parameterSpecializedBody =
                       specializeProvisionalParameterReferences state parameterName selectedParameterType specializedBody
-                 in TFunctionType
+                 in SemanticFunction
                       selectedParameterType
                       (maybe resultType id (provisionalExpressionType state parameterSpecializedBody))
               _ -> fallbackFunctionType
           selectedBody =
             case specializedFunctionType of
-              TFunctionType parameterType _ ->
+              SemanticFunction parameterType _ ->
                 specializeProvisionalParameterReferences state parameterName parameterType specializedBody
               _ -> specializedBody
        in ProvisionalLambdaExpression parameterName specializedFunctionType selectedBody
@@ -272,7 +272,7 @@ provisionalParameterApplicationTypes state captureType parameterName = expressio
                   Just argumentType <- [provisionalExpressionType state argument]
                 ]
               selectedResultType = specializeCompatibleType state captureType resultType
-              selectedApplicationType = foldr TFunctionType selectedResultType argumentTypes
+              selectedApplicationType = foldr SemanticFunction selectedResultType argumentTypes
               applicationType =
                 case callee of
                   ProvisionalVariableExpression name _
@@ -372,14 +372,14 @@ provisionalParameterReferenceTypes parameterName = expressionReferenceTypes Fals
 specializeCallableCaptureType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 specializeCallableCaptureType state captureType expressionType =
   case resolveType state expressionType of
-    TFunctionType parameterType resultType ->
-      TFunctionType parameterType (specializeCallableCaptureType state captureType resultType)
+    SemanticFunction parameterType resultType ->
+      SemanticFunction parameterType (specializeCallableCaptureType state captureType resultType)
     resultType -> specializeExpressionType state captureType resultType
 
 provisionalExpressionType :: InferState -> ProvisionalTypedExpr -> Maybe ExpressionType
 provisionalExpressionType state expression =
   resolveType state <$> case expression of
-    ProvisionalUnitExpression -> Just (TTupleType [])
+    ProvisionalUnitExpression -> Just (SemanticTuple [])
     ProvisionalTupleExpression expressionType _ -> Just expressionType
     ProvisionalLiteralExpression _ expressionType -> Just expressionType
     ProvisionalBinaryExpression _ expressionType _ _ _ -> Just expressionType
@@ -397,30 +397,30 @@ specializeExpressionType state expectedType expressionType =
   let resolvedExpected = resolveType state expectedType
       resolvedExpression = resolveType state expressionType
    in case (integerLiteralRangeFor state expressionType, resolvedExpression, resolvedExpected) of
-        (_, TTupleType expressionElements, TTupleType expectedElements)
+        (_, SemanticTuple expressionElements, SemanticTuple expectedElements)
           | length expressionElements == length expectedElements ->
-              TTupleType (zipWith (specializeExpressionType state) expectedElements expressionElements)
-        (_, TDataType expressionName expressionArguments, TDataType expectedName expectedArguments)
+              SemanticTuple (zipWith (specializeExpressionType state) expectedElements expressionElements)
+        (_, SemanticData expressionName expressionArguments, SemanticData expectedName expectedArguments)
           | expressionName == expectedName,
             length expressionArguments == length expectedArguments ->
-              TDataType
+              SemanticData
                 expressionName
                 (zipWith (specializeExpressionType state) expectedArguments expressionArguments)
-        (Just literalRange, _, TIntType)
-          | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
-        (Just literalRange, _, numericType@(TNumericType concreteType))
+        (Just literalRange, _, SemanticInt)
+          | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> SemanticInt
+        (Just literalRange, _, numericType@(SemanticNumeric concreteType))
           | integerLiteralRangeFitsNumericType literalRange concreteType -> numericType
-        (_, TIntType, TNumericType NumericInt64) -> resolvedExpected
-        (_, TNumericType NumericInt64, TIntType) -> resolvedExpected
-        (_, TFloatType, TNumericType NumericFloat64) -> resolvedExpected
-        (_, TNumericType NumericFloat64, TFloatType) -> resolvedExpected
+        (_, SemanticInt, SemanticNumeric NumericInt64) -> resolvedExpected
+        (_, SemanticNumeric NumericInt64, SemanticInt) -> resolvedExpected
+        (_, SemanticFloat, SemanticNumeric NumericFloat64) -> resolvedExpected
+        (_, SemanticNumeric NumericFloat64, SemanticFloat) -> resolvedExpected
         _ -> resolvedExpression
 
 concreteIntegralType :: ExpressionType -> Maybe ExpressionType
 concreteIntegralType expressionType =
   case expressionType of
-    TIntType -> Just TIntType
-    numericType@(TNumericType concreteType)
+    SemanticInt -> Just SemanticInt
+    numericType@(SemanticNumeric concreteType)
       | numericTypeIsIntegral concreteType -> Just numericType
     _ -> Nothing
 
@@ -428,5 +428,5 @@ defaultScalarLiterals :: InferState -> ExpressionType -> ExpressionType
 defaultScalarLiterals state expressionType =
   case integerLiteralRangeFor state expressionType of
     Just literalRange
-      | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> TIntType
+      | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> SemanticInt
     _ -> expressionType

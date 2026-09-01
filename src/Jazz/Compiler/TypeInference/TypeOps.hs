@@ -18,8 +18,9 @@ import qualified Data.Set as Set
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (..),
+  ( ExpressionType,
     InferenceVariable,
+    SemanticType (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
   )
@@ -58,45 +59,28 @@ freeTypeVariablesInTypeSchemePrimitiveConstraint primitiveConstraint =
     TypeSchemeStrictEqualityConstraint argumentType -> freeTypeVariables argumentType
 
 freeTypeVariables :: ExpressionType -> Set InferenceVariable
-freeTypeVariables expressionType =
-  case expressionType of
-    TIntType -> Set.empty
-    TFloatType -> Set.empty
-    TNumericType {} -> Set.empty
-    TBoolType -> Set.empty
-    TCharType -> Set.empty
-    TTextType -> Set.empty
-    TListType elementType ->
-      freeTypeVariables elementType
-    TTupleType elementTypes ->
-      Set.unions (map freeTypeVariables elementTypes)
-    TDataType _ typeArguments ->
-      Set.unions (map freeTypeVariables typeArguments)
-    TFunctionType inputType outputType ->
-      Set.union (freeTypeVariables inputType) (freeTypeVariables outputType)
-    TVarType typeVar ->
-      Set.singleton typeVar
+freeTypeVariables = foldMap Set.singleton
 
 replaceTypeVariables :: Map InferenceVariable ExpressionType -> ExpressionType -> ExpressionType
 replaceTypeVariables replacements expressionType =
   case expressionType of
-    TIntType -> TIntType
-    TFloatType -> TFloatType
-    TNumericType numericType -> TNumericType numericType
-    TBoolType -> TBoolType
-    TCharType -> TCharType
-    TTextType -> TTextType
-    TListType elementType ->
-      TListType (replaceTypeVariables replacements elementType)
-    TTupleType elementTypes ->
-      TTupleType (map (replaceTypeVariables replacements) elementTypes)
-    TDataType typeName typeArguments ->
-      TDataType typeName (map (replaceTypeVariables replacements) typeArguments)
-    TFunctionType inputType outputType ->
-      TFunctionType
+    SemanticInt -> SemanticInt
+    SemanticFloat -> SemanticFloat
+    SemanticNumeric numericType -> SemanticNumeric numericType
+    SemanticBool -> SemanticBool
+    SemanticChar -> SemanticChar
+    SemanticText -> SemanticText
+    SemanticList elementType ->
+      SemanticList (replaceTypeVariables replacements elementType)
+    SemanticTuple elementTypes ->
+      SemanticTuple (map (replaceTypeVariables replacements) elementTypes)
+    SemanticData typeName typeArguments ->
+      SemanticData typeName (map (replaceTypeVariables replacements) typeArguments)
+    SemanticFunction inputType outputType ->
+      SemanticFunction
         (replaceTypeVariables replacements inputType)
         (replaceTypeVariables replacements outputType)
-    TVarType typeVar ->
+    SemanticVariable typeVar ->
       Map.findWithDefault expressionType typeVar replacements
 
 instantiateTypeSchemeConstraint :: Map InferenceVariable ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint

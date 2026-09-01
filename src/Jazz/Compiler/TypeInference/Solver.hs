@@ -47,10 +47,11 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
     InferenceVariable,
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    SemanticType (..),
     instantiateConstructorFieldType,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
@@ -64,7 +65,7 @@ freshTypeVariable :: InferState -> (InferenceVariable, ExpressionType, InferStat
 freshTypeVariable state =
   let nextVar = inferNextTypeVar state
    in ( nextVar,
-        TVarType nextVar,
+        SemanticVariable nextVar,
         modifySolverState
           (\solver -> solver {solverNextTypeVar = nextVar + 1})
           state
@@ -83,7 +84,7 @@ freshIntegerLiteralType literalRange state =
 integerLiteralRangeFor :: InferState -> ExpressionType -> Maybe IntegerLiteralRange
 integerLiteralRangeFor state expressionType =
   case resolveType state expressionType of
-    TVarType typeVar -> do
+    SemanticVariable typeVar -> do
       IntegralLiteralNumericConstraint literalRange <- Map.lookup typeVar (inferNumericVars state)
       pure literalRange
     _ -> Nothing
@@ -94,24 +95,24 @@ resolveType state = applySubstitution (inferSubst state)
 applySubstitution :: Map.Map InferenceVariable ExpressionType -> ExpressionType -> ExpressionType
 applySubstitution substitution expressionType =
   case expressionType of
-    TIntType -> TIntType
-    TFloatType -> TFloatType
-    TNumericType numericType -> TNumericType numericType
-    TBoolType -> TBoolType
-    TCharType -> TCharType
-    TTextType -> TTextType
-    TListType elementType -> TListType (applySubstitution substitution elementType)
-    TTupleType elementTypes -> TTupleType (map (applySubstitution substitution) elementTypes)
-    TDataType typeName typeArguments ->
-      TDataType typeName (map (applySubstitution substitution) typeArguments)
-    TFunctionType inputType outputType ->
-      TFunctionType
+    SemanticInt -> SemanticInt
+    SemanticFloat -> SemanticFloat
+    SemanticNumeric numericType -> SemanticNumeric numericType
+    SemanticBool -> SemanticBool
+    SemanticChar -> SemanticChar
+    SemanticText -> SemanticText
+    SemanticList elementType -> SemanticList (applySubstitution substitution elementType)
+    SemanticTuple elementTypes -> SemanticTuple (map (applySubstitution substitution) elementTypes)
+    SemanticData typeName typeArguments ->
+      SemanticData typeName (map (applySubstitution substitution) typeArguments)
+    SemanticFunction inputType outputType ->
+      SemanticFunction
         (applySubstitution substitution inputType)
         (applySubstitution substitution outputType)
-    TVarType typeVar ->
+    SemanticVariable typeVar ->
       case Map.lookup typeVar substitution of
         Just replacementType -> applySubstitution substitution replacementType
-        Nothing -> TVarType typeVar
+        Nothing -> SemanticVariable typeVar
 
 unifyTypes :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
 unifyTypes leftType rightType state =
@@ -123,30 +124,30 @@ unifyTypesWithoutCostCentre leftType rightType state =
   let (resolvedLeft, stateAfterLeft) = dereferenceType state leftType
       (resolvedRight, stateAfterDereference) = dereferenceType stateAfterLeft rightType
    in case (resolvedLeft, resolvedRight) of
-        (TIntType, TIntType) -> Just stateAfterDereference
-        (TFloatType, TFloatType) -> Just stateAfterDereference
-        (TFloatType, TNumericType NumericFloat64) -> Just stateAfterDereference
-        (TNumericType NumericFloat64, TFloatType) -> Just stateAfterDereference
-        (TIntType, TNumericType NumericInt64) -> Just stateAfterDereference
-        (TNumericType NumericInt64, TIntType) -> Just stateAfterDereference
-        (TNumericType leftNumericType, TNumericType rightNumericType)
+        (SemanticInt, SemanticInt) -> Just stateAfterDereference
+        (SemanticFloat, SemanticFloat) -> Just stateAfterDereference
+        (SemanticFloat, SemanticNumeric NumericFloat64) -> Just stateAfterDereference
+        (SemanticNumeric NumericFloat64, SemanticFloat) -> Just stateAfterDereference
+        (SemanticInt, SemanticNumeric NumericInt64) -> Just stateAfterDereference
+        (SemanticNumeric NumericInt64, SemanticInt) -> Just stateAfterDereference
+        (SemanticNumeric leftNumericType, SemanticNumeric rightNumericType)
           | leftNumericType == rightNumericType -> Just stateAfterDereference
-        (TBoolType, TBoolType) -> Just stateAfterDereference
-        (TCharType, TCharType) -> Just stateAfterDereference
-        (TTextType, TTextType) -> Just stateAfterDereference
-        (TDataType leftName leftArguments, TDataType rightName rightArguments)
+        (SemanticBool, SemanticBool) -> Just stateAfterDereference
+        (SemanticChar, SemanticChar) -> Just stateAfterDereference
+        (SemanticText, SemanticText) -> Just stateAfterDereference
+        (SemanticData leftName leftArguments, SemanticData rightName rightArguments)
           | leftName == rightName ->
               unifyTypeListsWithoutCostCentre leftArguments rightArguments stateAfterDereference
-        (TListType leftElementType, TListType rightElementType) ->
+        (SemanticList leftElementType, SemanticList rightElementType) ->
           unifyTypesWithoutCostCentre leftElementType rightElementType stateAfterDereference
-        (TTupleType leftElementTypes, TTupleType rightElementTypes) ->
+        (SemanticTuple leftElementTypes, SemanticTuple rightElementTypes) ->
           unifyTypeListsWithoutCostCentre leftElementTypes rightElementTypes stateAfterDereference
-        ( TFunctionType leftInputType leftOutputType,
-          TFunctionType rightInputType rightOutputType
+        ( SemanticFunction leftInputType leftOutputType,
+          SemanticFunction rightInputType rightOutputType
           ) -> do
             stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType stateAfterDereference
             unifyTypesWithoutCostCentre leftOutputType rightOutputType stateAfterInput
-        (TVarType leftVar, TVarType rightVar)
+        (SemanticVariable leftVar, SemanticVariable rightVar)
           | leftVar == rightVar ->
               Just stateAfterDereference
           | Set.member leftVar rigidVariables,
@@ -156,10 +157,10 @@ unifyTypesWithoutCostCentre leftType rightType state =
               bindTypeVar rightVar resolvedLeft stateAfterDereference
           | Set.member rightVar rigidVariables ->
               bindTypeVar leftVar resolvedRight stateAfterDereference
-        (TVarType leftVar, _)
+        (SemanticVariable leftVar, _)
           | Set.member leftVar rigidVariables -> Nothing
           | otherwise -> bindTypeVar leftVar resolvedRight stateAfterDereference
-        (_, TVarType rightVar)
+        (_, SemanticVariable rightVar)
           | Set.member rightVar rigidVariables -> Nothing
           | otherwise -> bindTypeVar rightVar resolvedLeft stateAfterDereference
         _ -> Nothing
@@ -172,14 +173,14 @@ unifyTypesWithoutCostCentre leftType rightType state =
 dereferenceType :: InferState -> ExpressionType -> (ExpressionType, InferState)
 dereferenceType state expressionType =
   case expressionType of
-    TVarType typeVar ->
+    SemanticVariable typeVar ->
       case Map.lookup typeVar (inferSubst state) of
         Nothing -> (expressionType, state)
-        Just replacementType@(TVarType replacementVar) ->
+        Just replacementType@(SemanticVariable replacementVar) ->
           let (resolvedType, resolvedState) = dereferenceType state replacementType
               compressedState =
                 case resolvedType of
-                  TVarType resolvedVar
+                  SemanticVariable resolvedVar
                     | resolvedVar == replacementVar -> resolvedState
                   _ ->
                     modifySolverState
@@ -210,7 +211,7 @@ unifyTypeListsWithoutCostCentre leftTypes rightTypes state
 
 bindTypeVar :: InferenceVariable -> ExpressionType -> InferState -> Maybe InferState
 bindTypeVar typeVar replacementType state
-  | resolvedReplacementType == TVarType typeVar = Just state
+  | resolvedReplacementType == SemanticVariable typeVar = Just state
   | occursInType typeVar resolvedReplacementType = Nothing
   | literalConstraintWouldSpecializeRigidVariable = Nothing
   | typeVarIsStrictEqualityConstrained
@@ -237,7 +238,7 @@ bindTypeVar typeVar replacementType state
     typeVarNumericConstraint = Map.lookup typeVar (inferNumericVars state)
     literalConstraintWouldSpecializeRigidVariable =
       case (typeVarNumericConstraint, resolvedReplacementType) of
-        (Just IntegralLiteralNumericConstraint {}, TVarType replacementVar) ->
+        (Just IntegralLiteralNumericConstraint {}, SemanticVariable replacementVar) ->
           Set.member replacementVar (inferRigidTypeVars state)
         _ -> False
     constrainedReplacementType =
@@ -249,7 +250,7 @@ bindTypeVar typeVar replacementType state
       Set.delete typeVar (inferStrictEqualityVars state)
     nextStrictEqualityVars nextReplacementType =
       case nextReplacementType of
-        TVarType replacementVar
+        SemanticVariable replacementVar
           | typeVarIsStrictEqualityConstrained ->
               Set.insert replacementVar strictEqualityVarsWithoutTypeVar
         _ -> strictEqualityVarsWithoutTypeVar
@@ -260,25 +261,25 @@ bindTypeVar typeVar replacementType state
         state
     stateAfterNumericConstraint nextReplacementType =
       case (typeVarNumericConstraint, nextReplacementType) of
-        (Just numericConstraint, TVarType replacementVar) ->
+        (Just numericConstraint, SemanticVariable replacementVar) ->
           addNumericTypeVarConstraint replacementVar numericConstraint stateWithoutNumericTypeVar
         _ -> stateWithoutNumericTypeVar
 
 occursInType :: InferenceVariable -> ExpressionType -> Bool
 occursInType typeVar expressionType =
   case expressionType of
-    TIntType -> False
-    TFloatType -> False
-    TNumericType {} -> False
-    TBoolType -> False
-    TCharType -> False
-    TTextType -> False
-    TListType elementType -> occursInType typeVar elementType
-    TTupleType elementTypes -> any (occursInType typeVar) elementTypes
-    TDataType _ typeArguments -> any (occursInType typeVar) typeArguments
-    TFunctionType inputType outputType ->
+    SemanticInt -> False
+    SemanticFloat -> False
+    SemanticNumeric {} -> False
+    SemanticBool -> False
+    SemanticChar -> False
+    SemanticText -> False
+    SemanticList elementType -> occursInType typeVar elementType
+    SemanticTuple elementTypes -> any (occursInType typeVar) elementTypes
+    SemanticData _ typeArguments -> any (occursInType typeVar) typeArguments
+    SemanticFunction inputType outputType ->
       occursInType typeVar inputType || occursInType typeVar outputType
-    TVarType otherVar -> typeVar == otherVar
+    SemanticVariable otherVar -> typeVar == otherVar
 
 addStrictEqualityTypeVarConstraint :: InferenceVariable -> InferState -> InferState
 addStrictEqualityTypeVarConstraint typeVar state =
@@ -329,7 +330,7 @@ applyNumericConstraintToReplacement numericConstraint replacementType
 constrainNumericOperatorType :: NumericConstraint -> ExpressionType -> InferState -> Maybe InferState
 constrainNumericOperatorType numericConstraint expressionType state =
   case resolveType state expressionType of
-    TVarType typeVar -> Just (addNumericTypeVarConstraint typeVar numericConstraint state)
+    SemanticVariable typeVar -> Just (addNumericTypeVarConstraint typeVar numericConstraint state)
     resolvedType
       | typeSatisfiesNumericConstraint numericConstraint resolvedType -> Just state
       | otherwise -> Nothing
@@ -343,39 +344,39 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
     IntegralNumericConstraint -> integralNumeric
     IntegralLiteralNumericConstraint literalRange ->
       case expressionType of
-        TIntType -> True
-        TNumericType numericType ->
+        SemanticInt -> True
+        SemanticNumeric numericType ->
           numericTypeIsIntegral numericType
             && integerLiteralRangeFitsNumericType literalRange numericType
-        TVarType {} -> True
+        SemanticVariable {} -> True
         _ -> False
   where
     anyNumeric =
       case expressionType of
-        TIntType -> True
-        TFloatType -> True
-        TNumericType {} -> True
-        TVarType {} -> True
+        SemanticInt -> True
+        SemanticFloat -> True
+        SemanticNumeric {} -> True
+        SemanticVariable {} -> True
         _ -> False
     runtimeArithmeticNumeric =
       case expressionType of
-        TIntType -> True
-        TFloatType -> True
-        TNumericType numericType -> numericTypeSupportsRuntimeArithmetic numericType
-        TVarType {} -> True
+        SemanticInt -> True
+        SemanticFloat -> True
+        SemanticNumeric numericType -> numericTypeSupportsRuntimeArithmetic numericType
+        SemanticVariable {} -> True
         _ -> False
     runtimeComparisonNumeric =
       case expressionType of
-        TIntType -> True
-        TFloatType -> True
-        TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
-        TVarType {} -> True
+        SemanticInt -> True
+        SemanticFloat -> True
+        SemanticNumeric numericType -> numericTypeSupportsRuntimeComparison numericType
+        SemanticVariable {} -> True
         _ -> False
     integralNumeric =
       case expressionType of
-        TIntType -> True
-        TNumericType numericType -> numericTypeIsIntegral numericType
-        TVarType {} -> True
+        SemanticInt -> True
+        SemanticNumeric numericType -> numericTypeIsIntegral numericType
+        SemanticVariable {} -> True
         _ -> False
 
 integerLiteralRangeFitsNumericType :: IntegerLiteralRange -> NumericType -> Bool
@@ -401,15 +402,15 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
   | Just _ <- integerLiteralRangeFor state expressionType = True
   | otherwise =
       case resolveType state expressionType of
-        TIntType -> True
-        TFloatType -> True
-        TNumericType numericType -> numericTypeSupportsRuntimeComparison numericType
-        TBoolType -> True
-        TCharType -> True
-        TTextType -> True
-        TListType elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
-        TTupleType elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
-        TDataType typeName typeArguments ->
+        SemanticInt -> True
+        SemanticFloat -> True
+        SemanticNumeric numericType -> numericTypeSupportsRuntimeComparison numericType
+        SemanticBool -> True
+        SemanticChar -> True
+        SemanticText -> True
+        SemanticList elementType -> supportsRuntimeEqualityTypeWith seenDataTypes state elementType
+        SemanticTuple elementTypes -> all (supportsRuntimeEqualityTypeWith seenDataTypes state) elementTypes
+        SemanticData typeName typeArguments ->
           dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments
         _ -> False
 
@@ -455,7 +456,7 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
 supportsDeferredEqualityOperandType :: InferState -> ExpressionType -> Bool
 supportsDeferredEqualityOperandType state expressionType =
   case resolveType state expressionType of
-    TVarType _ -> True
+    SemanticVariable _ -> True
     _ -> supportsRuntimeEqualityType state expressionType
 
 modifySolverState :: (SolverState -> SolverState) -> InferState -> InferState

@@ -26,6 +26,7 @@ where
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import Data.Text (Text)
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Query (typedPatternInfo)
 import Jazz.Compiler.TypedCore.Validate.Evidence
@@ -128,16 +129,16 @@ validatePatternMetadata path (TypedNodeInfo _ _ instantiations evidenceSelection
 validateTuplePatternShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedPattern] -> [TypedCoreValidationFailure]
 validateTuplePatternShape path info patterns =
   case typedNodeType info of
-    TypedTupleType types
+    SemanticTuple types
       | length types == length patterns -> []
       | otherwise -> [failure path TypedPatternShapeMismatch (TypedArityDetail (length types) (length patterns))]
-    actualType -> [failure path TypedPatternShapeMismatch (TypedTypeDetail (TypedTupleType []) actualType)]
+    actualType -> [failure path TypedPatternShapeMismatch (TypedTypeDetail (SemanticTuple []) actualType)]
 
 validateListPatternShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedCoreValidationFailure]
 validateListPatternShape path info =
   case typedNodeType info of
-    TypedListType _ -> []
-    actualType -> [failure path TypedPatternShapeMismatch (TypedTypeDetail (TypedListType actualType) actualType)]
+    SemanticList _ -> []
+    actualType -> [failure path TypedPatternShapeMismatch (TypedTypeDetail (SemanticList actualType) actualType)]
 
 validateConstructorPatternShape :: ModuleContext -> TypedCoreValidationPath -> TypedNodeInfo -> TypedCoreName -> [TypedPattern] -> [TypedCoreValidationFailure]
 validateConstructorPatternShape context path info name patterns =
@@ -154,7 +155,7 @@ constructorPatternExpectedType :: ModuleContext -> TypedCoreName -> Maybe TypedT
 constructorPatternExpectedType context constructorName = do
   constructorKey <- resolvedNameKey (moduleContextPath context) constructorName
   ConstructorContract _ dataKey parameters _ <- Map.lookup constructorKey (moduleContextConstructorContracts context)
-  pure (TypedDataType (resolvedNameFromKey context dataKey) (map TypedTypeParameterType parameters))
+  pure (SemanticData (resolvedNameFromKey context dataKey) (map SemanticVariable parameters))
 
 patternChildrenWithContracts :: ModuleContext -> TypedPattern -> [(Int, ValueContract, TypedPattern)]
 patternChildrenWithContracts context patternValue =
@@ -165,17 +166,17 @@ patternChildrenWithContracts context patternValue =
         Nothing -> indexedPatternContracts patterns
     TypedListPattern info patterns ->
       case (typedNodeType info, typedNodeRecipe info) of
-        (TypedListType elementType, TypedManagedListRecipe elementRecipe) ->
+        (SemanticList elementType, TypedManagedListRecipe elementRecipe) ->
           [(index, ValueContract elementType elementRecipe, pattern') | (index, pattern') <- zip [0 ..] patterns]
         _ -> indexedPatternContracts patterns
     TypedConsListPattern info headPattern tailPattern ->
       case (typedNodeType info, typedNodeRecipe info) of
-        (listType@(TypedListType elementType), listRecipe@(TypedManagedListRecipe elementRecipe)) ->
+        (listType@(SemanticList elementType), listRecipe@(TypedManagedListRecipe elementRecipe)) ->
           [(0, ValueContract elementType elementRecipe, headPattern), (1, ValueContract listType listRecipe, tailPattern)]
         _ -> [(0, patternValueContract headPattern, headPattern), (1, patternValueContract tailPattern, tailPattern)]
     TypedTuplePattern info patterns ->
       case (typedNodeType info, typedNodeRecipe info) of
-        (TypedTupleType types, TypedManagedProductRecipe recipes)
+        (SemanticTuple types, TypedManagedProductRecipe recipes)
           | length types == length recipes ->
               [ (index, ValueContract typeValue recipe, pattern')
               | (index, (typeValue, recipe, pattern')) <- zip [0 ..] (zip3 types recipes patterns)
@@ -205,7 +206,7 @@ constructorPatternFieldTypes context info constructorName = do
   constructorKey <- resolvedNameKey (moduleContextPath context) constructorName
   ConstructorContract _ dataKey parameters fieldTypes <- Map.lookup constructorKey (moduleContextConstructorContracts context)
   case typedNodeType info of
-    TypedDataType dataName arguments -> do
+    SemanticData dataName arguments -> do
       actualDataKey <- resolvedNameKey (moduleContextPath context) dataName
       if actualDataKey == dataKey && length parameters == length arguments
         then pure (map (substituteTypeParameters (Map.fromList (zip parameters arguments))) fieldTypes)

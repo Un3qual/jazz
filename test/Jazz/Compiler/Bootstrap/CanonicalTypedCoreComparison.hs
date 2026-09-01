@@ -29,7 +29,10 @@ import Jazz.Compiler.Bootstrap.CanonicalValue
   )
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime (RuntimeValue (..))
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SemanticType (..),
+  )
 import Jazz.Compiler.TypedCore
 
 data CanonicalTypedCoreStructure
@@ -472,19 +475,19 @@ methodIdValue (TypedMethodId implId method) =
 typeValue :: TypedType -> RuntimeValue
 typeValue typeValue' =
   case typeValue' of
-    TypedIntType -> nullary "TypedIntType"
-    TypedFloatType -> nullary "TypedFloatType"
-    TypedNumericType numericType -> constructor "TypedNumericType" [numericTypeValue numericType]
-    TypedBoolType -> nullary "TypedBoolType"
-    TypedCharType -> nullary "TypedCharType"
-    TypedTextType -> nullary "TypedTextType"
-    TypedListType elementType -> constructor "TypedListType" [typeValue elementType]
-    TypedTupleType elementTypes -> constructor "TypedTupleType" [listValue typeValue elementTypes]
-    TypedDataType name arguments ->
+    SemanticInt -> nullary "TypedIntType"
+    SemanticFloat -> nullary "TypedFloatType"
+    SemanticNumeric numericType -> constructor "TypedNumericType" [numericTypeValue numericType]
+    SemanticBool -> nullary "TypedBoolType"
+    SemanticChar -> nullary "TypedCharType"
+    SemanticText -> nullary "TypedTextType"
+    SemanticList elementType -> constructor "TypedListType" [typeValue elementType]
+    SemanticTuple elementTypes -> constructor "TypedTupleType" [listValue typeValue elementTypes]
+    SemanticData name arguments ->
       constructor "TypedDataType" [coreNameValue name, listValue typeValue arguments]
-    TypedFunctionType argument result ->
+    SemanticFunction argument result ->
       constructor "TypedFunctionType" [typeValue argument, typeValue result]
-    TypedTypeParameterType parameterId ->
+    SemanticVariable parameterId ->
       constructor "TypedTypeParameterType" [typeParameterIdValue parameterId]
 
 numericTypeValue :: NumericType -> RuntimeValue
@@ -873,25 +876,25 @@ decodeType :: RuntimeValue -> Either Text TypedType
 decodeType value = do
   (name, arguments) <- expectConstructor "typed type" value
   case name of
-    "TypedIntType" -> expectNullary name arguments TypedIntType
-    "TypedFloatType" -> expectNullary name arguments TypedFloatType
-    "TypedNumericType" -> decodeDetail1 name TypedNumericType decodeNumericType arguments
-    "TypedBoolType" -> expectNullary name arguments TypedBoolType
-    "TypedCharType" -> expectNullary name arguments TypedCharType
-    "TypedTextType" -> expectNullary name arguments TypedTextType
-    "TypedListType" -> decodeDetail1 name TypedListType decodeType arguments
-    "TypedTupleType" -> decodeDetail1 name TypedTupleType (decodeList "tuple types" decodeType) arguments
+    "TypedIntType" -> expectNullary name arguments SemanticInt
+    "TypedFloatType" -> expectNullary name arguments SemanticFloat
+    "TypedNumericType" -> decodeDetail1 name SemanticNumeric decodeNumericType arguments
+    "TypedBoolType" -> expectNullary name arguments SemanticBool
+    "TypedCharType" -> expectNullary name arguments SemanticChar
+    "TypedTextType" -> expectNullary name arguments SemanticText
+    "TypedListType" -> decodeDetail1 name SemanticList decodeType arguments
+    "TypedTupleType" -> decodeDetail1 name SemanticTuple (decodeList "tuple types" decodeType) arguments
     "TypedDataType" -> do
       fields <- expectArity name 2 arguments
       case fields of
-        [dataName, typeArguments] -> TypedDataType <$> decodeCoreName dataName <*> decodeList "data type arguments" decodeType typeArguments
+        [dataName, typeArguments] -> SemanticData <$> decodeCoreName dataName <*> decodeList "data type arguments" decodeType typeArguments
         _ -> impossibleArity name
     "TypedFunctionType" -> do
       fields <- expectArity name 2 arguments
       case fields of
-        [argument, result] -> TypedFunctionType <$> decodeType argument <*> decodeType result
+        [argument, result] -> SemanticFunction <$> decodeType argument <*> decodeType result
         _ -> impossibleArity name
-    "TypedTypeParameterType" -> decodeDetail1 name TypedTypeParameterType decodeTypeParameterId arguments
+    "TypedTypeParameterType" -> decodeDetail1 name SemanticVariable decodeTypeParameterId arguments
     _ -> Left ("unknown typed type constructor '" <> name <> "'")
 
 decodeNumericType :: RuntimeValue -> Either Text NumericType

@@ -132,10 +132,11 @@ import Jazz.Compiler.TypeInference.TypeOps
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
     InferenceVariable (..),
     NumericConstraint,
     ScopeCapabilityFacts,
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -175,7 +176,7 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                 expectedType
                 state ->
               (InferredExpr expressionType Nothing [], nextState)
-        (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
+        (SemanticFunction argumentType resultType, ELambda parameterName bodyExpr) ->
           let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
               (bodyResult, stateAfterBody) =
                 inferExprTypeWithExpectedMode
@@ -187,13 +188,13 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                   resultType
                   bodyExpr
               expressionType =
-                TFunctionType
+                SemanticFunction
                   (resolveType stateAfterBody argumentType)
                   <$> inferredExpressionType bodyResult
            in (InferredExpr expressionType Nothing [], stateAfterBody)
-        (TNumericType numericType, ELit (LFloat literalValue literalSource Nothing))
+        (SemanticNumeric numericType, ELit (LFloat literalValue literalSource Nothing))
           | Just _ <- numericTypeFloatMax numericType ->
-              ( InferredExpr (Just (TNumericType numericType)) Nothing [],
+              ( InferredExpr (Just (SemanticNumeric numericType)) Nothing [],
                 maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
               )
         _ -> inferExpression InferenceOnly builtinMode env state expr
@@ -213,12 +214,12 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                   [],
                 nextState
               )
-        (TFunctionType argumentType resultType, ELambda parameterName bodyExpr) ->
+        (SemanticFunction argumentType resultType, ELambda parameterName bodyExpr) ->
           let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
               (bodyResult, stateAfterBody) =
                 inferExprTypeWithExpectedMode inferExpression mode builtinMode extendedEnv state resultType bodyExpr
               functionType =
-                TFunctionType
+                SemanticFunction
                   (resolveType stateAfterBody argumentType)
                   (maybe resultType id (inferredExpressionType bodyResult))
               provisional =
@@ -229,7 +230,7 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                 | InferredProductionFailure childPath kind detail <- inferredProductionFailures bodyResult
                 ]
            in (InferredExpr (Just functionType) provisional failures, stateAfterBody)
-        (TNumericType _, ELit literal@(LInt _)) ->
+        (SemanticNumeric _, ELit literal@(LInt _)) ->
           let (literalResult, nextState) = inferExpression mode builtinMode env state (ELit literal)
            in case inferredExpressionType literalResult of
                 Just literalType
@@ -242,11 +243,11 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                             checkedState
                           )
                 _ -> (literalResult, nextState)
-        (TNumericType numericType, ELit literal@(LFloat literalValue literalSource Nothing))
+        (SemanticNumeric numericType, ELit literal@(LFloat literalValue literalSource Nothing))
           | Just _ <- numericTypeFloatMax numericType ->
               let nextState =
                     maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
-                  concreteType = TNumericType numericType
+                  concreteType = SemanticNumeric numericType
                in ( InferredExpr
                       (Just concreteType)
                       (if mode == ProduceTypedCoreExpressionDirectCall then Just (ProvisionalLiteralExpression literal concreteType) else Nothing)
@@ -1047,7 +1048,7 @@ inferScopeTypeInternal
                           Map.lookup statementIndex recursiveGroupsByStatement
                         callableDeclaration =
                           case nextBindingType of
-                            Just bindingType@TFunctionType {} ->
+                            Just bindingType@SemanticFunction {} ->
                               Just
                                 ( ProvisionalCallableDeclaration
                                     statementIndex
@@ -1179,18 +1180,18 @@ inferScopeTypeInternal
 
       supportedTypedCoreSignatureType expressionType =
         case expressionType of
-          TFunctionType {} -> True
-          TIntType -> True
-          TFloatType -> True
-          TNumericType {} -> True
-          TBoolType -> True
-          TCharType -> True
-          TTupleType [] -> True
+          SemanticFunction {} -> True
+          SemanticInt -> True
+          SemanticFloat -> True
+          SemanticNumeric {} -> True
+          SemanticBool -> True
+          SemanticChar -> True
+          SemanticTuple [] -> True
           _ -> False
 
       isFunctionType expressionType =
         case expressionType of
-          TFunctionType {} -> True
+          SemanticFunction {} -> True
           _ -> False
 
       qualifyStatementProductionFailures statementIndex failures =
@@ -1522,7 +1523,7 @@ inferScopeTypeInternal
               dependencyVariables = Map.keysSet dependencies
               resolvedDependenciesAreCurrent =
                 Map.foldlWithKey'
-                  (\isCurrent typeVar expectedType -> isCurrent && resolveType stateAcc (TVarType typeVar) == expectedType)
+                  (\isCurrent typeVar expectedType -> isCurrent && resolveType stateAcc (SemanticVariable typeVar) == expectedType)
                   True
                   dependencies
               currentNumericConstraints =
@@ -1532,7 +1533,7 @@ inferScopeTypeInternal
 
           recursiveGroupPreviewDependencyTypes stateAcc bindings =
             Map.fromSet
-              (resolveType stateAcc . TVarType)
+              (resolveType stateAcc . SemanticVariable)
               (Set.unions (map recursiveGroupPreviewBindingFreeVariables (Map.elems bindings)))
 
           recursiveGroupPreviewBindingFreeVariables binding =
@@ -1924,19 +1925,19 @@ prepareScope forwardSignedFunctionsPolicy mode predeclaredDataTypes indexedState
 
     concreteForwardFunctionType expressionType =
       case expressionType of
-        TFunctionType argumentType resultType ->
+        SemanticFunction argumentType resultType ->
           concreteForwardScalarType argumentType
             && (concreteForwardScalarType resultType || concreteForwardFunctionType resultType)
         _ -> False
 
     concreteForwardScalarType expressionType =
       case expressionType of
-        TIntType -> True
-        TFloatType -> True
-        TNumericType {} -> True
-        TBoolType -> True
-        TCharType -> True
-        TTupleType [] -> True
+        SemanticInt -> True
+        SemanticFloat -> True
+        SemanticNumeric {} -> True
+        SemanticBool -> True
+        SemanticChar -> True
+        SemanticTuple [] -> True
         _ -> False
 
 predeclareScopeDataTypes ::
@@ -2207,21 +2208,21 @@ expressionTypeVariableOrder = go
   where
     go expressionType =
       case expressionType of
-        TIntType -> []
-        TFloatType -> []
-        TNumericType {} -> []
-        TBoolType -> []
-        TCharType -> []
-        TTextType -> []
-        TListType elementType ->
+        SemanticInt -> []
+        SemanticFloat -> []
+        SemanticNumeric {} -> []
+        SemanticBool -> []
+        SemanticChar -> []
+        SemanticText -> []
+        SemanticList elementType ->
           go elementType
-        TTupleType elementTypes ->
+        SemanticTuple elementTypes ->
           concatMap go elementTypes
-        TDataType _ typeArguments ->
+        SemanticData _ typeArguments ->
           concatMap go typeArguments
-        TFunctionType inputType outputType ->
+        SemanticFunction inputType outputType ->
           go inputType ++ go outputType
-        TVarType typeVar ->
+        SemanticVariable typeVar ->
           [typeVar]
 
 typeSchemePrimitiveConstraints :: InferState -> Set InferenceVariable -> [TypeSchemePrimitiveConstraint]
@@ -2229,7 +2230,7 @@ typeSchemePrimitiveConstraints state schemeVariables =
   numericConstraints ++ equalityConstraints
   where
     targetTypeFor typeVar =
-      let targetType = resolveType state (TVarType typeVar)
+      let targetType = resolveType state (SemanticVariable typeVar)
           targetVariables = freeTypeVariables targetType
        in if not (Set.null targetVariables) && targetVariables `Set.isSubsetOf` schemeVariables
             then Just targetType
@@ -2293,7 +2294,7 @@ targetedFractionalLiteralBindingType ::
   Maybe ExpressionType
 targetedFractionalLiteralBindingType bindingName maybePendingSignature valueExpr maybeInferredType =
   case targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType of
-    Just targetType -> Just (TNumericType targetType)
+    Just targetType -> Just (SemanticNumeric targetType)
     Nothing -> maybeInferredType
 
 targetedFractionalLiteralDiagnostic ::
@@ -2316,7 +2317,7 @@ targetedFractionalLiteralType ::
   Maybe NumericType
 targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeInferredType =
   case (maybePendingSignature, valueExpr, maybeInferredType) of
-    (Just pendingSignature, ELit (LFloat _ _ Nothing), Just TFloatType)
+    (Just pendingSignature, ELit (LFloat _ _ Nothing), Just SemanticFloat)
       | pendingSignatureName pendingSignature == bindingName ->
           concreteFloatNumericType (pendingSignatureDeclaredType pendingSignature)
     _ -> Nothing
@@ -2324,9 +2325,9 @@ targetedFractionalLiteralType bindingName maybePendingSignature valueExpr maybeI
 concreteFloatNumericType :: ExpressionType -> Maybe NumericType
 concreteFloatNumericType expressionType =
   case expressionType of
-    TNumericType NumericFloat16 -> Just NumericFloat16
-    TNumericType NumericFloat32 -> Just NumericFloat32
-    TNumericType NumericFloat64 -> Just NumericFloat64
+    SemanticNumeric NumericFloat16 -> Just NumericFloat16
+    SemanticNumeric NumericFloat32 -> Just NumericFloat32
+    SemanticNumeric NumericFloat64 -> Just NumericFloat64
     _ -> Nothing
 
 insertRegisteredConstructorFreeVariables :: TypeEnv -> TypeEnvFreeVariables -> DataConstructor -> TypeEnvFreeVariables
@@ -2388,7 +2389,7 @@ retainedDataDeclaration statementIndex spanValue typeName typeParameters constru
   where
     parameterTypes =
       Map.fromList
-        [ (identifierText parameterName, TVarType (InferenceVariable (negate position - 1)))
+        [ (identifierText parameterName, SemanticVariable (InferenceVariable (negate position - 1)))
         | (position, parameterName) <- zip [0 :: Int ..] typeParameters
         ]
 
@@ -2413,7 +2414,7 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
   where
     signatureVariables =
       Map.fromList
-        [ (identifierText parameterName, TVarType (InferenceVariable (negate position - 1)))
+        [ (identifierText parameterName, SemanticVariable (InferenceVariable (negate position - 1)))
         | (position, parameterName) <- zip [0 :: Int ..] typeParameters
         ]
 
@@ -2464,7 +2465,7 @@ instantiateNonBuiltinTypeBinding binding state =
       case instantiateConstructorBinding binding state of
         Just (constructorArgumentTypes', constructorResultType, nextState) ->
           ( Just
-              (foldr TFunctionType constructorResultType constructorArgumentTypes'),
+              (foldr SemanticFunction constructorResultType constructorArgumentTypes'),
             nextState
           )
         Nothing -> (Nothing, state)
@@ -2678,7 +2679,7 @@ runtimeHintForTypeBinding state binding =
 typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe SignatureType
 typeSchemeRuntimeHint state typeScheme =
   case resolvedSchemeType of
-    TFunctionType {} ->
+    SemanticFunction {} ->
       Signature.expressionTypeToRuntimeTemplate runtimeTemplateVariables resolvedSchemeType
     _ -> Nothing
   where

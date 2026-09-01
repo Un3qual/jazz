@@ -19,6 +19,7 @@ import Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
     representationForRecipe,
   )
 import Jazz.Compiler.LoweredIR.Lower.Types
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 
 data ManagedPattern
@@ -67,8 +68,8 @@ analyzeManagedPatternCase catalog modulePath statementPath expressionPath scruti
           }
     supportedScrutinee info =
       case (typedNodeType info, typedNodeRecipe info) of
-        (TypedTupleType (_ : _), TypedManagedProductRecipe (_ : _)) -> concreteRepresentation info
-        (TypedDataType name arguments, TypedManagedVariantRecipe recipeName recipeArguments) ->
+        (SemanticTuple (_ : _), TypedManagedProductRecipe (_ : _)) -> concreteRepresentation info
+        (SemanticData name arguments, TypedManagedVariantRecipe recipeName recipeArguments) ->
           name == recipeName && arguments == recipeArguments && concreteRepresentation info
         (_, recipe) -> scalarRecipe recipe && concreteRepresentation info
     concreteRepresentation = maybe False (const True) . representationForRecipe catalog . typedNodeRecipe
@@ -141,7 +142,7 @@ normalizePattern catalog modulePath statementPath patternPath allowAlternative e
       normalizePattern catalog modulePath statementPath (patternPath <> [index]) False info alternative
     tupleFields info =
       case (typedNodeType info, typedNodeRecipe info, representationForRecipe catalog (typedNodeRecipe info)) of
-        (TypedTupleType types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
+        (SemanticTuple types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
           | length types == length recipes,
             let fieldInfos = zipWith (\typeValue recipe -> TypedNodeInfo typeValue recipe [] []) types recipes,
             productLayoutFields catalog layoutId == traverse (representationForRecipe catalog . typedNodeRecipe) fieldInfos ->
@@ -169,8 +170,8 @@ matchingInfo expected actual =
 managedStructuredInfo :: TypedNodeInfo -> Bool
 managedStructuredInfo info =
   case (typedNodeType info, typedNodeRecipe info) of
-    (TypedTupleType (_ : _), TypedManagedProductRecipe (_ : _)) -> True
-    (TypedDataType name arguments, TypedManagedVariantRecipe recipeName recipeArguments) ->
+    (SemanticTuple (_ : _), TypedManagedProductRecipe (_ : _)) -> True
+    (SemanticData name arguments, TypedManagedVariantRecipe recipeName recipeArguments) ->
       name == recipeName && arguments == recipeArguments
     _ -> False
 
@@ -236,10 +237,10 @@ matrixHasWitness catalog (info : laterInfos) rows =
 matrixConstructors :: ManagedLayoutCatalog -> TypedNodeInfo -> Maybe [MatrixConstructor]
 matrixConstructors catalog info =
   case (typedNodeType info, typedNodeRecipe info, representationForRecipe catalog (typedNodeRecipe info)) of
-    (TypedTupleType types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
+    (SemanticTuple types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
       | length types == length recipes ->
           Just [MatrixProduct layoutId (zipWith (\typeValue recipe -> TypedNodeInfo typeValue recipe [] []) types recipes)]
-    (TypedDataType {}, TypedManagedVariantRecipe {}, _) ->
+    (SemanticData {}, TypedManagedVariantRecipe {}, _) ->
       map MatrixVariant <$> managedPatternConstructorsFor catalog info
     _ -> Nothing
 

@@ -166,10 +166,11 @@ import Jazz.Compiler.TypeInference.TypeOps
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
-    ExpressionType (..),
+    ExpressionType,
     ImplMethodType (..),
     InferenceVariable,
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -852,14 +853,14 @@ decrementTypeEnvFreeVariableReference counts typeVar =
 resolveTypeEnvFreeVariables :: InferState -> TypeEnvFreeVariables -> Set InferenceVariable
 resolveTypeEnvFreeVariables state summary =
   Set.unions
-    [ freeTypeVariables (resolveType state (TVarType typeVar))
+    [ freeTypeVariables (resolveType state (SemanticVariable typeVar))
     | typeVar <- Map.keys (typeEnvFreeVariableReferenceCounts summary)
     ]
 
 freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set InferenceVariable
 freeTypeVariablesInBinding state binding =
   Set.unions
-    [ freeTypeVariables (resolveType state (TVarType typeVar))
+    [ freeTypeVariables (resolveType state (SemanticVariable typeVar))
     | typeVar <- Set.toList (freeTypeVariablesInBindingRaw binding)
     ]
 
@@ -911,7 +912,7 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
                 (mkTypeSchemeNumericConstraintError numericConstraint (resolveType stateAcc argumentType))
         TypeSchemeStrictEqualityConstraint argumentType ->
           case resolveType stateAcc argumentType of
-            TVarType typeVar ->
+            SemanticVariable typeVar ->
               addStrictEqualityTypeVarConstraint typeVar stateAcc
             resolvedType
               | supportsRuntimeEqualityType stateAcc resolvedType ->
@@ -1080,13 +1081,13 @@ expressionTypeContainsUncommittedIntegerLiteral state expressionType
   | Just _ <- integerLiteralRangeFor state expressionType = True
   | otherwise =
       case expressionType of
-        TListType elementType ->
+        SemanticList elementType ->
           expressionTypeContainsUncommittedIntegerLiteral state elementType
-        TTupleType elementTypes ->
+        SemanticTuple elementTypes ->
           any (expressionTypeContainsUncommittedIntegerLiteral state) elementTypes
-        TDataType _ typeArguments ->
+        SemanticData _ typeArguments ->
           any (expressionTypeContainsUncommittedIntegerLiteral state) typeArguments
-        TFunctionType argumentType resultType ->
+        SemanticFunction argumentType resultType ->
           expressionTypeContainsUncommittedIntegerLiteral state argumentType
             || expressionTypeContainsUncommittedIntegerLiteral state resultType
         _ -> False
@@ -1157,17 +1158,17 @@ constraintSignatureTypeMatchesExpressionType state signatureType expressionType 
             && integerLiteralRangeFitsNumericType literalRange numericType
         Nothing ->
           False
-    (TypeList signatureElementType, _, TListType elementType) ->
+    (TypeList signatureElementType, _, SemanticList elementType) ->
       constraintSignatureTypeMatchesExpressionType state signatureElementType elementType
-    (TypeTuple signatureElementTypes, _, TTupleType elementTypes)
+    (TypeTuple signatureElementTypes, _, SemanticTuple elementTypes)
       | length signatureElementTypes == length elementTypes ->
           and (zipWith (constraintSignatureTypeMatchesExpressionType state) signatureElementTypes elementTypes)
-    (TypeApplication signatureName signatureArguments, _, TDataType typeName typeArguments)
+    (TypeApplication signatureName signatureArguments, _, SemanticData typeName typeArguments)
       | normalizeConstraintSignatureName (identifierText signatureName)
           == normalizeConstraintSignatureName (identifierText typeName),
         length signatureArguments == length typeArguments ->
           and (zipWith (constraintSignatureTypeMatchesExpressionType state) signatureArguments typeArguments)
-    (TypeFunction signatureArgument signatureResult, _, TFunctionType argumentType resultType) ->
+    (TypeFunction signatureArgument signatureResult, _, SemanticFunction argumentType resultType) ->
       constraintSignatureTypeMatchesExpressionType state signatureArgument argumentType
         && constraintSignatureTypeMatchesExpressionType state signatureResult resultType
     _ ->
@@ -1220,12 +1221,12 @@ generatedHiddenEqualityClassFact constraintName facts =
 structuralRuntimeEqualityType :: InferState -> ExpressionType -> Bool
 structuralRuntimeEqualityType state argumentType =
   case resolveType state argumentType of
-    TListType elementType ->
+    SemanticList elementType ->
       supportsRuntimeEqualityType state elementType
-    TTupleType elementTypes ->
+    SemanticTuple elementTypes ->
       all (supportsRuntimeEqualityType state) elementTypes
-    TDataType typeName typeArguments ->
-      supportsRuntimeEqualityType state (TDataType typeName typeArguments)
+    SemanticData typeName typeArguments ->
+      supportsRuntimeEqualityType state (SemanticData typeName typeArguments)
     _ ->
       False
 
@@ -1796,7 +1797,7 @@ applyKnownFunctionArguments functionType argumentTypes state =
       (Nothing, stateAcc)
     step (Just currentFunctionType, stateAcc) argumentType =
       let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAcc
-       in case unifyTypes currentFunctionType (TFunctionType argumentType resultTypeVar) stateWithResultVar of
+       in case unifyTypes currentFunctionType (SemanticFunction argumentType resultTypeVar) stateWithResultVar of
             Just unifiedState ->
               (Just (resolveType unifiedState resultTypeVar), unifiedState)
             Nothing ->
@@ -1814,7 +1815,7 @@ applyKnownFunctionArgumentsWithErrors functionType argumentTypes state =
       (Nothing, stateAcc)
     step (Just currentFunctionType, stateAcc) argumentType =
       let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAcc
-       in case unifyTypes currentFunctionType (TFunctionType argumentType resultTypeVar) stateWithResultVar of
+       in case unifyTypes currentFunctionType (SemanticFunction argumentType resultTypeVar) stateWithResultVar of
             Just unifiedState ->
               (Just (resolveType unifiedState resultTypeVar), unifiedState)
             Nothing ->
@@ -1873,25 +1874,25 @@ freshTypeVars count initialState =
 
 defaultLiteralTypes :: InferState -> ExpressionType -> ExpressionType
 defaultLiteralTypes state =
-  defaultLiteralTypesWith state TIntType
+  defaultLiteralTypesWith state SemanticInt
 
 defaultBindingLiteralTypes :: InferState -> ExpressionType -> ExpressionType
 defaultBindingLiteralTypes state =
-  defaultLiteralTypesWith state (TNumericType NumericInt64)
+  defaultLiteralTypesWith state (SemanticNumeric NumericInt64)
 
 defaultLiteralTypesWith :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 defaultLiteralTypesWith state integerLiteralDefault expressionType
   | Just _ <- integerLiteralRangeFor state expressionType = integerLiteralDefault
   | otherwise =
       case expressionType of
-        TListType elementType ->
-          TListType (defaultLiteralTypesWith state integerLiteralDefault elementType)
-        TTupleType elementTypes ->
-          TTupleType (map (defaultLiteralTypesWith state integerLiteralDefault) elementTypes)
-        TDataType typeName typeArguments ->
-          TDataType typeName (map (defaultLiteralTypesWith state integerLiteralDefault) typeArguments)
-        TFunctionType inputType outputType ->
-          TFunctionType
+        SemanticList elementType ->
+          SemanticList (defaultLiteralTypesWith state integerLiteralDefault elementType)
+        SemanticTuple elementTypes ->
+          SemanticTuple (map (defaultLiteralTypesWith state integerLiteralDefault) elementTypes)
+        SemanticData typeName typeArguments ->
+          SemanticData typeName (map (defaultLiteralTypesWith state integerLiteralDefault) typeArguments)
+        SemanticFunction inputType outputType ->
+          SemanticFunction
             (defaultLiteralTypesWith state integerLiteralDefault inputType)
             (defaultLiteralTypesWith state integerLiteralDefault outputType)
         _ -> expressionType

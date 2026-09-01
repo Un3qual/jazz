@@ -127,7 +127,7 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Name (operatorBindingIdentifierText)
 import Jazz.Compiler.Parser.Operator (isValidUserOperatorSymbol)
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Declarations
 import Jazz.Compiler.TypedCore.Validate.Evidence
@@ -435,18 +435,18 @@ concreteMonomorphicFunctionScheme (TypedScheme _ parameters evidence primitive t
     && concreteTypedRecipe recipe
     && isJust callableShape
     && case (typeValue, recipe) of
-      (TypedFunctionType {}, TypedClosureRecipe {}) -> True
+      (SemanticFunction {}, TypedClosureRecipe {}) -> True
       _ -> False
 
 concreteTypedType :: TypedType -> Bool
 concreteTypedType typeValue =
   case typeValue of
-    TypedListType elementType -> concreteTypedType elementType
-    TypedTupleType elementTypes -> all concreteTypedType elementTypes
-    TypedDataType _ arguments -> all concreteTypedType arguments
-    TypedFunctionType argumentType resultType ->
+    SemanticList elementType -> concreteTypedType elementType
+    SemanticTuple elementTypes -> all concreteTypedType elementTypes
+    SemanticData _ arguments -> all concreteTypedType arguments
+    SemanticFunction argumentType resultType ->
       concreteTypedType argumentType && concreteTypedType resultType
-    TypedTypeParameterType {} -> False
+    SemanticVariable {} -> False
     _ -> True
 
 concreteTypedRecipe :: TypedRepresentationRecipe -> Bool
@@ -780,7 +780,7 @@ expressionCanBeRecursive context bindingName expression =
   where
     expressionHasFunctionContract candidate =
       case typedNodeType (typedExpressionInfo candidate) of
-        TypedFunctionType {} -> True
+        SemanticFunction {} -> True
         _ -> False
 
 selfAliasLikeReference :: ModuleContext -> ResolvedNameKey -> TypedExpr -> Bool
@@ -1215,7 +1215,7 @@ validateLambda path requireStagedRecipe info body =
     bodyInfo = typedExpressionInfo body
     resultFailures =
       case typedNodeType info of
-        TypedFunctionType _ expectedResult
+        SemanticFunction _ expectedResult
           | expectedResult /= typedNodeType bodyInfo ->
               [failure path TypedLambdaResultMismatch (TypedTypeDetail expectedResult (typedNodeType bodyInfo))]
           | nodeInfoHasCompatibleIntrinsicContract info,
@@ -1223,7 +1223,7 @@ validateLambda path requireStagedRecipe info body =
             Just expectedBodyRecipe <- callableResultRecipe (typedNodeRecipe info) ->
               recipeContractFailures path TypedLambdaResultMismatch expectedBodyRecipe bodyInfo
           | otherwise -> []
-        actual -> [failure path TypedLambdaResultMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType bodyInfo) (typedNodeType bodyInfo)) actual)]
+        actual -> [failure path TypedLambdaResultMismatch (TypedTypeDetail (SemanticFunction (typedNodeType bodyInfo) (typedNodeType bodyInfo)) actual)]
 
 lambdaBodyHasCompatibleIntrinsicContract :: Bool -> TypedExpr -> Bool
 lambdaBodyHasCompatibleIntrinsicContract requireStagedRecipe body =
@@ -1255,16 +1255,16 @@ validateStagedCallableValueRecipe path info =
 validateListShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedExpr] -> [TypedCoreValidationFailure]
 validateListShape path info expressions =
   case (typedNodeType info, typedNodeRecipe info) of
-    (TypedListType elementType, TypedManagedListRecipe elementRecipe) ->
+    (SemanticList elementType, TypedManagedListRecipe elementRecipe) ->
       concatMap (collectionElementFailures path elementType elementRecipe) expressions
-    (TypedListType elementType, _) ->
+    (SemanticList elementType, _) ->
       concatMap (collectionElementTypeFailures path elementType) expressions
-    (actual, _) -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (TypedListType actual) actual)]
+    (actual, _) -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (SemanticList actual) actual)]
 
 validateTupleShape :: TypedCoreValidationPath -> TypedNodeInfo -> [TypedExpr] -> [TypedCoreValidationFailure]
 validateTupleShape path info expressions =
   case typedNodeType info of
-    TypedTupleType expectedTypes
+    SemanticTuple expectedTypes
       | length expectedTypes /= length expressions ->
           [failure path TypedCollectionShapeMismatch (TypedArityDetail (length expectedTypes) (length expressions))]
       | otherwise ->
@@ -1276,7 +1276,7 @@ validateTupleShape path info expressions =
                     | (expectedType, expectedRecipeValue, expression) <- zip3 expectedTypes expectedRecipes expressions
                     ]
             _ -> concat [collectionElementTypeFailures path expectedType expression | (expectedType, expression) <- zip expectedTypes expressions]
-    actual -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (TypedTupleType []) actual)]
+    actual -> [failure path TypedCollectionShapeMismatch (TypedTypeDetail (SemanticTuple []) actual)]
 
 collectionElementFailures :: TypedCoreValidationPath -> TypedType -> TypedRepresentationRecipe -> TypedExpr -> [TypedCoreValidationFailure]
 collectionElementFailures path expectedType expectedRecipeValue expression
@@ -1704,9 +1704,9 @@ builtinConcreteValueType builtinSymbol =
     BuiltinListPrependRaw -> Nothing
     BuiltinListReverseRaw -> Nothing
     BuiltinCharToUInt32 ->
-      Just (TypedFunctionType TypedCharType (TypedNumericType NumericUInt32))
+      Just (SemanticFunction SemanticChar (SemanticNumeric NumericUInt32))
     BuiltinCharFromUInt32Raw ->
-      Just (TypedFunctionType (TypedNumericType NumericUInt32) (TypedListType TypedCharType))
+      Just (SemanticFunction (SemanticNumeric NumericUInt32) (SemanticList SemanticChar))
     BuiltinCharIsAlpha -> Just charPredicateType
     BuiltinCharIsAlphaNum -> Just charPredicateType
     BuiltinCharIsDigit -> Just charPredicateType
@@ -1716,57 +1716,57 @@ builtinConcreteValueType builtinSymbol =
     BuiltinCharIsUpper -> Just charPredicateType
     BuiltinCharToLower -> Just charTransformType
     BuiltinCharToUpper -> Just charTransformType
-    BuiltinTextLength -> Just (TypedFunctionType TypedTextType TypedIntType)
+    BuiltinTextLength -> Just (SemanticFunction SemanticText SemanticInt)
     BuiltinTextUnconsRaw ->
       Just
-        ( TypedFunctionType
-            TypedTextType
-            (TypedListType (TypedTupleType [TypedCharType, TypedTextType]))
+        ( SemanticFunction
+            SemanticText
+            (SemanticList (SemanticTuple [SemanticChar, SemanticText]))
         )
-    BuiltinTextAppend -> Just (binaryFunctionType TypedTextType TypedTextType TypedTextType)
-    BuiltinTextAppendChar -> Just (binaryFunctionType TypedTextType TypedCharType TypedTextType)
-    BuiltinTextFromChars -> Just (TypedFunctionType (TypedListType TypedCharType) TypedTextType)
-    BuiltinTextConcat -> Just (TypedFunctionType (TypedListType TypedTextType) TypedTextType)
+    BuiltinTextAppend -> Just (binaryFunctionType SemanticText SemanticText SemanticText)
+    BuiltinTextAppendChar -> Just (binaryFunctionType SemanticText SemanticChar SemanticText)
+    BuiltinTextFromChars -> Just (SemanticFunction (SemanticList SemanticChar) SemanticText)
+    BuiltinTextConcat -> Just (SemanticFunction (SemanticList SemanticText) SemanticText)
     BuiltinRenderValue -> Nothing
-    BuiltinReadTextRaw -> Just (TypedFunctionType TypedTextType hostIOOutcomeTypedType)
-    BuiltinWriteTextRaw -> Just (binaryFunctionType TypedTextType TypedTextType hostIOOutcomeTypedType)
-    BuiltinReadStdinRaw -> Just (TypedFunctionType typedUnitType hostIOOutcomeTypedType)
-    BuiltinWriteStdoutRaw -> Just (TypedFunctionType TypedTextType hostIOOutcomeTypedType)
-    BuiltinWriteStderrRaw -> Just (TypedFunctionType TypedTextType hostIOOutcomeTypedType)
-    BuiltinArguments -> Just (TypedFunctionType typedUnitType (TypedListType TypedTextType))
-    BuiltinExit -> Just (TypedFunctionType TypedIntType typedUnitType)
+    BuiltinReadTextRaw -> Just (SemanticFunction SemanticText hostIOOutcomeTypedType)
+    BuiltinWriteTextRaw -> Just (binaryFunctionType SemanticText SemanticText hostIOOutcomeTypedType)
+    BuiltinReadStdinRaw -> Just (SemanticFunction typedUnitType hostIOOutcomeTypedType)
+    BuiltinWriteStdoutRaw -> Just (SemanticFunction SemanticText hostIOOutcomeTypedType)
+    BuiltinWriteStderrRaw -> Just (SemanticFunction SemanticText hostIOOutcomeTypedType)
+    BuiltinArguments -> Just (SemanticFunction typedUnitType (SemanticList SemanticText))
+    BuiltinExit -> Just (SemanticFunction SemanticInt typedUnitType)
   where
-    charPredicateType = TypedFunctionType TypedCharType TypedBoolType
-    charTransformType = TypedFunctionType TypedCharType TypedCharType
+    charPredicateType = SemanticFunction SemanticChar SemanticBool
+    charTransformType = SemanticFunction SemanticChar SemanticChar
 
 builtinPolymorphicValueTypeMatches :: ModuleContext -> BuiltinSymbol -> TypedType -> Bool
 builtinPolymorphicValueTypeMatches context builtinSymbol typeValue =
   case (builtinSymbol, typeValue) of
-    (BuiltinMap, TypedFunctionType (TypedFunctionType source target) (TypedFunctionType (TypedListType input) (TypedListType output))) ->
+    (BuiltinMap, SemanticFunction (SemanticFunction source target) (SemanticFunction (SemanticList input) (SemanticList output))) ->
       source == input && target == output
-    (BuiltinFilter, TypedFunctionType (TypedFunctionType predicateInput TypedBoolType) (TypedFunctionType (TypedListType input) (TypedListType output))) ->
+    (BuiltinFilter, SemanticFunction (SemanticFunction predicateInput SemanticBool) (SemanticFunction (SemanticList input) (SemanticList output))) ->
       predicateInput == input && input == output
-    (BuiltinHd, TypedFunctionType (TypedListType input) output) -> input == output
-    (BuiltinTl, TypedFunctionType (TypedListType input) (TypedListType output)) -> input == output
-    (BuiltinPrint, TypedFunctionType input output) -> input == output
-    (BuiltinListPrependRaw, TypedFunctionType element (TypedFunctionType (TypedListType input) (TypedListType output))) ->
+    (BuiltinHd, SemanticFunction (SemanticList input) output) -> input == output
+    (BuiltinTl, SemanticFunction (SemanticList input) (SemanticList output)) -> input == output
+    (BuiltinPrint, SemanticFunction input output) -> input == output
+    (BuiltinListPrependRaw, SemanticFunction element (SemanticFunction (SemanticList input) (SemanticList output))) ->
       element == input && input == output
-    (BuiltinListReverseRaw, TypedFunctionType (TypedListType input) (TypedListType output)) ->
+    (BuiltinListReverseRaw, SemanticFunction (SemanticList input) (SemanticList output)) ->
       input == output
-    (BuiltinRenderValue, TypedFunctionType _ TypedTextType) -> True
-    (_, TypedFunctionType source target)
+    (BuiltinRenderValue, SemanticFunction _ SemanticText) -> True
+    (_, SemanticFunction source target)
       | Just numericTarget <- builtinSymbolNumericConversionTarget builtinSymbol ->
           numericValueTypeSupported context source
-            && target == TypedNumericType numericTarget
+            && target == SemanticNumeric numericTarget
     _ -> False
 
 numericValueTypeSupported :: ModuleContext -> TypedType -> Bool
 numericValueTypeSupported context typeValue =
   case typeValue of
-    TypedIntType -> True
-    TypedFloatType -> True
-    TypedNumericType _ -> True
-    TypedTypeParameterType _ ->
+    SemanticInt -> True
+    SemanticFloat -> True
+    SemanticNumeric _ -> True
+    SemanticVariable _ ->
       any constrainsType (moduleContextPrimitiveConstraints context)
     _ -> False
   where
@@ -1777,14 +1777,14 @@ numericValueTypeSupported context typeValue =
 
 binaryFunctionType :: TypedType -> TypedType -> TypedType -> TypedType
 binaryFunctionType first second result =
-  TypedFunctionType first (TypedFunctionType second result)
+  SemanticFunction first (SemanticFunction second result)
 
 typedUnitType :: TypedType
-typedUnitType = TypedTupleType []
+typedUnitType = SemanticTuple []
 
 hostIOOutcomeTypedType :: TypedType
 hostIOOutcomeTypedType =
-  TypedTupleType [TypedBoolType, TypedTextType, TypedTextType, TypedTextType]
+  SemanticTuple [SemanticBool, SemanticText, SemanticText, SemanticText]
 
 schemeValueContract :: ModuleContext -> TypedNodeInfo -> TypedScheme -> Maybe ValueContract
 schemeValueContract context info (TypedScheme owner parameters _ _ resultType resultRecipe _) =
@@ -1821,8 +1821,8 @@ validateConstructorExpressionContract context path requireStagedCallableRecipe d
   missingInstantiationFailures
     <> validateValueContract path info (ValueContract expectedType expectedRecipeValue)
   where
-    genericResult = TypedDataType (resolvedNameFromKey context dataKey) (map TypedTypeParameterType parameters)
-    genericType = foldr TypedFunctionType genericResult fieldTypes
+    genericResult = SemanticData (resolvedNameFromKey context dataKey) (map SemanticVariable parameters)
+    genericType = foldr SemanticFunction genericResult fieldTypes
     ownerInstantiation =
       find (matchingInstantiation owner parameters) (nodeInfoInstantiations info)
     missingInstantiationFailures
@@ -1843,7 +1843,7 @@ validateConstructorExpressionContract context path requireStagedCallableRecipe d
 inferConstructorSubstitutions :: ModuleContext -> ResolvedNameKey -> [TypedTypeParameterId] -> Int -> TypedType -> Map TypedTypeParameterId TypedType
 inferConstructorSubstitutions context dataKey parameters fieldCount actualType =
   case dropFunctionArguments fieldCount actualType of
-    TypedDataType dataName arguments
+    SemanticData dataName arguments
       | resolvedNameKey (moduleContextPath context) dataName == Just dataKey,
         length parameters == length arguments ->
           Map.fromList (zip parameters arguments)
@@ -1852,7 +1852,7 @@ inferConstructorSubstitutions context dataKey parameters fieldCount actualType =
 dropFunctionArguments :: Int -> TypedType -> TypedType
 dropFunctionArguments count typeValue
   | count <= 0 = typeValue
-dropFunctionArguments count (TypedFunctionType _ result) = dropFunctionArguments (count - 1) result
+dropFunctionArguments count (SemanticFunction _ result) = dropFunctionArguments (count - 1) result
 dropFunctionArguments _ typeValue = typeValue
 
 expressionChildrenWithContexts :: ModuleContext -> TypedExpr -> [(ModuleContext, TypedExpr)]
@@ -1889,7 +1889,7 @@ expressionChildrenWithContexts context expression =
 lambdaArgumentContract :: TypedNodeInfo -> TypedBinderId -> TypedCoreName -> Maybe BinderContract
 lambdaArgumentContract info binderId name =
   case typedNodeType info of
-    TypedFunctionType argumentType _ -> BinderContract binderId name argumentType <$> lambdaArgumentRecipe info argumentType
+    SemanticFunction argumentType _ -> BinderContract binderId name argumentType <$> lambdaArgumentRecipe info argumentType
     _ -> Nothing
 
 lambdaArgumentRecipe :: TypedNodeInfo -> TypedType -> Maybe TypedRepresentationRecipe
@@ -1924,13 +1924,13 @@ validateApplication path (TypedNodeInfo resultType resultRecipe _ resultSelectio
   where
     typeFailures =
       case functionType of
-        TypedFunctionType expectedArgument expectedResult ->
+        SemanticFunction expectedArgument expectedResult ->
           argumentFailures expectedArgument <> resultFailures expectedResult
         actualFunctionType ->
           [ failure
               path
               TypedApplicationFunctionMismatch
-              (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo argument)) resultType) actualFunctionType)
+              (TypedTypeDetail (SemanticFunction (typedNodeType (typedExpressionInfo argument)) resultType) actualFunctionType)
           ]
     actualArgument = typedNodeType (typedExpressionInfo argument)
     argumentInfo = typedExpressionInfo argument
@@ -2033,16 +2033,16 @@ applicationTypesCompatible expected actual =
 normalizeDefaultScalarAliases :: TypedType -> TypedType
 normalizeDefaultScalarAliases typeValue =
   case typeValue of
-    TypedIntType -> TypedNumericType NumericInt64
-    TypedFloatType -> TypedNumericType NumericFloat64
-    TypedListType elementType ->
-      TypedListType (normalizeDefaultScalarAliases elementType)
-    TypedTupleType elementTypes ->
-      TypedTupleType (map normalizeDefaultScalarAliases elementTypes)
-    TypedDataType name arguments ->
-      TypedDataType name (map normalizeDefaultScalarAliases arguments)
-    TypedFunctionType argumentType resultType ->
-      TypedFunctionType
+    SemanticInt -> SemanticNumeric NumericInt64
+    SemanticFloat -> SemanticNumeric NumericFloat64
+    SemanticList elementType ->
+      SemanticList (normalizeDefaultScalarAliases elementType)
+    SemanticTuple elementTypes ->
+      SemanticTuple (map normalizeDefaultScalarAliases elementTypes)
+    SemanticData name arguments ->
+      SemanticData name (map normalizeDefaultScalarAliases arguments)
+    SemanticFunction argumentType resultType ->
+      SemanticFunction
         (normalizeDefaultScalarAliases argumentType)
         (normalizeDefaultScalarAliases resultType)
     other -> other
@@ -2057,8 +2057,8 @@ validateConditional path resultInfo@(TypedNodeInfo resultType _ _ _) condition t
     thenType = typedNodeType thenInfo
     elseType = typedNodeType elseInfo
     conditionFailures
-      | conditionType == TypedBoolType = []
-      | otherwise = [failure path TypedConditionalConditionMismatch (TypedTypeDetail TypedBoolType conditionType)]
+      | conditionType == SemanticBool = []
+      | otherwise = [failure path TypedConditionalConditionMismatch (TypedTypeDetail SemanticBool conditionType)]
     branchFailures
       | thenType /= elseType = [failure path TypedConditionalBranchMismatch (TypedTypeDetail thenType elseType)]
       | nodeInfoHasCompatibleIntrinsicContract thenInfo =
@@ -2102,12 +2102,12 @@ validateCase context statementLocation expressionPath path resultInfo@(TypedNode
           failure armPath TypedDuplicateBinder (TypedBinderDetail binderId)
     guardFailures _ Nothing = []
     guardFailures armIndex (Just guard)
-      | typedNodeType (typedExpressionInfo guard) == TypedBoolType = []
+      | typedNodeType (typedExpressionInfo guard) == SemanticBool = []
       | otherwise =
           [ failure
               (TypedPatternPath (moduleContextPath context) statementLocation (expressionPath <> [armIndex]))
               TypedPatternGuardMismatch
-              (TypedTypeDetail TypedBoolType (typedNodeType (typedExpressionInfo guard)))
+              (TypedTypeDetail SemanticBool (typedNodeType (typedExpressionInfo guard)))
           ]
     resultFailures armIndex resultExpression
       | typedNodeType armInfo /= resultType =
@@ -2183,7 +2183,7 @@ validateBinaryOperator context path info operator left right =
     TypedResolvedOperator {} ->
       validateOperatorRef context path operator
         <> ( case operatorValueContract context path info operator of
-               (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) operatorRecipe)) ->
+               (contractFailures, Just (ValueContract operatorType@(SemanticFunction expectedLeft (SemanticFunction expectedRight expectedResult)) operatorRecipe)) ->
                  contractFailures
                    <> typeMismatchFailure TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
                    <> typeMismatchFailure TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
@@ -2195,7 +2195,7 @@ validateBinaryOperator context path info operator left right =
                           path
                           TypedApplicationFunctionMismatch
                           ( TypedTypeDetail
-                              (TypedFunctionType (typedNodeType (typedExpressionInfo left)) (TypedFunctionType (typedNodeType (typedExpressionInfo right)) (typedNodeType info)))
+                              (SemanticFunction (typedNodeType (typedExpressionInfo left)) (SemanticFunction (typedNodeType (typedExpressionInfo right)) (typedNodeType info)))
                               actualType
                           )
                       ]
@@ -2234,20 +2234,20 @@ validateLeftSectionOperator context path info left operator =
         TypedBuiltinOperator symbol ->
           validateOperatorRef context path operator
             <> case typedNodeType info of
-              TypedFunctionType rightType resultType ->
+              SemanticFunction rightType resultType ->
                 validateBuiltinOperatorApplication context path symbol (typedNodeType (typedExpressionInfo left)) rightType resultType
-              actualType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo left)) actualType) actualType)]
+              actualType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (SemanticFunction (typedNodeType (typedExpressionInfo left)) actualType) actualType)]
         TypedResolvedOperator {} ->
           validateOperatorRef context path operator
             <> case operatorValueContract context path info operator of
-              (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft remainder@(TypedFunctionType _ _)) operatorRecipe)) ->
+              (contractFailures, Just (ValueContract operatorType@(SemanticFunction expectedLeft remainder@(SemanticFunction _ _)) operatorRecipe)) ->
                 contractFailures
                   <> mismatch TypedApplicationArgumentMismatch expectedLeft (typedNodeType (typedExpressionInfo left))
                   <> mismatch TypedApplicationResultMismatch remainder (typedNodeType info)
                   <> leftOperandRecipeFailures operatorType operatorRecipe expectedLeft
               (contractFailures, Just (ValueContract actualType _)) ->
                 contractFailures
-                  <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType (typedExpressionInfo left)) (typedNodeType info)) actualType)]
+                  <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (SemanticFunction (typedNodeType (typedExpressionInfo left)) (typedNodeType info)) actualType)]
               (contractFailures, Nothing) -> contractFailures
     mismatch kind expected actual
       | expected == actual = []
@@ -2271,21 +2271,21 @@ validateRightSectionOperator context path info operator right =
         TypedBuiltinOperator symbol ->
           validateOperatorRef context path operator
             <> case typedNodeType info of
-              TypedFunctionType leftType resultType ->
+              SemanticFunction leftType resultType ->
                 validateBuiltinOperatorApplication context path symbol leftType (typedNodeType (typedExpressionInfo right)) resultType
-              actualType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType actualType (typedNodeType (typedExpressionInfo right))) actualType)]
+              actualType -> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (SemanticFunction actualType (typedNodeType (typedExpressionInfo right))) actualType)]
         TypedResolvedOperator {} ->
           validateOperatorRef context path operator
             <> case operatorValueContract context path info operator of
-              (contractFailures, Just (ValueContract operatorType@(TypedFunctionType expectedLeft (TypedFunctionType expectedRight expectedResult)) operatorRecipe)) ->
-                let expectedSectionType = TypedFunctionType expectedLeft expectedResult
+              (contractFailures, Just (ValueContract operatorType@(SemanticFunction expectedLeft (SemanticFunction expectedRight expectedResult)) operatorRecipe)) ->
+                let expectedSectionType = SemanticFunction expectedLeft expectedResult
                  in contractFailures
                       <> mismatch TypedApplicationArgumentMismatch expectedRight (typedNodeType (typedExpressionInfo right))
                       <> mismatch TypedApplicationResultMismatch expectedSectionType (typedNodeType info)
                       <> rightOperandRecipeFailures operatorType operatorRecipe expectedRight
               (contractFailures, Just (ValueContract actualType _)) ->
                 contractFailures
-                  <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (TypedFunctionType (typedNodeType info) (typedNodeType (typedExpressionInfo right))) actualType)]
+                  <> [failure path TypedApplicationFunctionMismatch (TypedTypeDetail (SemanticFunction (typedNodeType info) (typedNodeType (typedExpressionInfo right))) actualType)]
               (contractFailures, Nothing) -> contractFailures
     mismatch kind expected actual
       | expected == actual = []
@@ -2312,7 +2312,7 @@ validateBuiltinOperatorValue context path requireStagedCallableRecipe directCall
     operatorType = typedNodeType info
     typeFailures =
       case operatorType of
-        TypedFunctionType leftType (TypedFunctionType rightType resultType) ->
+        SemanticFunction leftType (SemanticFunction rightType resultType) ->
           validateBuiltinOperatorApplication context path symbol leftType rightType resultType
         _ -> [failure path TypedApplicationFunctionMismatch (TypedTextDetail symbol)]
     recipeFailures
@@ -2327,7 +2327,7 @@ validateBuiltinOperatorApplication :: ModuleContext -> TypedCoreValidationPath -
 validateBuiltinOperatorApplication context path symbol leftType rightType resultType
   | not (builtinOperatorHasTypedRule symbol) = []
   | symbol == "$" =
-      typeFailure TypedApplicationFunctionMismatch (TypedFunctionType rightType resultType) leftType
+      typeFailure TypedApplicationFunctionMismatch (SemanticFunction rightType resultType) leftType
   | symbol `elem` ["+", "-", "*", "/"] =
       sameOperandFailure
         <> numericOperandFailure
@@ -2335,11 +2335,11 @@ validateBuiltinOperatorApplication context path symbol leftType rightType result
   | symbol `elem` ["<", "<=", ">", ">="] =
       sameOperandFailure
         <> numericOperandFailure
-        <> typeFailure TypedApplicationResultMismatch TypedBoolType resultType
+        <> typeFailure TypedApplicationResultMismatch SemanticBool resultType
   | otherwise =
       sameOperandFailure
         <> equalityOperandFailure
-        <> typeFailure TypedApplicationResultMismatch TypedBoolType resultType
+        <> typeFailure TypedApplicationResultMismatch SemanticBool resultType
   where
     sameOperandFailure = typeFailure TypedApplicationArgumentMismatch leftType rightType
     numericOperandFailure
@@ -2347,7 +2347,7 @@ validateBuiltinOperatorApplication context path symbol leftType rightType result
       | otherwise = [failure path TypedBindingValueMismatch (TypedTextDetail symbol)]
     equalityOperandFailure
       | symbol `elem` ["==", "!="] && not (strictEqualityOperandTypeSupported context leftType) =
-          [failure path TypedBindingValueMismatch (TypedTypeDetail TypedBoolType leftType)]
+          [failure path TypedBindingValueMismatch (TypedTypeDetail SemanticBool leftType)]
       | otherwise = []
     typeFailure kind expected actual
       | expected == actual = []
@@ -2356,10 +2356,10 @@ validateBuiltinOperatorApplication context path symbol leftType rightType result
 numericOperatorType :: ModuleContext -> Text -> TypedType -> Bool
 numericOperatorType context symbol typeValue =
   case typeValue of
-    TypedIntType -> True
-    TypedFloatType -> True
-    TypedNumericType _ -> True
-    TypedTypeParameterType _ ->
+    SemanticInt -> True
+    SemanticFloat -> True
+    SemanticNumeric _ -> True
+    SemanticVariable _ ->
       any activeConstraintSupports (moduleContextPrimitiveConstraints context)
     _ -> False
   where

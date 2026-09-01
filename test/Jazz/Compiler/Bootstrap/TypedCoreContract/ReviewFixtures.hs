@@ -14,7 +14,7 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolOwnership,
   )
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 
@@ -36,7 +36,7 @@ callableRepresentationSubstitutionProgram =
     name = fixtureValueName "identity"
     owner = binder modulePath [0] name
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
       fixtureClosureScheme
@@ -44,9 +44,9 @@ callableRepresentationSubstitutionProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
-    callableType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+    callableType = SemanticFunction SemanticBool (SemanticFunction SemanticChar SemanticText)
     callableRecipe =
       TypedClosureRecipe
         [TypedBoolRecipe]
@@ -54,7 +54,7 @@ callableRepresentationSubstitutionProgram =
     instantiation = TypedInstantiation owner [TypedTypeArgument parameter callableType] Nothing
     instantiatedInfo =
       TypedNodeInfo
-        (TypedFunctionType callableType callableType)
+        (SemanticFunction callableType callableType)
         (TypedClosureRecipe [callableRecipe] callableRecipe)
         [instantiation]
         []
@@ -76,9 +76,9 @@ lambdaCallableParameterRecipeProgram =
     parameterName = fixtureValueName "function"
     parameterBinder = binder modulePath [0] parameterName
     parameterType =
-      TypedFunctionType
-        TypedBoolType
-        (TypedFunctionType TypedCharType TypedTextType)
+      SemanticFunction
+        SemanticBool
+        (SemanticFunction SemanticChar SemanticText)
     parameterRecipe =
       TypedClosureRecipe
         [TypedBoolRecipe]
@@ -86,7 +86,7 @@ lambdaCallableParameterRecipeProgram =
     parameterInfo = info parameterType parameterRecipe
     lambdaInfo =
       info
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     lambda =
       TypedLambdaExpr
@@ -112,17 +112,17 @@ applicationScalarAliasProgram =
   where
     fixture = "review-application-scalar-alias"
     modulePath = fixtureModulePath fixture
-    int64Type = TypedNumericType NumericInt64
+    int64Type = SemanticNumeric NumericInt64
     int64Recipe = TypedSignedIntegerRecipe 64
-    float64Type = TypedNumericType NumericFloat64
+    float64Type = SemanticNumeric NumericFloat64
     float64Recipe = TypedFloatRecipe 64
-    floatAliasInfo = info TypedFloatType float64Recipe
+    floatAliasInfo = info SemanticFloat float64Recipe
     (intBinding, intApplication) =
       aliasApplication
         0
         "identityInt64"
         int64Type
-        TypedIntType
+        SemanticInt
         int64Recipe
         (TypedIntegerLiteral "1")
     (floatBinding, floatApplication) =
@@ -130,7 +130,7 @@ applicationScalarAliasProgram =
         2
         "identityFloat64"
         float64Type
-        TypedFloatType
+        SemanticFloat
         float64Recipe
         (TypedFractionalLiteral "1" "5" Nothing)
 
@@ -140,7 +140,7 @@ applicationScalarAliasProgram =
           argumentName = fixtureValueName (nameText <> "Argument")
           argumentOwner = binder modulePath [statementIndex, 0] argumentName
           explicitInfo = info explicitType recipe
-          functionType = TypedFunctionType explicitType explicitType
+          functionType = SemanticFunction explicitType explicitType
           functionRecipe = TypedClosureRecipe [recipe] recipe
           functionInfo = info functionType functionRecipe
           scheme = fixtureScheme owner [] [] [] functionType functionRecipe
@@ -184,9 +184,9 @@ reorderedDeferredEvidenceProgram =
       resolved TypedCurrentModule TypedValueNamespace "build"
     methodOwner = binder providerPath [0, 0] providerMethodName
     genericMethodType =
-      TypedFunctionType
-        TypedBoolType
-        (TypedFunctionType (TypedTypeParameterType parameter) TypedBoolType)
+      SemanticFunction
+        SemanticBool
+        (SemanticFunction (SemanticVariable parameter) SemanticBool)
     genericMethodRecipe =
       TypedClosureRecipe
         [TypedBoolRecipe, TypedRepresentationParameterRecipe parameter]
@@ -209,11 +209,11 @@ reorderedDeferredEvidenceProgram =
             )
         ]
     providerImpl =
-      TypedImplId providerPath providerCapabilityName [TypedTextType]
+      TypedImplId providerPath providerCapabilityName [SemanticText]
     importedProviderImpl =
-      TypedImplId providerPath importedCapabilityName [TypedTextType]
+      TypedImplId providerPath importedCapabilityName [SemanticText]
     localImpl =
-      TypedImplId entryPath importedCapabilityName [TypedTextType]
+      TypedImplId entryPath importedCapabilityName [SemanticText]
     providerModule =
       typedModule
         providerPath
@@ -252,14 +252,14 @@ reorderedDeferredEvidenceProgram =
         ]
         resultInfo
     specializedMethodType =
-      TypedFunctionType TypedBoolType (TypedFunctionType TypedTextType TypedBoolType)
+      SemanticFunction SemanticBool (SemanticFunction SemanticText SemanticBool)
     specializedMethodRecipe =
       TypedClosureRecipe
         [TypedBoolRecipe, TypedManagedTextRecipe]
         TypedBoolRecipe
     specializedMethodInfo =
       info specializedMethodType specializedMethodRecipe
-    textToBoolType = TypedFunctionType TypedTextType TypedBoolType
+    textToBoolType = SemanticFunction SemanticText SemanticBool
     textToBoolRecipe =
       TypedClosureRecipe [TypedManagedTextRecipe] TypedBoolRecipe
     textToBoolInfo = info textToBoolType textToBoolRecipe
@@ -286,7 +286,7 @@ reorderedDeferredEvidenceProgram =
       TypedCapabilityConstraint
         importedCapabilityName
         (Just qualifiedMethodKey)
-        TypedTextType
+        SemanticText
     qualifiedMethodKey =
       Text.intercalate "::" (providerPath <> ["Build", "build"])
     candidates =
@@ -311,7 +311,7 @@ reorderedDeferredEvidenceProgram =
         [TypedEvidenceCandidates constraint (reverse candidates)]
     resultInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         []
         [ TypedSelectedEvidence
@@ -360,7 +360,7 @@ forgedEvidenceCapabilityProgram =
         capabilityName
         [TypedTypeParameterId 0]
         [TypedMethodSignature methodName span1 (monoScheme methodOwner)]
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     methodDefinition =
       TypedMethodDefinition
         (TypedMethodId implId "check")
@@ -372,7 +372,7 @@ forgedEvidenceCapabilityProgram =
       TypedCapabilityConstraint
         forgedEvidenceCapabilityName
         (Just qualifiedMethodKey)
-        TypedBoolType
+        SemanticBool
     qualifiedMethodKey =
       Text.intercalate "::" (modulePath <> ["Check", "check"])
     evidenceUse =
@@ -383,7 +383,7 @@ forgedEvidenceCapabilityProgram =
         (Just (TypedMethodId implId "check"))
     expression =
       fixtureVariableExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBuiltinName qualifiedMethodKey)
     statements =
       [ TypedClassStatement classDeclaration,
@@ -416,14 +416,14 @@ emptyMonomorphicInstantiationProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [TypedInstantiation emptyMonomorphicValueOwner [] Nothing]
         []
     dataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
     constructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Flag"
-    constructorType = TypedDataType dataName []
+    constructorType = SemanticData dataName []
     constructorInfo =
       TypedNodeInfo
         constructorType
@@ -576,7 +576,7 @@ wrongDataNamespaceProgram =
       dataDeclarationWithNullaryConstructor modulePath [0, 0] dataName []
     valueName = fixtureValueName "item"
     owner = binder modulePath [1] valueName
-    invalidType = TypedDataType wrongDataNamespaceName []
+    invalidType = SemanticData wrongDataNamespaceName []
     invalidRecipe = TypedManagedVariantRecipe wrongDataNamespaceName []
     scheme = fixtureScheme owner [] [] [] invalidType invalidRecipe
     statements =
@@ -619,12 +619,12 @@ targetCandidateApplicationProgram fixture retainCandidate =
   where
     modulePath = fixtureModulePath fixture
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Build"
     methodName = resolved TypedCurrentModule TypedValueNamespace "build"
     methodOwner = binder modulePath [0, 0] methodName
-    genericMethodType = TypedFunctionType parameterType boolToBoolType
+    genericMethodType = SemanticFunction parameterType boolToBoolType
     genericMethodRecipe =
       TypedClosureRecipe [parameterRecipe, TypedBoolRecipe] TypedBoolRecipe
     methodScheme =
@@ -641,10 +641,10 @@ targetCandidateApplicationProgram fixture retainCandidate =
         capabilityName
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    implId = TypedImplId modulePath capabilityName [TypedTextType]
+    implId = TypedImplId modulePath capabilityName [SemanticText]
     targetName = resolved TypedCurrentModule TypedValueNamespace "target"
     resultName = resolved TypedCurrentModule TypedValueNamespace "result"
-    specializedMethodType = TypedFunctionType TypedTextType boolToBoolType
+    specializedMethodType = SemanticFunction SemanticText boolToBoolType
     specializedMethodRecipe =
       TypedClosureRecipe
         [TypedManagedTextRecipe, TypedBoolRecipe]
@@ -668,7 +668,7 @@ targetCandidateApplicationProgram fixture retainCandidate =
         span1
         methodExpression
     constraint =
-      TypedCapabilityConstraint capabilityName (Just "Build.build") TypedTextType
+      TypedCapabilityConstraint capabilityName (Just "Build.build") SemanticText
     candidate =
       TypedEvidenceCandidate implId (Just (TypedMethodId implId "build"))
     selection = TypedEvidenceCandidates constraint [candidate]
@@ -807,7 +807,7 @@ unentailedPrimitiveInstantiationProgram =
     fixture = "review-unentailed-primitive-instantiation"
     modulePath = fixtureModulePath fixture
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     numericName = fixtureValueName "numeric"
     numericOwner = binder modulePath [0] numericName
@@ -819,7 +819,7 @@ unentailedPrimitiveInstantiationProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType TypedBoolType)
+        (SemanticFunction parameterType SemanticBool)
         (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
     constrainedOuterScheme owner constraint =
       fixtureScheme
@@ -827,10 +827,10 @@ unentailedPrimitiveInstantiationProgram =
         [parameter]
         []
         [constraint]
-        (TypedFunctionType parameterType TypedBoolType)
+        (SemanticFunction parameterType SemanticBool)
         (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
     constrainedScheme owner constraint =
-      fixtureScheme owner [parameter] [] [constraint] TypedBoolType TypedBoolRecipe
+      fixtureScheme owner [parameter] [] [constraint] SemanticBool TypedBoolRecipe
     instantiate owner =
       TypedInstantiation
         owner
@@ -839,13 +839,13 @@ unentailedPrimitiveInstantiationProgram =
     outerExpression statementIndex owner name =
       TypedLambdaExpr
         ( info
-            (TypedFunctionType parameterType TypedBoolType)
+            (SemanticFunction parameterType SemanticBool)
             (TypedClosureRecipe [parameterRecipe] TypedBoolRecipe)
         )
         (binder modulePath [statementIndex, 0] (fixtureValueName "argument"))
         (fixtureValueName "argument")
         ( fixtureVariableExpr
-            (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiate owner] [])
+            (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiate owner] [])
             name
         )
     numericOuterName = fixtureValueName "numericOuter"
@@ -982,7 +982,7 @@ fractionalPatternProgram =
   where
     fractionalInfo =
       info
-        (TypedNumericType NumericFloat64)
+        (SemanticNumeric NumericFloat64)
         (TypedFloatRecipe 64)
     fractionalLiteral =
       TypedFractionalLiteral "1" "5" (Just NumericFloat64)
@@ -1043,7 +1043,7 @@ duplicateOrderingImplId =
   TypedImplId
     (fixtureModulePath "review-duplicate-declaration-ordering")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Marker")
-    [TypedBoolType]
+    [SemanticBool]
 
 duplicateDeclarationOrderingProgram :: TypedProgram
 duplicateDeclarationOrderingProgram =
@@ -1142,9 +1142,9 @@ builtinCatalogInfo symbol =
     BuiltinMap -> builtinMapInfo
     BuiltinFilter ->
       info
-        ( TypedFunctionType
-            (TypedFunctionType TypedBoolType TypedBoolType)
-            (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedBoolType))
+        ( SemanticFunction
+            (SemanticFunction SemanticBool SemanticBool)
+            (SemanticFunction (SemanticList SemanticBool) (SemanticList SemanticBool))
         )
         ( TypedClosureRecipe
             [boolToBoolRecipe]
@@ -1155,9 +1155,9 @@ builtinCatalogInfo symbol =
         )
     BuiltinHd ->
       functionInfo
-        (TypedListType TypedBoolType)
+        (SemanticList SemanticBool)
         (TypedManagedListRecipe TypedBoolRecipe)
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     BuiltinTl -> boolListTransformInfo
     BuiltinPrint -> boolToBoolInfo
@@ -1174,9 +1174,9 @@ builtinCatalogInfo symbol =
     BuiltinToFloat64 -> numericConversionInfo NumericFloat64 (TypedFloatRecipe 64)
     BuiltinListPrependRaw ->
       info
-        ( TypedFunctionType
-            TypedBoolType
-            (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedBoolType))
+        ( SemanticFunction
+            SemanticBool
+            (SemanticFunction (SemanticList SemanticBool) (SemanticList SemanticBool))
         )
         ( TypedClosureRecipe
             [TypedBoolRecipe]
@@ -1188,15 +1188,15 @@ builtinCatalogInfo symbol =
     BuiltinListReverseRaw -> boolListTransformInfo
     BuiltinCharToUInt32 ->
       functionInfo
-        TypedCharType
+        SemanticChar
         TypedCharRecipe
-        (TypedNumericType NumericUInt32)
+        (SemanticNumeric NumericUInt32)
         (TypedUnsignedIntegerRecipe 32)
     BuiltinCharFromUInt32Raw ->
       functionInfo
-        (TypedNumericType NumericUInt32)
+        (SemanticNumeric NumericUInt32)
         (TypedUnsignedIntegerRecipe 32)
-        (TypedListType TypedCharType)
+        (SemanticList SemanticChar)
         (TypedManagedListRecipe TypedCharRecipe)
     BuiltinCharIsAlpha -> charPredicateInfo
     BuiltinCharIsAlphaNum -> charPredicateInfo
@@ -1209,51 +1209,51 @@ builtinCatalogInfo symbol =
     BuiltinCharToUpper -> charTransformInfo
     BuiltinTextLength ->
       functionInfo
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
-        TypedIntType
+        SemanticInt
         (TypedSignedIntegerRecipe 64)
     BuiltinTextUnconsRaw ->
       functionInfo
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
-        (TypedListType (TypedTupleType [TypedCharType, TypedTextType]))
+        (SemanticList (SemanticTuple [SemanticChar, SemanticText]))
         ( TypedManagedListRecipe
             (TypedManagedProductRecipe [TypedCharRecipe, TypedManagedTextRecipe])
         )
-    BuiltinTextAppend -> textBinaryInfo TypedTextType TypedManagedTextRecipe
-    BuiltinTextAppendChar -> textBinaryInfo TypedCharType TypedCharRecipe
+    BuiltinTextAppend -> textBinaryInfo SemanticText TypedManagedTextRecipe
+    BuiltinTextAppendChar -> textBinaryInfo SemanticChar TypedCharRecipe
     BuiltinTextFromChars ->
       functionInfo
-        (TypedListType TypedCharType)
+        (SemanticList SemanticChar)
         (TypedManagedListRecipe TypedCharRecipe)
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
     BuiltinTextConcat ->
       functionInfo
-        (TypedListType TypedTextType)
+        (SemanticList SemanticText)
         (TypedManagedListRecipe TypedManagedTextRecipe)
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
     BuiltinRenderValue ->
       functionInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
     BuiltinReadTextRaw ->
       functionInfo
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
         hostIOOutcomeType
         hostIOOutcomeRecipe
     BuiltinWriteTextRaw ->
       info
-        (TypedFunctionType TypedTextType (TypedFunctionType TypedTextType hostIOOutcomeType))
+        (SemanticFunction SemanticText (SemanticFunction SemanticText hostIOOutcomeType))
         (TypedClosureRecipe [TypedManagedTextRecipe] (TypedClosureRecipe [TypedManagedTextRecipe] hostIOOutcomeRecipe))
     BuiltinReadStdinRaw ->
       functionInfo
-        (TypedTupleType [])
+        (SemanticTuple [])
         TypedUnitRecipe
         hostIOOutcomeType
         hostIOOutcomeRecipe
@@ -1261,50 +1261,50 @@ builtinCatalogInfo symbol =
     BuiltinWriteStderrRaw -> textToHostIOInfo
     BuiltinArguments ->
       functionInfo
-        (TypedTupleType [])
+        (SemanticTuple [])
         TypedUnitRecipe
-        (TypedListType TypedTextType)
+        (SemanticList SemanticText)
         (TypedManagedListRecipe TypedManagedTextRecipe)
     BuiltinExit ->
       functionInfo
-        TypedIntType
+        SemanticInt
         (TypedSignedIntegerRecipe 64)
-        (TypedTupleType [])
+        (SemanticTuple [])
         TypedUnitRecipe
   where
     functionInfo argumentType argumentRecipe resultType resultRecipe =
       info
-        (TypedFunctionType argumentType resultType)
+        (SemanticFunction argumentType resultType)
         (TypedClosureRecipe [argumentRecipe] resultRecipe)
     numericConversionInfo targetType targetRecipe =
       functionInfo
-        TypedIntType
+        SemanticInt
         (TypedSignedIntegerRecipe 64)
-        (TypedNumericType targetType)
+        (SemanticNumeric targetType)
         targetRecipe
     boolListTransformInfo =
       functionInfo
-        (TypedListType TypedBoolType)
+        (SemanticList SemanticBool)
         (TypedManagedListRecipe TypedBoolRecipe)
-        (TypedListType TypedBoolType)
+        (SemanticList SemanticBool)
         (TypedManagedListRecipe TypedBoolRecipe)
     charPredicateInfo =
-      functionInfo TypedCharType TypedCharRecipe TypedBoolType TypedBoolRecipe
+      functionInfo SemanticChar TypedCharRecipe SemanticBool TypedBoolRecipe
     charTransformInfo =
-      functionInfo TypedCharType TypedCharRecipe TypedCharType TypedCharRecipe
+      functionInfo SemanticChar TypedCharRecipe SemanticChar TypedCharRecipe
     textBinaryInfo secondType secondRecipe =
       info
-        (TypedFunctionType TypedTextType (TypedFunctionType secondType TypedTextType))
+        (SemanticFunction SemanticText (SemanticFunction secondType SemanticText))
         (TypedClosureRecipe [TypedManagedTextRecipe] (TypedClosureRecipe [secondRecipe] TypedManagedTextRecipe))
     hostIOOutcomeType =
-      TypedTupleType
-        [TypedBoolType, TypedTextType, TypedTextType, TypedTextType]
+      SemanticTuple
+        [SemanticBool, SemanticText, SemanticText, SemanticText]
     hostIOOutcomeRecipe =
       TypedManagedProductRecipe
         [TypedBoolRecipe, TypedManagedTextRecipe, TypedManagedTextRecipe, TypedManagedTextRecipe]
     textToHostIOInfo =
       functionInfo
-        TypedTextType
+        SemanticText
         TypedManagedTextRecipe
         hostIOOutcomeType
         hostIOOutcomeRecipe
@@ -1314,11 +1314,11 @@ builtinDirectCallProgram =
   expressionFixtureProgram fixture expression
   where
     fixture = "review-builtin-direct-call-recipe"
-    functionType = TypedFunctionType TypedTextType (TypedFunctionType TypedTextType TypedTextType)
+    functionType = SemanticFunction SemanticText (SemanticFunction SemanticText SemanticText)
     functionRecipe = TypedClosureRecipe [TypedManagedTextRecipe, TypedManagedTextRecipe] TypedManagedTextRecipe
     afterFirstInfo =
       info
-        (TypedFunctionType TypedTextType TypedTextType)
+        (SemanticFunction SemanticText SemanticText)
         (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
     functionExpression =
       fixtureVariableExpr
@@ -1333,11 +1333,11 @@ builtinDirectCallProgram =
 
 pairConstructorType :: TypedType
 pairConstructorType =
-  TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType pairConstructorResultType)
+  SemanticFunction SemanticBool (SemanticFunction SemanticBool pairConstructorResultType)
 
 pairConstructorResultType :: TypedType
 pairConstructorResultType =
-  TypedDataType
+  SemanticData
     (resolved TypedCurrentModule TypedTypeNamespace "Pair")
     []
 
@@ -1376,7 +1376,7 @@ constructorValueRecipeProgram =
         [ TypedConstructorDeclaration
             constructorOwner
             constructorName
-            [TypedBoolType, TypedBoolType]
+            [SemanticBool, SemanticBool]
             [TypedBoolRecipe, TypedBoolRecipe]
         ]
     constructor recipe =
@@ -1386,7 +1386,7 @@ constructorValueRecipeProgram =
         constructorName
     afterFirstInfo =
       info
-        (TypedFunctionType TypedBoolType pairConstructorResultType)
+        (SemanticFunction SemanticBool pairConstructorResultType)
         (TypedClosureRecipe [TypedBoolRecipe] pairConstructorResultRecipe)
     pairResultInfo = info pairConstructorResultType pairConstructorResultRecipe
     completeCall =
@@ -1419,7 +1419,7 @@ polymorphicBuiltinRecipeProgram =
   where
     fixture = "review-polymorphic-builtin-value-recipe"
     modulePath = fixtureModulePath fixture
-    mapperType = TypedFunctionType TypedBoolType TypedTextType
+    mapperType = SemanticFunction SemanticBool SemanticText
     mapperRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe
     mapperName = resolved TypedCurrentModule TypedValueNamespace "mapper"
     mapper =
@@ -1430,18 +1430,18 @@ polymorphicBuiltinRecipeProgram =
         (TypedLiteralExpr textInfo (TypedTextLiteral "mapped"))
     intermediateInfo =
       info
-        (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedTextType))
+        (SemanticFunction (SemanticList SemanticBool) (SemanticList SemanticText))
         ( TypedClosureRecipe
             [TypedManagedListRecipe TypedBoolRecipe]
             (TypedManagedListRecipe TypedManagedTextRecipe)
         )
     argument =
       TypedListExpr
-        (info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe))
+        (info (SemanticList SemanticBool) (TypedManagedListRecipe TypedBoolRecipe))
         [trueExpr]
     resultInfo =
       info
-        (TypedListType TypedTextType)
+        (SemanticList SemanticText)
         (TypedManagedListRecipe TypedManagedTextRecipe)
     completeCall =
       TypedApplyExpr
@@ -1460,7 +1460,7 @@ polymorphicBuiltinRecipeProgram =
 
 builtinIntOperatorType :: TypedType
 builtinIntOperatorType =
-  TypedFunctionType TypedIntType (TypedFunctionType TypedIntType TypedIntType)
+  SemanticFunction SemanticInt (SemanticFunction SemanticInt SemanticInt)
 
 builtinIntOperatorDirectRecipe :: TypedRepresentationRecipe
 builtinIntOperatorDirectRecipe =
@@ -1480,12 +1480,12 @@ builtinOperatorValueRecipeProgram =
   where
     fixture = "review-builtin-operator-value-recipe"
     modulePath = fixtureModulePath fixture
-    intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
+    intInfo = info SemanticInt (TypedSignedIntegerRecipe 64)
     directInfo = info builtinIntOperatorType builtinIntOperatorDirectRecipe
     valueInfo = info builtinIntOperatorType builtinIntOperatorValueRecipe
     afterFirstInfo =
       info
-        (TypedFunctionType TypedIntType TypedIntType)
+        (SemanticFunction SemanticInt SemanticInt)
         (TypedClosureRecipe [TypedSignedIntegerRecipe 64] (TypedSignedIntegerRecipe 64))
     argument literal =
       TypedLiteralExpr
@@ -1519,12 +1519,12 @@ qualifiedDirectMethodValueProgram =
   where
     fixture = "review-qualified-direct-method-value"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
-    implId = TypedImplId ["Prelude"] capabilityName [TypedTextType]
+    implId = TypedImplId ["Prelude"] capabilityName [SemanticText]
     constraint =
       TypedCapabilityConstraint
         (preludeCapability "Render")
         (Just "Render::render")
-        TypedTextType
+        SemanticText
     evidenceUse =
       TypedEvidenceUse
         Nothing
@@ -1538,7 +1538,7 @@ qualifiedDirectMethodValueProgram =
 
 textAppendType :: TypedType
 textAppendType =
-  TypedFunctionType TypedTextType (TypedFunctionType TypedTextType TypedTextType)
+  SemanticFunction SemanticText (SemanticFunction SemanticText SemanticText)
 
 textAppendDirectRecipe :: TypedRepresentationRecipe
 textAppendDirectRecipe =
@@ -1561,7 +1561,7 @@ directCallableResultValueProgram =
     functionName = resolved TypedCurrentModule TypedValueNamespace "choose"
     functionOwner = binder modulePath [0] functionName
     parameterName = resolved TypedCurrentModule TypedValueNamespace "ignored"
-    functionType = TypedFunctionType TypedBoolType textAppendType
+    functionType = SemanticFunction SemanticBool textAppendType
     functionRecipe = TypedClosureRecipe [TypedBoolRecipe] textAppendDirectRecipe
     functionInfo = info functionType functionRecipe
     functionScheme =
@@ -1602,7 +1602,7 @@ implMethodCallableShapeProgram =
     parameter = TypedTypeParameterId 0
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Chooser"
     methodName = resolved TypedCurrentModule TypedValueNamespace "choose"
-    methodType = TypedFunctionType TypedBoolType boolToBoolType
+    methodType = SemanticFunction SemanticBool boolToBoolType
     methodRecipe = TypedClosureRecipe [TypedBoolRecipe] boolToBoolRecipe
     methodScheme =
       fixtureScheme
@@ -1618,7 +1618,7 @@ implMethodCallableShapeProgram =
         capabilityName
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     firstParameter = resolved TypedCurrentModule TypedValueNamespace "first"
     secondParameter = resolved TypedCurrentModule TypedValueNamespace "second"
     methodExpression =
@@ -1650,7 +1650,7 @@ publishedImplWithoutCapabilityMetadataId =
   TypedImplId
     (fixtureModulePath "review-published-impl-capability-metadata")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Published")
-    [TypedBoolType]
+    [SemanticBool]
 
 publishedImplWithoutCapabilityMetadataProgram :: TypedProgram
 publishedImplWithoutCapabilityMetadataProgram =
@@ -1735,7 +1735,7 @@ mismatchedExplicitInstantiationProgram =
     name = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = mismatchedExplicitInstantiationOwner
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
       fixtureClosureScheme
@@ -1743,7 +1743,7 @@ mismatchedExplicitInstantiationProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     instantiate typeArgument =
       TypedInstantiation
@@ -1754,20 +1754,20 @@ mismatchedExplicitInstantiationProgram =
       TypedNodeInfo
         boolToBoolType
         boolToBoolRecipe
-        [instantiate TypedBoolType]
+        [instantiate SemanticBool]
         []
     calleeInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedCharType TypedCharType)
+        (SemanticFunction SemanticChar SemanticChar)
         (TypedClosureRecipe [TypedCharRecipe] TypedCharRecipe)
-        [instantiate TypedCharType]
+        [instantiate SemanticChar]
         []
     expression =
       TypedTypeApplicationExpr
         outerInfo
         (fixtureVariableExpr calleeInfo name)
         span1
-        TypedBoolType
+        SemanticBool
     statements =
       [ TypedLetStatement
           owner
@@ -1787,7 +1787,7 @@ nestedPathProgram =
     nestedName = TypedUnresolvedSourceName "nested"
     block =
       TypedBlockExpr
-        (info TypedBoolType (TypedSignedIntegerRecipe 64))
+        (info SemanticBool (TypedSignedIntegerRecipe 64))
         [expressionStatement 2 (fixtureVariableExpr boolInfo nestedName)]
 
 nestedPathFailures :: [TypedCoreValidationFailure]
@@ -1816,7 +1816,7 @@ nestedDeclarationProgram =
         span1
         dataName
         []
-        [TypedConstructorDeclaration constructorBinder constructorName [TypedBoolType] [TypedSignedIntegerRecipe 64]]
+        [TypedConstructorDeclaration constructorBinder constructorName [SemanticBool] [TypedSignedIntegerRecipe 64]]
     block = TypedBlockExpr boolInfo [TypedDataStatement declaration]
 
 nestedDeclarationFailures :: [TypedCoreValidationFailure]
@@ -1882,9 +1882,9 @@ generalizedLetScopeProgram =
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     argumentBinder = binder modulePath [0, 0] argumentName
     parameterId = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
-    functionType = TypedFunctionType parameterType parameterType
+    functionType = SemanticFunction parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     functionInfo = info functionType functionRecipe
     scheme = fixtureScheme valueBinder [parameterId] [] [] functionType functionRecipe
@@ -1901,7 +1901,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
     importedName = resolved (TypedImportedModule libraryPath) TypedValueNamespace "identity"
     owner = binder libraryPath [0] localName
     parameterId = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     scheme =
       fixtureClosureScheme
@@ -1909,7 +1909,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
         [parameterId]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     libraryModule =
       typedModule
@@ -1920,8 +1920,8 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
         (TypedModuleInterface [TypedValueInterface localName scheme] [] [] [])
         [TypedLetStatement owner localName span1 scheme (polymorphicIdentityExpression libraryPath [0] parameterId)]
         boolInfo
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
-    instantiatedType = TypedFunctionType TypedBoolType TypedBoolType
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId SemanticBool] Nothing
+    instantiatedType = SemanticFunction SemanticBool SemanticBool
     instantiatedRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
     instantiatedInfo = TypedNodeInfo instantiatedType instantiatedRecipe [instantiation] []
     expression = fixtureBoundVariableExpr owner instantiatedInfo importedName
@@ -1937,7 +1937,7 @@ importedInstantiationProgram = TypedProgram Nothing [libraryModule, entryModule]
 
 invisibleSiblingImplId :: TypedImplId
 invisibleSiblingImplId =
-  TypedImplId ["Hidden", "Evidence"] (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal") [TypedBoolType]
+  TypedImplId ["Hidden", "Evidence"] (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal") [SemanticBool]
 
 retainedPreludeEqualClass :: TypedClassDeclaration
 retainedPreludeEqualClass = fixtureEqualClass TypedAmbientPrelude
@@ -1999,9 +1999,9 @@ invisibleSiblingImplProgram = TypedProgram (Just fixturePrelude) [hiddenModule, 
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder entryPath [0] valueName
     scheme = monoScheme valueBinder
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     evidence = TypedEvidenceUse Nothing constraint invisibleSiblingImplId Nothing
-    expression = fixtureBoundVariableExpr valueBinder (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
+    expression = fixtureBoundVariableExpr valueBinder (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     entryModule =
       typedModule
         entryPath
@@ -2019,13 +2019,13 @@ selectedEvidenceTargetProgram =
     fixture = "review-selected-evidence-target"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedCharType]
+    implId = TypedImplId modulePath capabilityName [SemanticChar]
     valueName = resolved TypedCurrentModule TypedValueNamespace "same"
     valueBinder = binder modulePath [1] valueName
     scheme = monoScheme valueBinder
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     evidence = TypedEvidenceUse Nothing constraint implId Nothing
-    expression = fixtureBoundVariableExpr valueBinder (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
+    expression = fixtureBoundVariableExpr valueBinder (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     statements =
       [ TypedImplStatement
           ( TypedImplDeclaration
@@ -2053,14 +2053,14 @@ selectedMethodContractProgram =
     fixture = "review-selected-method-contract"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     valueName = resolved TypedCurrentModule TypedValueNamespace "equal"
     valueBinder = binder modulePath [1] valueName
     scheme = monoScheme valueBinder
-    constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") TypedBoolType
+    constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") SemanticBool
     withoutMethod = TypedEvidenceUse Nothing constraint implId Nothing
     wrongMethod = TypedEvidenceUse Nothing constraint implId (Just (TypedMethodId implId "other"))
-    selected evidence = fixtureBoundVariableExpr valueBinder (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
+    selected evidence = fixtureBoundVariableExpr valueBinder (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidence]) valueName
     statements =
       [ TypedImplStatement
           ( TypedImplDeclaration
@@ -2077,7 +2077,7 @@ selectedMethodContractProgram =
 
 enclosingOtherImplId :: TypedImplId
 enclosingOtherImplId =
-  TypedImplId (fixtureModulePath "review-enclosing-impl-method") (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render") [TypedCharType]
+  TypedImplId (fixtureModulePath "review-enclosing-impl-method") (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render") [SemanticChar]
 
 enclosingImplMethodProgram :: TypedProgram
 enclosingImplMethodProgram =
@@ -2086,7 +2086,7 @@ enclosingImplMethodProgram =
     fixture = "review-enclosing-impl-method"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
-    implId = TypedImplId modulePath capabilityName [TypedTextType]
+    implId = TypedImplId modulePath capabilityName [SemanticText]
     methodName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodBinder = binder modulePath [0, 0] methodName
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
@@ -2106,7 +2106,7 @@ bindingValueProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueBinder = binder modulePath [0] valueName
-    value = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "wrong")
+    value = literalExpr SemanticText TypedManagedTextRecipe (TypedTextLiteral "wrong")
 
 lambdaResultProgram :: TypedProgram
 lambdaResultProgram = expressionFixtureProgram fixture expression
@@ -2119,7 +2119,7 @@ lambdaResultProgram = expressionFixtureProgram fixture expression
         boolToBoolInfo
         (binder modulePath [0, 0] argumentName)
         argumentName
-        (literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "wrong"))
+        (literalExpr SemanticText TypedManagedTextRecipe (TypedTextLiteral "wrong"))
 
 literalTypeProgram :: TypedProgram
 literalTypeProgram = expressionFixtureProgram "review-literal-type" (TypedLiteralExpr boolInfo (TypedTextLiteral "wrong"))
@@ -2128,7 +2128,7 @@ collectionShapeProgram :: TypedProgram
 collectionShapeProgram =
   expressionFixtureProgram
     "review-collection-shape"
-    (TypedListExpr boolListInfo [literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'x')])
+    (TypedListExpr boolListInfo [literalExpr SemanticChar TypedCharRecipe (TypedCharacterLiteral 'x')])
 
 dataTypeArityProgram :: TypedProgram
 dataTypeArityProgram =
@@ -2143,7 +2143,7 @@ dataTypeArityProgram =
         [0, 0]
         dataName
         [TypedTypeParameterId 0]
-    dataInfo = info (TypedDataType dataName []) (TypedManagedVariantRecipe dataName [])
+    dataInfo = info (SemanticData dataName []) (TypedManagedVariantRecipe dataName [])
     statements =
       [ TypedDataStatement declaration,
         expressionStatement 1 (TypedBlockExpr dataInfo [])
@@ -2164,7 +2164,7 @@ moduleResultProgram =
   singleModuleProgram fixture relativeSource [] [expressionStatement 1 terminal] emptyInterface boolInfo (fixtureModulePath fixture)
   where
     fixture = "review-module-result"
-    terminal = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "result")
+    terminal = literalExpr SemanticText TypedManagedTextRecipe (TypedTextLiteral "result")
 
 stagedModuleResultProgram :: TypedProgram
 stagedModuleResultProgram =
@@ -2195,7 +2195,7 @@ stagedBlockResultProgram =
     modulePath = fixtureModulePath fixture
 
 callableResultType :: TypedType
-callableResultType = TypedFunctionType TypedBoolType (TypedFunctionType TypedCharType TypedTextType)
+callableResultType = SemanticFunction SemanticBool (SemanticFunction SemanticChar SemanticText)
 
 flattenedCallableResultRecipe :: TypedRepresentationRecipe
 flattenedCallableResultRecipe =
@@ -2214,7 +2214,7 @@ stagedCallableResultExpression modulePath lexicalPath =
     outerBinder
     outerName
     ( TypedLambdaExpr
-        (info (TypedFunctionType TypedCharType TypedTextType) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
+        (info (SemanticFunction SemanticChar SemanticText) (TypedClosureRecipe [TypedCharRecipe] TypedManagedTextRecipe))
         innerBinder
         innerName
         (TypedLiteralExpr textInfo (TypedTextLiteral "result"))
@@ -2236,7 +2236,7 @@ schemeDataTypeProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     valueBinder = binder modulePath [0] valueName
-    resultType = TypedDataType missingSchemeDataName []
+    resultType = SemanticData missingSchemeDataName []
     scheme = fixtureScheme valueBinder [] [] [] resultType (TypedManagedVariantRecipe missingSchemeDataName [])
 
 driveAbsoluteProgram :: TypedProgram
@@ -2323,7 +2323,7 @@ sameNamedImportedImplId =
   TypedImplId
     sameNamedCapabilityProviderPath
     sameNamedImportedCapabilityName
-    [TypedBoolType]
+    [SemanticBool]
 
 sameNamedCapabilityProviderModule :: TypedModule
 sameNamedCapabilityProviderModule =
@@ -2357,7 +2357,7 @@ sameNamedCapabilityProviderModuleAt providerPath =
       TypedImplId
         providerPath
         capabilityName
-        [TypedBoolType]
+        [SemanticBool]
     sourceName =
       resolved TypedCurrentModule TypedValueNamespace "source"
     sourceOwner =
@@ -2368,10 +2368,10 @@ sameNamedCapabilityProviderModuleAt providerPath =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint capabilityName Nothing TypedBoolType)
+            (TypedCapabilityConstraint capabilityName Nothing SemanticBool)
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
 
 sameNamedVisibleCapabilityProviderModuleAt :: [Text] -> TypedModule
@@ -2434,11 +2434,11 @@ sameNamedCapabilityDependencyProgram =
             ( TypedCapabilityConstraint
                 sameNamedImportedCapabilityName
                 Nothing
-                TypedBoolType
+                SemanticBool
             )
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     facadeModule =
       typedModule
@@ -2493,7 +2493,7 @@ sameNamedRetainedCapabilityProgram =
       TypedCapabilityConstraint
         sameNamedImportedCapabilityName
         Nothing
-        TypedBoolType
+        SemanticBool
     facadeModule =
       typedModule
         facadePath
@@ -2524,7 +2524,7 @@ sameNamedRetainedCapabilityProgram =
     expression =
       TypedLiteralExpr
         ( TypedNodeInfo
-            TypedBoolType
+            SemanticBool
             TypedBoolRecipe
             []
             [TypedSelectedEvidence evidenceUse]
@@ -2571,7 +2571,7 @@ duplicateEvidenceConstraintProgram =
       TypedCapabilityConstraint
         (preludeCapability "Equal")
         Nothing
-        TypedBoolType
+        SemanticBool
     valueScheme =
       fixtureScheme
         valueOwner
@@ -2580,7 +2580,7 @@ duplicateEvidenceConstraintProgram =
           TypedEvidenceParameter (TypedEvidenceParameterId 1) constraint
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
 
 singletonTupleTypeProgram :: TypedProgram
@@ -2591,7 +2591,7 @@ singletonTupleTypeProgram =
   where
     singletonInfo =
       info
-        (TypedTupleType [TypedBoolType])
+        (SemanticTuple [SemanticBool])
         (TypedManagedProductRecipe [TypedBoolRecipe])
 
 preludeAmbientDependencyName :: TypedCoreName
@@ -2621,7 +2621,7 @@ preludeAmbientDataDependencyProgram =
         []
         []
         []
-        (TypedDataType preludeAmbientDependencyName [])
+        (SemanticData preludeAmbientDependencyName [])
         (TypedManagedVariantRecipe preludeAmbientDependencyName [])
     classDeclaration =
       TypedClassDeclaration
@@ -2671,7 +2671,7 @@ duplicateInterfaceImplId =
   TypedImplId
     duplicateInterfaceModulePath
     duplicateInterfaceClassName
-    [TypedBoolType]
+    [SemanticBool]
 
 duplicateModuleInterfaceEntriesProgram :: TypedProgram
 duplicateModuleInterfaceEntriesProgram =
@@ -2772,7 +2772,7 @@ activeRebindingExportProgram =
     secondOwner = binder modulePath [1] activeRebindingExportName
     firstScheme = monoScheme firstOwner
     secondScheme =
-      fixtureScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme secondOwner [] [] [] SemanticText TypedManagedTextRecipe
     exports = [TypedModuleExport TypedValueNamespace "item"]
     statements =
       [ TypedLetStatement firstOwner activeRebindingExportName span1 firstScheme trueExpr,
@@ -2808,18 +2808,18 @@ constructorInstantiationProgram =
         [ TypedConstructorDeclaration
             constructorOwner
             constructorName
-            [TypedTypeParameterType parameterId]
+            [SemanticVariable parameterId]
             [TypedRepresentationParameterRecipe parameterId]
         ]
     instantiation =
       TypedInstantiation
         constructorOwner
-        [TypedTypeArgument parameterId TypedBoolType]
+        [TypedTypeArgument parameterId SemanticBool]
         Nothing
     constructorInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType (TypedDataType dataName [TypedBoolType]))
-        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe dataName [TypedBoolType]))
+        (SemanticFunction SemanticBool (SemanticData dataName [SemanticBool]))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe dataName [SemanticBool]))
         [instantiation]
         []
     statements =
@@ -2851,13 +2851,13 @@ missingConstructorInstantiationProgram =
         [ TypedConstructorDeclaration
             missingConstructorInstantiationOwner
             constructorName
-            [TypedTypeParameterType parameterId]
+            [SemanticVariable parameterId]
             [TypedRepresentationParameterRecipe parameterId]
         ]
     constructorInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType (TypedDataType dataName [TypedBoolType]))
-        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe dataName [TypedBoolType]))
+        (SemanticFunction SemanticBool (SemanticData dataName [SemanticBool]))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe dataName [SemanticBool]))
         []
         []
     statements =
@@ -2885,9 +2885,9 @@ retainedCapabilityEvidenceProgram =
     retainedCapability =
       TypedClassDeclaration span1 importedCapabilityName [parameter] []
     localImplId =
-      TypedImplId providerPath localCapabilityName [TypedBoolType]
+      TypedImplId providerPath localCapabilityName [SemanticBool]
     retainedImplId =
-      TypedImplId providerPath importedCapabilityName [TypedBoolType]
+      TypedImplId providerPath importedCapabilityName [SemanticBool]
     providerModule =
       typedModule
         providerPath
@@ -2907,14 +2907,14 @@ retainedCapabilityEvidenceProgram =
     publishedName =
       resolved TypedCurrentModule TypedValueNamespace "published"
     publishedOwner = binder facadePath [0] publishedName
-    constraint = TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint importedCapabilityName Nothing SemanticBool
     publishedScheme =
       fixtureScheme
         publishedOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     facadeModule =
       typedModule
@@ -2949,7 +2949,7 @@ retainedCapabilityEvidenceProgram =
         Nothing
     entryInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [instantiation]
         [TypedSelectedEvidence evidenceUse]
@@ -2985,7 +2985,7 @@ retainedCapabilityWrongImplProgram =
         []
         []
         []
-        (TypedFunctionType (TypedTypeParameterType parameter) TypedTextType)
+        (SemanticFunction (SemanticVariable parameter) SemanticText)
         (TypedClosureRecipe [TypedRepresentationParameterRecipe parameter] TypedManagedTextRecipe)
     providerClass =
       TypedClassDeclaration
@@ -3016,20 +3016,20 @@ retainedCapabilityWrongImplProgram =
         [parameter]
         []
     wrongImplId =
-      TypedImplId entryPath retainedCapabilityWrongImplName [TypedBoolType]
+      TypedImplId entryPath retainedCapabilityWrongImplName [SemanticBool]
     localName =
       resolved TypedCurrentModule TypedValueNamespace "local"
     localOwner = binder entryPath [2] localName
     evidenceParameter = TypedEvidenceParameterId 0
     constraint =
-      TypedCapabilityConstraint importedCapability Nothing TypedBoolType
+      TypedCapabilityConstraint importedCapability Nothing SemanticBool
     localScheme =
       fixtureScheme
         localOwner
         []
         [TypedEvidenceParameter evidenceParameter constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     evidenceUse =
       TypedEvidenceUse
@@ -3039,7 +3039,7 @@ retainedCapabilityWrongImplProgram =
         Nothing
     entryInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [TypedInstantiation localOwner [] Nothing]
         [TypedSelectedEvidence evidenceUse]
@@ -3062,7 +3062,7 @@ missingPublishedImplId =
   TypedImplId
     (fixtureModulePath "review-missing-published-impl")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Comparable")
-    [TypedBoolType]
+    [SemanticBool]
 
 missingPublishedImplProgram :: TypedProgram
 missingPublishedImplProgram =
@@ -3092,9 +3092,9 @@ expandingRecursiveEqualityProgram =
 
 recursiveEqualityCallableType :: TypedType
 recursiveEqualityCallableType =
-  TypedDataType
+  SemanticData
     (resolved TypedCurrentModule TypedTypeNamespace "Nest")
-    [TypedBoolType]
+    [SemanticBool]
 
 recursiveEqualityCallableFieldProgram :: TypedProgram
 recursiveEqualityCallableFieldProgram =
@@ -3111,9 +3111,9 @@ recursiveEqualityProgram fixture includeCallableField =
     callableConstructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Callable"
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
-    recursiveArgument = TypedListType parameterType
-    recursiveField = TypedDataType dataName [recursiveArgument]
+    parameterType = SemanticVariable parameter
+    recursiveArgument = SemanticList parameterType
+    recursiveField = SemanticData dataName [recursiveArgument]
     recursiveConstructor =
       TypedConstructorDeclaration
         (binder modulePath [0, 0] recursiveConstructorName)
@@ -3136,14 +3136,14 @@ recursiveEqualityProgram fixture includeCallableField =
         )
     valueName = resolved TypedCurrentModule TypedValueNamespace "equality"
     valueOwner = binder modulePath [1] valueName
-    targetType = TypedDataType dataName [TypedBoolType]
+    targetType = SemanticData dataName [SemanticBool]
     scheme =
       fixtureScheme
         valueOwner
         []
         []
         [TypedStrictEqualityPrimitiveConstraint targetType]
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     statements =
       [ TypedDataStatement declaration,
@@ -3166,9 +3166,9 @@ orphanSignatureProgram =
 
 recursiveEqualityNestedCallableType :: TypedType
 recursiveEqualityNestedCallableType =
-  TypedDataType
+  SemanticData
     (resolved TypedCurrentModule TypedTypeNamespace "Nest")
-    [TypedBoolType]
+    [SemanticBool]
 
 recursiveEqualityNestedCallableProgram :: TypedProgram
 recursiveEqualityNestedCallableProgram =
@@ -3180,9 +3180,9 @@ recursiveEqualityNestedCallableProgram =
     stepName = resolved TypedCurrentModule TypedConstructorNamespace "Step"
     baseName = resolved TypedCurrentModule TypedConstructorNamespace "Base"
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
-    callableParameter = TypedFunctionType parameterType parameterType
-    recursiveField = TypedDataType dataName [callableParameter]
+    parameterType = SemanticVariable parameter
+    callableParameter = SemanticFunction parameterType parameterType
+    recursiveField = SemanticData dataName [callableParameter]
     declaration =
       TypedDataDeclaration
         span1
@@ -3207,7 +3207,7 @@ recursiveEqualityNestedCallableProgram =
         []
         []
         [TypedStrictEqualityPrimitiveConstraint recursiveEqualityNestedCallableType]
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     statements =
       [ TypedDataStatement declaration,
@@ -3290,7 +3290,7 @@ implBeforeClassProgram =
     fixture = "review-impl-before-class"
     modulePath = (fixtureModulePath fixture)
     implId =
-      TypedImplId modulePath implBeforeClassCapabilityName [TypedBoolType]
+      TypedImplId modulePath implBeforeClassCapabilityName [SemanticBool]
     declaration =
       TypedClassDeclaration
         span1
@@ -3343,7 +3343,7 @@ evidenceCapabilityOriginProgram =
         capabilityName =
           resolved TypedCurrentModule TypedCapabilityNamespace "Shared"
         constraint =
-          TypedCapabilityConstraint capabilityName Nothing TypedBoolType
+          TypedCapabilityConstraint capabilityName Nothing SemanticBool
         classDeclaration =
           TypedClassDeclaration
             span1
@@ -3351,7 +3351,7 @@ evidenceCapabilityOriginProgram =
             [TypedTypeParameterId 0]
             []
         localImplId =
-          TypedImplId modulePath capabilityName [TypedBoolType]
+          TypedImplId modulePath capabilityName [SemanticBool]
         publishedName =
           resolved TypedCurrentModule TypedValueNamespace publishedIdentifier
         publishedOwner = binder modulePath [2] publishedName
@@ -3364,7 +3364,7 @@ evidenceCapabilityOriginProgram =
                 constraint
             ]
             []
-            TypedBoolType
+            SemanticBool
             TypedBoolRecipe
     leftModule = provider leftPath "src/Evidence/Left.jz" "left"
     rightModule = provider rightPath "src/Evidence/Right.jz" "right"
@@ -3373,10 +3373,10 @@ evidenceCapabilityOriginProgram =
     leftCapabilityName =
       resolved (TypedImportedModule leftPath) TypedCapabilityNamespace "Shared"
     leftConstraint =
-      TypedCapabilityConstraint leftCapabilityName Nothing TypedBoolType
+      TypedCapabilityConstraint leftCapabilityName Nothing SemanticBool
     leftOwner = binder leftPath [2] (resolved TypedCurrentModule TypedValueNamespace "left")
     wrongImplId =
-      TypedImplId rightPath evidenceCapabilityWrongName [TypedBoolType]
+      TypedImplId rightPath evidenceCapabilityWrongName [SemanticBool]
     evidenceUse =
       TypedEvidenceUse
         ( Just
@@ -3390,7 +3390,7 @@ evidenceCapabilityOriginProgram =
         Nothing
     entryInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [TypedInstantiation leftOwner [] Nothing]
         [TypedSelectedEvidence evidenceUse]
@@ -3510,7 +3510,7 @@ retainedClassMethodExportProgram =
         []
         []
         []
-        (TypedFunctionType (TypedTypeParameterType parameter) TypedTextType)
+        (SemanticFunction (SemanticVariable parameter) SemanticText)
         ( TypedClosureRecipe
             [TypedRepresentationParameterRecipe parameter]
             TypedManagedTextRecipe
@@ -3530,10 +3530,10 @@ retainedClassMethodExportProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint localClassName Nothing TypedBoolType)
+            (TypedCapabilityConstraint localClassName Nothing SemanticBool)
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     providerModule =
       typedModule
@@ -3609,7 +3609,7 @@ normalizedPreludeAmbientImpl =
   TypedImplId
     ["Prelude"]
     (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
-    [TypedBoolType]
+    [SemanticBool]
 
 normalizedPreludeImplDuplicatesProgram :: TypedProgram
 normalizedPreludeImplDuplicatesProgram =
@@ -3625,7 +3625,7 @@ normalizedPreludeImplDuplicatesProgram =
         [TypedTypeParameterId 0]
         []
     localImpl =
-      TypedImplId preludePath localCapabilityName [TypedBoolType]
+      TypedImplId preludePath localCapabilityName [SemanticBool]
     preludeModule =
       typedModule
         preludePath
@@ -3843,7 +3843,7 @@ explicitSpanOnVariableProgram =
     fixture = "review-explicit-span-on-variable"
     modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
     scheme =
@@ -3852,12 +3852,12 @@ explicitSpanOnVariableProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     instantiation =
       TypedInstantiation
         explicitSpanOnVariableOwner
-        [TypedTypeArgument parameter TypedBoolType]
+        [TypedTypeArgument parameter SemanticBool]
         (Just span1)
     instantiatedInfo =
       TypedNodeInfo
@@ -3883,14 +3883,14 @@ singleEvidenceCandidateProgram =
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     constraint =
-      TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+      TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     implId =
-      TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+      TypedImplId ["Prelude"] capabilityName [SemanticBool]
     candidate =
       TypedEvidenceCandidate implId Nothing
     expression =
       TypedLiteralExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedEvidenceCandidates constraint [candidate]])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedEvidenceCandidates constraint [candidate]])
         (TypedBooleanLiteral True)
 
 emptyModulePathProgram :: TypedProgram
@@ -3946,7 +3946,7 @@ signatureBindingMismatchProgram =
     bindingOwner = binder modulePath [1] valueName
     signatureScheme = monoScheme signatureOwner
     bindingScheme =
-      fixtureScheme bindingOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme bindingOwner [] [] [] SemanticText TypedManagedTextRecipe
     statements =
       [ TypedSignatureStatement signatureOwner valueName span1 signatureScheme,
         TypedLetStatement
@@ -4014,7 +4014,7 @@ qualifiedMethodTypeApplicationProgram =
         capabilityName
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    implId = TypedImplId preludePath capabilityName [TypedBoolType]
+    implId = TypedImplId preludePath capabilityName [SemanticBool]
     methodArgument =
       resolved TypedCurrentModule TypedValueNamespace "printArgument"
     methodExpression =
@@ -4049,11 +4049,11 @@ qualifiedMethodTypeApplicationProgram =
     importedCapabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Printable"
     importedImplId =
-      TypedImplId preludePath importedCapabilityName [TypedBoolType]
+      TypedImplId preludePath importedCapabilityName [SemanticBool]
     evidenceUse =
       TypedEvidenceUse
         Nothing
-        (TypedCapabilityConstraint (preludeCapability "Printable") (Just "Printable::print!") TypedBoolType)
+        (TypedCapabilityConstraint (preludeCapability "Printable") (Just "Printable::print!") SemanticBool)
         importedImplId
         (Just (TypedMethodId importedImplId "print!"))
     methodInfo =
@@ -4067,7 +4067,7 @@ qualifiedMethodTypeApplicationProgram =
         methodInfo
         (fixtureVariableExpr methodInfo (TypedBuiltinName "Printable::print!"))
         span1
-        TypedBoolType
+        SemanticBool
     entryModule =
       typedModule
         entryPath
@@ -4086,11 +4086,11 @@ qualifiedMethodValueContractProgram =
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     implId =
-      TypedImplId ["Prelude"] capabilityName [TypedTextType]
+      TypedImplId ["Prelude"] capabilityName [SemanticText]
     evidenceUse =
       TypedEvidenceUse
         Nothing
-        (TypedCapabilityConstraint (preludeCapability "Render") (Just "Render::map") TypedTextType)
+        (TypedCapabilityConstraint (preludeCapability "Render") (Just "Render::map") SemanticText)
         implId
         (Just (TypedMethodId implId "map"))
     expression =
@@ -4226,7 +4226,7 @@ syntheticBinderShadowingProgram =
     laterOwner = binder modulePath [0] valueName
     earlierScheme = monoScheme earlierOwner
     laterScheme =
-      fixtureScheme laterOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme laterOwner [] [] [] SemanticText TypedManagedTextRecipe
     statements =
       [ TypedLetStatement earlierOwner valueName span1 earlierScheme trueExpr,
         TypedLetStatement
@@ -4247,11 +4247,11 @@ implFreeClassParameterProgram =
     modulePath = (fixtureModulePath fixture)
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
     methodOwner = binder modulePath [0, 0] methodName
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     identityArgumentName =
       resolved TypedCurrentModule TypedValueNamespace "identityArgument"
@@ -4259,7 +4259,7 @@ implFreeClassParameterProgram =
       binder modulePath [0, 0, 0] identityArgumentName
     identityInfo =
       info
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     identityExpression =
       TypedLambdaExpr
@@ -4297,7 +4297,7 @@ duplicateQualifiedMethodCandidateImpl =
   TypedImplId
     ["Prelude"]
     (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render")
-    [TypedTextType]
+    [SemanticText]
 
 duplicateQualifiedMethodCandidateProgram :: TypedProgram
 duplicateQualifiedMethodCandidateProgram =
@@ -4305,7 +4305,7 @@ duplicateQualifiedMethodCandidateProgram =
   where
     fixture = "review-duplicate-qualified-method-candidate"
     constraint =
-      TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
+      TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") SemanticText
     candidate =
       TypedEvidenceCandidate
         duplicateQualifiedMethodCandidateImpl
@@ -4344,7 +4344,7 @@ metadataOnlySourceTypeProgram =
         localDataName
         []
         [TypedConstructorDeclaration constructorOwner localConstructorName [] []]
-    localDataType = TypedDataType localDataName []
+    localDataType = SemanticData localDataName []
     localDataRecipe = TypedManagedVariantRecipe localDataName []
     localDataInfo = info localDataType localDataRecipe
     providerValueName =
@@ -4388,7 +4388,7 @@ metadataOnlySourceTypeProgram =
         []
         []
         []
-        (TypedDataType metadataOnlyImportedTypeName [])
+        (SemanticData metadataOnlyImportedTypeName [])
         (TypedManagedVariantRecipe metadataOnlyImportedTypeName [])
     entryModule =
       typedModule
@@ -4406,7 +4406,7 @@ nonScalarCharacterProgram =
   where
     fixture = "review-non-scalar-character"
     modulePath = (fixtureModulePath fixture)
-    charInfo = info TypedCharType TypedCharRecipe
+    charInfo = info SemanticChar TypedCharRecipe
     nonScalar = '\xD800'
     invalidLiteral =
       TypedLiteralExpr charInfo (TypedCharacterLiteral nonScalar)
@@ -4476,10 +4476,10 @@ methodOnlyCapabilityVisibilityProgram hasExplicitSignature =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType)
+            (TypedCapabilityConstraint importedCapabilityName Nothing SemanticBool)
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     localStatements
       | hasExplicitSignature =
@@ -4554,7 +4554,7 @@ nestedTypeParameterShadowingProgram =
     fixture = "review-nested-type-parameter-shadowing"
     modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     parameterInfo = info parameterType parameterRecipe
     outerName = resolved TypedCurrentModule TypedValueNamespace "outer"
@@ -4594,7 +4594,7 @@ nestedTypeParameterShadowingProgram =
         [ localBinding,
           expressionStatement 2 (fixtureVariableExpr localUseInfo localName)
         ]
-    functionType = TypedFunctionType parameterType parameterType
+    functionType = SemanticFunction parameterType parameterType
     functionRecipe =
       TypedClosureRecipe [parameterRecipe] parameterRecipe
     outerExpression =
@@ -4667,15 +4667,15 @@ ordinaryUnboundEvidenceProgram =
     capabilityName =
       resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     constraint =
-      TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") TypedBoolType
-    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+      TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") SemanticBool
+    implId = TypedImplId ["Prelude"] capabilityName [SemanticBool]
     methodId = TypedMethodId implId "equal"
     evidenceUse =
       TypedEvidenceUse Nothing constraint implId (Just methodId)
     expression =
       TypedLiteralExpr
         ( TypedNodeInfo
-            TypedBoolType
+            SemanticBool
             TypedBoolRecipe
             []
             [TypedSelectedEvidence evidenceUse]
@@ -4690,10 +4690,10 @@ nestedLocalGeneralizationProgram =
     modulePath = (fixtureModulePath fixture)
     outerParameter = TypedTypeParameterId 0
     innerParameter = TypedTypeParameterId 1
-    outerParameterType = TypedTypeParameterType outerParameter
+    outerParameterType = SemanticVariable outerParameter
     outerParameterRecipe = TypedRepresentationParameterRecipe outerParameter
     outerParameterInfo = info outerParameterType outerParameterRecipe
-    innerParameterType = TypedTypeParameterType innerParameter
+    innerParameterType = SemanticVariable innerParameter
     innerParameterRecipe = TypedRepresentationParameterRecipe innerParameter
     innerParameterInfo = info innerParameterType innerParameterRecipe
     outerName = resolved TypedCurrentModule TypedValueNamespace "outer"
@@ -4706,7 +4706,7 @@ nestedLocalGeneralizationProgram =
       resolved TypedCurrentModule TypedValueNamespace "localArgument"
     localArgumentOwner = binder modulePath [0, 0, 0, 0] localArgumentName
     localFunctionType =
-      TypedFunctionType innerParameterType innerParameterType
+      SemanticFunction innerParameterType innerParameterType
     localFunctionRecipe =
       TypedClosureRecipe [innerParameterRecipe] innerParameterRecipe
     localScheme =
@@ -4731,7 +4731,7 @@ nestedLocalGeneralizationProgram =
         localScheme
         localExpression
     instantiatedLocalType =
-      TypedFunctionType outerParameterType outerParameterType
+      SemanticFunction outerParameterType outerParameterType
     instantiatedLocalRecipe =
       TypedClosureRecipe [outerParameterRecipe] outerParameterRecipe
     localUseInfo =
@@ -4757,7 +4757,7 @@ nestedLocalGeneralizationProgram =
           expressionStatement 2 localApplication
         ]
     functionType =
-      TypedFunctionType outerParameterType outerParameterType
+      SemanticFunction outerParameterType outerParameterType
     functionRecipe =
       TypedClosureRecipe [outerParameterRecipe] outerParameterRecipe
     outerExpression =
@@ -4787,7 +4787,7 @@ nonConcreteImplTargetId =
   TypedImplId
     (fixtureModulePath "review-non-concrete-impl-target")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Concrete")
-    [TypedFunctionType TypedBoolType TypedBoolType]
+    [SemanticFunction SemanticBool SemanticBool]
 
 nonConcreteImplTargetProgram :: TypedProgram
 nonConcreteImplTargetProgram =
@@ -4838,7 +4838,7 @@ blockDeclarationScopeProgram =
         capabilityName
         [TypedTypeParameterId 0]
         []
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     block =
       TypedBlockExpr
         boolInfo
@@ -4894,7 +4894,7 @@ moduleMetadataIdentityProgram =
     scheme = monoScheme owner
     moduleInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [TypedInstantiation owner [] Nothing]
         []
@@ -5008,7 +5008,7 @@ lexicalSchemeShadowingProgram =
             innerOwner
             valueName
             span1
-            (fixtureScheme innerOwner [] [] [] TypedTextType TypedManagedTextRecipe)
+            (fixtureScheme innerOwner [] [] [] SemanticText TypedManagedTextRecipe)
             (TypedLiteralExpr textInfo (TypedTextLiteral "inner")),
           expressionStatement 2 innerUse
         ]
@@ -5036,14 +5036,14 @@ fixtureRenderImpl modulePath =
   TypedImplId
     modulePath
     (resolved TypedAmbientPrelude TypedCapabilityNamespace "Render")
-    [TypedTextType]
+    [SemanticText]
 
 fixtureRenderConstraint :: TypedCapabilityConstraint
 fixtureRenderConstraint =
   TypedCapabilityConstraint
     (preludeCapability "Render")
     (Just "Render.map")
-    TypedTextType
+    SemanticText
 
 fixtureRenderCandidate :: TypedImplId -> TypedEvidenceCandidate
 fixtureRenderCandidate implId =
@@ -5073,7 +5073,7 @@ qualifiedMapDispatchProgram fixture intermediateEvidence resultEvidence =
   where
     modulePath = fixtureModulePath fixture
     secondImpl = fixtureRenderImpl modulePath
-    boolToTextType = TypedFunctionType TypedBoolType TypedTextType
+    boolToTextType = SemanticFunction SemanticBool SemanticText
     boolToTextRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe
     mapperName = resolved TypedCurrentModule TypedValueNamespace "mapperArgument"
     mapper =
@@ -5083,9 +5083,9 @@ qualifiedMapDispatchProgram fixture intermediateEvidence resultEvidence =
         mapperName
         (TypedLiteralExpr textInfo (TypedTextLiteral "mapped"))
     intermediateType =
-      TypedFunctionType
-        (TypedListType TypedBoolType)
-        (TypedListType TypedTextType)
+      SemanticFunction
+        (SemanticList SemanticBool)
+        (SemanticList SemanticText)
     intermediateRecipe =
       TypedClosureRecipe
         [TypedManagedListRecipe TypedBoolRecipe]
@@ -5097,11 +5097,11 @@ qualifiedMapDispatchProgram fixture intermediateEvidence resultEvidence =
         mapper
     argument =
       TypedListExpr
-        (info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe))
+        (info (SemanticList SemanticBool) (TypedManagedListRecipe TypedBoolRecipe))
         [trueExpr]
     resultInfo =
       TypedNodeInfo
-        (TypedListType TypedTextType)
+        (SemanticList SemanticText)
         (TypedManagedListRecipe TypedManagedTextRecipe)
         []
         resultEvidence
@@ -5113,8 +5113,8 @@ duplicateUnboundEvidenceProgram =
   where
     fixture = "review-duplicate-unbound-evidence"
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") TypedBoolType
-    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.equal") SemanticBool
+    implId = TypedImplId ["Prelude"] capabilityName [SemanticBool]
     use =
       TypedEvidenceUse
         Nothing
@@ -5123,7 +5123,7 @@ duplicateUnboundEvidenceProgram =
         (Just (TypedMethodId implId "equal"))
     expression =
       fixtureVariableExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence use, TypedSelectedEvidence use])
         (TypedBuiltinName "Equal::equal")
 
 generalizedClassMethodImportProgram :: TypedProgram
@@ -5149,9 +5149,9 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
     methodName = resolved TypedCurrentModule TypedValueNamespace "display"
     methodOwner = binder libraryPath [0, 0] methodName
     methodType =
-      TypedFunctionType
-        (TypedTypeParameterType parameter)
-        (TypedTypeParameterType parameter)
+      SemanticFunction
+        (SemanticVariable parameter)
+        (SemanticVariable parameter)
     methodRecipe =
       TypedClosureRecipe
         [TypedRepresentationParameterRecipe parameter]
@@ -5164,7 +5164,7 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
         className
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    localImplId = TypedImplId libraryPath className [TypedBoolType]
+    localImplId = TypedImplId libraryPath className [SemanticBool]
     methodDefinition =
       fixtureImplMethod libraryPath [1, 0] localImplId "display"
     libraryModule =
@@ -5194,12 +5194,12 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
         TypedCapabilityNamespace
         "Display"
     importedImplId =
-      TypedImplId libraryPath importedCapabilityName [TypedBoolType]
+      TypedImplId libraryPath importedCapabilityName [SemanticBool]
     constraint =
       TypedCapabilityConstraint
         importedCapabilityName
         (Just (Text.intercalate "::" (libraryPath <> ["Display", "display"])))
-        TypedBoolType
+        SemanticBool
     selectedEvidence =
       TypedSelectedEvidence
         ( TypedEvidenceUse
@@ -5222,7 +5222,7 @@ generalizedClassMethodImportProgramWith fixture includeEvidence =
         boolToBoolRecipe
         [ TypedInstantiation
             methodOwner
-            [TypedTypeArgument parameter TypedBoolType]
+            [TypedTypeArgument parameter SemanticBool]
             Nothing
         ]
         evidence
@@ -5263,14 +5263,14 @@ importedClassCollisionProgram =
       TypedCapabilityConstraint
         (resolved (TypedImportedModule firstPath) TypedCapabilityNamespace "Clash")
         Nothing
-        TypedBoolType
+        SemanticBool
     scheme =
       fixtureScheme
         valueOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     entryModule =
       typedModule
@@ -5728,7 +5728,7 @@ malformedLiteralConstraintBoundsProgram =
     fixture = "review-malformed-literal-constraint-bounds"
     modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     signature statementIndex suffix lower upper =
       let valueName = resolved TypedCurrentModule TypedValueNamespace suffix
           owner = binder modulePath [statementIndex] valueName
@@ -5738,7 +5738,7 @@ malformedLiteralConstraintBoundsProgram =
               [parameter]
               []
               [TypedNumericPrimitiveConstraint (TypedIntegralLiteralNumericConstraint lower upper) parameterType]
-              TypedBoolType
+              SemanticBool
               TypedBoolRecipe
        in TypedSignatureStatement owner valueName span1 scheme
     statements =
@@ -5757,8 +5757,8 @@ evidenceSelectionOrderProgram =
     owner = binder modulePath [0] valueName
     firstParameter = TypedEvidenceParameterId 0
     secondParameter = TypedEvidenceParameterId 1
-    firstConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
-    secondConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType
+    firstConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
+    secondConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticChar
     scheme =
       fixtureScheme
         owner
@@ -5767,7 +5767,7 @@ evidenceSelectionOrderProgram =
           TypedEvidenceParameter secondParameter secondConstraint
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     selection parameter constraint target =
@@ -5781,11 +5781,11 @@ evidenceSelectionOrderProgram =
     expression =
       fixtureVariableExpr
         ( TypedNodeInfo
-            TypedBoolType
+            SemanticBool
             TypedBoolRecipe
             [TypedInstantiation owner [] Nothing]
-            [ selection secondParameter secondConstraint TypedCharType,
-              selection firstParameter firstConstraint TypedBoolType
+            [ selection secondParameter secondConstraint SemanticChar,
+              selection firstParameter firstConstraint SemanticBool
             ]
         )
         valueName
@@ -5813,10 +5813,10 @@ privateCapabilityMetadataVisibilityProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint libraryCapabilityName Nothing TypedBoolType)
+            (TypedCapabilityConstraint libraryCapabilityName Nothing SemanticBool)
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     libraryModule =
       typedModule
@@ -5880,7 +5880,7 @@ importedModuleQualifiedMethodKeyProgram fixture qualifiedMethod =
         capabilityName
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    implId = TypedImplId providerPath capabilityName [TypedBoolType]
+    implId = TypedImplId providerPath capabilityName [SemanticBool]
     methodDefinition =
       TypedMethodDefinition
         (TypedMethodId implId "make")
@@ -5910,16 +5910,16 @@ importedModuleQualifiedMethodKeyProgram fixture qualifiedMethod =
         TypedCapabilityNamespace
         capabilityIdentifier
     importedImplId =
-      TypedImplId providerPath importedCapabilityName [TypedBoolType]
+      TypedImplId providerPath importedCapabilityName [SemanticBool]
     evidenceUse =
       TypedEvidenceUse
         Nothing
-        (TypedCapabilityConstraint importedCapabilityName (Just qualifiedMethod) TypedBoolType)
+        (TypedCapabilityConstraint importedCapabilityName (Just qualifiedMethod) SemanticBool)
         importedImplId
         (Just (TypedMethodId importedImplId "make"))
     expression =
       fixtureVariableExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBuiltinName qualifiedMethod)
     entryModule =
       typedModule
@@ -5964,7 +5964,7 @@ importedDataDependencyProgram =
     importedValueName =
       resolved (TypedImportedModule facadePath) TypedValueNamespace "published"
     valueOwner = binder facadePath [0] valueName
-    boxType = TypedDataType importedBoxName []
+    boxType = SemanticData importedBoxName []
     boxRecipe = TypedManagedVariantRecipe importedBoxName []
     valueScheme =
       fixtureScheme valueOwner [] [] [] boxType boxRecipe
@@ -6004,8 +6004,8 @@ transitiveDataContractDependencyProgram =
     boxName = resolved TypedCurrentModule TypedTypeNamespace "Box"
     boxConstructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Box"
-    hiddenType = TypedDataType hiddenName []
-    boxType = TypedDataType boxName []
+    hiddenType = SemanticData hiddenName []
+    boxType = SemanticData boxName []
     hiddenDeclaration =
       dataDeclarationWithNullaryConstructor libraryPath [0, 0] hiddenName []
     boxDeclaration =
@@ -6030,7 +6030,7 @@ transitiveDataContractDependencyProgram =
         [parameter]
         []
         [TypedStrictEqualityPrimitiveConstraint boxType]
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     libraryModule =
       typedModule
@@ -6054,10 +6054,10 @@ transitiveDataContractDependencyProgram =
     instantiation =
       TypedInstantiation
         valueOwner
-        [TypedTypeArgument parameter TypedBoolType]
+        [TypedTypeArgument parameter SemanticBool]
         Nothing
     entryInfo =
-      TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
+      TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] []
     entryModule =
       typedModule
         entryPath
@@ -6087,14 +6087,14 @@ standaloneConstructorOwnerProgram =
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
     firstOwner = binder libraryPath [0, 0] constructorName
     secondOwner = binder libraryPath [1, 0] constructorName
-    firstType = TypedDataType firstName []
+    firstType = SemanticData firstName []
     firstRecipe = TypedManagedVariantRecipe firstName []
     firstDeclaration =
       TypedDataDeclaration
         span1
         firstName
         []
-        [TypedConstructorDeclaration firstOwner constructorName [TypedIntType] [TypedSignedIntegerRecipe 64]]
+        [TypedConstructorDeclaration firstOwner constructorName [SemanticInt] [TypedSignedIntegerRecipe 64]]
     secondDeclaration =
       TypedDataDeclaration
         span1
@@ -6124,7 +6124,7 @@ standaloneConstructorOwnerProgram =
     importedConstructorName = resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "C"
     constructorInfo =
       info
-        (TypedFunctionType (TypedDataType importedFirstName []) (TypedDataType importedSecondName []))
+        (SemanticFunction (SemanticData importedFirstName []) (SemanticData importedSecondName []))
         ( TypedClosureRecipe
             [TypedManagedVariantRecipe importedFirstName []]
             (TypedManagedVariantRecipe importedSecondName [])
@@ -6156,7 +6156,7 @@ ambiguousConstructorSelectedImportProgram =
         [ TypedConstructorDeclaration
             (binder libraryPath [statementIndex, 0] constructorName)
             constructorName
-            [TypedIntType]
+            [SemanticInt]
             [TypedSignedIntegerRecipe 64]
         ]
     firstDeclaration = declaration 0 firstName
@@ -6203,7 +6203,7 @@ constructorOwnerProgram libraryName fixtureName dependencyFirst =
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "C"
     firstOwner = binder libraryPath [if dependencyFirst then 1 else 0, 0] constructorName
     secondOwner = binder libraryPath [if dependencyFirst then 0 else 1, 0] constructorName
-    secondType = TypedDataType secondName []
+    secondType = SemanticData secondName []
     secondRecipe = TypedManagedVariantRecipe secondName []
     firstDeclaration =
       TypedDataDeclaration
@@ -6224,7 +6224,7 @@ constructorOwnerProgram libraryName fixtureName dependencyFirst =
         [ TypedConstructorDeclaration
             secondOwner
             constructorName
-            [TypedTextType]
+            [SemanticText]
             [TypedManagedTextRecipe]
         ]
     declarations
@@ -6252,13 +6252,13 @@ constructorOwnerProgram libraryName fixtureName dependencyFirst =
       resolved (TypedImportedModule libraryPath) TypedTypeNamespace "B"
     importedConstructorName =
       resolved (TypedImportedModule libraryPath) TypedConstructorNamespace "C"
-    importedFirstType = TypedDataType importedFirstName []
-    importedSecondType = TypedDataType importedSecondName []
+    importedFirstType = SemanticData importedFirstName []
+    importedSecondType = SemanticData importedSecondName []
     importedFirstRecipe = TypedManagedVariantRecipe importedFirstName []
     importedSecondRecipe = TypedManagedVariantRecipe importedSecondName []
     constructorInfo =
       info
-        (TypedFunctionType importedSecondType importedFirstType)
+        (SemanticFunction importedSecondType importedFirstType)
         (TypedClosureRecipe [importedSecondRecipe] importedFirstRecipe)
     expression = fixtureBoundVariableExpr firstOwner constructorInfo importedConstructorName
     entryModule =
@@ -6306,10 +6306,10 @@ importedCapabilityDependencyProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType)
+            (TypedCapabilityConstraint importedCapabilityName Nothing SemanticBool)
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     facadeModule =
       typedModule
@@ -6333,7 +6333,7 @@ metadataOnlyImportedImpl =
   TypedImplId
     (fixtureLibraryPath "MetadataOnlyImpl")
     metadataOnlyImportedCapabilityName
-    [TypedBoolType]
+    [SemanticBool]
 
 metadataOnlyImplVisibilityProgram :: TypedProgram
 metadataOnlyImplVisibilityProgram =
@@ -6347,20 +6347,20 @@ metadataOnlyImplVisibilityProgram =
     capability =
       TypedClassDeclaration span1 capabilityName [parameter] []
     localImpl =
-      TypedImplId libraryPath capabilityName [TypedBoolType]
+      TypedImplId libraryPath capabilityName [SemanticBool]
     valueName = resolved TypedCurrentModule TypedValueNamespace "constrained"
     valueOwner = binder libraryPath [2] valueName
     constraint =
-      TypedCapabilityConstraint capabilityName Nothing TypedBoolType
+      TypedCapabilityConstraint capabilityName Nothing SemanticBool
     importedConstraint =
-      TypedCapabilityConstraint metadataOnlyImportedCapabilityName Nothing TypedBoolType
+      TypedCapabilityConstraint metadataOnlyImportedCapabilityName Nothing SemanticBool
     valueScheme =
       fixtureScheme
         valueOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     libraryModule =
       typedModule
@@ -6383,7 +6383,7 @@ metadataOnlyImplVisibilityProgram =
       TypedEvidenceUse Nothing importedConstraint metadataOnlyImportedImpl Nothing
     expression =
       TypedLiteralExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
         (TypedBooleanLiteral True)
     entryModule =
       typedModule
@@ -6405,19 +6405,19 @@ patternExpressionMetadataProgram =
     genericOwner = binder modulePath [0] genericName
     parameter = TypedTypeParameterId 0
     genericScheme =
-      fixtureScheme genericOwner [parameter] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme genericOwner [parameter] [] [] SemanticBool TypedBoolRecipe
     capabilityName =
       resolved TypedCurrentModule TypedCapabilityNamespace "PatternMarker"
     capability =
       TypedClassDeclaration span1 capabilityName [parameter] []
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     constraint =
-      TypedCapabilityConstraint capabilityName Nothing TypedBoolType
+      TypedCapabilityConstraint capabilityName Nothing SemanticBool
     patternInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
-        [TypedInstantiation genericOwner [TypedTypeArgument parameter TypedBoolType] Nothing]
+        [TypedInstantiation genericOwner [TypedTypeArgument parameter SemanticBool] Nothing]
         [TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)]
     expression =
       TypedPatternCaseExpr
@@ -6454,14 +6454,14 @@ phantomDataEqualityProgram =
         ]
     valueName = fixtureValueName "phantomEquality"
     valueOwner = binder modulePath [1] valueName
-    phantomFunctionType = TypedDataType dataName [boolToBoolType]
+    phantomFunctionType = SemanticData dataName [boolToBoolType]
     scheme =
       fixtureScheme
         valueOwner
         []
         []
         [TypedStrictEqualityPrimitiveConstraint phantomFunctionType]
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     statements =
       [ TypedDataStatement declaration,
@@ -6480,13 +6480,13 @@ sameScopeValueRebindingProgram =
     secondSignatureOwner = binder modulePath [2] valueName
     secondOwner = binder modulePath [3] valueName
     firstSignatureScheme =
-      fixtureScheme firstSignatureOwner [] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme firstSignatureOwner [] [] [] SemanticBool TypedBoolRecipe
     firstScheme =
-      fixtureScheme firstOwner [] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme firstOwner [] [] [] SemanticBool TypedBoolRecipe
     secondSignatureScheme =
-      fixtureScheme secondSignatureOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme secondSignatureOwner [] [] [] SemanticText TypedManagedTextRecipe
     secondScheme =
-      fixtureScheme secondOwner [] [] [] TypedTextType TypedManagedTextRecipe
+      fixtureScheme secondOwner [] [] [] SemanticText TypedManagedTextRecipe
     statements =
       [ TypedSignatureStatement firstSignatureOwner valueName span1 firstSignatureScheme,
         TypedLetStatement firstOwner valueName span1 firstScheme trueExpr,
@@ -6857,7 +6857,7 @@ missingPolymorphicInstantiationProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "identity"
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
       fixtureClosureScheme
@@ -6865,7 +6865,7 @@ missingPolymorphicInstantiationProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     statements =
       [ TypedLetStatement
@@ -6881,7 +6881,7 @@ unsupportedEqualityDataName :: TypedCoreName
 unsupportedEqualityDataName = resolved TypedCurrentModule TypedTypeNamespace "CallableBox"
 
 unsupportedEqualityDataType :: TypedType
-unsupportedEqualityDataType = TypedDataType unsupportedEqualityDataName []
+unsupportedEqualityDataType = SemanticData unsupportedEqualityDataName []
 
 unsupportedStrictEqualityConstraintProgram :: TypedProgram
 unsupportedStrictEqualityConstraintProgram =
@@ -6910,7 +6910,7 @@ unsupportedStrictEqualityConstraintProgram =
         owner
         (case owner of TypedBinderId (_, _, name) -> name)
         span1
-        (fixtureScheme owner [] [] [TypedStrictEqualityPrimitiveConstraint target] TypedBoolType TypedBoolRecipe)
+        (fixtureScheme owner [] [] [TypedStrictEqualityPrimitiveConstraint target] SemanticBool TypedBoolRecipe)
     statements =
       [ TypedDataStatement dataDeclaration,
         constrained functionOwner boolToBoolType,
@@ -6952,7 +6952,7 @@ targetIndependentClassMethodImportProgramWith fixture includeEvidence =
     methodOwner = binder libraryPath [0, 0] methodName
     methodScheme = fixtureClosureScheme methodOwner [] [] [] boolToBoolType boolToBoolRecipe
     declaration = TypedClassDeclaration span1 className [parameter] [TypedMethodSignature methodName span1 methodScheme]
-    localImplId = TypedImplId libraryPath className [TypedBoolType]
+    localImplId = TypedImplId libraryPath className [SemanticBool]
     methodDefinition = fixtureImplMethod libraryPath [1, 0] localImplId "render"
     libraryModule =
       typedModule
@@ -6974,12 +6974,12 @@ targetIndependentClassMethodImportProgramWith fixture includeEvidence =
         TypedCapabilityNamespace
         "Render"
     importedImplId =
-      TypedImplId libraryPath importedClassName [TypedBoolType]
+      TypedImplId libraryPath importedClassName [SemanticBool]
     constraint =
       TypedCapabilityConstraint
         importedClassName
         (Just (Text.intercalate "::" (libraryPath <> ["Render", "render"])))
-        TypedBoolType
+        SemanticBool
     selectedEvidence =
       TypedSelectedEvidence
         ( TypedEvidenceUse
@@ -7002,7 +7002,7 @@ targetIndependentClassMethodImportProgramWith fixture includeEvidence =
         boolToBoolRecipe
         [ TypedInstantiation
             methodOwner
-            [TypedTypeArgument parameter TypedBoolType]
+            [TypedTypeArgument parameter SemanticBool]
             Nothing
         ]
         evidenceSelections
@@ -7021,7 +7021,7 @@ fractionalLiteralSuffixProgram =
   expressionFixtureProgram
     "review-fractional-literal-suffix"
     ( TypedLiteralExpr
-        (info (TypedNumericType NumericFloat64) (TypedFloatRecipe 64))
+        (info (SemanticNumeric NumericFloat64) (TypedFloatRecipe 64))
         (TypedFractionalLiteral "1" "5" (Just NumericFloat16))
     )
 
@@ -7066,15 +7066,15 @@ fixturePrelude =
         [ TypedMethodSignature renderName span1 (fixtureScheme renderOwner [] [] [] boolToBoolType boolToBoolRecipe),
           TypedMethodSignature mapName span1 (fixtureScheme mapOwner [] [] [] genericMapType genericMapRecipe)
         ]
-    boolImpl = TypedImplId ["Prelude"] equalClassName [TypedBoolType]
-    charImpl = TypedImplId ["Prelude"] equalClassName [TypedCharType]
-    textRenderImpl = TypedImplId ["Prelude"] renderClassName [TypedTextType]
+    boolImpl = TypedImplId ["Prelude"] equalClassName [SemanticBool]
+    charImpl = TypedImplId ["Prelude"] equalClassName [SemanticChar]
+    textRenderImpl = TypedImplId ["Prelude"] renderClassName [SemanticText]
     genericMapType =
-      TypedFunctionType
-        (TypedFunctionType TypedBoolType (TypedTypeParameterType parameter))
-        ( TypedFunctionType
-            (TypedListType TypedBoolType)
-            (TypedListType (TypedTypeParameterType parameter))
+      SemanticFunction
+        (SemanticFunction SemanticBool (SemanticVariable parameter))
+        ( SemanticFunction
+            (SemanticList SemanticBool)
+            (SemanticList (SemanticVariable parameter))
         )
     genericMapRecipe =
       TypedClosureRecipe
@@ -7128,7 +7128,7 @@ missingPreludeImplId =
   TypedImplId
     ["Prelude"]
     (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
-    [TypedTextType]
+    [SemanticText]
 
 missingPreludeImplProgram :: TypedProgram
 missingPreludeImplProgram =
@@ -7136,9 +7136,9 @@ missingPreludeImplProgram =
   where
     fixture = "review-missing-prelude-impl"
     modulePath = (fixtureModulePath fixture)
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedTextType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticText
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint missingPreludeImplId Nothing)
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
+    expression = TypedLiteralExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     entryModule = typedModule modulePath relativeSource [] [] emptyInterface [expressionStatement 1 expression] boolInfo
 
 evidenceTypeScopeParameter :: TypedTypeParameterId
@@ -7152,16 +7152,16 @@ evidenceTypeScopeProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "generic"
     owner = binder modulePath [0] valueName
-    parameterType = TypedTypeParameterType evidenceTypeScopeParameter
-    scheme = fixtureScheme owner [evidenceTypeScopeParameter] [] [] TypedBoolType TypedBoolRecipe
+    parameterType = SemanticVariable evidenceTypeScopeParameter
+    scheme = fixtureScheme owner [evidenceTypeScopeParameter] [] [] SemanticBool TypedBoolRecipe
     implId =
       TypedImplId
         ["Prelude"]
         (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
-        [TypedBoolType]
+        [SemanticBool]
     constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing parameterType
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
+    expression = TypedLiteralExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     entryModule =
       typedModule
         modulePath
@@ -7176,7 +7176,7 @@ wrongConstructorDataName :: TypedCoreName
 wrongConstructorDataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
 
 wrongConstructorDataType :: TypedType
-wrongConstructorDataType = TypedDataType wrongConstructorDataName []
+wrongConstructorDataType = SemanticData wrongConstructorDataName []
 
 wrongConstructorPatternTypeProgram :: TypedProgram
 wrongConstructorPatternTypeProgram =
@@ -7200,7 +7200,7 @@ foreignOwnedLocalImplId =
   TypedImplId
     ["Other", "Owner"]
     (resolved TypedCurrentModule TypedCapabilityNamespace "Marker")
-    [TypedBoolType]
+    [SemanticBool]
 
 foreignOwnedLocalImplProgram :: TypedProgram
 foreignOwnedLocalImplProgram =
@@ -7232,7 +7232,7 @@ importedTypeCapabilityMetadataProgram = TypedProgram Nothing [libraryModule, ent
         (TypedModuleInterface [] [] [TypedClassInterface declaration] [])
         [TypedClassStatement declaration]
         boolInfo
-    implId = TypedImplId entryPath importedClassName [TypedBoolType, TypedCharType]
+    implId = TypedImplId entryPath importedClassName [SemanticBool, SemanticChar]
     entryModule =
       typedModule
         entryPath
@@ -7269,7 +7269,7 @@ moduleInfoStructuralEqualityProgram =
     modulePath = (fixtureModulePath fixture)
     moduleInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [TypedInstantiation moduleInfoStructuralEqualityUnknownOwner [] Nothing]
         []
@@ -7283,7 +7283,7 @@ typeApplicationResultContractProgram =
     valueName = fixtureValueName "identity"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
       fixtureClosureScheme
@@ -7291,17 +7291,17 @@ typeApplicationResultContractProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameter TypedBoolType] (Just span1)
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameter SemanticBool] (Just span1)
     calleeInfo = TypedNodeInfo boolToBoolType boolToBoolRecipe [instantiation] []
-    applicationInfo = TypedNodeInfo TypedTextType TypedManagedTextRecipe [instantiation] []
+    applicationInfo = TypedNodeInfo SemanticText TypedManagedTextRecipe [instantiation] []
     expression =
       TypedTypeApplicationExpr
         applicationInfo
         (fixtureVariableExpr calleeInfo valueName)
         span1
-        TypedBoolType
+        SemanticBool
     statements =
       [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameter),
         expressionStatement 1 expression
@@ -7317,12 +7317,12 @@ capabilityConstraintVisibilityProgram =
     evidence =
       [ TypedEvidenceParameter
           (TypedEvidenceParameterId 0)
-          (TypedCapabilityConstraint (preludeCapability "Missing") (Just "Missing.m") TypedBoolType),
+          (TypedCapabilityConstraint (preludeCapability "Missing") (Just "Missing.m") SemanticBool),
         TypedEvidenceParameter
           (TypedEvidenceParameterId 1)
-          (TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.missing") TypedBoolType)
+          (TypedCapabilityConstraint (preludeCapability "Equal") (Just "Equal.missing") SemanticBool)
       ]
-    scheme = fixtureScheme owner [] evidence [] TypedBoolType TypedBoolRecipe
+    scheme = fixtureScheme owner [] evidence [] SemanticBool TypedBoolRecipe
 
 unconstrainedNumericParameterProgram :: TypedProgram
 unconstrainedNumericParameterProgram =
@@ -7333,14 +7333,14 @@ unconstrainedNumericParameterProgram =
     valueName = fixtureValueName "numeric"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     parameterInfo = info parameterType parameterRecipe
     argumentName = resolved TypedCurrentModule TypedValueNamespace "operand"
     argumentOwner = binder modulePath [0, 0] argumentName
     argument = fixtureBoundVariableExpr argumentOwner parameterInfo argumentName
     body = TypedBinaryExpr parameterInfo (TypedBuiltinOperator "+") argument argument
-    functionType = TypedFunctionType parameterType parameterType
+    functionType = SemanticFunction parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     expression =
       TypedLambdaExpr
@@ -7362,13 +7362,13 @@ unconstrainedEqualityParameterProgram =
     parameter = TypedTypeParameterId 0
     parameterInfo =
       info
-        (TypedTypeParameterType parameter)
+        (SemanticVariable parameter)
         (TypedRepresentationParameterRecipe parameter)
     argumentName = resolved TypedCurrentModule TypedValueNamespace "operand"
     argumentOwner = binder modulePath [0, 0] argumentName
     argument = fixtureBoundVariableExpr argumentOwner parameterInfo argumentName
     body = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") argument argument
-    functionType = TypedFunctionType (TypedTypeParameterType parameter) TypedBoolType
+    functionType = SemanticFunction (SemanticVariable parameter) SemanticBool
     functionRecipe =
       TypedClosureRecipe
         [TypedRepresentationParameterRecipe parameter]
@@ -7415,7 +7415,7 @@ duplicateOrPatternContractProgram =
     duplicateName = fixtureValueName "duplicate"
     mixedTupleInfo =
       info
-        (TypedTupleType [TypedBoolType, TypedTextType])
+        (SemanticTuple [SemanticBool, SemanticText])
         (TypedManagedProductRecipe [TypedBoolRecipe, TypedManagedTextRecipe])
     variable lexicalPath valueInfo =
       TypedVariablePattern
@@ -7435,7 +7435,7 @@ duplicateOrPatternContractProgram =
     scrutinee =
       TypedTupleExpr
         mixedTupleInfo
-        [trueExpr, literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "value")]
+        [trueExpr, literalExpr SemanticText TypedManagedTextRecipe (TypedTextLiteral "value")]
     expression =
       TypedPatternCaseExpr
         boolInfo
@@ -7460,22 +7460,22 @@ ownerAmbiguousEvidenceProgram =
     firstOwner = fixtureBinder fixture 0 firstName
     secondOwner = ownerAmbiguousSecondOwner
     parameter = TypedTypeParameterId 0
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     scheme owner =
       fixtureScheme
         owner
         [parameter]
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     instantiate owner =
-      TypedInstantiation owner [TypedTypeArgument parameter TypedBoolType] Nothing
+      TypedInstantiation owner [TypedTypeArgument parameter SemanticBool] Nothing
     implId =
       TypedImplId
         ["Prelude"]
         (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
-        [TypedBoolType]
+        [SemanticBool]
     evidenceUse =
       TypedEvidenceUse
         (Just (TypedEvidenceParameterRef firstOwner (TypedEvidenceParameterId 0)))
@@ -7484,7 +7484,7 @@ ownerAmbiguousEvidenceProgram =
         Nothing
     expressionInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [instantiate firstOwner, instantiate secondOwner]
         [TypedSelectedEvidence evidenceUse]
@@ -7569,8 +7569,8 @@ visibleClassImplImportProgram fixture exports selectedNames =
         localClassName
         [parameter]
         [TypedMethodSignature methodName span1 methodScheme]
-    localImplId = TypedImplId libraryPath localClassName [TypedBoolType]
-    importedImplId = TypedImplId libraryPath importedClassName [TypedBoolType]
+    localImplId = TypedImplId libraryPath localClassName [SemanticBool]
+    importedImplId = TypedImplId libraryPath importedClassName [SemanticBool]
     libraryModule =
       typedModule
         libraryPath
@@ -7592,13 +7592,13 @@ visibleClassImplImportProgram fixture exports selectedNames =
             )
         ]
         boolInfo
-    constraint = TypedCapabilityConstraint importedClassName Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint importedClassName Nothing SemanticBool
     evidence =
       TypedSelectedEvidence
         (TypedEvidenceUse Nothing constraint importedImplId Nothing)
     expression =
       TypedLiteralExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [] [evidence])
         (TypedBooleanLiteral True)
     entryModule =
       typedModule
@@ -7624,17 +7624,17 @@ integralLiteralRangeProgram =
         []
         [ TypedNumericPrimitiveConstraint
             (TypedIntegralLiteralNumericConstraint "0" "300")
-            (TypedNumericType NumericUInt8)
+            (SemanticNumeric NumericUInt8)
         ]
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
 
 nestedStrictEqualityOperandType :: TypedType
 nestedStrictEqualityOperandType =
-  TypedListType
-    ( TypedTupleType
-        [ TypedTypeParameterType (TypedTypeParameterId 0),
-          TypedBoolType
+  SemanticList
+    ( SemanticTuple
+        [ SemanticVariable (TypedTypeParameterId 0),
+          SemanticBool
         ]
     )
 
@@ -7647,8 +7647,8 @@ nestedStrictEqualityConstraintProgram =
     valueName = fixtureValueName "compare"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
-    constrainedType = TypedTupleType [parameterType, TypedBoolType]
+    parameterType = SemanticVariable parameter
+    constrainedType = SemanticTuple [parameterType, SemanticBool]
     operandType = nestedStrictEqualityOperandType
     operandRecipe =
       TypedManagedListRecipe
@@ -7658,7 +7658,7 @@ nestedStrictEqualityConstraintProgram =
     argumentBinder = binder modulePath [0, 0] argumentName
     argument = fixtureBoundVariableExpr argumentBinder operandInfo argumentName
     body = TypedBinaryExpr boolInfo (TypedBuiltinOperator "==") argument argument
-    lambdaType = TypedFunctionType operandType TypedBoolType
+    lambdaType = SemanticFunction operandType SemanticBool
     lambdaRecipe = TypedClosureRecipe [operandRecipe] TypedBoolRecipe
     expression = TypedLambdaExpr (info lambdaType lambdaRecipe) argumentBinder argumentName body
     scheme =
@@ -7676,18 +7676,18 @@ qualifiedMethodKeyProgram fixture methodKey =
   withFixturePrelude (expressionFixtureProgram fixture expression)
   where
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just methodKey) TypedBoolType
-    implId = TypedImplId ["Prelude"] capabilityName [TypedBoolType]
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") (Just methodKey) SemanticBool
+    implId = TypedImplId ["Prelude"] capabilityName [SemanticBool]
     methodId = TypedMethodId implId "equal"
     evidenceUse = TypedEvidenceUse Nothing constraint implId (Just methodId)
     expression
       | methodKey == "Equal::equal" =
           fixtureVariableExpr
-            (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+            (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
             (TypedBuiltinName "Equal::equal")
       | otherwise =
           TypedLiteralExpr
-            (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
+            (TypedNodeInfo SemanticBool TypedBoolRecipe [] [TypedSelectedEvidence evidenceUse])
             (TypedBooleanLiteral True)
 
 canonicalQualifiedMethodKeyProgram :: TypedProgram
@@ -7715,7 +7715,7 @@ missingInterfaceMetadataProgram =
     libraryPath = (fixtureLibraryPath "MissingMetadata")
     valueName = resolved TypedCurrentModule TypedValueNamespace "boxed"
     valueBinder = binder libraryPath [0] valueName
-    dataType = TypedDataType missingInterfaceMetadataDataName []
+    dataType = SemanticData missingInterfaceMetadataDataName []
     dataRecipe = TypedManagedVariantRecipe missingInterfaceMetadataDataName []
     constructorName = resolved TypedCurrentModule TypedConstructorNamespace "Box"
     valueScheme = fixtureScheme valueBinder [] [] [] dataType dataRecipe
@@ -7763,14 +7763,14 @@ constrainedMonomorphicUseProgram =
     fixture = "review-constrained-monomorphic-use"
     modulePath = (fixtureModulePath fixture)
     valueName = fixtureValueName "same"
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     scheme =
       fixtureScheme
         constrainedMonomorphicOwner
         []
         [TypedEvidenceParameter (TypedEvidenceParameterId 0) constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     expression = fixtureBoundVariableExpr constrainedMonomorphicOwner boolInfo valueName
     statements =
@@ -7795,7 +7795,7 @@ unrelatedKnownInstantiationProgram =
     instantiation = TypedInstantiation unrelatedKnownInstantiationOwner [] Nothing
     expression =
       TypedLiteralExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] [])
         (TypedBooleanLiteral True)
     statements =
       [ TypedLetStatement unrelatedKnownInstantiationOwner valueName span1 (monoScheme unrelatedKnownInstantiationOwner) trueExpr,
@@ -7818,9 +7818,9 @@ explicitHeadParameterProgram =
     valueName = fixtureValueName "choose"
     firstParameter = TypedTypeParameterId 0
     secondParameter = TypedTypeParameterId 1
-    parameterType = TypedTypeParameterType firstParameter
+    parameterType = SemanticVariable firstParameter
     parameterRecipe = TypedRepresentationParameterRecipe firstParameter
-    functionType = TypedFunctionType parameterType parameterType
+    functionType = SemanticFunction parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     scheme =
       fixtureClosureScheme
@@ -7833,13 +7833,13 @@ explicitHeadParameterProgram =
     instantiation =
       TypedInstantiation
         explicitHeadParameterOwner
-        [ TypedTypeArgument firstParameter TypedTextType,
-          TypedTypeArgument secondParameter TypedBoolType
+        [ TypedTypeArgument firstParameter SemanticText,
+          TypedTypeArgument secondParameter SemanticBool
         ]
         (Just span1)
     instantiatedInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedTextType TypedTextType)
+        (SemanticFunction SemanticText SemanticText)
         (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
         [instantiation]
         []
@@ -7848,7 +7848,7 @@ explicitHeadParameterProgram =
         instantiatedInfo
         (fixtureVariableExpr instantiatedInfo valueName)
         span1
-        TypedBoolType
+        SemanticBool
     statements =
       [ TypedLetStatement
           explicitHeadParameterOwner
@@ -7886,7 +7886,7 @@ classMethodSchemeShapeProgram =
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Marker"
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     method name scheme =
       TypedMethodSignature
@@ -7940,7 +7940,7 @@ duplicateImplDeclarationId =
   TypedImplId
     (fixtureModulePath "review-duplicate-impl-declaration")
     (resolved TypedCurrentModule TypedCapabilityNamespace "Marker")
-    [TypedBoolType]
+    [SemanticBool]
 
 duplicateImplDeclarationProgram :: TypedProgram
 duplicateImplDeclarationProgram =
@@ -7980,7 +7980,7 @@ nonBindingTypeApplicationProgram =
     valueName = fixtureValueName "identity"
     owner = fixtureBinder fixture 0 valueName
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     scheme =
       fixtureScheme
@@ -7988,12 +7988,12 @@ nonBindingTypeApplicationProgram =
         [parameter]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
     instantiation =
       TypedInstantiation
         owner
-        [TypedTypeArgument parameter TypedBoolType]
+        [TypedTypeArgument parameter SemanticBool]
         (Just span1)
     calleeInfo =
       TypedNodeInfo
@@ -8003,7 +8003,7 @@ nonBindingTypeApplicationProgram =
         []
     resultInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [instantiation]
         []
@@ -8017,7 +8017,7 @@ nonBindingTypeApplicationProgram =
         resultInfo
         applied
         span1
-        TypedBoolType
+        SemanticBool
     statements =
       [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameter),
         expressionStatement 1 expression
@@ -8034,9 +8034,9 @@ mismatchedResolvedOperatorProgram =
         (TypedOperatorBinding "$operator:%7E")
     owner = binder modulePath [0] operatorName
     operatorType =
-      TypedFunctionType
-        TypedBoolType
-        (TypedFunctionType TypedBoolType TypedBoolType)
+      SemanticFunction
+        SemanticBool
+        (SemanticFunction SemanticBool SemanticBool)
     operatorRecipe =
       TypedClosureRecipe
         [TypedBoolRecipe, TypedBoolRecipe]
@@ -8072,7 +8072,7 @@ dataInterfaceDependencyProgram =
     boxConstructorName =
       resolved TypedCurrentModule TypedConstructorNamespace "Box"
     hiddenType =
-      TypedDataType dataInterfaceDependencyHiddenName []
+      SemanticData dataInterfaceDependencyHiddenName []
     hiddenDeclaration =
       dataDeclarationWithNullaryConstructor
         libraryPath
@@ -8122,9 +8122,9 @@ classMethodInterfaceDependencyProgram =
     methodName =
       resolved TypedCurrentModule TypedValueNamespace "render"
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     boxType =
-      TypedDataType classMethodInterfaceDependencyDataName []
+      SemanticData classMethodInterfaceDependencyDataName []
     boxRecipe =
       TypedManagedVariantRecipe
         classMethodInterfaceDependencyDataName
@@ -8135,7 +8135,7 @@ classMethodInterfaceDependencyProgram =
         []
         []
         []
-        (TypedFunctionType boxType parameterType)
+        (SemanticFunction boxType parameterType)
         ( TypedClosureRecipe
             [boxRecipe]
             (TypedRepresentationParameterRecipe parameter)
@@ -8165,7 +8165,7 @@ instantiatedPrimitiveConstraintProgram =
     fixture = "review-instantiated-primitive-constraints"
     modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     numericName = fixtureValueName "numeric"
     numericOwner = binder modulePath [0] numericName
     equalityName = fixtureValueName "equality"
@@ -8176,12 +8176,12 @@ instantiatedPrimitiveConstraintProgram =
         [parameter]
         []
         [primitiveConstraint]
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     instantiatedUse owner name typeArgument =
       fixtureVariableExpr
         ( TypedNodeInfo
-            TypedBoolType
+            SemanticBool
             TypedBoolRecipe
             [TypedInstantiation owner [TypedTypeArgument parameter typeArgument] Nothing]
             []
@@ -8200,7 +8200,7 @@ instantiatedPrimitiveConstraintProgram =
           span1
           (constrainedScheme equalityOwner (TypedStrictEqualityPrimitiveConstraint parameterType))
           trueExpr,
-        expressionStatement 2 (instantiatedUse numericOwner numericName TypedBoolType),
+        expressionStatement 2 (instantiatedUse numericOwner numericName SemanticBool),
         expressionStatement 3 (instantiatedUse equalityOwner equalityName boolToBoolType)
       ]
 
@@ -8222,16 +8222,16 @@ typeApplicationExtraOwnerProgram =
     functionOwner = binder modulePath [0] functionName
     otherName = fixtureValueName "other"
     scheme owner =
-      fixtureScheme owner [parameter] [] [] TypedBoolType TypedBoolRecipe
+      fixtureScheme owner [parameter] [] [] SemanticBool TypedBoolRecipe
     instantiate owner maybeSpan =
-      TypedInstantiation owner [TypedTypeArgument parameter TypedBoolType] maybeSpan
+      TypedInstantiation owner [TypedTypeArgument parameter SemanticBool] maybeSpan
     functionInstantiation = instantiate functionOwner (Just span1)
     otherInstantiation = instantiate typeApplicationExtraOwner Nothing
     functionInfo =
-      TypedNodeInfo TypedBoolType TypedBoolRecipe [functionInstantiation] []
+      TypedNodeInfo SemanticBool TypedBoolRecipe [functionInstantiation] []
     applicationInfo =
       TypedNodeInfo
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         [functionInstantiation, otherInstantiation]
         []
@@ -8240,7 +8240,7 @@ typeApplicationExtraOwnerProgram =
         applicationInfo
         (fixtureVariableExpr functionInfo functionName)
         span1
-        TypedBoolType
+        SemanticBool
     statements =
       [ TypedLetStatement functionOwner functionName span1 (scheme functionOwner) trueExpr,
         TypedLetStatement typeApplicationExtraOwner otherName span1 (scheme typeApplicationExtraOwner) trueExpr,
@@ -8266,15 +8266,15 @@ constrainedResolvedOperatorProgram =
     fixture = "review-constrained-resolved-operator"
     modulePath = (fixtureModulePath fixture)
     operatorType =
-      TypedFunctionType
-        TypedBoolType
-        (TypedFunctionType TypedBoolType TypedBoolType)
+      SemanticFunction
+        SemanticBool
+        (SemanticFunction SemanticBool SemanticBool)
     operatorRecipe =
       TypedClosureRecipe
         [TypedBoolRecipe, TypedBoolRecipe]
         TypedBoolRecipe
     operatorInfo = info operatorType operatorRecipe
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     scheme =
       fixtureScheme
         constrainedResolvedOperatorOwner
@@ -8445,7 +8445,7 @@ concreteIntegerBoundsProgram =
     fixture = "review-concrete-integer-bounds"
     integerInfo =
       info
-        (TypedNumericType NumericUInt8)
+        (SemanticNumeric NumericUInt8)
         (TypedUnsignedIntegerRecipe 8)
     integerExpression value =
       TypedLiteralExpr integerInfo (TypedIntegerLiteral value)
@@ -8469,7 +8469,7 @@ incompleteImplProgram =
         []
         []
         []
-        (TypedFunctionType (TypedTypeParameterType parameter) TypedTextType)
+        (SemanticFunction (SemanticVariable parameter) SemanticText)
         ( TypedClosureRecipe
             [TypedRepresentationParameterRecipe parameter]
             TypedManagedTextRecipe
@@ -8483,7 +8483,7 @@ incompleteImplProgram =
           TypedMethodSignature mapName span1 (methodScheme (binder modulePath [0, 1] mapName))
         ]
     implId =
-      TypedImplId modulePath capabilityName [TypedBoolType]
+      TypedImplId modulePath capabilityName [SemanticBool]
     statements =
       [ TypedClassStatement classDeclaration,
         TypedImplStatement (TypedImplDeclaration span1 implId []),
@@ -8511,7 +8511,7 @@ duplicateInstantiationProgram =
         [parameter]
         []
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     instantiate typeValue =
       TypedInstantiation
@@ -8521,9 +8521,9 @@ duplicateInstantiationProgram =
     expression =
       fixtureVariableExpr
         ( TypedNodeInfo
-            TypedBoolType
+            SemanticBool
             TypedBoolRecipe
-            [instantiate TypedBoolType, instantiate TypedTextType]
+            [instantiate SemanticBool, instantiate SemanticText]
             []
         )
         valueName
@@ -8562,7 +8562,7 @@ fractionalLiteralBoundsProgram =
       "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"
     floatInfo numericType width =
       info
-        (TypedNumericType numericType)
+        (SemanticNumeric numericType)
         (TypedFloatRecipe width)
     fractionalExpression numericType width whole fractional =
       TypedLiteralExpr
@@ -8656,7 +8656,7 @@ selectedClassDataDependencyProgram =
     methodName =
       resolved TypedCurrentModule TypedValueNamespace "roundTrip"
     classParameter = TypedTypeParameterId 0
-    localBoxType = TypedDataType dataName []
+    localBoxType = SemanticData dataName []
     localBoxRecipe = TypedManagedVariantRecipe dataName []
     methodOwner = binder libraryPath [1, 0] methodName
     methodScheme =
@@ -8665,7 +8665,7 @@ selectedClassDataDependencyProgram =
         []
         []
         []
-        (TypedFunctionType localBoxType localBoxType)
+        (SemanticFunction localBoxType localBoxType)
         (TypedClosureRecipe [localBoxRecipe] localBoxRecipe)
     classDeclaration =
       TypedClassDeclaration
@@ -8710,10 +8710,10 @@ selectedClassDataDependencyProgram =
         []
         [ TypedEvidenceParameter
             (TypedEvidenceParameterId 0)
-            (TypedCapabilityConstraint importedCapabilityName Nothing TypedBoolType)
+            (TypedCapabilityConstraint importedCapabilityName Nothing SemanticBool)
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     facadeModule =
       typedModule
@@ -8734,12 +8734,12 @@ selectedClassDataDependencyProgram =
         (TypedImportedModule libraryPath)
         TypedTypeNamespace
         "Box"
-    importedBoxType = TypedDataType importedDataName []
+    importedBoxType = SemanticData importedDataName []
     importedBoxRecipe = TypedManagedVariantRecipe importedDataName []
-    methodType = TypedFunctionType importedBoxType importedBoxType
+    methodType = SemanticFunction importedBoxType importedBoxType
     methodRecipe = TypedClosureRecipe [importedBoxRecipe] importedBoxRecipe
     methodInfo = info methodType methodRecipe
-    implId = TypedImplId entryPath importedCapabilityName [TypedBoolType]
+    implId = TypedImplId entryPath importedCapabilityName [SemanticBool]
     localMethodName =
       resolved TypedCurrentModule TypedValueNamespace "roundTrip"
     methodBinder = binder entryPath [0, 0] localMethodName
@@ -8783,9 +8783,9 @@ selectedValueDataMetadataProgram = TypedProgram Nothing [libraryModule, entryMod
     importedValueName = resolved (TypedImportedModule libraryPath) TypedValueNamespace "boxed"
     localConstructorName = resolved TypedCurrentModule TypedConstructorNamespace "Box"
     valueBinder = binder libraryPath [0] localValueName
-    dataType = TypedDataType localDataName []
+    dataType = SemanticData localDataName []
     dataRecipe = TypedManagedVariantRecipe localDataName []
-    importedType = TypedDataType importedDataName []
+    importedType = SemanticData importedDataName []
     importedRecipe = TypedManagedVariantRecipe importedDataName []
     valueScheme = fixtureScheme valueBinder [] [] [] dataType dataRecipe
     dataDeclaration =
@@ -8826,7 +8826,7 @@ selectiveImportLeakedImpl =
   TypedImplId
     (fixtureLibraryPath "PrivateImpl")
     (resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal")
-    [TypedBoolType]
+    [SemanticBool]
 
 selectiveImportImplLeakProgram :: TypedProgram
 selectiveImportImplLeakProgram = TypedProgram (Just fixturePrelude) [libraryModule, entryModule] entryPath
@@ -8859,9 +8859,9 @@ selectiveImportImplLeakProgram = TypedProgram (Just fixturePrelude) [libraryModu
             )
         ]
         boolInfo
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint selectiveImportLeakedImpl Nothing)
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
+    expression = TypedLiteralExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     entryModule =
       typedModule
         entryPath
@@ -8881,11 +8881,11 @@ selectedEvidenceMethodExistenceProgram =
     parameter = TypedTypeParameterId 0
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
     capability = TypedClassDeclaration span1 capabilityName [parameter] []
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
-    constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") TypedBoolType
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
+    constraint = TypedCapabilityConstraint capabilityName (Just "Equal.equal") SemanticBool
     methodId = TypedMethodId implId "equal"
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId (Just methodId))
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
+    expression = TypedLiteralExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     statements =
       [ TypedClassStatement capability,
         TypedImplStatement (TypedImplDeclaration span1 implId []),
@@ -8902,7 +8902,7 @@ duplicateImplMethodProgram =
     fixture = "review-duplicate-impl-method"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     methodId = TypedMethodId implId "equal"
     method lexicalIndex =
       TypedMethodDefinition
@@ -8927,7 +8927,7 @@ nestedOuterTypeScopeProgram =
     fixture = "review-nested-outer-type-scope"
     modulePath = (fixtureModulePath fixture)
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     parameterRecipe = TypedRepresentationParameterRecipe parameter
     parameterInfo = info parameterType parameterRecipe
     outerName = resolved TypedCurrentModule TypedValueNamespace "outer"
@@ -8947,7 +8947,7 @@ nestedOuterTypeScopeProgram =
         argumentUse
     localUse = expressionStatement 2 (fixtureBoundVariableExpr localBinder parameterInfo localName)
     block = TypedBlockExpr parameterInfo [localBinding, localUse]
-    functionType = TypedFunctionType parameterType parameterType
+    functionType = SemanticFunction parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     expression =
       TypedLambdaExpr
@@ -8968,7 +8968,7 @@ implMethodValueVisibilityProgram =
     fixture = "review-impl-method-value-visibility"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     method =
       TypedMethodDefinition
         (TypedMethodId implId "equal")
@@ -8992,7 +8992,7 @@ builtinOperatorContractProgram =
   where
     fixture = "review-builtin-operator-contract"
     modulePath = (fixtureModulePath fixture)
-    intInfo = info TypedIntType (TypedSignedIntegerRecipe 64)
+    intInfo = info SemanticInt (TypedSignedIntegerRecipe 64)
     one = TypedLiteralExpr intInfo (TypedIntegerLiteral "1")
     invalidUnknown = TypedOperatorValueExpr boolToBoolInfo (TypedBuiltinOperator "%%")
     invalidResult = TypedBinaryExpr boolInfo (TypedBuiltinOperator "+") one one
@@ -9006,8 +9006,8 @@ ordinaryFunctionCandidateAmbiguityProgram =
     fixture = "review-ordinary-function-candidate-ambiguity"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
-    implId = TypedImplId ["Prelude"] capabilityName [TypedTextType]
-    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.render") TypedTextType
+    implId = TypedImplId ["Prelude"] capabilityName [SemanticText]
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.render") SemanticText
     candidate = TypedEvidenceCandidate implId (Just (TypedMethodId implId "render"))
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     expression =
@@ -9029,8 +9029,8 @@ invalidNumericPrimitiveConstraintProgram =
         valueBinder
         []
         []
-        [TypedNumericPrimitiveConstraint TypedAnyNumericConstraint TypedTextType]
-        TypedBoolType
+        [TypedNumericPrimitiveConstraint TypedAnyNumericConstraint SemanticText]
+        SemanticBool
         TypedBoolRecipe
 
 missingInstantiationDataName :: TypedCoreName
@@ -9045,9 +9045,9 @@ instantiationDataTypeProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "phantom"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
-    scheme = fixtureScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId (TypedDataType missingInstantiationDataName [])] Nothing
-    expression = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    scheme = fixtureScheme owner [parameterId] [] [] SemanticBool TypedBoolRecipe
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId (SemanticData missingInstantiationDataName [])] Nothing
+    expression = fixtureVariableExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] []) valueName
     statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 literalPatternProgram :: TypedProgram
@@ -9143,15 +9143,15 @@ constructorPatternContractProgram =
         [ TypedConstructorDeclaration
             constructorOwner
             someName
-            [TypedTypeParameterType parameterId]
+            [SemanticVariable parameterId]
             [TypedRepresentationParameterRecipe parameterId]
         ]
-    optionInfo = info (TypedDataType optionName [TypedBoolType]) (TypedManagedVariantRecipe optionName [TypedBoolType])
+    optionInfo = info (SemanticData optionName [SemanticBool]) (TypedManagedVariantRecipe optionName [SemanticBool])
     constructorInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType (TypedDataType optionName [TypedBoolType]))
-        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [TypedBoolType]))
-        [TypedInstantiation constructorOwner [TypedTypeArgument parameterId TypedBoolType] Nothing]
+        (SemanticFunction SemanticBool (SemanticData optionName [SemanticBool]))
+        (TypedClosureRecipe [TypedBoolRecipe] (TypedManagedVariantRecipe optionName [SemanticBool]))
+        [TypedInstantiation constructorOwner [TypedTypeArgument parameterId SemanticBool] Nothing]
         []
     scrutinee = TypedApplyExpr optionInfo (fixtureVariableExpr constructorInfo someName) trueExpr
     expression =
@@ -9184,7 +9184,7 @@ explicitTypeApplicationContractProgram =
     modulePath = (fixtureModulePath fixture)
     valueName = resolved TypedCurrentModule TypedValueNamespace "item"
     scheme = monoScheme explicitTypeApplicationOwner
-    expression = TypedTypeApplicationExpr boolInfo (fixtureBoundVariableExpr explicitTypeApplicationOwner boolInfo valueName) span1 TypedBoolType
+    expression = TypedTypeApplicationExpr boolInfo (fixtureBoundVariableExpr explicitTypeApplicationOwner boolInfo valueName) span1 SemanticBool
     statements = [TypedLetStatement explicitTypeApplicationOwner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 variableSchemeContractProgram :: TypedProgram
@@ -9228,9 +9228,9 @@ candidateConstraintProgram =
     modulePath = (fixtureModulePath fixture)
     renderName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Render"
     equalName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    renderImpl = TypedImplId ["Prelude"] renderName [TypedTextType]
-    equalImpl = TypedImplId ["Prelude"] equalName [TypedBoolType]
-    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") TypedTextType
+    renderImpl = TypedImplId ["Prelude"] renderName [SemanticText]
+    equalImpl = TypedImplId ["Prelude"] equalName [SemanticBool]
+    constraint = TypedCapabilityConstraint (preludeCapability "Render") (Just "Render.map") SemanticText
     equalCandidate = TypedEvidenceCandidate equalImpl (Just (TypedMethodId equalImpl "equal"))
     wrongMethodCandidate = TypedEvidenceCandidate renderImpl (Just (TypedMethodId renderImpl "render"))
     candidateExpression candidate =
@@ -9288,9 +9288,9 @@ blockLocalGeneralizedSchemeProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "local"
     owner = binder modulePath [0, 0] valueName
     parameterId = TypedTypeParameterId 0
-    scheme = fixtureScheme owner [parameterId] [] [] TypedBoolType TypedBoolRecipe
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
-    use = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    scheme = fixtureScheme owner [parameterId] [] [] SemanticBool TypedBoolRecipe
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId SemanticBool] Nothing
+    use = fixtureVariableExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] []) valueName
     block = TypedBlockExpr boolInfo [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 use]
 
 blockLocalMonomorphicSchemeProgram :: TypedProgram
@@ -9312,7 +9312,7 @@ implMethodNameProgram =
     fixture = "review-impl-method-name"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     publishedName = resolved TypedCurrentModule TypedValueNamespace "render"
     methodBinder = binder modulePath [0, 0] publishedName
     method = TypedMethodDefinition (TypedMethodId implId "equal") methodBinder publishedName span1 trueExpr
@@ -9326,7 +9326,7 @@ blockResultProgram :: TypedProgram
 blockResultProgram =
   expressionFixtureProgram
     "review-block-result"
-    (TypedBlockExpr boolInfo [expressionStatement 2 (literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text"))])
+    (TypedBlockExpr boolInfo [expressionStatement 2 (literalExpr SemanticText TypedManagedTextRecipe (TypedTextLiteral "text"))])
 
 nestedCasePatternPathProgram :: TypedProgram
 nestedCasePatternPathProgram =
@@ -9347,12 +9347,12 @@ operatorSchemeProgram =
     modulePath = (fixtureModulePath fixture)
     operatorName = TypedGeneratedName (TypedOperatorBinding "$operator:%7E")
     owner = binder modulePath [0] operatorName
-    operatorType = TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType)
+    operatorType = SemanticFunction SemanticBool (SemanticFunction SemanticBool SemanticBool)
     operatorRecipe = TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe
     scheme = fixtureScheme owner [] [] [] operatorType operatorRecipe
     operator = TypedResolvedOperator operatorName "~"
-    textExpr = literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "text")
-    textToTextInfo = info (TypedFunctionType TypedTextType TypedTextType) (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
+    textExpr = literalExpr SemanticText TypedManagedTextRecipe (TypedTextLiteral "text")
+    textToTextInfo = info (SemanticFunction SemanticText SemanticText) (TypedClosureRecipe [TypedManagedTextRecipe] TypedManagedTextRecipe)
     statements =
       [ TypedLetStatement owner operatorName span1 scheme (boolBinaryFunctionExpression modulePath [0]),
         expressionStatement 2 (TypedBinaryExpr textInfo operator textExpr textExpr),
@@ -9362,14 +9362,14 @@ operatorSchemeProgram =
 
 operatorSchemeFailures :: [TypedCoreValidationFailure]
 operatorSchemeFailures =
-  [ operatorFailure 1 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
-    operatorFailure 1 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
-    operatorFailure 1 TypedApplicationResultMismatch (TypedTypeDetail TypedBoolType TypedTextType),
-    operatorFailure 2 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
-    operatorFailure 2 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType)),
+  [ operatorFailure 1 TypedApplicationArgumentMismatch (TypedTypeDetail SemanticBool SemanticText),
+    operatorFailure 1 TypedApplicationArgumentMismatch (TypedTypeDetail SemanticBool SemanticText),
+    operatorFailure 1 TypedApplicationResultMismatch (TypedTypeDetail SemanticBool SemanticText),
+    operatorFailure 2 TypedApplicationArgumentMismatch (TypedTypeDetail SemanticBool SemanticText),
+    operatorFailure 2 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (SemanticFunction SemanticText SemanticText)),
     operatorFailure 2 TypedCallableShapeMismatch (TypedBinderDetail owner),
-    operatorFailure 3 TypedApplicationArgumentMismatch (TypedTypeDetail TypedBoolType TypedTextType),
-    operatorFailure 3 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (TypedFunctionType TypedTextType TypedTextType)),
+    operatorFailure 3 TypedApplicationArgumentMismatch (TypedTypeDetail SemanticBool SemanticText),
+    operatorFailure 3 TypedApplicationResultMismatch (TypedTypeDetail boolToBoolType (SemanticFunction SemanticText SemanticText)),
     operatorFailure 3 TypedCallableShapeMismatch (TypedBinderDetail owner)
   ]
   where
@@ -9418,9 +9418,9 @@ classParameterScopeProgram =
     methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
     methodBinder = binder modulePath [0, 0] methodName
     parameterId = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
-    methodType = TypedFunctionType parameterType (TypedFunctionType parameterType TypedBoolType)
+    methodType = SemanticFunction parameterType (SemanticFunction parameterType SemanticBool)
     methodRecipe = TypedClosureRecipe [parameterRecipe, parameterRecipe] TypedBoolRecipe
     methodScheme = fixtureScheme methodBinder [] [] [] methodType methodRecipe
     declaration = TypedClassDeclaration span1 capabilityName [parameterId] [TypedMethodSignature methodName span1 methodScheme]
@@ -9435,9 +9435,9 @@ evidenceParameterContractProgram =
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
     evidenceId = TypedEvidenceParameterId 0
-    generalizedConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing (TypedTypeParameterType parameterId)
-    scheme = fixtureScheme owner [parameterId] [TypedEvidenceParameter evidenceId generalizedConstraint] [] TypedBoolType TypedBoolRecipe
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
+    generalizedConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing (SemanticVariable parameterId)
+    scheme = fixtureScheme owner [parameterId] [TypedEvidenceParameter evidenceId generalizedConstraint] [] SemanticBool TypedBoolRecipe
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId SemanticBool] Nothing
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
     selected selectedId constraint targetType =
       TypedSelectedEvidence
@@ -9447,11 +9447,11 @@ evidenceParameterContractProgram =
             (TypedImplId ["Prelude"] capabilityName [targetType])
             Nothing
         )
-    expression selection = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [selection]) valueName
+    expression selection = fixtureVariableExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] [selection]) valueName
     statements =
       [ TypedLetStatement owner valueName span1 scheme trueExpr,
-        expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType) TypedBoolType)),
-        expressionStatement 3 (expression (selected evidenceId (TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType) TypedCharType))
+        expressionStatement 2 (expression (selected (TypedEvidenceParameterId 7) (TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool) SemanticBool)),
+        expressionStatement 3 (expression (selected evidenceId (TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticChar) SemanticChar))
       ]
 
 invalidImplCapabilityName :: TypedCoreName
@@ -9467,8 +9467,8 @@ implCapabilityNamespaceProgram =
     fixture = "review-impl-capability-namespace"
     modulePath = (fixtureModulePath fixture)
     statements =
-      [ TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invalidImplCapabilityName [TypedBoolType]) []),
-        TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invisibleImplCapabilityName [TypedBoolType]) [])
+      [ TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invalidImplCapabilityName [SemanticBool]) []),
+        TypedImplStatement (TypedImplDeclaration span1 (TypedImplId modulePath invisibleImplCapabilityName [SemanticBool]) [])
       ]
 
 missingInstantiatedEvidenceProgram :: TypedProgram
@@ -9482,18 +9482,18 @@ missingInstantiatedEvidenceProgram =
     owner = binder modulePath [0] valueName
     evidenceId = TypedEvidenceParameterId 0
     laterEvidenceId = TypedEvidenceParameterId 1
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
-    laterConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedCharType
-    scheme = fixtureScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId laterConstraint] [] TypedBoolType TypedBoolRecipe
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
+    laterConstraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticChar
+    scheme = fixtureScheme owner [] [TypedEvidenceParameter evidenceId constraint, TypedEvidenceParameter laterEvidenceId laterConstraint] [] SemanticBool TypedBoolRecipe
     instantiation = TypedInstantiation owner [] Nothing
-    expression = fixtureVariableExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []) valueName
+    expression = fixtureVariableExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] []) valueName
     statements = [TypedLetStatement owner valueName span1 scheme trueExpr, expressionStatement 2 expression]
 
 constructorExpressionDataName :: TypedCoreName
 constructorExpressionDataName = resolved TypedCurrentModule TypedTypeNamespace "Flag"
 
 constructorExpressionResultType :: TypedType
-constructorExpressionResultType = TypedDataType constructorExpressionDataName []
+constructorExpressionResultType = SemanticData constructorExpressionDataName []
 
 constructorExpressionContractProgram :: TypedProgram
 constructorExpressionContractProgram =
@@ -9510,7 +9510,7 @@ constructorExpressionContractProgram =
         [ TypedConstructorDeclaration
             (binder modulePath [0, 0] constructorName)
             constructorName
-            [TypedBoolType]
+            [SemanticBool]
             [TypedBoolRecipe]
         ]
     statements = [TypedDataStatement declaration, expressionStatement 2 (fixtureBoundVariableExpr (binder modulePath [0, 0] constructorName) boolInfo constructorName)]
@@ -9524,9 +9524,9 @@ unrelatedTypeApplicationProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "unrelated"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
-    functionType = TypedFunctionType parameterType parameterType
+    functionType = SemanticFunction parameterType parameterType
     functionRecipe = TypedClosureRecipe [parameterRecipe] parameterRecipe
     scheme =
       fixtureScheme
@@ -9536,9 +9536,9 @@ unrelatedTypeApplicationProgram =
         []
         functionType
         functionRecipe
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] (Just span1)
-    applicationInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
-    expression = TypedTypeApplicationExpr applicationInfo trueExpr span1 TypedBoolType
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId SemanticBool] (Just span1)
+    applicationInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] []
+    expression = TypedTypeApplicationExpr applicationInfo trueExpr span1 SemanticBool
     statements =
       [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameterId),
         expressionStatement 2 expression
@@ -9553,7 +9553,7 @@ lexicalBinderContractProgram = expressionFixtureProgram fixture expression
     argumentBinder = binder modulePath [0] argumentName
     lambdaInfo =
       info
-        (TypedFunctionType TypedBoolType TypedTextType)
+        (SemanticFunction SemanticBool SemanticText)
         (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
     expression = TypedLambdaExpr lambdaInfo argumentBinder argumentName (fixtureBoundVariableExpr argumentBinder textInfo argumentName)
 
@@ -9566,7 +9566,7 @@ generalizedVariableContractProgram =
     valueName = resolved TypedCurrentModule TypedValueNamespace "identity"
     owner = binder modulePath [0] valueName
     parameterId = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     scheme =
       fixtureClosureScheme
@@ -9574,10 +9574,10 @@ generalizedVariableContractProgram =
         [parameterId]
         []
         []
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
-    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId TypedBoolType] Nothing
-    badUseInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] []
+    instantiation = TypedInstantiation owner [TypedTypeArgument parameterId SemanticBool] Nothing
+    badUseInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] []
     expression = fixtureBoundVariableExpr owner badUseInfo valueName
     statements =
       [ TypedLetStatement owner valueName span1 scheme (polymorphicIdentityExpression modulePath [0] parameterId),
@@ -9593,7 +9593,7 @@ enclosingInstantiationScopeProgram =
     identityName = resolved TypedCurrentModule TypedValueNamespace "identity"
     identityOwner = binder modulePath [0] identityName
     identityParameter = TypedTypeParameterId 0
-    identityParameterType = TypedTypeParameterType identityParameter
+    identityParameterType = SemanticVariable identityParameter
     identityParameterRecipe = TypedRepresentationParameterRecipe identityParameter
     identityScheme =
       fixtureClosureScheme
@@ -9601,14 +9601,14 @@ enclosingInstantiationScopeProgram =
         [identityParameter]
         []
         []
-        (TypedFunctionType identityParameterType identityParameterType)
+        (SemanticFunction identityParameterType identityParameterType)
         (TypedClosureRecipe [identityParameterRecipe] identityParameterRecipe)
     wrapperName = resolved TypedCurrentModule TypedValueNamespace "wrapper"
     wrapperOwner = binder modulePath [1] wrapperName
     wrapperParameter = TypedTypeParameterId 0
-    wrapperParameterType = TypedTypeParameterType wrapperParameter
+    wrapperParameterType = SemanticVariable wrapperParameter
     wrapperParameterRecipe = TypedRepresentationParameterRecipe wrapperParameter
-    wrapperType = TypedFunctionType wrapperParameterType wrapperParameterType
+    wrapperType = SemanticFunction wrapperParameterType wrapperParameterType
     wrapperRecipe = TypedClosureRecipe [wrapperParameterRecipe] wrapperParameterRecipe
     wrapperScheme = fixtureClosureScheme wrapperOwner [wrapperParameter] [] [] wrapperType wrapperRecipe
     instantiation = TypedInstantiation identityOwner [TypedTypeArgument identityParameter wrapperParameterType] Nothing
@@ -9631,10 +9631,10 @@ implMethodContractProgram =
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedCurrentModule TypedCapabilityNamespace "Equal"
     parameterId = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     methodName = resolved TypedCurrentModule TypedValueNamespace "equal"
-    methodType = TypedFunctionType parameterType (TypedFunctionType parameterType TypedBoolType)
+    methodType = SemanticFunction parameterType (SemanticFunction parameterType SemanticBool)
     methodRecipe = TypedClosureRecipe [parameterRecipe, parameterRecipe] TypedBoolRecipe
     methodOwner = binder modulePath [0, 0] methodName
     methodScheme = fixtureScheme methodOwner [] [] [] methodType methodRecipe
@@ -9644,7 +9644,7 @@ implMethodContractProgram =
         capabilityName
         [parameterId]
         [TypedMethodSignature methodName span1 methodScheme]
-    implId = TypedImplId modulePath capabilityName [TypedBoolType]
+    implId = TypedImplId modulePath capabilityName [SemanticBool]
     implMethod =
       TypedMethodDefinition
         (TypedMethodId implId "equal")
@@ -9707,7 +9707,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
         localDataName
         []
     classDeclaration = TypedClassDeclaration span1 localCapabilityName [parameterId] []
-    localImplId = TypedImplId libraryPath localCapabilityName [TypedDataType localDataName []]
+    localImplId = TypedImplId libraryPath localCapabilityName [SemanticData localDataName []]
     libraryInterface =
       TypedModuleInterface
         []
@@ -9730,7 +9730,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
         boolInfo
     importedDataName = resolved (TypedImportedModule libraryPath) TypedTypeNamespace "Flag"
     importedCapabilityName = resolved (TypedImportedModule libraryPath) TypedCapabilityNamespace "Mark"
-    importedTargetType = TypedDataType importedDataName []
+    importedTargetType = SemanticData importedDataName []
     importedImplId = TypedImplId libraryPath importedCapabilityName [importedTargetType]
     constraint = TypedCapabilityConstraint importedCapabilityName Nothing importedTargetType
     valueName = resolved TypedCurrentModule TypedValueNamespace "usesMark"
@@ -9742,7 +9742,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
         []
         [TypedEvidenceParameter evidenceParameter constraint]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
     instantiation = TypedInstantiation valueOwner [] Nothing
     evidence =
@@ -9755,7 +9755,7 @@ importedImplQualificationProgram = TypedProgram Nothing [libraryModule, entryMod
         )
     expression =
       fixtureVariableExpr
-        (TypedNodeInfo TypedBoolType TypedBoolRecipe [instantiation] [evidence])
+        (TypedNodeInfo SemanticBool TypedBoolRecipe [instantiation] [evidence])
         valueName
     entryModule =
       typedModule
@@ -9776,10 +9776,10 @@ implTargetArityProgram =
     fixture = "review-impl-target-arity"
     modulePath = (fixtureModulePath fixture)
     capabilityName = resolved TypedAmbientPrelude TypedCapabilityNamespace "Equal"
-    implId = TypedImplId modulePath capabilityName [TypedBoolType, TypedCharType]
-    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing TypedBoolType
+    implId = TypedImplId modulePath capabilityName [SemanticBool, SemanticChar]
+    constraint = TypedCapabilityConstraint (preludeCapability "Equal") Nothing SemanticBool
     evidence = TypedSelectedEvidence (TypedEvidenceUse Nothing constraint implId Nothing)
-    expression = TypedLiteralExpr (TypedNodeInfo TypedBoolType TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
+    expression = TypedLiteralExpr (TypedNodeInfo SemanticBool TypedBoolRecipe [] [evidence]) (TypedBooleanLiteral True)
     statements =
       [ TypedImplStatement (TypedImplDeclaration span1 implId []),
         expressionStatement 2 expression
@@ -9887,19 +9887,19 @@ info :: TypedType -> TypedRepresentationRecipe -> TypedNodeInfo
 info typeValue recipe = TypedNodeInfo typeValue recipe [] []
 
 boolInfo :: TypedNodeInfo
-boolInfo = info TypedBoolType TypedBoolRecipe
+boolInfo = info SemanticBool TypedBoolRecipe
 
 textInfo :: TypedNodeInfo
-textInfo = info TypedTextType TypedManagedTextRecipe
+textInfo = info SemanticText TypedManagedTextRecipe
 
 unitInfo :: TypedNodeInfo
-unitInfo = info (TypedTupleType []) TypedUnitRecipe
+unitInfo = info (SemanticTuple []) TypedUnitRecipe
 
 pairInfo :: TypedNodeInfo
-pairInfo = info (TypedTupleType [TypedBoolType, TypedBoolType]) (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
+pairInfo = info (SemanticTuple [SemanticBool, SemanticBool]) (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
 
 boolListInfo :: TypedNodeInfo
-boolListInfo = info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe)
+boolListInfo = info (SemanticList SemanticBool) (TypedManagedListRecipe TypedBoolRecipe)
 
 trueExpr :: TypedExpr
 trueExpr = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
@@ -9978,12 +9978,12 @@ polymorphicIdentityExpression modulePath lexicalPath parameterId =
   where
     argumentName = resolved TypedCurrentModule TypedValueNamespace "argument"
     argumentBinder = binder modulePath (lexicalPath <> [0]) argumentName
-    parameterType = TypedTypeParameterType parameterId
+    parameterType = SemanticVariable parameterId
     parameterRecipe = TypedRepresentationParameterRecipe parameterId
     parameterInfo = info parameterType parameterRecipe
     functionInfo =
       info
-        (TypedFunctionType parameterType parameterType)
+        (SemanticFunction parameterType parameterType)
         (TypedClosureRecipe [parameterRecipe] parameterRecipe)
 
 boolBinaryFunctionExpression :: [Text] -> [Int] -> TypedExpr
@@ -10003,7 +10003,7 @@ boolBinaryFunctionExpression modulePath lexicalPath =
     rightName = resolved TypedCurrentModule TypedValueNamespace "right"
     binaryInfo =
       info
-        (TypedFunctionType TypedBoolType boolToBoolType)
+        (SemanticFunction SemanticBool boolToBoolType)
         (TypedClosureRecipe [TypedBoolRecipe, TypedBoolRecipe] TypedBoolRecipe)
 
 relativeSource :: TypedSourcePath
@@ -10028,7 +10028,7 @@ fixtureModuleSegment :: Text -> Text
 fixtureModuleSegment = Text.replace "-" "_"
 
 monoScheme :: TypedBinderId -> TypedScheme
-monoScheme valueBinder = fixtureScheme valueBinder [] [] [] TypedBoolType TypedBoolRecipe
+monoScheme valueBinder = fixtureScheme valueBinder [] [] [] SemanticBool TypedBoolRecipe
 
 fixtureScheme :: TypedBinderId -> [TypedTypeParameterId] -> [TypedEvidenceParameter] -> [TypedPrimitiveConstraint] -> TypedType -> TypedRepresentationRecipe -> TypedScheme
 fixtureScheme owner parameters evidence primitive typeValue recipe =
@@ -10036,7 +10036,7 @@ fixtureScheme owner parameters evidence primitive typeValue recipe =
   where
     callableShape =
       case typeValue of
-        TypedFunctionType {} -> Just TypedDirectCallableShape
+        SemanticFunction {} -> Just TypedDirectCallableShape
         _ -> Nothing
 
 fixtureClosureScheme :: TypedBinderId -> [TypedTypeParameterId] -> [TypedEvidenceParameter] -> [TypedPrimitiveConstraint] -> TypedType -> TypedRepresentationRecipe -> TypedScheme
@@ -10045,7 +10045,7 @@ fixtureClosureScheme owner parameters evidence primitive typeValue recipe =
   where
     callableShape =
       case typeValue of
-        TypedFunctionType {} -> Just TypedClosureCallableShape
+        SemanticFunction {} -> Just TypedClosureCallableShape
         _ -> Nothing
 
 fixtureVariableExpr :: TypedNodeInfo -> TypedCoreName -> TypedExpr
@@ -10063,7 +10063,7 @@ nodeInstantiationsForFixture :: TypedNodeInfo -> [TypedInstantiation]
 nodeInstantiationsForFixture (TypedNodeInfo _ _ instantiations _) = instantiations
 
 boolToBoolType :: TypedType
-boolToBoolType = TypedFunctionType TypedBoolType TypedBoolType
+boolToBoolType = SemanticFunction SemanticBool SemanticBool
 
 boolToBoolRecipe :: TypedRepresentationRecipe
 boolToBoolRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
@@ -10073,9 +10073,9 @@ boolToBoolInfo = info boolToBoolType boolToBoolRecipe
 
 builtinMapType :: TypedType
 builtinMapType =
-  TypedFunctionType
-    (TypedFunctionType TypedBoolType TypedTextType)
-    (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedTextType))
+  SemanticFunction
+    (SemanticFunction SemanticBool SemanticText)
+    (SemanticFunction (SemanticList SemanticBool) (SemanticList SemanticText))
 
 builtinMapRecipe :: TypedRepresentationRecipe
 builtinMapRecipe =
@@ -10108,18 +10108,18 @@ builtinMapDirectExpression modulePath lexicalPath =
     mapperBinder = binder modulePath (lexicalPath <> [0]) mapperName
     mapperInfo =
       info
-        (TypedFunctionType TypedBoolType TypedTextType)
+        (SemanticFunction SemanticBool SemanticText)
         (TypedClosureRecipe [TypedBoolRecipe] TypedManagedTextRecipe)
     mapperReference = fixtureBoundVariableExpr mapperBinder mapperInfo mapperName
     valuesName = resolved TypedCurrentModule TypedValueNamespace "values"
     valuesBinder = binder modulePath (lexicalPath <> [0, 0]) valuesName
-    valuesInfo = info (TypedListType TypedBoolType) (TypedManagedListRecipe TypedBoolRecipe)
+    valuesInfo = info (SemanticList SemanticBool) (TypedManagedListRecipe TypedBoolRecipe)
     valuesReference = fixtureBoundVariableExpr valuesBinder valuesInfo valuesName
     remainingInfo =
       info
-        (TypedFunctionType (TypedListType TypedBoolType) (TypedListType TypedTextType))
+        (SemanticFunction (SemanticList SemanticBool) (SemanticList SemanticText))
         (TypedClosureRecipe [TypedManagedListRecipe TypedBoolRecipe] (TypedManagedListRecipe TypedManagedTextRecipe))
-    resultInfo = info (TypedListType TypedTextType) (TypedManagedListRecipe TypedManagedTextRecipe)
+    resultInfo = info (SemanticList SemanticText) (TypedManagedListRecipe TypedManagedTextRecipe)
     partialApplication =
       TypedApplyExpr
         remainingInfo
@@ -10169,7 +10169,7 @@ instantiationProgram fixture explicitSpan =
     instantiation =
       TypedInstantiation
         owner
-        [TypedTypeArgument (TypedTypeParameterId 0) TypedBoolType]
+        [TypedTypeArgument (TypedTypeParameterId 0) SemanticBool]
         explicitSpan
     parameterId = TypedTypeParameterId 0
     scheme =
@@ -10178,11 +10178,11 @@ instantiationProgram fixture explicitSpan =
         [parameterId]
         []
         []
-        (TypedFunctionType (TypedTypeParameterType parameterId) (TypedTypeParameterType parameterId))
+        (SemanticFunction (SemanticVariable parameterId) (SemanticVariable parameterId))
         (TypedClosureRecipe [TypedRepresentationParameterRecipe parameterId] (TypedRepresentationParameterRecipe parameterId))
     instantiatedInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType TypedBoolType)
+        (SemanticFunction SemanticBool SemanticBool)
         (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
         [instantiation]
         []
@@ -10194,7 +10194,7 @@ instantiationProgram fixture explicitSpan =
             instantiatedInfo
             (fixtureVariableExpr instantiatedInfo name)
             explicitApplicationSpan
-            TypedBoolType
+            SemanticBool
 
 programWith :: Text -> [TypedStatement] -> TypedModuleInterface -> TypedNodeInfo -> TypedProgram
 programWith fixtureName statements interface moduleInfo =

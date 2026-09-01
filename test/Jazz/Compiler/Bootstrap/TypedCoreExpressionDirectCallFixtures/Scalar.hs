@@ -7,7 +7,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
 
 expectedClosureCallInstruction :: Int -> LoweredRepresentation -> LoweredOperand -> [LoweredOperand] -> LoweredInstruction
@@ -164,7 +164,7 @@ explicitNumericScalarLoweringPrograms =
       Integer ->
       (Text, TypedProgram, LoweredProgram)
     expectedNumericInteger name numericType recipe representation immediateValue value =
-      let info = TypedNodeInfo (TypedNumericType numericType) recipe [] []
+      let info = TypedNodeInfo (SemanticNumeric numericType) recipe [] []
        in ( name,
             expectedScalarProgram info (TypedLiteralExpr info (TypedIntegerLiteral (Text.pack (show value)))),
             expectedLoweredProgram representation [] (loweredImmediate immediateValue)
@@ -179,7 +179,7 @@ explicitNumericScalarLoweringPrograms =
       Text ->
       (Text, TypedProgram, LoweredProgram)
     expectedNumericFloat name numericType recipe representation immediateValue whole fractional =
-      let info = TypedNodeInfo (TypedNumericType numericType) recipe [] []
+      let info = TypedNodeInfo (SemanticNumeric numericType) recipe [] []
        in ( name,
             expectedScalarProgram info (TypedLiteralExpr info (TypedFractionalLiteral whole fractional (Just numericType))),
             expectedLoweredProgram representation [] (loweredImmediate immediateValue)
@@ -194,7 +194,7 @@ fullUInt64ScalarLoweringPrograms =
     fullUInt64Program name source value =
       let info =
             TypedNodeInfo
-              (TypedNumericType NumericUInt64)
+              (SemanticNumeric NumericUInt64)
               (TypedUnsignedIntegerRecipe 64)
               []
               []
@@ -526,7 +526,7 @@ scalarPatternCaseLowererBoundaryPrograms =
   where
     listInfo =
       TypedNodeInfo
-        (TypedListType TypedBoolType)
+        (SemanticList SemanticBool)
         (TypedManagedListRecipe TypedBoolRecipe)
         []
         []
@@ -534,7 +534,7 @@ scalarPatternCaseLowererBoundaryPrograms =
     listPattern = TypedListPattern listInfo []
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedBoolType, TypedBoolType])
+        (SemanticTuple [SemanticBool, SemanticBool])
         (TypedManagedProductRecipe [TypedBoolRecipe, TypedBoolRecipe])
         []
         []
@@ -652,7 +652,7 @@ constructorPatternCaseLowererProgram =
         [TypedConstructorDeclaration constructorBinder constructorName [] []]
     dataInfo =
       TypedNodeInfo
-        (TypedDataType dataName [])
+        (SemanticData dataName [])
         (TypedManagedVariantRecipe dataName [])
         []
         []

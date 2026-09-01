@@ -9,6 +9,7 @@ import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 
 scalarBindingExpectedPrograms :: [(Text, TypedProgram)]
@@ -1139,7 +1140,7 @@ expectedCapturedRecursiveProgram groupNames functions terminalExpression =
   where
     seedName = resolvedName "seed"
     seedBinder = TypedBinderId (modulePath, [0], seedName)
-    seedScheme = TypedScheme seedBinder [] [] [] TypedIntType (TypedSignedIntegerRecipe 64) Nothing
+    seedScheme = TypedScheme seedBinder [] [] [] SemanticInt (TypedSignedIntegerRecipe 64) Nothing
     functionOwners =
       Map.fromList
         [ ( resolvedName (expectedFunctionName function),

@@ -50,8 +50,9 @@ import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn)
 import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
-    ExpressionType (..),
+    ExpressionType,
     IntegerLiteralRange (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     instantiateConstructorFieldType,
@@ -181,7 +182,7 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
               checkedState =
                 case maybeGuardType of
                   Just inferredGuardType ->
-                    case unifyTypes inferredGuardType TBoolType stateAfterGuard of
+                    case unifyTypes inferredGuardType SemanticBool stateAfterGuard of
                       Just unifiedState -> unifiedState
                       Nothing ->
                         addTypeError
@@ -545,7 +546,7 @@ inferListPatternType ::
   (PatternTyping, InferState)
 inferListPatternType env scrutineeType patterns state =
   let (elementType, stateWithElementType) = freshTypeVar state
-      listPatternType = TListType elementType
+      listPatternType = SemanticList elementType
       stateAfterListCheck =
         case unifyTypes scrutineeType listPatternType stateWithElementType of
           Just unifiedState -> unifiedState
@@ -593,7 +594,7 @@ inferConsListPatternType ::
   (PatternTyping, InferState)
 inferConsListPatternType env scrutineeType headPattern tailPattern state =
   let (elementType, stateWithElementType) = freshTypeVar state
-      listPatternType = TListType elementType
+      listPatternType = SemanticList elementType
       stateAfterListCheck =
         case unifyTypes scrutineeType listPatternType stateWithElementType of
           Just unifiedState -> unifiedState
@@ -626,7 +627,7 @@ inferConsListSubpatterns env elementType headPattern tailPattern initialState =
    in if patternSkipsBranchType headTyping
         then (headTyping, rollbackSkippedPatternState initialState stateAfterHeadPattern)
         else
-          let tailListType = TListType (resolveType stateAfterHeadPattern elementType)
+          let tailListType = SemanticList (resolveType stateAfterHeadPattern elementType)
               (tailTyping, stateAfterTailPattern) =
                 inferPatternType env tailListType tailPattern stateAfterHeadPattern
               mergedTyping = tailTyping <> headTyping
@@ -642,7 +643,7 @@ inferTuplePatternType ::
   (PatternTyping, InferState)
 inferTuplePatternType env scrutineeType patterns state =
   case resolveType state scrutineeType of
-    TTupleType elementTypes
+    SemanticTuple elementTypes
       | length elementTypes == length patterns ->
           inferConstructorArgumentPatterns env elementTypes patterns state
       | otherwise ->
@@ -654,7 +655,7 @@ inferTuplePatternType env scrutineeType patterns state =
     resolvedScrutineeType ->
       let (elementTypes, stateWithElementTypes) =
             freshTypeVars (length patterns) state
-          tuplePatternType = TTupleType elementTypes
+          tuplePatternType = SemanticTuple elementTypes
           stateAfterTupleCheck =
             case unifyTypes scrutineeType tuplePatternType stateWithElementTypes of
               Just unifiedState -> unifiedState
@@ -700,10 +701,10 @@ literalExpressionType literal state =
   case literal of
     LInt value -> freshIntegerLiteralType (IntegerLiteralRange value value) state
     LFloat _ _ maybeTargetType ->
-      (maybe TFloatType TNumericType maybeTargetType, state)
-    LBool _ -> (TBoolType, state)
-    LChar _ -> (TCharType, state)
-    LText _ -> (TTextType, state)
+      (maybe SemanticFloat SemanticNumeric maybeTargetType, state)
+    LBool _ -> (SemanticBool, state)
+    LChar _ -> (SemanticChar, state)
+    LText _ -> (SemanticText, state)
 
 diagnosticType :: InferState -> ExpressionType -> ExpressionType
 diagnosticType state = defaultLiteralTypes state . resolveType state
@@ -727,7 +728,7 @@ instantiateConstructorType typeName typeParameters argumentTypes state =
       (constructorArgumentTypesRev, stateAfterArguments) =
         instantiateConstructorArguments typeParameterBindings argumentTypes stateAfterParameters
    in ( reverse constructorArgumentTypesRev,
-        TDataType typeName (reverse resultParameterTypes),
+        SemanticData typeName (reverse resultParameterTypes),
         stateAfterArguments
       )
 

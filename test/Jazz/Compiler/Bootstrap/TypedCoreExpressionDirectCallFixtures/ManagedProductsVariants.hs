@@ -7,7 +7,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
 
 managedProductVariantFixtures :: [(Text, Fixture)]
@@ -1526,7 +1526,7 @@ manifestTupleProgram =
   where
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedIntType, TypedIntType])
+        (SemanticTuple [SemanticInt, SemanticInt])
         (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64])
         []
         []
@@ -1563,7 +1563,7 @@ managedTupleProgram =
   where
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedIntType, TypedTextType])
+        (SemanticTuple [SemanticInt, SemanticText])
         (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe])
         []
         []
@@ -1596,7 +1596,7 @@ managedTupleVariantProgram =
   where
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [typedExpressionType optionIntInfo, TypedIntType])
+        (SemanticTuple [typedExpressionType optionIntInfo, SemanticInt])
         (TypedManagedProductRecipe [typedExpressionRecipe optionIntInfo, TypedSignedIntegerRecipe 64])
         []
         []
@@ -1620,7 +1620,7 @@ managedTextVariantProgram =
         (TypedSpan 2 1)
         name
         []
-        [TypedConstructorDeclaration binder constructor [TypedTextType] [TypedManagedTextRecipe]]
+        [TypedConstructorDeclaration binder constructor [SemanticText] [TypedManagedTextRecipe]]
 
 managedClosureVariantProgram :: TypedProgram
 managedClosureVariantProgram =
@@ -1640,7 +1640,7 @@ managedClosureVariantProgram =
     parameterBinder = TypedBinderId (modulePath, [1, 0, 1], parameterName)
     closureInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType TypedBoolType)
+        (SemanticFunction SemanticBool SemanticBool)
         (TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe)
         []
         []
@@ -1678,7 +1678,7 @@ managedProductVariantProgram =
     boxInfo = variantInfo name []
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedIntType, TypedTextType])
+        (SemanticTuple [SemanticInt, SemanticText])
         (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe])
         []
         []
@@ -1771,12 +1771,12 @@ optionDeclaration =
       TypedConstructorDeclaration
         someBinder
         someName
-        [TypedTypeParameterType optionParameter]
+        [SemanticVariable optionParameter]
         [TypedRepresentationParameterRecipe optionParameter]
     ]
 
 optionIntInfo :: TypedNodeInfo
-optionIntInfo = variantInfo optionName [TypedIntType]
+optionIntInfo = variantInfo optionName [SemanticInt]
 
 reverseChoiceName, reverseLeftName, reverseRightName :: TypedCoreName
 reverseChoiceName = typeName "ReverseChoice"
@@ -1796,8 +1796,8 @@ reverseChoiceDeclaration =
     (TypedSpan 2 1)
     reverseChoiceName
     []
-    [ TypedConstructorDeclaration reverseLeftBinder reverseLeftName [TypedIntType] [TypedSignedIntegerRecipe 64],
-      TypedConstructorDeclaration reverseRightBinder reverseRightName [TypedIntType] [TypedSignedIntegerRecipe 64]
+    [ TypedConstructorDeclaration reverseLeftBinder reverseLeftName [SemanticInt] [TypedSignedIntegerRecipe 64],
+      TypedConstructorDeclaration reverseRightBinder reverseRightName [SemanticInt] [TypedSignedIntegerRecipe 64]
     ]
 
 collectiveChoiceName, collectiveLeftName, collectiveRightName :: TypedCoreName
@@ -1837,7 +1837,7 @@ managedTuplePatternProgram =
   where
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedIntType, TypedIntType])
+        (SemanticTuple [SemanticInt, SemanticInt])
         (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64])
         []
         []
@@ -1997,7 +1997,7 @@ managedMultipleLiteralTuplePatternProgram =
   where
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedIntType, TypedIntType])
+        (SemanticTuple [SemanticInt, SemanticInt])
         (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64])
         []
         []
@@ -2040,7 +2040,7 @@ managedTotalNestedConstructorPatternProgram =
     boxInfo = variantInfo name []
     tupleInfo =
       TypedNodeInfo
-        (TypedTupleType [typedExpressionType boxInfo, TypedIntType])
+        (SemanticTuple [typedExpressionType boxInfo, SemanticInt])
         (TypedManagedProductRecipe [typedExpressionRecipe boxInfo, TypedSignedIntegerRecipe 64])
         []
         []
@@ -2049,7 +2049,7 @@ managedTotalNestedConstructorPatternProgram =
         (TypedSpan 2 1)
         name
         []
-        [TypedConstructorDeclaration binder constructor [TypedTextType] [TypedManagedTextRecipe]]
+        [TypedConstructorDeclaration binder constructor [SemanticText] [TypedManagedTextRecipe]]
     itemName = valueName "item"
     itemBinder = patternBinder [1, 0, 0, 0] itemName
 
@@ -2192,8 +2192,8 @@ managedOrConstructorPatternProgram =
         (TypedSpan 2 1)
         choiceName
         []
-        [ TypedConstructorDeclaration leftBinder leftName [TypedIntType, TypedIntType] [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64],
-          TypedConstructorDeclaration rightBinder rightName [TypedIntType, TypedIntType] [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64]
+        [ TypedConstructorDeclaration leftBinder leftName [SemanticInt, SemanticInt] [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64],
+          TypedConstructorDeclaration rightBinder rightName [SemanticInt, SemanticInt] [TypedSignedIntegerRecipe 64, TypedSignedIntegerRecipe 64]
         ]
     itemName = valueName "item"
     itemBinder = patternBinder [1, 0, 0, 1] itemName
@@ -2279,13 +2279,13 @@ managedTreeProgram =
     treeIntInfo
   where
     parameter = TypedTypeParameterId 0
-    parameterType = TypedTypeParameterType parameter
+    parameterType = SemanticVariable parameter
     treeName = typeName "Tree"
     leafName = constructorName "Leaf"
     branchName = constructorName "Branch"
     leafBinder = constructorBinder 0 leafName
     branchBinder = constructorBinder 1 branchName
-    genericTreeType = TypedDataType treeName [parameterType]
+    genericTreeType = SemanticData treeName [parameterType]
     genericTreeRecipe = TypedManagedVariantRecipe treeName [parameterType]
     treeDeclaration =
       TypedDataDeclaration
@@ -2303,7 +2303,7 @@ managedTreeProgram =
             [genericTreeType, genericTreeType]
             [genericTreeRecipe, genericTreeRecipe]
         ]
-    treeIntInfo = variantInfo treeName [TypedIntType]
+    treeIntInfo = variantInfo treeName [SemanticInt]
     leaf value = constructorCall leafBinder leafName treeIntInfo [intInfo] [intExpr value]
     branchExpression =
       constructorCall
@@ -2367,7 +2367,7 @@ managedPairIdentityProgram =
     parameterBinder = TypedBinderId (modulePath, [1, 0], parameterName)
     identityInfo =
       TypedNodeInfo
-        (TypedFunctionType (typedExpressionType managedPairInfo) (typedExpressionType managedPairInfo))
+        (SemanticFunction (typedExpressionType managedPairInfo) (typedExpressionType managedPairInfo))
         (TypedClosureRecipe [typedExpressionRecipe managedPairInfo] (typedExpressionRecipe managedPairInfo))
         []
         []
@@ -2610,7 +2610,7 @@ managedBoxCaptureProgram =
     ignoredBinder = TypedBinderId (modulePath, [3, 0], ignoredName)
     captureInfo =
       TypedNodeInfo
-        (TypedFunctionType TypedBoolType (typedExpressionType boxInfo))
+        (SemanticFunction SemanticBool (typedExpressionType boxInfo))
         (TypedClosureRecipe [TypedBoolRecipe] (typedExpressionRecipe boxInfo))
         []
         []
@@ -2618,7 +2618,7 @@ managedBoxCaptureProgram =
 managedPairInfo :: TypedNodeInfo
 managedPairInfo =
   TypedNodeInfo
-    (TypedTupleType [TypedIntType, TypedTextType])
+    (SemanticTuple [SemanticInt, SemanticText])
     (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe])
     []
     []
@@ -2633,7 +2633,7 @@ managedPairExpressionWith value textValue =
 pairFunctionInfo :: TypedNodeInfo
 pairFunctionInfo =
   TypedNodeInfo
-    (TypedFunctionType (typedExpressionType managedPairInfo) (typedExpressionType managedPairInfo))
+    (SemanticFunction (typedExpressionType managedPairInfo) (typedExpressionType managedPairInfo))
     (TypedClosureRecipe [typedExpressionRecipe managedPairInfo] (typedExpressionRecipe managedPairInfo))
     []
     []
@@ -2641,7 +2641,7 @@ pairFunctionInfo =
 managedPairBindingInfo :: TypedNodeInfo
 managedPairBindingInfo =
   TypedNodeInfo
-    (TypedTupleType [TypedNumericType NumericInt64, TypedTextType])
+    (SemanticTuple [SemanticNumeric NumericInt64, SemanticText])
     (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe])
     []
     []
@@ -2651,7 +2651,7 @@ managedPairBindingExpression =
   TypedTupleExpr
     managedPairBindingInfo
     [ TypedLiteralExpr
-        (TypedNodeInfo (TypedNumericType NumericInt64) (TypedSignedIntegerRecipe 64) [] [])
+        (TypedNodeInfo (SemanticNumeric NumericInt64) (TypedSignedIntegerRecipe 64) [] [])
         (TypedIntegerLiteral "1"),
       textExpr "two"
     ]
@@ -2708,7 +2708,7 @@ constructorCall owner name resultInfo fieldInfos arguments =
   where
     typeArguments =
       case typedExpressionType resultInfo of
-        TypedDataType _ argumentsValue ->
+        SemanticData _ argumentsValue ->
           zipWith TypedTypeArgument [TypedTypeParameterId index | index <- [0 ..]] argumentsValue
         _ -> []
     instantiation = TypedInstantiation owner typeArguments Nothing
@@ -2721,7 +2721,7 @@ constructorCallWithInstantiations instantiations owner name resultInfo fieldInfo
   where
     constructorInfo =
       TypedNodeInfo
-        (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldInfos)
+        (foldr (SemanticFunction . typedExpressionType) (typedExpressionType resultInfo) fieldInfos)
         (TypedClosureRecipe (map typedExpressionRecipe fieldInfos) (typedExpressionRecipe resultInfo))
         instantiations
         []
@@ -2738,7 +2738,7 @@ constructorCallWithInstantiations instantiations owner name resultInfo fieldInfo
                   [] -> resultInfo
                   _ ->
                     TypedNodeInfo
-                      (foldr (TypedFunctionType . typedExpressionType) (typedExpressionType resultInfo) fieldRest)
+                      (foldr (SemanticFunction . typedExpressionType) (typedExpressionType resultInfo) fieldRest)
                       (TypedClosureRecipe (map typedExpressionRecipe fieldRest) (typedExpressionRecipe resultInfo))
                       []
                       []
@@ -2749,7 +2749,7 @@ constructorCallWithInstantiations instantiations owner name resultInfo fieldInfo
 variantInfo :: TypedCoreName -> [TypedType] -> TypedNodeInfo
 variantInfo name arguments =
   TypedNodeInfo
-    (TypedDataType name arguments)
+    (SemanticData name arguments)
     (TypedManagedVariantRecipe name arguments)
     []
     []
@@ -2889,7 +2889,7 @@ managedLayoutCatalogProgram =
     expression line value = TypedExpressionStatement (TypedSpan line 1) value
     productInfo =
       TypedNodeInfo
-        (TypedTupleType [TypedBoolType, TypedTextType])
+        (SemanticTuple [SemanticBool, SemanticText])
         (TypedManagedProductRecipe [TypedBoolRecipe, TypedManagedTextRecipe])
         []
         []
@@ -2903,7 +2903,7 @@ managedLayoutCatalogProgram =
         (TypedSpan 1 1)
         leftName
         []
-        [TypedConstructorDeclaration leftBinder leftConstructor [TypedBoolType] [TypedBoolRecipe]]
+        [TypedConstructorDeclaration leftBinder leftConstructor [SemanticBool] [TypedBoolRecipe]]
     leftInfo = variantInfo leftName []
 
     rightName = typeName "RightBox"
@@ -2914,7 +2914,7 @@ managedLayoutCatalogProgram =
         (TypedSpan 2 1)
         rightName
         []
-        [TypedConstructorDeclaration rightBinder rightConstructor [TypedBoolType] [TypedBoolRecipe]]
+        [TypedConstructorDeclaration rightBinder rightConstructor [SemanticBool] [TypedBoolRecipe]]
     rightInfo = variantInfo rightName []
 
     catalogParameter = TypedTypeParameterId 0
@@ -2932,19 +2932,19 @@ managedLayoutCatalogProgram =
           TypedConstructorDeclaration
             catalogSomeBinder
             catalogSomeName
-            [TypedTypeParameterType catalogParameter]
+            [SemanticVariable catalogParameter]
             [TypedRepresentationParameterRecipe catalogParameter]
         ]
-    optionBoolInfo = variantInfo catalogOptionName [TypedBoolType]
-    optionTextInfo = variantInfo catalogOptionName [TypedTextType]
+    optionBoolInfo = variantInfo catalogOptionName [SemanticBool]
+    optionTextInfo = variantInfo catalogOptionName [SemanticText]
 
     catalogTreeName = typeName "Tree"
     catalogLeafName = constructorName "Leaf"
     catalogBranchName = constructorName "Branch"
     catalogLeafBinder = catalogConstructorBinder 3 0 catalogLeafName
     catalogBranchBinder = catalogConstructorBinder 3 1 catalogBranchName
-    genericTreeType = TypedDataType catalogTreeName [TypedTypeParameterType catalogParameter]
-    genericTreeRecipe = TypedManagedVariantRecipe catalogTreeName [TypedTypeParameterType catalogParameter]
+    genericTreeType = SemanticData catalogTreeName [SemanticVariable catalogParameter]
+    genericTreeRecipe = TypedManagedVariantRecipe catalogTreeName [SemanticVariable catalogParameter]
     catalogTreeDeclaration =
       TypedDataDeclaration
         (TypedSpan 4 1)
@@ -2953,7 +2953,7 @@ managedLayoutCatalogProgram =
         [ TypedConstructorDeclaration
             catalogLeafBinder
             catalogLeafName
-            [TypedTypeParameterType catalogParameter]
+            [SemanticVariable catalogParameter]
             [TypedRepresentationParameterRecipe catalogParameter],
           TypedConstructorDeclaration
             catalogBranchBinder
@@ -2961,7 +2961,7 @@ managedLayoutCatalogProgram =
             [genericTreeType, genericTreeType]
             [genericTreeRecipe, genericTreeRecipe]
         ]
-    catalogTreeIntInfo = variantInfo catalogTreeName [TypedIntType]
+    catalogTreeIntInfo = variantInfo catalogTreeName [SemanticInt]
 
     evenName = typeName "Even"
     oddName = typeName "Odd"
@@ -2976,7 +2976,7 @@ managedLayoutCatalogProgram =
         (TypedSpan 5 1)
         evenName
         []
-        [ TypedConstructorDeclaration evenBinder evenConstructorName [TypedDataType oddName []] [TypedManagedVariantRecipe oddName []],
+        [ TypedConstructorDeclaration evenBinder evenConstructorName [SemanticData oddName []] [TypedManagedVariantRecipe oddName []],
           TypedConstructorDeclaration zeroBinder zeroName [] []
         ]
     oddDeclaration =
@@ -2984,7 +2984,7 @@ managedLayoutCatalogProgram =
         (TypedSpan 6 1)
         oddName
         []
-        [TypedConstructorDeclaration oddBinder oddConstructorName [TypedDataType evenName []] [TypedManagedVariantRecipe evenName []]]
+        [TypedConstructorDeclaration oddBinder oddConstructorName [SemanticData evenName []] [TypedManagedVariantRecipe evenName []]]
     evenInfo = variantInfo evenName []
 
 catalogConstructorBinder :: Int -> Int -> TypedCoreName -> TypedBinderId

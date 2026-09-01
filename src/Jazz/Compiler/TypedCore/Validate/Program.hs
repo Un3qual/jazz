@@ -6,6 +6,7 @@ module Jazz.Compiler.TypedCore.Validate.Program
   )
 where
 
+import Data.Bifoldable (bifoldMap)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -13,6 +14,7 @@ import Data.Maybe (listToMaybe, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Declarations
 import Jazz.Compiler.TypedCore.Validate.Evidence
@@ -419,7 +421,7 @@ validateModuleResult compareMetadata modulePath statements moduleInfo =
 
 moduleInfoIsNoResultContract :: TypedNodeInfo -> Bool
 moduleInfoIsNoResultContract (TypedNodeInfo typeValue recipe instantiations evidenceSelections) =
-  typeValue == TypedTupleType []
+  typeValue == SemanticTuple []
     && recipe == TypedUnitRecipe
     && null instantiations
     && null evidenceSelections
@@ -512,7 +514,7 @@ generalizeImportedClassMethodScheme className classParameters methodName scheme 
               ( TypedCapabilityConstraint
                   className
                   (Just (classIdentifier <> "::" <> methodIdentifier))
-                  (TypedTypeParameterType targetParameter)
+                  (SemanticVariable targetParameter)
               )
           ]
         _ -> []
@@ -709,16 +711,8 @@ schemeDataTypeKeys (TypedScheme owner _ evidence primitive resultType _ _) =
       ]
 
 typeDataKeys :: [Text] -> TypedType -> [ResolvedNameKey]
-typeDataKeys modulePath typeValue =
-  case typeValue of
-    TypedListType elementType -> typeDataKeys modulePath elementType
-    TypedTupleType elementTypes -> concatMap (typeDataKeys modulePath) elementTypes
-    TypedDataType name arguments ->
-      maybeToList (resolvedNameKey modulePath name)
-        <> concatMap (typeDataKeys modulePath) arguments
-    TypedFunctionType argument result ->
-      typeDataKeys modulePath argument <> typeDataKeys modulePath result
-    _ -> []
+typeDataKeys modulePath =
+  bifoldMap (maybeToList . resolvedNameKey modulePath) (const [])
 
 interfaceNameKeys :: ([Text], Maybe [Text], TypedModule) -> [ResolvedNameKey]
 interfaceNameKeys visibleModule@(modulePath, selectedNames, TypedModule _ _ _ exports (TypedModuleInterface values datas classes _) _ _ _) =
@@ -1048,11 +1042,10 @@ schemeLocalDataDependencies modulePath (TypedScheme _ _ evidence primitive resul
       ]
 
 localDataDependencies :: [Text] -> TypedType -> [TypedCoreName]
-localDataDependencies modulePath typeValue =
-  case typeValue of
-    TypedListType elementType -> localDataDependencies modulePath elementType
-    TypedTupleType elementTypes -> concatMap (localDataDependencies modulePath) elementTypes
-    TypedDataType name arguments ->
+localDataDependencies modulePath =
+  bifoldMap localDataDependency (const [])
+  where
+    localDataDependency name =
       [ name
       | case name of
           TypedResolvedName TypedCurrentModule TypedTypeNamespace _ -> True
@@ -1060,11 +1053,6 @@ localDataDependencies modulePath typeValue =
             modulePath == ["Prelude"]
           _ -> False
       ]
-        <> concatMap (localDataDependencies modulePath) arguments
-    TypedFunctionType argument result ->
-      localDataDependencies modulePath argument
-        <> localDataDependencies modulePath result
-    _ -> []
 
 schemeCapabilityDependencies :: [Text] -> TypedScheme -> [(ResolvedNameKey, TypedCoreName)]
 schemeCapabilityDependencies modulePath (TypedScheme _ _ evidence _ _ _ _) =

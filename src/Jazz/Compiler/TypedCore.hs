@@ -12,7 +12,10 @@ import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SemanticType (..),
+  )
 
 newtype TypedTypeParameterId = TypedTypeParameterId Int
   deriving stock (Eq, Generic, Ord, Show)
@@ -91,20 +94,7 @@ data TypedSpan = TypedSpan Int Int
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data TypedType
-  = TypedIntType
-  | TypedFloatType
-  | TypedNumericType NumericType
-  | TypedBoolType
-  | TypedCharType
-  | TypedTextType
-  | TypedListType TypedType
-  | TypedTupleType [TypedType]
-  | TypedDataType TypedCoreName [TypedType]
-  | TypedFunctionType TypedType TypedType
-  | TypedTypeParameterType TypedTypeParameterId
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+type TypedType = SemanticType TypedCoreName TypedTypeParameterId
 
 data TypedRepresentationRecipe
   = TypedUnitRecipe

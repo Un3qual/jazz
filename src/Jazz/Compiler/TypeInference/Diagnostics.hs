@@ -126,8 +126,9 @@ import Jazz.Compiler.TypeInference.State
     modifyInferenceOutput,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (..),
+  ( ExpressionType,
     NumericConstraint,
+    SemanticType (..),
   )
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
@@ -205,10 +206,10 @@ mkStrictEqualityUnsupportedTypeError operatorSymbol foundType =
 typeContainsFunction :: ExpressionType -> Bool
 typeContainsFunction expressionType =
   case expressionType of
-    TFunctionType {} -> True
-    TListType elementType -> typeContainsFunction elementType
-    TTupleType elementTypes -> any typeContainsFunction elementTypes
-    TDataType _ typeArguments -> any typeContainsFunction typeArguments
+    SemanticFunction {} -> True
+    SemanticList elementType -> typeContainsFunction elementType
+    SemanticTuple elementTypes -> any typeContainsFunction elementTypes
+    SemanticData _ typeArguments -> any typeContainsFunction typeArguments
     _ -> False
 
 mkDuplicateDataTypeDeclarationError :: Text -> SourceSpan -> Diagnostic
@@ -426,23 +427,23 @@ mkUnreachablePatternArmError armIndex =
 renderType :: ExpressionType -> Text
 renderType expressionType =
   case expressionType of
-    TIntType -> "Int"
-    TFloatType -> "Float"
-    TNumericType numericType -> renderNumericTypeName numericType
-    TBoolType -> "Bool"
-    TCharType -> "Char"
-    TTextType -> "Text"
-    TListType elementType -> "[" <> renderType elementType <> "]"
-    TTupleType elementTypes -> "(" <> renderTypes elementTypes <> ")"
-    TDataType typeName [] -> identifierText typeName
-    TDataType typeName typeArguments -> identifierText typeName <> "<" <> renderTypes typeArguments <> ">"
-    TFunctionType inputType outputType -> renderTypeAtom inputType <> " -> " <> renderType outputType
-    TVarType typeVar -> "t" <> tshow typeVar
+    SemanticInt -> "Int"
+    SemanticFloat -> "Float"
+    SemanticNumeric numericType -> renderNumericTypeName numericType
+    SemanticBool -> "Bool"
+    SemanticChar -> "Char"
+    SemanticText -> "Text"
+    SemanticList elementType -> "[" <> renderType elementType <> "]"
+    SemanticTuple elementTypes -> "(" <> renderTypes elementTypes <> ")"
+    SemanticData typeName [] -> identifierText typeName
+    SemanticData typeName typeArguments -> identifierText typeName <> "<" <> renderTypes typeArguments <> ">"
+    SemanticFunction inputType outputType -> renderTypeAtom inputType <> " -> " <> renderType outputType
+    SemanticVariable typeVar -> "t" <> tshow typeVar
 
 renderTypeAtom :: ExpressionType -> Text
 renderTypeAtom expressionType =
   case expressionType of
-    TFunctionType {} -> "(" <> renderType expressionType <> ")"
+    SemanticFunction {} -> "(" <> renderType expressionType <> ")"
     _ -> renderType expressionType
 
 renderSignaturePayload :: SignaturePayload -> Text

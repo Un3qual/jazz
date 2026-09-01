@@ -6,10 +6,11 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
--- | Shared recursive type syntax used from parsing through type inference.
+-- | Shared recursive type syntax used across compiler stages.
 module Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),
     NumericType (..),
+    SemanticType (..),
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
@@ -56,6 +57,56 @@ data NumericType
   | NumericFloat64
   deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+-- | Recursive semantic type shape shared by inference and Typed Core. The
+-- parameters preserve each phase's nominal type identities and variables;
+-- schemes, constraints, evidence, binders, and representation recipes remain
+-- owned by their respective phases.
+data SemanticType typeName variable
+  = SemanticInt
+  | SemanticFloat
+  | SemanticNumeric NumericType
+  | SemanticBool
+  | SemanticChar
+  | SemanticText
+  | SemanticList (SemanticType typeName variable)
+  | SemanticTuple [SemanticType typeName variable]
+  | SemanticData typeName [SemanticType typeName variable]
+  | SemanticFunction
+      (SemanticType typeName variable)
+      (SemanticType typeName variable)
+  | SemanticVariable variable
+  deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
+  deriving anyclass (NFData)
+
+instance Bifunctor SemanticType where
+  bimap = bimapDefault
+
+instance Bifoldable SemanticType where
+  bifoldMap = bifoldMapDefault
+
+instance Bitraversable SemanticType where
+  bitraverse mapTypeName mapVariable semanticType =
+    case semanticType of
+      SemanticInt -> pure SemanticInt
+      SemanticFloat -> pure SemanticFloat
+      SemanticNumeric numericType -> pure (SemanticNumeric numericType)
+      SemanticBool -> pure SemanticBool
+      SemanticChar -> pure SemanticChar
+      SemanticText -> pure SemanticText
+      SemanticList elementType ->
+        SemanticList <$> bitraverse mapTypeName mapVariable elementType
+      SemanticTuple elementTypes ->
+        SemanticTuple <$> traverse (bitraverse mapTypeName mapVariable) elementTypes
+      SemanticData typeName arguments ->
+        SemanticData
+          <$> mapTypeName typeName
+          <*> traverse (bitraverse mapTypeName mapVariable) arguments
+      SemanticFunction argumentType resultType ->
+        SemanticFunction
+          <$> bitraverse mapTypeName mapVariable argumentType
+          <*> bitraverse mapTypeName mapVariable resultType
+      SemanticVariable variable -> SemanticVariable <$> mapVariable variable
 
 -- | Recursive syntax shared by surface and resolved signatures. The first
 -- parameter identifies named types; the second identifies type variables.

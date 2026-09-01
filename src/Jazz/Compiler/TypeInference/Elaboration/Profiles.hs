@@ -22,7 +22,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
   )
-import Jazz.Compiler.TypeInference.Types (ExpressionType (TFunctionType))
+import Jazz.Compiler.TypeInference.Types (SemanticType (..))
 import Jazz.Compiler.TypedCore
   ( TypedBinderId (..),
     TypedCallableShape (..),
@@ -325,7 +325,7 @@ collectScopeCallableUses functions = go
     forwardFunctionNames statements =
       Set.fromList
         [ name
-        | ProvisionalSignature _ name _ (TFunctionType _ _) <- statements
+        | ProvisionalSignature _ name _ (SemanticFunction _ _) <- statements
         ]
 
 shapeFor :: Map.Map Name TypedCallableShape -> Name -> TypedCallableShape

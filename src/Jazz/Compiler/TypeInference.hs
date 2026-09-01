@@ -179,10 +179,11 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding,
-    ExpressionType (..),
+    ExpressionType,
     IntegerLiteralRange (..),
     NumericConstraint (..),
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -702,7 +703,7 @@ inferExprTypeDetailed builtinMode env state expr =
           finalState = checkLiteralType stateAfterLiteral literal
        in (InferredExpr expressionType (ProvisionalLiteralExpression literal <$> expressionType) [], finalState)
     ETuple [] ->
-      (InferredExpr (Just (TTupleType [])) (Just ProvisionalUnitExpression) [], state)
+      (InferredExpr (Just (SemanticTuple [])) (Just ProvisionalUnitExpression) [], state)
     EBinary operatorSymbol leftExpr rightExpr
       | isTypedCoreDirectCallOperator operatorSymbol ->
           let (leftResult, stateAfterLeft) = inferExprTypeDetailed builtinMode env state leftExpr
@@ -772,7 +773,7 @@ inferExprTypeDetailed builtinMode env state expr =
                 resultType <- expressionType
                 condition <-
                   inferredProvisionalExpr
-                    (specializeInferredExpression finalState TBoolType conditionResult)
+                    (specializeInferredExpression finalState SemanticBool conditionResult)
                 thenExpression <-
                   inferredProvisionalExpr
                     (specializeInferredExpression finalState resultType thenResult)
@@ -862,7 +863,7 @@ inferExprTypeDetailed builtinMode env state expr =
           extendedEnv = Map.insert parameterName (PlainTypeBinding parameterType) env
           (bodyResult, stateAfterBody) = inferExprTypeDetailed builtinMode extendedEnv stateAfterParameter bodyExpr
           expressionType =
-            TFunctionType (resolveType stateAfterBody parameterType)
+            SemanticFunction (resolveType stateAfterBody parameterType)
               <$> inferredExpressionType bodyResult
           provisionalExpr = do
             inferredType <- expressionType
@@ -985,21 +986,21 @@ inferExprTypeDetailed builtinMode env state expr =
 
     supportedScalarScrutinee finalState scrutineeType =
       case resolveType finalState scrutineeType of
-        TIntType -> True
+        SemanticInt -> True
         literalType
           | Just literalRange <- integerLiteralRangeFor finalState literalType ->
               integerLiteralRangeFitsNumericType literalRange NumericInt64
-        TFloatType -> True
-        TNumericType {} -> True
-        TBoolType -> True
-        TCharType -> True
-        TTupleType [] -> True
+        SemanticFloat -> True
+        SemanticNumeric {} -> True
+        SemanticBool -> True
+        SemanticChar -> True
+        SemanticTuple [] -> True
         _ -> False
 
     supportedManagedScrutinee finalState scrutineeType =
       case resolveType finalState scrutineeType of
-        TTupleType (_ : _) -> True
-        TDataType {} -> True
+        SemanticTuple (_ : _) -> True
+        SemanticData {} -> True
         _ -> False
 
     armPattern (CaseArm pattern _ _) = pattern
@@ -1064,7 +1065,7 @@ inferExprTypeDetailed builtinMode env state expr =
     provisionalPatternCaseArm finalState resultType (InferredPatternCaseArm pattern maybeGuardResult maybeBodyResult) = do
       guardExpression <-
         traverse
-          (inferredProvisionalExpr . specializeInferredExpression finalState TBoolType)
+          (inferredProvisionalExpr . specializeInferredExpression finalState SemanticBool)
           maybeGuardResult
       bodyResult <- maybeBodyResult
       bodyExpression <-
@@ -1173,7 +1174,7 @@ inferExprTypeDetailed builtinMode env state expr =
             case (expressionType, inferredExpressionType functionResult) of
               (Just _, Just functionType) ->
                 case resolveType finalState functionType of
-                  TFunctionType parameterType _ ->
+                  SemanticFunction parameterType _ ->
                     specializeInferredExpression finalState parameterType argumentResult
                   _ -> argumentResult
               _ -> argumentResult
@@ -1192,7 +1193,7 @@ inferExprTypeDetailed builtinMode env state expr =
       let stateAfterConditionCheck =
             case inferredExpressionType conditionResult of
               Just inferredConditionType ->
-                case unifyTypes inferredConditionType TBoolType stateAfterElse of
+                case unifyTypes inferredConditionType SemanticBool stateAfterElse of
                   Just unifiedState -> unifiedState
                   Nothing ->
                     addTypeError
@@ -1219,7 +1220,7 @@ inferExprTypeDetailed builtinMode env state expr =
       let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
        in case (inferredExpressionType functionResult, inferredExpressionType argumentResult) of
             (Just functionType, Just argumentType) ->
-              case unifyTypes functionType (TFunctionType argumentType resultTypeVar) stateWithResultVar of
+              case unifyTypes functionType (SemanticFunction argumentType resultTypeVar) stateWithResultVar of
                 Just unifiedState ->
                   case numericConversionLiteralDiagnostic builtinMode currentEnv functionExpr argumentExpr of
                     Just diagnostic -> (Nothing, addTypeError unifiedState diagnostic)
@@ -1341,7 +1342,7 @@ inferExprTypeDetailed builtinMode env state expr =
                   (EVar leftName)
                   rightExpr
               expressionType =
-                TFunctionType (resolveType finalState leftType)
+                SemanticFunction (resolveType finalState leftType)
                   <$> bodyType
            in (expressionType, finalState, rightResult)
 
@@ -1370,7 +1371,7 @@ inferExprTypeDetailed builtinMode env state expr =
               (bodyResult, stateAfterBody) =
                 inferExprTypeDetailed builtinMode extendedEnv stateAfterParameter bodyExpr
               expressionType =
-                TFunctionType (resolveType stateAfterBody parameterType)
+                SemanticFunction (resolveType stateAfterBody parameterType)
                   <$> inferredExpressionType bodyResult
            in retainedUnsupported expressionType stateAfterBody failureKind failureDetail (childFailures 0 bodyResult)
         EList elements ->
@@ -1542,7 +1543,7 @@ inferExprTypeDetailed builtinMode env state expr =
       case elements of
         [] ->
           let (elementType, finalState) = freshTypeVar initialState
-           in (Just (TListType elementType), finalState, [])
+           in (Just (SemanticList elementType), finalState, [])
         firstElement : restElements ->
           let (firstResult, stateAfterFirst) =
                 inferExprTypeDetailed builtinMode env initialState firstElement
@@ -1551,7 +1552,7 @@ inferExprTypeDetailed builtinMode env state expr =
                   inferNextListElement
                   (inferredExpressionType firstResult, stateAfterFirst, [firstResult])
                   restElements
-           in (TListType <$> finalElementType, finalState, reverse reversedResults)
+           in (SemanticList <$> finalElementType, finalState, reverse reversedResults)
 
     inferNextListElement (expectedType, stateAcc, reversedResults) element =
       let (actualResult, stateAfterElement) =
@@ -1584,7 +1585,7 @@ inferExprTypeDetailed builtinMode env state expr =
         goTuple maybeReversedTypes stateAcc reversedResults remainingElements =
           case remainingElements of
             [] ->
-              (TTupleType . reverse <$> maybeReversedTypes, stateAcc, reverse reversedResults)
+              (SemanticTuple . reverse <$> maybeReversedTypes, stateAcc, reverse reversedResults)
             element : rest ->
               let (elementResult, stateAfterElement) =
                     inferExprTypeDetailed builtinMode env stateAcc element
@@ -1685,13 +1686,13 @@ literalExpressionType literal state =
     LInt value -> freshIntegerLiteralType (singletonIntegerLiteralRange value) state
     LFloat _ _ maybeTargetType ->
       ( case maybeTargetType of
-          Just targetType -> TNumericType targetType
-          Nothing -> TFloatType,
+          Just targetType -> SemanticNumeric targetType
+          Nothing -> SemanticFloat,
         state
       )
-    LBool _ -> (TBoolType, state)
-    LChar _ -> (TCharType, state)
-    LText _ -> (TTextType, state)
+    LBool _ -> (SemanticBool, state)
+    LChar _ -> (SemanticChar, state)
+    LText _ -> (SemanticText, state)
 
 checkLiteralType :: InferState -> Literal -> InferState
 checkLiteralType state literal =
@@ -1790,7 +1791,7 @@ instantiateBuiltinSymbolType builtinSymbol state =
       let (sourceTypeVar, sourceType, stateAfterSourceType) = freshTypeVariable state
           stateAfterNumericConstraint =
             addNumericTypeVarConstraint sourceTypeVar AnyNumericConstraint stateAfterSourceType
-       in Just (TFunctionType sourceType (TNumericType targetType), stateAfterNumericConstraint)
+       in Just (SemanticFunction sourceType (SemanticNumeric targetType), stateAfterNumericConstraint)
     Nothing ->
       instantiateBuiltinSymbolTypeByName (builtinSymbolName builtinSymbol) state
 
@@ -1799,108 +1800,108 @@ instantiateBuiltinSymbolTypeByName builtinName state =
   case builtinName of
     "hd" ->
       let (elementType, stateAfterElement) = freshTypeVar state
-       in Just (TFunctionType (TListType elementType) elementType, stateAfterElement)
+       in Just (SemanticFunction (SemanticList elementType) elementType, stateAfterElement)
     "tl" ->
       let (elementType, stateAfterElement) = freshTypeVar state
-       in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)
+       in Just (SemanticFunction (SemanticList elementType) (SemanticList elementType), stateAfterElement)
     "map" ->
       let (sourceType, stateAfterSource) = freshTypeVar state
           (targetType, stateAfterTarget) = freshTypeVar stateAfterSource
        in Just
-            ( TFunctionType
-                (TFunctionType sourceType targetType)
-                (TFunctionType (TListType sourceType) (TListType targetType)),
+            ( SemanticFunction
+                (SemanticFunction sourceType targetType)
+                (SemanticFunction (SemanticList sourceType) (SemanticList targetType)),
               stateAfterTarget
             )
     "filter" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just
-            ( TFunctionType
-                (TFunctionType elementType TBoolType)
-                (TFunctionType (TListType elementType) (TListType elementType)),
+            ( SemanticFunction
+                (SemanticFunction elementType SemanticBool)
+                (SemanticFunction (SemanticList elementType) (SemanticList elementType)),
               stateAfterElement
             )
     "print!" ->
       -- Stub-v1 runtime keeps `print!` as an impure primitive that returns the
       -- evaluated argument value unchanged so compile/runtime paths stay simple.
       let (valueType, stateAfterValueType) = freshTypeVar state
-       in Just (TFunctionType valueType valueType, stateAfterValueType)
+       in Just (SemanticFunction valueType valueType, stateAfterValueType)
     "listPrependRaw" ->
       let (elementType, stateAfterElement) = freshTypeVar state
        in Just
-            ( TFunctionType
+            ( SemanticFunction
                 elementType
-                (TFunctionType (TListType elementType) (TListType elementType)),
+                (SemanticFunction (SemanticList elementType) (SemanticList elementType)),
               stateAfterElement
             )
     "listReverseRaw" ->
       let (elementType, stateAfterElement) = freshTypeVar state
-       in Just (TFunctionType (TListType elementType) (TListType elementType), stateAfterElement)
+       in Just (SemanticFunction (SemanticList elementType) (SemanticList elementType), stateAfterElement)
     "charToUInt32" ->
-      Just (TFunctionType TCharType (TNumericType NumericUInt32), state)
+      Just (SemanticFunction SemanticChar (SemanticNumeric NumericUInt32), state)
     "charFromUInt32Raw" ->
-      Just (TFunctionType (TNumericType NumericUInt32) (TListType TCharType), state)
+      Just (SemanticFunction (SemanticNumeric NumericUInt32) (SemanticList SemanticChar), state)
     "charIsAlpha" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charIsAlphaNum" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charIsDigit" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charIsSpace" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charIsHexDigit" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charIsLower" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charIsUpper" ->
-      Just (TFunctionType TCharType TBoolType, state)
+      Just (SemanticFunction SemanticChar SemanticBool, state)
     "charToLower" ->
-      Just (TFunctionType TCharType TCharType, state)
+      Just (SemanticFunction SemanticChar SemanticChar, state)
     "charToUpper" ->
-      Just (TFunctionType TCharType TCharType, state)
+      Just (SemanticFunction SemanticChar SemanticChar, state)
     "textLength" ->
-      Just (TFunctionType TTextType TIntType, state)
+      Just (SemanticFunction SemanticText SemanticInt, state)
     "textUnconsRaw" ->
       Just
-        ( TFunctionType
-            TTextType
-            (TListType (TTupleType [TCharType, TTextType])),
+        ( SemanticFunction
+            SemanticText
+            (SemanticList (SemanticTuple [SemanticChar, SemanticText])),
           state
         )
     "textAppend" ->
-      Just (TFunctionType TTextType (TFunctionType TTextType TTextType), state)
+      Just (SemanticFunction SemanticText (SemanticFunction SemanticText SemanticText), state)
     "textAppendChar" ->
-      Just (TFunctionType TTextType (TFunctionType TCharType TTextType), state)
+      Just (SemanticFunction SemanticText (SemanticFunction SemanticChar SemanticText), state)
     "textFromChars" ->
-      Just (TFunctionType (TListType TCharType) TTextType, state)
+      Just (SemanticFunction (SemanticList SemanticChar) SemanticText, state)
     "textConcat" ->
-      Just (TFunctionType (TListType TTextType) TTextType, state)
+      Just (SemanticFunction (SemanticList SemanticText) SemanticText, state)
     "renderValue" ->
       let (valueType, stateAfterValueType) = freshTypeVar state
-       in Just (TFunctionType valueType TTextType, stateAfterValueType)
+       in Just (SemanticFunction valueType SemanticText, stateAfterValueType)
     "readTextRaw!" ->
-      Just (TFunctionType TTextType hostIOOutcomeType, state)
+      Just (SemanticFunction SemanticText hostIOOutcomeType, state)
     "writeTextRaw!" ->
       Just
-        ( TFunctionType
-            TTextType
-            (TFunctionType TTextType hostIOOutcomeType),
+        ( SemanticFunction
+            SemanticText
+            (SemanticFunction SemanticText hostIOOutcomeType),
           state
         )
     "readStdinRaw!" ->
-      Just (TFunctionType unitType hostIOOutcomeType, state)
+      Just (SemanticFunction unitType hostIOOutcomeType, state)
     "writeStdoutRaw!" ->
-      Just (TFunctionType TTextType hostIOOutcomeType, state)
+      Just (SemanticFunction SemanticText hostIOOutcomeType, state)
     "writeStderrRaw!" ->
-      Just (TFunctionType TTextType hostIOOutcomeType, state)
+      Just (SemanticFunction SemanticText hostIOOutcomeType, state)
     "arguments!" ->
-      Just (TFunctionType unitType (TListType TTextType), state)
+      Just (SemanticFunction unitType (SemanticList SemanticText), state)
     "exit!" ->
-      Just (TFunctionType TIntType unitType, state)
+      Just (SemanticFunction SemanticInt unitType, state)
     _ -> Nothing
 
 hostIOOutcomeType :: ExpressionType
-hostIOOutcomeType = TTupleType [TBoolType, TTextType, TTextType, TTextType]
+hostIOOutcomeType = SemanticTuple [SemanticBool, SemanticText, SemanticText, SemanticText]
 
 unitType :: ExpressionType
-unitType = TTupleType []
+unitType = SemanticTuple []

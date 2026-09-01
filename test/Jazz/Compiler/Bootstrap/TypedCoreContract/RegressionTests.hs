@@ -13,7 +13,7 @@ import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreContract.Fixtures
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.TestHarness
@@ -68,7 +68,7 @@ highCardinalityDuplicateEvidenceProgram =
       TypedCapabilityConstraint
         (preludeCapability "Equal")
         Nothing
-        TypedBoolType
+        SemanticBool
     valueScheme =
       fixtureScheme
         valueOwner
@@ -77,7 +77,7 @@ highCardinalityDuplicateEvidenceProgram =
         | index <- [0 .. 1999]
         ]
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
 
 testRecursiveGroupContracts :: IO ()
@@ -527,15 +527,15 @@ testPrimitiveInstantiationEntailment =
     [ TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [2] [0, 0])
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0))),
+        (TypedTypeDetail SemanticInt (SemanticVariable (TypedTypeParameterId 0))),
       TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [3] [0, 0])
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0))),
+        (TypedTypeDetail SemanticBool (SemanticVariable (TypedTypeParameterId 0))),
       TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-unentailed-primitive-instantiation") [7] [0, 0])
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0)))
+        (TypedTypeDetail SemanticInt (SemanticVariable (TypedTypeParameterId 0)))
     ]
     (validateTypedProgram unentailedPrimitiveInstantiationProgram)
 
@@ -871,7 +871,7 @@ testScopeAndVisibilityRegressions = do
     (validateTypedProgram invisibleSiblingImplProgram)
   assertEqual
     "selected evidence targets its own constraint"
-    [ expressionFailureAt "review-selected-evidence-target" 2 TypedMethodSelectionMismatch (TypedTypeDetail TypedBoolType TypedCharType)
+    [ expressionFailureAt "review-selected-evidence-target" 2 TypedMethodSelectionMismatch (TypedTypeDetail SemanticBool SemanticChar)
     ]
     (validateTypedProgram selectedEvidenceTargetProgram)
   assertEqual
@@ -895,19 +895,19 @@ testValueShapeRegressions :: IO ()
 testValueShapeRegressions = do
   assertEqual
     "let RHS matches its published scheme"
-    [statementFailure "review-binding-value" 0 TypedBindingValueMismatch (TypedTypeDetail TypedBoolType TypedTextType)]
+    [statementFailure "review-binding-value" 0 TypedBindingValueMismatch (TypedTypeDetail SemanticBool SemanticText)]
     (validateTypedProgram bindingValueProgram)
   assertEqual
     "lambda body matches its annotated result"
-    [expressionFailure "review-lambda-result" TypedLambdaResultMismatch (TypedTypeDetail TypedBoolType TypedTextType)]
+    [expressionFailure "review-lambda-result" TypedLambdaResultMismatch (TypedTypeDetail SemanticBool SemanticText)]
     (validateTypedProgram lambdaResultProgram)
   assertEqual
     "literal payload matches its annotated type"
-    [expressionFailure "review-literal-type" TypedLiteralTypeMismatch (TypedTypeDetail TypedTextType TypedBoolType)]
+    [expressionFailure "review-literal-type" TypedLiteralTypeMismatch (TypedTypeDetail SemanticText SemanticBool)]
     (validateTypedProgram literalTypeProgram)
   assertEqual
     "collection children match their parent shape"
-    [expressionFailure "review-collection-shape" TypedCollectionShapeMismatch (TypedTypeDetail TypedBoolType TypedCharType)]
+    [expressionFailure "review-collection-shape" TypedCollectionShapeMismatch (TypedTypeDetail SemanticBool SemanticChar)]
     (validateTypedProgram collectionShapeProgram)
   assertEqual
     "data type applications match visible declaration arity"
@@ -921,7 +921,7 @@ testValueShapeRegressions = do
     (validateTypedProgram tuplePatternShapeProgram)
   assertEqual
     "module result matches its terminal expression"
-    [moduleFailure "review-module-result" TypedModuleResultMismatch (TypedTypeDetail TypedBoolType TypedTextType)]
+    [moduleFailure "review-module-result" TypedModuleResultMismatch (TypedTypeDetail SemanticBool SemanticText)]
     (validateTypedProgram moduleResultProgram)
   assertEqual
     "block result compares staged callable recipes"
@@ -956,7 +956,7 @@ testReviewFollowupRegressions = do
     (validateTypedProgram instantiationDataTypeProgram)
   assertEqual
     "literal patterns match their annotated payload kind"
-    [patternFailure "review-literal-pattern" TypedLiteralTypeMismatch (TypedTypeDetail TypedTextType TypedBoolType)]
+    [patternFailure "review-literal-pattern" TypedLiteralTypeMismatch (TypedTypeDetail SemanticText SemanticBool)]
     (validateTypedProgram literalPatternProgram)
   assertEqual
     "resolved operators require visible value bindings"
@@ -992,12 +992,12 @@ testReviewFollowupRegressions = do
       TypedCoreValidationFailure
         (TypedPatternPath (fixtureModulePath "review-constructor-pattern-contract") [1] [0, 1, 0])
         TypedPatternScrutineeMismatch
-        (TypedTypeDetail TypedBoolType TypedTextType)
+        (TypedTypeDetail SemanticBool SemanticText)
     ]
     (validateTypedProgram constructorPatternContractProgram)
   assertEqual
     "list patterns require list scrutinees"
-    [patternFailure "review-non-list-pattern" TypedPatternShapeMismatch (TypedTypeDetail (TypedListType TypedBoolType) TypedBoolType)]
+    [patternFailure "review-non-list-pattern" TypedPatternShapeMismatch (TypedTypeDetail (SemanticList SemanticBool) SemanticBool)]
     (validateTypedProgram nonListPatternProgram)
   assertEqual
     "explicit type applications require a matching generalized instantiation"
@@ -1024,7 +1024,7 @@ testReviewFollowupRegressions = do
   assertEqual
     "candidate evidence matches capability and method constraints"
     [ expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedNameDetail (preludeCapability "Equal")),
-      expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTypeDetail TypedTextType TypedBoolType),
+      expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTypeDetail SemanticText SemanticBool),
       expressionFailureAt "review-candidate-constraint" 0 TypedMethodSelectionMismatch (TypedTextDetail "Render.map"),
       expressionFailureAt "review-candidate-constraint" 1 TypedMethodSelectionMismatch (TypedTextDetail "Render.map")
     ]
@@ -1062,7 +1062,7 @@ testLatestReviewRegressions = do
     [ expressionFailure
         "review-block-result"
         TypedBlockResultMismatch
-        (TypedTypeDetail TypedBoolType TypedTextType)
+        (TypedTypeDetail SemanticBool SemanticText)
     ]
     (validateTypedProgram blockResultProgram)
   assertEqual
@@ -1070,7 +1070,7 @@ testLatestReviewRegressions = do
     [ TypedCoreValidationFailure
         (TypedPatternPath (fixtureModulePath "review-nested-case-pattern-path") [0] [0, 1, 0])
         TypedLiteralTypeMismatch
-        (TypedTypeDetail TypedTextType TypedBoolType)
+        (TypedTypeDetail SemanticText SemanticBool)
     ]
     (validateTypedProgram nestedCasePatternPathProgram)
   assertEqual
@@ -1139,8 +1139,8 @@ testNewestReviewRegressions = do
         1
         TypedBindingValueMismatch
         ( TypedTypeDetail
-            (TypedFunctionType TypedBoolType constructorExpressionResultType)
-            TypedBoolType
+            (SemanticFunction SemanticBool constructorExpressionResultType)
+            SemanticBool
         )
     ]
     (validateTypedProgram constructorExpressionContractProgram)
@@ -1192,8 +1192,8 @@ testNewestReviewRegressions = do
         1
         TypedBindingValueMismatch
         ( TypedTypeDetail
-            (TypedFunctionType TypedBoolType (TypedFunctionType TypedBoolType TypedBoolType))
-            TypedTextType
+            (SemanticFunction SemanticBool (SemanticFunction SemanticBool SemanticBool))
+            SemanticText
         ),
       statementFailure
         "review-impl-method-contract"
@@ -1344,7 +1344,7 @@ testBuiltinOperatorContracts =
         "review-builtin-operator-contract"
         1
         TypedApplicationResultMismatch
-        (TypedTypeDetail TypedIntType TypedBoolType)
+        (TypedTypeDetail SemanticInt SemanticBool)
     ]
     (validateTypedProgram builtinOperatorContractProgram)
 
@@ -1368,7 +1368,7 @@ testNumericPrimitiveConstraintTargets =
         "review-invalid-numeric-primitive-constraint"
         0
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType TypedTextType)
+        (TypedTypeDetail SemanticInt SemanticText)
     ]
     (validateTypedProgram invalidNumericPrimitiveConstraintProgram)
 
@@ -1392,12 +1392,12 @@ testUnsupportedStrictEqualityConstraint =
         "review-unsupported-strict-equality-constraint"
         1
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType boolToBoolType),
+        (TypedTypeDetail SemanticBool boolToBoolType),
       statementFailure
         "review-unsupported-strict-equality-constraint"
         2
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType unsupportedEqualityDataType)
+        (TypedTypeDetail SemanticBool unsupportedEqualityDataType)
     ]
     (validateTypedProgram unsupportedStrictEqualityConstraintProgram)
 
@@ -1440,7 +1440,7 @@ testFractionalLiteralSuffix =
     [ expressionFailure
         "review-fractional-literal-suffix"
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType NumericFloat16) (TypedNumericType NumericFloat64))
+        (TypedTypeDetail (SemanticNumeric NumericFloat16) (SemanticNumeric NumericFloat64))
     ]
     (validateTypedProgram fractionalLiteralSuffixProgram)
 
@@ -1463,7 +1463,7 @@ testEvidenceTypeScope =
         "review-evidence-type-scope"
         0
         TypedMethodSelectionMismatch
-        (TypedTypeDetail (TypedTypeParameterType evidenceTypeScopeParameter) TypedBoolType)
+        (TypedTypeDetail (SemanticVariable evidenceTypeScopeParameter) SemanticBool)
     ]
     (validateTypedProgram evidenceTypeScopeProgram)
 
@@ -1474,7 +1474,7 @@ testWrongConstructorPatternType =
     [ TypedCoreValidationFailure
         (TypedPatternPath (fixtureModulePath "review-wrong-constructor-pattern-type") [1] [0, 0])
         TypedPatternShapeMismatch
-        (TypedTypeDetail wrongConstructorDataType TypedBoolType)
+        (TypedTypeDetail wrongConstructorDataType SemanticBool)
     ]
     (validateTypedProgram wrongConstructorPatternTypeProgram)
 
@@ -1523,7 +1523,7 @@ testCallableBuiltinEquality =
     [ expressionFailure
         "review-callable-builtin-equality"
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType boolToBoolType)
+        (TypedTypeDetail SemanticBool boolToBoolType)
     ]
     (validateTypedProgram callableBuiltinEqualityProgram)
 
@@ -1543,7 +1543,7 @@ testCurrentReviewRegressions = do
         "review-type-application-result-contract"
         1
         TypedApplicationResultMismatch
-        (TypedTypeDetail boolToBoolType TypedTextType)
+        (TypedTypeDetail boolToBoolType SemanticText)
     ]
     (validateTypedProgram typeApplicationResultContractProgram)
   assertEqual
@@ -1573,7 +1573,7 @@ testCurrentReviewRegressions = do
     [ TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-unconstrained-equality-parameter") [0] [0, 0])
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType (TypedTypeParameterType (TypedTypeParameterId 0)))
+        (TypedTypeDetail SemanticBool (SemanticVariable (TypedTypeParameterId 0)))
     ]
     (validateTypedProgram unconstrainedEqualityParameterProgram)
   assertEqual
@@ -1609,7 +1609,7 @@ testCurrentReviewRegressions = do
       TypedCoreValidationFailure
         (TypedPatternPath (fixtureModulePath "review-duplicate-or-pattern-contract") [0] [0, 0, 1, 1])
         TypedPatternScrutineeMismatch
-        (TypedTypeDetail TypedTextType TypedBoolType)
+        (TypedTypeDetail SemanticText SemanticBool)
     ]
     (validateTypedProgram duplicateOrPatternContractProgram)
   assertEqual
@@ -1617,7 +1617,7 @@ testCurrentReviewRegressions = do
     [ patternFailure
         "review-non-tuple-pattern"
         TypedPatternShapeMismatch
-        (TypedTypeDetail (TypedTupleType []) TypedBoolType)
+        (TypedTypeDetail (SemanticTuple []) SemanticBool)
     ]
     (validateTypedProgram nonTuplePatternProgram)
   assertEqual
@@ -1681,7 +1681,7 @@ testCurrentReviewRegressions = do
                     TypedCapabilityNamespace
                     "Render"
                 )
-                [TypedBoolType]
+                [SemanticBool]
             )
         )
     ]
@@ -1706,7 +1706,7 @@ testCurrentReviewRegressions = do
         "review-integral-literal-range"
         0
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType (TypedNumericType NumericUInt8))
+        (TypedTypeDetail SemanticInt (SemanticNumeric NumericUInt8))
     ]
     (validateTypedProgram integralLiteralRangeProgram)
 
@@ -1717,7 +1717,7 @@ testLatestBotReviewRegressions = do
     [ TypedCoreValidationFailure
         (TypedExpressionPath (fixtureModulePath "review-nested-strict-equality-constraint") [0] [0, 0])
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType nestedStrictEqualityOperandType)
+        (TypedTypeDetail SemanticBool nestedStrictEqualityOperandType)
     ]
     (validateTypedProgram nestedStrictEqualityConstraintProgram)
   assertEqual
@@ -1737,7 +1737,7 @@ testLatestBotReviewRegressions = do
     [ expressionFailure
         "review-builtin-value-contract"
         TypedBindingValueMismatch
-        (TypedTypeDetail (TypedFunctionType TypedTextType TypedIntType) TypedBoolType)
+        (TypedTypeDetail (SemanticFunction SemanticText SemanticInt) SemanticBool)
     ]
     (validateTypedProgram builtinValueContractProgram)
   assertEqual
@@ -1911,12 +1911,12 @@ testPostNewestBotReviewRegressions = do
         "review-instantiated-primitive-constraints"
         2
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType TypedBoolType),
+        (TypedTypeDetail SemanticInt SemanticBool),
       expressionFailureAt
         "review-instantiated-primitive-constraints"
         3
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType boolToBoolType)
+        (TypedTypeDetail SemanticBool boolToBoolType)
     ]
     (validateTypedProgram instantiatedPrimitiveConstraintProgram)
   assertEqual
@@ -1978,12 +1978,12 @@ testPostNewestBotReviewRegressions = do
         "review-concrete-integer-bounds"
         0
         TypedLiteralTypeMismatch
-        (TypedTypeDetail TypedIntType (TypedNumericType NumericUInt8)),
+        (TypedTypeDetail SemanticInt (SemanticNumeric NumericUInt8)),
       expressionFailureAt
         "review-concrete-integer-bounds"
         1
         TypedLiteralTypeMismatch
-        (TypedTypeDetail TypedIntType (TypedNumericType NumericUInt8))
+        (TypedTypeDetail SemanticInt (SemanticNumeric NumericUInt8))
     ]
     (validateTypedProgram concreteIntegerBoundsProgram)
   assertEqual
@@ -2060,22 +2060,22 @@ testFractionalLiteralBounds =
         "review-fractional-literal-bounds"
         1
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType NumericFloat16) (TypedNumericType NumericFloat16)),
+        (TypedTypeDetail (SemanticNumeric NumericFloat16) (SemanticNumeric NumericFloat16)),
       expressionFailureAt
         "review-fractional-literal-bounds"
         2
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType NumericFloat16) (TypedNumericType NumericFloat16)),
+        (TypedTypeDetail (SemanticNumeric NumericFloat16) (SemanticNumeric NumericFloat16)),
       expressionFailureAt
         "review-fractional-literal-bounds"
         4
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType NumericFloat32) (TypedNumericType NumericFloat32)),
+        (TypedTypeDetail (SemanticNumeric NumericFloat32) (SemanticNumeric NumericFloat32)),
       expressionFailureAt
         "review-fractional-literal-bounds"
         6
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType NumericFloat64) (TypedNumericType NumericFloat64))
+        (TypedTypeDetail (SemanticNumeric NumericFloat64) (SemanticNumeric NumericFloat64))
     ]
     (validateTypedProgram fractionalLiteralBoundsProgram)
 
@@ -2195,12 +2195,12 @@ testMalformedLiteralConstraintBounds =
         "review-malformed-literal-constraint-bounds"
         0
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0))),
+        (TypedTypeDetail SemanticInt (SemanticVariable (TypedTypeParameterId 0))),
       statementFailure
         "review-malformed-literal-constraint-bounds"
         1
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType (TypedTypeParameterType (TypedTypeParameterId 0)))
+        (TypedTypeDetail SemanticInt (SemanticVariable (TypedTypeParameterId 0)))
     ]
     (validateTypedProgram malformedLiteralConstraintBoundsProgram)
 
@@ -2579,7 +2579,7 @@ testSignatureBindingContract = do
         "review-signature-binding-mismatch"
         0
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType TypedTextType)
+        (TypedTypeDetail SemanticBool SemanticText)
     ]
     (validateTypedProgram signatureBindingMismatchProgram)
   assertEqual
@@ -2906,7 +2906,7 @@ testRecursiveEqualityCallableField =
         "review-recursive-equality-callable-field"
         1
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType recursiveEqualityCallableType)
+        (TypedTypeDetail SemanticBool recursiveEqualityCallableType)
     ]
     (validateTypedProgram recursiveEqualityCallableFieldProgram)
 
@@ -2930,7 +2930,7 @@ testRecursiveEqualityNestedCallable =
         "review-recursive-equality-nested-callable"
         1
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedBoolType recursiveEqualityNestedCallableType)
+        (TypedTypeDetail SemanticBool recursiveEqualityNestedCallableType)
     ]
     (validateTypedProgram recursiveEqualityNestedCallableProgram)
 

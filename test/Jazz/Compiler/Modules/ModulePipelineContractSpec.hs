@@ -115,7 +115,7 @@ import Jazz.Compiler.RuntimeHost
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (TIntType, TTextType),
+    SemanticType (..),
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
@@ -257,7 +257,7 @@ testCompileResolvedModulePreservesFirstDependency = do
       targetModule
   assertEqual
     "first dependency interface wins"
-    (Just (PlainTypeBinding TTextType))
+    (Just (PlainTypeBinding SemanticText))
     (Map.lookup targetExport (interfaceValueTypes (compiledModuleInterface compiled)))
   where
     dependencyPath = ["Lib", "Duplicate"]
@@ -269,14 +269,14 @@ testCompileResolvedModulePreservesFirstDependency = do
         []
         [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LText "first"))]
         dependencyInventory
-        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TTextType)})
+        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding SemanticText)})
     secondDependency =
       compiledModule
         dependencyPath
         []
         [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) (ELit (LInt 2))]
         dependencyInventory
-        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding TIntType)})
+        (emptyModuleInterface {interfaceValueTypes = Map.singleton dependencyExport (PlainTypeBinding SemanticInt)})
     targetExport = ModuleExport ValueNamespace "copied"
     targetImport = chainImport dependencyPath
     targetCoreImport = CoreResolvedImport (SourceSpan 1 1) dependencyPath Nothing Nothing
@@ -308,7 +308,7 @@ compiledTextBindingModule path imports moduleExport valueExpr =
     ]
     (exportInventory [moduleExport])
     ( emptyModuleInterface
-        { interfaceValueTypes = Map.singleton moduleExport (PlainTypeBinding TTextType)
+        { interfaceValueTypes = Map.singleton moduleExport (PlainTypeBinding SemanticText)
         }
     )
 
@@ -502,7 +502,7 @@ chainInventory = exportInventory [chainExport]
 chainInterface :: ModuleInterface
 chainInterface =
   emptyModuleInterface
-    { interfaceValueTypes = Map.singleton chainExport (PlainTypeBinding TTextType)
+    { interfaceValueTypes = Map.singleton chainExport (PlainTypeBinding SemanticText)
     }
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()

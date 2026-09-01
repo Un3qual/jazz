@@ -57,9 +57,10 @@ import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
     ImplMethodType (..),
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
@@ -391,7 +392,7 @@ rebaseDataTypeBinding origin dataTypeNames _ (DataTypeBinding parameters constru
 rebaseConstructorArgument :: ResolvedNameOrigin -> Set.Set Text -> ConstructorArgumentType -> ConstructorArgumentType
 rebaseConstructorArgument origin dataTypeNames argument =
   case argument of
-    ConstructorArgumentMonomorphic TVarType {} ->
+    ConstructorArgumentMonomorphic SemanticVariable {} ->
       ConstructorArgumentFresh
     ConstructorArgumentMonomorphic expressionType ->
       ConstructorArgumentMonomorphic (rebaseExpressionType origin dataTypeNames expressionType)
@@ -404,14 +405,14 @@ rebaseConstructorArgument origin dataTypeNames argument =
 rebaseExpressionType :: ResolvedNameOrigin -> Set.Set Text -> ExpressionType -> ExpressionType
 rebaseExpressionType origin dataTypeNames expressionType =
   case expressionType of
-    TListType elementType -> TListType (rebaseExpressionType origin dataTypeNames elementType)
-    TTupleType elementTypes -> TTupleType (map (rebaseExpressionType origin dataTypeNames) elementTypes)
-    TDataType typeName arguments ->
-      TDataType
+    SemanticList elementType -> SemanticList (rebaseExpressionType origin dataTypeNames elementType)
+    SemanticTuple elementTypes -> SemanticTuple (map (rebaseExpressionType origin dataTypeNames) elementTypes)
+    SemanticData typeName arguments ->
+      SemanticData
         (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
         (map (rebaseExpressionType origin dataTypeNames) arguments)
-    TFunctionType argumentType resultType ->
-      TFunctionType
+    SemanticFunction argumentType resultType ->
+      SemanticFunction
         (rebaseExpressionType origin dataTypeNames argumentType)
         (rebaseExpressionType origin dataTypeNames resultType)
     _ -> expressionType

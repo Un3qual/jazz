@@ -22,7 +22,8 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
   )
 import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TBoolType, TFunctionType, TNumericType, TTupleType),
+  ( ExpressionType,
+    SemanticType (..),
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
@@ -85,9 +86,9 @@ testEarlierCallerTransitiveCaptureAvailability = do
 testCapturedNumericScalarReferenceSpecialization :: IO ()
 testCapturedNumericScalarReferenceSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -128,9 +129,9 @@ testCapturedNumericScalarReferenceSpecialization = do
 testCapturedCompositeScalarSpecialization :: IO ()
 testCapturedCompositeScalarSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -167,10 +168,10 @@ testCapturedCompositeScalarSpecialization = do
 testCapturedCompositeScalarBinderSpecialization :: IO ()
 testCapturedCompositeScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      seedType = TNumericType NumericUInt8
-      otherType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      seedType = SemanticNumeric NumericUInt8
+      otherType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 2 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -213,11 +214,11 @@ testCapturedCompositeScalarBinderSpecialization = do
 testCapturedComparisonResultSpecialization :: IO ()
 testCapturedComparisonResultSpecialization = do
   let spanValue = SourceSpan 1 1
-      seedType = TNumericType NumericUInt8
-      otherType = TNumericType NumericUInt8
-      comparisonOperandType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      seedType = SemanticNumeric NumericUInt8
+      otherType = SemanticNumeric NumericUInt8
+      comparisonOperandType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 1 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -242,10 +243,10 @@ testCapturedComparisonResultSpecialization = do
               2
               "flag"
               spanValue
-              TBoolType
+              SemanticBool
               ( ProvisionalBinaryExpression
                   "<"
-                  TBoolType
+                  SemanticBool
                   comparisonOperandType
                   (ProvisionalVariableExpression "seed" seedType)
                   (ProvisionalLiteralExpression (LInt 2) otherType)
@@ -253,17 +254,17 @@ testCapturedComparisonResultSpecialization = do
             ProvisionalTerminalExpression
               3
               spanValue
-              (ProvisionalVariableExpression "flag" TBoolType)
+              (ProvisionalVariableExpression "flag" SemanticBool)
           ]
   assertProvisionalProductionCompletes "captured comparison result specialization" provisionalScope
 
 testCapturedFunctionBodySpecialization :: IO ()
 testCapturedFunctionBodySpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -319,10 +320,10 @@ testCapturedFunctionBodySpecialization = do
 testCapturedFunctionParameterSpecialization :: IO ()
 testCapturedFunctionParameterSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -382,11 +383,11 @@ testCapturedFunctionParameterSpecialization = do
 testCapturedCallableParameterApplicationSpecialization :: IO ()
 testCapturedCallableParameterApplicationSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      callbackFunctionType = TFunctionType literalType literalType
-      helperFunctionType = TFunctionType callbackFunctionType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      callbackFunctionType = SemanticFunction literalType literalType
+      helperFunctionType = SemanticFunction callbackFunctionType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -446,10 +447,10 @@ testCapturedCallableParameterApplicationSpecialization = do
 testCapturedFunctionScalarBinderSpecialization :: IO ()
 testCapturedFunctionScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 2 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -515,11 +516,11 @@ testCapturedFunctionScalarBinderSpecialization = do
 testCapturedFunctionArgumentScalarBinderSpecialization :: IO ()
 testCapturedFunctionArgumentScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      otherType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      otherType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 2 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -585,10 +586,10 @@ testCapturedFunctionArgumentScalarBinderSpecialization = do
 testCapturedFunctionResultScalarBinderSpecialization :: IO ()
 testCapturedFunctionResultScalarBinderSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -654,11 +655,11 @@ testCapturedFunctionResultScalarBinderSpecialization = do
 testCapturedHigherOrderCallableArgumentSpecialization :: IO ()
 testCapturedHigherOrderCallableArgumentSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
-      applyFunctionType = TFunctionType helperFunctionType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
+      applyFunctionType = SemanticFunction helperFunctionType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -737,12 +738,12 @@ testCapturedHigherOrderCallableArgumentSpecialization = do
 testCapturedForwardedHigherOrderCallableArgumentSpecialization :: IO ()
 testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
-      applyFunctionType = TFunctionType helperFunctionType literalType
-      forwardFunctionType = TFunctionType helperFunctionType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
+      applyFunctionType = SemanticFunction helperFunctionType literalType
+      forwardFunctionType = SemanticFunction helperFunctionType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -843,10 +844,10 @@ testCapturedForwardedHigherOrderCallableArgumentSpecialization = do
 testCapturedTerminalAnonymousCallableSpecialization :: IO ()
 testCapturedTerminalAnonymousCallableSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      anonymousFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      anonymousFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -891,11 +892,11 @@ testCapturedTerminalAnonymousCallableSpecialization = do
 testCapturedNamedCallerSpecialization :: IO ()
 testCapturedNamedCallerSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
-      consumerFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
+      consumerFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -974,12 +975,12 @@ testCapturedNamedCallerSpecialization = do
 testCapturedNamedApplicationTupleSpecialization :: IO ()
 testCapturedNamedApplicationTupleSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      unitType = TTupleType []
-      tupleType = TTupleType [literalType, unitType]
-      recursiveFunctionType = TFunctionType uint8Type uint8Type
-      helperFunctionType = TFunctionType literalType literalType
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      unitType = SemanticTuple []
+      tupleType = SemanticTuple [literalType, unitType]
+      recursiveFunctionType = SemanticFunction uint8Type uint8Type
+      helperFunctionType = SemanticFunction literalType literalType
       loopDeclaration = recursiveLoopDeclaration 1 spanValue recursiveFunctionType
       helperDeclaration =
         ProvisionalCallableDeclaration
@@ -1037,15 +1038,15 @@ testCapturedNamedApplicationTupleSpecialization = do
   assertProvisionalProductionTypes
     "captured named application tuple specialization"
     [("helper", typedUInt8UnaryType)]
-    (Just (TypedTupleType [typedUInt8Type, TypedTupleType []]))
+    (Just (SemanticTuple [typedUInt8Type, SemanticTuple []]))
     provisionalScope
 
 testCapturedScalarAliasSourceSpecialization :: IO ()
 testCapturedScalarAliasSourceSpecialization = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 2 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -1086,9 +1087,9 @@ testCapturedScalarAliasSourceSpecialization = do
 testRecordedScalarStatementIndices :: IO ()
 testRecordedScalarStatementIndices = do
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 3 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -1130,9 +1131,9 @@ testEagerRecursiveClosureCaptureAvailability :: IO ()
 testEagerRecursiveClosureCaptureAvailability = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let spanValue = SourceSpan 1 1
-      literalType = TNumericType NumericUInt8
-      uint8Type = TNumericType NumericUInt8
-      functionType = TFunctionType uint8Type uint8Type
+      literalType = SemanticNumeric NumericUInt8
+      uint8Type = SemanticNumeric NumericUInt8
+      functionType = SemanticFunction uint8Type uint8Type
       loopDeclaration = recursiveLoopDeclaration 3 spanValue functionType
       provisionalScope =
         ProvisionalScopeStatements
@@ -1189,9 +1190,9 @@ testEagerNestedClosureCaptureAvailability :: IO ()
 testEagerNestedClosureCaptureAvailability = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let spanValue = SourceSpan 1 1
-      uint8Type = TNumericType NumericUInt8
-      callbackType = TFunctionType uint8Type uint8Type
-      invokeType = TFunctionType callbackType uint8Type
+      uint8Type = SemanticNumeric NumericUInt8
+      callbackType = SemanticFunction uint8Type uint8Type
+      invokeType = SemanticFunction callbackType uint8Type
       invokeDeclaration =
         ProvisionalCallableDeclaration
           0
@@ -1332,13 +1333,13 @@ assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType
     other -> failTest (label <> " did not produce typed core: " <> Text.pack (show other))
 
 typedUInt8Type :: TypedType
-typedUInt8Type = TypedNumericType NumericUInt8
+typedUInt8Type = SemanticNumeric NumericUInt8
 
 typedUInt8UnaryType :: TypedType
-typedUInt8UnaryType = TypedFunctionType typedUInt8Type typedUInt8Type
+typedUInt8UnaryType = SemanticFunction typedUInt8Type typedUInt8Type
 
 typedIntToUInt8Type :: TypedType
-typedIntToUInt8Type = TypedFunctionType TypedIntType typedUInt8Type
+typedIntToUInt8Type = SemanticFunction SemanticInt typedUInt8Type
 
 typedUInt8HigherOrderType :: TypedType
-typedUInt8HigherOrderType = TypedFunctionType typedUInt8UnaryType typedUInt8Type
+typedUInt8HigherOrderType = SemanticFunction typedUInt8UnaryType typedUInt8Type

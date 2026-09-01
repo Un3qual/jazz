@@ -96,6 +96,7 @@ import Jazz.Compiler.Profiling
     withCompilerStage,
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgram,
@@ -646,7 +647,7 @@ typedValidationBenchmarkProgram expressionCount =
     modulePath
   where
     modulePath = ["TypedValidation"]
-    intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
+    intInfo = TypedNodeInfo SemanticInt (TypedSignedIntegerRecipe 64) [] []
     intExpression :: Int -> TypedExpr
     intExpression value =
       TypedLiteralExpr intInfo (TypedIntegerLiteral (Text.pack (show value)))
@@ -724,7 +725,7 @@ typedRecursiveStatementGraphProgram statementCount
     bindings = concatMap graphGroup [0 .. groupCount - 1]
     modulePath = ["TypedRecursiveStatementGraph"]
     spanValue = TypedSpan 1 1
-    boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+    boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
     trueExpression = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
     historyName =
       TypedResolvedName TypedCurrentModule TypedValueNamespace "history"
@@ -744,9 +745,9 @@ typedRecursiveStatementGraphProgram statementCount
         owner
         name
         spanValue
-        (TypedScheme owner [] [] [] TypedBoolType TypedBoolRecipe Nothing)
+        (TypedScheme owner [] [] [] SemanticBool TypedBoolRecipe Nothing)
         expression
-    functionType = TypedFunctionType TypedBoolType TypedBoolType
+    functionType = SemanticFunction SemanticBool SemanticBool
     functionRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
     functionInfo = TypedNodeInfo functionType functionRecipe [] []
     functionBinding owner name argumentOwner argumentName body =
@@ -850,7 +851,7 @@ typedWideExportProvidersProgram providerCount
   where
     modulePath = ["TypedWideExportProviders"]
     spanValue = TypedSpan 1 1
-    boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
+    boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
     trueExpression = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
 
     providerIdentifier index =
@@ -867,7 +868,7 @@ typedWideExportProvidersProgram providerCount
         []
         []
         []
-        TypedBoolType
+        SemanticBool
         TypedBoolRecipe
         Nothing
 
@@ -906,8 +907,8 @@ typedForwardSignedFunctionsProgram functionCount
     modulePath = ["TypedForwardSignedFunctions"]
     source = TypedSourcePath "compiler-scale/TypedForwardSignedFunctions.jz"
     statementSpan = TypedSpan 1 1
-    boolInfo = TypedNodeInfo TypedBoolType TypedBoolRecipe [] []
-    functionType = TypedFunctionType TypedBoolType TypedBoolType
+    boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
+    functionType = SemanticFunction SemanticBool SemanticBool
     functionRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
     functionInfo = TypedNodeInfo functionType functionRecipe [] []
 

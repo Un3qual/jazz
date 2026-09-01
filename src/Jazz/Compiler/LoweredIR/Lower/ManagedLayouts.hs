@@ -41,7 +41,7 @@ import Jazz.Compiler.LoweredIR.Lower.Types
     loweredIntegerWidth,
   )
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textRepresentation)
-import Jazz.Compiler.TypeRepresentation (NumericType)
+import Jazz.Compiler.TypeRepresentation (NumericType, SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Query (typedPatternChildren, typedPatternInfo)
 import Numeric.Natural (Natural)
@@ -164,7 +164,7 @@ managedPatternConstructorFor catalog name info =
 managedPatternDataContract :: TypedNodeInfo -> Maybe (TypedCoreName, [TypedType])
 managedPatternDataContract info =
   case (typedNodeType info, typedNodeRecipe info) of
-    (TypedDataType typeName arguments, TypedManagedVariantRecipe recipeName recipeArguments)
+    (SemanticData typeName arguments, TypedManagedVariantRecipe recipeName recipeArguments)
       | typeName == recipeName,
         arguments == recipeArguments ->
           Just (typeName, arguments)
@@ -445,11 +445,11 @@ substituteRecipe bindings recipe =
 substituteTypedType :: Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) -> TypedType -> Maybe TypedType
 substituteTypedType bindings typeValue =
   case typeValue of
-    TypedListType element -> TypedListType <$> child element
-    TypedTupleType elements -> TypedTupleType <$> traverse child elements
-    TypedDataType name arguments -> TypedDataType name <$> traverse child arguments
-    TypedFunctionType argument result -> TypedFunctionType <$> child argument <*> child result
-    TypedTypeParameterType parameter -> fst <$> Map.lookup parameter bindings
+    SemanticList element -> SemanticList <$> child element
+    SemanticTuple elements -> SemanticTuple <$> traverse child elements
+    SemanticData name arguments -> SemanticData name <$> traverse child arguments
+    SemanticFunction argument result -> SemanticFunction <$> child argument <*> child result
+    SemanticVariable parameter -> fst <$> Map.lookup parameter bindings
     _ -> Just typeValue
   where
     child = substituteTypedType bindings
@@ -457,20 +457,20 @@ substituteTypedType bindings typeValue =
 recipeForType :: TypedType -> Maybe TypedRepresentationRecipe
 recipeForType typeValue =
   case typeValue of
-    TypedIntType -> Just (TypedSignedIntegerRecipe 64)
-    TypedFloatType -> Just (TypedFloatRecipe 64)
-    TypedNumericType numericType -> Just (typedNumericRepresentationRecipe numericType)
-    TypedBoolType -> Just TypedBoolRecipe
-    TypedCharType -> Just TypedCharRecipe
-    TypedTextType -> Just TypedManagedTextRecipe
-    TypedListType _ -> Nothing
-    TypedTupleType elements ->
+    SemanticInt -> Just (TypedSignedIntegerRecipe 64)
+    SemanticFloat -> Just (TypedFloatRecipe 64)
+    SemanticNumeric numericType -> Just (typedNumericRepresentationRecipe numericType)
+    SemanticBool -> Just TypedBoolRecipe
+    SemanticChar -> Just TypedCharRecipe
+    SemanticText -> Just TypedManagedTextRecipe
+    SemanticList _ -> Nothing
+    SemanticTuple elements ->
       case elements of
         [] -> Just TypedUnitRecipe
         _ -> TypedManagedProductRecipe <$> traverse recipeForType elements
-    TypedDataType name arguments -> TypedManagedVariantRecipe name arguments <$ traverse recipeForType arguments
-    TypedFunctionType argument result -> TypedClosureRecipe <$> ((: []) <$> recipeForType argument) <*> recipeForType result
-    TypedTypeParameterType {} -> Nothing
+    SemanticData name arguments -> TypedManagedVariantRecipe name arguments <$ traverse recipeForType arguments
+    SemanticFunction argument result -> TypedClosureRecipe <$> ((: []) <$> recipeForType argument) <*> recipeForType result
+    SemanticVariable {} -> Nothing
 
 managedLayoutId :: [Text] -> TypedRepresentationRecipe -> Maybe LoweredLayoutId
 managedLayoutId modulePath recipe =
@@ -524,15 +524,15 @@ recipeEncoding modulePath recipe =
 typeEncoding :: [Text] -> TypedType -> Maybe Text
 typeEncoding modulePath typeValue =
   case typeValue of
-    TypedIntType -> Just "int"
-    TypedFloatType -> Just "float"
-    TypedNumericType numericType -> numericTypeEncoding modulePath numericType
-    TypedBoolType -> Just "bool"
-    TypedCharType -> Just "char"
-    TypedTextType -> Just "text"
-    TypedListType element -> ("list$" <>) . segment <$> typeEncoding modulePath element
-    TypedTupleType elements -> sequenceValue "tuple" <$> traverse (typeEncoding modulePath) elements
-    TypedDataType name arguments -> do
+    SemanticInt -> Just "int"
+    SemanticFloat -> Just "float"
+    SemanticNumeric numericType -> numericTypeEncoding modulePath numericType
+    SemanticBool -> Just "bool"
+    SemanticChar -> Just "char"
+    SemanticText -> Just "text"
+    SemanticList element -> ("list$" <>) . segment <$> typeEncoding modulePath element
+    SemanticTuple elements -> sequenceValue "tuple" <$> traverse (typeEncoding modulePath) elements
+    SemanticData name arguments -> do
       identifier <- currentTypeIdentifier name
       encodedArguments <- traverse (typeEncoding modulePath) arguments
       pure
@@ -543,11 +543,11 @@ typeEncoding modulePath typeValue =
             <> "$"
             <> sequenceValue "args" encodedArguments
         )
-    TypedFunctionType argument result -> do
+    SemanticFunction argument result -> do
       encodedArgument <- typeEncoding modulePath argument
       encodedResult <- typeEncoding modulePath result
       pure ("function$" <> segment encodedArgument <> "$" <> segment encodedResult)
-    TypedTypeParameterType {} -> Nothing
+    SemanticVariable {} -> Nothing
 
 numericTypeEncoding :: [Text] -> NumericType -> Maybe Text
 numericTypeEncoding modulePath numericType =

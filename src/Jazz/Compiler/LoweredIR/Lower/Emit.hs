@@ -37,6 +37,7 @@ import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
     textLayoutId,
     textRepresentation,
   )
+import Jazz.Compiler.TypeRepresentation (SemanticType (..))
 import Jazz.Compiler.TypedCore
 import Numeric.Natural (Natural)
 import Text.Read (readMaybe)
@@ -1494,12 +1495,12 @@ lowerManagedPatternCaseTo destination modulePath statementPath expressionPath pa
             _ -> False
         decisionConstructors nodeInfo =
           case (typedNodeType nodeInfo, typedNodeRecipe nodeInfo, representationForRecipe (indexedManagedLayoutCatalog functions) (typedNodeRecipe nodeInfo)) of
-            (TypedTupleType types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
+            (SemanticTuple types@(_ : _), TypedManagedProductRecipe recipes, Just (LoweredManagedReferenceRepresentation layoutId))
               | length types == length recipes,
                 let fieldInfos = zipWith (\typeValue recipe -> TypedNodeInfo typeValue recipe [] []) types recipes,
                 Just representations <- traverse (representationForRecipe (indexedManagedLayoutCatalog functions) . typedNodeRecipe) fieldInfos ->
                   Just [ManagedDecisionProduct layoutId (zip fieldInfos representations)]
-            (TypedDataType {}, TypedManagedVariantRecipe {}, _) ->
+            (SemanticData {}, TypedManagedVariantRecipe {}, _) ->
               map ManagedDecisionVariant <$> managedPatternConstructorsFor (indexedManagedLayoutCatalog functions) nodeInfo
             _ -> Nothing
         decisionChildColumns accessor constructor =
