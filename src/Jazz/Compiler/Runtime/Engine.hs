@@ -50,9 +50,8 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
-    SignaturePayload (..),
-    SignatureType (..),
+    SignaturePayload,
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -239,6 +238,11 @@ import Jazz.Compiler.RuntimeHost
     disabledRuntimeHost,
     hostIOCategoryToken,
     hostIOFailureMessage,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType,
+    pattern TypeList,
+    pattern TypeText,
   )
 
 scopePlanBindingRuntimeTypeHint ::

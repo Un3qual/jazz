@@ -34,8 +34,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (..),
-    NumericType (..),
-    SignatureType (..),
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
@@ -79,6 +78,18 @@ import Jazz.Compiler.Runtime.Types
     constructorIsSaturated,
     foldrRuntimeAppliedArguments,
     pattern VExplicitResultHints,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern TypeApplication,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeText,
+    pattern TypeTuple,
   )
 
 -- | The only evaluator capability needed by primitive value semantics.

@@ -8,6 +8,7 @@ module Jazz.Compiler.ModuleCompiler
   )
 where
 
+import Data.Bifunctor (bimap)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -15,10 +16,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
+  ( SignaturePayload,
+    SignatureType,
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
@@ -68,6 +67,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
   )
+import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 import Jazz.Compiler.WarningConfig (WarningSettings)
 
 compilePreparedPrelude :: WarningSettings -> PreparedPrelude -> IO CompiledPrelude
@@ -472,23 +472,19 @@ rebaseImplMethod origin dataTypeNames _ (ImplMethodType target) =
 rebaseSignaturePayload :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> SignaturePayload -> SignaturePayload
 rebaseSignaturePayload origin dataTypeNames classNames payload =
   case payload of
-    SignatureType signatureType ->
-      SignatureType (rebaseSignatureTypeNames origin dataTypeNames signatureType)
-    ConstrainedSignature constraints signatureType ->
-      ConstrainedSignature
-        [ SignatureConstraint
+    TypeRepresentation.SignatureType signatureType ->
+      TypeRepresentation.SignatureType (rebaseSignatureTypeNames origin dataTypeNames signatureType)
+    TypeRepresentation.ConstrainedSignature constraints signatureType ->
+      TypeRepresentation.ConstrainedSignature
+        [ TypeRepresentation.SignatureConstraint
             (rebaseKnownName origin CapabilityNamespace classNames capabilityName)
             (map (rebaseSignatureTypeNames origin dataTypeNames) arguments)
-        | SignatureConstraint capabilityName arguments <- constraints
+        | TypeRepresentation.SignatureConstraint capabilityName arguments <- constraints
         ]
         (rebaseSignatureTypeNames origin dataTypeNames signatureType)
-    UnsupportedSignature tokens ->
-      UnsupportedSignature
-        [ case token of
-            SignatureNameToken name -> SignatureNameToken (rebaseKnownName origin TypeNamespace dataTypeNames name)
-            _ -> token
-        | token <- tokens
-        ]
+    TypeRepresentation.UnsupportedSignature tokens ->
+      TypeRepresentation.UnsupportedSignature
+        (fmap (rebaseKnownName origin TypeNamespace dataTypeNames) <$> tokens)
 
 rebaseConcreteImplFact ::
   ResolvedNameOrigin ->
@@ -502,26 +498,10 @@ rebaseConcreteImplFact origin dataTypeNames classNames (ConcreteImplFact capabil
     (rebaseSignatureTypeNames origin dataTypeNames argument)
 
 rebaseSignatureTypeNames :: ResolvedNameOrigin -> Set.Set Text -> SignatureType -> SignatureType
-rebaseSignatureTypeNames origin dataTypeNames signatureType =
-  case signatureType of
-    TypeInt -> TypeInt
-    TypeFloat -> TypeFloat
-    TypeNumeric numericType -> TypeNumeric numericType
-    TypeBool -> TypeBool
-    TypeChar -> TypeChar
-    TypeText -> TypeText
-    TypeVariable typeName -> TypeVariable (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
-    TypeName typeName -> TypeName (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
-    TypeApplication typeName arguments ->
-      TypeApplication
-        (rebaseKnownName origin TypeNamespace dataTypeNames typeName)
-        (map (rebaseSignatureTypeNames origin dataTypeNames) arguments)
-    TypeList elementType -> TypeList (rebaseSignatureTypeNames origin dataTypeNames elementType)
-    TypeTuple elementTypes -> TypeTuple (map (rebaseSignatureTypeNames origin dataTypeNames) elementTypes)
-    TypeFunction argumentType resultType ->
-      TypeFunction
-        (rebaseSignatureTypeNames origin dataTypeNames argumentType)
-        (rebaseSignatureTypeNames origin dataTypeNames resultType)
+rebaseSignatureTypeNames origin dataTypeNames =
+  bimap rebaseTypeName rebaseTypeName
+  where
+    rebaseTypeName = rebaseKnownName origin TypeNamespace dataTypeNames
 
 rebaseKnownName :: ResolvedNameOrigin -> NameNamespace -> Set.Set Text -> Name -> Name
 rebaseKnownName origin namespace knownNames name =

@@ -15,8 +15,6 @@ import Jazz.Compiler.AST
   ( DataConstructor (..),
     Expr (..),
     Literal (..),
-    NumericType (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -56,6 +54,10 @@ import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKey,
   )
 import Jazz.Compiler.Semantics.Runtime.Shared
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )

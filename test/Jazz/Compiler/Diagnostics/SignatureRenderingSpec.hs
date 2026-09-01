@@ -2,17 +2,17 @@
 
 module Main (main) where
 
-import Jazz.Compiler.AST
-  ( NumericType (..),
-    SignatureType (..)
-  )
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType
+  ( renderSignatureType,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()

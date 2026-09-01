@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.AdtPattern.DeclarationsTests
-  ( declarationTests
-  ) where
+  ( declarationTests,
+  )
+where
 
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -10,14 +11,13 @@ import Jazz.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
-    SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -25,29 +25,29 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertRight
+    assertRight,
   )
 
 declarationTests :: [NamedTest]
 declarationTests =
-  [ ("keeps higher-precedence pipe in comparison guard RHS", testKeepsHigherPrecedencePipeInComparisonGuardRhs)
-    , ("keeps literal pipe operand in equality guard RHS", testKeepsLiteralPipeOperandInEqualityGuardRhs)
-    , ("keeps literal pipe operand in inequality guard RHS", testKeepsLiteralPipeOperandInInequalityGuardRhs)
-    , ("keeps literal pipe operand in ordering guard RHS", testKeepsLiteralPipeOperandInOrderingGuardRhs)
-    , ("parses generic data declaration parameters", testParsesGenericDataDeclarationParameters)
-    , ("parses structured data constructor field types", testParsesStructuredDataConstructorFieldTypes)
-    , ("keeps lambda application after pipe operator inside body", testKeepsLambdaApplicationAfterPipeOperator)
-    , ("keeps underscore application after pipe operator inside body", testKeepsUnderscoreApplicationAfterPipeOperator)
-    , ("keeps underscore boolean application after pipe operator inside body", testKeepsUnderscoreBooleanApplicationAfterPipeOperator)
+  [ ("keeps higher-precedence pipe in comparison guard RHS", testKeepsHigherPrecedencePipeInComparisonGuardRhs),
+    ("keeps literal pipe operand in equality guard RHS", testKeepsLiteralPipeOperandInEqualityGuardRhs),
+    ("keeps literal pipe operand in inequality guard RHS", testKeepsLiteralPipeOperandInInequalityGuardRhs),
+    ("keeps literal pipe operand in ordering guard RHS", testKeepsLiteralPipeOperandInOrderingGuardRhs),
+    ("parses generic data declaration parameters", testParsesGenericDataDeclarationParameters),
+    ("parses structured data constructor field types", testParsesStructuredDataConstructorFieldTypes),
+    ("keeps lambda application after pipe operator inside body", testKeepsLambdaApplicationAfterPipeOperator),
+    ("keeps underscore application after pipe operator inside body", testKeepsUnderscoreApplicationAfterPipeOperator),
+    ("keeps underscore boolean application after pipe operator inside body", testKeepsUnderscoreBooleanApplicationAfterPipeOperator)
   ]
 
 testKeepsHigherPrecedencePipeInComparisonGuardRhs :: IO ()
@@ -173,7 +173,7 @@ testParsesGenericDataDeclarationParameters =
             "Maybe"
             ["a"]
             [ SurfaceDataConstructor "Nothing" [],
-              SurfaceDataConstructor "Just" [SurfaceTypeVariable "a"]
+              SurfaceDataConstructor "Just" [TypeVariable "a"]
             ]
         ]
     expectedLoweredProgram =
@@ -207,7 +207,7 @@ testParsesStructuredDataConstructorFieldTypes =
         assertEqual "structured constructor field lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    treeOfA = SurfaceTypeApplication "Tree" [SurfaceTypeVariable "a"]
+    treeOfA = TypeApplication "Tree" [TypeVariable "a"]
     loweredTreeOfA = TypeApplication "Tree" [TypeVariable "a"]
     expectedSurfaceProgram =
       SEBlock
@@ -215,7 +215,7 @@ testParsesStructuredDataConstructorFieldTypes =
             (SourceSpan 1 1)
             "Tree"
             ["a"]
-            [ SurfaceDataConstructor "Leaf" [SurfaceTypeVariable "a"],
+            [ SurfaceDataConstructor "Leaf" [TypeVariable "a"],
               SurfaceDataConstructor "Branch" [treeOfA, treeOfA]
             ],
           SSData
@@ -224,13 +224,13 @@ testParsesStructuredDataConstructorFieldTypes =
             ["a", "b"]
             [ SurfaceDataConstructor
                 "Callback"
-                [SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeVariable "b")]
+                [TypeFunction (TypeVariable "a") (TypeVariable "b")]
             ],
           SSData
             (SourceSpan 6 1)
             "Forest"
             ["a"]
-            [SurfaceDataConstructor "Forest" [SurfaceTypeList treeOfA]]
+            [SurfaceDataConstructor "Forest" [TypeList treeOfA]]
         ]
     expectedLoweredProgram =
       EBlock

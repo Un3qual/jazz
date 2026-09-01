@@ -1,8 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.AdtPattern.PatternsTests
-  ( patternTests
-  ) where
+  ( patternTests,
+  )
+where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Jazz.Compiler.AST
@@ -11,14 +12,13 @@ import Jazz.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
-    SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
@@ -27,55 +27,55 @@ import Jazz.Compiler.Parser.AST
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertRight
+    assertRight,
   )
 
 patternTests :: [NamedTest]
 patternTests =
-  [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression)
-    , ("parses variable pattern case arm", testParsesVariablePatternCaseArm)
-    , ("parses as-pattern case arms", testParsesAsPatternCaseArm)
-    , ("parses guarded case arms", testParsesGuardedCaseArm)
-    , ("parses case-arm or-patterns and lowers them", testParsesCaseArmOrPatterns)
-    , ("keeps all-literal pipe body before literal arm boundary", testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary)
-    , ("parses wildcard-led later or-pattern arm after body", testParsesWildcardLedLaterOrPatternArmAfterBody)
-    , ("parses variable-led later or-pattern arm after body", testParsesVariableLedLaterOrPatternArmAfterBody)
-    , ("parses variable-led mixed later or-pattern arm after body", testParsesVariableLedMixedLaterOrPatternArmAfterBody)
-    , ("keeps pipe operator in or-pattern arm body", testKeepsPipeOperatorInOrPatternArmBody)
-    , ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm)
-    , ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards)
-    , ("keeps constructor if-expression pipe RHS before arm arrow", testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow)
-    , ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic)
-    , ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter)
-    , ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms)
-    , ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns)
-    , ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns)
-    , ("parses list pattern case arms", testParsesListPatternCaseArms)
-    , ("parses canonical data declaration and lowers constructor arities", testParsesCanonicalDataDeclarationAndLowersConstructorArities)
-    , ("parses nested case expression", testParsesNestedCaseExpression)
-    , ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody)
-    , ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody)
-    , ("parses mixed literal-wildcard later or-pattern arm after body", testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody)
-    , ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary)
-    , ("keeps pipe operator inside body before literal arm boundary", testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary)
-    , ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator)
-    , ("keeps bare constructor subject after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator)
-    , ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator)
-    , ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator)
-    , ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument)
-    , ("parses tuple pattern case arms", testParsesTuplePatternCaseArms)
-    , ("parses cons-like list patterns", testParsesConsLikeListPattern)
-    , ("parses cons-like list patterns inside constructor patterns", testParsesConsLikeListPatternInsideConstructorPattern)
-    , ("lowers parsed case nodes into core AST", testLowerCaseExpression)
+  [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
+    ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
+    ("parses as-pattern case arms", testParsesAsPatternCaseArm),
+    ("parses guarded case arms", testParsesGuardedCaseArm),
+    ("parses case-arm or-patterns and lowers them", testParsesCaseArmOrPatterns),
+    ("keeps all-literal pipe body before literal arm boundary", testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary),
+    ("parses wildcard-led later or-pattern arm after body", testParsesWildcardLedLaterOrPatternArmAfterBody),
+    ("parses variable-led later or-pattern arm after body", testParsesVariableLedLaterOrPatternArmAfterBody),
+    ("parses variable-led mixed later or-pattern arm after body", testParsesVariableLedMixedLaterOrPatternArmAfterBody),
+    ("keeps pipe operator in or-pattern arm body", testKeepsPipeOperatorInOrPatternArmBody),
+    ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm),
+    ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards),
+    ("keeps constructor if-expression pipe RHS before arm arrow", testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow),
+    ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
+    ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
+    ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
+    ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns),
+    ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns),
+    ("parses list pattern case arms", testParsesListPatternCaseArms),
+    ("parses canonical data declaration and lowers constructor arities", testParsesCanonicalDataDeclarationAndLowersConstructorArities),
+    ("parses nested case expression", testParsesNestedCaseExpression),
+    ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
+    ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
+    ("parses mixed literal-wildcard later or-pattern arm after body", testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody),
+    ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary),
+    ("keeps pipe operator inside body before literal arm boundary", testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary),
+    ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator),
+    ("keeps bare constructor subject after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
+    ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator),
+    ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator),
+    ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
+    ("parses tuple pattern case arms", testParsesTuplePatternCaseArms),
+    ("parses cons-like list patterns", testParsesConsLikeListPattern),
+    ("parses cons-like list patterns inside constructor patterns", testParsesConsLikeListPatternInsideConstructorPattern),
+    ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
 
 testParsesBasicCaseExpression :: IO ()
@@ -831,7 +831,7 @@ testParsesCanonicalDataDeclarationAndLowersConstructorArities =
             (SourceSpan 1 1)
             "Maybe"
             ["a"]
-            [ SurfaceDataConstructor "Just" [SurfaceTypeVariable "a"],
+            [ SurfaceDataConstructor "Just" [TypeVariable "a"],
               SurfaceDataConstructor "Nothing" []
             ]
         ]

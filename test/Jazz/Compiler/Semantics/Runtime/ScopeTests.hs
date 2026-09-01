@@ -1,13 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.ScopeTests
-  ( scopeTests
-  ) where
+  ( scopeTests,
+  )
+where
 
 import Control.Exception
   ( SomeException,
     evaluate,
-    try
+    try,
   )
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -16,30 +17,32 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
-  )
-import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExpr,
-    renderRuntimeValue
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Name
   ( Name,
     mkIdentifier,
     qualifiedName,
-    sourceName
+    sourceName,
+  )
+import Jazz.Compiler.Runtime
+  ( evaluateRuntimeExpr,
+    renderRuntimeValue,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    failTest
+    failTest,
   )
 import System.Timeout (timeout)
 
@@ -119,7 +122,7 @@ nestedBlockAliasScope bindingCount =
           (indexedBindingName index)
           (SourceSpan index 3)
           (EVar (indexedBindingName (index - 1)))
-        | index <- [2 .. bindingCount]
+      | index <- [2 .. bindingCount]
       ]
 
 indexedBindingName :: Int -> Name
@@ -142,8 +145,8 @@ assertRuntimeCompletesWithin timeoutMicros label expression expectedRendering = 
                 _ <- evaluate (Text.length rendered)
                 pure rendered
           )
-      )
-      :: IO (Either SomeException (Maybe Text))
+      ) ::
+      IO (Either SomeException (Maybe Text))
   case outcome of
     Right Nothing ->
       failTest (label <> " timed out")

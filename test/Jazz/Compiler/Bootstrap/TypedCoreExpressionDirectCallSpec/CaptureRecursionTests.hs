@@ -5,7 +5,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursio
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (Literal (..), NumericType (NumericUInt8))
+import Jazz.Compiler.AST (Literal (..))
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.LoweredIR.Lower
@@ -26,6 +26,7 @@ import Jazz.Compiler.TypeInference.Types
     IntegerLiteralRange (..),
     TypeBinding (PlainTypeBinding),
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgram,
@@ -1332,7 +1333,7 @@ assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType
     other -> failTest (label <> " did not produce typed core: " <> Text.pack (show other))
 
 typedUInt8Type :: TypedType
-typedUInt8Type = TypedNumericType TypedUInt8Type
+typedUInt8Type = TypedNumericType NumericUInt8
 
 typedUInt8UnaryType :: TypedType
 typedUInt8UnaryType = TypedFunctionType typedUInt8Type typedUInt8Type

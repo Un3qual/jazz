@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Parse-once module graph shared by semantic compilation and runtime.
 module Jazz.Compiler.ModuleGraph
@@ -26,10 +28,9 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Pattern (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
+    SignatureConstraint,
+    SignaturePayload,
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.Diagnostics (SourceSpan)
@@ -38,6 +39,19 @@ import Jazz.Compiler.ModuleExports
     ModuleExportSelector,
   )
 import Jazz.Compiler.Name (Name (..))
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern SignatureNameToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeFunction,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
+  )
 
 -- | A source-qualified explicit export clause retained after lowering.
 -- Absence means the module uses the default export-all policy; a present

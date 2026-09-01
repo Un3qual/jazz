@@ -6,6 +6,7 @@ module Jazz.Compiler.Bootstrap.TypedCoreContract.FixedFixtures where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreContract.ReviewFixtures
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 
 data ValidFixture = ValidFixture
@@ -81,17 +82,17 @@ scalarAliasesWidthsProgram =
     scalarExpressions =
       [ literalExpr TypedIntType (TypedSignedIntegerRecipe 64) (TypedIntegerLiteral "1"),
         literalExpr TypedFloatType (TypedFloatRecipe 64) (TypedFractionalLiteral "1" "5" Nothing),
-        numericLiteral TypedInt8Type (TypedSignedIntegerRecipe 8),
-        numericLiteral TypedInt16Type (TypedSignedIntegerRecipe 16),
-        numericLiteral TypedInt32Type (TypedSignedIntegerRecipe 32),
-        numericLiteral TypedInt64Type (TypedSignedIntegerRecipe 64),
-        numericLiteral TypedUInt8Type (TypedUnsignedIntegerRecipe 8),
-        numericLiteral TypedUInt16Type (TypedUnsignedIntegerRecipe 16),
-        numericLiteral TypedUInt32Type (TypedUnsignedIntegerRecipe 32),
-        numericLiteral TypedUInt64Type (TypedUnsignedIntegerRecipe 64),
-        fractionalLiteral TypedFloat16Type 16,
-        fractionalLiteral TypedFloat32Type 32,
-        fractionalLiteral TypedFloat64Type 64,
+        numericLiteral NumericInt8 (TypedSignedIntegerRecipe 8),
+        numericLiteral NumericInt16 (TypedSignedIntegerRecipe 16),
+        numericLiteral NumericInt32 (TypedSignedIntegerRecipe 32),
+        numericLiteral NumericInt64 (TypedSignedIntegerRecipe 64),
+        numericLiteral NumericUInt8 (TypedUnsignedIntegerRecipe 8),
+        numericLiteral NumericUInt16 (TypedUnsignedIntegerRecipe 16),
+        numericLiteral NumericUInt32 (TypedUnsignedIntegerRecipe 32),
+        numericLiteral NumericUInt64 (TypedUnsignedIntegerRecipe 64),
+        fractionalLiteral NumericFloat16 16,
+        fractionalLiteral NumericFloat32 32,
+        fractionalLiteral NumericFloat64 64,
         literalExpr TypedBoolType TypedBoolRecipe (TypedBooleanLiteral True),
         literalExpr TypedCharType TypedCharRecipe (TypedCharacterLiteral 'j'),
         literalExpr TypedTextType TypedManagedTextRecipe (TypedTextLiteral "jazz")

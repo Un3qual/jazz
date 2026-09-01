@@ -17,9 +17,6 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (NumericUInt8),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -60,6 +57,11 @@ import Jazz.Compiler.Runtime.Observation.Profile
   ( encodeRuntimeSemanticProfile,
   )
 import Jazz.Compiler.RuntimeHost (disabledRuntimeHost)
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,

@@ -1,77 +1,76 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.Foundation.SignaturesTests
-  ( signatureTests
-  ) where
+  ( signatureTests,
+  )
+where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     Expr (..),
     Literal (..),
-    NumericType (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceClassMethodSignature (..),
     SurfaceExpr (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    assertRight
+    assertRight,
   )
 
 signatureTests :: [NamedTest]
 signatureTests =
-  [ ("parses signature statement with source span", testParseSignatureSpan)
-    , ("parses Char and Text signatures", testParsesCharAndTextSignatures)
-    , ("parses generic named signatures", testParsesGenericNamedSignatures)
-    , ("normalizes List application syntax", testNormalizesListApplicationSyntax)
-    , ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature)
-    , ("parses tuple signature into structured nodes", testParseTupleSignature)
-    , ("parses Unit value and signature into structured nodes", testParseUnitValueAndSignature)
-    , ("parses constrained Unit signature into structured nodes", testParseConstrainedUnitSignature)
-    , ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes)
-    , ("parses chained function signature right associatively", testParseChainedFunctionSignature)
-    , ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature)
-    , ("parses list of parenthesized function types", testParseFunctionListSignature)
-    , ("parses constrained signature into structured nodes", testParseConstrainedSignaturePayload)
-    , ("parses constrained signature with empty constraint block", testParseEmptyConstraintBlockSignaturePayload)
-    , ("parses constrained tuple signature into structured nodes", testParseConstrainedTupleSignaturePayload)
-    , ("parses explicit type application expression", testParseExplicitTypeApplicationExpression)
-    , ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression)
-    , ("lowered explicit type application needs no post-pass", testLoweredExplicitTypeApplicationIsCanonical)
-    , ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram)
-    , ("lowers Unit value and signature into analyzer AST", testLowerUnitValueAndSignature)
-    , ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram)
-    , ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram)
-    , ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram)
-    , ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram)
-    , ("lowers constrained signature payload into analyzer AST", testLowerConstrainedSignatureProgram)
-    , ("lowers constrained tuple signature payload into analyzer AST", testLowerConstrainedTupleSignatureProgram)
-    , ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames)
-    , ("parses operator keyword as an ordinary signature name", testParsesOperatorKeywordAsSignatureName)
-    , ("parses class method signature metadata", testParsesClassMethodSignatureMetadata)
+  [ ("parses signature statement with source span", testParseSignatureSpan),
+    ("parses Char and Text signatures", testParsesCharAndTextSignatures),
+    ("parses generic named signatures", testParsesGenericNamedSignatures),
+    ("normalizes List application syntax", testNormalizesListApplicationSyntax),
+    ("parses parenthesized function signature into structured nodes", testParseParenthesizedFunctionSignature),
+    ("parses tuple signature into structured nodes", testParseTupleSignature),
+    ("parses Unit value and signature into structured nodes", testParseUnitValueAndSignature),
+    ("parses constrained Unit signature into structured nodes", testParseConstrainedUnitSignature),
+    ("parses numeric width signature names into structured nodes", testParseNumericWidthSignatureTypes),
+    ("parses chained function signature right associatively", testParseChainedFunctionSignature),
+    ("parses parenthesized function override into structured nodes", testParseParenthesizedFunctionOverrideSignature),
+    ("parses list of parenthesized function types", testParseFunctionListSignature),
+    ("parses constrained signature into structured nodes", testParseConstrainedSignaturePayload),
+    ("parses constrained signature with empty constraint block", testParseEmptyConstraintBlockSignaturePayload),
+    ("parses constrained tuple signature into structured nodes", testParseConstrainedTupleSignaturePayload),
+    ("parses explicit type application expression", testParseExplicitTypeApplicationExpression),
+    ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression),
+    ("lowered explicit type application needs no post-pass", testLoweredExplicitTypeApplicationIsCanonical),
+    ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
+    ("lowers Unit value and signature into analyzer AST", testLowerUnitValueAndSignature),
+    ("lowers numeric width signature names into analyzer AST", testLowerNumericWidthSignatureProgram),
+    ("lowers structured signature payload into analyzer AST", testLowerStructuredSignatureProgram),
+    ("lowers right-associated function signature into analyzer AST", testLowerRightAssociativeFunctionSignatureProgram),
+    ("lowers list of function signature into analyzer AST", testLowerFunctionListSignatureProgram),
+    ("lowers constrained signature payload into analyzer AST", testLowerConstrainedSignatureProgram),
+    ("lowers constrained tuple signature payload into analyzer AST", testLowerConstrainedTupleSignatureProgram),
+    ("parses abstraction keywords as ordinary signature names", testParsesAbstractionKeywordsAsSignatureNames),
+    ("parses operator keyword as an ordinary signature name", testParsesOperatorKeywordAsSignatureName),
+    ("parses class method signature metadata", testParsesClassMethodSignatureMetadata)
   ]
 
 testParseSignatureSpan :: IO ()
@@ -81,7 +80,7 @@ testParseSignatureSpan =
     "signature span"
     ( Right
         ( SEBlock
-            [ SSSignature "x" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeInt)),
+            [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeInt)),
               SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
@@ -94,20 +93,22 @@ testParsesCharAndTextSignatures =
     "Char/Text signatures"
     ( Right
         ( SEBlock
-            [ SSSignature "character" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeChar),
-              SSSignature "message" (SourceSpan 2 1) (SurfaceSignatureType SurfaceTypeText),
+            [ SSSignature "character" (SourceSpan 1 1) (SignatureType TypeChar),
+              SSSignature "message" (SourceSpan 2 1) (SignatureType TypeText),
               SSSignature
                 "render"
                 (SourceSpan 3 1)
-                (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeChar SurfaceTypeText))
+                (SignatureType (TypeFunction TypeChar TypeText))
             ]
         )
     )
-    (parseSurfaceProgram """
-    character :: Char.
-    message :: Text.
-    render :: Char -> Text.
-    """)
+    ( parseSurfaceProgram
+        """
+        character :: Char.
+        message :: Text.
+        render :: Char -> Text.
+        """
+    )
 
 testParsesGenericNamedSignatures :: IO ()
 testParsesGenericNamedSignatures =
@@ -118,28 +119,30 @@ testParsesGenericNamedSignatures =
             [ SSSignature
                 "maybeCharacter"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureType
-                    (SurfaceTypeApplication "Maybe" [SurfaceTypeChar])
+                ( SignatureType
+                    (TypeApplication "Maybe" [TypeChar])
                 ),
               SSSignature
                 "map"
                 (SourceSpan 2 1)
-                ( SurfaceSignatureType
-                    ( SurfaceTypeFunction
-                        (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeVariable "b"))
-                        ( SurfaceTypeFunction
-                            (SurfaceTypeList (SurfaceTypeVariable "a"))
-                            (SurfaceTypeList (SurfaceTypeVariable "b"))
+                ( SignatureType
+                    ( TypeFunction
+                        (TypeFunction (TypeVariable "a") (TypeVariable "b"))
+                        ( TypeFunction
+                            (TypeList (TypeVariable "a"))
+                            (TypeList (TypeVariable "b"))
                         )
                     )
                 )
             ]
         )
     )
-    (parseSurfaceProgram """
-    maybeCharacter :: Maybe(Char).
-    map :: (a -> b) -> List(a) -> [b].
-    """)
+    ( parseSurfaceProgram
+        """
+        maybeCharacter :: Maybe(Char).
+        map :: (a -> b) -> List(a) -> [b].
+        """
+    )
 
 testNormalizesListApplicationSyntax :: IO ()
 testNormalizesListApplicationSyntax =
@@ -150,18 +153,20 @@ testNormalizesListApplicationSyntax =
             [ SSSignature
                 "left"
                 (SourceSpan 1 1)
-                (SurfaceSignatureType (SurfaceTypeList (SurfaceTypeVariable "a"))),
+                (SignatureType (TypeList (TypeVariable "a"))),
               SSSignature
                 "right"
                 (SourceSpan 2 1)
-                (SurfaceSignatureType (SurfaceTypeList (SurfaceTypeVariable "a")))
+                (SignatureType (TypeList (TypeVariable "a")))
             ]
         )
     )
-    (parseSurfaceProgram """
-    left :: List(a).
-    right :: [a].
-    """)
+    ( parseSurfaceProgram
+        """
+        left :: List(a).
+        right :: [a].
+        """
+    )
 
 testParseParenthesizedFunctionSignature :: IO ()
 testParseParenthesizedFunctionSignature =
@@ -172,20 +177,22 @@ testParseParenthesizedFunctionSignature =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureType
-                    (SurfaceTypeFunction
-                      (SurfaceTypeList SurfaceTypeInt)
-                      (SurfaceTypeList SurfaceTypeInt)
+                ( SignatureType
+                    ( TypeFunction
+                        (TypeList TypeInt)
+                        (TypeList TypeInt)
                     )
                 ),
               SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
             ]
         )
     )
-    (parseSurfaceProgram """
-    f :: ([Int]) -> ([Int]).
-    f = (+).
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: ([Int]) -> ([Int]).
+        f = (+).
+        """
+    )
 
 testParseTupleSignature :: IO ()
 testParseTupleSignature =
@@ -196,15 +203,17 @@ testParseTupleSignature =
             [ SSSignature
                 "pair"
                 (SourceSpan 1 1)
-                (SurfaceSignatureType (SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeBool])),
+                (SignatureType (TypeTuple [TypeInt, TypeBool])),
               SSLet "pair" (SourceSpan 2 1) (SETuple [SELit (SLInt 1), SELit (SLBool True)])
             ]
         )
     )
-    (parseSurfaceProgram """
-    pair :: (Int, Bool).
-    pair = (1, True).
-    """)
+    ( parseSurfaceProgram
+        """
+        pair :: (Int, Bool).
+        pair = (1, True).
+        """
+    )
 
 testParseUnitValueAndSignature :: IO ()
 testParseUnitValueAndSignature =
@@ -215,15 +224,17 @@ testParseUnitValueAndSignature =
             [ SSSignature
                 "unit"
                 (SourceSpan 1 1)
-                (SurfaceSignatureType (SurfaceTypeTuple [])),
+                (SignatureType (TypeTuple [])),
               SSLet "unit" (SourceSpan 2 1) (SETuple [])
             ]
         )
     )
-    (parseSurfaceProgram """
-    unit :: ().
-    unit = ().
-    """)
+    ( parseSurfaceProgram
+        """
+        unit :: ().
+        unit = ().
+        """
+    )
 
 testParseConstrainedUnitSignature :: IO ()
 testParseConstrainedUnitSignature =
@@ -234,15 +245,17 @@ testParseConstrainedUnitSignature =
             [ SSSignature
                 "unit"
                 (SourceSpan 1 1)
-                (SurfaceConstrainedSignature [] (SurfaceTypeTuple [])),
+                (ConstrainedSignature [] (TypeTuple [])),
               SSLet "unit" (SourceSpan 2 1) (SETuple [])
             ]
         )
     )
-    (parseSurfaceProgram """
-    unit :: @{}: ().
-    unit = ().
-    """)
+    ( parseSurfaceProgram
+        """
+        unit :: @{}: ().
+        unit = ().
+        """
+    )
 
 testParseNumericWidthSignatureTypes :: IO ()
 testParseNumericWidthSignatureTypes = do
@@ -250,15 +263,17 @@ testParseNumericWidthSignatureTypes = do
     "Int8 signature"
     ( Right
         ( SEBlock
-            [ SSSignature "x" (SourceSpan 1 1) (SurfaceSignatureType (SurfaceTypeNumeric SurfaceNumericInt8)),
+            [ SSSignature "x" (SourceSpan 1 1) (SignatureType (TypeNumeric NumericInt8)),
               SSLet "x" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
-    (parseSurfaceProgram """
-    x :: Int8.
-    x = 1.
-    """)
+    ( parseSurfaceProgram
+        """
+        x :: Int8.
+        x = 1.
+        """
+    )
   assertEqual
     "Float alias signature"
     ( Right
@@ -266,17 +281,19 @@ testParseNumericWidthSignatureTypes = do
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureType
-                    (SurfaceTypeFunction SurfaceTypeFloat (SurfaceTypeNumeric SurfaceNumericFloat64))
+                ( SignatureType
+                    (TypeFunction TypeFloat (TypeNumeric NumericFloat64))
                 ),
               SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
             ]
         )
     )
-    (parseSurfaceProgram """
-    f :: Float -> Float64.
-    f = (+).
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: Float -> Float64.
+        f = (+).
+        """
+    )
 
 testParseChainedFunctionSignature :: IO ()
 testParseChainedFunctionSignature =
@@ -287,17 +304,19 @@ testParseChainedFunctionSignature =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureType
-                    (SurfaceTypeFunction SurfaceTypeInt (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt))
+                ( SignatureType
+                    (TypeFunction TypeInt (TypeFunction TypeInt TypeInt))
                 ),
               SSLet "f" (SourceSpan 2 1) (SEOperatorValue "+")
             ]
         )
     )
-    (parseSurfaceProgram """
-    f :: Int -> Int -> Int.
-    f = (+).
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: Int -> Int -> Int.
+        f = (+).
+        """
+    )
 
 testParseParenthesizedFunctionOverrideSignature :: IO ()
 testParseParenthesizedFunctionOverrideSignature =
@@ -308,17 +327,19 @@ testParseParenthesizedFunctionOverrideSignature =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureType
-                    (SurfaceTypeFunction (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt) SurfaceTypeInt)
+                ( SignatureType
+                    (TypeFunction (TypeFunction TypeInt TypeInt) TypeInt)
                 ),
               SSLet "f" (SourceSpan 2 1) (SEVar "applyToOne")
             ]
         )
     )
-    (parseSurfaceProgram """
-    f :: (Int -> Int) -> Int.
-    f = applyToOne.
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: (Int -> Int) -> Int.
+        f = applyToOne.
+        """
+    )
 
 testParseFunctionListSignature :: IO ()
 testParseFunctionListSignature =
@@ -329,17 +350,19 @@ testParseFunctionListSignature =
             [ SSSignature
                 "fns"
                 (SourceSpan 1 1)
-                ( SurfaceSignatureType
-                    (SurfaceTypeList (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt))
+                ( SignatureType
+                    (TypeList (TypeFunction TypeInt TypeInt))
                 ),
               SSLet "fns" (SourceSpan 2 1) (SEList [SESectionRight "+" (SELit (SLInt 1))])
             ]
         )
     )
-    (parseSurfaceProgram """
-    fns :: [(Int -> Int)].
-    fns = [(+ 1)].
-    """)
+    ( parseSurfaceProgram
+        """
+        fns :: [(Int -> Int)].
+        fns = [(+ 1)].
+        """
+    )
 
 testParseConstrainedSignaturePayload :: IO ()
 testParseConstrainedSignaturePayload =
@@ -350,23 +373,25 @@ testParseConstrainedSignaturePayload =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                ( SurfaceConstrainedSignature
-                    [ SurfaceSignatureConstraint "Eq" [SurfaceTypeVariable "a"],
-                      SurfaceSignatureConstraint "Ord" [SurfaceTypeVariable "b"]
+                ( ConstrainedSignature
+                    [ SignatureConstraint "Eq" [TypeVariable "a"],
+                      SignatureConstraint "Ord" [TypeVariable "b"]
                     ]
-                    ( SurfaceTypeFunction
-                        (SurfaceTypeVariable "a")
-                        (SurfaceTypeFunction (SurfaceTypeVariable "b") (SurfaceTypeVariable "c"))
+                    ( TypeFunction
+                        (TypeVariable "a")
+                        (TypeFunction (TypeVariable "b") (TypeVariable "c"))
                     )
                 ),
               SSLet "f" (SourceSpan 2 1) (SEVar "combine")
             ]
         )
     )
-    (parseSurfaceProgram """
-    f :: @{Eq(a), Ord(b)}: a -> b -> c.
-    f = combine.
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: @{Eq(a), Ord(b)}: a -> b -> c.
+        f = combine.
+        """
+    )
 
 testParseEmptyConstraintBlockSignaturePayload :: IO ()
 testParseEmptyConstraintBlockSignaturePayload =
@@ -377,15 +402,17 @@ testParseEmptyConstraintBlockSignaturePayload =
             [ SSSignature
                 "f"
                 (SourceSpan 1 1)
-                (SurfaceConstrainedSignature [] SurfaceTypeInt),
+                (ConstrainedSignature [] TypeInt),
               SSLet "f" (SourceSpan 2 1) (SEVar "input")
             ]
         )
     )
-    (parseSurfaceProgram """
-    f :: @{}: Int.
-    f = input.
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: @{}: Int.
+        f = input.
+        """
+    )
 
 testParseConstrainedTupleSignaturePayload :: IO ()
 testParseConstrainedTupleSignaturePayload =
@@ -396,41 +423,47 @@ testParseConstrainedTupleSignaturePayload =
             [ SSSignature
                 "pair"
                 (SourceSpan 1 1)
-                ( SurfaceConstrainedSignature
+                ( ConstrainedSignature
                     []
-                    (SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeBool])
+                    (TypeTuple [TypeInt, TypeBool])
                 ),
               SSLet "pair" (SourceSpan 2 1) (SETuple [SELit (SLInt 1), SELit (SLBool True)])
             ]
         )
     )
-    (parseSurfaceProgram """
-    pair :: @{}: (Int, Bool).
-    pair = (1, True).
-    """)
+    ( parseSurfaceProgram
+        """
+        pair :: @{}: (Int, Bool).
+        pair = (1, True).
+        """
+    )
 
 testParseExplicitTypeApplicationExpression :: IO ()
 testParseExplicitTypeApplicationExpression =
   assertRight
     "explicit type application parse"
-    (parseSurfaceProgram """
-    result = id @Int 1.
-    result.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = id @Int 1.
+        result.
+        """
+    )
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
         assertContains "surface type application" "SETypeApplication" rendered
-        assertContains "surface type application argument" "SurfaceTypeInt" rendered
+        assertContains "surface type application argument" "TypeInt" rendered
     )
 
 testLowerExplicitTypeApplicationExpression :: IO ()
 testLowerExplicitTypeApplicationExpression =
   assertRight
     "explicit type application lowering"
-    (parseSurfaceProgram """
-    result = id @Int 1.
-    result.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = id @Int 1.
+        result.
+        """
+    )
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered type application" "ETypeApplication" rendered
@@ -441,10 +474,12 @@ testLoweredExplicitTypeApplicationIsCanonical :: IO ()
 testLoweredExplicitTypeApplicationIsCanonical =
   assertRight
     "parse + canonical lower explicit type application"
-    (parseSurfaceProgram """
-    result = id @Int 1.
-    result.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = id @Int 1.
+        result.
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "canonical lowered type application AST"
@@ -465,10 +500,12 @@ testLowerTupleLiteralAndSignatureProgram :: IO ()
 testLowerTupleLiteralAndSignatureProgram =
   assertRight
     "parse + lower tuple literal/signature"
-    (parseSurfaceProgram """
-    pair :: (Int, Bool).
-    pair = (1, True).
-    """)
+    ( parseSurfaceProgram
+        """
+        pair :: (Int, Bool).
+        pair = (1, True).
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered tuple AST"
@@ -490,10 +527,12 @@ testLowerUnitValueAndSignature :: IO ()
 testLowerUnitValueAndSignature =
   assertRight
     "parse + lower Unit value/signature"
-    (parseSurfaceProgram """
-    unit :: ().
-    unit = ().
-    """)
+    ( parseSurfaceProgram
+        """
+        unit :: ().
+        unit = ().
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered Unit AST"
@@ -512,10 +551,12 @@ testLowerNumericWidthSignatureProgram :: IO ()
 testLowerNumericWidthSignatureProgram =
   assertRight
     "parse + lower numeric width signatures"
-    (parseSurfaceProgram """
-    f :: UInt8 -> Int64 -> Float.
-    f = (+).
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: UInt8 -> Int64 -> Float.
+        f = (+).
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered numeric width signature AST"
@@ -539,10 +580,12 @@ testLowerStructuredSignatureProgram :: IO ()
 testLowerStructuredSignatureProgram =
   assertRight
     "parse + lower structured signature"
-    (parseSurfaceProgram """
-    x :: [[Bool]].
-    x = [[True], [False]].
-    """)
+    ( parseSurfaceProgram
+        """
+        x :: [[Bool]].
+        x = [[True], [False]].
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered signature AST"
@@ -564,10 +607,12 @@ testLowerRightAssociativeFunctionSignatureProgram :: IO ()
 testLowerRightAssociativeFunctionSignatureProgram =
   assertRight
     "parse + lower right-associated function signature"
-    (parseSurfaceProgram """
-    f :: Int -> Int -> Int.
-    f = (+).
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: Int -> Int -> Int.
+        f = (+).
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered right-associated signature AST"
@@ -586,10 +631,12 @@ testLowerFunctionListSignatureProgram :: IO ()
 testLowerFunctionListSignatureProgram =
   assertRight
     "parse + lower list of function signature"
-    (parseSurfaceProgram """
-    fns :: [(Int -> Int)].
-    fns = [(+ 1)].
-    """)
+    ( parseSurfaceProgram
+        """
+        fns :: [(Int -> Int)].
+        fns = [(+ 1)].
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered list of function signature AST"
@@ -611,10 +658,12 @@ testLowerConstrainedSignatureProgram :: IO ()
 testLowerConstrainedSignatureProgram =
   assertRight
     "parse + lower constrained signature"
-    (parseSurfaceProgram """
-    f :: @{Eq(a)}: a -> a.
-    f = identity.
-    """)
+    ( parseSurfaceProgram
+        """
+        f :: @{Eq(a)}: a -> a.
+        f = identity.
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered constrained signature AST"
@@ -636,10 +685,12 @@ testLowerConstrainedTupleSignatureProgram :: IO ()
 testLowerConstrainedTupleSignatureProgram =
   assertRight
     "parse + lower constrained tuple signature"
-    (parseSurfaceProgram """
-    pair :: @{}: (Int, Bool).
-    pair = (1, True).
-    """)
+    ( parseSurfaceProgram
+        """
+        pair :: @{}: (Int, Bool).
+        pair = (1, True).
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered constrained tuple signature AST"
@@ -666,23 +717,25 @@ testParsesAbstractionKeywordsAsSignatureNames =
     "abstraction keyword signature names"
     ( Right
         ( SEBlock
-            [ SSSignature "class" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+            [ SSSignature "class" (SourceSpan 1 1) (SignatureType TypeInt),
               SSLet "class" (SourceSpan 2 1) (SELit (SLInt 1)),
-              SSSignature "impl" (SourceSpan 3 1) (SurfaceSignatureType SurfaceTypeBool),
+              SSSignature "impl" (SourceSpan 3 1) (SignatureType TypeBool),
               SSLet "impl" (SourceSpan 4 1) (SELit (SLBool True)),
-              SSSignature "trait" (SourceSpan 5 1) (SurfaceSignatureType SurfaceTypeInt),
+              SSSignature "trait" (SourceSpan 5 1) (SignatureType TypeInt),
               SSLet "trait" (SourceSpan 6 1) (SELit (SLInt 2))
             ]
         )
     )
-    (parseSurfaceProgram """
-    class :: Int.
-    class = 1.
-    impl :: Bool.
-    impl = True.
-    trait :: Int.
-    trait = 2.
-    """)
+    ( parseSurfaceProgram
+        """
+        class :: Int.
+        class = 1.
+        impl :: Bool.
+        impl = True.
+        trait :: Int.
+        trait = 2.
+        """
+    )
 
 testParsesOperatorKeywordAsSignatureName :: IO ()
 testParsesOperatorKeywordAsSignatureName =
@@ -690,32 +743,36 @@ testParsesOperatorKeywordAsSignatureName =
     "operator keyword signature name"
     ( Right
         ( SEBlock
-            [ SSSignature "operator" (SourceSpan 1 1) (SurfaceSignatureType SurfaceTypeInt),
+            [ SSSignature "operator" (SourceSpan 1 1) (SignatureType TypeInt),
               SSLet "operator" (SourceSpan 2 1) (SELit (SLInt 1))
             ]
         )
     )
-    (parseSurfaceProgram """
-    operator :: Int.
-    operator = 1.
-    """)
+    ( parseSurfaceProgram
+        """
+        operator :: Int.
+        operator = 1.
+        """
+    )
 
 testParsesClassMethodSignatureMetadata :: IO ()
 testParsesClassMethodSignatureMetadata =
   assertRight
     "surface class method signature parse"
-    (parseSurfaceProgram """
-    class Eq(a) {
-    equals :: a -> a -> Bool.
-    notEquals :: a -> a -> Bool.
-    }.
-    """)
+    ( parseSurfaceProgram
+        """
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        notEquals :: a -> a -> Bool.
+        }.
+        """
+    )
     ( \surfaceProgram -> do
         let surfacePayload =
-              SurfaceSignatureType
-                ( SurfaceTypeFunction
-                    (SurfaceTypeVariable "a")
-                    (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool)
+              SignatureType
+                ( TypeFunction
+                    (TypeVariable "a")
+                    (TypeFunction (TypeVariable "a") TypeBool)
                 )
             corePayload =
               SignatureType

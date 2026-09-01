@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.TypeInference.Capabilities
   ( TypeEnvFreeVariables,
@@ -60,9 +62,8 @@ import Jazz.Compiler.AST
     ClassMethodSignature (..),
     Expr (..),
     ImplMethod (..),
-    NumericType (..),
-    SignaturePayload (..),
-    SignatureType (..),
+    SignaturePayload,
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -176,6 +177,20 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
     quantifiedVariablesMembershipSet,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 
 capabilityFactsFromState :: InferState -> ScopeCapabilityFacts

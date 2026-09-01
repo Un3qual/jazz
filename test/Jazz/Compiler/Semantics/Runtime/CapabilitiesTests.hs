@@ -19,10 +19,7 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
     Pattern (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -69,6 +66,11 @@ import Jazz.Compiler.TypeInference
     inferExpressionWithBuiltinsAndSourceUnitStatements,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )

@@ -47,9 +47,9 @@ import Jazz.Compiler.Parser.AST
     SurfaceDataConstructor (..),
     SurfaceExpr,
     SurfaceImplMethod (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
-    SurfaceSignatureType (..),
+    SurfaceSignaturePayload,
+    SurfaceSignatureToken,
+    SurfaceSignatureType,
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Context
@@ -107,6 +107,34 @@ import Jazz.Compiler.Parser.TokenStream
     tokenStreamLength,
     pattern EmptyTokens,
     pattern (:<),
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 import qualified Text.Megaparsec as MP
 
@@ -1194,16 +1222,16 @@ surfaceConcreteImplArguments arguments =
 surfaceConcreteConstraintArgument :: SurfaceSignatureType -> Bool
 surfaceConcreteConstraintArgument signatureType =
   case signatureType of
-    SurfaceTypeVariable {} -> False
-    SurfaceTypeName name ->
+    TypeVariable {} -> False
+    TypeName name ->
       not (surfaceIdentifierLooksLikeTypeVariable name)
-    SurfaceTypeApplication name arguments ->
+    TypeApplication name arguments ->
       not (surfaceIdentifierLooksLikeTypeVariable name) && all surfaceConcreteConstraintArgument arguments
-    SurfaceTypeList innerType ->
+    TypeList innerType ->
       surfaceConcreteConstraintArgument innerType
-    SurfaceTypeTuple elementTypes ->
+    TypeTuple elementTypes ->
       all surfaceConcreteConstraintArgument elementTypes
-    SurfaceTypeFunction {} ->
+    TypeFunction {} ->
       False
     _ -> True
 
@@ -1252,7 +1280,7 @@ validateClassHeaderParameters declarationToken maybeHeaderArguments =
   where
     classParameterFromHeaderArgument argument =
       case argument of
-        SurfaceTypeVariable parameterName ->
+        TypeVariable parameterName ->
           Right parameterName
         _ ->
           Left
@@ -1432,21 +1460,21 @@ parseDataConstructorArguments typeName typeParameterNames revArguments allTokens
 surfaceSignatureTypeVariables :: SurfaceSignatureType -> Set Text
 surfaceSignatureTypeVariables signatureType =
   case signatureType of
-    SurfaceTypeInt -> Set.empty
-    SurfaceTypeFloat -> Set.empty
-    SurfaceTypeNumeric _ -> Set.empty
-    SurfaceTypeBool -> Set.empty
-    SurfaceTypeChar -> Set.empty
-    SurfaceTypeText -> Set.empty
-    SurfaceTypeVariable name -> Set.singleton (identifierText name)
-    SurfaceTypeName _ -> Set.empty
-    SurfaceTypeApplication _ arguments ->
+    TypeInt -> Set.empty
+    TypeFloat -> Set.empty
+    TypeNumeric _ -> Set.empty
+    TypeBool -> Set.empty
+    TypeChar -> Set.empty
+    TypeText -> Set.empty
+    TypeVariable name -> Set.singleton (identifierText name)
+    TypeName _ -> Set.empty
+    TypeApplication _ arguments ->
       Set.unions (map surfaceSignatureTypeVariables arguments)
-    SurfaceTypeList elementType ->
+    TypeList elementType ->
       surfaceSignatureTypeVariables elementType
-    SurfaceTypeTuple elementTypes ->
+    TypeTuple elementTypes ->
       Set.unions (map surfaceSignatureTypeVariables elementTypes)
-    SurfaceTypeFunction argumentType resultType ->
+    TypeFunction argumentType resultType ->
       surfaceSignatureTypeVariables argumentType
         `Set.union` surfaceSignatureTypeVariables resultType
 
@@ -1781,26 +1809,26 @@ isCompactSignatureCandidate name parsedSignature =
 isConstructorStyleSignaturePayload :: SurfaceSignaturePayload -> Bool
 isConstructorStyleSignaturePayload signaturePayload =
   case signaturePayload of
-    SurfaceSignatureType (SurfaceTypeVariable variableName) ->
+    SignatureType (TypeVariable variableName) ->
       isSingleLetterTypeVariable (identifierText variableName)
-    SurfaceSignatureType _ -> True
-    SurfaceConstrainedSignature {} -> True
-    SurfaceUnsupportedSignature _ ->
+    SignatureType _ -> True
+    ConstrainedSignature {} -> True
+    UnsupportedSignature _ ->
       isLikelyUnsupportedSignaturePayload signaturePayload
 
 isSupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
 isSupportedSignaturePayload signaturePayload =
   case signaturePayload of
-    SurfaceSignatureType _ -> True
-    SurfaceConstrainedSignature _ _ -> True
-    SurfaceUnsupportedSignature _ -> False
+    SignatureType _ -> True
+    ConstrainedSignature _ _ -> True
+    UnsupportedSignature _ -> False
 
 isLikelyUnsupportedSignaturePayload :: SurfaceSignaturePayload -> Bool
 isLikelyUnsupportedSignaturePayload signaturePayload =
   case signaturePayload of
-    SurfaceUnsupportedSignature [SurfaceSignatureNameToken name] ->
+    UnsupportedSignature [SignatureNameToken name] ->
       isSingleLetterTypeVariable name
-    SurfaceUnsupportedSignature tokens -> any isSignatureSyntaxToken tokens
+    UnsupportedSignature tokens -> any isSignatureSyntaxToken tokens
     _ -> False
 
 isSingleLetterTypeVariable :: Text -> Bool
@@ -1812,16 +1840,16 @@ isSingleLetterTypeVariable name =
 isSignatureSyntaxToken :: SurfaceSignatureToken -> Bool
 isSignatureSyntaxToken signatureToken =
   case signatureToken of
-    SurfaceSignatureArrowToken -> True
-    SurfaceSignatureAtToken -> True
-    SurfaceSignatureColonToken -> True
-    SurfaceSignatureLParenToken -> True
-    SurfaceSignatureRParenToken -> True
-    SurfaceSignatureLBraceToken -> True
-    SurfaceSignatureRBraceToken -> True
-    SurfaceSignatureLBracketToken -> True
-    SurfaceSignatureRBracketToken -> True
-    SurfaceSignatureCommaToken -> True
+    SignatureArrowToken -> True
+    SignatureAtToken -> True
+    SignatureColonToken -> True
+    SignatureLParenToken -> True
+    SignatureRParenToken -> True
+    SignatureLBraceToken -> True
+    SignatureRBraceToken -> True
+    SignatureLBracketToken -> True
+    SignatureRBracketToken -> True
+    SignatureCommaToken -> True
     _ -> False
 
 nextStatementStartsMatchingBinding :: Text -> TokenStream -> Bool

@@ -2,18 +2,18 @@
 
 module Main (main) where
 
+import Data.Bifunctor (bimap)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (EBlock, ELit),
     Literal (LInt),
-    SignatureConstraint (SignatureConstraint),
-    SignaturePayload (ConstrainedSignature, SignatureType),
-    SignatureType (TypeApplication, TypeBool, TypeInt, TypeName),
     Statement (SLet, SSignature),
   )
+import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
   )
@@ -67,6 +67,12 @@ import Jazz.Compiler.TypeInference.Types
     ScopeCapabilityFacts (..),
     emptyScopeCapabilityFacts,
   )
+import Jazz.Compiler.TypeRepresentation
+  ( SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureType (..),
+  )
+import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -91,8 +97,45 @@ tests =
     ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
     ("inference accepts imported TypeName facts for source-origin constraints", testInferenceAcceptsImportedTypeNameFact),
     ("inference accepts imported TypeApplication facts for source-origin constraints", testInferenceAcceptsImportedTypeApplicationFact),
+    ("signature types traverse constructor names and variables exactly once", testSignatureTypeBitraversal),
     ("module export inventories union without duplicates", testModuleExportInventory)
   ]
+
+testSignatureTypeBitraversal :: IO ()
+testSignatureTypeBitraversal =
+  assertEqual
+    "constructor names and variables are transformed throughout a nested signature"
+    ( TypeRepresentation.TypeApplication
+        "RESULT"
+        [ TypeRepresentation.TypeVariable 11,
+          TypeRepresentation.TypeList
+            ( TypeRepresentation.TypeFunction
+                (TypeRepresentation.TypeName "ITEM")
+                ( TypeRepresentation.TypeTuple
+                    [ TypeRepresentation.TypeVariable 12,
+                      TypeRepresentation.TypeApplication "MAYBE" [TypeRepresentation.TypeVariable 13]
+                    ]
+                )
+            )
+        ]
+    )
+    (bimap Text.toUpper (+ 10) signature)
+  where
+    signature :: TypeRepresentation.SignatureType Text Int
+    signature =
+      TypeRepresentation.TypeApplication
+        "result"
+        [ TypeRepresentation.TypeVariable 1,
+          TypeRepresentation.TypeList
+            ( TypeRepresentation.TypeFunction
+                (TypeRepresentation.TypeName "item")
+                ( TypeRepresentation.TypeTuple
+                    [ TypeRepresentation.TypeVariable 2,
+                      TypeRepresentation.TypeApplication "maybe" [TypeRepresentation.TypeVariable 3]
+                    ]
+                )
+            )
+        ]
 
 testStableSetMembershipAndOrder :: IO ()
 testStableSetMembershipAndOrder = do
@@ -248,7 +291,7 @@ testInferenceAcceptsImportedTypeApplicationFact =
     (TypeApplication "Lib::Types::Box" [TypeName "Lib::Types::Tagged"])
     (TypeApplication (importedTypeName "Box") [TypeName (importedTypeName "Tagged")])
 
-assertImportedConstraintFactAccepted :: Text -> SignatureType -> SignatureType -> IO ()
+assertImportedConstraintFactAccepted :: Text -> AST.SignatureType -> AST.SignatureType -> IO ()
 assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
   sourceResult <- inferExpressionWithInputs (inferenceInputs sourceArgument) (constrainedProgram sourceArgument)
   importedResult <- inferExpressionWithInputs (inferenceInputs importedArgument) (constrainedProgram sourceArgument)

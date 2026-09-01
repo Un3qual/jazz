@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | AST-only planning shared by pure and host runtime scope execution.
 module Jazz.Compiler.Runtime.ScopePlan
@@ -18,8 +20,9 @@ module Jazz.Compiler.Runtime.ScopePlan
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
     exprContainsFunctionBranch,
-    exprDefinitelyNotFunctionValue
-  ) where
+    exprDefinitelyNotFunctionValue,
+  )
+where
 
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -33,30 +36,37 @@ import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     ImplMethod (..),
-    NumericType (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
+    SignaturePayload,
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
     BuiltinSymbol (..),
     builtinNamesInMode,
     lookupBuiltinSymbolInMode,
-    numericTypeFromName
+    numericTypeFromName,
   )
 import Jazz.Compiler.Name
   ( Name,
     identifierText,
     mkIdentifier,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.RecursiveBindings
   ( buildRecursiveScopeFacts,
     exprContainsFunctionBranch,
     inferSelfRecursiveBindings,
     recursiveScopeBindingNames,
-    recursiveScopeGroups
+    recursiveScopeGroups,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
+    pattern SignatureType,
+    pattern TypeFloat,
+    pattern TypeInt,
+    pattern TypeName,
+    pattern TypeNumeric,
   )
 
 data RuntimeScopePlan = RuntimeScopePlan
@@ -123,10 +133,10 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
     hostRecursiveBindings =
       IntSet.fromList
         [ groupIndex
-          | (representativeIndex, groupMembers@(firstGroupIndex : _)) <- IntMap.toAscList recursiveGroups,
-            representativeIndex == firstGroupIndex,
-            any bindingRequiresHost groupMembers,
-            groupIndex <- groupMembers
+        | (representativeIndex, groupMembers@(firstGroupIndex : _)) <- IntMap.toAscList recursiveGroups,
+          representativeIndex == firstGroupIndex,
+          any bindingRequiresHost groupMembers,
+          groupIndex <- groupMembers
         ]
     bindingRequiresHost statementIndex =
       case IntMap.lookup statementIndex statementsByIndex of

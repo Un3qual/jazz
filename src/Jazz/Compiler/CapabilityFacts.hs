@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Shared helpers for the first class/impl environment-validation slice.
 module Jazz.Compiler.CapabilityFacts
@@ -32,10 +34,9 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
-  ( NumericType (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
+  ( SignaturePayload,
+    SignatureToken,
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFromName,
@@ -48,6 +49,32 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
+    pattern SignatureArrowToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 
 data ConcreteImplFact = ConcreteImplFact Name SignatureType

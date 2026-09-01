@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Module graph resolver for `module` and `import` forms. It loads source,
 -- validates module declarations/import bindings, and returns modules in
@@ -28,10 +30,6 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Pattern (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -106,9 +104,8 @@ import Jazz.Compiler.Parser.AST
     SurfaceLambdaParameter (..),
     SurfacePattern (..),
     SurfacePatternLambdaClause (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureType (..),
+    SurfaceSignaturePayload,
+    SurfaceSignatureType,
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower (lowerSurfaceModule)
@@ -116,6 +113,19 @@ import Jazz.Compiler.RecursiveBindings
   ( buildRecursiveScopeFacts,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern SignatureNameToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeFunction,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 import System.FilePath
   ( normalise,
@@ -1193,35 +1203,35 @@ collectLambdaParameterReferenceFacts parameter facts =
 collectSignaturePayloadReferenceFacts :: SurfaceSignaturePayload -> SurfaceReferenceFacts -> SurfaceReferenceFacts
 collectSignaturePayloadReferenceFacts payload facts =
   case payload of
-    SurfaceSignatureType signatureType ->
+    SignatureType signatureType ->
       collectSignatureTypeReferenceFacts signatureType facts
-    SurfaceConstrainedSignature constraints signatureType ->
+    ConstrainedSignature constraints signatureType ->
       collectSignatureTypeReferenceFacts
         signatureType
         ( foldl'
             (flip collectSignatureTypeReferenceFacts)
             facts
             [ argument
-            | SurfaceSignatureConstraint _ arguments <- constraints,
+            | SignatureConstraint _ arguments <- constraints,
               argument <- arguments
             ]
         )
-    SurfaceUnsupportedSignature _ -> facts
+    UnsupportedSignature _ -> facts
 
 collectSignatureTypeReferenceFacts :: SurfaceSignatureType -> SurfaceReferenceFacts -> SurfaceReferenceFacts
 collectSignatureTypeReferenceFacts signatureType facts =
   case signatureType of
-    SurfaceTypeVariable name -> collectQualifiedTypeReference name facts
-    SurfaceTypeName name -> collectQualifiedTypeReference name facts
-    SurfaceTypeApplication name arguments ->
+    TypeVariable name -> collectQualifiedTypeReference name facts
+    TypeName name -> collectQualifiedTypeReference name facts
+    TypeApplication name arguments ->
       foldl'
         (flip collectSignatureTypeReferenceFacts)
         (collectQualifiedTypeReference name facts)
         arguments
-    SurfaceTypeList innerType -> collectSignatureTypeReferenceFacts innerType facts
-    SurfaceTypeTuple elementTypes ->
+    TypeList innerType -> collectSignatureTypeReferenceFacts innerType facts
+    TypeTuple elementTypes ->
       foldl' (flip collectSignatureTypeReferenceFacts) facts elementTypes
-    SurfaceTypeFunction argumentType resultType ->
+    TypeFunction argumentType resultType ->
       collectSignatureTypeReferenceFacts
         resultType
         (collectSignatureTypeReferenceFacts argumentType facts)

@@ -65,10 +65,9 @@ import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr,
     Literal (..),
-    NumericType (..),
     Pattern (..),
-    SignaturePayload (..),
-    SignatureType (..),
+    SignaturePayload,
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
@@ -136,6 +135,21 @@ import Jazz.Compiler.Runtime.Types
     runtimeMethodCandidatesInOrder,
     pattern VExplicitResultHints,
     pattern VQualifiedMethodApplication,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
   )
 import Numeric (showHex)
 

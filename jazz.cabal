@@ -184,6 +184,7 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Traversal
       Jazz.Compiler.TypeInference.TypeOps
       Jazz.Compiler.TypeInference.Types
+      Jazz.Compiler.TypeRepresentation
       Jazz.Compiler.WarningConfig
   other-modules:
       Jazz.Compiler.TypedCore.Validate.Declarations

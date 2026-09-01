@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Bootstrap.CanonicalCoreComparison
   ( canonicalCoreExprRuntimeValue,
@@ -55,6 +57,49 @@ import Jazz.Compiler.Parser.Lower
     ModuleLoweringFailure (..),
   )
 import Jazz.Compiler.Runtime (RuntimeValue (..))
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern NumericFloat16,
+    pattern NumericFloat32,
+    pattern NumericFloat64,
+    pattern NumericInt16,
+    pattern NumericInt32,
+    pattern NumericInt64,
+    pattern NumericInt8,
+    pattern NumericUInt16,
+    pattern NumericUInt32,
+    pattern NumericUInt64,
+    pattern NumericUInt8,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureConstraint,
+    pattern SignatureIntToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureOperatorToken,
+    pattern SignatureOtherToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
+  )
 
 canonicalCoreExprRuntimeValue :: Expr -> Either Text RuntimeValue
 canonicalCoreExprRuntimeValue expression =
@@ -196,10 +241,10 @@ corePatternRuntimeValue patternValue =
         <$> corePatternRuntimeValue headPattern
         <*> corePatternRuntimeValue tailPattern
     PTuple patterns -> constructor1 "CoreTuplePattern" <$> listRuntimeValue corePatternRuntimeValue patterns
-    PAs name pattern ->
+    PAs name nestedPattern ->
       constructor2 "CoreAsPattern"
         <$> coreNameRuntimeValue name
-        <*> corePatternRuntimeValue pattern
+        <*> corePatternRuntimeValue nestedPattern
     POr patterns -> constructor1 "CoreOrPattern" <$> listRuntimeValue corePatternRuntimeValue patterns
 
 coreCaseArmRuntimeValue :: CaseArm -> Either Text RuntimeValue

@@ -1,49 +1,50 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.Foundation.ModulesTests
-  ( moduleTests
-  ) where
+  ( moduleTests,
+  )
+where
 
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.ModuleExports
-  ( ModuleExportSelector (..)
+  ( ModuleExportSelector (..),
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ValueNamespace),
-    qualifiedName
+    qualifiedName,
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertRight
+    assertRight,
   )
 
 moduleTests :: [NamedTest]
 moduleTests =
-  [ ("parses operator keyword as a module-body binding name", testParsesOperatorKeywordAsModuleBodyBindingName)
-    , ("parses reserved value as an export selector", testParsesValueExportSelector)
-    , ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias)
-    , ("lowers class-qualified method reference as variable", testLowersClassQualifiedMethodReference)
-    , ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody)
+  [ ("parses operator keyword as a module-body binding name", testParsesOperatorKeywordAsModuleBodyBindingName),
+    ("parses reserved value as an export selector", testParsesValueExportSelector),
+    ("parses trait as an ordinary import alias", testParsesTraitAsImportAlias),
+    ("lowers class-qualified method reference as variable", testLowersClassQualifiedMethodReference),
+    ("parses class and impl capability declarations inside module bodies", testParsesCapabilityDeclarationsInModuleBody)
   ]
 
 testParsesValueExportSelector :: IO ()
@@ -80,12 +81,14 @@ testParsesOperatorKeywordAsModuleBodyBindingName =
             ]
         )
     )
-    (parseSurfaceProgram """
-    module App::Core {
-    operator = 1.
-    result = operator.
-    }
-    """)
+    ( parseSurfaceProgram
+        """
+        module App::Core {
+        operator = 1.
+        result = operator.
+        }
+        """
+    )
 
 testParsesTraitAsImportAlias :: IO ()
 testParsesTraitAsImportAlias =
@@ -98,19 +101,23 @@ testParsesTraitAsImportAlias =
             ]
         )
     )
-    (parseSurfaceProgram """
-    import Lib::Math as trait.
-    trait::subtract.
-    """)
+    ( parseSurfaceProgram
+        """
+        import Lib::Math as trait.
+        trait::subtract.
+        """
+    )
 
 testLowersClassQualifiedMethodReference :: IO ()
 testLowersClassQualifiedMethodReference =
   assertRight
     "parse + lower class-qualified method reference"
-    (parseSurfaceProgram """
-    result = Eq::equals 1 1.
-    result.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = Eq::equals 1 1.
+        result.
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered class-qualified method reference"
@@ -136,13 +143,15 @@ testParsesCapabilityDeclarationsInModuleBody =
         ( SEBlock
             [ SSModule (SourceSpan 1 1) ["App", "Core"] Nothing,
               SSClass (SourceSpan 2 1) "Eq" ["a"] [],
-              SSImpl (SourceSpan 3 1) "Eq" [SurfaceTypeInt] []
+              SSImpl (SourceSpan 3 1) "Eq" [TypeInt] []
             ]
         )
     )
-    (parseSurfaceProgram """
-    module App::Core {
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    }
-    """)
+    ( parseSurfaceProgram
+        """
+        module App::Core {
+        class Eq(a) { }.
+        impl Eq(Int) { }.
+        }
+        """
+    )

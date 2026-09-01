@@ -29,7 +29,6 @@ module Jazz.Compiler.TypedCore.Validate.TypeRecipes
     nextTypeParameterOrdinal,
     nodeInfoHasCompatibleIntrinsicContract,
     numericConstraintAcceptsType,
-    numericTypeFromTyped,
     numericTypeIsIntegral,
     parseDecimalBound,
     parseDecimalMagnitude,
@@ -76,10 +75,10 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (NumericType (..))
 import Jazz.Compiler.BuiltinCatalog (numericTypeFloatMax)
 import Jazz.Compiler.Name (operatorBindingIdentifierText)
 import Jazz.Compiler.Parser.Operator (isValidUserOperatorSymbol)
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Internal
 
@@ -322,17 +321,17 @@ integralTypeBounds typeValue =
     TypedIntType -> signedBounds 64
     TypedNumericType numericType ->
       case numericType of
-        TypedInt8Type -> signedBounds 8
-        TypedInt16Type -> signedBounds 16
-        TypedInt32Type -> signedBounds 32
-        TypedInt64Type -> signedBounds 64
-        TypedUInt8Type -> unsignedBounds 8
-        TypedUInt16Type -> unsignedBounds 16
-        TypedUInt32Type -> unsignedBounds 32
-        TypedUInt64Type -> unsignedBounds 64
-        TypedFloat16Type -> Nothing
-        TypedFloat32Type -> Nothing
-        TypedFloat64Type -> Nothing
+        NumericInt8 -> signedBounds 8
+        NumericInt16 -> signedBounds 16
+        NumericInt32 -> signedBounds 32
+        NumericInt64 -> signedBounds 64
+        NumericUInt8 -> unsignedBounds 8
+        NumericUInt16 -> unsignedBounds 16
+        NumericUInt32 -> unsignedBounds 32
+        NumericUInt64 -> unsignedBounds 64
+        NumericFloat16 -> Nothing
+        NumericFloat32 -> Nothing
+        NumericFloat64 -> Nothing
     _ -> Nothing
   where
     signedBounds :: Int -> Maybe (Integer, Integer)
@@ -349,20 +348,20 @@ integralConstraint numericConstraint =
     TypedIntegralLiteralNumericConstraint {} -> True
     _ -> False
 
-numericTypeIsIntegral :: TypedNumericType -> Bool
+numericTypeIsIntegral :: NumericType -> Bool
 numericTypeIsIntegral numericType =
   case numericType of
-    TypedInt8Type -> True
-    TypedInt16Type -> True
-    TypedInt32Type -> True
-    TypedInt64Type -> True
-    TypedUInt8Type -> True
-    TypedUInt16Type -> True
-    TypedUInt32Type -> True
-    TypedUInt64Type -> True
-    TypedFloat16Type -> False
-    TypedFloat32Type -> False
-    TypedFloat64Type -> False
+    NumericInt8 -> True
+    NumericInt16 -> True
+    NumericInt32 -> True
+    NumericInt64 -> True
+    NumericUInt8 -> True
+    NumericUInt16 -> True
+    NumericUInt32 -> True
+    NumericUInt64 -> True
+    NumericFloat16 -> False
+    NumericFloat32 -> False
+    NumericFloat64 -> False
 
 validateLiteral :: TypedCoreValidationPath -> TypedNodeInfo -> TypedLiteral -> [TypedCoreValidationFailure]
 validateLiteral path info literal
@@ -399,11 +398,11 @@ literalMatchesType literal typeValue =
       fractionalLiteralFitsNumericType whole fractional NumericFloat64
     (TypedFractionalLiteral whole fractional Nothing, TypedNumericType numericType) ->
       isFloatingNumericType numericType
-        && fractionalLiteralFitsNumericType whole fractional (numericTypeFromTyped numericType)
+        && fractionalLiteralFitsNumericType whole fractional numericType
     (TypedFractionalLiteral whole fractional (Just expectedType), TypedNumericType actualType) ->
       expectedType == actualType
         && isFloatingNumericType actualType
-        && fractionalLiteralFitsNumericType whole fractional (numericTypeFromTyped actualType)
+        && fractionalLiteralFitsNumericType whole fractional actualType
     (TypedBooleanLiteral _, TypedBoolType) -> True
     (TypedCharacterLiteral _, TypedCharType) -> True
     (TypedTextLiteral _, TypedTextType) -> True
@@ -425,21 +424,6 @@ fractionalLiteralFitsNumericType whole fractional numericType =
        in magnitude <= toRational maximumMagnitude
     _ -> False
 
-numericTypeFromTyped :: TypedNumericType -> NumericType
-numericTypeFromTyped numericType =
-  case numericType of
-    TypedInt8Type -> NumericInt8
-    TypedInt16Type -> NumericInt16
-    TypedInt32Type -> NumericInt32
-    TypedInt64Type -> NumericInt64
-    TypedUInt8Type -> NumericUInt8
-    TypedUInt16Type -> NumericUInt16
-    TypedUInt32Type -> NumericUInt32
-    TypedUInt64Type -> NumericUInt64
-    TypedFloat16Type -> NumericFloat16
-    TypedFloat32Type -> NumericFloat32
-    TypedFloat64Type -> NumericFloat64
-
 literalType :: TypedLiteral -> TypedType
 literalType literal =
   case literal of
@@ -450,8 +434,8 @@ literalType literal =
     TypedCharacterLiteral _ -> TypedCharType
     TypedTextLiteral _ -> TypedTextType
 
-isFloatingNumericType :: TypedNumericType -> Bool
-isFloatingNumericType numericType = numericType `elem` [TypedFloat16Type, TypedFloat32Type, TypedFloat64Type]
+isFloatingNumericType :: NumericType -> Bool
+isFloatingNumericType numericType = numericType `elem` [NumericFloat16, NumericFloat32, NumericFloat64]
 
 validateType :: TypedCoreValidationPath -> Set TypedTypeParameterId -> TypedType -> [TypedCoreValidationFailure]
 validateType path scope typeValue =

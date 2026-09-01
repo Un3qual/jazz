@@ -36,7 +36,6 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
-    NumericType (..),
     Pattern (..),
     SignatureType,
     Statement (..),
@@ -187,6 +186,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeScheme (..),
     emptyScopeCapabilityFacts,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore (TypedSourcePath, validTypedSourcePath)
 import Jazz.Compiler.TypedCore.Validate (ValidatedTypedProgram)
 import Jazz.Compiler.WarningConfig

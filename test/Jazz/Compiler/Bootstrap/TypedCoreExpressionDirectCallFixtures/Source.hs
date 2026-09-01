@@ -23,6 +23,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeBinding (PlainTypeBinding),
     emptyScopeCapabilityFacts,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 
@@ -835,7 +836,7 @@ charInfo = TypedNodeInfo TypedCharType TypedCharRecipe [] []
 intInfo = TypedNodeInfo TypedIntType (TypedSignedIntegerRecipe 64) [] []
 
 inferredIntInfo :: TypedNodeInfo
-inferredIntInfo = TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] []
+inferredIntInfo = TypedNodeInfo (TypedNumericType NumericInt64) (TypedSignedIntegerRecipe 64) [] []
 
 floatInfo = TypedNodeInfo TypedFloatType (TypedFloatRecipe 64) [] []
 
@@ -853,7 +854,7 @@ textExpr value = TypedLiteralExpr textInfo (TypedTextLiteral value)
 intExpr :: Integer -> TypedExpr
 intExpr value = TypedLiteralExpr intInfo (TypedIntegerLiteral (Text.pack (show value)))
 
-floatExpr :: Integer -> Text -> Maybe TypedNumericType -> TypedExpr
+floatExpr :: Integer -> Text -> Maybe NumericType -> TypedExpr
 floatExpr whole fractional maybeNumericType = TypedLiteralExpr floatInfo (TypedFractionalLiteral (Text.pack (show whole)) fractional maybeNumericType)
 
 binaryExpr :: TypedNodeInfo -> Text -> TypedExpr -> TypedExpr -> TypedExpr
@@ -1086,17 +1087,17 @@ doubleFunction =
 
 explicitNumericFunctions :: [ExpectedFunction]
 explicitNumericFunctions =
-  [ numericFunction "asInt8" TypedInt8Type (TypedSignedIntegerRecipe 8) (TypedIntegerLiteral "1"),
-    numericFunction "asInt16" TypedInt16Type (TypedSignedIntegerRecipe 16) (TypedIntegerLiteral "2"),
-    numericFunction "asInt32" TypedInt32Type (TypedSignedIntegerRecipe 32) (TypedIntegerLiteral "3"),
-    numericFunction "asInt64" TypedInt64Type (TypedSignedIntegerRecipe 64) (TypedIntegerLiteral "4"),
-    numericFunction "asUInt8" TypedUInt8Type (TypedUnsignedIntegerRecipe 8) (TypedIntegerLiteral "5"),
-    numericFunction "asUInt16" TypedUInt16Type (TypedUnsignedIntegerRecipe 16) (TypedIntegerLiteral "6"),
-    numericFunction "asUInt32" TypedUInt32Type (TypedUnsignedIntegerRecipe 32) (TypedIntegerLiteral "7"),
-    numericFunction "asUInt64" TypedUInt64Type (TypedUnsignedIntegerRecipe 64) (TypedIntegerLiteral "8"),
-    numericFunction "asFloat16" TypedFloat16Type (TypedFloatRecipe 16) (TypedFractionalLiteral "1" "5" (Just TypedFloat16Type)),
-    numericFunction "asFloat32" TypedFloat32Type (TypedFloatRecipe 32) (TypedFractionalLiteral "2" "5" (Just TypedFloat32Type)),
-    numericFunction "asFloat64" TypedFloat64Type (TypedFloatRecipe 64) (TypedFractionalLiteral "3" "5" (Just TypedFloat64Type))
+  [ numericFunction "asInt8" NumericInt8 (TypedSignedIntegerRecipe 8) (TypedIntegerLiteral "1"),
+    numericFunction "asInt16" NumericInt16 (TypedSignedIntegerRecipe 16) (TypedIntegerLiteral "2"),
+    numericFunction "asInt32" NumericInt32 (TypedSignedIntegerRecipe 32) (TypedIntegerLiteral "3"),
+    numericFunction "asInt64" NumericInt64 (TypedSignedIntegerRecipe 64) (TypedIntegerLiteral "4"),
+    numericFunction "asUInt8" NumericUInt8 (TypedUnsignedIntegerRecipe 8) (TypedIntegerLiteral "5"),
+    numericFunction "asUInt16" NumericUInt16 (TypedUnsignedIntegerRecipe 16) (TypedIntegerLiteral "6"),
+    numericFunction "asUInt32" NumericUInt32 (TypedUnsignedIntegerRecipe 32) (TypedIntegerLiteral "7"),
+    numericFunction "asUInt64" NumericUInt64 (TypedUnsignedIntegerRecipe 64) (TypedIntegerLiteral "8"),
+    numericFunction "asFloat16" NumericFloat16 (TypedFloatRecipe 16) (TypedFractionalLiteral "1" "5" (Just NumericFloat16)),
+    numericFunction "asFloat32" NumericFloat32 (TypedFloatRecipe 32) (TypedFractionalLiteral "2" "5" (Just NumericFloat32)),
+    numericFunction "asFloat64" NumericFloat64 (TypedFloatRecipe 64) (TypedFractionalLiteral "3" "5" (Just NumericFloat64))
   ]
   where
     numericFunction name numericType recipe literal =

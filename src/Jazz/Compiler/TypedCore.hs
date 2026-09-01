@@ -12,6 +12,7 @@ import Control.DeepSeq (NFData)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 newtype TypedTypeParameterId = TypedTypeParameterId Int
   deriving stock (Eq, Generic, Ord, Show)
@@ -90,25 +91,10 @@ data TypedSpan = TypedSpan Int Int
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data TypedNumericType
-  = TypedInt8Type
-  | TypedInt16Type
-  | TypedInt32Type
-  | TypedInt64Type
-  | TypedUInt8Type
-  | TypedUInt16Type
-  | TypedUInt32Type
-  | TypedUInt64Type
-  | TypedFloat16Type
-  | TypedFloat32Type
-  | TypedFloat64Type
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
 data TypedType
   = TypedIntType
   | TypedFloatType
-  | TypedNumericType TypedNumericType
+  | TypedNumericType NumericType
   | TypedBoolType
   | TypedCharType
   | TypedTextType
@@ -136,20 +122,20 @@ data TypedRepresentationRecipe
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-typedNumericRepresentationRecipe :: TypedNumericType -> TypedRepresentationRecipe
+typedNumericRepresentationRecipe :: NumericType -> TypedRepresentationRecipe
 typedNumericRepresentationRecipe numericType =
   case numericType of
-    TypedInt8Type -> TypedSignedIntegerRecipe 8
-    TypedInt16Type -> TypedSignedIntegerRecipe 16
-    TypedInt32Type -> TypedSignedIntegerRecipe 32
-    TypedInt64Type -> TypedSignedIntegerRecipe 64
-    TypedUInt8Type -> TypedUnsignedIntegerRecipe 8
-    TypedUInt16Type -> TypedUnsignedIntegerRecipe 16
-    TypedUInt32Type -> TypedUnsignedIntegerRecipe 32
-    TypedUInt64Type -> TypedUnsignedIntegerRecipe 64
-    TypedFloat16Type -> TypedFloatRecipe 16
-    TypedFloat32Type -> TypedFloatRecipe 32
-    TypedFloat64Type -> TypedFloatRecipe 64
+    NumericInt8 -> TypedSignedIntegerRecipe 8
+    NumericInt16 -> TypedSignedIntegerRecipe 16
+    NumericInt32 -> TypedSignedIntegerRecipe 32
+    NumericInt64 -> TypedSignedIntegerRecipe 64
+    NumericUInt8 -> TypedUnsignedIntegerRecipe 8
+    NumericUInt16 -> TypedUnsignedIntegerRecipe 16
+    NumericUInt32 -> TypedUnsignedIntegerRecipe 32
+    NumericUInt64 -> TypedUnsignedIntegerRecipe 64
+    NumericFloat16 -> TypedFloatRecipe 16
+    NumericFloat32 -> TypedFloatRecipe 32
+    NumericFloat64 -> TypedFloatRecipe 64
 
 data TypedNumericConstraint
   = TypedAnyNumericConstraint
@@ -238,7 +224,7 @@ data TypedNodeInfo
 
 data TypedLiteral
   = TypedIntegerLiteral Text
-  | TypedFractionalLiteral Text Text (Maybe TypedNumericType)
+  | TypedFractionalLiteral Text Text (Maybe NumericType)
   | TypedBooleanLiteral Bool
   | TypedCharacterLiteral Char
   | TypedTextLiteral Text

@@ -15,7 +15,7 @@ where
 
 import Control.Applicative ((<|>))
 import qualified Data.Set as Set
-import Jazz.Compiler.AST (NumericType (..), Pattern (..))
+import Jazz.Compiler.AST (Pattern (..))
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeIsIntegral,
   )
@@ -34,6 +34,7 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 -- | Commit a successfully selected integral context into the provisional tree.
 -- Integer-range unification validates compatibility but deliberately creates no

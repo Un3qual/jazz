@@ -16,7 +16,6 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
@@ -119,6 +118,7 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType (TIntType, TTextType),
     TypeBinding (PlainTypeBinding),
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,

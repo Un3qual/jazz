@@ -39,6 +39,10 @@ import Jazz.Compiler.Parser.FixtureCorpus
     ParserFixtureExpectation (..),
     parserFixtureCorpus,
   )
+import Jazz.Compiler.TypeRepresentation
+  ( SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -722,18 +726,18 @@ completeSpanExpression =
             ]
         ),
       SSImport span2 ["Core", "Text"] Nothing (Just ["length"]),
-      SSLet "typed" span3 (SETypeApplication (SEVar "identity") span4 SurfaceTypeInt),
-      SSSignature "typed" span4 (SurfaceSignatureType SurfaceTypeInt),
-      SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [SurfaceTypeVariable "a"]],
+      SSLet "typed" span3 (SETypeApplication (SEVar "identity") span4 TypeInt),
+      SSSignature "typed" span4 (SignatureType TypeInt),
+      SSData span1 "Box" ["a"] [SurfaceDataConstructor "Box" [TypeVariable "a"]],
       SSClass
         span2
         "Eq"
         ["a"]
-        [SurfaceClassMethodSignature "equals" span3 (SurfaceSignatureType SurfaceTypeBool)],
+        [SurfaceClassMethodSignature "equals" span3 (SignatureType TypeBool)],
       SSImpl
         span3
         "Eq"
-        [SurfaceTypeInt]
+        [TypeInt]
         [SurfaceImplMethod "equals" span4 (SEBlock [SSExpr span1 (SELit (SLBool True))])],
       SSLet
         "nested"

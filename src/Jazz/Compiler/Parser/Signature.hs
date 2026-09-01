@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
@@ -26,11 +28,11 @@ import Jazz.Compiler.Name
     mkQualifiedIdentifier,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceNumericType (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
-    SurfaceSignatureType (..),
+  ( SurfaceNumericType,
+    SurfaceSignatureConstraint,
+    SurfaceSignaturePayload,
+    SurfaceSignatureToken,
+    SurfaceSignatureType,
   )
 import Jazz.Compiler.Parser.Failure
   ( ParserFailure,
@@ -42,13 +44,46 @@ import Jazz.Compiler.Parser.Lexer
     isImmediatelyAfter,
   )
 import qualified Jazz.Compiler.Parser.TokenParser as TokenParser
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureConstraint,
+    pattern SignatureIntToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureOperatorToken,
+    pattern SignatureOtherToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
+  )
 import qualified Text.Megaparsec as MP
 
 parseSignaturePayload :: [Token] -> SurfaceSignaturePayload
 parseSignaturePayload signatureTokens =
   case parseSupportedSignaturePayload signatureTokens of
     Just signaturePayload -> signaturePayload
-    Nothing -> SurfaceUnsupportedSignature (map surfaceSignatureTokenFromToken signatureTokens)
+    Nothing -> UnsupportedSignature (map surfaceSignatureTokenFromToken signatureTokens)
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
 parseSupportedSignaturePayload tokens =
@@ -83,7 +118,7 @@ splitTopLevelCommaTokensDetailed =
 signaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 signaturePayloadParser =
   constrainedSignaturePayloadParser
-    <|> (SurfaceSignatureType <$> signatureTypeParser)
+    <|> (SignatureType <$> signatureTypeParser)
 
 constrainedSignaturePayloadParser :: TokenParser.Parser SurfaceSignaturePayload
 constrainedSignaturePayloadParser = do
@@ -92,7 +127,7 @@ constrainedSignaturePayloadParser = do
   constraints <- constraintBlockParser
   _ <- TokenParser.parseTokenKind TRBrace
   _ <- TokenParser.parseTokenKind TColon
-  SurfaceConstrainedSignature constraints <$> signatureTypeParser
+  ConstrainedSignature constraints <$> signatureTypeParser
 
 constraintBlockParser :: TokenParser.Parser [SurfaceSignatureConstraint]
 constraintBlockParser =
@@ -106,10 +141,10 @@ signatureConstraintParser :: TokenParser.Parser SurfaceSignatureConstraint
 signatureConstraintParser = do
   signatureType <- signatureTypeParser
   case signatureType of
-    SurfaceTypeApplication constraintName arguments ->
-      pure (SurfaceSignatureConstraint constraintName arguments)
-    SurfaceTypeName constraintName ->
-      pure (SurfaceSignatureConstraint constraintName [])
+    TypeApplication constraintName arguments ->
+      pure (SignatureConstraint constraintName arguments)
+    TypeName constraintName ->
+      pure (SignatureConstraint constraintName [])
     _ ->
       MP.empty
 
@@ -124,7 +159,7 @@ parseSignatureTypeParser = signatureTypeParser
 parseFunctionResult :: SurfaceSignatureType -> TokenParser.Parser SurfaceSignatureType
 parseFunctionResult argumentType = do
   _ <- TokenParser.parseTokenKind TArrow
-  SurfaceTypeFunction argumentType <$> signatureTypeParser
+  TypeFunction argumentType <$> signatureTypeParser
 
 functionOperandTypeParser :: TokenParser.Parser SurfaceSignatureType
 functionOperandTypeParser =
@@ -135,14 +170,14 @@ functionOperandTypeParser =
 
 listSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 listSignatureTypeParser =
-  SurfaceTypeList
+  TypeList
     <$> betweenTokenKinds TLBracket TRBracket signatureTypeParser
 
 parenthesizedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 parenthesizedSignatureTypeParser =
   betweenTokenKinds TLParen TRParen $
     ( MP.lookAhead (TokenParser.parseTokenKind TRParen)
-        *> pure (SurfaceTypeTuple [])
+        *> pure (TypeTuple [])
     )
       <|> do
         firstElement <- signatureTypeParser
@@ -151,7 +186,7 @@ parenthesizedSignatureTypeParser =
           [] ->
             pure firstElement
           _ ->
-            pure (SurfaceTypeTuple (firstElement : remainingElements))
+            pure (TypeTuple (firstElement : remainingElements))
 
 namedSignatureTypeParser :: TokenParser.Parser SurfaceSignatureType
 namedSignatureTypeParser = do
@@ -171,8 +206,8 @@ namedSignatureTypeParser = do
     Nothing ->
       pure
         ( if identifierStartsLower typeMemberName
-            then SurfaceTypeVariable typeNameIdentifier
-            else SurfaceTypeName typeNameIdentifier
+            then TypeVariable typeNameIdentifier
+            else TypeName typeNameIdentifier
         )
 
 typeApplicationParser :: TokenParser.Parser SurfaceSignatureType
@@ -185,8 +220,8 @@ typeApplicationParser = do
       (signatureTypeParser `MP.sepBy1` commaParser)
   pure
     ( case (identifierText typeNameIdentifier, arguments) of
-        ("List", [elementType]) -> SurfaceTypeList elementType
-        _ -> SurfaceTypeApplication typeNameIdentifier arguments
+        ("List", [elementType]) -> TypeList elementType
+        _ -> TypeApplication typeNameIdentifier arguments
     )
 
 signatureTypeHeadParser :: TokenParser.Parser (Token, Identifier)
@@ -293,43 +328,43 @@ singleton value = [value]
 parseNamedSignatureType :: Text -> Maybe SurfaceSignatureType
 parseNamedSignatureType typeName =
   case typeName of
-    "Int" -> Just SurfaceTypeInt
-    "Float" -> Just SurfaceTypeFloat
-    "Bool" -> Just SurfaceTypeBool
-    "Char" -> Just SurfaceTypeChar
-    "Text" -> Just SurfaceTypeText
-    _ -> SurfaceTypeNumeric <$> parseSurfaceNumericType typeName
+    "Int" -> Just TypeInt
+    "Float" -> Just TypeFloat
+    "Bool" -> Just TypeBool
+    "Char" -> Just TypeChar
+    "Text" -> Just TypeText
+    _ -> TypeNumeric <$> parseSurfaceNumericType typeName
 
 parseSurfaceNumericType :: Text -> Maybe SurfaceNumericType
 parseSurfaceNumericType typeName =
   case typeName of
-    "Int8" -> Just SurfaceNumericInt8
-    "Int16" -> Just SurfaceNumericInt16
-    "Int32" -> Just SurfaceNumericInt32
-    "Int64" -> Just SurfaceNumericInt64
-    "UInt8" -> Just SurfaceNumericUInt8
-    "UInt16" -> Just SurfaceNumericUInt16
-    "UInt32" -> Just SurfaceNumericUInt32
-    "UInt64" -> Just SurfaceNumericUInt64
-    "Float16" -> Just SurfaceNumericFloat16
-    "Float32" -> Just SurfaceNumericFloat32
-    "Float64" -> Just SurfaceNumericFloat64
+    "Int8" -> Just NumericInt8
+    "Int16" -> Just NumericInt16
+    "Int32" -> Just NumericInt32
+    "Int64" -> Just NumericInt64
+    "UInt8" -> Just NumericUInt8
+    "UInt16" -> Just NumericUInt16
+    "UInt32" -> Just NumericUInt32
+    "UInt64" -> Just NumericUInt64
+    "Float16" -> Just NumericFloat16
+    "Float32" -> Just NumericFloat32
+    "Float64" -> Just NumericFloat64
     _ -> Nothing
 
 surfaceSignatureTokenFromToken :: Token -> SurfaceSignatureToken
 surfaceSignatureTokenFromToken token =
   case tokenKind token of
-    TIdentifier name -> SurfaceSignatureNameToken name
-    TInt value -> SurfaceSignatureIntToken value
-    TArrow -> SurfaceSignatureArrowToken
-    TAt -> SurfaceSignatureAtToken
-    TColon -> SurfaceSignatureColonToken
-    TLParen -> SurfaceSignatureLParenToken
-    TRParen -> SurfaceSignatureRParenToken
-    TLBrace -> SurfaceSignatureLBraceToken
-    TRBrace -> SurfaceSignatureRBraceToken
-    TLBracket -> SurfaceSignatureLBracketToken
-    TRBracket -> SurfaceSignatureRBracketToken
-    TComma -> SurfaceSignatureCommaToken
-    TOperator symbol -> SurfaceSignatureOperatorToken symbol
-    _ -> SurfaceSignatureOtherToken (tokenLexeme token)
+    TIdentifier name -> SignatureNameToken name
+    TInt value -> SignatureIntToken value
+    TArrow -> SignatureArrowToken
+    TAt -> SignatureAtToken
+    TColon -> SignatureColonToken
+    TLParen -> SignatureLParenToken
+    TRParen -> SignatureRParenToken
+    TLBrace -> SignatureLBraceToken
+    TRBrace -> SignatureRBraceToken
+    TLBracket -> SignatureLBracketToken
+    TRBracket -> SignatureRBracketToken
+    TComma -> SignatureCommaToken
+    TOperator symbol -> SignatureOperatorToken symbol
+    _ -> SignatureOtherToken (tokenLexeme token)

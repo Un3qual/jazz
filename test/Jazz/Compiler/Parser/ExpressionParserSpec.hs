@@ -22,10 +22,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
     SurfacePattern (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureType (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Context
@@ -56,6 +53,11 @@ import Jazz.Compiler.Parser.TestSupport
 import Jazz.Compiler.Parser.TokenParser
   ( runTokenParserPrefix,
     runTokenParserPrefixDetailed,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -209,7 +211,7 @@ testKnownAliasesDisambiguateBlockStatements = do
   nonAliasTokens <- lexSource "{ Result::a. }."
   assertExpression
     "unknown alias keeps compact signature in block"
-    (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SurfaceSignatureType (SurfaceTypeVariable "a"))])
+    (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SignatureType (TypeVariable "a"))])
     [TDot]
     (parseExpressionTokens Set.empty [] nonAliasTokens)
 
@@ -254,7 +256,7 @@ testFractionalLiteralSuffix = do
   tokens <- lexSource "1.25f32."
   assertExpression
     "fractional suffix"
-    (SELit (SLFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just SurfaceNumericFloat32)))
+    (SELit (SLFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just NumericFloat32)))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 

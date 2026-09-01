@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Canonical conversion between surface signature types and inference types.
 module Jazz.Compiler.TypeInference.Signature
@@ -25,10 +27,9 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( NumericType (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
+  ( SignatureConstraint,
+    SignaturePayload,
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (numericTypeFromName)
 import Jazz.Compiler.CapabilityFacts
@@ -53,6 +54,25 @@ import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
     ExpressionType (..),
     TypeSchemeConstraint (..),
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 
 data SignatureTypeFailure

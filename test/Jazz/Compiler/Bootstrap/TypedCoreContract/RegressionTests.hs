@@ -13,6 +13,7 @@ import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreContract.Fixtures
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 import Jazz.TestHarness
@@ -1439,7 +1440,7 @@ testFractionalLiteralSuffix =
     [ expressionFailure
         "review-fractional-literal-suffix"
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType TypedFloat16Type) (TypedNumericType TypedFloat64Type))
+        (TypedTypeDetail (TypedNumericType NumericFloat16) (TypedNumericType NumericFloat64))
     ]
     (validateTypedProgram fractionalLiteralSuffixProgram)
 
@@ -1705,7 +1706,7 @@ testCurrentReviewRegressions = do
         "review-integral-literal-range"
         0
         TypedBindingValueMismatch
-        (TypedTypeDetail TypedIntType (TypedNumericType TypedUInt8Type))
+        (TypedTypeDetail TypedIntType (TypedNumericType NumericUInt8))
     ]
     (validateTypedProgram integralLiteralRangeProgram)
 
@@ -1977,12 +1978,12 @@ testPostNewestBotReviewRegressions = do
         "review-concrete-integer-bounds"
         0
         TypedLiteralTypeMismatch
-        (TypedTypeDetail TypedIntType (TypedNumericType TypedUInt8Type)),
+        (TypedTypeDetail TypedIntType (TypedNumericType NumericUInt8)),
       expressionFailureAt
         "review-concrete-integer-bounds"
         1
         TypedLiteralTypeMismatch
-        (TypedTypeDetail TypedIntType (TypedNumericType TypedUInt8Type))
+        (TypedTypeDetail TypedIntType (TypedNumericType NumericUInt8))
     ]
     (validateTypedProgram concreteIntegerBoundsProgram)
   assertEqual
@@ -2059,22 +2060,22 @@ testFractionalLiteralBounds =
         "review-fractional-literal-bounds"
         1
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType TypedFloat16Type) (TypedNumericType TypedFloat16Type)),
+        (TypedTypeDetail (TypedNumericType NumericFloat16) (TypedNumericType NumericFloat16)),
       expressionFailureAt
         "review-fractional-literal-bounds"
         2
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType TypedFloat16Type) (TypedNumericType TypedFloat16Type)),
+        (TypedTypeDetail (TypedNumericType NumericFloat16) (TypedNumericType NumericFloat16)),
       expressionFailureAt
         "review-fractional-literal-bounds"
         4
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType TypedFloat32Type) (TypedNumericType TypedFloat32Type)),
+        (TypedTypeDetail (TypedNumericType NumericFloat32) (TypedNumericType NumericFloat32)),
       expressionFailureAt
         "review-fractional-literal-bounds"
         6
         TypedLiteralTypeMismatch
-        (TypedTypeDetail (TypedNumericType TypedFloat64Type) (TypedNumericType TypedFloat64Type))
+        (TypedTypeDetail (TypedNumericType NumericFloat64) (TypedNumericType NumericFloat64))
     ]
     (validateTypedProgram fractionalLiteralBoundsProgram)
 

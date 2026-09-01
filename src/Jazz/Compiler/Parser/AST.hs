@@ -12,13 +12,13 @@ module Jazz.Compiler.Parser.AST
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
+    SurfaceNumericType,
     SurfacePatternLambdaClause (..),
     SurfacePattern (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
-    SurfaceSignatureType (..),
+    SurfaceSignatureConstraint,
+    SurfaceSignaturePayload,
+    SurfaceSignatureToken,
+    SurfaceSignatureType,
     SurfaceStatement (..),
   )
 where
@@ -39,6 +39,17 @@ import Jazz.Compiler.ModuleExports
 import Jazz.Compiler.Name
   ( Identifier,
   )
+import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
+
+type SurfaceNumericType = TypeRepresentation.NumericType
+
+type SurfaceSignatureType = TypeRepresentation.SignatureType Identifier Identifier
+
+type SurfaceSignatureConstraint = TypeRepresentation.SignatureConstraint Identifier Identifier
+
+type SurfaceSignatureToken = TypeRepresentation.SignatureToken Text
+
+type SurfaceSignaturePayload = TypeRepresentation.SignaturePayload Identifier Identifier Text
 
 -- | Literals as they appear in parsed source before lowering.
 data SurfaceLiteral
@@ -111,76 +122,6 @@ data SurfaceExpr
   | SESectionLeft SurfaceExpr Text
   | SESectionRight Text SurfaceExpr
   | SEBlock [SurfaceStatement]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
--- | Parser-owned signature payload for the currently supported monomorphic
--- subset. Unsupported surfaces remain tokenized so later phases can keep
--- issuing the stable `E2009` diagnostic without storing joined raw text.
-data SurfaceSignaturePayload
-  = SurfaceSignatureType SurfaceSignatureType
-  | SurfaceConstrainedSignature [SurfaceSignatureConstraint] SurfaceSignatureType
-  | SurfaceUnsupportedSignature [SurfaceSignatureToken]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
--- | Parser-owned constraint payload for the `@{...}:` surface. It is
--- structured before the full type-class model exists so later phases can
--- reject or narrow it deterministically without depending on opaque raw text.
-data SurfaceSignatureConstraint = SurfaceSignatureConstraint Identifier [SurfaceSignatureType]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
--- | Monomorphic signature types supported by the active parser/type slice.
-data SurfaceNumericType
-  = SurfaceNumericInt8
-  | SurfaceNumericInt16
-  | SurfaceNumericInt32
-  | SurfaceNumericInt64
-  | SurfaceNumericUInt8
-  | SurfaceNumericUInt16
-  | SurfaceNumericUInt32
-  | SurfaceNumericUInt64
-  | SurfaceNumericFloat16
-  | SurfaceNumericFloat32
-  | SurfaceNumericFloat64
-  deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-data SurfaceSignatureType
-  = SurfaceTypeInt
-  | SurfaceTypeFloat
-  | SurfaceTypeNumeric SurfaceNumericType
-  | SurfaceTypeBool
-  | SurfaceTypeChar
-  | SurfaceTypeText
-  | SurfaceTypeVariable Identifier
-  | SurfaceTypeName Identifier
-  | SurfaceTypeApplication Identifier [SurfaceSignatureType]
-  | SurfaceTypeList SurfaceSignatureType
-  | SurfaceTypeTuple [SurfaceSignatureType]
-  | SurfaceTypeFunction SurfaceSignatureType SurfaceSignatureType
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
--- | Tokenized fallback for unsupported signature surfaces. The parser records
--- enough structure for stable downstream diagnostics while avoiding raw-text
--- coupling between phases.
-data SurfaceSignatureToken
-  = SurfaceSignatureNameToken Text
-  | SurfaceSignatureIntToken Integer
-  | SurfaceSignatureArrowToken
-  | SurfaceSignatureAtToken
-  | SurfaceSignatureColonToken
-  | SurfaceSignatureLParenToken
-  | SurfaceSignatureRParenToken
-  | SurfaceSignatureLBraceToken
-  | SurfaceSignatureRBraceToken
-  | SurfaceSignatureLBracketToken
-  | SurfaceSignatureRBracketToken
-  | SurfaceSignatureCommaToken
-  | SurfaceSignatureOperatorToken Text
-  | SurfaceSignatureOtherToken Text
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 

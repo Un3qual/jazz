@@ -22,43 +22,46 @@ module Jazz.Compiler.Semantics.Runtime.Shared
     tooLargeFloat64Integer,
     assertRuntimeBool,
     assertCallableRuntimeEqualityRejected,
-    assertRuntimeErrorContains
-  ) where
+    assertRuntimeErrorContains,
+  )
+where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    SignatureType (..),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
     Pattern (..),
-    SignaturePayload (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..)
+    SourceSpan (..),
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource
+  ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.Name (Name, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    evaluateRuntimeExpr
+    evaluateRuntimeExpr,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( assertContains,
     assertEqual,
-    failTest
+    failTest,
   )
 
 patternCaseNoMatchExpr :: Expr

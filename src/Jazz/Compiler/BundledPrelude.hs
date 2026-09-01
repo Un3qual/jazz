@@ -10,9 +10,6 @@ where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( NumericType (..),
-  )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinOwnership (PreludeTarget),
     allBuiltinSymbols,
@@ -21,6 +18,7 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolOwnership,
     renderNumericTypeName,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 -- | Pre-generated prelude text that exposes all builtin kernel bridges and
 -- their public aliases in a deterministic order.

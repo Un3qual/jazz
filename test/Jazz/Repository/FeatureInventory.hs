@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Repository.FeatureInventory
   ( SurfaceFeature (..),
@@ -22,11 +24,22 @@ import Jazz.Compiler.Name
   ( Identifier,
     IdentifierLike (identifierPurity),
     NameNamespace (..),
-    isOperatorBindingIdentifierText,
     identifierText,
+    isOperatorBindingIdentifierText,
   )
 import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Purity (Purity (..))
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeFunction,
+    pattern TypeList,
+    pattern TypeNumeric,
+    pattern TypeTuple,
+    pattern UnsupportedSignature,
+  )
 
 data SurfaceFeature
   = LiteralFeature
@@ -154,10 +167,12 @@ inventoryExpr expression =
         <> inventoryExpr function
         <> inventoryExpr argument
     SETypeApplication function _ signatureType ->
-      Set.insert ExplicitTypeApplicationFeature
+      Set.insert
+        ExplicitTypeApplicationFeature
         (inventoryExpr function <> inventorySignatureType signatureType)
     SEIf condition thenBranch elseBranch ->
-      Set.insert ConditionalFeature
+      Set.insert
+        ConditionalFeature
         (Set.unions (map inventoryExpr [condition, thenBranch, elseBranch]))
     SECase scrutinee arms ->
       Set.fromList
@@ -339,10 +354,12 @@ inventoryStatement :: SurfaceStatement -> Set SurfaceFeature
 inventoryStatement statement =
   case statement of
     SSLet name _ expression ->
-      Set.insert OrdinaryBindingFeature
+      Set.insert
+        OrdinaryBindingFeature
         (inventoryIdentifier name <> inventoryExpr expression <> operatorBindingFeature name)
     SSSignature name _ payload ->
-      Set.insert SignatureFeature
+      Set.insert
+        SignatureFeature
         (inventoryIdentifier name <> inventorySignaturePayload payload)
     SSData _ _ typeParameters constructors ->
       Set.fromList
@@ -353,17 +370,20 @@ inventoryStatement statement =
         )
         <> Set.unions (map inventoryDataConstructor constructors)
     SSClass _ _ _ methods ->
-      Set.insert ClassFeature
+      Set.insert
+        ClassFeature
         (Set.unions (map inventoryClassMethod methods))
     SSImpl _ _ arguments methods ->
-      Set.insert ImplFeature
+      Set.insert
+        ImplFeature
         ( Set.unions
             ( map inventorySignatureType arguments
                 <> map inventoryImplMethod methods
             )
         )
     SSModule _ _ exports ->
-      Set.insert ModuleFeature
+      Set.insert
+        ModuleFeature
         (maybe Set.empty (Set.unions . map inventoryExport) exports)
     SSImport _ _ alias importedNames ->
       Set.fromList
@@ -404,13 +424,16 @@ inventoryPattern patternValue =
       Set.fromList [LiteralFeature, LiteralPatternFeature]
         <> inventoryLiteral literal
     SPConstructor _ arguments ->
-      Set.insert ConstructorPatternFeature
+      Set.insert
+        ConstructorPatternFeature
         (Set.unions (map inventoryPattern arguments))
     SPList items ->
-      Set.insert ListPatternFeature
+      Set.insert
+        ListPatternFeature
         (Set.unions (map inventoryPattern items))
     SPConsList headPattern tailPattern ->
-      Set.insert ConsPatternFeature
+      Set.insert
+        ConsPatternFeature
         (inventoryPattern headPattern <> inventoryPattern tailPattern)
     SPTuple items ->
       Set.fromList
@@ -419,7 +442,8 @@ inventoryPattern patternValue =
     SPAs _ nested ->
       Set.insert AsPatternFeature (inventoryPattern nested)
     SPOr alternatives ->
-      Set.insert OrPatternFeature
+      Set.insert
+        OrPatternFeature
         (Set.unions (map inventoryPattern alternatives))
 
 inventoryDataConstructor :: SurfaceDataConstructor -> Set SurfaceFeature
@@ -457,33 +481,34 @@ inventoryLiteral literal =
 inventorySignaturePayload :: SurfaceSignaturePayload -> Set SurfaceFeature
 inventorySignaturePayload payload =
   case payload of
-    SurfaceSignatureType signatureType ->
+    SignatureType signatureType ->
       inventorySignatureType signatureType
-    SurfaceConstrainedSignature constraints signatureType ->
-      Set.insert ConstrainedSignatureFeature
+    ConstrainedSignature constraints signatureType ->
+      Set.insert
+        ConstrainedSignatureFeature
         ( Set.unions
             ( inventorySignatureType signatureType
                 : map inventorySignatureConstraint constraints
             )
         )
-    SurfaceUnsupportedSignature _ -> Set.empty
+    UnsupportedSignature _ -> Set.empty
 
 inventorySignatureConstraint :: SurfaceSignatureConstraint -> Set SurfaceFeature
-inventorySignatureConstraint (SurfaceSignatureConstraint _ arguments) =
+inventorySignatureConstraint (SignatureConstraint _ arguments) =
   Set.unions (map inventorySignatureType arguments)
 
 inventorySignatureType :: SurfaceSignatureType -> Set SurfaceFeature
 inventorySignatureType signatureType =
   case signatureType of
-    SurfaceTypeNumeric _ -> Set.singleton NumericWidthFeature
-    SurfaceTypeApplication _ arguments ->
+    TypeNumeric _ -> Set.singleton NumericWidthFeature
+    TypeApplication _ arguments ->
       Set.unions (map inventorySignatureType arguments)
-    SurfaceTypeList itemType ->
+    TypeList itemType ->
       Set.insert ListFeature (inventorySignatureType itemType)
-    SurfaceTypeTuple itemTypes ->
+    TypeTuple itemTypes ->
       Set.fromList ([TupleFeature] <> [UnitFeature | null itemTypes])
         <> Set.unions (map inventorySignatureType itemTypes)
-    SurfaceTypeFunction argument result ->
+    TypeFunction argument result ->
       inventorySignatureType argument <> inventorySignatureType result
     _ -> Set.empty
 
@@ -498,7 +523,8 @@ inventoryExport selector =
         Just CapabilityNamespace -> Set.singleton ClassExportFeature
         Nothing -> Set.singleton ValueExportFeature
     ModuleTypeExportSelector _ _ constructorSelector ->
-      Set.insert TypeExportFeature
+      Set.insert
+        TypeExportFeature
         ( case constructorSelector of
             AbstractType -> Set.empty
             AllTypeConstructors _ -> Set.singleton ConstructorExportFeature

@@ -21,7 +21,6 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
-import Jazz.Compiler.AST (NumericType (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Name (Name, identifierText)
 import Jazz.Compiler.TypeInference.Elaboration.Types
@@ -36,6 +35,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType)
 import Jazz.Compiler.TypedCore
 import Prelude hiding (unzip)
 
@@ -294,20 +294,7 @@ expressionContract dataSkeletons parameterVariables state expressionType =
 
 numericContract :: NumericType -> Maybe (TypedType, TypedRepresentationRecipe)
 numericContract numericType =
-  case numericType of
-    NumericInt8 -> numeric TypedInt8Type (TypedSignedIntegerRecipe 8)
-    NumericInt16 -> numeric TypedInt16Type (TypedSignedIntegerRecipe 16)
-    NumericInt32 -> numeric TypedInt32Type (TypedSignedIntegerRecipe 32)
-    NumericInt64 -> numeric TypedInt64Type (TypedSignedIntegerRecipe 64)
-    NumericUInt8 -> numeric TypedUInt8Type (TypedUnsignedIntegerRecipe 8)
-    NumericUInt16 -> numeric TypedUInt16Type (TypedUnsignedIntegerRecipe 16)
-    NumericUInt32 -> numeric TypedUInt32Type (TypedUnsignedIntegerRecipe 32)
-    NumericUInt64 -> numeric TypedUInt64Type (TypedUnsignedIntegerRecipe 64)
-    NumericFloat16 -> numeric TypedFloat16Type (TypedFloatRecipe 16)
-    NumericFloat32 -> numeric TypedFloat32Type (TypedFloatRecipe 32)
-    NumericFloat64 -> numeric TypedFloat64Type (TypedFloatRecipe 64)
-  where
-    numeric typeValue recipe = Just (TypedNumericType typeValue, recipe)
+  Just (TypedNumericType numericType, typedNumericRepresentationRecipe numericType)
 
 substituteConstructorExpressionType :: Map Int ExpressionType -> ExpressionType -> Maybe ExpressionType
 substituteConstructorExpressionType bindings expressionType =

@@ -10,8 +10,6 @@ import Jazz.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.Diagnostics
@@ -42,6 +40,10 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,

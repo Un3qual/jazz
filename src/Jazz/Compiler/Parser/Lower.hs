@@ -11,6 +11,7 @@ module Jazz.Compiler.Parser.Lower
   )
 where
 
+import Data.Bifunctor (bimap)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Text (Text)
@@ -22,12 +23,11 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
     Pattern (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
+    SignatureConstraint,
+    SignaturePayload,
+    SignatureToken,
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.DiagnosticCatalog
@@ -69,15 +69,15 @@ import Jazz.Compiler.Parser.AST
     SurfaceImplMethod (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
     SurfacePattern (..),
     SurfacePatternLambdaClause (..),
-    SurfaceSignatureConstraint (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureToken (..),
-    SurfaceSignatureType (..),
+    SurfaceSignatureConstraint,
+    SurfaceSignaturePayload,
+    SurfaceSignatureToken,
+    SurfaceSignatureType,
     SurfaceStatement (..),
   )
+import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
 -- | The declaration inputs retained when module validation fails. Keeping
 -- these values structured lets hosted-lowering parity compare semantic inputs
@@ -349,7 +349,7 @@ lowerSurfaceLiteral literal =
   case literal of
     SLInt value -> LInt value
     SLFloat value literalSource maybeTargetType ->
-      LFloat value literalSource (fmap lowerSurfaceNumericType maybeTargetType)
+      LFloat value literalSource maybeTargetType
     SLBool value -> LBool value
     SLChar value -> LChar value
     SLText value -> LText value
@@ -368,8 +368,8 @@ lowerSurfacePattern surfacePattern =
       PConsList (lowerSurfacePattern headPattern) (lowerSurfacePattern tailPattern)
     SPTuple patterns ->
       PTuple (map lowerSurfacePattern patterns)
-    SPAs name pattern ->
-      PAs (sourceName name) (lowerSurfacePattern pattern)
+    SPAs name patternValue ->
+      PAs (sourceName name) (lowerSurfacePattern patternValue)
     SPOr patterns ->
       POr (map lowerSurfacePattern patterns)
 
@@ -416,44 +416,24 @@ lowerSurfaceImplMethod (SurfaceImplMethod methodName spanValue methodExpr) =
 lowerSurfaceSignaturePayload :: SurfaceSignaturePayload -> SignaturePayload
 lowerSurfaceSignaturePayload surfaceSignaturePayload =
   case surfaceSignaturePayload of
-    SurfaceSignatureType signatureType ->
-      SignatureType (lowerSurfaceSignatureType signatureType)
-    SurfaceConstrainedSignature constraints signatureType ->
-      ConstrainedSignature
+    TypeRepresentation.SignatureType signatureType ->
+      TypeRepresentation.SignatureType (lowerSurfaceSignatureType signatureType)
+    TypeRepresentation.ConstrainedSignature constraints signatureType ->
+      TypeRepresentation.ConstrainedSignature
         (map lowerSurfaceSignatureConstraint constraints)
         (lowerSurfaceSignatureType signatureType)
-    SurfaceUnsupportedSignature signatureTokens ->
-      UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
+    TypeRepresentation.UnsupportedSignature signatureTokens ->
+      TypeRepresentation.UnsupportedSignature (map lowerSurfaceSignatureToken signatureTokens)
 
 -- | Preserve structured constrained-signature payloads exactly; acceptance or
 -- rejection of the constraint subset belongs to type inference.
 lowerSurfaceSignatureConstraint :: SurfaceSignatureConstraint -> SignatureConstraint
-lowerSurfaceSignatureConstraint (SurfaceSignatureConstraint constraintName constraintArguments) =
-  SignatureConstraint
-    (lowerSurfaceSignatureName constraintName)
-    (map lowerSurfaceSignatureType constraintArguments)
+lowerSurfaceSignatureConstraint =
+  bimap lowerSurfaceSignatureName sourceName
 
 lowerSurfaceSignatureType :: SurfaceSignatureType -> SignatureType
-lowerSurfaceSignatureType surfaceSignatureType =
-  case surfaceSignatureType of
-    SurfaceTypeInt -> TypeInt
-    SurfaceTypeFloat -> TypeFloat
-    SurfaceTypeNumeric numericType -> TypeNumeric (lowerSurfaceNumericType numericType)
-    SurfaceTypeBool -> TypeBool
-    SurfaceTypeChar -> TypeChar
-    SurfaceTypeText -> TypeText
-    SurfaceTypeVariable name -> TypeVariable (sourceName name)
-    SurfaceTypeName name -> TypeName (lowerSurfaceSignatureName name)
-    SurfaceTypeApplication name arguments ->
-      TypeApplication (lowerSurfaceSignatureName name) (map lowerSurfaceSignatureType arguments)
-    SurfaceTypeList innerType ->
-      TypeList (lowerSurfaceSignatureType innerType)
-    SurfaceTypeTuple elementTypes ->
-      TypeTuple (map lowerSurfaceSignatureType elementTypes)
-    SurfaceTypeFunction argumentType resultType ->
-      TypeFunction
-        (lowerSurfaceSignatureType argumentType)
-        (lowerSurfaceSignatureType resultType)
+lowerSurfaceSignatureType =
+  bimap lowerSurfaceSignatureName sourceName
 
 lowerSurfaceSignatureName :: Identifier -> Name
 lowerSurfaceSignatureName name =
@@ -462,38 +442,9 @@ lowerSurfaceSignatureName name =
       qualifiedName (mkIdentifier qualifier) (mkIdentifier member)
     Nothing -> sourceName name
 
-lowerSurfaceNumericType :: SurfaceNumericType -> NumericType
-lowerSurfaceNumericType surfaceNumericType =
-  case surfaceNumericType of
-    SurfaceNumericInt8 -> NumericInt8
-    SurfaceNumericInt16 -> NumericInt16
-    SurfaceNumericInt32 -> NumericInt32
-    SurfaceNumericInt64 -> NumericInt64
-    SurfaceNumericUInt8 -> NumericUInt8
-    SurfaceNumericUInt16 -> NumericUInt16
-    SurfaceNumericUInt32 -> NumericUInt32
-    SurfaceNumericUInt64 -> NumericUInt64
-    SurfaceNumericFloat16 -> NumericFloat16
-    SurfaceNumericFloat32 -> NumericFloat32
-    SurfaceNumericFloat64 -> NumericFloat64
-
 lowerSurfaceSignatureToken :: SurfaceSignatureToken -> SignatureToken
-lowerSurfaceSignatureToken surfaceSignatureToken =
-  case surfaceSignatureToken of
-    SurfaceSignatureNameToken name -> SignatureNameToken (sourceName (mkIdentifier name))
-    SurfaceSignatureIntToken value -> SignatureIntToken value
-    SurfaceSignatureArrowToken -> SignatureArrowToken
-    SurfaceSignatureAtToken -> SignatureAtToken
-    SurfaceSignatureColonToken -> SignatureColonToken
-    SurfaceSignatureLParenToken -> SignatureLParenToken
-    SurfaceSignatureRParenToken -> SignatureRParenToken
-    SurfaceSignatureLBraceToken -> SignatureLBraceToken
-    SurfaceSignatureRBraceToken -> SignatureRBraceToken
-    SurfaceSignatureLBracketToken -> SignatureLBracketToken
-    SurfaceSignatureRBracketToken -> SignatureRBracketToken
-    SurfaceSignatureCommaToken -> SignatureCommaToken
-    SurfaceSignatureOperatorToken symbol -> SignatureOperatorToken symbol
-    SurfaceSignatureOtherToken lexeme -> SignatureOtherToken lexeme
+lowerSurfaceSignatureToken =
+  fmap (sourceName . mkIdentifier)
 
 lowerSurfaceDataConstructor :: SurfaceDataConstructor -> DataConstructor
 lowerSurfaceDataConstructor (SurfaceDataConstructor constructorName fieldTypes) =

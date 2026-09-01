@@ -73,7 +73,6 @@ module Jazz.Compiler.TypedCore.Validate.Expressions
     builtinConcreteValueType,
     builtinPolymorphicValueTypeMatches,
     numericValueTypeSupported,
-    typedNumericType,
     binaryFunctionType,
     typedUnitType,
     hostIOOutcomeTypedType,
@@ -120,7 +119,6 @@ import Data.Maybe (isJust, isNothing, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.AST (NumericType (..))
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     builtinSymbolNumericConversionTarget,
@@ -129,6 +127,7 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Name (operatorBindingIdentifierText)
 import Jazz.Compiler.Parser.Operator (isValidUserOperatorSymbol)
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate.Declarations
 import Jazz.Compiler.TypedCore.Validate.Evidence
@@ -1705,9 +1704,9 @@ builtinConcreteValueType builtinSymbol =
     BuiltinListPrependRaw -> Nothing
     BuiltinListReverseRaw -> Nothing
     BuiltinCharToUInt32 ->
-      Just (TypedFunctionType TypedCharType (TypedNumericType TypedUInt32Type))
+      Just (TypedFunctionType TypedCharType (TypedNumericType NumericUInt32))
     BuiltinCharFromUInt32Raw ->
-      Just (TypedFunctionType (TypedNumericType TypedUInt32Type) (TypedListType TypedCharType))
+      Just (TypedFunctionType (TypedNumericType NumericUInt32) (TypedListType TypedCharType))
     BuiltinCharIsAlpha -> Just charPredicateType
     BuiltinCharIsAlphaNum -> Just charPredicateType
     BuiltinCharIsDigit -> Just charPredicateType
@@ -1758,7 +1757,7 @@ builtinPolymorphicValueTypeMatches context builtinSymbol typeValue =
     (_, TypedFunctionType source target)
       | Just numericTarget <- builtinSymbolNumericConversionTarget builtinSymbol ->
           numericValueTypeSupported context source
-            && Just target == (TypedNumericType <$> typedNumericType numericTarget)
+            && target == TypedNumericType numericTarget
     _ -> False
 
 numericValueTypeSupported :: ModuleContext -> TypedType -> Bool
@@ -1775,21 +1774,6 @@ numericValueTypeSupported context typeValue =
       case constraint of
         TypedNumericPrimitiveConstraint _ targetType -> targetType == typeValue
         _ -> False
-
-typedNumericType :: NumericType -> Maybe TypedNumericType
-typedNumericType numericType =
-  case numericType of
-    NumericInt8 -> Just TypedInt8Type
-    NumericInt16 -> Just TypedInt16Type
-    NumericInt32 -> Just TypedInt32Type
-    NumericInt64 -> Just TypedInt64Type
-    NumericUInt8 -> Just TypedUInt8Type
-    NumericUInt16 -> Just TypedUInt16Type
-    NumericUInt32 -> Just TypedUInt32Type
-    NumericUInt64 -> Just TypedUInt64Type
-    NumericFloat16 -> Just TypedFloat16Type
-    NumericFloat32 -> Just TypedFloat32Type
-    NumericFloat64 -> Just TypedFloat64Type
 
 binaryFunctionType :: TypedType -> TypedType -> TypedType -> TypedType
 binaryFunctionType first second result =
@@ -2049,8 +2033,8 @@ applicationTypesCompatible expected actual =
 normalizeDefaultScalarAliases :: TypedType -> TypedType
 normalizeDefaultScalarAliases typeValue =
   case typeValue of
-    TypedIntType -> TypedNumericType TypedInt64Type
-    TypedFloatType -> TypedNumericType TypedFloat64Type
+    TypedIntType -> TypedNumericType NumericInt64
+    TypedFloatType -> TypedNumericType NumericFloat64
     TypedListType elementType ->
       TypedListType (normalizeDefaultScalarAliases elementType)
     TypedTupleType elementTypes ->

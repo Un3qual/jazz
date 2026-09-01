@@ -29,6 +29,7 @@ import Jazz.Compiler.Bootstrap.CanonicalValue
   )
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime (RuntimeValue (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 
 data CanonicalTypedCoreStructure
@@ -486,23 +487,23 @@ typeValue typeValue' =
     TypedTypeParameterType parameterId ->
       constructor "TypedTypeParameterType" [typeParameterIdValue parameterId]
 
-numericTypeValue :: TypedNumericType -> RuntimeValue
+numericTypeValue :: NumericType -> RuntimeValue
 numericTypeValue = nullary . numericTypeName
 
-numericTypeName :: TypedNumericType -> Text
+numericTypeName :: NumericType -> Text
 numericTypeName numericType =
   case numericType of
-    TypedInt8Type -> "TypedInt8Type"
-    TypedInt16Type -> "TypedInt16Type"
-    TypedInt32Type -> "TypedInt32Type"
-    TypedInt64Type -> "TypedInt64Type"
-    TypedUInt8Type -> "TypedUInt8Type"
-    TypedUInt16Type -> "TypedUInt16Type"
-    TypedUInt32Type -> "TypedUInt32Type"
-    TypedUInt64Type -> "TypedUInt64Type"
-    TypedFloat16Type -> "TypedFloat16Type"
-    TypedFloat32Type -> "TypedFloat32Type"
-    TypedFloat64Type -> "TypedFloat64Type"
+    NumericInt8 -> "TypedInt8Type"
+    NumericInt16 -> "TypedInt16Type"
+    NumericInt32 -> "TypedInt32Type"
+    NumericInt64 -> "TypedInt64Type"
+    NumericUInt8 -> "TypedUInt8Type"
+    NumericUInt16 -> "TypedUInt16Type"
+    NumericUInt32 -> "TypedUInt32Type"
+    NumericUInt64 -> "TypedUInt64Type"
+    NumericFloat16 -> "TypedFloat16Type"
+    NumericFloat32 -> "TypedFloat32Type"
+    NumericFloat64 -> "TypedFloat64Type"
 
 recipeValue :: TypedRepresentationRecipe -> RuntimeValue
 recipeValue recipe =
@@ -893,22 +894,22 @@ decodeType value = do
     "TypedTypeParameterType" -> decodeDetail1 name TypedTypeParameterType decodeTypeParameterId arguments
     _ -> Left ("unknown typed type constructor '" <> name <> "'")
 
-decodeNumericType :: RuntimeValue -> Either Text TypedNumericType
+decodeNumericType :: RuntimeValue -> Either Text NumericType
 decodeNumericType value = do
   (name, arguments) <- expectConstructor "numeric type" value
   numericType <-
     case name of
-      "TypedInt8Type" -> Right TypedInt8Type
-      "TypedInt16Type" -> Right TypedInt16Type
-      "TypedInt32Type" -> Right TypedInt32Type
-      "TypedInt64Type" -> Right TypedInt64Type
-      "TypedUInt8Type" -> Right TypedUInt8Type
-      "TypedUInt16Type" -> Right TypedUInt16Type
-      "TypedUInt32Type" -> Right TypedUInt32Type
-      "TypedUInt64Type" -> Right TypedUInt64Type
-      "TypedFloat16Type" -> Right TypedFloat16Type
-      "TypedFloat32Type" -> Right TypedFloat32Type
-      "TypedFloat64Type" -> Right TypedFloat64Type
+      "TypedInt8Type" -> Right NumericInt8
+      "TypedInt16Type" -> Right NumericInt16
+      "TypedInt32Type" -> Right NumericInt32
+      "TypedInt64Type" -> Right NumericInt64
+      "TypedUInt8Type" -> Right NumericUInt8
+      "TypedUInt16Type" -> Right NumericUInt16
+      "TypedUInt32Type" -> Right NumericUInt32
+      "TypedUInt64Type" -> Right NumericUInt64
+      "TypedFloat16Type" -> Right NumericFloat16
+      "TypedFloat32Type" -> Right NumericFloat32
+      "TypedFloat64Type" -> Right NumericFloat64
       _ -> Left ("unknown numeric type constructor '" <> name <> "'")
   expectNullary name arguments numericType
 

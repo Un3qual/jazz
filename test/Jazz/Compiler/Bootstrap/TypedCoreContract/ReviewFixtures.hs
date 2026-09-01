@@ -14,6 +14,7 @@ import Jazz.Compiler.BuiltinCatalog
     builtinSymbolName,
     builtinSymbolOwnership,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate (validateTypedProgram)
 
@@ -111,9 +112,9 @@ applicationScalarAliasProgram =
   where
     fixture = "review-application-scalar-alias"
     modulePath = fixtureModulePath fixture
-    int64Type = TypedNumericType TypedInt64Type
+    int64Type = TypedNumericType NumericInt64
     int64Recipe = TypedSignedIntegerRecipe 64
-    float64Type = TypedNumericType TypedFloat64Type
+    float64Type = TypedNumericType NumericFloat64
     float64Recipe = TypedFloatRecipe 64
     floatAliasInfo = info TypedFloatType float64Recipe
     (intBinding, intApplication) =
@@ -981,10 +982,10 @@ fractionalPatternProgram =
   where
     fractionalInfo =
       info
-        (TypedNumericType TypedFloat64Type)
+        (TypedNumericType NumericFloat64)
         (TypedFloatRecipe 64)
     fractionalLiteral =
-      TypedFractionalLiteral "1" "5" (Just TypedFloat64Type)
+      TypedFractionalLiteral "1" "5" (Just NumericFloat64)
     fractionalExpression =
       TypedLiteralExpr fractionalInfo fractionalLiteral
 
@@ -1160,17 +1161,17 @@ builtinCatalogInfo symbol =
         TypedBoolRecipe
     BuiltinTl -> boolListTransformInfo
     BuiltinPrint -> boolToBoolInfo
-    BuiltinToInt8 -> numericConversionInfo TypedInt8Type (TypedSignedIntegerRecipe 8)
-    BuiltinToInt16 -> numericConversionInfo TypedInt16Type (TypedSignedIntegerRecipe 16)
-    BuiltinToInt32 -> numericConversionInfo TypedInt32Type (TypedSignedIntegerRecipe 32)
-    BuiltinToInt64 -> numericConversionInfo TypedInt64Type (TypedSignedIntegerRecipe 64)
-    BuiltinToUInt8 -> numericConversionInfo TypedUInt8Type (TypedUnsignedIntegerRecipe 8)
-    BuiltinToUInt16 -> numericConversionInfo TypedUInt16Type (TypedUnsignedIntegerRecipe 16)
-    BuiltinToUInt32 -> numericConversionInfo TypedUInt32Type (TypedUnsignedIntegerRecipe 32)
-    BuiltinToUInt64 -> numericConversionInfo TypedUInt64Type (TypedUnsignedIntegerRecipe 64)
-    BuiltinToFloat16 -> numericConversionInfo TypedFloat16Type (TypedFloatRecipe 16)
-    BuiltinToFloat32 -> numericConversionInfo TypedFloat32Type (TypedFloatRecipe 32)
-    BuiltinToFloat64 -> numericConversionInfo TypedFloat64Type (TypedFloatRecipe 64)
+    BuiltinToInt8 -> numericConversionInfo NumericInt8 (TypedSignedIntegerRecipe 8)
+    BuiltinToInt16 -> numericConversionInfo NumericInt16 (TypedSignedIntegerRecipe 16)
+    BuiltinToInt32 -> numericConversionInfo NumericInt32 (TypedSignedIntegerRecipe 32)
+    BuiltinToInt64 -> numericConversionInfo NumericInt64 (TypedSignedIntegerRecipe 64)
+    BuiltinToUInt8 -> numericConversionInfo NumericUInt8 (TypedUnsignedIntegerRecipe 8)
+    BuiltinToUInt16 -> numericConversionInfo NumericUInt16 (TypedUnsignedIntegerRecipe 16)
+    BuiltinToUInt32 -> numericConversionInfo NumericUInt32 (TypedUnsignedIntegerRecipe 32)
+    BuiltinToUInt64 -> numericConversionInfo NumericUInt64 (TypedUnsignedIntegerRecipe 64)
+    BuiltinToFloat16 -> numericConversionInfo NumericFloat16 (TypedFloatRecipe 16)
+    BuiltinToFloat32 -> numericConversionInfo NumericFloat32 (TypedFloatRecipe 32)
+    BuiltinToFloat64 -> numericConversionInfo NumericFloat64 (TypedFloatRecipe 64)
     BuiltinListPrependRaw ->
       info
         ( TypedFunctionType
@@ -1189,11 +1190,11 @@ builtinCatalogInfo symbol =
       functionInfo
         TypedCharType
         TypedCharRecipe
-        (TypedNumericType TypedUInt32Type)
+        (TypedNumericType NumericUInt32)
         (TypedUnsignedIntegerRecipe 32)
     BuiltinCharFromUInt32Raw ->
       functionInfo
-        (TypedNumericType TypedUInt32Type)
+        (TypedNumericType NumericUInt32)
         (TypedUnsignedIntegerRecipe 32)
         (TypedListType TypedCharType)
         (TypedManagedListRecipe TypedCharRecipe)
@@ -7020,8 +7021,8 @@ fractionalLiteralSuffixProgram =
   expressionFixtureProgram
     "review-fractional-literal-suffix"
     ( TypedLiteralExpr
-        (info (TypedNumericType TypedFloat64Type) (TypedFloatRecipe 64))
-        (TypedFractionalLiteral "1" "5" (Just TypedFloat16Type))
+        (info (TypedNumericType NumericFloat64) (TypedFloatRecipe 64))
+        (TypedFractionalLiteral "1" "5" (Just NumericFloat16))
     )
 
 fixturePrelude :: TypedModule
@@ -7623,7 +7624,7 @@ integralLiteralRangeProgram =
         []
         [ TypedNumericPrimitiveConstraint
             (TypedIntegralLiteralNumericConstraint "0" "300")
-            (TypedNumericType TypedUInt8Type)
+            (TypedNumericType NumericUInt8)
         ]
         TypedBoolType
         TypedBoolRecipe
@@ -8444,7 +8445,7 @@ concreteIntegerBoundsProgram =
     fixture = "review-concrete-integer-bounds"
     integerInfo =
       info
-        (TypedNumericType TypedUInt8Type)
+        (TypedNumericType NumericUInt8)
         (TypedUnsignedIntegerRecipe 8)
     integerExpression value =
       TypedLiteralExpr integerInfo (TypedIntegerLiteral value)
@@ -8542,16 +8543,16 @@ fractionalLiteralBoundsProgram =
     fixture
     relativeSource
     []
-    [ expressionStatement 1 (fractionalExpression TypedFloat16Type 16 "65504" "0"),
-      expressionStatement 2 (fractionalExpression TypedFloat16Type 16 "65504" "1"),
-      expressionStatement 3 (fractionalExpression TypedFloat16Type 16 "-65504" "1"),
-      expressionStatement 4 (fractionalExpression TypedFloat32Type 32 float32Maximum "0"),
-      expressionStatement 5 (fractionalExpression TypedFloat32Type 32 float32Maximum "1"),
-      expressionStatement 6 (fractionalExpression TypedFloat64Type 64 float64Maximum "0"),
-      expressionStatement 7 (fractionalExpression TypedFloat64Type 64 float64Maximum "1")
+    [ expressionStatement 1 (fractionalExpression NumericFloat16 16 "65504" "0"),
+      expressionStatement 2 (fractionalExpression NumericFloat16 16 "65504" "1"),
+      expressionStatement 3 (fractionalExpression NumericFloat16 16 "-65504" "1"),
+      expressionStatement 4 (fractionalExpression NumericFloat32 32 float32Maximum "0"),
+      expressionStatement 5 (fractionalExpression NumericFloat32 32 float32Maximum "1"),
+      expressionStatement 6 (fractionalExpression NumericFloat64 64 float64Maximum "0"),
+      expressionStatement 7 (fractionalExpression NumericFloat64 64 float64Maximum "1")
     ]
     emptyInterface
-    (floatInfo TypedFloat64Type 64)
+    (floatInfo NumericFloat64 64)
     (fixtureModulePath fixture)
   where
     fixture = "review-fractional-literal-bounds"

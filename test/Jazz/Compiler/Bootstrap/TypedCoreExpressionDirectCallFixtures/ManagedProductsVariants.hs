@@ -7,6 +7,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
 import Jazz.Compiler.LoweredIR
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore
 
 managedProductVariantFixtures :: [(Text, Fixture)]
@@ -2640,7 +2641,7 @@ pairFunctionInfo =
 managedPairBindingInfo :: TypedNodeInfo
 managedPairBindingInfo =
   TypedNodeInfo
-    (TypedTupleType [TypedNumericType TypedInt64Type, TypedTextType])
+    (TypedTupleType [TypedNumericType NumericInt64, TypedTextType])
     (TypedManagedProductRecipe [TypedSignedIntegerRecipe 64, TypedManagedTextRecipe])
     []
     []
@@ -2650,7 +2651,7 @@ managedPairBindingExpression =
   TypedTupleExpr
     managedPairBindingInfo
     [ TypedLiteralExpr
-        (TypedNodeInfo (TypedNumericType TypedInt64Type) (TypedSignedIntegerRecipe 64) [] [])
+        (TypedNodeInfo (TypedNumericType NumericInt64) (TypedSignedIntegerRecipe 64) [] [])
         (TypedIntegerLiteral "1"),
       textExpr "two"
     ]

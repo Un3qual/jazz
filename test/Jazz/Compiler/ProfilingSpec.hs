@@ -17,8 +17,6 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (ELit),
     Literal (LInt),
-    SignaturePayload (SignatureType),
-    SignatureType (TypeInt, TypeList),
   )
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E1001))
 import Jazz.Compiler.Diagnostics
@@ -98,6 +96,10 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType (TListType),
     ImplMethodType (ImplMethodType),
     TypeBinding (PlainTypeBinding),
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( SignaturePayload (..),
+    SignatureType (..),
   )
 import qualified Jazz.Compiler.TypedCore as Typed
 import Jazz.TestHarness

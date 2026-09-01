@@ -41,6 +41,7 @@ import Jazz.Compiler.LoweredIR.Lower.Types
     loweredIntegerWidth,
   )
 import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog (textRepresentation)
+import Jazz.Compiler.TypeRepresentation (NumericType)
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Query (typedPatternChildren, typedPatternInfo)
 import Numeric.Natural (Natural)
@@ -548,7 +549,7 @@ typeEncoding modulePath typeValue =
       pure ("function$" <> segment encodedArgument <> "$" <> segment encodedResult)
     TypedTypeParameterType {} -> Nothing
 
-numericTypeEncoding :: [Text] -> TypedNumericType -> Maybe Text
+numericTypeEncoding :: [Text] -> NumericType -> Maybe Text
 numericTypeEncoding modulePath numericType =
   recipeEncoding modulePath (typedNumericRepresentationRecipe numericType)
 

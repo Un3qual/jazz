@@ -1,63 +1,63 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.Foundation.ExpressionsTests
-  ( expressionTests
-  ) where
+  ( expressionTests,
+  )
+where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceLiteral (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    assertRight
+    assertRight,
   )
 
 expressionTests :: [NamedTest]
 expressionTests =
-  [ ("parses let binding and expression statement", testParseLetAndExpr)
-    , ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput)
-    , ("parses tuple literal into structured nodes", testParseTupleLiteral)
-    , ("lowers Char and Text literals into analyzer AST", testLowersCharAndTextLiterals)
-    , ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral)
-    , ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes)
-    , ("ignores hash line comments between statements", testIgnoresHashLineComments)
-    , ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan)
-    , ("parses nested scope expression", testParseNestedScopeExpression)
-    , ("parses block argument expression with stable inner spans", testParseBlockArgumentExpression)
-    , ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram)
-    , ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram)
-    , ("lowers fractional literal suffixes into analyzer AST", testLowerFractionalLiteralSuffixesProgram)
-    , ("parses integer literals beyond host Int", testParsesLargeIntegerLiteral)
-    , ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames)
-    , ("parses operator keyword as an ordinary binding name", testParsesOperatorKeywordAsBindingName)
-    , ("parses operator keyword as a nested block binding name", testParsesOperatorKeywordAsNestedBlockBindingName)
-    , ("parses explicit-parameter class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration)
-    , ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration)
-    , ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations)
-    , ("parses impl method binding metadata", testParsesImplMethodBindingMetadata)
-    , ("lowers impl method binding metadata", testLowersImplMethodBindingMetadata)
+  [ ("parses let binding and expression statement", testParseLetAndExpr),
+    ("parseSurfaceProgram accepts Text input", testParseSurfaceProgramAcceptsTextInput),
+    ("parses tuple literal into structured nodes", testParseTupleLiteral),
+    ("lowers Char and Text literals into analyzer AST", testLowersCharAndTextLiterals),
+    ("parses fractional literal without treating decimal dot as statement terminator", testParseFractionalLiteral),
+    ("parses fractional literal suffixes as concrete float targets", testParseFractionalLiteralSuffixes),
+    ("ignores hash line comments between statements", testIgnoresHashLineComments),
+    ("tracks tab-aligned expression spans", testTabAlignedExpressionSpan),
+    ("parses nested scope expression", testParseNestedScopeExpression),
+    ("parses block argument expression with stable inner spans", testParseBlockArgumentExpression),
+    ("lowers parsed surface AST into analyzer AST", testLowerSurfaceProgram),
+    ("lowers fractional literal into analyzer AST", testLowerFractionalLiteralProgram),
+    ("lowers fractional literal suffixes into analyzer AST", testLowerFractionalLiteralSuffixesProgram),
+    ("parses integer literals beyond host Int", testParsesLargeIntegerLiteral),
+    ("parses abstraction keywords as ordinary binding names", testParsesAbstractionKeywordsAsBindingNames),
+    ("parses operator keyword as an ordinary binding name", testParsesOperatorKeywordAsBindingName),
+    ("parses operator keyword as a nested block binding name", testParsesOperatorKeywordAsNestedBlockBindingName),
+    ("parses explicit-parameter class capability declarations into surface AST", testParsesParameterizedClassCapabilityDeclaration),
+    ("parses impl capability declarations into surface AST", testParsesImplCapabilityDeclaration),
+    ("lowers class and impl capability declarations as inert AST nodes", testLowersCapabilityDeclarations),
+    ("parses impl method binding metadata", testParsesImplMethodBindingMetadata),
+    ("lowers impl method binding metadata", testLowersImplMethodBindingMetadata)
   ]
 
 testParseLetAndExpr :: IO ()
@@ -71,18 +71,21 @@ testParseLetAndExpr =
             ]
         )
     )
-    (parseSurfaceProgram """
-    x = 1.
-    x.
-    """)
+    ( parseSurfaceProgram
+        """
+        x = 1.
+        x.
+        """
+    )
 
 testParseSurfaceProgramAcceptsTextInput :: IO ()
 testParseSurfaceProgramAcceptsTextInput = do
   let sourceText :: Text
-      sourceText = """
-      x = 1.
-      x.
-      """
+      sourceText =
+        """
+        x = 1.
+        x.
+        """
   assertEqual
     "surface AST from Text source"
     ( Right
@@ -117,10 +120,12 @@ testParseFractionalLiteral :: IO ()
 testParseFractionalLiteral =
   assertRight
     "fractional literal parse"
-    (parseSurfaceProgram """
-    x = 1.5.
-    y = 2.
-    """)
+    ( parseSurfaceProgram
+        """
+        x = 1.5.
+        y = 2.
+        """
+    )
     ( \surfaceProgram ->
         assertContains
           "surface fractional literal"
@@ -132,16 +137,18 @@ testParseFractionalLiteralSuffixes :: IO ()
 testParseFractionalLiteralSuffixes =
   assertRight
     "fractional literal suffix parse"
-    (parseSurfaceProgram """
-    x16 = 1.5f16.
-    x32 = 2.5f32.
-    x64 = 3.5f64.
-    """)
+    ( parseSurfaceProgram
+        """
+        x16 = 1.5f16.
+        x32 = 2.5f32.
+        x64 = 3.5f64.
+        """
+    )
     ( \surfaceProgram -> do
         let renderedProgram = Text.pack (show surfaceProgram)
-        assertContains "Float16 suffix target" "Just SurfaceNumericFloat16" renderedProgram
-        assertContains "Float32 suffix target" "Just SurfaceNumericFloat32" renderedProgram
-        assertContains "Float64 suffix target" "Just SurfaceNumericFloat64" renderedProgram
+        assertContains "Float16 suffix target" "Just NumericFloat16" renderedProgram
+        assertContains "Float32 suffix target" "Just NumericFloat32" renderedProgram
+        assertContains "Float64 suffix target" "Just NumericFloat64" renderedProgram
     )
 
 testIgnoresHashLineComments :: IO ()
@@ -185,10 +192,12 @@ testParseNestedScopeExpression =
             ]
         )
     )
-    (parseSurfaceProgram """
-    x = 1.
-    { x. }.
-    """)
+    ( parseSurfaceProgram
+        """
+        x = 1.
+        { x. }.
+        """
+    )
 
 testParseBlockArgumentExpression :: IO ()
 testParseBlockArgumentExpression =
@@ -210,21 +219,25 @@ testParseBlockArgumentExpression =
             ]
         )
     )
-    (parseSurfaceProgram """
-    result = f {
-      x = 1.
-      x.
-    }.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = f {
+          x = 1.
+          x.
+        }.
+        """
+    )
 
 testLowerSurfaceProgram :: IO ()
 testLowerSurfaceProgram =
   assertRight
     "parse + lower"
-    (parseSurfaceProgram """
-    x = 1.
-    x.
-    """)
+    ( parseSurfaceProgram
+        """
+        x = 1.
+        x.
+        """
+    )
     (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -249,11 +262,13 @@ testLowerFractionalLiteralSuffixesProgram :: IO ()
 testLowerFractionalLiteralSuffixesProgram =
   assertRight
     "parse + lower suffixed fractional literals"
-    (parseSurfaceProgram """
-    x16 = 1.5f16.
-    x32 = 2.5f32.
-    x64 = 3.5f64.
-    """)
+    ( parseSurfaceProgram
+        """
+        x16 = 1.5f16.
+        x32 = 2.5f32.
+        x64 = 3.5f64.
+        """
+    )
     ( \surfaceProgram -> do
         let renderedProgram = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered Float16 suffix target" "Just NumericFloat16" renderedProgram
@@ -286,11 +301,13 @@ testParsesAbstractionKeywordsAsBindingNames =
             ]
         )
     )
-    (parseSurfaceProgram """
-    class = 1.
-    impl = class.
-    trait = impl.
-    """)
+    ( parseSurfaceProgram
+        """
+        class = 1.
+        impl = class.
+        trait = impl.
+        """
+    )
 
 testParsesOperatorKeywordAsBindingName :: IO ()
 testParsesOperatorKeywordAsBindingName =
@@ -303,10 +320,12 @@ testParsesOperatorKeywordAsBindingName =
             ]
         )
     )
-    (parseSurfaceProgram """
-    operator = 1.
-    result = operator.
-    """)
+    ( parseSurfaceProgram
+        """
+        operator = 1.
+        result = operator.
+        """
+    )
 
 testParsesOperatorKeywordAsNestedBlockBindingName :: IO ()
 testParsesOperatorKeywordAsNestedBlockBindingName =
@@ -325,12 +344,14 @@ testParsesOperatorKeywordAsNestedBlockBindingName =
             ]
         )
     )
-    (parseSurfaceProgram """
-    scope = {
-      operator = 1.
-      operator.
-    }.
-    """)
+    ( parseSurfaceProgram
+        """
+        scope = {
+          operator = 1.
+          operator.
+        }.
+        """
+    )
 
 testParsesParameterizedClassCapabilityDeclaration :: IO ()
 testParsesParameterizedClassCapabilityDeclaration =
@@ -350,8 +371,10 @@ testParsesImplCapabilityDeclaration =
     "impl capability declaration"
     ( Right
         ( SEBlock
-            [ SSImpl (SourceSpan 1 1) "Eq"
-                [SurfaceTypeInt]
+            [ SSImpl
+                (SourceSpan 1 1)
+                "Eq"
+                [TypeInt]
                 []
             ]
         )
@@ -362,10 +385,12 @@ testLowersCapabilityDeclarations :: IO ()
 testLowersCapabilityDeclarations =
   assertRight
     "surface parse"
-    (parseSurfaceProgram """
-    class Eq(a) { }.
-    impl Eq(Int) { }.
-    """)
+    ( parseSurfaceProgram
+        """
+        class Eq(a) { }.
+        impl Eq(Int) { }.
+        """
+    )
     ( \surfaceProgram ->
         assertEqual
           "lowered capability declarations"
@@ -381,11 +406,13 @@ testParsesImplMethodBindingMetadata :: IO ()
 testParsesImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    (parseSurfaceProgram """
-    impl Eq(Int) {
-    equals = \\(left, right) -> left == right.
-    }.
-    """)
+    ( parseSurfaceProgram
+        """
+        impl Eq(Int) {
+        equals = \\(left, right) -> left == right.
+        }.
+        """
+    )
     ( \surfaceProgram -> do
         let rendered = Text.pack (show surfaceProgram)
         assertContains "surface impl method metadata" "SurfaceImplMethod" rendered
@@ -397,11 +424,13 @@ testLowersImplMethodBindingMetadata :: IO ()
 testLowersImplMethodBindingMetadata =
   assertRight
     "surface impl method binding metadata parse"
-    (parseSurfaceProgram """
-    impl Eq(Int) {
-    equals = \\(left, right) -> left == right.
-    }.
-    """)
+    ( parseSurfaceProgram
+        """
+        impl Eq(Int) {
+        equals = \\(left, right) -> left == right.
+        }.
+        """
+    )
     ( \surfaceProgram -> do
         let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
         assertContains "lowered impl method metadata" "ImplMethod" rendered

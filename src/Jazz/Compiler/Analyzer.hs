@@ -32,7 +32,7 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Pattern (..),
-    SignatureType (..),
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.Analyzer.UnusedBindings

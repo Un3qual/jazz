@@ -25,6 +25,11 @@ import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.Parser.AST
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -114,9 +119,9 @@ foundationExpressions :: [SurfaceExpr]
 foundationExpressions =
   [ SELit (SLInt 1234567890123456789012345678901234567890),
     SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) Nothing),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just SurfaceNumericFloat16)),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just SurfaceNumericFloat32)),
-    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just SurfaceNumericFloat64)),
+    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat16)),
+    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32)),
+    SELit (SLFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat64)),
     SELit (SLBool True),
     SELit (SLChar 'x'),
     SELit (SLText "Jazz"),
@@ -148,12 +153,12 @@ unsupportedExpressions =
   [ SELambda (SurfaceLambdaIdentifier "value" :| []) (SEVar "value"),
     SECase (SEVar "value") [],
     SEIf (SELit (SLBool True)) (seInt 1) (seInt 0),
-    SETypeApplication (SEVar "identity") span1 SurfaceTypeInt,
+    SETypeApplication (SEVar "identity") span1 TypeInt,
     SEBinary "$" (SEVar "f") (seInt 1),
-    SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)],
+    SEBlock [SSSignature "value" span1 (SignatureType TypeInt)],
     SEBlock [SSData span1 "Thing" [] []],
     SEBlock [SSClass span1 "Show" ["a"] []],
-    SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []],
+    SEBlock [SSImpl span1 "Show" [TypeText] []],
     SEBlock [SSModule span1 ["App", "Main"] Nothing],
     SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing],
     SEBlock [SSLet "$operator:2B" span1 (SEVar "add")],

@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests
   ( inferenceOwnershipTests,
@@ -12,9 +14,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( Expr (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -103,6 +102,16 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( pattern SignatureConstraint,
+    pattern SignatureType,
+    pattern TypeBool,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,

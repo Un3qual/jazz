@@ -1,5 +1,7 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Scope, binding, signature, and constructor inference.  Typed-core
 -- production selects and finalizes only the root scope after this traversal,
@@ -29,9 +31,7 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     Literal (..),
-    NumericType (..),
-    SignaturePayload (ConstrainedSignature),
-    SignatureType (..),
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -144,6 +144,10 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
   )
 
 inferExprTypeWithExpectedMode ::

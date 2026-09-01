@@ -66,6 +66,13 @@ import Jazz.Compiler.Parser.Lexer
 import Jazz.Compiler.Runtime
   ( renderRuntimeValue,
   )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -216,17 +223,17 @@ testSurfaceNumericTypeEnumeration :: IO ()
 testSurfaceNumericTypeEnumeration =
   assertEqual
     "surface numeric type enumeration"
-    [ SurfaceNumericInt8,
-      SurfaceNumericInt16,
-      SurfaceNumericInt32,
-      SurfaceNumericInt64,
-      SurfaceNumericUInt8,
-      SurfaceNumericUInt16,
-      SurfaceNumericUInt32,
-      SurfaceNumericUInt64,
-      SurfaceNumericFloat16,
-      SurfaceNumericFloat32,
-      SurfaceNumericFloat64
+    [ NumericInt8,
+      NumericInt16,
+      NumericInt32,
+      NumericInt64,
+      NumericUInt8,
+      NumericUInt16,
+      NumericUInt32,
+      NumericUInt64,
+      NumericFloat16,
+      NumericFloat32,
+      NumericFloat64
     ]
     ([minBound .. maxBound] :: [SurfaceNumericType])
 
@@ -238,28 +245,28 @@ surfaceInventory =
         "identity"
         span1
         (SELambda (SurfaceLambdaPattern (SPVariable "item") :| []) (SEVar "item")),
-      SSSignature "plain" span1 (SurfaceSignatureType SurfaceTypeInt),
+      SSSignature "plain" span1 (SignatureType TypeInt),
       SSSignature
         "constrained"
         span1
-        ( SurfaceConstrainedSignature
-            [SurfaceSignatureConstraint "Comparable" [SurfaceTypeVariable "a"]]
-            (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool)
+        ( ConstrainedSignature
+            [SignatureConstraint "Comparable" [TypeVariable "a"]]
+            (TypeFunction (TypeVariable "a") TypeBool)
         ),
-      SSSignature "unsupported" span1 (SurfaceUnsupportedSignature allSignatureTokens),
+      SSSignature "unsupported" span1 (UnsupportedSignature allSignatureTokens),
       SSData
         span1
         "Thing"
         ["a"]
         [ SurfaceDataConstructor
             "Thing"
-            [SurfaceTypeVariable "a", SurfaceTypeList SurfaceTypeText]
+            [TypeVariable "a", TypeList TypeText]
         ],
       SSClass
         span1
         "Show"
         ["a"]
-        [SurfaceClassMethodSignature "show" span1 (SurfaceSignatureType SurfaceTypeText)],
+        [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)],
       SSImpl
         span1
         "Show"
@@ -295,7 +302,7 @@ allExpressions =
     SEList [seInt 1],
     SETuple [seInt 1, seInt 2],
     SEApply (SEVar "identity") (seInt 1),
-    SETypeApplication (SEVar "identity") span1 (SurfaceTypeName "Int"),
+    SETypeApplication (SEVar "identity") span1 (TypeName "Int"),
     SEIf (SELit (SLBool True)) (seInt 1) (seInt 0),
     patternInventory,
     SEBinary "+" (seInt 1) (seInt 2),
@@ -322,39 +329,39 @@ patternInventory =
 
 allSignatureTypes :: [SurfaceSignatureType]
 allSignatureTypes =
-  [ SurfaceTypeInt,
-    SurfaceTypeFloat,
-    SurfaceTypeBool,
-    SurfaceTypeChar,
-    SurfaceTypeText,
-    SurfaceTypeVariable "a",
-    SurfaceTypeName "Point",
-    SurfaceTypeApplication "Map" [SurfaceTypeText, SurfaceTypeInt],
-    SurfaceTypeList SurfaceTypeInt,
-    SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeText],
-    SurfaceTypeFunction SurfaceTypeInt SurfaceTypeText
+  [ TypeInt,
+    TypeFloat,
+    TypeBool,
+    TypeChar,
+    TypeText,
+    TypeVariable "a",
+    TypeName "Point",
+    TypeApplication "Map" [TypeText, TypeInt],
+    TypeList TypeInt,
+    TypeTuple [TypeInt, TypeText],
+    TypeFunction TypeInt TypeText
   ]
-    <> map SurfaceTypeNumeric allNumericTypes
+    <> map TypeNumeric allNumericTypes
 
 allNumericTypes :: [SurfaceNumericType]
 allNumericTypes = [minBound .. maxBound]
 
 allSignatureTokens :: [SurfaceSignatureToken]
 allSignatureTokens =
-  [ SurfaceSignatureNameToken "a",
-    SurfaceSignatureIntToken 9223372036854775808,
-    SurfaceSignatureArrowToken,
-    SurfaceSignatureAtToken,
-    SurfaceSignatureColonToken,
-    SurfaceSignatureLParenToken,
-    SurfaceSignatureRParenToken,
-    SurfaceSignatureLBraceToken,
-    SurfaceSignatureRBraceToken,
-    SurfaceSignatureLBracketToken,
-    SurfaceSignatureRBracketToken,
-    SurfaceSignatureCommaToken,
-    SurfaceSignatureOperatorToken "+",
-    SurfaceSignatureOtherToken "."
+  [ SignatureNameToken "a",
+    SignatureIntToken 9223372036854775808,
+    SignatureArrowToken,
+    SignatureAtToken,
+    SignatureColonToken,
+    SignatureLParenToken,
+    SignatureRParenToken,
+    SignatureLBraceToken,
+    SignatureRBraceToken,
+    SignatureLBracketToken,
+    SignatureRBracketToken,
+    SignatureCommaToken,
+    SignatureOperatorToken "+",
+    SignatureOtherToken "."
   ]
 
 allModuleExports :: [ModuleExportSelector]
@@ -1004,25 +1011,36 @@ seText = SELit . SLText
 
 numericConstructorName :: SurfaceNumericType -> Text.Text
 numericConstructorName numericType =
-  Text.replace "SurfaceNumeric" "" (showText numericType) <> "Type"
+  case numericType of
+    NumericInt8 -> "Int8Type"
+    NumericInt16 -> "Int16Type"
+    NumericInt32 -> "Int32Type"
+    NumericInt64 -> "Int64Type"
+    NumericUInt8 -> "UInt8Type"
+    NumericUInt16 -> "UInt16Type"
+    NumericUInt32 -> "UInt32Type"
+    NumericUInt64 -> "UInt64Type"
+    NumericFloat16 -> "Float16Type"
+    NumericFloat32 -> "Float32Type"
+    NumericFloat64 -> "Float64Type"
 
 signatureTokenConstructorName :: SurfaceSignatureToken -> Text.Text
 signatureTokenConstructorName token =
   case token of
-    SurfaceSignatureNameToken {} -> "SignatureNameToken"
-    SurfaceSignatureIntToken {} -> "SignatureIntegerToken"
-    SurfaceSignatureArrowToken -> "SignatureArrowToken"
-    SurfaceSignatureAtToken -> "SignatureAtToken"
-    SurfaceSignatureColonToken -> "SignatureColonToken"
-    SurfaceSignatureLParenToken -> "SignatureLeftParenToken"
-    SurfaceSignatureRParenToken -> "SignatureRightParenToken"
-    SurfaceSignatureLBraceToken -> "SignatureLeftBraceToken"
-    SurfaceSignatureRBraceToken -> "SignatureRightBraceToken"
-    SurfaceSignatureLBracketToken -> "SignatureLeftBracketToken"
-    SurfaceSignatureRBracketToken -> "SignatureRightBracketToken"
-    SurfaceSignatureCommaToken -> "SignatureCommaToken"
-    SurfaceSignatureOperatorToken {} -> "SignatureOperatorToken"
-    SurfaceSignatureOtherToken {} -> "SignatureOtherToken"
+    SignatureNameToken {} -> "SignatureNameToken"
+    SignatureIntToken {} -> "SignatureIntegerToken"
+    SignatureArrowToken -> "SignatureArrowToken"
+    SignatureAtToken -> "SignatureAtToken"
+    SignatureColonToken -> "SignatureColonToken"
+    SignatureLParenToken -> "SignatureLeftParenToken"
+    SignatureRParenToken -> "SignatureRightParenToken"
+    SignatureLBraceToken -> "SignatureLeftBraceToken"
+    SignatureRBraceToken -> "SignatureRightBraceToken"
+    SignatureLBracketToken -> "SignatureLeftBracketToken"
+    SignatureRBracketToken -> "SignatureRightBracketToken"
+    SignatureCommaToken -> "SignatureCommaToken"
+    SignatureOperatorToken {} -> "SignatureOperatorToken"
+    SignatureOtherToken {} -> "SignatureOtherToken"
 
 showText :: (Show value) => value -> Text.Text
 showText = Text.pack . show

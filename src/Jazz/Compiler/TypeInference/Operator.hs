@@ -21,7 +21,6 @@ import Data.Text (Text)
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    NumericType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatIntegerBounds,
@@ -74,6 +73,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeScheme (..),
     quantifiedVariablesMembershipSet,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 data OperatorRule
   = NumericRule NumericRuleResult

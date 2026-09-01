@@ -16,9 +16,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import Jazz.Compiler.AST
-  ( SignatureType (..),
-  )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (E5001),
   )
@@ -32,6 +29,7 @@ import qualified Jazz.Compiler.Parser.AST as Surface
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import qualified Jazz.Repository.AuthoredSources as AuthoredSources
 import Jazz.Repository.FeatureInventory
   ( SurfaceFeature (..),

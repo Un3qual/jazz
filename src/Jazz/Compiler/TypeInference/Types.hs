@@ -1,7 +1,9 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Internal type model shared by inference subsystems.
 module Jazz.Compiler.TypeInference.Types
@@ -35,9 +37,8 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
-  ( NumericType,
-    SignaturePayload,
-    SignatureType (..),
+  ( SignaturePayload,
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
@@ -53,6 +54,21 @@ import Jazz.Compiler.StableSet
     stableSetFromPreferred,
     stableSetMembershipSet,
     stableSetOrderedList,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
   )
 
 data ExpressionType

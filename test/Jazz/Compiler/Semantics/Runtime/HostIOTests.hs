@@ -29,10 +29,7 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
     Pattern (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
@@ -74,6 +71,11 @@ import Jazz.Compiler.RuntimeHost
     productionRuntimeHost,
   )
 import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,

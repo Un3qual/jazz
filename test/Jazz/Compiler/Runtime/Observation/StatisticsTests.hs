@@ -19,7 +19,6 @@ import Jazz.Compiler.AST
     Expr (..),
     Literal (..),
     Pattern (..),
-    SignatureType (TypeInt),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -90,6 +89,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (runtimeHostArguments),
     disabledRuntimeHost,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,

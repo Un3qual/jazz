@@ -27,9 +27,6 @@ where
 import Data.Char (isAlpha)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( SignatureType (TypeName),
-  )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
@@ -41,6 +38,9 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     untypedIntMetadata,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( SignatureType (TypeName),
   )
 
 newtype CanonicalSourcePath = CanonicalSourcePath Text

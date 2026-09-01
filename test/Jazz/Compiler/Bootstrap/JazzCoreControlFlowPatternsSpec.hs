@@ -23,6 +23,10 @@ import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.Parser.AST
+import Jazz.Compiler.TypeRepresentation
+  ( SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -283,22 +287,22 @@ expectedUnsupportedFixtureNames =
 
 unsupportedFixtures :: [(Text.Text, SurfaceExpr)]
 unsupportedFixtures =
-  [ ("type-application-root", SETypeApplication (SEVar "identity") span1 SurfaceTypeInt),
-    ("type-application-condition", SEIf (SETypeApplication (SEVar "condition") span1 SurfaceTypeBool) (seInt 1) (seInt 0)),
+  [ ("type-application-root", SETypeApplication (SEVar "identity") span1 TypeInt),
+    ("type-application-condition", SEIf (SETypeApplication (SEVar "condition") span1 TypeBool) (seInt 1) (seInt 0)),
     ( "type-application-case-scrutinee",
       SECase
-        (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+        (SETypeApplication (SEVar "identity") span1 TypeInt)
         [SurfaceCaseArm SPWildcard Nothing (seInt 0)]
     ),
     ( "type-application-case-guard",
       SECase
         (SEVar "value")
-        [SurfaceCaseArm SPWildcard (Just (SETypeApplication (SEVar "keep") span1 SurfaceTypeBool)) (seInt 0)]
+        [SurfaceCaseArm SPWildcard (Just (SETypeApplication (SEVar "keep") span1 TypeBool)) (seInt 0)]
     ),
     ( "type-application-lambda-body",
       SELambda
         (SurfaceLambdaIdentifier "value" :| [])
-        (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+        (SETypeApplication (SEVar "identity") span1 TypeInt)
     ),
     ( "dollar-case-body",
       SECase
@@ -308,7 +312,7 @@ unsupportedFixtures =
     ( "signature-if-block",
       SEIf
         (SEVar "condition")
-        (SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)])
+        (SEBlock [SSSignature "value" span1 (SignatureType TypeInt)])
         (seInt 0)
     ),
     ( "data-case-block",
@@ -324,7 +328,7 @@ unsupportedFixtures =
     ( "impl-lambda-block",
       SELambda
         (SurfaceLambdaIdentifier "value" :| [])
-        (SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []])
+        (SEBlock [SSImpl span1 "Show" [TypeText] []])
     ),
     ( "operator-storage-nested-block",
       SEBlock

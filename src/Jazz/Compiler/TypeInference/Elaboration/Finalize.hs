@@ -17,7 +17,7 @@ import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), NumericType (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST (DataConstructor (..), Expr (..), Literal (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
     BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
@@ -2340,7 +2340,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         TIntType -> typedInfo TypedIntType
         TIntegerLiteralType {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
         TFloatType -> typedInfo TypedFloatType
-        TNumericType numericType -> typedInfo (TypedNumericType (typedNumericType numericType))
+        TNumericType numericType -> typedInfo (TypedNumericType numericType)
         TBoolType -> typedInfo TypedBoolType
         TCharType -> typedInfo TypedCharType
         TTextType -> typedInfo TypedTextType
@@ -2376,7 +2376,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
         (LInt value, TypedIntType) -> Right (TypedIntegerLiteral (Text.pack (show value)))
         (LInt value, TypedNumericType _) -> Right (TypedIntegerLiteral (Text.pack (show value)))
         (LFloat _ source _, TypedFloatType) -> Right (fractionalLiteral source Nothing)
-        (LFloat _ source (Just numericType), TypedNumericType _) -> Right (fractionalLiteral source (Just (typedNumericType numericType)))
+        (LFloat _ source (Just numericType), TypedNumericType _) -> Right (fractionalLiteral source (Just numericType))
         (LFloat _ source Nothing, TypedNumericType numericType) -> Right (fractionalLiteral source (Just numericType))
         (LBool value, TypedBoolType) -> Right (TypedBooleanLiteral value)
         (LChar value, TypedCharType) -> Right (TypedCharacterLiteral value)
@@ -2402,18 +2402,3 @@ isTypedCoreDirectCallOperator operatorSymbol =
 
 typedSpan :: SourceSpan -> TypedSpan
 typedSpan spanValue = TypedSpan (spanLine spanValue) (spanColumn spanValue)
-
-typedNumericType :: NumericType -> TypedNumericType
-typedNumericType numericType =
-  case numericType of
-    NumericInt8 -> TypedInt8Type
-    NumericInt16 -> TypedInt16Type
-    NumericInt32 -> TypedInt32Type
-    NumericInt64 -> TypedInt64Type
-    NumericUInt8 -> TypedUInt8Type
-    NumericUInt16 -> TypedUInt16Type
-    NumericUInt32 -> TypedUInt32Type
-    NumericUInt64 -> TypedUInt64Type
-    NumericFloat16 -> TypedFloat16Type
-    NumericFloat32 -> TypedFloat32Type
-    NumericFloat64 -> TypedFloat64Type

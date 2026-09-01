@@ -21,9 +21,7 @@ import Jazz.Compiler.AST
   ( CaseArm (..),
     Expr (..),
     Literal (..),
-    NumericType (..),
     Pattern (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -63,6 +61,10 @@ import Jazz.Compiler.RuntimeHost
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     scopeStatements,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,

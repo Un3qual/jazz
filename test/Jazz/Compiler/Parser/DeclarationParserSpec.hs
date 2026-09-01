@@ -21,7 +21,6 @@ import Jazz.Compiler.Parser
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceDataConstructor (..),
-    SurfaceSignatureType (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Declaration
@@ -46,6 +45,7 @@ import Jazz.Compiler.Parser.TokenStream
   ( tokenStreamFromList,
     tokenStreamToList,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -105,14 +105,14 @@ testParsesDataConstructors = do
             [ SurfaceDataConstructor (mkIdentifier "None") [],
               SurfaceDataConstructor
                 (mkIdentifier "Some")
-                [SurfaceTypeVariable (mkIdentifier "a")],
+                [TypeVariable (mkIdentifier "a")],
               SurfaceDataConstructor
                 (mkIdentifier "Pair")
-                [ SurfaceTypeTuple
-                    [ SurfaceTypeVariable (mkIdentifier "a"),
-                      SurfaceTypeVariable (mkIdentifier "a")
+                [ TypeTuple
+                    [ TypeVariable (mkIdentifier "a"),
+                      TypeVariable (mkIdentifier "a")
                     ],
-                  SurfaceTypeList (SurfaceTypeVariable (mkIdentifier "a"))
+                  TypeList (TypeVariable (mkIdentifier "a"))
                 ]
             ],
           []

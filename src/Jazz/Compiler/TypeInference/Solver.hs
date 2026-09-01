@@ -17,8 +17,9 @@ module Jazz.Compiler.TypeInference.Solver
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
     unifyTypeLists,
-    unifyTypes
-  ) where
+    unifyTypes,
+  )
+where
 
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
@@ -26,12 +27,11 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (NumericType (..))
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeIntegerBounds,
     numericTypeIsIntegral,
     numericTypeSupportsRuntimeArithmetic,
-    numericTypeSupportsRuntimeComparison
+    numericTypeSupportsRuntimeComparison,
   )
 import Jazz.Compiler.Name (Name, identifierText)
 import Jazz.Compiler.TypeInference.State
@@ -42,7 +42,7 @@ import Jazz.Compiler.TypeInference.State
     inferNumericVars,
     inferRigidTypeVars,
     inferStrictEqualityVars,
-    inferSubst
+    inferSubst,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
@@ -50,8 +50,9 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
-    instantiateConstructorFieldType
+    instantiateConstructorFieldType,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =
@@ -61,13 +62,12 @@ freshTypeVar state =
 freshTypeVariable :: InferState -> (Int, ExpressionType, InferState)
 freshTypeVariable state =
   let nextVar = inferNextTypeVar state
-   in
-    ( nextVar,
-      TVarType nextVar,
-      modifySolverState
-        (\solver -> solver {solverNextTypeVar = nextVar + 1})
-        state
-    )
+   in ( nextVar,
+        TVarType nextVar,
+        modifySolverState
+          (\solver -> solver {solverNextTypeVar = nextVar + 1})
+          state
+      )
 
 resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
@@ -133,8 +133,8 @@ unifyTypesWithoutCostCentre leftType rightType state =
         ( TFunctionType leftInputType leftOutputType,
           TFunctionType rightInputType rightOutputType
           ) -> do
-          stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType stateAfterDereference
-          unifyTypesWithoutCostCentre leftOutputType rightOutputType stateAfterInput
+            stateAfterInput <- unifyTypesWithoutCostCentre leftInputType rightInputType stateAfterDereference
+            unifyTypesWithoutCostCentre leftOutputType rightOutputType stateAfterInput
         (TVarType leftVar, TVarType rightVar)
           | leftVar == rightVar ->
               Just stateAfterDereference
@@ -202,7 +202,8 @@ bindTypeVar typeVar replacementType state
   | resolvedReplacementType == TVarType typeVar = Just state
   | occursInType typeVar resolvedReplacementType = Nothing
   | typeVarIsStrictEqualityConstrained
-      && not (supportsDeferredEqualityOperandType state resolvedReplacementType) = Nothing
+      && not (supportsDeferredEqualityOperandType state resolvedReplacementType) =
+      Nothing
   | otherwise = do
       nextReplacementType <- constrainedReplacementType
       pure
@@ -412,10 +413,9 @@ dataTypeSupportsRuntimeEqualityWith seenDataTypes state typeName typeArguments =
           <> "<"
           <> Text.pack (show resolvedTypeArguments)
           <> ">"
-   in
-    if Set.member dataTypeKey seenDataTypes
-      then True
-      else checkUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
+   in if Set.member dataTypeKey seenDataTypes
+        then True
+        else checkUnseen (Set.insert dataTypeKey seenDataTypes) resolvedTypeArguments
   where
     checkUnseen nextSeenDataTypes resolvedTypeArguments =
       case Map.lookup (identifierText typeName) (inferDataTypes state) of

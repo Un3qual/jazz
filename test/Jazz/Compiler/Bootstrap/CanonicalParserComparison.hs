@@ -58,6 +58,13 @@ import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     renderRuntimeValue,
   )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
+  )
 
 newtype CanonicalParserResult = CanonicalParserResult RuntimeValue
   deriving (Show)
@@ -240,35 +247,35 @@ surfaceNumericTypeRuntimeValue :: SurfaceNumericType -> RuntimeValue
 surfaceNumericTypeRuntimeValue numericType =
   canonicalNullaryConstructor
     ( case numericType of
-        SurfaceNumericInt8 -> "Int8Type"
-        SurfaceNumericInt16 -> "Int16Type"
-        SurfaceNumericInt32 -> "Int32Type"
-        SurfaceNumericInt64 -> "Int64Type"
-        SurfaceNumericUInt8 -> "UInt8Type"
-        SurfaceNumericUInt16 -> "UInt16Type"
-        SurfaceNumericUInt32 -> "UInt32Type"
-        SurfaceNumericUInt64 -> "UInt64Type"
-        SurfaceNumericFloat16 -> "Float16Type"
-        SurfaceNumericFloat32 -> "Float32Type"
-        SurfaceNumericFloat64 -> "Float64Type"
+        NumericInt8 -> "Int8Type"
+        NumericInt16 -> "Int16Type"
+        NumericInt32 -> "Int32Type"
+        NumericInt64 -> "Int64Type"
+        NumericUInt8 -> "UInt8Type"
+        NumericUInt16 -> "UInt16Type"
+        NumericUInt32 -> "UInt32Type"
+        NumericUInt64 -> "UInt64Type"
+        NumericFloat16 -> "Float16Type"
+        NumericFloat32 -> "Float32Type"
+        NumericFloat64 -> "Float64Type"
     )
 
 surfaceSignaturePayloadRuntimeValue :: SurfaceSignaturePayload -> RuntimeValue
 surfaceSignaturePayloadRuntimeValue payload =
   case payload of
-    SurfaceSignatureType signatureType ->
+    SignatureType signatureType ->
       canonicalConstructor "TypeSignature" [surfaceSignatureTypeRuntimeValue signatureType]
-    SurfaceConstrainedSignature constraints signatureType ->
+    ConstrainedSignature constraints signatureType ->
       canonicalConstructor
         "ConstrainedSignature"
         [ listRuntimeValue surfaceSignatureConstraintRuntimeValue constraints,
           surfaceSignatureTypeRuntimeValue signatureType
         ]
-    SurfaceUnsupportedSignature tokens ->
+    UnsupportedSignature tokens ->
       canonicalConstructor "UnsupportedSignature" [listRuntimeValue surfaceSignatureTokenRuntimeValue tokens]
 
 surfaceSignatureConstraintRuntimeValue :: SurfaceSignatureConstraint -> RuntimeValue
-surfaceSignatureConstraintRuntimeValue (SurfaceSignatureConstraint name arguments) =
+surfaceSignatureConstraintRuntimeValue (SignatureConstraint name arguments) =
   canonicalConstructor
     "SurfaceSignatureConstraint"
     [identifierRuntimeValue name, listRuntimeValue surfaceSignatureTypeRuntimeValue arguments]
@@ -276,22 +283,22 @@ surfaceSignatureConstraintRuntimeValue (SurfaceSignatureConstraint name argument
 surfaceSignatureTypeRuntimeValue :: SurfaceSignatureType -> RuntimeValue
 surfaceSignatureTypeRuntimeValue signatureType =
   case signatureType of
-    SurfaceTypeInt -> canonicalNullaryConstructor "IntType"
-    SurfaceTypeFloat -> canonicalNullaryConstructor "FloatType"
-    SurfaceTypeNumeric numericType -> canonicalConstructor "NumericType" [surfaceNumericTypeRuntimeValue numericType]
-    SurfaceTypeBool -> canonicalNullaryConstructor "BoolType"
-    SurfaceTypeChar -> canonicalNullaryConstructor "CharType"
-    SurfaceTypeText -> canonicalNullaryConstructor "TextType"
-    SurfaceTypeVariable name -> canonicalConstructor "TypeVariable" [identifierRuntimeValue name]
-    SurfaceTypeName name -> canonicalConstructor "NamedType" [identifierRuntimeValue name]
-    SurfaceTypeApplication name arguments ->
+    TypeInt -> canonicalNullaryConstructor "IntType"
+    TypeFloat -> canonicalNullaryConstructor "FloatType"
+    TypeNumeric numericType -> canonicalConstructor "NumericType" [surfaceNumericTypeRuntimeValue numericType]
+    TypeBool -> canonicalNullaryConstructor "BoolType"
+    TypeChar -> canonicalNullaryConstructor "CharType"
+    TypeText -> canonicalNullaryConstructor "TextType"
+    TypeVariable name -> canonicalConstructor "TypeVariable" [identifierRuntimeValue name]
+    TypeName name -> canonicalConstructor "NamedType" [identifierRuntimeValue name]
+    TypeApplication name arguments ->
       canonicalConstructor
         "AppliedType"
         [identifierRuntimeValue name, listRuntimeValue surfaceSignatureTypeRuntimeValue arguments]
-    SurfaceTypeList elementType -> canonicalConstructor "ListType" [surfaceSignatureTypeRuntimeValue elementType]
-    SurfaceTypeTuple elementTypes ->
+    TypeList elementType -> canonicalConstructor "ListType" [surfaceSignatureTypeRuntimeValue elementType]
+    TypeTuple elementTypes ->
       canonicalConstructor "TupleType" [listRuntimeValue surfaceSignatureTypeRuntimeValue elementTypes]
-    SurfaceTypeFunction argumentType resultType ->
+    TypeFunction argumentType resultType ->
       canonicalConstructor
         "FunctionType"
         [surfaceSignatureTypeRuntimeValue argumentType, surfaceSignatureTypeRuntimeValue resultType]
@@ -299,20 +306,20 @@ surfaceSignatureTypeRuntimeValue signatureType =
 surfaceSignatureTokenRuntimeValue :: SurfaceSignatureToken -> RuntimeValue
 surfaceSignatureTokenRuntimeValue token =
   case token of
-    SurfaceSignatureNameToken name -> canonicalConstructor "SignatureNameToken" [VText name]
-    SurfaceSignatureIntToken value -> canonicalConstructor "SignatureIntegerToken" [decimalIntegerValue value]
-    SurfaceSignatureArrowToken -> canonicalNullaryConstructor "SignatureArrowToken"
-    SurfaceSignatureAtToken -> canonicalNullaryConstructor "SignatureAtToken"
-    SurfaceSignatureColonToken -> canonicalNullaryConstructor "SignatureColonToken"
-    SurfaceSignatureLParenToken -> canonicalNullaryConstructor "SignatureLeftParenToken"
-    SurfaceSignatureRParenToken -> canonicalNullaryConstructor "SignatureRightParenToken"
-    SurfaceSignatureLBraceToken -> canonicalNullaryConstructor "SignatureLeftBraceToken"
-    SurfaceSignatureRBraceToken -> canonicalNullaryConstructor "SignatureRightBraceToken"
-    SurfaceSignatureLBracketToken -> canonicalNullaryConstructor "SignatureLeftBracketToken"
-    SurfaceSignatureRBracketToken -> canonicalNullaryConstructor "SignatureRightBracketToken"
-    SurfaceSignatureCommaToken -> canonicalNullaryConstructor "SignatureCommaToken"
-    SurfaceSignatureOperatorToken symbol -> canonicalConstructor "SignatureOperatorToken" [VText symbol]
-    SurfaceSignatureOtherToken value -> canonicalConstructor "SignatureOtherToken" [VText value]
+    SignatureNameToken name -> canonicalConstructor "SignatureNameToken" [VText name]
+    SignatureIntToken value -> canonicalConstructor "SignatureIntegerToken" [decimalIntegerValue value]
+    SignatureArrowToken -> canonicalNullaryConstructor "SignatureArrowToken"
+    SignatureAtToken -> canonicalNullaryConstructor "SignatureAtToken"
+    SignatureColonToken -> canonicalNullaryConstructor "SignatureColonToken"
+    SignatureLParenToken -> canonicalNullaryConstructor "SignatureLeftParenToken"
+    SignatureRParenToken -> canonicalNullaryConstructor "SignatureRightParenToken"
+    SignatureLBraceToken -> canonicalNullaryConstructor "SignatureLeftBraceToken"
+    SignatureRBraceToken -> canonicalNullaryConstructor "SignatureRightBraceToken"
+    SignatureLBracketToken -> canonicalNullaryConstructor "SignatureLeftBracketToken"
+    SignatureRBracketToken -> canonicalNullaryConstructor "SignatureRightBracketToken"
+    SignatureCommaToken -> canonicalNullaryConstructor "SignatureCommaToken"
+    SignatureOperatorToken symbol -> canonicalConstructor "SignatureOperatorToken" [VText symbol]
+    SignatureOtherToken value -> canonicalConstructor "SignatureOtherToken" [VText value]
 
 surfaceClassMethodSignatureRuntimeValue :: SurfaceClassMethodSignature -> RuntimeValue
 surfaceClassMethodSignatureRuntimeValue (SurfaceClassMethodSignature name spanValue payload) =

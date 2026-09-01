@@ -24,6 +24,13 @@ import Jazz.Compiler.Name
   ( Identifier,
   )
 import Jazz.Compiler.Parser.AST
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -159,19 +166,19 @@ directExpressions = map snd directFixtures
 directFixtures :: [(Text.Text, SurfaceExpr)]
 directFixtures =
   [ ( "type-application-primitive",
-      SETypeApplication (SEVar "identity") span2 SurfaceTypeInt
+      SETypeApplication (SEVar "identity") span2 TypeInt
     ),
     ( "type-application-recursive-qualified",
       SETypeApplication
         ( SETypeApplication
             (SEQualifiedVar "Alias" "map")
             span1
-            (SurfaceTypeApplication "Alias::Maybe" [SurfaceTypeVariable "a"])
+            (TypeApplication "Alias::Maybe" [TypeVariable "a"])
         )
         span2
-        ( SurfaceTypeFunction
-            (SurfaceTypeList (SurfaceTypeNumeric SurfaceNumericUInt16))
-            (SurfaceTypeTuple [SurfaceTypeBool, SurfaceTypeText])
+        ( TypeFunction
+            (TypeList (TypeNumeric NumericUInt16))
+            (TypeTuple [TypeBool, TypeText])
         )
     ),
     ("dollar-basic", SEBinary "$" (SEVar "function") (seInt 1)),
@@ -195,46 +202,46 @@ directFixtures =
     ),
     ( "signature-primitives",
       signatureBlock
-        [ ("integer", SurfaceTypeInt),
-          ("floating", SurfaceTypeFloat),
-          ("boolean", SurfaceTypeBool),
-          ("character", SurfaceTypeChar),
-          ("text", SurfaceTypeText)
+        [ ("integer", TypeInt),
+          ("floating", TypeFloat),
+          ("boolean", TypeBool),
+          ("character", TypeChar),
+          ("text", TypeText)
         ]
     ),
     ( "signature-numeric-widths",
       signatureBlock
-        [ ("i8", SurfaceTypeNumeric SurfaceNumericInt8),
-          ("i16", SurfaceTypeNumeric SurfaceNumericInt16),
-          ("i32", SurfaceTypeNumeric SurfaceNumericInt32),
-          ("i64", SurfaceTypeNumeric SurfaceNumericInt64),
-          ("u8", SurfaceTypeNumeric SurfaceNumericUInt8),
-          ("u16", SurfaceTypeNumeric SurfaceNumericUInt16),
-          ("u32", SurfaceTypeNumeric SurfaceNumericUInt32),
-          ("u64", SurfaceTypeNumeric SurfaceNumericUInt64),
-          ("f16", SurfaceTypeNumeric SurfaceNumericFloat16),
-          ("f32", SurfaceTypeNumeric SurfaceNumericFloat32),
-          ("f64", SurfaceTypeNumeric SurfaceNumericFloat64)
+        [ ("i8", TypeNumeric NumericInt8),
+          ("i16", TypeNumeric NumericInt16),
+          ("i32", TypeNumeric NumericInt32),
+          ("i64", TypeNumeric NumericInt64),
+          ("u8", TypeNumeric NumericUInt8),
+          ("u16", TypeNumeric NumericUInt16),
+          ("u32", TypeNumeric NumericUInt32),
+          ("u64", TypeNumeric NumericUInt64),
+          ("f16", TypeNumeric NumericFloat16),
+          ("f32", TypeNumeric NumericFloat32),
+          ("f64", TypeNumeric NumericFloat64)
         ]
     ),
     ( "signature-recursive-shapes",
       signatureBlock
-        [ ("variable", SurfaceTypeVariable "a"),
-          ("named", SurfaceTypeName "Result"),
-          ("applied", SurfaceTypeApplication "Result" [SurfaceTypeVariable "a", SurfaceTypeText]),
-          ("list", SurfaceTypeList (SurfaceTypeVariable "a")),
-          ("unit", SurfaceTypeTuple []),
-          ("tuple", SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeBool]),
-          ("function", SurfaceTypeFunction (SurfaceTypeList SurfaceTypeInt) (SurfaceTypeTuple [SurfaceTypeText, SurfaceTypeBool]))
+        [ ("variable", TypeVariable "a"),
+          ("named", TypeName "Result"),
+          ("applied", TypeApplication "Result" [TypeVariable "a", TypeText]),
+          ("list", TypeList (TypeVariable "a")),
+          ("unit", TypeTuple []),
+          ("tuple", TypeTuple [TypeInt, TypeBool]),
+          ("function", TypeFunction (TypeList TypeInt) (TypeTuple [TypeText, TypeBool]))
         ]
     ),
     ( "signature-qualified-names",
       signatureBlock
-        [ ("qualified", SurfaceTypeName "Alias::Result"),
-          ("qualifiedApplied", SurfaceTypeApplication "Alias::Box" [SurfaceTypeName "Other::Item"]),
-          ("multiQualified", SurfaceTypeName "Alias::Nested::Result"),
-          ("missingQualifier", SurfaceTypeName "::Result"),
-          ("missingMember", SurfaceTypeName "Alias::")
+        [ ("qualified", TypeName "Alias::Result"),
+          ("qualifiedApplied", TypeApplication "Alias::Box" [TypeName "Other::Item"]),
+          ("multiQualified", TypeName "Alias::Nested::Result"),
+          ("missingQualifier", TypeName "::Result"),
+          ("missingMember", TypeName "Alias::")
         ]
     ),
     ( "signature-constraints",
@@ -242,11 +249,11 @@ directFixtures =
         [ SSSignature
             "constrained"
             span1
-            ( SurfaceConstrainedSignature
-                [ SurfaceSignatureConstraint "Eq" [SurfaceTypeVariable "a"],
-                  SurfaceSignatureConstraint "Alias::Ord" [SurfaceTypeList (SurfaceTypeVariable "a")]
+            ( ConstrainedSignature
+                [ SignatureConstraint "Eq" [TypeVariable "a"],
+                  SignatureConstraint "Alias::Ord" [TypeList (TypeVariable "a")]
                 ]
-                (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeList (SurfaceTypeVariable "a")))
+                (TypeFunction (TypeVariable "a") (TypeList (TypeVariable "a")))
             )
         ]
     ),
@@ -255,21 +262,21 @@ directFixtures =
         [ SSSignature
             "unsupported"
             span1
-            ( SurfaceUnsupportedSignature
-                [ SurfaceSignatureNameToken "a",
-                  SurfaceSignatureIntToken 12,
-                  SurfaceSignatureArrowToken,
-                  SurfaceSignatureAtToken,
-                  SurfaceSignatureColonToken,
-                  SurfaceSignatureLParenToken,
-                  SurfaceSignatureRParenToken,
-                  SurfaceSignatureLBraceToken,
-                  SurfaceSignatureRBraceToken,
-                  SurfaceSignatureLBracketToken,
-                  SurfaceSignatureRBracketToken,
-                  SurfaceSignatureCommaToken,
-                  SurfaceSignatureOperatorToken "+",
-                  SurfaceSignatureOtherToken "forall"
+            ( UnsupportedSignature
+                [ SignatureNameToken "a",
+                  SignatureIntToken 12,
+                  SignatureArrowToken,
+                  SignatureAtToken,
+                  SignatureColonToken,
+                  SignatureLParenToken,
+                  SignatureRParenToken,
+                  SignatureLBraceToken,
+                  SignatureRBraceToken,
+                  SignatureLBracketToken,
+                  SignatureRBracketToken,
+                  SignatureCommaToken,
+                  SignatureOperatorToken "+",
+                  SignatureOtherToken "forall"
                 ]
             )
         ]
@@ -279,7 +286,7 @@ directFixtures =
         [ SSSignature
             "$operator:%25%25"
             span1
-            (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)))
+            (SignatureType (TypeFunction TypeInt (TypeFunction TypeInt TypeInt)))
         ]
     ),
     ( "data-empty",
@@ -291,9 +298,9 @@ directFixtures =
             span1
             "Result"
             ["error", "item"]
-            [ SurfaceDataConstructor "Failure" [SurfaceTypeVariable "error"],
-              SurfaceDataConstructor "Success" [SurfaceTypeVariable "item"],
-              SurfaceDataConstructor "Opaque" [SurfaceTypeInt]
+            [ SurfaceDataConstructor "Failure" [TypeVariable "error"],
+              SurfaceDataConstructor "Success" [TypeVariable "item"],
+              SurfaceDataConstructor "Opaque" [TypeInt]
             ]
         ]
     ),
@@ -309,34 +316,34 @@ directFixtures =
             [ SurfaceClassMethodSignature
                 "equals"
                 span2
-                ( SurfaceSignatureType
-                    (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool))
+                ( SignatureType
+                    (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
                 ),
               SurfaceClassMethodSignature
                 "compare"
                 span1
-                ( SurfaceConstrainedSignature
-                    [SurfaceSignatureConstraint "Alias::Ord" [SurfaceTypeVariable "a"]]
-                    (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeInt)
+                ( ConstrainedSignature
+                    [SignatureConstraint "Alias::Ord" [TypeVariable "a"]]
+                    (TypeFunction (TypeVariable "a") TypeInt)
                 )
             ]
         ]
     ),
     ( "impl-empty",
-      SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []]
+      SEBlock [SSImpl span1 "Show" [TypeText] []]
     ),
     ( "impl-methods",
       SEBlock
         [ SSImpl
             span1
             "Transform"
-            [SurfaceTypeApplication "Alias::Box" [SurfaceTypeInt]]
+            [TypeApplication "Alias::Box" [TypeInt]]
             [ SurfaceImplMethod
                 "apply"
                 span2
                 ( SEIf
                     (SEVar "condition")
-                    (SETypeApplication (SEVar "identity") span2 SurfaceTypeText)
+                    (SETypeApplication (SEVar "identity") span2 TypeText)
                     (SEBinary "$" (SEVar "fallback") (SEVar "item"))
                 )
             ]
@@ -344,11 +351,11 @@ directFixtures =
     ),
     ( "mixed-block",
       SEBlock
-        [ SSSignature "convert" span1 (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeText)),
-          SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [SurfaceTypeVariable "a"]],
-          SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SurfaceSignatureType (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeText))],
-          SSImpl span1 "Render" [SurfaceTypeInt] [SurfaceImplMethod "render" span2 (SEBinary "$" (SEVar "toText") (SEVar "item"))],
-          SSLet "convert" span2 (SETypeApplication (SEVar "identity") span2 SurfaceTypeText),
+        [ SSSignature "convert" span1 (SignatureType (TypeFunction TypeInt TypeText)),
+          SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [TypeVariable "a"]],
+          SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))],
+          SSImpl span1 "Render" [TypeInt] [SurfaceImplMethod "render" span2 (SEBinary "$" (SEVar "toText") (SEVar "item"))],
+          SSLet "convert" span2 (SETypeApplication (SEVar "identity") span2 TypeText),
           SSExpr span2 (SEVar "convert")
         ]
     )
@@ -357,15 +364,15 @@ directFixtures =
 signatureBlock :: [(Identifier, SurfaceSignatureType)] -> SurfaceExpr
 signatureBlock signatures =
   SEBlock
-    [ SSSignature name span1 (SurfaceSignatureType signatureType)
+    [ SSSignature name span1 (SignatureType signatureType)
     | (name, signatureType) <- signatures
     ]
 
 earlierChildExpressions :: [SurfaceExpr]
 earlierChildExpressions =
-  [ SETypeApplication (SEVar "identity") span1 SurfaceTypeInt,
+  [ SETypeApplication (SEVar "identity") span1 TypeInt,
     SEBinary "$" (SEVar "function") (seInt 1),
-    SEBlock [SSSignature "item" span1 (SurfaceSignatureType SurfaceTypeInt)],
+    SEBlock [SSSignature "item" span1 (SignatureType TypeInt)],
     SEBlock [SSLet "$operator:%2B%2B" span1 (SEVar "combine")]
   ]
 
@@ -482,7 +489,7 @@ deferredFixtures =
         [ SSImpl
             span1
             "Render"
-            [SurfaceTypeInt]
+            [TypeInt]
             [ SurfaceImplMethod
                 "render"
                 span2

@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Main (main) where
 
@@ -48,6 +50,49 @@ import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceModuleDetailed,
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern NumericFloat16,
+    pattern NumericFloat32,
+    pattern NumericFloat64,
+    pattern NumericInt16,
+    pattern NumericInt32,
+    pattern NumericInt64,
+    pattern NumericInt8,
+    pattern NumericUInt16,
+    pattern NumericUInt32,
+    pattern NumericUInt64,
+    pattern NumericUInt8,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureConstraint,
+    pattern SignatureIntToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureOperatorToken,
+    pattern SignatureOtherToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,

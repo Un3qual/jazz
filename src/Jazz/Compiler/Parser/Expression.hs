@@ -30,7 +30,7 @@ import Jazz.Compiler.Parser.AST
     SurfaceExpr (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
+    SurfaceNumericType,
     SurfacePattern (..),
     SurfacePatternLambdaClause (..),
     SurfaceSignatureType,
@@ -76,6 +76,7 @@ import Jazz.Compiler.Parser.TokenStream
     pattern EmptyTokens,
     pattern (:<),
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import qualified Text.Megaparsec as MP
 
 type Stop = TokenStream -> Bool
@@ -379,9 +380,9 @@ parseFractionalLiteralSuffix fractionalToken = do
 fractionalLiteralSuffixTarget :: Text -> Maybe SurfaceNumericType
 fractionalLiteralSuffixTarget suffixName =
   case suffixName of
-    "f16" -> Just SurfaceNumericFloat16
-    "f32" -> Just SurfaceNumericFloat32
-    "f64" -> Just SurfaceNumericFloat64
+    "f16" -> Just NumericFloat16
+    "f32" -> Just NumericFloat32
+    "f64" -> Just NumericFloat64
     _ -> Nothing
 
 parseFloatLiteral :: Text -> Either Text Double

@@ -7,7 +7,6 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    SignatureType (TypeInt),
     Statement (..),
   )
 import Jazz.Compiler.Analyzer
@@ -48,6 +47,7 @@ import Jazz.Compiler.Driver
     runSource,
     runWarnings,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,

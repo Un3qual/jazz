@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.Shared
   ( validSignatureProgram,
@@ -23,8 +25,9 @@ module Jazz.Compiler.Semantics.BindingSignature.Shared
     aliasOnlyImportedCapabilityFactsProgram,
     speculativePreviewDeferredConstraintProgram,
     speculativePreviewDeferredConstraintBlock,
-    speculativePreviewInferredConstraintProgram
-  ) where
+    speculativePreviewInferredConstraintProgram,
+  )
+where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -32,31 +35,37 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
+    Statement (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern SignatureType,
+    pattern TypeBool,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeVariable,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( assertContains,
     assertEqual,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
-    assertSingleDiagnosticPrimarySpan
+    assertSingleDiagnosticPrimarySpan,
   )
 
 validSignatureProgram :: Expr

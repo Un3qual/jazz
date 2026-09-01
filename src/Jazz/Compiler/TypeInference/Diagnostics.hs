@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Type-inference diagnostics and error-state operations.
 module Jazz.Compiler.TypeInference.Diagnostics
@@ -75,10 +77,10 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( NumericType,
     Pattern,
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
+    SignatureConstraint,
+    SignaturePayload,
+    SignatureToken,
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatMax,
@@ -126,6 +128,32 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType (..),
     NumericConstraint,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureConstraint,
+    pattern SignatureIntToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureOperatorToken,
+    pattern SignatureOtherToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeFunction,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 
 addTypeError :: InferState -> Diagnostic -> InferState

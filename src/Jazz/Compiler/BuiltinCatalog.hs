@@ -45,9 +45,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
-import Jazz.Compiler.AST
-  ( NumericType (..),
-  )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 -- | Selects the compiler-owned builtin naming scheme used by every compiler
 -- phase. Public builtin spellings remain available through the Prelude.

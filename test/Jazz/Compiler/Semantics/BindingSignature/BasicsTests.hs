@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Semantics.BindingSignature.BasicsTests
   ( basicTests,
@@ -9,9 +11,6 @@ import qualified Data.Set as Set
 import Jazz.Compiler.AST
   ( Expr (..),
     Literal (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
 import Jazz.Compiler.Diagnostics
@@ -34,6 +33,11 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern TypeInt,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
