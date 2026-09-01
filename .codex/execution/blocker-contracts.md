@@ -274,28 +274,33 @@ Each blocked item should answer these questions:
   constraints, evidence, binders, recipes, and phase-specific identifiers remain
   phase-owned; the canonical adapter alone preserves the hosted `Typed*Type`
   vocabulary. Public syntax and semantics are unchanged.
+- Completed milestone: Task 6 attached deterministic leading-token locations
+  to every surface expression and pattern while preserving the hosted schema.
 - Smallest unblocker: execute `JN-COMPILER-LOCATED-PHASED-CORE-001` through
-  Task 6 of the approved compiler architecture simplification plan.
-- Decision needed: none. Preserve public behavior, interpreter-backed compile/run,
-  and the hosted parser schema while locating the Haskell surface tree.
-- Recommended default: execute only the location milestone before the
-  phase-indexed canonical AST so later phase carriers can preserve source
-  ownership without creating another parallel tree.
+  Task 7 of the approved compiler architecture simplification plan.
+- Decision needed: none. Preserve public behavior and interpreter-backed
+  compile/run while introducing the phase-indexed canonical AST and split names.
+- Recommended default: complete only the phase-indexed core milestone before
+  consolidating whole-program carriers in Task 8.
 - Ready child: `JN-COMPILER-LOCATED-PHASED-CORE-001`.
-- Target paths: `src/Jazz/Compiler/Parser/AST.hs`,
-  `src/Jazz/Compiler/Parser/Expression.hs`,
-  `src/Jazz/Compiler/Parser/Pattern.hs`,
-  `src/Jazz/Compiler/Parser/Declaration.hs`,
-  `src/Jazz/Compiler/Parser/Lower.hs`, `src/Jazz/Compiler/Parser.hs`,
-  `test/Jazz/Compiler/Parser/TestSupport.hs`,
-  `test/Jazz/Compiler/Parser/Foundation/ExpressionsTests.hs`,
-  `test/Jazz/Compiler/Parser/PatternParserSpec.hs`, and
-  `test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs`.
+- Target paths: `src/Jazz/Compiler/SemanticFacts.hs`,
+  `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/Name.hs`,
+  `src/Jazz/Compiler/Parser/Lower.hs`, `src/Jazz/Compiler/ModuleGraph.hs`,
+  `src/Jazz/Compiler/ModuleResolver.hs`, `src/Jazz/Compiler/Analyzer.hs`,
+  `src/Jazz/Compiler/Analyzer/UnusedBindings.hs`,
+  `src/Jazz/Compiler/Pattern.hs`, `src/Jazz/Compiler/PatternCoverage.hs`,
+  `src/Jazz/Compiler/Purity.hs`, `src/Jazz/Compiler/RecursiveBindings.hs`,
+  `src/Jazz/Compiler/TypeInference.hs`,
+  `src/Jazz/Compiler/TypeInference/Traversal.hs`,
+  `src/Jazz/Compiler/Runtime/Types.hs`,
+  `test/Jazz/Compiler/Semantics/CoreNormalizationSpec.hs`,
+  `test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs`, and `jazz.cabal`.
 - Verification:
-  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test parser-foundation-spec expression-parser-spec pattern-parser-spec declaration-parser-spec adt-pattern-parser-spec canonical-parser-comparison-spec jazz-parser-parity-spec --test-show-details=direct --jobs=1`
-- Still not in scope for the ready child: public syntax or semantic changes,
-  hosted parser schema changes, a Typed Core interpreter, raw-core interpreter
-  removal, normal compile/run cutover, or Task 7 and later architecture work.
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment --jobs=1`
+  - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test core-normalization-spec name-semantics-spec pattern-semantics-spec pattern-coverage-spec recursive-bindings-spec binding-signature-coherence-spec runtime-semantics-spec --test-show-details=direct --jobs=1`
+- Still not in scope for the ready child: public syntax or semantic changes, a
+  Typed Core interpreter, raw-core interpreter removal, normal compile/run
+  cutover, or Task 8 and later architecture work.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

@@ -6,21 +6,29 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 6"
+plan_section: "Task 7"
 target_paths:
-  - src/Jazz/Compiler/Parser/AST.hs
-  - src/Jazz/Compiler/Parser/Expression.hs
-  - src/Jazz/Compiler/Parser/Pattern.hs
-  - src/Jazz/Compiler/Parser/Declaration.hs
+  - src/Jazz/Compiler/AST.hs
+  - src/Jazz/Compiler/Name.hs
   - src/Jazz/Compiler/Parser/Lower.hs
-  - src/Jazz/Compiler/Parser.hs
-  - test/Jazz/Compiler/Parser/TestSupport.hs
-  - test/Jazz/Compiler/Parser/Foundation/ExpressionsTests.hs
-  - test/Jazz/Compiler/Parser/PatternParserSpec.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
+  - src/Jazz/Compiler/ModuleGraph.hs
+  - src/Jazz/Compiler/ModuleResolver.hs
+  - src/Jazz/Compiler/Analyzer.hs
+  - src/Jazz/Compiler/Analyzer/UnusedBindings.hs
+  - src/Jazz/Compiler/Pattern.hs
+  - src/Jazz/Compiler/PatternCoverage.hs
+  - src/Jazz/Compiler/Purity.hs
+  - src/Jazz/Compiler/RecursiveBindings.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - src/Jazz/Compiler/TypeInference/Traversal.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
+  - test/Jazz/Compiler/Semantics/CoreNormalizationSpec.hs
+  - test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs
+  - jazz.cabal
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test parser-foundation-spec expression-parser-spec pattern-parser-spec declaration-parser-spec adt-pattern-parser-spec canonical-parser-comparison-spec jazz-parser-parity-spec --test-show-details=direct --jobs=1
-deliverable: "Attach deterministic leading-token locations to every surface expression and pattern without changing public syntax or the hosted parser schema."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment --jobs=1
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test core-normalization-spec name-semantics-spec pattern-semantics-spec pattern-coverage-spec recursive-bindings-spec binding-signature-coherence-spec runtime-semantics-spec --test-show-details=direct --jobs=1
+deliverable: "Replace the mixed-state core AST and names with deterministic node identities, phase-indexed carriers, split source/resolved names, and phase-specific semantic facts without changing public behavior."
 last_verified: 2026-08-31
 ---
 
