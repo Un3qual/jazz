@@ -8,6 +8,7 @@ import Data.IORef
     newIORef,
     readIORef,
   )
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -65,6 +66,7 @@ import Jazz.Compiler.ModuleGraph
     ResolvedImport (..),
     ResolvedModule (..),
   )
+import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -220,15 +222,15 @@ testDuplicateCompiledModulePathsPreserveFirstMatch =
         middlePath
         [chainImport duplicatePath]
         middleExport
-        (EVar (resolvedImportedName duplicatePath ValueNamespace (mkIdentifier "value")))
+        (EVar (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")))
     secondModule =
       compiledTextBindingModule duplicatePath [] secondExport (ELit (LText "second"))
     entryStatements =
       [ SExpr
           (SourceSpan 1 1)
           ( ETuple
-              [ EVar (resolvedImportedName duplicatePath ValueNamespace (mkIdentifier "value")),
-                EVar (resolvedImportedName middlePath ValueNamespace (mkIdentifier "middle"))
+              [ EVar (resolvedImportedName (nominalModulePath duplicatePath) ValueNamespace (mkIdentifier "value")),
+                EVar (resolvedImportedName (nominalModulePath middlePath) ValueNamespace (mkIdentifier "middle"))
               ]
           )
       ]
@@ -283,7 +285,7 @@ testCompileResolvedModulePreservesFirstDependency = do
         [ SLet
             (resolvedLocalName ValueNamespace (mkIdentifier "copied"))
             (SourceSpan 1 1)
-            (EVar (resolvedImportedName dependencyPath ValueNamespace (mkIdentifier "value")))
+            (EVar (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value")))
         ]
     targetModule =
       ResolvedModule
@@ -439,7 +441,7 @@ chainDependency index =
     valueExpr =
       if index == 0
         then ELit (LText "chain-value")
-        else EVar (resolvedImportedName (chainPath (index - 1)) ValueNamespace (mkIdentifier "value"))
+        else EVar (resolvedImportedName (nominalModulePath (chainPath (index - 1))) ValueNamespace (mkIdentifier "value"))
     statements = [SLet (resolvedLocalName ValueNamespace (mkIdentifier "value")) (SourceSpan 1 1) valueExpr]
 
 chainEntry :: Bool -> Int -> CompiledModule
@@ -447,7 +449,7 @@ chainEntry requiresHost moduleCount =
   compiledModule ["App", "Main"] [chainImport dependencyPath] statements (exportInventory []) emptyModuleInterface
   where
     dependencyPath = chainPath (moduleCount - 1)
-    importedValue = EVar (resolvedImportedName dependencyPath ValueNamespace (mkIdentifier "value"))
+    importedValue = EVar (resolvedImportedName (nominalModulePath dependencyPath) ValueNamespace (mkIdentifier "value"))
     hostResultName = resolvedLocalName ValueNamespace (mkIdentifier "host-result")
     hostStatements =
       [ SLet
@@ -484,6 +486,12 @@ chainImport path = ResolvedImport (SourceSpan 1 1) path ImportAll
 
 chainPath :: Int -> [Text]
 chainPath index = ["Chain", Text.pack (show index)]
+
+nominalModulePath :: [Text] -> ModulePath
+nominalModulePath path =
+  case NonEmpty.nonEmpty path of
+    Just segments -> mkModulePath (fmap mkIdentifier segments)
+    Nothing -> error "module pipeline fixture path cannot be empty"
 
 chainExport :: ModuleExport
 chainExport = ModuleExport ValueNamespace "value"

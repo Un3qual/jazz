@@ -10,6 +10,7 @@ module Jazz.Compiler.Stdlib.Shared
   )
 where
 
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -36,6 +37,7 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
   )
+import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -51,6 +53,7 @@ import Jazz.Compiler.Name
     Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
+    mkIdentifier,
     mkQualifiedIdentifier,
     sourceName,
   )
@@ -202,7 +205,7 @@ evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram =
           availableEnvironment
           (scopeStatements (compiledModuleExpr compiledModule))
       let fullEnvironment = scopeResultEnvironment scopeResult
-          publishedEnvironment = publishTestScope (ImportedModule modulePath) fullEnvironment
+          publishedEnvironment = publishTestScope (ImportedModule (nominalModulePath modulePath)) fullEnvironment
           nextAvailableEnvironment = Map.union publishedEnvironment availableEnvironment
           nextTargetScope =
             if modulePath == targetModulePath
@@ -257,6 +260,12 @@ withSourceAliases environment = Map.union aliases environment
         [ (sourceName identifier, cell)
         | (ResolvedName CurrentModule _ identifier, cell) <- Map.toList environment
         ]
+
+nominalModulePath :: [Text] -> ModulePath
+nominalModulePath path =
+  case NonEmpty.nonEmpty path of
+    Just segments -> mkModulePath (fmap mkIdentifier segments)
+    Nothing -> error "stdlib fixture module path cannot be empty"
 
 privateProbeDiagnostic :: [Text] -> Diagnostic
 privateProbeDiagnostic modulePath =
