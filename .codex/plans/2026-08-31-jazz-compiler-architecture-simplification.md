@@ -6,30 +6,25 @@ size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 7"
+plan_section: "Task 8"
 target_paths:
-  - src/Jazz/Compiler/AST.hs
-  - src/Jazz/Compiler/Name.hs
-  - src/Jazz/Compiler/Parser/Lower.hs
   - src/Jazz/Compiler/ModuleGraph.hs
   - src/Jazz/Compiler/ModuleResolver.hs
-  - src/Jazz/Compiler/Analyzer.hs
-  - src/Jazz/Compiler/Analyzer/UnusedBindings.hs
-  - src/Jazz/Compiler/Pattern.hs
-  - src/Jazz/Compiler/PatternCoverage.hs
-  - src/Jazz/Compiler/Purity.hs
-  - src/Jazz/Compiler/RecursiveBindings.hs
-  - src/Jazz/Compiler/TypeInference.hs
-  - src/Jazz/Compiler/TypeInference/Traversal.hs
-  - src/Jazz/Compiler/Runtime/Types.hs
-  - test/Jazz/Compiler/Semantics/CoreNormalizationSpec.hs
-  - test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs
-  - jazz.cabal
+  - src/Jazz/Compiler/Parser/Lower.hs
+  - src/Jazz/Compiler/ModuleExports.hs
+  - src/Jazz/Compiler/ModuleCompiler.hs
+  - src/Jazz/Compiler/ModuleInterface.hs
+  - src/Jazz/Compiler/BundledPrelude.hs
+  - src/Jazz/Compiler/Prelude.hs
+  - src/Jazz/Compiler/Driver.hs
+  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
+  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
+  - test/Jazz/Compiler/Modules/PreludeLoadingSpec.hs
+  - test/Jazz/Compiler/Modules/Loader/VisibilityTests.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment --jobs=1
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test core-normalization-spec name-semantics-spec pattern-semantics-spec pattern-coverage-spec recursive-bindings-spec binding-signature-coherence-spec runtime-semantics-spec --test-show-details=direct --jobs=1
-deliverable: "Replace the mixed-state core AST and names with deterministic node identities, phase-indexed carriers, split source/resolved names, and phase-specific semantic facts without changing public behavior."
-last_verified: 2026-08-31
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test module-resolution-spec module-exports-spec module-pipeline-contract-spec prelude-loading-spec loader-spec --test-show-details=direct --jobs=1
+deliverable: "Replace overlapping import, module, prelude, and resolved-program carriers with one opaque phase-indexed CoreProgram while preserving compiler and interpreter behavior."
+last_verified: 2026-09-01
 ---
 
 # Jazz Compiler Architecture Simplification Implementation Plan
