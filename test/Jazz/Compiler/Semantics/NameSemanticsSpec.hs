@@ -2,16 +2,19 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
     NameNamespace (..),
+    ResolvedNameOrigin (..),
     generatedName,
     mkIdentifier,
     namePurity,
     renderName,
     resolvedImportedName,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.Purity (Purity (..))
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
@@ -27,10 +30,15 @@ tests =
 
 testSourceAndResolvedNamesAreDistinct :: IO ()
 testSourceAndResolvedNamesAreDistinct = do
-  let source = sourceName (mkIdentifier "Lib::answer")
-      imported = resolvedImportedName ["Lib"] ValueNamespace (mkIdentifier "answer")
+  let modulePath = mkModulePath (mkIdentifier "Lib" :| [])
+      source = sourceName (mkIdentifier "Lib::answer")
+      imported = resolvedImportedName modulePath ValueNamespace (mkIdentifier "answer")
   assertEqual "rendered source" "Lib::answer" (renderName source)
   assertEqual "rendered imported" "Lib::answer" (renderName imported)
+  assertEqual
+    "imported origin retains nominal path"
+    (ResolvedName (ImportedModule modulePath) ValueNamespace (mkIdentifier "answer"))
+    imported
   assertEqual "structured distinction" False (source == imported)
 
 testGeneratedNamesDoNotAcquireUserPurity :: IO ()

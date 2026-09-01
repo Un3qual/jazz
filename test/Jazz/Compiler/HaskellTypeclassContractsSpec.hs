@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -35,6 +36,7 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries,
   )
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( Name,
     NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
@@ -219,7 +221,7 @@ testConcreteImplFactsUseRenderedIdentity = do
     sourceFact = ConcreteImplFact "Lib::Marked::Marked!" TypeInt
     importedFact =
       ConcreteImplFact
-        (resolvedImportedName ["Lib", "Marked"] CapabilityNamespace (mkIdentifier "Marked!"))
+        (resolvedImportedName (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Marked"])) CapabilityNamespace (mkIdentifier "Marked!"))
         TypeInt
     sourceTypeNameFact = ConcreteImplFact "Marked" (TypeName "Lib::Types::Tagged")
     importedTypeNameFact = ConcreteImplFact "Marked" (TypeName (importedTypeName "Tagged"))
@@ -284,7 +286,10 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
 
 importedTypeName :: Text -> Name
 importedTypeName name =
-  resolvedImportedName ["Lib", "Types"] TypeNamespace (mkIdentifier name)
+  resolvedImportedName
+    (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Types"]))
+    TypeNamespace
+    (mkIdentifier name)
 
 testModuleExportInventory :: IO ()
 testModuleExportInventory = do

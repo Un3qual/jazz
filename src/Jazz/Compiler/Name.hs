@@ -36,41 +36,23 @@ where
 
 import Control.DeepSeq (NFData)
 import Data.Char
-  ( isAlpha,
-    isAlphaNum,
-    ord,
+  ( ord,
     toUpper,
   )
 import Data.String (IsString (..))
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
+import Jazz.Compiler.Identifier
+  ( Identifier,
+    IdentifierLike (..),
+    isIdentifierContinuationCharacter,
+    isIdentifierStartCharacter,
+    mkIdentifier,
+  )
+import Jazz.Compiler.ModuleIdentity (ModulePath, renderModulePath)
 import Jazz.Compiler.Purity (Purity (..))
-import qualified Jazz.Compiler.Purity as Purity
 import Numeric (showHex)
-
--- | A source identifier paired with the purity implied by its spelling.
-data Identifier = Identifier Text Purity
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-class IdentifierLike name where
-  identifierText :: name -> Text
-  identifierPurity :: name -> Purity
-
-instance IdentifierLike Identifier where
-  identifierText (Identifier name _) = name
-  identifierPurity (Identifier _ purity) = purity
-
-mkIdentifier :: Text -> Identifier
-mkIdentifier name = Identifier name (Purity.namePurity name)
-
-isIdentifierStartCharacter :: Char -> Bool
-isIdentifierStartCharacter character = isAlpha character || character == '_'
-
-isIdentifierContinuationCharacter :: Char -> Bool
-isIdentifierContinuationCharacter character =
-  isAlphaNum character || character == '_' || character == '\'' || character == '!'
 
 operatorBindingIdentifierText :: Text -> Text
 operatorBindingIdentifierText operatorSymbol =
@@ -107,9 +89,6 @@ splitQualifiedIdentifierText name =
       where
         member = Text.drop 2 rest
 
-instance IsString Identifier where
-  fromString = mkIdentifier . Text.pack
-
 data NameNamespace
   = ValueNamespace
   | ConstructorNamespace
@@ -120,7 +99,7 @@ data NameNamespace
 
 data ResolvedNameOrigin
   = CurrentModule
-  | ImportedModule [Text]
+  | ImportedModule ModulePath
   | AmbientPrelude
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -174,7 +153,7 @@ qualifiedMemberName qualifier member =
 resolvedLocalName :: NameNamespace -> Identifier -> Name
 resolvedLocalName = ResolvedName CurrentModule
 
-resolvedImportedName :: [Text] -> NameNamespace -> Identifier -> Name
+resolvedImportedName :: ModulePath -> NameNamespace -> Identifier -> Name
 resolvedImportedName modulePath = ResolvedName (ImportedModule modulePath)
 
 resolvedAmbientName :: NameNamespace -> Identifier -> Name
@@ -197,7 +176,7 @@ renderName name =
       identifierText qualifier <> "::" <> identifierText member
     ResolvedName CurrentModule _ member -> identifierText member
     ResolvedName (ImportedModule modulePath) _ member ->
-      Text.intercalate "::" (modulePath ++ [identifierText member])
+      renderModulePath modulePath <> "::" <> identifierText member
     ResolvedName AmbientPrelude _ member -> identifierText member
     BuiltinName identifier -> identifierText identifier
     GeneratedName (OperatorBinding storageName) -> storageName

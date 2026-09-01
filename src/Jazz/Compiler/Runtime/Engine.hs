@@ -33,6 +33,7 @@ import Control.Monad.Trans.State.Strict
 import Data.Functor.Identity (runIdentity)
 import qualified Data.IntMap.Lazy as LazyIntMap
 import Data.List (scanl')
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Lazy as LazyMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -74,6 +75,7 @@ import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan,
   )
+import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
     Name (..),
@@ -1171,7 +1173,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         signatureModulePath =
           case methodName of
-            ResolvedName (ImportedModule classModulePath) _ _ -> Just classModulePath
+            ResolvedName (ImportedModule classModulePath) _ _ ->
+              Just (NonEmpty.toList (modulePathTextSegments classModulePath))
             _ -> methodModulePath
 
     selectedQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
@@ -2612,7 +2615,8 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
               where
                 signatureModulePath =
                   case methodName of
-                    ResolvedName (ImportedModule classModulePath) _ _ -> Just classModulePath
+                    ResolvedName (ImportedModule classModulePath) _ _ ->
+                      Just (NonEmpty.toList (modulePathTextSegments classModulePath))
                     _ -> methodModulePath
         _ -> env
 

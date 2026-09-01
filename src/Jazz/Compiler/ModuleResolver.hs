@@ -6,7 +6,6 @@
 -- dependency order for the driver.
 module Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    modulePathToRelativeFile,
     parseModulePathText,
     resolveProgramWithAmbientExports,
   )
@@ -77,14 +76,20 @@ import Jazz.Compiler.ModuleExports
     visibleImportInventory,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    mkModulePath,
+    modulePathRelativeFile,
+    modulePathTextSegments,
+    parseModulePathText,
+    renderModulePath,
+  )
 import Jazz.Compiler.Name
   ( Identifier,
     Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
-    isIdentifierContinuationCharacter,
-    isIdentifierStartCharacter,
     isOperatorBindingIdentifierText,
     mkIdentifier,
     splitQualifiedIdentifierText,
@@ -128,7 +133,7 @@ data ModuleResolutionConfig = ModuleResolutionConfig
 -- diagnostics with the original import span.
 data ParsedImport = ParsedImport
   { parsedImportSpan :: SourceSpan,
-    parsedImportModulePath :: [Text],
+    parsedImportModulePath :: ModulePath,
     parsedImportAlias :: Maybe Text,
     parsedImportSymbols :: Maybe [Text]
   }
@@ -150,7 +155,7 @@ data ParsedModule = ParsedModule
 -- as one product makes the single traversal explicit and prevents new module
 -- validation facts from quietly adding another whole-tree walk.
 data SurfaceModuleFacts = SurfaceModuleFacts
-  { surfaceFactImports :: [ParsedImport],
+  { surfaceFactImports :: [ModuleGraph.CoreResolvedImport],
     surfaceFactLocalInventory :: ModuleExportInventory,
     surfaceFactConstructorOwners :: Map Text (Set Text),
     surfaceFactReferences :: Set Text,
@@ -167,56 +172,35 @@ data SurfaceReferenceFacts = SurfaceReferenceFacts
 -- | Origin metadata for imported bindings/aliases used in collision
 -- diagnostics.
 data BindingOrigin = BindingOrigin
-  { bindingOriginModulePath :: [Text],
+  { bindingOriginModulePath :: ModulePath,
     bindingOriginSpan :: SourceSpan
   }
 
 data ResolvedState = ResolvedState
-  { resolvedSetState :: Set [Text],
+  { resolvedSetState :: Set ModulePath,
     resolvedModulesRevState :: [ModuleGraph.ResolvedModule],
-    resolvedExportInventoriesState :: Map [Text] ModuleExportInventory
+    resolvedExportInventoriesState :: Map ModulePath ModuleExportInventory
   }
 
-modulePathToRelativeFile :: [Text] -> FilePath
-modulePathToRelativeFile = modulePathToRelativeFileWithExt ".jz"
+modulePathFromTextSegments :: [Text] -> Either Diagnostic ModulePath
+modulePathFromTextSegments segments =
+  case NonEmpty.nonEmpty (map mkIdentifier segments) of
+    Just identifiers -> Right (mkModulePath identifiers)
+    Nothing -> Left (mkErrorDiagnostic E4016 CompilationOrigin "empty entry module path")
 
--- | Parse a user-provided module path like `Foo::Bar` and reject empty or
--- non-identifier segments before resolution starts.
-parseModulePathText :: Text -> Either Diagnostic [Text]
-parseModulePathText rawModulePath
-  | Text.null rawModulePath =
-      Left (mkErrorDiagnostic E4016 CompilationOrigin "entry module path cannot be empty")
-  | any Text.null segments =
-      Left
-        ( mkErrorDiagnostic
-            E4016
-            CompilationOrigin
-            ( "invalid entry module path '"
-                <> rawModulePath
-                <> "': empty path segment"
-            )
-        )
-  | not (all isValidSegment segments) =
-      Left
-        ( mkErrorDiagnostic
-            E4016
-            CompilationOrigin
-            ( "invalid entry module path '"
-                <> rawModulePath
-                <> "': segments must be identifiers"
-            )
-        )
-  | otherwise =
-      Right segments
-  where
-    segments = Text.splitOn "::" rawModulePath
+modulePathTexts :: ModulePath -> [Text]
+modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
-    isValidSegment :: Text -> Bool
-    isValidSegment segment =
-      case Text.uncons segment of
-        Nothing -> False
-        Just (firstChar, restChars) ->
-          isIdentifierStartCharacter firstChar && Text.all isIdentifierContinuationCharacter restChars
+parsedImportFromCore :: ModuleGraph.CoreResolvedImport -> Either Diagnostic ParsedImport
+parsedImportFromCore coreImport = do
+  importedPath <- modulePathFromTextSegments (ModuleGraph.coreResolvedImportPath coreImport)
+  pure
+    ParsedImport
+      { parsedImportSpan = ModuleGraph.coreResolvedImportSpan coreImport,
+        parsedImportModulePath = importedPath,
+        parsedImportAlias = ModuleGraph.coreResolvedImportAlias coreImport,
+        parsedImportSymbols = ModuleGraph.coreResolvedImportSymbols coreImport
+      }
 
 resolveProgramWithAmbientExports ::
   ModuleResolutionConfig ->
@@ -227,22 +211,25 @@ resolveProgramWithAmbientExports ::
   IO (Either Diagnostic ModuleGraph.ResolvedProgram)
 resolveProgramWithAmbientExports config builtinMode ambientExports loadSource entryModulePath =
   {-# SCC "jazz-stage:module-discovery" #-}
-  fmap
-    ( fmap
-        ( \state ->
-            ModuleGraph.ResolvedProgram
-              { ModuleGraph.resolvedProgramEntryPath = entryModulePath,
-                ModuleGraph.resolvedProgramModules = reverse (resolvedModulesRevState state)
-              }
+  case modulePathFromTextSegments entryModulePath of
+    Left diagnostic -> pure (Left diagnostic)
+    Right nominalEntryPath ->
+      fmap
+        ( fmap
+            ( \state ->
+                ModuleGraph.ResolvedProgram
+                  { ModuleGraph.resolvedProgramEntryPath = entryModulePath,
+                    ModuleGraph.resolvedProgramModules = reverse (resolvedModulesRevState state)
+                  }
+            )
         )
-    )
-    ( resolveStateWithLookupAndVisibleSymbols
-        config
-        builtinMode
-        ambientExports
-        loadSource
-        entryModulePath
-    )
+        ( resolveStateWithLookupAndVisibleSymbols
+            config
+            builtinMode
+            ambientExports
+            loadSource
+            nominalEntryPath
+        )
 
 resolveStateWithLookupAndVisibleSymbols ::
   (Monad m) =>
@@ -250,13 +237,10 @@ resolveStateWithLookupAndVisibleSymbols ::
   BuiltinResolutionMode ->
   ModuleExportInventory ->
   (FilePath -> m (Maybe Text)) ->
-  [Text] ->
+  ModulePath ->
   m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSource entryModulePath
-  | null entryModulePath =
-      pure (Left (mkErrorDiagnostic E4016 CompilationOrigin "empty entry module path"))
-  | otherwise =
-      visitModule [] initialState entryModulePath
+resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSource entryModulePath =
+  visitModule [] initialState entryModulePath
   where
     initialState =
       ResolvedState
@@ -315,7 +299,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                                 Right resolvedImports ->
                                   let resolvedModule =
                                         ModuleGraph.ResolvedModule
-                                          { ModuleGraph.resolvedModulePath = modulePath,
+                                          { ModuleGraph.resolvedModulePath = modulePathTexts modulePath,
                                             ModuleGraph.resolvedSourcePath = sourcePath,
                                             ModuleGraph.resolvedModuleImports = resolvedImports,
                                             ModuleGraph.resolvedModuleExportInventory = parsedModulePublicInventory parsedModule,
@@ -351,7 +335,7 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
           visitModule nextStack currentState importPath
 
     loadModuleSource callStack modulePath = do
-      let relativePath = modulePathToRelativeFileWithExt (moduleExtension config) modulePath
+      let relativePath = modulePathRelativeFile (moduleExtension config) modulePath
           candidatePaths =
             dedupePreservingOrder
               (map (normalise . appendRelativePath relativePath) (moduleRoots config))
@@ -397,11 +381,12 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                   )
               )
 
-resolveImportExposure :: [Text] -> ModuleGraph.CoreResolvedImport -> Either Diagnostic ModuleGraph.ResolvedImport
-resolveImportExposure importerPath coreImport =
+resolveImportExposure :: ModulePath -> ModuleGraph.CoreResolvedImport -> Either Diagnostic ModuleGraph.ResolvedImport
+resolveImportExposure importerPath coreImport = do
+  importedPath <- modulePathFromTextSegments (ModuleGraph.coreResolvedImportPath coreImport)
   ModuleGraph.ResolvedImport
     (ModuleGraph.coreResolvedImportSpan coreImport)
-    (ModuleGraph.coreResolvedImportPath coreImport)
+    (modulePathTexts importedPath)
     <$> exposure
   where
     exposure =
@@ -414,7 +399,7 @@ resolveImportExposure importerPath coreImport =
         (Just aliasName, Nothing) -> Right (ModuleGraph.ImportQualified aliasName)
         (Just _, Just _) -> Left (mkImportExposureInvariantError importerPath coreImport)
 
-mkImportExposureInvariantError :: [Text] -> ModuleGraph.CoreResolvedImport -> Diagnostic
+mkImportExposureInvariantError :: ModulePath -> ModuleGraph.CoreResolvedImport -> Diagnostic
 mkImportExposureInvariantError importerPath coreImport =
   setDiagnosticPrimarySpan
     (ModuleGraph.coreResolvedImportSpan coreImport)
@@ -422,7 +407,7 @@ mkImportExposureInvariantError importerPath coreImport =
         E4010
         CompilationOrigin
         ( "internal resolver invariant failed while finalizing import '"
-            <> renderModulePath (ModuleGraph.coreResolvedImportPath coreImport)
+            <> Text.intercalate "::" (ModuleGraph.coreResolvedImportPath coreImport)
             <> "' for module '"
             <> renderModulePath importerPath
             <> "'"
@@ -434,17 +419,9 @@ appendRelativePath relativePath root
   | null root = relativePath
   | otherwise = root </> relativePath
 
-modulePathToRelativeFileWithExt :: String -> [Text] -> FilePath
-modulePathToRelativeFileWithExt extension modulePath =
-  case modulePath of
-    [] -> extension
-    _ -> foldr1 joinSegments (map Text.unpack modulePath) <> extension
-  where
-    joinSegments segment acc = segment <> "/" <> acc
-
 -- | Parse a module's surface source and extract only the details needed by the
 -- resolver: declarations, imports, and top-level exports.
-parseModuleDetails :: FilePath -> [Text] -> Text -> Either Diagnostic ParsedModule
+parseModuleDetails :: FilePath -> ModulePath -> Text -> Either Diagnostic ParsedModule
 parseModuleDetails sourcePath expectedModulePath sourceText =
   {-# SCC "jazz-stage:module-resolution" #-}
   case parseSurfaceProgram sourceText of
@@ -458,9 +435,10 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
             )
         )
     Right surfaceExpr -> do
-      coreModule <- lowerSurfaceModule sourcePath expectedModulePath surfaceExpr
+      coreModule <- lowerSurfaceModule sourcePath (modulePathTexts expectedModulePath) surfaceExpr
       let facts = collectSurfaceModuleFacts surfaceExpr
           localInventory = surfaceFactLocalInventory facts
+      parsedImports <- traverse parsedImportFromCore (surfaceFactImports facts)
       publicInventory <-
         validatePublicExportInventory
           sourcePath
@@ -470,7 +448,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
           localInventory
       Right
         ParsedModule
-          { parsedModuleImports = surfaceFactImports facts,
+          { parsedModuleImports = parsedImports,
             parsedModuleLocalInventory = localInventory,
             parsedModulePublicInventory = publicInventory,
             parsedModuleReferences = surfaceFactReferences facts,
@@ -481,7 +459,7 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
 
 validatePublicExportInventory ::
   FilePath ->
-  [Text] ->
+  ModulePath ->
   Maybe ModuleGraph.DeclaredModuleExports ->
   Map Text (Set Text) ->
   ModuleExportInventory ->
@@ -654,7 +632,7 @@ collectSurfaceModuleFacts surfaceExpr =
     collectImport statement importsRev =
       case statement of
         SSImport spanValue modulePath alias importedSymbols ->
-          ParsedImport spanValue modulePath alias importedSymbols : importsRev
+          ModuleGraph.CoreResolvedImport spanValue modulePath alias importedSymbols : importsRev
         _ -> importsRev
 
     collectConstructorOwners statement owners =
@@ -670,7 +648,7 @@ collectSurfaceModuleFacts surfaceExpr =
             owners
         _ -> owners
 
-collectImportPaths :: [ParsedImport] -> [[Text]]
+collectImportPaths :: [ParsedImport] -> [ModulePath]
 collectImportPaths imports =
   [ parsedImportModulePath importDecl
   | importDecl <- imports
@@ -678,10 +656,10 @@ collectImportPaths imports =
 
 resolveCoreModuleNames ::
   BuiltinResolutionMode ->
-  [Text] ->
+  ModulePath ->
   ModuleExportInventory ->
   ModuleExportInventory ->
-  Map [Text] ModuleExportInventory ->
+  Map ModulePath ModuleExportInventory ->
   [ParsedImport] ->
   ModuleGraph.CoreModule ->
   ModuleGraph.CoreModule
@@ -1262,7 +1240,7 @@ collectQualifiedTypeReference name facts =
 -- resolved so the exporting module inventories are known.
 validateImportBindings ::
   FilePath ->
-  [Text] ->
+  ModulePath ->
   [ParsedImport] ->
   Set Text ->
   Set Text ->
@@ -1270,7 +1248,7 @@ validateImportBindings ::
   Set (Text, Text) ->
   Set Text ->
   Set Text ->
-  Map [Text] ModuleExportInventory ->
+  Map ModulePath ModuleExportInventory ->
   Either Diagnostic ()
 validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
   go Map.empty Map.empty Map.empty imports
@@ -1797,13 +1775,13 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
 -- | Provide a deterministic lexical import order for traversal and diagnostics.
 -- Encounter order is intentionally discarded by `Set`-based deduplication and
 -- the final `renderModulePath` sort.
-sortModulePaths :: [[Text]] -> [[Text]]
+sortModulePaths :: [ModulePath] -> [ModulePath]
 sortModulePaths modulePaths =
   map snd . sortOn fst $ map (\modulePath -> (renderModulePath modulePath, modulePath)) uniquePaths
   where
     uniquePaths = Set.toList (Set.fromList modulePaths)
 
-mkCycleError :: [Text] -> [[Text]] -> Diagnostic
+mkCycleError :: ModulePath -> [ModulePath] -> Diagnostic
 mkCycleError repeatedModulePath callStack =
   mkErrorDiagnostic
     E4003
@@ -1814,14 +1792,11 @@ mkCycleError repeatedModulePath callStack =
     suffixStartingAtRepeat = dropWhile (/= repeatedModulePath) rootToLeaf
     cycleTrace = suffixStartingAtRepeat ++ [repeatedModulePath]
 
-renderImporterContext :: [[Text]] -> Text
+renderImporterContext :: [ModulePath] -> Text
 renderImporterContext callStack =
   case callStack of
     importerPath : _ -> " imported by '" <> renderModulePath importerPath <> "'"
     [] -> ""
-
-renderModulePath :: [Text] -> Text
-renderModulePath segments = Text.intercalate "::" segments
 
 -- | Preserve the first occurrence of each candidate path so module-root lookup
 -- order remains stable while removing duplicates.

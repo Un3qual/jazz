@@ -38,6 +38,7 @@ import Jazz.Compiler.ModuleGraph
     ResolvedModule (..),
     ResolvedProgram (..),
   )
+import Jazz.Compiler.ModuleIdentity (mkModulePath, renderModulePath)
 import Jazz.Compiler.ModuleInterface
 import Jazz.Compiler.Name
   ( Name (..),
@@ -196,14 +197,14 @@ dependencyImportInterface importDecl dependency =
     ImportAll -> dependencyWholeInterface dependency
     ImportOnly symbolNames ->
       importSelectedInterface
-        (ImportedModule (resolvedImportPath importDecl))
+        (moduleOrigin (resolvedImportPath importDecl))
         Nothing
         (Just (NonEmpty.toList symbolNames))
         (compiledModuleExportInventory compiledModule)
         (compiledModuleInterface compiledModule)
     ImportQualified aliasName ->
       importSelectedInterface
-        (ImportedModule (resolvedImportPath importDecl))
+        (moduleOrigin (resolvedImportPath importDecl))
         (Just aliasName)
         Nothing
         (compiledModuleExportInventory compiledModule)
@@ -214,7 +215,7 @@ dependencyImportInterface importDecl dependency =
 importWholeCompiledModuleInterface :: CompiledModule -> ImportedInterface
 importWholeCompiledModuleInterface compiledModule =
   importSelectedInterface
-    (ImportedModule modulePath)
+    (moduleOrigin modulePath)
     Nothing
     Nothing
     (compiledModuleExportInventory compiledModule)
@@ -351,8 +352,13 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory moduleInt
 qualifiedKey :: ResolvedNameOrigin -> Text -> Text
 qualifiedKey origin name =
   case origin of
-    ImportedModule modulePath -> Text.intercalate "::" (modulePath <> [name])
+    ImportedModule modulePath -> renderModulePath modulePath <> "::" <> name
     _ -> name
+
+moduleOrigin :: [Text] -> ResolvedNameOrigin
+moduleOrigin =
+  maybe AmbientPrelude (ImportedModule . mkModulePath . fmap mkIdentifier)
+    . NonEmpty.nonEmpty
 
 factUsesClass :: Set.Set Text -> ConcreteImplFact -> Bool
 factUsesClass classNames fact = Set.member (concreteImplFactClassName fact) classNames

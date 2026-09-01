@@ -34,6 +34,7 @@ import qualified Data.ByteString.Lazy as LazyByteString
 import Data.Either (isRight)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List (isPrefixOf)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -69,6 +70,7 @@ import Jazz.Compiler.Driver
     runRuntimeObservation,
     runSourceWithResolvedPreludeAndHostObserved,
   )
+import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     parseModulePathText,
@@ -265,7 +267,12 @@ parseCliOptions args = do
         Left err ->
           Left err
         Right modulePath ->
-          go options {rawCliEntryModule = Just modulePath} rest
+          go
+            options
+              { rawCliEntryModule =
+                  Just (NonEmpty.toList (modulePathTextSegments modulePath))
+              }
+            rest
     go _ ("--entry-module" : []) =
       Left (cliArgumentDiagnostic "missing module path after --entry-module")
     go options ("--module-root" : moduleRoot : rest) =

@@ -55,6 +55,7 @@ import Data.Char
     ord,
     toUpper,
   )
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust, listToMaybe)
@@ -99,11 +100,13 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
     identifierText,
+    mkIdentifier,
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeAppliedArguments,
@@ -218,9 +221,9 @@ runtimeDefinitionNameIn namespace maybeModulePath name =
 
 runtimeDefinitionOrigin :: [Text] -> ResolvedNameOrigin
 runtimeDefinitionOrigin modulePath =
-  case modulePath of
-    [] -> AmbientPrelude
-    _ -> ImportedModule modulePath
+  case NonEmpty.nonEmpty modulePath of
+    Nothing -> AmbientPrelude
+    Just segments -> ImportedModule (mkModulePath (fmap mkIdentifier segments))
 
 runtimeConstructorArgument :: Maybe [Text] -> SignatureType -> SignatureType
 runtimeConstructorArgument = runtimeConstraintType

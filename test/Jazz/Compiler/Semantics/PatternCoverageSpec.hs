@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Control.Exception (evaluate)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -26,6 +27,7 @@ import Jazz.Compiler.Driver
     compileSource,
     compileWarnings,
   )
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace),
     mkIdentifier,
@@ -583,7 +585,11 @@ testImportedWitnessRendering =
     "Second _"
     ( renderCoveragePattern
         ( PConstructor
-            (resolvedImportedName ["Lib", "Choice"] ConstructorNamespace (mkIdentifier "Second"))
+            ( resolvedImportedName
+                (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Choice"]))
+                ConstructorNamespace
+                (mkIdentifier "Second")
+            )
             [PWildcard]
         )
     )

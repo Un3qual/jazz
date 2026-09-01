@@ -40,6 +40,7 @@ import Jazz.Compiler.ModuleExports
     visibleImportInventory,
   )
 import Jazz.Compiler.ModuleGraph (ImportExposure (..), ResolvedImport (..))
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.ModuleInterface
   ( CompiledModule (..),
     CompiledPrelude (..),
@@ -360,7 +361,7 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
           insertExport (runtimeExport, cell) =
             Map.insert
               ( ResolvedName
-                  (ImportedModule dependencyPath)
+                  dependencyOrigin
                   (runtimeExportNamespace runtimeExport)
                   (mkIdentifier (runtimeExportName runtimeExport))
               )
@@ -369,6 +370,11 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
     _ -> env
   where
     dependencyPath = resolvedImportPath importDecl
+    dependencyOrigin =
+      maybe
+        AmbientPrelude
+        (ImportedModule . mkModulePath . fmap mkIdentifier)
+        (NonEmpty.nonEmpty dependencyPath)
 
 emptyRuntimeModuleAccumulator :: RuntimeModuleAccumulator
 emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator [] Map.empty

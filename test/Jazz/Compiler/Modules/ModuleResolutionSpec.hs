@@ -29,14 +29,20 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity
+  ( mkModulePath,
+    modulePathRelativeFile,
+    modulePathTextSegments,
+    renderModulePath,
+  )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    modulePathToRelativeFile,
     parseModulePathText,
     resolveProgramWithAmbientExports,
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    mkIdentifier,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -132,6 +138,8 @@ tests =
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
     ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
     ("explicit imports reject private module bindings", testExplicitImportRejectsPrivateModuleBinding),
+    ("module paths parse into a non-empty nominal identity", testParseNominalModulePath),
+    ("invalid module path text retains E4016", testRejectsInvalidModulePathText),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("preserves exact module path segments while resolving", testPreservesExactModulePathSegments),
     ("maps module path to relative .jz file", testModulePathMapping),
@@ -710,25 +718,46 @@ testModulePathMapping =
   assertEqual
     "relative file path"
     "App/Core.jz"
-    (modulePathToRelativeFile ["App", "Core"])
+    (modulePathRelativeFile ".jz" (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Core"])))
 
 testNestedModulePathMapping :: IO ()
 testNestedModulePathMapping = do
   assertEqual
     "nested relative file path"
     "App/Core/Parser.jz"
-    (modulePathToRelativeFile ["App", "Core", "Parser"])
+    (modulePathRelativeFile ".jz" (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Core", mkIdentifier "Parser"])))
   assertEqual
     "punctuated relative file path"
     "Lib/Build!.jz"
-    (modulePathToRelativeFile ["Lib", "Build!"])
+    (modulePathRelativeFile ".jz" (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Build!"])))
+
+testParseNominalModulePath :: IO ()
+testParseNominalModulePath =
+  assertEqual
+    "parsed path segments and rendering"
+    (Right ("Foo" :| ["Bar"], "Foo::Bar"))
+    (fmap (\modulePath -> (modulePathTextSegments modulePath, renderModulePath modulePath)) (parseModulePathText "Foo::Bar"))
+
+testRejectsInvalidModulePathText :: IO ()
+testRejectsInvalidModulePathText =
+  mapM_
+    ( \modulePath ->
+        case parseModulePathText modulePath of
+          Left diagnostic ->
+            assertEqual
+              ("invalid path " <> modulePath)
+              "E4016"
+              (diagnosticCodeText (diagnosticCode diagnostic))
+          Right _ -> failTest ("expected invalid module path: " <> modulePath)
+    )
+    ["", "::Foo", "Foo::", "Foo::not-valid"]
 
 testParseModulePathContinuations :: IO ()
 testParseModulePathContinuations =
   assertEqual
     "continuation chars"
-    (Right ["App", "Main'", "Build!"])
-    (parseModulePathText "App::Main'::Build!")
+    (Right ("App" :| ["Main'", "Build!"]))
+    (modulePathTextSegments <$> parseModulePathText "App::Main'::Build!")
 
 testPreservesExactModulePathSegments :: IO ()
 testPreservesExactModulePathSegments =

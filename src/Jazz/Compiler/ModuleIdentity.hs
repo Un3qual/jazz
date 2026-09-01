@@ -1,0 +1,130 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+-- | Nominal identities shared by module discovery and name resolution.
+module Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    SourceFile,
+    ModuleQualifier,
+    ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    sourceFilePath,
+    moduleIdentity,
+    moduleIdentityPath,
+    moduleIdentitySource,
+    parseModulePathText,
+    modulePathSegments,
+    modulePathTextSegments,
+    renderModulePath,
+    modulePathRelativeFile,
+  )
+where
+
+import Control.DeepSeq (NFData)
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
+import Data.Text (Text)
+import qualified Data.Text as Text
+import GHC.Generics (Generic)
+import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E4016))
+import Jazz.Compiler.Diagnostics
+  ( Diagnostic,
+    DiagnosticOrigin (CompilationOrigin),
+    mkErrorDiagnostic,
+  )
+import Jazz.Compiler.Identifier
+  ( Identifier,
+    IdentifierLike (identifierText),
+    isIdentifierContinuationCharacter,
+    isIdentifierStartCharacter,
+    mkIdentifier,
+  )
+import System.FilePath (joinPath)
+
+newtype ModulePath = ModulePath (NonEmpty Identifier)
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+newtype SourceFile = SourceFile FilePath
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+newtype ModuleQualifier = ModuleQualifier Identifier
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+data ModuleIdentity = ModuleIdentity
+  { moduleIdentityPath :: ModulePath,
+    moduleIdentitySource :: SourceFile
+  }
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+mkModulePath :: NonEmpty Identifier -> ModulePath
+mkModulePath = ModulePath
+
+mkSourceFile :: FilePath -> SourceFile
+mkSourceFile = SourceFile
+
+sourceFilePath :: SourceFile -> FilePath
+sourceFilePath (SourceFile path) = path
+
+moduleIdentity :: ModulePath -> SourceFile -> ModuleIdentity
+moduleIdentity = ModuleIdentity
+
+parseModulePathText :: Text -> Either Diagnostic ModulePath
+parseModulePathText rawModulePath
+  | Text.null rawModulePath =
+      Left (mkErrorDiagnostic E4016 CompilationOrigin "entry module path cannot be empty")
+  | any Text.null segments =
+      Left
+        ( mkErrorDiagnostic
+            E4016
+            CompilationOrigin
+            ( "invalid entry module path '"
+                <> rawModulePath
+                <> "': empty path segment"
+            )
+        )
+  | not (all isValidSegment segments) =
+      Left
+        ( mkErrorDiagnostic
+            E4016
+            CompilationOrigin
+            ( "invalid entry module path '"
+                <> rawModulePath
+                <> "': segments must be identifiers"
+            )
+        )
+  | otherwise =
+      case NonEmpty.nonEmpty segments of
+        Just nonEmptySegments -> Right (ModulePath (fmap mkIdentifier nonEmptySegments))
+        Nothing -> Left (mkErrorDiagnostic E4016 CompilationOrigin "entry module path cannot be empty")
+  where
+    segments = Text.splitOn "::" rawModulePath
+
+    isValidSegment segment =
+      case Text.uncons segment of
+        Nothing -> False
+        Just (firstChar, restChars) ->
+          isIdentifierStartCharacter firstChar && Text.all isIdentifierContinuationCharacter restChars
+
+modulePathSegments :: ModulePath -> NonEmpty Identifier
+modulePathSegments (ModulePath segments) = segments
+
+modulePathTextSegments :: ModulePath -> NonEmpty Text
+modulePathTextSegments = fmap identifierText . modulePathSegments
+
+renderModulePath :: ModulePath -> Text
+renderModulePath = Text.intercalate "::" . NonEmpty.toList . modulePathTextSegments
+
+modulePathRelativeFile :: String -> ModulePath -> FilePath
+modulePathRelativeFile extension =
+  (<> extension)
+    . joinPath
+    . map (Text.unpack . identifierText)
+    . NonEmpty.toList
+    . modulePathSegments

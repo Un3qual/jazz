@@ -106,6 +106,7 @@ library jazz-internal
       Jazz.Compiler.Driver
       Jazz.Compiler.Force
       Jazz.Compiler.FractionalLiteral
+      Jazz.Compiler.Identifier
       Jazz.Compiler.LoweredIR
       Jazz.Compiler.LoweredIR.Lower
       Jazz.Compiler.LoweredIR.Lower.Emit
@@ -120,6 +121,7 @@ library jazz-internal
       Jazz.Compiler.TypedCore.Query
       Jazz.Compiler.TypedCore.Validate
       Jazz.Compiler.ModuleGraph
+      Jazz.Compiler.ModuleIdentity
       Jazz.Compiler.ModuleExports
       Jazz.Compiler.ModuleInterface
       Jazz.Compiler.ModuleCompiler
