@@ -167,6 +167,7 @@ library jazz-internal
       Jazz.Compiler.SourceProgram
       Jazz.Compiler.StableSet
       Jazz.Compiler.TypeInference
+      Jazz.Compiler.TypeInference.Analyzed
       Jazz.Compiler.TypeInference.Capabilities
       Jazz.Compiler.TypeInference.Diagnostics
       Jazz.Compiler.TypeInference.Elaboration

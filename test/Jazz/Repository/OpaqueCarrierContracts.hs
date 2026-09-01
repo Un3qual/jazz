@@ -200,27 +200,6 @@ recordUpdateCases =
       "Graph.coreProgramModules"
       "Graph.coreProgramModules",
     externalRecordUpdateCase
-      "CompiledModule opacity"
-      []
-      ["import qualified Jazz.Compiler.ModuleCompiler as Compiler"]
-      "Compiler.CompiledModule"
-      "Compiler.compiledModulePath"
-      "Compiler.compiledModulePath",
-    externalRecordUpdateCase
-      "CompiledProgram entry opacity"
-      []
-      ["import qualified Jazz.Compiler.ModuleCompiler as Compiler"]
-      "Compiler.CompiledProgram"
-      "Compiler.compiledProgramEntryPath"
-      "Compiler.compiledProgramEntryPath",
-    externalRecordUpdateCase
-      "CompiledProgram module opacity"
-      []
-      ["import qualified Jazz.Compiler.ModuleCompiler as Compiler"]
-      "Compiler.CompiledProgram"
-      "Compiler.compiledProgramModules"
-      "Compiler.compiledProgramModules",
-    externalRecordUpdateCase
       "ModuleExportInventory opacity"
       []
       ["import qualified Jazz.Compiler.ModuleExports as Exports"]

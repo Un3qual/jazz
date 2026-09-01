@@ -28,7 +28,9 @@ module Jazz.Compiler.SemanticFacts
     PatternRefutability (..),
     RuntimeObligation (..),
     RuntimePlan (..),
+    SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
+    StatementDeclarationFact (..),
     StatementFacts (..),
   )
 where
@@ -137,9 +139,40 @@ data PatternFacts = PatternFacts
 
 data StatementFacts = StatementFacts
   { statementBinderIds :: [CoreBinderId],
-    statementGeneralizedSchemes :: Map CoreBinderId AnalyzedScheme
+    statementGeneralizedSchemes :: Map CoreBinderId AnalyzedScheme,
+    statementDeclarationFact :: StatementDeclarationFact
   }
   deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+-- | The declaration role owned by a statement. Keeping this non-optional makes
+-- analyzed statement facts exhaustive without retaining source syntax as a
+-- semantic side channel.
+data StatementDeclarationFact
+  = ValueDeclaration ResolvedName
+  | SignatureDeclaration ResolvedName
+  | DataDeclaration ResolvedName [ResolvedName]
+  | CapabilityDeclaration ResolvedName [ResolvedName]
+  | ImplementationDeclaration ResolvedName
+  | ModuleDeclaration [Text]
+  | ImportDeclaration [Text]
+  | ExpressionDeclaration
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+-- | Violations detected while collecting or attaching facts. These are
+-- compiler invariant failures, not source diagnostics.
+data SemanticFactInvariantFailure
+  = DuplicateExpressionFacts CoreNodeId
+  | DuplicatePatternFacts CoreNodeId
+  | DuplicateStatementFacts CoreNodeId
+  | MissingExpressionFacts CoreNodeId
+  | MissingExpressionEvidence CoreNodeId
+  | AmbiguousExpressionEvidence CoreNodeId
+  | MissingPatternFacts CoreNodeId
+  | MissingStatementFacts CoreNodeId
+  | AnalyzedModuleRootNotBlock CoreNodeId
+  deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
 -- | Neutral, post-inference scheme projection stored on analyzed statements.

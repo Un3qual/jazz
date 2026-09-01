@@ -7,10 +7,10 @@
 -- forced, so closures and unused runtime exports do not need an 'NFData'
 -- instance.
 module Jazz.Compiler.Force
-  ( forceCompiledProgram,
-    forceCompiledModule,
-    forceCompiledModules,
-    forceCompiledProgramResult,
+  ( forceAnalyzedProgram,
+    forceAnalyzedModule,
+    forceAnalyzedModules,
+    forceAnalyzedProgramResult,
     forceDiagnostic,
     forceLoweredExpr,
     forceResolvedExpr,
@@ -27,12 +27,11 @@ where
 
 import Control.DeepSeq (rnf)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CorePhase (Lowered, Resolved), Expr)
+import Jazz.Compiler.AST (CorePhase (Analyzed, Lowered, Resolved), Expr)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
 import Jazz.Compiler.LoweredIR (LoweredProgram)
-import Jazz.Compiler.ModuleCompiler (CompiledModule, CompiledProgram)
-import Jazz.Compiler.ModuleGraph (CoreModule)
+import Jazz.Compiler.ModuleGraph (CoreModule, CoreProgram)
 import Jazz.Compiler.ModuleRuntime (RuntimeProgram (runtimeProgramOutput))
 import Jazz.Compiler.Parser.AST (SurfaceExpr)
 import Jazz.Compiler.Parser.Lexer (Token)
@@ -59,11 +58,11 @@ forceTypedProgram = rnf
 forceInferenceResult :: InferenceResult -> ()
 forceInferenceResult = rnf
 
-forceCompiledProgramResult :: Either Diagnostic CompiledProgram -> ()
-forceCompiledProgramResult = rnf
+forceAnalyzedProgramResult :: ([Diagnostic], Maybe (CoreProgram 'Analyzed)) -> ()
+forceAnalyzedProgramResult = rnf
 
-forceCompiledProgram :: CompiledProgram -> ()
-forceCompiledProgram = rnf
+forceAnalyzedProgram :: CoreProgram 'Analyzed -> ()
+forceAnalyzedProgram = rnf
 
 forceRuntimeProgramOutputResult :: Either Diagnostic RuntimeProgram -> ()
 forceRuntimeProgramOutputResult result =
@@ -79,14 +78,14 @@ forceRenderedRuntimeValue runtimeValue =
 forceLoweredProgram :: LoweredProgram -> ()
 forceLoweredProgram = rnf
 
-forceCompiledModule :: CompiledModule -> ()
-forceCompiledModule = rnf
+forceAnalyzedModule :: CoreModule 'Analyzed -> ()
+forceAnalyzedModule = rnf
 
 forceResolvedModule :: CoreModule 'Resolved -> ()
 forceResolvedModule = rnf
 
-forceCompiledModules :: [CompiledModule] -> ()
-forceCompiledModules = rnf
+forceAnalyzedModules :: [CoreModule 'Analyzed] -> ()
+forceAnalyzedModules = rnf
 
 forceListWith :: (value -> ()) -> [value] -> ()
 forceListWith forceValue values =

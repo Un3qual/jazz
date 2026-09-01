@@ -30,10 +30,12 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
-    CoreNode (coreNodeSpan),
+    CoreNode (coreNodeId, coreNodeSpan),
     CorePhase (..),
+    CoreSort (ExpressionSort),
     DataConstructor (..),
     Expr (..),
+    ImplMethod (..),
     Literal (..),
     SignatureType,
     Statement (..),
@@ -78,6 +80,7 @@ import Jazz.Compiler.RuntimeHints
   ( bindingRuntimeHintKeyInModule,
     explicitTypeApplicationRuntimeHintKeyInModule,
   )
+import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (..))
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
@@ -112,6 +115,7 @@ import Jazz.Compiler.TypeInference.State
     inferDataTypes,
     inferErrorCount,
     inferErrorsRev,
+    inferExpressionFactTypes,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
     inferNumericVars,
@@ -119,9 +123,12 @@ import Jazz.Compiler.TypeInference.State
     inferRuntimeHintPath,
     inferRuntimeTypeHints,
     inferStrictEqualityVars,
+    inferVisibleTypes,
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
+    recordExpressionFactType,
+    recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprWithModeFn,
@@ -168,6 +175,28 @@ inferExprTypeWithExpectedMode ::
   Expr 'Resolved ->
   (InferredExpr, InferState)
 inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expectedType expr =
+  let hadFactsBefore = Map.member nodeId (inferExpressionFactTypes state)
+      (result, inferredState) = inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expectedType expr
+      childTraversalRecordedFacts = not hadFactsBefore && Map.member nodeId (inferExpressionFactTypes inferredState)
+   in if childTraversalRecordedFacts
+        then (result, inferredState)
+        else
+          ( result,
+            maybe inferredState (\expressionType -> recordExpressionFactType nodeId expressionType inferredState) (inferredExpressionType result)
+          )
+  where
+    nodeId = coreNodeId (resolvedExpressionNode expr)
+
+inferExprTypeWithExpectedModeRaw ::
+  InferExprWithModeFn ->
+  TypedCoreProductionMode ->
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  ExpressionType ->
+  Expr 'Resolved ->
+  (InferredExpr, InferState)
+inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expectedType expr =
   case mode of
     InferenceOnly -> inferInferenceOnly
     ProduceTypedCoreExpressionDirectCall -> inferProduction
@@ -267,6 +296,24 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
                   | Just checkedState <- unifyTypes expectedType expressionType nextState ->
                       (specializeInferredExpression checkedState expectedType inferred, checkedState)
                 _ -> (inferred, nextState)
+
+resolvedExpressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
+resolvedExpressionNode expr =
+  case expr of
+    ELit node _ -> node
+    EVar node _ -> node
+    ELambda node _ _ -> node
+    EOperatorValue node _ -> node
+    EList node _ -> node
+    ETuple node _ -> node
+    EApply node _ _ -> node
+    ETypeApplication node _ _ _ -> node
+    EIf node _ _ _ -> node
+    EPatternCase node _ _ -> node
+    EBinary node _ _ _ -> node
+    ESectionLeft node _ _ -> node
+    ESectionRight node _ _ -> node
+    EBlock node _ -> node
 
 setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
 setStatementRuntimeHintPath preludeStatementIndices statementIndex state =
@@ -518,12 +565,14 @@ inferScopeTypeInternal
         (scopeType, finalState, provisionalStatements, productionFailures) =
           go initialWalkState indexedStatements
         stateWithPublishedModuleFacts = flushCurrentModuleCapabilityFacts finalState
+        stateWithSemanticFacts =
+          foldl' recordStatementSemanticFacts stateWithPublishedModuleFacts statements
         provisionalExpr =
           case scopeProductionMode of
             ProduceTypedCoreExpressionDirectCall -> Just (ProvisionalScopeStatements provisionalStatements)
             InferenceOnly -> Nothing
      in ( InferredExpr scopeType provisionalExpr productionFailures,
-          restoreCapabilityFacts initialState stateWithPublishedModuleFacts,
+          restoreCapabilityFacts initialState stateWithSemanticFacts,
           forwardAnalysisBindings
         )
     where
@@ -533,6 +582,40 @@ inferScopeTypeInternal
       builtinMode = scopeBuiltinMode
       initialEnv = scopeInitialEnv
       initialState = scopeInitialState
+
+      recordStatementSemanticFacts state statement =
+        foldl'
+          (\stateAcc (nodeId, bindings, declarationFact) -> recordStatementFactSeed nodeId (bindings, declarationFact) stateAcc)
+          state
+          (statementSemanticFactSeeds (inferVisibleTypes state) statement)
+
+      statementSemanticFactSeeds visibleTypes statement =
+        case statement of
+          SLet node name _ ->
+            [(coreNodeId node, bindingFor name, ValueDeclaration name)]
+          SSignature node name _ ->
+            [(coreNodeId node, bindingFor name, SignatureDeclaration name)]
+          SData node typeName _ constructors ->
+            (coreNodeId node, [], DataDeclaration typeName (map constructorName constructors))
+              : [ (coreNodeId constructorNode, bindingFor name, ValueDeclaration name)
+                | DataConstructor constructorNode name _ <- constructors
+                ]
+          SClass node capabilityName parameters methods ->
+            (coreNodeId node, [], CapabilityDeclaration capabilityName parameters)
+              : [ (coreNodeId methodNode, [], SignatureDeclaration methodName)
+                | ClassMethodSignature methodNode methodName _ <- methods
+                ]
+          SImpl node capabilityName _ methods ->
+            (coreNodeId node, [], ImplementationDeclaration capabilityName)
+              : [ (coreNodeId methodNode, bindingFor methodName, ValueDeclaration methodName)
+                | ImplMethod methodNode methodName _ <- methods
+                ]
+          SModule node modulePath -> [(coreNodeId node, [], ModuleDeclaration modulePath)]
+          SImport node modulePath _ _ -> [(coreNodeId node, [], ImportDeclaration modulePath)]
+          SExpr node _ -> [(coreNodeId node, [], ExpressionDeclaration)]
+        where
+          bindingFor name = maybe [] (\binding -> [(name, binding)]) (Map.lookup name visibleTypes)
+          constructorName (DataConstructor _ name _) = name
 
       indexedStatements = zip [0 ..] statements
       recursiveGroups =
@@ -2576,14 +2659,20 @@ inferExplicitTypeApplicationInternal inferExpression mode builtinMode env state 
           let (maybeInstantiatedType, nextState) =
                 instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
            in ( maybeInstantiatedType,
-                recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState,
+                recordExplicitTypeApplicationRuntimeHint
+                  typeArgumentSpan
+                  maybeInstantiatedType
+                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState),
                 Nothing
               )
     (Just typeScheme, Just explicitArgumentType) ->
       let (maybeInstantiatedType, nextState) =
             instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
        in ( maybeInstantiatedType,
-            recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeInstantiatedType nextState,
+            recordExplicitTypeApplicationRuntimeHint
+              typeArgumentSpan
+              maybeInstantiatedType
+              (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState),
             Nothing
           )
     (Just _, Nothing) ->
@@ -2595,6 +2684,15 @@ inferExplicitTypeApplicationInternal inferExpression mode builtinMode env state 
             Just _ ->
               (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError, Just functionResult)
             Nothing -> (Nothing, stateAfterFunction, Just functionResult)
+
+recordExplicitFunctionFact :: Expr 'Resolved -> Maybe ExpressionType -> InferState -> InferState
+recordExplicitFunctionFact functionExpr maybeExpressionType state =
+  case (functionExpr, maybeExpressionType) of
+    (EVar node _, Just expressionType) ->
+      recordExpressionFactType (coreNodeId node) expressionType state
+    (EOperatorValue node _, Just expressionType) ->
+      recordExpressionFactType (coreNodeId node) expressionType state
+    _ -> state
 
 explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe Text
 explicitQualifiedMethodTypeApplicationKey env state functionExpr =

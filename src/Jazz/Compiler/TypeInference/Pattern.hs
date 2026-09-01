@@ -19,6 +19,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CoreNode (coreNodeId),
     CorePhase (..),
     Literal (..),
     Pattern (..),
@@ -28,6 +29,12 @@ import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
     patternBinderNames,
+  )
+import Jazz.Compiler.SemanticFacts
+  ( CoreNodeId,
+    PatternConstructorFact (..),
+    PatternFacts (..),
+    PatternRefutability (..),
   )
 import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
@@ -47,6 +54,8 @@ import Jazz.Compiler.TypeInference.State
     inferErrorCount,
     inferErrorsRev,
     modifyInferenceOutput,
+    recordExpressionFactType,
+    recordPatternFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn)
 import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
@@ -131,7 +140,7 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
         foldl' step (Nothing, initialState, []) caseArms
    in (expressionType, finalState, reverse reversedResults)
   where
-    step (maybeExpectedBodyType, stateAcc, resultsAcc) (CaseArm _ pattern guardExpr bodyExpr) =
+    step (maybeExpectedBodyType, stateAcc, resultsAcc) (CaseArm armNode pattern guardExpr bodyExpr) =
       let (rawPatternTyping, stateAfterPatternCheck) =
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
@@ -152,24 +161,29 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
                   (bodyResult, stateAfterBody) =
                     inferExpression mode builtinMode armEnv stateAfterGuard bodyExpr
                   maybeBodyType = inferredExpressionType bodyResult
+                  stateAfterBodyFacts =
+                    maybe
+                      stateAfterBody
+                      (\bodyType -> recordExpressionFactType (coreNodeId armNode) bodyType stateAfterBody)
+                      maybeBodyType
                   nextResults =
                     PatternCaseArmResult pattern maybeGuardResult (Just bodyResult) : resultsAcc
                in case (maybeExpectedBodyType, maybeBodyType) of
                     (Nothing, _) ->
-                      (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody, nextResults)
+                      (fmap (resolveType stateAfterBodyFacts) maybeBodyType, stateAfterBodyFacts, nextResults)
                     (expectedBodyType, Nothing) ->
-                      (expectedBodyType, stateAfterBody, nextResults)
+                      (expectedBodyType, stateAfterBodyFacts, nextResults)
                     (Just inferredExpectedBodyType, Just inferredBodyType) ->
-                      case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
+                      case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBodyFacts of
                         Just unifiedState ->
                           (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState, nextResults)
                         Nothing ->
                           ( Just inferredExpectedBodyType,
                             addTypeError
-                              stateAfterBody
+                              stateAfterBodyFacts
                               ( mkPatternBranchTypeMismatchError
-                                  (diagnosticType stateAfterBody inferredExpectedBodyType)
-                                  (diagnosticType stateAfterBody inferredBodyType)
+                                  (diagnosticType stateAfterBodyFacts inferredExpectedBodyType)
+                                  (diagnosticType stateAfterBodyFacts inferredBodyType)
                               ),
                             nextResults
                           )
@@ -307,6 +321,17 @@ patternDuplicateBinderNames pattern =
 
 inferPatternType :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
 inferPatternType env scrutineeType pattern state =
+  let (typing, inferredState) = inferPatternTypeRaw env scrutineeType pattern state
+      facts =
+        PatternFacts
+          { patternBindingTypes = resolvedPatternBindingMap inferredState (patternBindings typing),
+            patternConstructorFact = patternConstructor pattern,
+            patternRefutability = patternRefutabilityFact pattern
+          }
+   in (typing, recordPatternFactSeed (patternNodeId pattern) facts inferredState)
+
+inferPatternTypeRaw :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
+inferPatternTypeRaw env scrutineeType pattern state =
   case pattern of
     PVariable _ name ->
       ( mempty
@@ -356,6 +381,38 @@ inferPatternType env scrutineeType pattern state =
               )
     POr _ alternatives ->
       inferOrPatternType env scrutineeType alternatives state
+
+resolvedPatternBindingMap :: InferState -> PatternBindings -> Map ResolvedName ExpressionType
+resolvedPatternBindingMap state (PatternBindings bindings) = Map.map (resolveType state) bindings
+
+patternNodeId :: Pattern phase -> CoreNodeId
+patternNodeId pattern =
+  coreNodeId $ case pattern of
+    PVariable node _ -> node
+    PWildcard node -> node
+    PLiteral node _ -> node
+    PConstructor node _ _ -> node
+    PList node _ -> node
+    PConsList node _ _ -> node
+    PTuple node _ -> node
+    PAs node _ _ -> node
+    POr node _ -> node
+
+patternConstructor :: Pattern 'Resolved -> PatternConstructorFact
+patternConstructor pattern =
+  case pattern of
+    PConstructor _ constructorName _ -> PatternConstructor constructorName
+    _ -> PatternHasNoConstructor
+
+patternRefutabilityFact :: Pattern phase -> PatternRefutability
+patternRefutabilityFact pattern =
+  case pattern of
+    PWildcard {} -> IrrefutablePattern
+    PVariable {} -> IrrefutablePattern
+    PAs _ _ nestedPattern -> patternRefutabilityFact nestedPattern
+    PTuple _ patterns
+      | all ((== IrrefutablePattern) . patternRefutabilityFact) patterns -> IrrefutablePattern
+    _ -> RefutablePattern
 
 inferOrPatternType ::
   TypeEnv ->

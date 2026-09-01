@@ -21,6 +21,7 @@ module Jazz.Compiler.TypeInference
     inferExpressionWithBuiltins,
     inferExpressionWithInputs,
     inferExpressionWithInputsAndHiddenStatements,
+    analyzeExpressionWithInputs,
     inferExpressionDefault,
   )
 where
@@ -43,6 +44,7 @@ import Jazz.Compiler.AST
     Pattern (..),
     SignatureType,
     Statement (..),
+    coreNodeId,
   )
 import Jazz.Compiler.Analyzer
   ( AnalysisBinding (..),
@@ -81,12 +83,10 @@ import Jazz.Compiler.ModuleInterface
     moduleExportForBinding,
   )
 import Jazz.Compiler.Name
-  ( GeneratedNameKind (..),
-    Name (..),
+  ( Name (..),
     NameNamespace (CapabilityNamespace, ValueNamespace),
     ResolvedName,
     UnresolvedName,
-    generatedName,
     identifierText,
     mkIdentifier,
     operatorBindingName,
@@ -109,6 +109,17 @@ import Jazz.Compiler.RecursiveBindings
   )
 import Jazz.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
+  )
+import Jazz.Compiler.SemanticFacts
+  ( CoreBinderId,
+    CoreNodeId,
+    SemanticFactInvariantFailure,
+    StatementDeclarationFact,
+    StatementFacts,
+  )
+import Jazz.Compiler.TypeInference.Analyzed
+  ( attachAnalyzedExpression,
+    attachAnalyzedStatementFacts,
   )
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
@@ -169,6 +180,7 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
+    ImplementationEvidenceCandidate,
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -181,7 +193,10 @@ import Jazz.Compiler.TypeInference.State
     inferVisibleTypes,
     initialInferState,
     modifyInferenceOutput,
+    modifyModuleInferenceState,
+    recordExpressionFactType,
     recordPatternCoverageSite,
+    recordStatementFactSeed,
     reservePatternCoverageSite,
   )
 import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
@@ -220,7 +235,9 @@ data InferenceInputs = InferenceInputs
 data InferenceRequest = InferenceRequest
   { requestedInferenceInputs :: InferenceInputs,
     requestedHiddenStatementIndices :: Set Int,
-    requestedPreludeStatementIndices :: Set Int
+    requestedPreludeStatementIndices :: Set Int,
+    requestedModuleStatementFacts :: [(CoreNodeId, StatementDeclarationFact)],
+    requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
 
 -- | The constructor is private so callers can observe, but cannot rewrite, the
@@ -244,7 +261,9 @@ inferExpressionWithBuiltins builtinMode settings =
     InferenceRequest
       { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
         requestedHiddenStatementIndices = Set.empty,
-        requestedPreludeStatementIndices = Set.empty
+        requestedPreludeStatementIndices = Set.empty,
+        requestedModuleStatementFacts = [],
+        requestedImplementationEvidenceCandidates = Map.empty
       }
 
 inferExpressionWithBuiltinsAndSourceUnitStatements ::
@@ -263,7 +282,9 @@ inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode preludePath hidde
             { inferencePreludeModulePath = preludePath
             },
         requestedHiddenStatementIndices = hiddenStatementIndices,
-        requestedPreludeStatementIndices = preludeStatementIndices
+        requestedPreludeStatementIndices = preludeStatementIndices,
+        requestedModuleStatementFacts = [],
+        requestedImplementationEvidenceCandidates = Map.empty
       }
 
 inferExpressionWithInputs :: InferenceInputs -> Expr 'Resolved -> IO InferenceResult
@@ -272,7 +293,9 @@ inferExpressionWithInputs inputs =
     InferenceRequest
       { requestedInferenceInputs = inputs,
         requestedHiddenStatementIndices = Set.empty,
-        requestedPreludeStatementIndices = Set.empty
+        requestedPreludeStatementIndices = Set.empty,
+        requestedModuleStatementFacts = [],
+        requestedImplementationEvidenceCandidates = Map.empty
       }
 
 inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr 'Resolved -> IO InferenceResult
@@ -281,27 +304,78 @@ inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices =
     InferenceRequest
       { requestedInferenceInputs = inputs,
         requestedHiddenStatementIndices = hiddenStatementIndices,
-        requestedPreludeStatementIndices = hiddenStatementIndices
+        requestedPreludeStatementIndices = hiddenStatementIndices,
+        requestedModuleStatementFacts = [],
+        requestedImplementationEvidenceCandidates = Map.empty
       }
 
 inferExpressionWithRequest :: InferenceRequest -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithRequest request expr =
+inferExpressionWithRequest request expr = fst <$> inferExpressionWithRequestAndState request expr
+
+inferExpressionWithRequestAndState :: InferenceRequest -> Expr 'Resolved -> IO (InferenceResult, InferState)
+inferExpressionWithRequestAndState request expr =
   {-# SCC "jazz-stage:type-inference" #-}
   let inputs = requestedInferenceInputs request
       (inferredResult, finalState, forwardBindings, inferenceSubject) =
-        inferExpressionWork InferenceOnly inputs (requestedPreludeStatementIndices request) expr
+        inferExpressionWork
+          InferenceOnly
+          inputs
+          (requestedPreludeStatementIndices request)
+          (requestedModuleStatementFacts request)
+          (requestedImplementationEvidenceCandidates request)
+          expr
       expression = inferenceSubjectExpr inferenceSubject
       finalizedInference = finalizeInferenceState inputs expression finalState
    in expression `seq`
         forceFinalizedInferenceContainers finalizedInference `seq`
-          finishInference
-            InferenceOnly
-            inputs
-            (requestedHiddenStatementIndices request)
-            inferenceSubject
-            inferredResult
-            forwardBindings
-            finalizedInference
+          do
+            inference <-
+              finishInference
+                InferenceOnly
+                inputs
+                (requestedHiddenStatementIndices request)
+                inferenceSubject
+                inferredResult
+                forwardBindings
+                finalizedInference
+            pure (inference, finalState)
+
+analyzeExpressionWithInputs ::
+  ModulePath ->
+  [(CoreNodeId, StatementDeclarationFact)] ->
+  Map ResolvedName CoreBinderId ->
+  Map Text [ImplementationEvidenceCandidate] ->
+  InferenceInputs ->
+  Set Int ->
+  Expr 'Resolved ->
+  IO
+    ( InferenceResult,
+      Either
+        (NonEmpty.NonEmpty SemanticFactInvariantFailure)
+        (Maybe (Expr 'Analyzed, Map CoreNodeId StatementFacts))
+    )
+analyzeExpressionWithInputs modulePath moduleStatementFacts importedBinders evidenceCandidates inputs hiddenStatementIndices expression = do
+  (inference, finalState) <-
+    inferExpressionWithRequestAndState
+      InferenceRequest
+        { requestedInferenceInputs = inputs,
+          requestedHiddenStatementIndices = hiddenStatementIndices,
+          requestedPreludeStatementIndices = hiddenStatementIndices,
+          requestedModuleStatementFacts = moduleStatementFacts,
+          requestedImplementationEvidenceCandidates = evidenceCandidates
+        }
+      expression
+  if any isErrorDiagnostic (inferredDiagnostics inference)
+    then pure (inference, Right Nothing)
+    else
+      pure
+        ( inference,
+          Just
+            <$> ( (,)
+                    <$> attachAnalyzedExpression modulePath importedBinders finalState (inferredExpr inference)
+                    <*> attachAnalyzedStatementFacts modulePath finalState (map fst moduleStatementFacts)
+                )
+        )
 
 data InferenceSubject
   = InferenceExpression (Expr 'Resolved)
@@ -314,9 +388,16 @@ inferenceSubjectExpr subject =
     InferencePreparedScope expr preparedScope ->
       preparedRecursiveScopeStatements preparedScope `seq` expr
 
-inferExpressionWork :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> Expr 'Resolved -> (InferredExpr, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
-inferExpressionWork mode inputs preludeStatementIndices expr =
-  let initialState = initialStateForInference inputs
+inferExpressionWork :: TypedCoreProductionMode -> InferenceInputs -> Set Int -> [(CoreNodeId, StatementDeclarationFact)] -> Map Text [ImplementationEvidenceCandidate] -> Expr 'Resolved -> (InferredExpr, InferState, Map Int (ResolvedName, SourceSpan), InferenceSubject)
+inferExpressionWork mode inputs preludeStatementIndices moduleStatementFacts evidenceCandidates expr =
+  let initialState =
+        foldl'
+          (\state (nodeId, declarationFact) -> recordStatementFactSeed nodeId ([], declarationFact) state)
+          ( modifyModuleInferenceState
+              (\moduleState -> moduleState {inferenceImplementationEvidenceCandidates = evidenceCandidates})
+              (initialStateForInference inputs)
+          )
+          moduleStatementFacts
    in case expr of
         EBlock _ statements ->
           let preparedScope =
@@ -326,7 +407,7 @@ inferExpressionWork mode inputs preludeStatementIndices expr =
                       (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode (inferenceBuiltinMode inputs)))
                   )
                   statements
-              (blockResult, blockState, bindings) =
+              (blockResult, rawBlockState, bindings) =
                 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
                   preparedScope
                   preludeStatementIndices
@@ -337,6 +418,14 @@ inferExpressionWork mode inputs preludeStatementIndices expr =
                   (inferenceBuiltinMode inputs)
                   (inferenceImportedTypes inputs)
                   initialState
+              blockState =
+                recordExpressionFactType
+                  (coreNodeId (expressionNode expr))
+                  ( case inferredExpressionType blockResult of
+                      Just expressionType -> expressionType
+                      Nothing -> unitType
+                  )
+                  rawBlockState
            in (blockResult, blockState, bindings, InferencePreparedScope expr preparedScope)
         _ ->
           let (result, resultState) =
@@ -462,7 +551,7 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
   do
     let sourceExpression = ModuleGraph.coreModuleExpr resolvedModule
         (inferredResult, finalState, forwardBindings, inferenceSubject) =
-          inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs Set.empty sourceExpression
+          inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs Set.empty [] Map.empty sourceExpression
         expression = inferenceSubjectExpr inferenceSubject
         finalizedInference = finalizeInferenceState inputs expression finalState
     expression `seq` pure ()
@@ -635,7 +724,9 @@ inferExpressionDefault =
     InferenceRequest
       { requestedInferenceInputs = emptyInferenceInputs ResolveKernelOnly defaultWarningSettings,
         requestedHiddenStatementIndices = Set.empty,
-        requestedPreludeStatementIndices = Set.empty
+        requestedPreludeStatementIndices = Set.empty,
+        requestedModuleStatementFacts = [],
+        requestedImplementationEvidenceCandidates = Map.empty
       }
 
 expressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
@@ -684,20 +775,28 @@ inferExprTypeWithMode allowForwardSignedFunctions mode preludeStatementIndices b
       | mode == ProduceTypedCoreExpressionDirectCall,
         (failureKind, failureDetail) <- blockProductionFailureKindAndDetail statements,
         failureKind == TypedCoreStructuredValueUnsupported ->
-          let (blockResult, finalState) = inferBlock mode statements
+          let (blockResult, inferredState) = inferBlock mode statements
               failures =
                 InferredProductionFailure [] failureKind failureDetail
                   : inferredProductionFailures blockResult
-           in ( InferredExpr
+              result =
+                InferredExpr
                   (inferredExpressionType blockResult)
                   (Just (ProvisionalRetainedFailures failures))
-                  failures,
-                finalState
-              )
+                  failures
+           in recordBlockResult result inferredState
     EBlock _ statements ->
-      inferBlock mode statements
+      uncurry recordBlockResult (inferBlock mode statements)
     _ -> inferExprTypeDetailedWithMode mode builtinMode env state expr
   where
+    recordBlockResult result inferredState =
+      ( result,
+        maybe
+          inferredState
+          (\expressionType -> recordExpressionFactType (coreNodeId (expressionNode expr)) expressionType inferredState)
+          (inferredExpressionType result)
+      )
+
     inferBlock blockMode statements =
       (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
         preludeStatementIndices
@@ -729,6 +828,21 @@ inferExprTypeDetailed ::
   Expr 'Resolved ->
   (InferredExpr, InferState)
 inferExprTypeDetailed builtinMode env state expr =
+  let (result, inferredState) = inferExprTypeDetailedRaw builtinMode env state expr
+   in ( result,
+        maybe
+          inferredState
+          (\expressionType -> recordExpressionFactType (coreNodeId (expressionNode expr)) expressionType inferredState)
+          (inferredExpressionType result)
+      )
+
+inferExprTypeDetailedRaw ::
+  BuiltinResolutionMode ->
+  TypeEnv ->
+  InferState ->
+  Expr 'Resolved ->
+  (InferredExpr, InferState)
+inferExprTypeDetailedRaw builtinMode env state expr =
   case expr of
     ELit _ literal ->
       let (literalType, stateAfterLiteral) = literalExpressionType literal state
@@ -929,8 +1043,21 @@ inferExprTypeDetailed builtinMode env state expr =
                   builtinMode
                   env
                   state
+                  (coreNodeId (expressionNode expr))
                   methodKey
                   argumentExprs
+              stateWithSpineFacts =
+                case (expressionType, traverse inferredExpressionType argumentResults) of
+                  (Just resultType, Just argumentTypes) ->
+                    recordQualifiedMethodSpineFacts
+                      expr
+                      ( foldr
+                          SemanticFunction
+                          (resolveType finalState resultType)
+                          (map (resolveType finalState) argumentTypes)
+                      )
+                      finalState
+                  _ -> finalState
               argumentFailures =
                 concat
                   [ prefixFailures (applicationArgumentPath (length argumentResults) argumentIndex) argumentResult
@@ -938,7 +1065,7 @@ inferExprTypeDetailed builtinMode env state expr =
                   ]
            in retainedUnsupported
                 expressionType
-                finalState
+                stateWithSpineFacts
                 TypedCoreNonLocalCallUnsupported
                 (TypedCoreNameDetail methodKey)
                 argumentFailures
@@ -1250,14 +1377,20 @@ inferExprTypeDetailed builtinMode env state expr =
             _ -> (Nothing, stateAfterConditionCheck)
 
     inferApplicationFromResults currentEnv applicationStartState functionExpr argumentExpr functionResult argumentResult stateAfterArgument =
+      case inferApplicationFromResultsUnchecked applicationStartState functionResult argumentResult stateAfterArgument of
+        result@(Nothing, _) -> result
+        result@(Just _, unifiedState) ->
+          case numericConversionLiteralDiagnostic builtinMode currentEnv functionExpr argumentExpr of
+            Just diagnostic -> (Nothing, addTypeError unifiedState diagnostic)
+            Nothing -> result
+
+    inferApplicationFromResultsUnchecked applicationStartState functionResult argumentResult stateAfterArgument =
       let (resultTypeVar, stateWithResultVar) = freshTypeVar stateAfterArgument
        in case (inferredExpressionType functionResult, inferredExpressionType argumentResult) of
             (Just functionType, Just argumentType) ->
               case unifyTypes functionType (SemanticFunction argumentType resultTypeVar) stateWithResultVar of
                 Just unifiedState ->
-                  case numericConversionLiteralDiagnostic builtinMode currentEnv functionExpr argumentExpr of
-                    Just diagnostic -> (Nothing, addTypeError unifiedState diagnostic)
-                    Nothing -> (Just (resolveType unifiedState resultTypeVar), unifiedState)
+                  (Just (resolveType unifiedState resultTypeVar), unifiedState)
                 Nothing ->
                   ( Nothing,
                     addTypeError
@@ -1294,32 +1427,23 @@ inferExprTypeDetailed builtinMode env state expr =
           inferDeclaredBinaryWithProduction env state operatorSymbol leftExpr rightExpr
 
     inferDeclaredBinaryWithProduction currentEnv initialState operatorSymbol leftExpr rightExpr =
-      let node = expressionNode expr
-          operatorExpr = EOperatorValue node operatorSymbol
-          (operatorType, stateAfterOperator) =
+      let (operatorType, stateAfterOperator) =
             instantiateDeclaredOperatorBindingType currentEnv operatorSymbol initialState
           operatorResult = InferredExpr operatorType Nothing []
           (leftResult, stateAfterLeft) =
             inferExprTypeDetailed builtinMode currentEnv stateAfterOperator leftExpr
           (intermediateType, stateAfterFirstApplication) =
-            inferApplicationFromResults
-              currentEnv
+            inferApplicationFromResultsUnchecked
               initialState
-              operatorExpr
-              leftExpr
               operatorResult
               leftResult
               stateAfterLeft
-          intermediateExpr = EApply node operatorExpr leftExpr
           intermediateResult = InferredExpr intermediateType Nothing []
           (rightResult, stateAfterRight) =
             inferExprTypeDetailed builtinMode currentEnv stateAfterFirstApplication rightExpr
           (expressionType, finalState) =
-            inferApplicationFromResults
-              currentEnv
+            inferApplicationFromResultsUnchecked
               stateAfterFirstApplication
-              intermediateExpr
-              rightExpr
               intermediateResult
               rightResult
               stateAfterRight
@@ -1336,18 +1460,14 @@ inferExprTypeDetailed builtinMode env state expr =
                   Nothing -> (Nothing, stateAfterLeft)
            in (expressionType, finalState, leftResult)
       | otherwise =
-          let operatorExpr = EOperatorValue (expressionNode expr) operatorSymbol
-              (operatorType, stateAfterOperator) =
+          let (operatorType, stateAfterOperator) =
                 instantiateDeclaredOperatorBindingType env operatorSymbol state
               operatorResult = InferredExpr operatorType Nothing []
               (leftResult, stateAfterLeft) =
                 inferExprTypeDetailed builtinMode env stateAfterOperator leftExpr
               (expressionType, finalState) =
-                inferApplicationFromResults
-                  env
+                inferApplicationFromResultsUnchecked
                   state
-                  operatorExpr
-                  leftExpr
                   operatorResult
                   leftResult
                   stateAfterLeft
@@ -1365,16 +1485,25 @@ inferExprTypeDetailed builtinMode env state expr =
            in (expressionType, finalState, rightResult)
       | otherwise =
           let (leftType, stateAfterLeftType) = freshTypeVar state
-              leftName = generatedName OperatorSectionLeft
-              extendedEnv =
-                Map.insert leftName (PlainTypeBinding leftType) env
-              (bodyType, finalState, _, rightResult) =
-                inferDeclaredBinaryWithProduction
-                  extendedEnv
+              (operatorType, stateAfterOperator) =
+                instantiateDeclaredOperatorBindingType env operatorSymbol stateAfterLeftType
+              operatorResult = InferredExpr operatorType Nothing []
+              leftResult = InferredExpr (Just leftType) Nothing []
+              (intermediateType, stateAfterFirstApplication) =
+                inferApplicationFromResultsUnchecked
                   stateAfterLeftType
-                  operatorSymbol
-                  (EVar (expressionNode expr) leftName)
-                  rightExpr
+                  operatorResult
+                  leftResult
+                  stateAfterOperator
+              intermediateResult = InferredExpr intermediateType Nothing []
+              (rightResult, stateAfterRight) =
+                inferExprTypeDetailed builtinMode env stateAfterFirstApplication rightExpr
+              (bodyType, finalState) =
+                inferApplicationFromResultsUnchecked
+                  stateAfterFirstApplication
+                  intermediateResult
+                  rightResult
+                  stateAfterRight
               expressionType =
                 SemanticFunction (resolveType finalState leftType)
                   <$> bodyType
@@ -1668,6 +1797,28 @@ applicationSpine expr =
           Just (name, argumentExprs)
         _ ->
           Nothing
+
+recordQualifiedMethodSpineFacts :: Expr 'Resolved -> ExpressionType -> InferState -> InferState
+recordQualifiedMethodSpineFacts expression methodType state =
+  foldl'
+    (\stateAcc (nodeId, expressionType) -> recordExpressionFactType nodeId expressionType stateAcc)
+    state
+    (zip (dropLast (applicationSpineNodeIds expression)) (iterate applicationResultType methodType))
+  where
+    applicationSpineNodeIds currentExpression =
+      case currentExpression of
+        EApply node functionExpression _ -> applicationSpineNodeIds functionExpression <> [coreNodeId node]
+        EVar node _ -> [coreNodeId node]
+        _ -> []
+    applicationResultType expressionType =
+      case expressionType of
+        SemanticFunction _ resultType -> resultType
+        _ -> expressionType
+    dropLast values =
+      case values of
+        [] -> []
+        [_] -> []
+        value : rest -> value : dropLast rest
 
 builtinOperatorApplicationSpine ::
   TypeEnv ->

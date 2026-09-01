@@ -6,14 +6,10 @@
 -- | Compile-time and runtime-facing module boundary records.
 module Jazz.Compiler.ModuleInterface
   ( CompileInputs (..),
-    CompiledPrelude (..),
-    compiledPreludeErrors,
-    compiledPreludeWarnings,
     ModuleExport (..),
     ModuleInterface (..),
     compileInputs,
     emptyCompileInputs,
-    emptyCompiledPrelude,
     emptyModuleInterface,
     moduleExportForBinding,
     moduleInterfaceExportInventory,
@@ -27,14 +23,8 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.AST (CorePhase (Resolved), Expr, SignatureType)
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    isErrorDiagnostic,
-    isWarningDiagnostic,
-  )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -98,50 +88,21 @@ emptyModuleInterface =
       interfaceRuntimeHints = Map.empty
     }
 
-data CompiledPrelude = CompiledPrelude
-  { compiledPreludeBuiltinMode :: BuiltinResolutionMode,
-    compiledPreludeInterface :: ModuleInterface,
-    compiledPreludeDiagnostics :: [Diagnostic],
-    compiledPreludeExpr :: Maybe (Expr 'Resolved),
-    compiledPreludeRuntimeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved)
-  }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-emptyCompiledPrelude :: CompiledPrelude
-emptyCompiledPrelude =
-  CompiledPrelude
-    { compiledPreludeBuiltinMode = ResolveKernelOnly,
-      compiledPreludeInterface = emptyModuleInterface,
-      compiledPreludeDiagnostics = [],
-      compiledPreludeExpr = Nothing,
-      compiledPreludeRuntimeHints = Map.empty
-    }
-
-compiledPreludeWarnings :: CompiledPrelude -> [Diagnostic]
-compiledPreludeWarnings = filter isWarningDiagnostic . compiledPreludeDiagnostics
-
-compiledPreludeErrors :: CompiledPrelude -> [Diagnostic]
-compiledPreludeErrors = filter isErrorDiagnostic . compiledPreludeDiagnostics
-
 data CompileInputs = CompileInputs
   { compileInputWarningSettings :: WarningSettings,
-    compileInputBuiltinMode :: BuiltinResolutionMode,
-    compileInputPrelude :: CompiledPrelude
+    compileInputPreludeHiddenStatementIndices :: Set Int
   }
 
 emptyCompileInputs :: WarningSettings -> CompileInputs
 emptyCompileInputs settings =
   CompileInputs
     { compileInputWarningSettings = settings,
-      compileInputBuiltinMode = ResolveKernelOnly,
-      compileInputPrelude = emptyCompiledPrelude
+      compileInputPreludeHiddenStatementIndices = Set.empty
     }
 
-compileInputs :: WarningSettings -> CompiledPrelude -> CompileInputs
-compileInputs settings compiledPrelude =
+compileInputs :: WarningSettings -> Set Int -> CompileInputs
+compileInputs settings hiddenStatementIndices =
   CompileInputs
     { compileInputWarningSettings = settings,
-      compileInputBuiltinMode = compiledPreludeBuiltinMode compiledPrelude,
-      compileInputPrelude = compiledPrelude
+      compileInputPreludeHiddenStatementIndices = hiddenStatementIndices
     }

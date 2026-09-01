@@ -15,7 +15,7 @@ module Jazz.Compiler.Driver
     compileModuleGraph,
     compileModuleGraphWithPrelude,
     compileModuleGraphWithResolvedPrelude,
-    buildCompiledProgram,
+    buildAnalyzedProgram,
     RunExecution (..),
     RunResult,
     runDiagnostics,
@@ -67,17 +67,15 @@ import Jazz.Compiler.Diagnostics
     isWarningDiagnostic,
   )
 import Jazz.Compiler.Force
-  ( forceCompiledProgramResult,
+  ( forceAnalyzedProgramResult,
+    forceDiagnostic,
     forceInferenceResult,
   )
 import Jazz.Compiler.ModuleCompiler
-  ( CompiledProgram,
-    compilePreparedPrelude,
-    compileResolvedProgram,
-    compiledProgramDiagnostics,
+  ( analyzeProgram,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleGraph (preludeIdentity)
+import Jazz.Compiler.ModuleGraph (CoreProgram, preludeIdentity)
 import Jazz.Compiler.ModuleIdentity (ModulePath, moduleIdentityPath, preludeModulePath)
 import Jazz.Compiler.ModuleInterface (compileInputs)
 import Jazz.Compiler.ModuleResolver
@@ -88,7 +86,7 @@ import Jazz.Compiler.ModuleResolver
   )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
-    evaluateCompiledProgramWithHostObserved,
+    evaluateAnalyzedProgramWithHostObserved,
   )
 import Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
@@ -291,23 +289,23 @@ compileModuleGraphWithResolvedPrelude ::
   (FilePath -> IO (Maybe Text)) ->
   IO CompileResult
 compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  compiledResult <-
-    buildCompiledProgram
+  analyzedResult <-
+    buildAnalyzedProgram
       settings
       resolvedPrelude
       resolutionConfig
       entryModulePath
       sourceLookup
-  case compiledResult of
+  case analyzedResult of
     Left diagnostic ->
       pure
         CompileResult
           { compileDiagnostics = [diagnostic]
           }
-    Right compiledProgram ->
+    Right (_, diagnostics, _) ->
       pure
         CompileResult
-          { compileDiagnostics = compiledProgramDiagnostics compiledProgram
+          { compileDiagnostics = diagnostics
           }
 
 runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
@@ -507,14 +505,14 @@ runModuleGraphWithResolvedPreludeAndHostObserved ::
   (FilePath -> IO (Maybe Text)) ->
   IO RunResult
 runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host settings resolvedPrelude resolutionConfig entryModulePath sourceLookup = do
-  compiledResult <-
-    buildCompiledProgram
+  analyzedResult <-
+    buildAnalyzedProgram
       settings
       resolvedPrelude
       resolutionConfig
       entryModulePath
       sourceLookup
-  case compiledResult of
+  case analyzedResult of
     Left diagnostic ->
       pure
         RunResult
@@ -522,19 +520,18 @@ runModuleGraphWithResolvedPreludeAndHostObserved observationRequest host setting
             runExecution = RunNotExecuted,
             runRuntimeObservation = Nothing
           }
-    Right compiledProgram ->
-      let moduleDiagnostics = compiledProgramDiagnostics compiledProgram
-       in if any isErrorDiagnostic moduleDiagnostics
-            then
-              pure
-                RunResult
-                  { runDiagnostics = moduleDiagnostics,
-                    runExecution = RunNotExecuted,
-                    runRuntimeObservation = Nothing
-                  }
-            else do
-              runtimeResult <- evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram
-              pure (runtimeObservationRunResult runtimeProgramOutput moduleDiagnostics runtimeResult)
+    Right (resolvedProgram, moduleDiagnostics, maybeAnalyzedProgram) ->
+      case maybeAnalyzedProgram of
+        Nothing ->
+          pure
+            RunResult
+              { runDiagnostics = moduleDiagnostics,
+                runExecution = RunNotExecuted,
+                runRuntimeObservation = Nothing
+              }
+        Just analyzedProgram -> do
+          runtimeResult <- evaluateAnalyzedProgramWithHostObserved observationRequest host resolvedProgram analyzedProgram
+          pure (runtimeObservationRunResult runtimeProgramOutput moduleDiagnostics runtimeResult)
 
 runtimeObservationRunResult ::
   (value -> Maybe RuntimeValue) ->
@@ -562,14 +559,14 @@ runtimeObservationRunResult runtimeValueProjection compilePhaseDiagnostics runti
           runRuntimeObservation = runtimeObservationReport runtimeResult
         }
 
-buildCompiledProgram ::
+buildAnalyzedProgram ::
   WarningSettings ->
   ResolvedPrelude ->
   ModuleResolutionConfig ->
   [Text] ->
   (FilePath -> IO (Maybe Text)) ->
-  IO (Either Diagnostic CompiledProgram)
-buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath sourceLookup =
+  IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)))
+buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath sourceLookup =
   case preparePrelude resolvedPrelude of
     Left preludeError -> pure (Left preludeError)
     Right preparedPrelude -> do
@@ -589,19 +586,25 @@ buildCompiledProgram settings resolvedPrelude resolutionConfig entryModulePath s
           case resolvedResult of
             Left resolutionError -> pure (Left resolutionError)
             Right resolvedProgram ->
-              withCompilerStageResult RuntimePreparationStage (evaluate . forceCompiledProgramResult) $ do
-                compiledPrelude <-
-                  compilePreparedPrelude
-                    settings
-                    (preparedPreludeHiddenStatementIndices preparedPrelude)
-                    resolvedPreludeArtifact
-                Right <$> compileResolvedProgram (compileInputs settings compiledPrelude) resolvedProgram
+              withCompilerStageResult RuntimePreparationStage forceAnalyzedBuildResult $ do
+                (diagnostics, maybeAnalyzedProgram) <-
+                  analyzeProgram
+                    (compileInputs settings (preparedPreludeHiddenStatementIndices preparedPrelude))
+                    resolvedProgram
+                pure (Right (resolvedProgram, diagnostics, maybeAnalyzedProgram))
   where
     profiledSourceLookup sourcePath =
       withCompilerStageResult
         SourceLoadingStage
         (\maybeSource -> evaluate (maybe 0 Text.length maybeSource) >> pure ())
         (sourceLookup sourcePath)
+
+    forceAnalyzedBuildResult result =
+      evaluate $
+        case result of
+          Left diagnostic -> forceDiagnostic diagnostic
+          Right (_, diagnostics, maybeProgram) ->
+            forceAnalyzedProgramResult (diagnostics, maybeProgram)
 
 -- | Run inference/canonicalization and retain the canonical diagnostic order
 -- for downstream compile/run results.

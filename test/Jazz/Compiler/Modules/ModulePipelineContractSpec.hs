@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import Data.Foldable (toList)
 import Data.IORef
   ( IORef,
     modifyIORef',
@@ -10,12 +11,27 @@ import Data.IORef
     readIORef,
   )
 import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CorePhase (Resolved))
+import Jazz.Compiler.AST
+  ( CaseArm (..),
+    ClassMethodSignature (..),
+    CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (Analyzed, Resolved),
+    CoreSort (ExpressionSort, PatternSort, StatementSort),
+    DataConstructor (..),
+    Expr (..),
+    ImplMethod (..),
+    Literal (..),
+    Pattern (..),
+    Statement (..),
+  )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..))
 import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
@@ -36,22 +52,30 @@ import Jazz.Compiler.Driver
     runRuntimeValue,
   )
 import Jazz.Compiler.ModuleCompiler
-  ( CompiledProgram,
-    compileResolvedProgram,
-    compiledModuleExportInventory,
-    compiledModuleExpr,
-    compiledModuleInterface,
-    compiledProgramErrors,
-    compiledProgramModules,
-    compiledProgramPrelude,
-    lookupCompiledModule,
+  ( analyzeProgram,
+    analyzedProgramErrors,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
     exportInventory,
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleGraph (PreludeArtifact (..))
+import Jazz.Compiler.ModuleGraph
+  ( AnalyzedModuleFacts (..),
+    CoreModule,
+    CoreProgram,
+    ModuleImport (..),
+    PreludeArtifact (..),
+    ResolvedModuleFacts (..),
+    coreModuleExpr,
+    coreModuleFacts,
+    coreModuleImports,
+    coreModulePath,
+    coreProgramModules,
+    coreProgramPrelude,
+    lookupCoreModule,
+  )
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
     mkModulePath,
@@ -59,8 +83,7 @@ import Jazz.Compiler.ModuleIdentity
     moduleIdentity,
   )
 import Jazz.Compiler.ModuleInterface
-  ( CompiledPrelude (..),
-    ModuleInterface (..),
+  ( ModuleInterface (..),
     emptyCompileInputs,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..), resolveProgramWithAmbientExports)
@@ -68,11 +91,14 @@ import Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (..),
     RuntimeModule (runtimeModuleExports, runtimeModulePath),
     RuntimeProgram (runtimeProgramModules, runtimeProgramOutput),
-    evaluateCompiledProgram,
+    evaluateAnalyzedProgram,
     lookupRuntimeModule,
   )
 import Jazz.Compiler.Name
-  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+  ( Name (..),
+    NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
+    ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     identifierText,
     mkIdentifier,
   )
@@ -87,9 +113,48 @@ import Jazz.Compiler.RuntimeHost
     disabledRuntimeHost,
     productionRuntimeHost,
   )
+import Jazz.Compiler.SemanticFacts
+  ( AnalyzedCapabilityFacts (..),
+    AnalyzedNumericConstraint (..),
+    AnalyzedPrimitiveConstraint (..),
+    AnalyzedScheme (..),
+    CapabilityId (..),
+    CoreBinderId,
+    EvidenceReference (..),
+    ExpressionFacts (..),
+    ImplId (..),
+    MethodId (..),
+    PatternConstructorFact (..),
+    PatternFacts (..),
+    PatternRefutability (..),
+    RuntimeObligation (..),
+    RuntimePlan (..),
+    SemanticFactInvariantFailure (..),
+    SemanticInstantiation (..),
+    StatementDeclarationFact (..),
+    StatementFacts (..),
+  )
+import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression)
+import Jazz.Compiler.TypeInference.State
+  ( ExpressionEvidenceSeed (..),
+    initialInferState,
+    recordExpressionEvidenceSeed,
+    recordExpressionFactType,
+    recordPatternFactSeed,
+    recordStatementFactSeed,
+  )
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
+    InferenceVariable (..),
+    IntegerLiteralRange (..),
+    NumericConstraint (..),
+    SemanticType (..),
+    TypeBinding (..),
+    TypeScheme (..),
+    TypeSchemePrimitiveConstraint (..),
+    emptyScopeCapabilityFacts,
+    quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -105,18 +170,20 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("dependency expressions are checked but not executed", testDependencyExpressionContract),
-    ("compiled interfaces expose only declared exports", testCompiledInterfacesExposeOnlyDeclaredExports),
+  [ ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
+    ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
+    ("dependency expressions are checked but not executed", testDependencyExpressionContract),
+    ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
     ("runtime modules publish only declared exports", testRuntimeModulePublishesDeclaredExports),
-    ("compiled modules retain private interfaces with public inventories", testCompiledModuleKeepsPrivateInterfaceWithPublicInventory),
+    ("analyzed modules retain private interfaces with public inventories", testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory),
     ("runtime modules publish explicit value exports only", testRuntimeModulePublishesExplicitExportsOnly),
     ("runtime modules publish methods only for public classes", testRuntimeModulePublishesPublicClassMethodsOnly),
     ("module export identities distinguish shadowed values and constructors", testModuleExportIdentityPreservesNamespaces),
     ("namespace-aware runtime exports publish selected value only", testNamespaceAwareRuntimeExportPublishesValueOnly),
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
     ("grouped exports publish selected constructors through interface and runtime inventories", testGroupedExportsPublishSelectedConstructor),
-    ("compiled generic constructor fields remain module-stable", testCompiledGenericConstructorFieldsRemainModuleStable),
-    ("compiled dependency terminal expressions are skipped", testCompiledDependencyTerminalExpressionIsSkipped),
+    ("analyzed generic constructor fields remain module-stable", testAnalyzedGenericConstructorFieldsRemainModuleStable),
+    ("analyzed dependency terminal expressions are skipped", testAnalyzedDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
     ("module graph execution carries one host through dependency exports", testModuleGraphInjectsRuntimeHost),
@@ -126,13 +193,575 @@ tests =
     ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames)
   ]
 
-testCompiledGenericConstructorFieldsRemainModuleStable :: IO ()
-testCompiledGenericConstructorFieldsRemainModuleStable = do
-  compiled <- compileFixtureProgram sources
-  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Box"])) compiled of
-    Nothing -> fail "missing compiled Lib::Box module"
+testAnalyzedProgramFactsAreComplete :: IO ()
+testAnalyzedProgramFactsAreComplete = do
+  resolved <- resolveFixtureProgram factCompletenessSources
+  (diagnostics, maybeAnalyzed) <-
+    analyzeProgram
+      (emptyCompileInputs defaultWarningSettings)
+      resolved
+  assertEqual "analyzed diagnostics" [] diagnostics
+  case maybeAnalyzed of
+    Nothing -> fail "successful inference did not produce analyzed core"
+    Just analyzed -> assertAnalyzedProgramFacts resolved analyzed
+
+  failingResolved <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { 1 True. }")
+  (failingDiagnostics, failingAnalyzed) <-
+    analyzeProgram (emptyCompileInputs defaultWarningSettings) failingResolved
+  assertEqual "failed inference produces no analyzed core" Nothing failingAnalyzed
+  assertEqual "failed inference emits one or more diagnostics" False (null failingDiagnostics)
+
+assertAnalyzedProgramFacts :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> IO ()
+assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
+  mapM_ assertModule (NonEmpty.toList (coreProgramModules resolvedProgram))
+  case foldMap (expressionEvidenceInventory . coreModuleExpr) (coreProgramModules analyzedProgram) of
+    [evidence] -> do
+      assertEqual "capability evidence target" SemanticInt (evidenceType evidence)
+      assertEqual
+        "capability evidence preserves the selected canonical identities"
+        (expectedEvidenceIdentities resolvedProgram)
+        [(evidenceCapability evidence, evidenceImplementation evidence, evidenceMethod evidence)]
+    evidence -> fail ("expected exactly one selected capability evidence fact, got " <> show evidence)
+  let analyzedBinders = foldMap moduleBinderIds (coreProgramModules analyzedProgram)
+      instantiations = foldMap (expressionInstantiationInventory . coreModuleExpr) (coreProgramModules analyzedProgram)
+      analyzedSchemes = foldMap moduleSchemes (coreProgramModules analyzedProgram)
+  case instantiations of
+    [SemanticInstantiation binder (SemanticInt :| [])] ->
+      assertEqual "explicit instantiation references an analyzed declaration binder" True (binder `elem` analyzedBinders)
+    values -> fail ("expected one exact Int instantiation, got " <> show values)
+  assertEqual
+    "generalized schemes preserve quantified variables"
+    True
+    (any (not . null . analyzedSchemeVariables) analyzedSchemes)
+  where
+    assertModule resolvedModule =
+      case lookupCoreModule (coreModulePath resolvedModule) analyzedProgram of
+        Nothing -> fail "analyzed program lost a resolved module"
+        Just analyzedModule -> do
+          assertEqual
+            "node ids and source spans"
+            (moduleNodeIdentities resolvedModule)
+            (moduleNodeIdentities analyzedModule)
+          assertEqual
+            "authored export selector ordering"
+            (resolvedModuleExportSelectors (coreModuleFacts resolvedModule))
+            (analyzedModuleExportSelectors (coreModuleFacts analyzedModule))
+          assertEqual
+            "analyzed export inventory"
+            (resolvedModuleExports (coreModuleFacts resolvedModule))
+            (analyzedModuleExports (coreModuleFacts analyzedModule))
+          assertEqual
+            "analyzed module diagnostics"
+            []
+            (analyzedModuleDiagnostics (coreModuleFacts analyzedModule))
+          assertModuleCapabilityFacts analyzedModule
+          assertExprFacts (coreModuleExpr analyzedModule)
+          mapM_ assertImportFacts (coreModuleImports analyzedModule)
+
+    assertImportFacts importDecl =
+      case moduleImportNode importDecl of
+        CoreNode _ _ facts ->
+          case statementDeclarationFact facts of
+            ImportDeclaration _ -> pure ()
+            declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
+
+    assertModuleCapabilityFacts analyzedModule
+      | coreModulePath analyzedModule == nominalModulePath ("Lib" :| ["Facts"]) = do
+          let capabilityFacts = analyzedModuleCapabilities (coreModuleFacts analyzedModule)
+          assertEqual "analyzed class arity" (Just 1) (Map.lookup "Eq" (analyzedClassArities capabilityFacts))
+          assertEqual "analyzed concrete implementation inventory is populated" False (Set.null (analyzedConcreteImplementations capabilityFacts))
+          assertEqual "analyzed class method signature is populated" True (Map.member "Eq::equals" (analyzedClassMethodSignatures capabilityFacts))
+          assertEqual "analyzed implementation method inventory is populated" True (Map.member "Eq::equals" (analyzedConcreteImplMethods capabilityFacts))
+      | otherwise = pure ()
+
+testAnalyzedFactInvariantFailures :: IO ()
+testAnalyzedFactInvariantFailures = do
+  let expressionId = CoreNodeId 41
+      expression = ELit (CoreNode expressionId (SourceSpan 1 1) ()) (LInt 1)
+      expressionOnce = recordExpressionFactType expressionId SemanticInt initialInferState
+      expressionTwice = recordExpressionFactType expressionId SemanticInt expressionOnce
+      modulePath = nominalModulePath ("Fact" :| [])
+  assertEqual
+    "missing expression fact"
+    (Left (MissingExpressionFacts expressionId :| []))
+    (attachAnalyzedExpression modulePath Map.empty initialInferState expression)
+  assertEqual
+    "duplicate expression fact"
+    (Left (DuplicateExpressionFacts expressionId :| []))
+    (attachAnalyzedExpression modulePath Map.empty expressionTwice expression)
+
+  let implementationId = ImplId (modulePath, CoreNodeId 100)
+      evidenceSeed =
+        ExpressionEvidenceSeed
+          { evidenceSeedCapability = CapabilityId (BuiltinName (mkIdentifier "Eq")),
+            evidenceSeedImplementation = implementationId,
+            evidenceSeedMethod = MethodId (implementationId, mkIdentifier "equals"),
+            evidenceSeedType = SemanticInt
+          }
+      evidenceOnce = recordExpressionEvidenceSeed expressionId evidenceSeed expressionOnce
+      evidenceTwice = recordExpressionEvidenceSeed expressionId evidenceSeed evidenceOnce
+  assertEqual
+    "duplicate expression evidence fact"
+    (Left (DuplicateExpressionFacts expressionId :| []))
+    (attachAnalyzedExpression modulePath Map.empty evidenceTwice expression)
+
+  let caseId = CoreNodeId 42
+      scrutineeId = CoreNodeId 43
+      armId = CoreNodeId 44
+      patternId = CoreNodeId 45
+      bodyId = CoreNodeId 46
+      patternValue = PWildcard (CoreNode patternId (SourceSpan 1 5) ())
+      caseExpression =
+        EPatternCase
+          (CoreNode caseId (SourceSpan 1 1) ())
+          (ELit (CoreNode scrutineeId (SourceSpan 1 3) ()) (LInt 1))
+          [CaseArm (CoreNode armId (SourceSpan 1 5) ()) patternValue Nothing (ELit (CoreNode bodyId (SourceSpan 1 10) ()) (LInt 1))]
+      expressionCompleteState =
+        foldr
+          (\nodeId -> recordExpressionFactType nodeId SemanticInt)
+          initialInferState
+          [caseId, scrutineeId, armId, bodyId]
+      patternFacts = PatternFacts Map.empty PatternHasNoConstructor IrrefutablePattern
+      patternOnce = recordPatternFactSeed patternId patternFacts expressionCompleteState
+      patternTwice = recordPatternFactSeed patternId patternFacts patternOnce
+  assertEqual
+    "missing pattern fact"
+    (Left (MissingPatternFacts patternId :| []))
+    (attachAnalyzedExpression modulePath Map.empty expressionCompleteState caseExpression)
+  assertEqual
+    "duplicate pattern fact"
+    (Left (DuplicatePatternFacts patternId :| []))
+    (attachAnalyzedExpression modulePath Map.empty patternTwice caseExpression)
+
+  let blockId = CoreNodeId 47
+      statementId = CoreNodeId 48
+      statementExpressionId = CoreNodeId 49
+      blockExpression =
+        EBlock
+          (CoreNode blockId (SourceSpan 1 1) ())
+          [SExpr (CoreNode statementId (SourceSpan 1 3) ()) (ELit (CoreNode statementExpressionId (SourceSpan 1 3) ()) (LInt 1))]
+      blockExpressionState =
+        recordExpressionFactType
+          blockId
+          SemanticInt
+          (recordExpressionFactType statementExpressionId SemanticInt initialInferState)
+      statementOnce = recordStatementFactSeed statementId ([], ExpressionDeclaration) blockExpressionState
+      statementTwice = recordStatementFactSeed statementId ([], ExpressionDeclaration) statementOnce
+  assertEqual
+    "missing statement fact"
+    (Left (MissingStatementFacts statementId :| []))
+    (attachAnalyzedExpression modulePath Map.empty blockExpressionState blockExpression)
+  assertEqual
+    "duplicate statement fact"
+    (Left (DuplicateStatementFacts statementId :| []))
+    (attachAnalyzedExpression modulePath Map.empty statementTwice blockExpression)
+
+  let rangeBlockId = CoreNodeId 50
+      rangeStatementId = CoreNodeId 51
+      rangeExpressionId = CoreNodeId 52
+      rangeName = BuiltinName (mkIdentifier "range")
+      rangeVariable = InferenceVariable 0
+      rangeScheme =
+        TypeScheme
+          { schemeQuantifiedVariables = quantifiedVariablesFromPreferred [rangeVariable] (Set.singleton rangeVariable),
+            schemeClassConstraints = [],
+            schemePrimitiveConstraints =
+              [ TypeSchemeNumericConstraint
+                  (IntegralLiteralNumericConstraint (IntegerLiteralRange 1 1))
+                  (SemanticVariable rangeVariable)
+              ],
+            schemeDefiningCapabilities = emptyScopeCapabilityFacts,
+            schemeResultType = SemanticVariable rangeVariable
+          }
+      rangeExpression = ELit (CoreNode rangeExpressionId (SourceSpan 1 9) ()) (LInt 1)
+      rangeBlock =
+        EBlock
+          (CoreNode rangeBlockId (SourceSpan 1 1) ())
+          [SLet (CoreNode rangeStatementId (SourceSpan 1 1) ()) rangeName rangeExpression]
+      rangeState =
+        recordStatementFactSeed
+          rangeStatementId
+          ([(rangeName, SchemeTypeBinding rangeScheme)], ValueDeclaration rangeName)
+          ( recordExpressionFactType
+              rangeBlockId
+              (SemanticVariable rangeVariable)
+              (recordExpressionFactType rangeExpressionId (SemanticVariable rangeVariable) initialInferState)
+          )
+  case attachAnalyzedExpression modulePath Map.empty rangeState rangeBlock of
+    Right (EBlock _ [SLet (CoreNode _ _ facts) _ _]) ->
+      assertEqual
+        "generalized schemes preserve integral literal ranges"
+        True
+        (any schemeHasLiteralRange (Map.elems (statementGeneralizedSchemes facts)))
+    result -> fail ("failed to attach literal-range scheme facts: " <> show result)
+
+type NodeIdentity = (CoreNodeId, SourceSpan)
+
+moduleNodeIdentities :: CoreModule phase -> [NodeIdentity]
+moduleNodeIdentities coreModule =
+  exprNodeIdentities (coreModuleExpr coreModule)
+    <> [nodeIdentity node | importDecl <- coreModuleImports coreModule, let node = moduleImportNode importDecl]
+
+nodeIdentity :: CoreNode phase sort -> NodeIdentity
+nodeIdentity node = (coreNodeId node, coreNodeSpan node)
+
+exprNodeIdentities :: Expr phase -> [NodeIdentity]
+exprNodeIdentities expression =
+  nodeIdentity (exprNode expression)
+    : case expression of
+      ELambda _ _ body -> exprNodeIdentities body
+      EList _ values -> foldMap exprNodeIdentities values
+      ETuple _ values -> foldMap exprNodeIdentities values
+      EApply _ function argument -> exprNodeIdentities function <> exprNodeIdentities argument
+      ETypeApplication _ function _ _ -> exprNodeIdentities function
+      EIf _ condition whenTrue whenFalse -> foldMap exprNodeIdentities [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> exprNodeIdentities scrutinee <> foldMap caseArmNodeIdentities arms
+      EBinary _ _ left right -> exprNodeIdentities left <> exprNodeIdentities right
+      ESectionLeft _ left _ -> exprNodeIdentities left
+      ESectionRight _ _ right -> exprNodeIdentities right
+      EBlock _ statements -> foldMap statementNodeIdentities statements
+      _ -> []
+
+caseArmNodeIdentities :: CaseArm phase -> [NodeIdentity]
+caseArmNodeIdentities (CaseArm node patternValue guard body) =
+  nodeIdentity node
+    : patternNodeIdentities patternValue
+      <> foldMap exprNodeIdentities guard
+      <> exprNodeIdentities body
+
+patternNodeIdentities :: Pattern phase -> [NodeIdentity]
+patternNodeIdentities patternValue =
+  nodeIdentity (patternNode patternValue)
+    : case patternValue of
+      PConstructor _ _ patterns -> foldMap patternNodeIdentities patterns
+      PList _ patterns -> foldMap patternNodeIdentities patterns
+      PConsList _ headPattern tailPattern -> patternNodeIdentities headPattern <> patternNodeIdentities tailPattern
+      PTuple _ patterns -> foldMap patternNodeIdentities patterns
+      PAs _ _ nested -> patternNodeIdentities nested
+      POr _ alternatives -> foldMap patternNodeIdentities alternatives
+      _ -> []
+
+statementNodeIdentities :: Statement phase -> [NodeIdentity]
+statementNodeIdentities statement =
+  nodeIdentity (statementCoreNode statement)
+    : case statement of
+      SLet _ _ value -> exprNodeIdentities value
+      SData _ _ _ constructors ->
+        [nodeIdentity node | DataConstructor node _ _ <- constructors]
+      SClass _ _ _ methods ->
+        [nodeIdentity node | ClassMethodSignature node _ _ <- methods]
+      SImpl _ _ _ methods ->
+        foldMap (\(ImplMethod node _ body) -> nodeIdentity node : exprNodeIdentities body) methods
+      SExpr _ value -> exprNodeIdentities value
+      _ -> []
+
+assertExprFacts :: Expr 'Analyzed -> IO ()
+assertExprFacts expression = do
+  assertExpressionNodeFacts (exprNode expression)
+  case expression of
+    ELambda _ _ body -> assertExprFacts body
+    EList _ values -> mapM_ assertExprFacts values
+    ETuple _ values -> mapM_ assertExprFacts values
+    EApply _ function argument -> mapM_ assertExprFacts [function, argument]
+    ETypeApplication node function _ _ -> do
+      case node of
+        CoreNode _ _ facts -> assertEqual "explicit type application has one instantiation" 1 (length (expressionInstantiations facts))
+      assertExprFacts function
+    EIf _ condition whenTrue whenFalse -> mapM_ assertExprFacts [condition, whenTrue, whenFalse]
+    EPatternCase _ scrutinee arms -> assertExprFacts scrutinee >> mapM_ assertCaseArmFacts arms
+    EBinary _ _ left right -> mapM_ assertExprFacts [left, right]
+    ESectionLeft _ left _ -> assertExprFacts left
+    ESectionRight _ _ right -> assertExprFacts right
+    EBlock _ statements -> mapM_ assertStatementFacts statements
+    _ -> pure ()
+
+assertExpressionNodeFacts :: CoreNode 'Analyzed 'ExpressionSort -> IO ()
+assertExpressionNodeFacts (CoreNode _ _ facts) =
+  case reverse (toList obligations) of
+    ConstrainResult resultType : _ ->
+      do
+        assertEqual "runtime plan final type" (expressionSemanticType facts) resultType
+        case NonEmpty.nonEmpty (expressionEvidence facts) of
+          Nothing -> pure ()
+          Just evidence -> assertEqual "runtime plan supplies selected evidence" True (SupplyEvidence evidence `elem` obligations)
+    _ -> fail "analyzed expression runtime plan has no final-type obligation"
+  where
+    RuntimePlan obligations = expressionRuntimePlan facts
+
+expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
+expressionEvidenceInventory expression =
+  expressionNodeEvidence expression
+    <> case expression of
+      ELambda _ _ body -> expressionEvidenceInventory body
+      EList _ values -> foldMap expressionEvidenceInventory values
+      ETuple _ values -> foldMap expressionEvidenceInventory values
+      EApply _ function argument -> expressionEvidenceInventory function <> expressionEvidenceInventory argument
+      ETypeApplication _ function _ _ -> expressionEvidenceInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidenceInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionEvidenceInventory scrutinee <> foldMap armEvidence arms
+      EBinary _ _ left right -> expressionEvidenceInventory left <> expressionEvidenceInventory right
+      ESectionLeft _ left _ -> expressionEvidenceInventory left
+      ESectionRight _ _ right -> expressionEvidenceInventory right
+      EBlock _ statements -> foldMap statementEvidence statements
+      _ -> []
+  where
+    expressionNodeEvidence value =
+      case exprNode value of
+        CoreNode _ _ facts -> expressionEvidence facts
+    armEvidence (CaseArm (CoreNode _ _ facts) _ guard body) =
+      expressionEvidence facts <> foldMap expressionEvidenceInventory guard <> expressionEvidenceInventory body
+    statementEvidence statement =
+      case statement of
+        SLet _ _ value -> expressionEvidenceInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
+        SExpr _ value -> expressionEvidenceInventory value
+        _ -> []
+
+expressionInstantiationInventory :: Expr 'Analyzed -> [SemanticInstantiation]
+expressionInstantiationInventory expression =
+  expressionNodeInstantiations expression
+    <> case expression of
+      ELambda _ _ body -> expressionInstantiationInventory body
+      EList _ values -> foldMap expressionInstantiationInventory values
+      ETuple _ values -> foldMap expressionInstantiationInventory values
+      EApply _ function argument -> expressionInstantiationInventory function <> expressionInstantiationInventory argument
+      ETypeApplication _ function _ _ -> expressionInstantiationInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionInstantiationInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionInstantiationInventory scrutinee <> foldMap armInstantiations arms
+      EBinary _ _ left right -> expressionInstantiationInventory left <> expressionInstantiationInventory right
+      ESectionLeft _ left _ -> expressionInstantiationInventory left
+      ESectionRight _ _ right -> expressionInstantiationInventory right
+      EBlock _ statements -> foldMap statementInstantiations statements
+      _ -> []
+  where
+    expressionNodeInstantiations value =
+      case exprNode value of
+        CoreNode _ _ facts -> expressionInstantiations facts
+    armInstantiations (CaseArm (CoreNode _ _ facts) _ guard body) =
+      expressionInstantiations facts <> foldMap expressionInstantiationInventory guard <> expressionInstantiationInventory body
+    statementInstantiations statement =
+      case statement of
+        SLet _ _ value -> expressionInstantiationInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionInstantiationInventory body) methods
+        SExpr _ value -> expressionInstantiationInventory value
+        _ -> []
+
+moduleBinderIds :: CoreModule 'Analyzed -> [CoreBinderId]
+moduleBinderIds = foldMap statementBinderInventory . moduleStatements
+  where
+    moduleStatements coreModule =
+      case coreModuleExpr coreModule of
+        EBlock _ statements -> statements
+        _ -> []
+    statementBinderInventory statement =
+      nodeBinders (statementCoreNode statement)
+        <> case statement of
+          SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> nodeBinders node) constructors
+          SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeBinders node) methods
+          SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeBinders node) methods
+          _ -> []
+    nodeBinders (CoreNode _ _ facts) = statementBinderIds facts
+
+moduleSchemes :: CoreModule 'Analyzed -> [AnalyzedScheme]
+moduleSchemes = foldMap statementSchemes . moduleStatements
+  where
+    moduleStatements coreModule =
+      case coreModuleExpr coreModule of
+        EBlock _ statements -> statements
+        _ -> []
+    statementSchemes statement =
+      nodeSchemes (statementCoreNode statement)
+        <> case statement of
+          SData _ _ _ constructors -> foldMap (\(DataConstructor node _ _) -> nodeSchemes node) constructors
+          SClass _ _ _ methods -> foldMap (\(ClassMethodSignature node _ _) -> nodeSchemes node) methods
+          SImpl _ _ _ methods -> foldMap (\(ImplMethod node _ _) -> nodeSchemes node) methods
+          _ -> []
+    nodeSchemes (CoreNode _ _ facts) = Map.elems (statementGeneralizedSchemes facts)
+
+schemeHasLiteralRange :: AnalyzedScheme -> Bool
+schemeHasLiteralRange scheme =
+  any isLiteralRange (analyzedSchemePrimitiveConstraints scheme)
+  where
+    isLiteralRange constraint =
+      case constraint of
+        AnalyzedNumericPrimitiveConstraint (AnalyzedIntegralLiteralNumericConstraint 1 1) _ -> True
+        _ -> False
+
+expectedEvidenceIdentities :: CoreProgram 'Resolved -> [(CapabilityId, ImplId, Maybe MethodId)]
+expectedEvidenceIdentities program =
+  [ ( CapabilityId
+        ( UserName
+            ( ResolvedUserName
+                (ImportedModule (coreModulePath coreModule))
+                CapabilityNamespace
+                (mkIdentifier (identifierText capabilityName))
+            )
+        ),
+      implementationId,
+      Just (MethodId (implementationId, mkIdentifier (identifierText methodName)))
+    )
+  | coreModule <- NonEmpty.toList (coreProgramModules program),
+    statement <- moduleStatements coreModule,
+    SImpl implementationNode capabilityName [_] methods <- [statement],
+    let implementationId = ImplId (coreModulePath coreModule, coreNodeId implementationNode),
+    ImplMethod _ methodName _ <- methods,
+    identifierText methodName == "equals"
+  ]
+  where
+    moduleStatements coreModule =
+      case coreModuleExpr coreModule of
+        EBlock _ statements -> statements
+        _ -> []
+
+assertCaseArmFacts :: CaseArm 'Analyzed -> IO ()
+assertCaseArmFacts (CaseArm node patternValue guard body) = do
+  assertExpressionNodeFacts node
+  assertPatternFacts patternValue
+  mapM_ assertExprFacts guard
+  assertExprFacts body
+
+assertPatternFacts :: Pattern 'Analyzed -> IO ()
+assertPatternFacts patternValue = do
+  case patternNode patternValue of
+    CoreNode _ _ facts -> do
+      assertEqual "pattern refutability" (expectedRefutability patternValue) (patternRefutability facts)
+      case patternValue of
+        PVariable _ name -> assertEqual "pattern variable has a resolved type" True (Map.member name (patternBindingTypes facts))
+        PConstructor _ name _ -> assertEqual "pattern constructor identity" (PatternConstructor name) (patternConstructorFact facts)
+        _ -> pure ()
+  case patternValue of
+    PConstructor _ _ patterns -> mapM_ assertPatternFacts patterns
+    PList _ patterns -> mapM_ assertPatternFacts patterns
+    PConsList _ headPattern tailPattern -> mapM_ assertPatternFacts [headPattern, tailPattern]
+    PTuple _ patterns -> mapM_ assertPatternFacts patterns
+    PAs _ name nested -> do
+      case patternNode patternValue of
+        CoreNode _ _ facts -> assertEqual "as-pattern binder has a resolved type" True (Map.member name (patternBindingTypes facts))
+      assertPatternFacts nested
+    POr _ alternatives -> mapM_ assertPatternFacts alternatives
+    _ -> pure ()
+
+expectedRefutability :: Pattern phase -> PatternRefutability
+expectedRefutability patternValue =
+  case patternValue of
+    PWildcard {} -> IrrefutablePattern
+    PVariable {} -> IrrefutablePattern
+    PAs _ _ nested -> expectedRefutability nested
+    PTuple _ patterns
+      | all ((== IrrefutablePattern) . expectedRefutability) patterns -> IrrefutablePattern
+    _ -> RefutablePattern
+
+assertStatementFacts :: Statement 'Analyzed -> IO ()
+assertStatementFacts statement = do
+  case statementCoreNode statement of
+    CoreNode _ _ facts ->
+      case statement of
+        SLet _ name _ -> assertBindingStatement (ValueDeclaration name) facts
+        SSignature _ name _ -> assertBindingStatement (SignatureDeclaration name) facts
+        SData _ name _ constructors -> do
+          assertEqual "data declaration fact" (DataDeclaration name [constructorName | DataConstructor _ constructorName _ <- constructors]) (statementDeclarationFact facts)
+          mapM_ assertConstructorFacts constructors
+        SClass _ name parameters methods -> do
+          assertEqual "capability declaration fact" (CapabilityDeclaration name parameters) (statementDeclarationFact facts)
+          mapM_ assertClassMethodFacts methods
+        SImpl _ name _ methods -> do
+          assertEqual "implementation declaration fact" (ImplementationDeclaration name) (statementDeclarationFact facts)
+          mapM_ assertImplMethodFacts methods
+        SModule _ path -> assertEqual "module declaration fact" (ModuleDeclaration path) (statementDeclarationFact facts)
+        SImport _ path _ _ -> assertEqual "import declaration fact" (ImportDeclaration path) (statementDeclarationFact facts)
+        SExpr _ value -> assertEqual "expression declaration fact" ExpressionDeclaration (statementDeclarationFact facts) >> assertExprFacts value
+  case statement of
+    SLet _ _ value -> assertExprFacts value
+    _ -> pure ()
+  where
+    assertBindingStatement expected facts = do
+      assertEqual "statement declaration identity" expected (statementDeclarationFact facts)
+      assertEqual "statement owns one binder" 1 (length (statementBinderIds facts))
+      assertEqual "statement binder owns a generalized scheme" (Set.fromList (statementBinderIds facts)) (Map.keysSet (statementGeneralizedSchemes facts))
+    assertConstructorFacts (DataConstructor (CoreNode _ _ facts) name _) = assertBindingStatement (ValueDeclaration name) facts
+    assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) = assertEqual "class method declaration fact" (SignatureDeclaration name) (statementDeclarationFact facts)
+    assertImplMethodFacts (ImplMethod (CoreNode _ _ facts) name body) = do
+      assertEqual "impl method declaration fact" (ValueDeclaration name) (statementDeclarationFact facts)
+      assertExprFacts body
+
+exprNode :: Expr phase -> CoreNode phase 'ExpressionSort
+exprNode expression =
+  case expression of
+    ELit node _ -> node
+    EVar node _ -> node
+    ELambda node _ _ -> node
+    EOperatorValue node _ -> node
+    EList node _ -> node
+    ETuple node _ -> node
+    EApply node _ _ -> node
+    ETypeApplication node _ _ _ -> node
+    EIf node _ _ _ -> node
+    EPatternCase node _ _ -> node
+    EBinary node _ _ _ -> node
+    ESectionLeft node _ _ -> node
+    ESectionRight node _ _ -> node
+    EBlock node _ -> node
+
+patternNode :: Pattern phase -> CoreNode phase 'PatternSort
+patternNode patternValue =
+  case patternValue of
+    PWildcard node -> node
+    PVariable node _ -> node
+    PLiteral node _ -> node
+    PConstructor node _ _ -> node
+    PList node _ -> node
+    PConsList node _ _ -> node
+    PTuple node _ -> node
+    PAs node _ _ -> node
+    POr node _ -> node
+
+statementCoreNode :: Statement phase -> CoreNode phase 'StatementSort
+statementCoreNode statement =
+  case statement of
+    SLet node _ _ -> node
+    SSignature node _ _ -> node
+    SData node _ _ _ -> node
+    SClass node _ _ _ -> node
+    SImpl node _ _ _ -> node
+    SModule node _ -> node
+    SImport node _ _ _ -> node
+    SExpr node _ -> node
+
+factCompletenessSources :: Map.Map FilePath Text
+factCompletenessSources =
+  Map.fromList
+    [ ( "src/App/Main.jz",
+        """
+        module App::Main (result) {
+        import Lib::Facts.
+        result = identity @Int (case Box 1 { | Box item -> if Eq::equals item 1 then item else 0 }).
+        result.
+        }
+        """
+      ),
+      ( "src/Lib/Facts.jz",
+        """
+        module Lib::Facts (identity, countdown, increment, type Box(Box), Eq) {
+        identity :: a -> a.
+        identity = \\(item) -> item.
+        countdown :: Int -> Int.
+        countdown = \\(number) -> if number == 0 then 0 else countdown (number - 1).
+        increment = \\(number) -> number + 1.
+        data Box a = Box a.
+        class Eq(a) { equals :: a -> a -> Bool. }.
+        impl Eq(Int) { equals = \\(left, right) -> left == right. }.
+        }
+        """
+      )
+    ]
+
+testAnalyzedGenericConstructorFieldsRemainModuleStable :: IO ()
+testAnalyzedGenericConstructorFieldsRemainModuleStable = do
+  (resolved, analyzed) <- analyzeFixtureProgram sources
+  case lookupCoreModule (nominalModulePath ("Lib" :| ["Box"])) analyzed of
+    Nothing -> fail "missing analyzed Lib::Box module"
     Just boxModule ->
-      case Map.lookup "Box" (interfaceDataTypes (compiledModuleInterface boxModule)) of
+      case Map.lookup "Box" (interfaceDataTypes (analyzedInterface boxModule)) of
         Just
           ( DataTypeBinding
               [_]
@@ -140,8 +769,8 @@ testCompiledGenericConstructorFieldsRemainModuleStable = do
             ) ->
             assertEqual "stable constructor parameter name" "a" (identifierText parameterName)
         binding ->
-          fail ("unexpected compiled Box constructor metadata: " <> show binding)
-  case evaluateCompiledProgram compiled of
+          fail ("unexpected analyzed Box constructor metadata: " <> show binding)
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       assertEqual
@@ -157,8 +786,8 @@ testCompiledGenericConstructorFieldsRemainModuleStable = do
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
 testLexicalBindersShadowImportedAndBuiltinNames = do
-  compiled <- compileFixtureProgram sources
-  case evaluateCompiledProgram compiled of
+  (resolved, analyzed) <- analyzeFixtureProgram sources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       assertEqual
@@ -187,8 +816,8 @@ testLexicalBindersShadowImportedAndBuiltinNames = do
 
 testRuntimeModulePublishesDeclaredExports :: IO ()
 testRuntimeModulePublishesDeclaredExports = do
-  compiled <- compileFixtureProgram simpleSources
-  case evaluateCompiledProgram compiled of
+  (resolved, analyzed) <- analyzeFixtureProgram simpleSources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Value"] runtime of
@@ -199,27 +828,27 @@ testRuntimeModulePublishesDeclaredExports = do
             (Set.fromList [RuntimeBindingExport (ModuleExport ValueNamespace "answer")])
             (Map.keysSet (runtimeModuleExports runtimeModule))
 
-testCompiledModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
-testCompiledModuleKeepsPrivateInterfaceWithPublicInventory = do
-  compiled <- compileFixtureProgram explicitExportSources
-  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Value"])) compiled of
-    Nothing -> fail "missing compiled Lib::Value module"
+testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory :: IO ()
+testAnalyzedModuleKeepsPrivateInterfaceWithPublicInventory = do
+  (_, analyzed) <- analyzeFixtureProgram explicitExportSources
+  case lookupCoreModule (nominalModulePath ("Lib" :| ["Value"])) analyzed of
+    Nothing -> fail "missing analyzed Lib::Value module"
     Just valueModule -> do
       assertEqual
-        "full compiled interface"
+        "full analyzed interface"
         (Set.fromList [ModuleExport ValueNamespace "answer", ModuleExport ValueNamespace "helper"])
-        (Map.keysSet (interfaceValueTypes (compiledModuleInterface valueModule)))
+        (Map.keysSet (interfaceValueTypes (analyzedInterface valueModule)))
       assertEqual
-        "public compiled inventory"
+        "public analyzed inventory"
         (Set.singleton (ModuleExport ValueNamespace "answer"))
         ( exportInventoryEntries
-            (compiledModuleExportInventory valueModule)
+            (analyzedExportInventory valueModule)
         )
 
 testRuntimeModulePublishesExplicitExportsOnly :: IO ()
 testRuntimeModulePublishesExplicitExportsOnly = do
-  compiled <- compileFixtureProgram explicitExportSources
-  case evaluateCompiledProgram compiled of
+  (resolved, analyzed) <- analyzeFixtureProgram explicitExportSources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail (Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Value"] runtime of
@@ -232,8 +861,8 @@ testRuntimeModulePublishesExplicitExportsOnly = do
 
 testRuntimeModulePublishesPublicClassMethodsOnly :: IO ()
 testRuntimeModulePublishesPublicClassMethodsOnly = do
-  compiled <- compileFixtureProgram explicitCapabilitySources
-  case evaluateCompiledProgram compiled of
+  (resolved, analyzed) <- analyzeFixtureProgram explicitCapabilitySources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail (Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Facts"] runtime of
@@ -298,20 +927,20 @@ explicitCapabilitySources =
 
 testModuleExportIdentityPreservesNamespaces :: IO ()
 testModuleExportIdentityPreservesNamespaces = do
-  compiled <- compileFixtureProgram shadowingSources
-  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Maybe"])) compiled of
-    Nothing -> fail "missing compiled Lib::Maybe module"
+  (resolved, analyzed) <- analyzeFixtureProgram shadowingSources
+  case lookupCoreModule (nominalModulePath ("Lib" :| ["Maybe"])) analyzed of
+    Nothing -> fail "missing analyzed Lib::Maybe module"
     Just maybeModule ->
       assertEqual
-        "compiled shadowed export identities"
+        "analyzed shadowed export identities"
         expectedExports
         ( Map.keysSet
             ( Map.filterWithKey
                 (\moduleExport _ -> moduleExportName moduleExport == "Just")
-                (interfaceValueTypes (compiledModuleInterface maybeModule))
+                (interfaceValueTypes (analyzedInterface maybeModule))
             )
         )
-  case evaluateCompiledProgram compiled of
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Maybe"] runtime of
@@ -345,8 +974,8 @@ testModuleExportIdentityPreservesNamespaces = do
 
 testNamespaceAwareRuntimeExportPublishesValueOnly :: IO ()
 testNamespaceAwareRuntimeExportPublishesValueOnly = do
-  compiled <- compileFixtureProgram sources
-  case evaluateCompiledProgram compiled of
+  (resolved, analyzed) <- analyzeFixtureProgram sources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Maybe"] runtime of
@@ -365,8 +994,8 @@ testNamespaceAwareRuntimeExportPublishesValueOnly = do
 
 testNamespaceAwareRuntimeExportPublishesConstructorOnly :: IO ()
 testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
-  compiled <- compileFixtureProgram sources
-  case evaluateCompiledProgram compiled of
+  (resolved, analyzed) <- analyzeFixtureProgram sources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Maybe"] runtime of
@@ -385,19 +1014,19 @@ testNamespaceAwareRuntimeExportPublishesConstructorOnly = do
 
 testGroupedExportsPublishSelectedConstructor :: IO ()
 testGroupedExportsPublishSelectedConstructor = do
-  compiled <- compileFixtureProgram sources
-  case lookupCompiledModule (nominalModulePath ("Lib" :| ["Choice"])) compiled of
-    Nothing -> fail "missing compiled Lib::Choice module"
+  (resolved, analyzed) <- analyzeFixtureProgram sources
+  case lookupCoreModule (nominalModulePath ("Lib" :| ["Choice"])) analyzed of
+    Nothing -> fail "missing analyzed Lib::Choice module"
     Just choiceModule ->
       do
         assertEqual
-          "full grouped compiled interface retains private constructors"
+          "full grouped analyzed interface retains private constructors"
           ( Set.fromList
               [ ModuleExport ConstructorNamespace "First",
                 ModuleExport ConstructorNamespace "Second"
               ]
           )
-          (Map.keysSet (interfaceValueTypes (compiledModuleInterface choiceModule)))
+          (Map.keysSet (interfaceValueTypes (analyzedInterface choiceModule)))
         assertEqual
           "grouped public inventory"
           ( Set.fromList
@@ -406,9 +1035,9 @@ testGroupedExportsPublishSelectedConstructor = do
               ]
           )
           ( exportInventoryEntries
-              (compiledModuleExportInventory choiceModule)
+              (analyzedExportInventory choiceModule)
           )
-  case evaluateCompiledProgram compiled of
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       case lookupRuntimeModule ["Lib", "Choice"] runtime of
@@ -425,10 +1054,10 @@ testGroupedExportsPublishSelectedConstructor = do
           ("src/Lib/Choice.jz", "module Lib::Choice (type Choice(First)) { data Choice a = First a | Second a. }")
         ]
 
-testCompiledDependencyTerminalExpressionIsSkipped :: IO ()
-testCompiledDependencyTerminalExpressionIsSkipped = do
-  compiled <- compileFixtureProgram dependencyExpressionSources
-  case evaluateCompiledProgram compiled of
+testAnalyzedDependencyTerminalExpressionIsSkipped :: IO ()
+testAnalyzedDependencyTerminalExpressionIsSkipped = do
+  (resolved, analyzed) <- analyzeFixtureProgram dependencyExpressionSources
+  case evaluateAnalyzedProgram resolved analyzed of
     Left diagnostic -> fail ("runtime program failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right runtime ->
       assertEqual
@@ -438,19 +1067,19 @@ testCompiledDependencyTerminalExpressionIsSkipped = do
 
 testModuleRuntimePathParity :: IO ()
 testModuleRuntimePathParity = do
-  hostFreeProgram <- compileFixtureProgram hostFreeParitySources
-  hostCapableProgram <- compileFixtureProgram hostCapableParitySources
-  assertAbsentCompiledPrelude "host-free program" hostFreeProgram
-  assertAbsentCompiledPrelude "host-capable program" hostCapableProgram
+  hostFreeProgram@(hostFreeResolved, _) <- analyzeFixtureProgram hostFreeParitySources
+  hostCapableProgram@(hostCapableResolved, _) <- analyzeFixtureProgram hostCapableParitySources
+  assertAbsentPrelude "host-free program" hostFreeProgram
+  assertAbsentPrelude "host-capable program" hostCapableProgram
   assertEqual
     "host-free module requirements select the pure path"
     [False, False]
-    (map (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules hostFreeProgram))
+    (map (runtimeExprRequiresHost . coreModuleExpr) (NonEmpty.toList (coreProgramModules hostFreeResolved)))
   assertEqual
     "unselected host call selects the host-capable path"
     [False, True]
-    (map (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules hostCapableProgram))
-  case (evaluateCompiledProgram hostFreeProgram, evaluateCompiledProgram hostCapableProgram) of
+    (map (runtimeExprRequiresHost . coreModuleExpr) (NonEmpty.toList (coreProgramModules hostCapableResolved)))
+  case (evaluateFixtureProgram hostFreeProgram, evaluateFixtureProgram hostCapableProgram) of
     (Right hostFreeRuntime, Right hostCapableRuntime) -> do
       let hostFreeProjection = observableRuntimeProgram hostFreeRuntime
           hostCapableProjection = observableRuntimeProgram hostCapableRuntime
@@ -529,11 +1158,11 @@ runProjectionFixture host source =
   where
     sources = Map.singleton "src/App/Main.jz" source
 
-assertAbsentCompiledPrelude :: String -> CompiledProgram -> IO ()
-assertAbsentCompiledPrelude label compiledProgram =
-  case compiledPreludeExpr (compiledProgramPrelude compiledProgram) of
+assertAbsentPrelude :: String -> (CoreProgram 'Resolved, CoreProgram 'Analyzed) -> IO ()
+assertAbsentPrelude label (resolvedProgram, _) =
+  case preludeModule (coreProgramPrelude resolvedProgram) of
     Nothing -> pure ()
-    Just _ -> fail (label <> " unexpectedly compiled a prelude")
+    Just _ -> fail (label <> " unexpectedly contains a prelude")
 
 observableRuntimeProgram :: RuntimeProgram -> ([Text], [(Text, [(RuntimeExport, Text)])], Maybe Text)
 observableRuntimeProgram runtimeProgram =
@@ -613,8 +1242,25 @@ recordingHost callsRef =
       runtimeHostExit = \_ -> pure (Right RuntimeHostExitReturned)
     }
 
-compileFixtureProgram :: Map.Map FilePath Text -> IO CompiledProgram
-compileFixtureProgram sources = do
+analyzeFixtureProgram :: Map.Map FilePath Text -> IO (CoreProgram 'Resolved, CoreProgram 'Analyzed)
+analyzeFixtureProgram sources = do
+  resolved <- resolveFixtureProgram sources
+  (diagnostics, maybeAnalyzed) <- analyzeProgram (emptyCompileInputs defaultWarningSettings) resolved
+  case maybeAnalyzed of
+    Nothing -> fail ("analysis failed: " <> show (map renderDiagnostic diagnostics))
+    Just analyzed -> pure (resolved, analyzed)
+
+evaluateFixtureProgram :: (CoreProgram 'Resolved, CoreProgram 'Analyzed) -> Either Diagnostic RuntimeProgram
+evaluateFixtureProgram (resolved, analyzed) = evaluateAnalyzedProgram resolved analyzed
+
+analyzedInterface :: CoreModule 'Analyzed -> ModuleInterface
+analyzedInterface = analyzedModuleInterface . coreModuleFacts
+
+analyzedExportInventory :: CoreModule 'Analyzed -> ModuleExportInventory
+analyzedExportInventory = analyzedModuleExports . coreModuleFacts
+
+resolveFixtureProgram :: Map.Map FilePath Text -> IO (CoreProgram 'Resolved)
+resolveFixtureProgram sources = do
   resolvedResult <-
     resolveProgramWithAmbientExports
       resolverConfig
@@ -624,7 +1270,7 @@ compileFixtureProgram sources = do
       ["App", "Main"]
   case resolvedResult of
     Left diagnostic -> fail ("resolution failed: " <> Text.unpack (renderDiagnostic diagnostic))
-    Right resolved -> compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
+    Right resolved -> pure resolved
 
 simpleSources :: Map.Map FilePath Text
 simpleSources =
@@ -640,8 +1286,8 @@ dependencyExpressionSources =
       ("src/Lib/Value.jz", "module Lib::Value { result = 1. 1 / 0. }")
     ]
 
-testCompiledInterfacesExposeOnlyDeclaredExports :: IO ()
-testCompiledInterfacesExposeOnlyDeclaredExports = do
+testAnalyzedInterfacesExposeOnlyDeclaredExports :: IO ()
+testAnalyzedInterfacesExposeOnlyDeclaredExports = do
   resolvedResult <-
     resolveProgramWithAmbientExports
       resolverConfig
@@ -652,15 +1298,17 @@ testCompiledInterfacesExposeOnlyDeclaredExports = do
   case resolvedResult of
     Left diagnostic -> fail ("resolution failed: " <> Text.unpack (renderDiagnostic diagnostic))
     Right resolved -> do
-      compiled <- compileResolvedProgram (emptyCompileInputs defaultWarningSettings) resolved
-      case lookupCompiledModule (nominalModulePath ("Lib" :| ["Value"])) compiled of
-        Nothing -> fail "missing compiled Lib::Value module"
+      (diagnostics, maybeAnalyzed) <- analyzeProgram (emptyCompileInputs defaultWarningSettings) resolved
+      analyzed <- maybe (fail "successful program did not produce analyzed core") pure maybeAnalyzed
+      case lookupCoreModule (nominalModulePath ("Lib" :| ["Value"])) analyzed of
+        Nothing -> fail "missing analyzed Lib::Value module"
         Just valueModule ->
           assertEqual
             "exported values"
             (Set.fromList [ModuleExport ValueNamespace "answer"])
-            (Map.keysSet (interfaceValueTypes (compiledModuleInterface valueModule)))
-      assertEqual "no compile errors" [] (compiledProgramErrors compiled)
+            (Map.keysSet (interfaceValueTypes (analyzedInterface valueModule)))
+      assertEqual "no compile errors" [] (analyzedProgramErrors analyzed)
+      assertEqual "no diagnostics" [] diagnostics
   where
     sources =
       Map.fromList

@@ -15,22 +15,19 @@ where
 
 import Control.DeepSeq (NFData (rnf))
 import Control.Exception (evaluate)
-import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Benchmark.Force
-  ( forceCompiledModule,
-    forceCompiledModules,
-    forceCompiledProgram,
-    forceCompiledProgramResult,
+  ( forceAnalyzedProgram,
+    forceAnalyzedProgramResult,
     forceDiagnostic,
     forceListWith,
     forceLoweredExpr,
     forceLoweredProgram,
     forceProgramCaseResult,
     forceResolvedExpr,
-    forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
@@ -51,7 +48,7 @@ import Jazz.Benchmark.ScaleCases
 import Jazz.Compiler.AST
   ( CoreNode (..),
     CoreNodeId (..),
-    CorePhase (Resolved),
+    CorePhase (Analyzed, Resolved),
     Expr (..),
   )
 import Jazz.Compiler.Analyzer
@@ -61,7 +58,7 @@ import Jazz.Compiler.Analyzer
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
-import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildCompiledProgram)
+import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildAnalyzedProgram)
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
   ( LoweredIRLoweringResult (..),
@@ -69,33 +66,14 @@ import Jazz.Compiler.LoweredIR.Lower
     validatedLoweredProgram,
   )
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
-import Jazz.Compiler.ModuleCompiler
-  ( CompiledModule,
-    CompiledProgram,
-    compileResolvedModule,
-    compiledModuleErrors,
-    compiledModulePath,
-    compiledProgramEntryPath,
-    compiledProgramErrors,
-    compiledProgramModules,
-    compiledProgramPrelude,
-  )
+import qualified Jazz.Compiler.ModuleCompiler as ModuleCompiler
 import Jazz.Compiler.ModuleGraph
-  ( CoreModule,
-    CoreProgram,
-    coreModulePath,
-    coreProgramModules,
+  ( CoreProgram,
   )
-import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.ModuleInterface (CompileInputs, compileInputs)
-import Jazz.Compiler.ModuleResolver
-  ( ModuleResolutionConfig,
-    resolvePreludeArtifact,
-    resolveProgramWithAmbientExports,
-  )
 import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
-    evaluateCompiledProgram,
+    evaluateAnalyzedProgram,
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ValueNamespace),
@@ -105,10 +83,6 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser (parseSurfaceProgramTokens)
 import Jazz.Compiler.Parser.Lexer (tokenize)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
-import Jazz.Compiler.Prelude
-  ( PreparedPrelude (..),
-    preparePrelude,
-  )
 import Jazz.Compiler.Profiling
   ( BenchmarkGroup (..),
     CompilerStage (..),
@@ -126,8 +100,6 @@ import Jazz.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
     loadProgramCaseEntrySource,
     prepareProgramCase,
-    programCaseResolutionConfig,
-    readProgramCaseSource,
     runProgramCase,
   )
 import Jazz.ProgramCorpus.Types
@@ -138,16 +110,16 @@ import Jazz.ProgramCorpus.Types
 
 data PreparedBenchmark
   = PreparedParseLower Text
-  | PreparedAnalysis CompileInputs [CompiledModule] (CoreModule 'Resolved)
+  | PreparedAnalysis CompileInputs (CoreProgram 'Resolved)
   | PreparedModulePreparation ProgramCase
-  | PreparedRuntime ExpectedProgramBehavior CompiledProgram
+  | PreparedRuntime ExpectedProgramBehavior (CoreProgram 'Resolved) (CoreProgram 'Analyzed)
   | PreparedWholeProgram ProgramCase
 
 data PreparedCompilerScaleBenchmark
   = PreparedCompilerScaleParseLower Text
-  | PreparedCompilerScaleAnalysis CompileInputs [CompiledModule] (CoreModule 'Resolved)
+  | PreparedCompilerScaleAnalysis CompileInputs (CoreProgram 'Resolved)
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
-  | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput CompiledProgram
+  | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput (CoreProgram 'Resolved) (CoreProgram 'Analyzed)
   | PreparedCompilerScaleLoweredValidation LoweredProgram
   | PreparedCompilerScaleTypedValidation TypedProgram
   | PreparedCompilerScaleTypedLowering TypedProgram
@@ -162,26 +134,24 @@ instance NFData PreparedBenchmark where
   rnf preparedBenchmark =
     case preparedBenchmark of
       PreparedParseLower source -> Text.length source `seq` ()
-      PreparedAnalysis inputs dependencies resolvedModule ->
+      PreparedAnalysis inputs resolvedProgram ->
         inputs `seq`
-          forceCompiledModules dependencies `seq`
-            forceResolvedModule resolvedModule
+          rnf resolvedProgram
       PreparedModulePreparation programCase -> forceProgramCase programCase
-      PreparedRuntime expectedBehavior compiledProgram ->
-        forceExpectedProgramBehavior expectedBehavior `seq` forceCompiledProgram compiledProgram
+      PreparedRuntime expectedBehavior resolvedProgram analyzedProgram ->
+        forceExpectedProgramBehavior expectedBehavior `seq` rnf resolvedProgram `seq` forceAnalyzedProgram analyzedProgram
       PreparedWholeProgram programCase -> forceProgramCase programCase
 
 instance NFData PreparedCompilerScaleBenchmark where
   rnf preparedBenchmark =
     case preparedBenchmark of
       PreparedCompilerScaleParseLower source -> Text.length source `seq` ()
-      PreparedCompilerScaleAnalysis inputs dependencies resolvedModule ->
+      PreparedCompilerScaleAnalysis inputs resolvedProgram ->
         inputs `seq`
-          forceCompiledModules dependencies `seq`
-            forceResolvedModule resolvedModule
+          rnf resolvedProgram
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
-      PreparedCompilerScaleRuntime expectedOutput compiledProgram ->
-        forceExpectedCompilerScaleOutput expectedOutput `seq` forceCompiledProgram compiledProgram
+      PreparedCompilerScaleRuntime expectedOutput resolvedProgram analyzedProgram ->
+        forceExpectedCompilerScaleOutput expectedOutput `seq` rnf resolvedProgram `seq` forceAnalyzedProgram analyzedProgram
       PreparedCompilerScaleLoweredValidation loweredProgram -> forceLoweredProgram loweredProgram
       PreparedCompilerScaleTypedValidation typedProgram -> forceTypedProgram typedProgram
       PreparedCompilerScaleTypedLowering typedProgram -> forceTypedProgram typedProgram
@@ -203,24 +173,12 @@ prepareBenchmark benchmarkGroup programCase =
               pure loadedSource
       prepareFully (PreparedParseLower source)
     AnalysisBenchmark -> do
-      compiledProgram <- prepareValidProgram programCase
-      resolvedProgram <-
-        resolveBenchmarkProgram
-          (programCaseResolutionConfig programCase)
-          (programCaseEntryModulePath programCase)
-          readProgramCaseSource
-      entryModule <- requireResolvedEntryModule (programCaseEntryModulePath programCase) resolvedProgram
-      let entryPath = compiledProgramEntryPath compiledProgram
-          dependencies =
-            filter
-              ((/= entryPath) . compiledModulePath)
-              (compiledProgramModules compiledProgram)
-          inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
+      (resolvedProgram, _) <- prepareValidProgram programCase
+      let inputs = compileInputs defaultWarningSettings Set.empty
       prepareFully
         ( PreparedAnalysis
             inputs
-            dependencies
-            entryModule
+            resolvedProgram
         )
     ModulePreparationBenchmark -> prepareFully (PreparedModulePreparation programCase)
     DiagnosticAnalysisBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
@@ -228,11 +186,12 @@ prepareBenchmark benchmarkGroup programCase =
     LoweredValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     TypedLoweringBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     RuntimeBenchmark -> do
-      compiledProgram <- prepareValidProgram programCase
+      (resolvedProgram, analyzedProgram) <- prepareValidProgram programCase
       prepareFully
         ( PreparedRuntime
             (expectedProgramBehavior programCase)
-            compiledProgram
+            resolvedProgram
+            analyzedProgram
         )
     WholeProgramBenchmark -> prepareFully (PreparedWholeProgram programCase)
 
@@ -252,24 +211,12 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
           Just value -> evaluate (Text.length value) >> pure value
       prepareFully (PreparedCompilerScaleParseLower source)
     AnalysisBenchmark -> do
-      compiledProgram <- prepareValidCompilerScaleProgram programCase
-      resolvedProgram <-
-        resolveBenchmarkProgram
-          (compilerScaleCaseResolutionConfig programCase)
-          (compilerScaleCaseEntryModulePath programCase)
-          (pure . compilerScaleCaseSource programCase)
-      entryModule <- requireResolvedEntryModule (compilerScaleCaseEntryModulePath programCase) resolvedProgram
-      let entryPath = compiledProgramEntryPath compiledProgram
-          dependencies =
-            filter
-              ((/= entryPath) . compiledModulePath)
-              (compiledProgramModules compiledProgram)
-          inputs = compileInputs defaultWarningSettings (compiledProgramPrelude compiledProgram)
+      (resolvedProgram, _) <- prepareValidCompilerScaleProgram programCase
+      let inputs = compileInputs defaultWarningSettings Set.empty
       prepareFully
         ( PreparedCompilerScaleAnalysis
             inputs
-            dependencies
-            entryModule
+            resolvedProgram
         )
     DiagnosticAnalysisBenchmark ->
       case diagnosticAnalysisInput (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase) of
@@ -313,36 +260,35 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
           ioError (userError ("typed-lowering scale fixture is invalid: " <> show failures))
     WholeProgramBenchmark -> prepareFully (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> do
-      compiledProgram <- prepareValidCompilerScaleProgram programCase
+      (resolvedProgram, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
       prepareFully
         ( PreparedCompilerScaleRuntime
             (expectedCompilerScaleOutput programCase)
-            compiledProgram
+            resolvedProgram
+            analyzedProgram
         )
 
 runPreparedBenchmark :: PreparedBenchmark -> IO ()
 runPreparedBenchmark preparedBenchmark =
   case preparedBenchmark of
     PreparedParseLower source -> runParseLower source
-    PreparedAnalysis inputs dependencies resolvedModule -> do
-      compiledModule <-
+    PreparedAnalysis inputs resolvedProgram -> do
+      analysisResult <-
         withCompilerStage TypeInferenceStage $ do
-          value <- compileResolvedModule inputs dependencies resolvedModule
-          evaluate (forceCompiledModule value)
+          value <- ModuleCompiler.analyzeProgram inputs resolvedProgram
+          evaluate (forceAnalyzedProgramResult value)
           pure value
-      case compiledModuleErrors compiledModule of
-        [] -> pure ()
-        diagnostic : _ -> failBenchmarkDiagnostic diagnostic
+      requireSuccessfulAnalysis analysisResult
     PreparedModulePreparation programCase -> do
-      compiledResult <-
+      analyzedResult <-
         withCompilerStage RuntimePreparationStage (prepareProgramCase programCase)
-      evaluate (forceCompiledProgramResult compiledResult)
-      case compiledResult of
+      evaluate (forcePreparedProgramResult analyzedResult)
+      case analyzedResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
-        Right compiledProgram -> requireNoCompileErrors compiledProgram
-    PreparedRuntime expectedBehavior compiledProgram ->
+        Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
+    PreparedRuntime expectedBehavior resolvedProgram analyzedProgram ->
       withCompilerStage EvaluationStage $ do
-        let runtimeResult = evaluateCompiledProgram compiledProgram
+        let runtimeResult = evaluateAnalyzedProgram resolvedProgram analyzedProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedRuntimeResult expectedBehavior runtimeResult
     PreparedWholeProgram programCase -> do
@@ -354,24 +300,22 @@ runPreparedCompilerScaleBenchmark :: PreparedCompilerScaleBenchmark -> IO ()
 runPreparedCompilerScaleBenchmark preparedBenchmark =
   case preparedBenchmark of
     PreparedCompilerScaleParseLower source -> runParseLower source
-    PreparedCompilerScaleAnalysis inputs dependencies resolvedModule -> do
-      compiledModule <-
+    PreparedCompilerScaleAnalysis inputs resolvedProgram -> do
+      analysisResult <-
         withCompilerStage TypeInferenceStage $ do
-          value <- compileResolvedModule inputs dependencies resolvedModule
-          evaluate (forceCompiledModule value)
+          value <- ModuleCompiler.analyzeProgram inputs resolvedProgram
+          evaluate (forceAnalyzedProgramResult value)
           pure value
-      case compiledModuleErrors compiledModule of
-        [] -> pure ()
-        diagnostic : _ -> failBenchmarkDiagnostic diagnostic
+      requireSuccessfulAnalysis analysisResult
     PreparedCompilerScaleModulePreparation programCase -> do
-      compiledResult <- buildCompilerScaleProgram programCase
-      evaluate (forceCompiledProgramResult compiledResult)
-      case compiledResult of
+      analyzedResult <- buildCompilerScaleProgram programCase
+      evaluate (forcePreparedProgramResult analyzedResult)
+      case analyzedResult of
         Left diagnostic -> failBenchmarkDiagnostic diagnostic
-        Right compiledProgram -> requireNoCompileErrors compiledProgram
-    PreparedCompilerScaleRuntime expectedOutput compiledProgram ->
+        Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
+    PreparedCompilerScaleRuntime expectedOutput resolvedProgram analyzedProgram ->
       withCompilerStage EvaluationStage $ do
-        let runtimeResult = evaluateCompiledProgram compiledProgram
+        let runtimeResult = evaluateAnalyzedProgram resolvedProgram analyzedProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedCompilerScaleRuntimeResult expectedOutput runtimeResult
     PreparedCompilerScaleLoweredValidation loweredProgram ->
@@ -597,71 +541,44 @@ typedLoweringProgramForScenario scenario size =
   where
     unsupported = Left "scenario has no direct Typed Core lowering artifact"
 
-prepareValidProgram :: ProgramCase -> IO CompiledProgram
+prepareValidProgram :: ProgramCase -> IO (CoreProgram 'Resolved, CoreProgram 'Analyzed)
 prepareValidProgram programCase = do
-  compiledResult <- prepareProgramCase programCase
-  evaluate (forceCompiledProgramResult compiledResult)
-  case compiledResult of
+  analyzedResult <- prepareProgramCase programCase
+  evaluate (forcePreparedProgramResult analyzedResult)
+  case analyzedResult of
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
-    Right compiledProgram -> requireNoCompileErrors compiledProgram >> pure compiledProgram
+    Right (resolvedProgram, diagnostics, maybeAnalyzedProgram) -> do
+      requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
+      case maybeAnalyzedProgram of
+        Just analyzedProgram -> pure (resolvedProgram, analyzedProgram)
+        Nothing -> ioError (userError "successful analysis did not produce analyzed core")
 
-buildCompilerScaleProgram :: CompilerScaleCase -> IO (Either Diagnostic CompiledProgram)
+buildCompilerScaleProgram :: CompilerScaleCase -> IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)))
 buildCompilerScaleProgram programCase =
-  buildCompiledProgram
+  buildAnalyzedProgram
     defaultWarningSettings
     (PreludeBundled bundledPreludeSource)
     (compilerScaleCaseResolutionConfig programCase)
     (compilerScaleCaseEntryModulePath programCase)
     (pure . compilerScaleCaseSource programCase)
 
-prepareValidCompilerScaleProgram :: CompilerScaleCase -> IO CompiledProgram
+prepareValidCompilerScaleProgram :: CompilerScaleCase -> IO (CoreProgram 'Resolved, CoreProgram 'Analyzed)
 prepareValidCompilerScaleProgram programCase = do
-  compiledResult <- buildCompilerScaleProgram programCase
-  evaluate (forceCompiledProgramResult compiledResult)
-  case compiledResult of
+  analyzedResult <- buildCompilerScaleProgram programCase
+  evaluate (forcePreparedProgramResult analyzedResult)
+  case analyzedResult of
     Left diagnostic -> failBenchmarkDiagnostic diagnostic
-    Right compiledProgram -> requireNoCompileErrors compiledProgram >> pure compiledProgram
-
-resolveBenchmarkProgram :: ModuleResolutionConfig -> [Text] -> (FilePath -> IO (Maybe Text)) -> IO (CoreProgram 'Resolved)
-resolveBenchmarkProgram resolutionConfig entryModulePath sourceLookup =
-  case preparePrelude (PreludeBundled bundledPreludeSource) of
-    Left diagnostic -> failBenchmarkDiagnostic diagnostic
-    Right preparedPrelude -> do
-      case resolvePreludeArtifact
-        (preparedPreludeVisibleExports preparedPrelude)
-        (preparedPreludeArtifact preparedPrelude) of
-        Left diagnostic -> failBenchmarkDiagnostic diagnostic
-        Right resolvedPrelude -> do
-          resolvedResult <-
-            resolveProgramWithAmbientExports
-              resolutionConfig
-              resolvedPrelude
-              (preparedPreludeVisibleExports preparedPrelude)
-              sourceLookup
-              entryModulePath
-          case resolvedResult of
-            Left diagnostic -> failBenchmarkDiagnostic diagnostic
-            Right resolvedProgram -> pure resolvedProgram
-
-requireResolvedEntryModule :: [Text] -> CoreProgram 'Resolved -> IO (CoreModule 'Resolved)
-requireResolvedEntryModule entryModulePath resolvedProgram =
-  case filter
-    ((== entryModulePath) . NonEmpty.toList . modulePathTextSegments . coreModulePath)
-    (NonEmpty.toList (coreProgramModules resolvedProgram)) of
-    value : _ -> pure value
-    [] ->
-      ioError
-        ( userError
-            ( "resolved benchmark program is missing its entry module: "
-                <> Text.unpack (Text.intercalate "::" entryModulePath)
-            )
-        )
+    Right (resolvedProgram, diagnostics, maybeAnalyzedProgram) -> do
+      requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
+      case maybeAnalyzedProgram of
+        Just analyzedProgram -> pure (resolvedProgram, analyzedProgram)
+        Nothing -> ioError (userError "successful analysis did not produce analyzed core")
 
 runCompilerScaleCase :: CompilerScaleCase -> IO Text
 runCompilerScaleCase programCase = do
-  compiledProgram <- prepareValidCompilerScaleProgram programCase
+  (resolvedProgram, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
   withCompilerStage EvaluationStage $ do
-    let runtimeResult = evaluateCompiledProgram compiledProgram
+    let runtimeResult = evaluateAnalyzedProgram resolvedProgram analyzedProgram
     evaluate (forceRuntimeProgramOutputResult runtimeResult)
     case runtimeResult of
       Left diagnostic -> failBenchmarkDiagnostic diagnostic
@@ -1106,11 +1023,21 @@ forceProgramBudgets budgets =
 forceString :: String -> ()
 forceString = forceListWith (`seq` ())
 
-requireNoCompileErrors :: CompiledProgram -> IO ()
-requireNoCompileErrors compiledProgram =
-  case compiledProgramErrors compiledProgram of
-    [] -> pure ()
+forcePreparedProgramResult :: Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)) -> ()
+forcePreparedProgramResult result =
+  case result of
+    Left diagnostic -> forceDiagnostic diagnostic
+    Right (resolvedProgram, diagnostics, maybeAnalyzedProgram) ->
+      rnf resolvedProgram `seq` forceAnalyzedProgramResult (diagnostics, maybeAnalyzedProgram)
+
+requireSuccessfulAnalysis :: ([Diagnostic], Maybe (CoreProgram 'Analyzed)) -> IO ()
+requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram) =
+  case filter isErrorDiagnostic diagnostics of
     diagnostic : _ -> failBenchmarkDiagnostic diagnostic
+    [] ->
+      case maybeAnalyzedProgram of
+        Just _ -> pure ()
+        Nothing -> ioError (userError "analysis produced no errors and no analyzed core")
 
 requireExpectedRuntimeResult :: ExpectedProgramBehavior -> Either Diagnostic RuntimeProgram -> IO ()
 requireExpectedRuntimeResult (ExpectedProgramBehavior identifier expectedTermination expectedStdout) runtimeResult =
