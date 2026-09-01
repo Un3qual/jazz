@@ -1,64 +1,26 @@
 ---
-id: JN-COMPILER-CORE-IDENTITY-TYPES-001
+id: JN-COMPILER-LOCATED-PHASED-CORE-001
 status: ready
 priority: P1
 size: L
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 5"
+plan_section: "Task 6"
 target_paths:
-  - src/Jazz/Compiler/Name.hs
-  - src/Jazz/Compiler/ModuleResolver.hs
-  - src/Jazz/Compiler/ModuleGraph.hs
-  - src/Jazz/Compiler/Driver.hs
-  - src/Jazz/Compiler/AST.hs
   - src/Jazz/Compiler/Parser/AST.hs
-  - src/Jazz/Compiler/Parser/Signature.hs
   - src/Jazz/Compiler/Parser/Expression.hs
+  - src/Jazz/Compiler/Parser/Pattern.hs
+  - src/Jazz/Compiler/Parser/Declaration.hs
   - src/Jazz/Compiler/Parser/Lower.hs
-  - src/Jazz/Compiler/SignatureRendering.hs
-  - src/Jazz/Compiler/TypeInference/Signature.hs
-  - src/Jazz/Compiler/TypeInference/Types.hs
-  - src/Jazz/Compiler/TypedCore.hs
-  - src/Jazz/Compiler/TypedCore/Validate/Expressions.hs
-  - src/Jazz/Compiler/TypedCore/Validate/TypeRecipes.hs
-  - src/Jazz/Compiler/LoweredIR/Lower/ManagedLayouts.hs
-  - src/Jazz/Compiler/TypeInference/State.hs
-  - src/Jazz/Compiler/TypeInference/Solver.hs
-  - src/Jazz/Compiler/TypeInference/TypeOps.hs
-  - src/Jazz/Compiler/TypeInference/Operator.hs
-  - src/Jazz/Compiler/TypeInference/Pattern.hs
-  - src/Jazz/Compiler/TypeInference/Scope.hs
-  - src/Jazz/Compiler/TypeInference/Capabilities.hs
-  - src/Jazz/Compiler/TypeInference/Diagnostics.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration/Specialize.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration/StructuredValues.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
-  - src/Jazz/Compiler/TypeInference.hs
-  - src/Jazz/Compiler/TypedCore/Query.hs
-  - src/Jazz/Compiler/TypedCore/Validate.hs
-  - src/Jazz/Compiler/TypedCore/Validate/Declarations.hs
-  - src/Jazz/Compiler/TypedCore/Validate/Evidence.hs
-  - src/Jazz/Compiler/TypedCore/Validate/Internal.hs
-  - src/Jazz/Compiler/TypedCore/Validate/Patterns.hs
-  - src/Jazz/Compiler/TypedCore/Validate/Program.hs
-  - src/Jazz/Compiler/LoweredIR/Lower/Shapes.hs
-  - test/Jazz/Compiler/Modules/ModuleResolutionSpec.hs
-  - test/Jazz/Compiler/Semantics/NameSemanticsSpec.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparisonSpec.hs
-  - test/Jazz/Compiler/Diagnostics/SignatureRenderingSpec.hs
-  - test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs
-  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
-  - test/Jazz/Compiler/Semantics/PrimitiveSemantics/NumericConversions.hs
-  - test/Jazz/Compiler/Semantics/Runtime/NumericTests.hs
-  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CaptureRecursionTests.hs
-  - test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
-  - jazz.cabal
+  - src/Jazz/Compiler/Parser.hs
+  - test/Jazz/Compiler/Parser/TestSupport.hs
+  - test/Jazz/Compiler/Parser/Foundation/ExpressionsTests.hs
+  - test/Jazz/Compiler/Parser/PatternParserSpec.hs
+  - test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec binding-signature-coherence-spec primitive-semantics-spec jazz-typed-core-contract-spec jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal build all -fdevelopment --jobs=1
-deliverable: "Introduce nominal module and source identities, shared signature and numeric representations, solver-owned integer literal ranges, and one shared semantic type tree without changing public behavior."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test parser-foundation-spec expression-parser-spec pattern-parser-spec declaration-parser-spec adt-pattern-parser-spec canonical-parser-comparison-spec jazz-parser-parity-spec --test-show-details=direct --jobs=1
+deliverable: "Attach deterministic leading-token locations to every surface expression and pattern without changing public syntax or the hosted parser schema."
 last_verified: 2026-08-31
 ---
 

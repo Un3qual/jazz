@@ -274,15 +274,14 @@ Each blocked item should answer these questions:
   constraints, evidence, binders, recipes, and phase-specific identifiers remain
   phase-owned; the canonical adapter alone preserves the hosted `Typed*Type`
   vocabulary. Public syntax and semantics are unchanged.
-- Smallest unblocker: curate `JN-COMPILER-LOCATED-PHASED-CORE-001` from Task 6
-  of the approved compiler architecture simplification plan, then promote exactly
-  that child into `Ready Now`.
+- Smallest unblocker: execute `JN-COMPILER-LOCATED-PHASED-CORE-001` through
+  Task 6 of the approved compiler architecture simplification plan.
 - Decision needed: none. Preserve public behavior, interpreter-backed compile/run,
   and the hosted parser schema while locating the Haskell surface tree.
-- Recommended default: execute the location milestone before the phase-indexed
-  canonical AST so later phase carriers can preserve source ownership without
-  creating another parallel tree.
-- Candidate child: `JN-COMPILER-LOCATED-PHASED-CORE-001`.
+- Recommended default: execute only the location milestone before the
+  phase-indexed canonical AST so later phase carriers can preserve source
+  ownership without creating another parallel tree.
+- Ready child: `JN-COMPILER-LOCATED-PHASED-CORE-001`.
 - Target paths: `src/Jazz/Compiler/Parser/AST.hs`,
   `src/Jazz/Compiler/Parser/Expression.hs`,
   `src/Jazz/Compiler/Parser/Pattern.hs`,
@@ -294,7 +293,7 @@ Each blocked item should answer these questions:
   `test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs`.
 - Verification:
   - `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test parser-foundation-spec expression-parser-spec pattern-parser-spec declaration-parser-spec adt-pattern-parser-spec canonical-parser-comparison-spec jazz-parser-parity-spec --test-show-details=direct --jobs=1`
-- Still not in scope for the candidate child: public syntax or semantic changes,
+- Still not in scope for the ready child: public syntax or semantic changes,
   hosted parser schema changes, a Typed Core interpreter, raw-core interpreter
   removal, normal compile/run cutover, or Task 7 and later architecture work.
 
