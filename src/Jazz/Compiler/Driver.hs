@@ -27,6 +27,7 @@ module Jazz.Compiler.Driver
     runCompileErrors,
     runRuntimeErrors,
     runWarnings,
+    withAnalyzedAttachment,
     runSource,
     runSourceObserved,
     runSourceWithPrelude,
@@ -88,6 +89,7 @@ import Jazz.Compiler.ModuleRuntime
   ( RuntimeProgram (runtimeProgramOutput),
     evaluateAnalyzedProgramWithHostObserved,
   )
+import Jazz.Compiler.Parser.Lower (reindexLoweredExpr)
 import Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
@@ -114,18 +116,20 @@ import Jazz.Compiler.Runtime.Observation
   )
 import Jazz.Compiler.RuntimeHints
   ( BindingRuntimeHintKey,
+    projectSourceUnitRuntimeHints,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
+import Jazz.Compiler.SemanticFacts (SemanticFactInvariantFailure)
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     prependLoweredStatements,
     scopeStatements,
   )
 import Jazz.Compiler.TypeInference
-  ( inferExpressionWithBuiltinsAndSourceUnitStatements,
+  ( analyzeSourceUnitExpressionWithBuiltins,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig
@@ -224,11 +228,12 @@ compileExprWithBuiltinsAndSourceUnitStatements ::
   Expr 'Lowered ->
   IO CompileResult
 compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr = do
-  (diagnostics, _, _) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr
-  pure
-    CompileResult
-      { compileDiagnostics = diagnostics
-      }
+  (diagnostics, _, runtimePlanProjection) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr
+  withAnalyzedAttachment runtimePlanProjection $ \_ ->
+    pure
+      CompileResult
+        { compileDiagnostics = diagnostics
+        }
 
 compileSource :: WarningSettings -> Text -> IO CompileResult
 compileSource settings source = do
@@ -319,7 +324,7 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
   Expr 'Lowered ->
   IO RunResult
 runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr = do
-  (compilePhaseDiagnostics, maybeCanonicalExpr, runtimeTypeHints) <-
+  (compilePhaseDiagnostics, maybeCanonicalExpr, runtimePlanProjection) <-
     analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr
   if any isErrorDiagnostic compilePhaseDiagnostics
     then
@@ -330,17 +335,18 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
             runRuntimeObservation = Nothing
           }
     else case maybeCanonicalExpr of
-      Just canonicalExpr -> do
-        runtimeResult <-
-          evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
-            observationRequest
-            host
-            preludeStatementIndices
-            preludePath
-            builtinMode
-            runtimeTypeHints
-            canonicalExpr
-        pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
+      Just canonicalExpr ->
+        withAnalyzedAttachment runtimePlanProjection $ \runtimeTypeHints -> do
+          runtimeResult <-
+            evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved
+              observationRequest
+              host
+              preludeStatementIndices
+              preludePath
+              builtinMode
+              runtimeTypeHints
+              canonicalExpr
+          pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
       Nothing ->
         pure
           RunResult
@@ -608,17 +614,17 @@ buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath s
 
 -- | Run inference/canonicalization and retain the canonical diagnostic order
 -- for downstream compile/run results.
-analyzeForDriver :: Set Int -> Set Int -> ModulePath -> BuiltinResolutionMode -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Maybe (Expr 'Resolved), Map BindingRuntimeHintKey (SignatureType 'Resolved))
+analyzeForDriver :: Set Int -> Set Int -> ModulePath -> BuiltinResolutionMode -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Maybe (Expr 'Resolved), Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Map BindingRuntimeHintKey (SignatureType 'Resolved)))
 analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr = do
-  case resolveStandaloneExprNames builtinMode (exportInventory []) expr of
+  case resolveStandaloneExprNames builtinMode (exportInventory []) (reindexLoweredExpr expr) of
     Left diagnostics ->
-      pure (NonEmpty.toList diagnostics, Nothing, Map.empty)
+      pure (NonEmpty.toList diagnostics, Nothing, Right Map.empty)
     Right resolvedExpr -> do
-      inference <-
+      (inference, analyzedAttachment) <-
         withCompilerStageResult
           TypeInferenceStage
-          (evaluate . forceInferenceResult)
-          ( inferExpressionWithBuiltinsAndSourceUnitStatements
+          (evaluate . forceInferenceResult . fst)
+          ( analyzeSourceUnitExpressionWithBuiltins
               builtinMode
               preludePath
               hiddenStatementIndices
@@ -627,7 +633,35 @@ analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath buil
               resolvedExpr
           )
       let diagnostics = inferredDiagnostics inference
-      pure (diagnostics, Just (inferredExpr inference), inferredRuntimeTypeHints inference)
+      case analyzedAttachment of
+        Left failures ->
+          pure (diagnostics, Just (inferredExpr inference), Left failures)
+        Right maybeAnalyzed ->
+          pure
+            ( diagnostics,
+              Just (inferredExpr inference),
+              Right
+                ( maybe
+                    Map.empty
+                    (projectSourceUnitRuntimeHints preludePath preludeStatementIndices)
+                    maybeAnalyzed
+                )
+            )
+
+standaloneAttachmentFailure :: NonEmpty.NonEmpty SemanticFactInvariantFailure -> String
+standaloneAttachmentFailure failures =
+  "standalone analyzed facts violated inference invariants: " <> show failures
+
+-- | An analyzed-plan invariant failure never enters runtime evaluation, even
+-- when the resolved interpreter would independently produce a diagnostic.
+withAnalyzedAttachment ::
+  Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) plan ->
+  (plan -> IO result) ->
+  IO result
+withAnalyzedAttachment attachment continue =
+  case attachment of
+    Left failures -> fail (standaloneAttachmentFailure failures)
+    Right plan -> continue plan
 
 -- | Parse the incoming source and splice in prelude statements when required,
 -- tracking which synthetic statements should stay hidden from user diagnostics.

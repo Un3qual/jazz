@@ -34,7 +34,7 @@ import Jazz.Compiler.Driver
     compileWarnings,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleIdentity (mkModulePath, preludeModulePath)
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
@@ -679,7 +679,6 @@ hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
     { inferenceBuiltinMode = ResolveKernelOnly,
-      inferencePreludeModulePath = preludeModulePath,
       inferenceWarningSettings = defaultWarningSettings,
       inferenceImportedTypes =
         Map.fromList

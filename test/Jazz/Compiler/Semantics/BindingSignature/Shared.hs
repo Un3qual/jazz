@@ -49,7 +49,7 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
-import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr, reindexLoweredExpr)
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -158,7 +158,7 @@ loweredProgram source =
     Right surface -> lowerSurfaceExpr surface
 
 loweredPrograms :: [Text.Text] -> Expr 'Lowered
-loweredPrograms = mergeLoweredPrograms . map loweredProgram
+loweredPrograms = reindexLoweredExpr . mergeLoweredPrograms . map loweredProgram
 
 mergeLoweredPrograms :: [Expr 'Lowered] -> Expr 'Lowered
 mergeLoweredPrograms programs =

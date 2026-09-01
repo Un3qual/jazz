@@ -165,6 +165,7 @@ library jazz-internal
       Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
+      Jazz.Compiler.SourceUnitOwnership
       Jazz.Compiler.StableSet
       Jazz.Compiler.TypeInference
       Jazz.Compiler.TypeInference.Analyzed
@@ -176,6 +177,7 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Elaboration.Specialize
       Jazz.Compiler.TypeInference.Elaboration.StructuredValues
       Jazz.Compiler.TypeInference.Elaboration.Types
+      Jazz.Compiler.TypeInference.Evidence
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
       Jazz.Compiler.TypeInference.Result

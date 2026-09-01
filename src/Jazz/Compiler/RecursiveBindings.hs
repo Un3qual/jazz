@@ -19,6 +19,7 @@ module Jazz.Compiler.RecursiveBindings
     freeVarsScopeWithBound,
     exprContainsFunctionBranch,
     inferRecursiveGroupsOrdered,
+    inferSelfReferencedBindings,
     inferSelfRecursiveBindings,
     lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
@@ -561,6 +562,21 @@ inferSelfRecursiveBindings outerBindingNames predicate =
               (freeVarsExprWithBound outerBindingNames valueExpr) ->
               Set.insert statementIndex recursiveStatements
         _ -> recursiveStatements
+
+-- | Bindings whose own unresolved definition is referenced by their RHS.
+-- Runtime recursion applies a stricter cell-ownership predicate; inference only
+-- needs this syntactic set so every occurrence shares the definition's one
+-- prepared type variable.
+inferSelfReferencedBindings :: (CorePhaseNames phase) => Set (CoreNameAt phase) -> [(Int, Statement phase)] -> Set Int
+inferSelfReferencedBindings outerBindingNames =
+  foldl' step Set.empty
+  where
+    step selfReferences (statementIndex, statement) =
+      case statement of
+        SLet _ bindingName valueExpr
+          | Set.member bindingName (freeVarsExprWithBound outerBindingNames valueExpr) ->
+              Set.insert statementIndex selfReferences
+        _ -> selfReferences
 
 newtype ScopeBindingIdentity = ScopeBindingIdentity [Int]
   deriving (Eq, Ord)

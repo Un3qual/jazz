@@ -23,7 +23,6 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
@@ -31,7 +30,6 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
   )
 import Jazz.Compiler.Name (NameNamespace (..))
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
@@ -57,8 +55,7 @@ data ModuleInterface = ModuleInterface
     interfaceGeneratedEqualityClassFacts :: Set Text,
     interfaceConcreteImplFacts :: Set ConcreteImplFact,
     interfaceClassMethods :: Map Text ClassMethodType,
-    interfaceConcreteImplMethods :: Map Text [ImplMethodType],
-    interfaceRuntimeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved)
+    interfaceConcreteImplMethods :: Map Text [ImplMethodType]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
@@ -84,8 +81,7 @@ emptyModuleInterface =
       interfaceGeneratedEqualityClassFacts = Set.empty,
       interfaceConcreteImplFacts = Set.empty,
       interfaceClassMethods = Map.empty,
-      interfaceConcreteImplMethods = Map.empty,
-      interfaceRuntimeHints = Map.empty
+      interfaceConcreteImplMethods = Map.empty
     }
 
 data CompileInputs = CompileInputs

@@ -18,6 +18,7 @@ module Jazz.Compiler.ModuleIdentity
     moduleIdentitySource,
     moduleQualifierIdentifier,
     preludeModulePath,
+    standaloneModulePath,
     parseModulePathText,
     modulePathSegments,
     modulePathTextSegments,
@@ -88,6 +89,11 @@ moduleQualifierIdentifier (ModuleQualifier identifier) = identifier
 -- artifacts and by standalone/module inference and runtime ownership.
 preludeModulePath :: ModulePath
 preludeModulePath = mkModulePath (NonEmpty.singleton (mkIdentifier "Prelude"))
+
+-- | Nominal owner for declarations compiled from a source without a module
+-- header. This is a real non-empty identity, not a sentinel encoding.
+standaloneModulePath :: ModulePath
+standaloneModulePath = mkModulePath (NonEmpty.singleton (mkIdentifier "Standalone"))
 
 mkSourceFile :: FilePath -> SourceFile
 mkSourceFile = SourceFile

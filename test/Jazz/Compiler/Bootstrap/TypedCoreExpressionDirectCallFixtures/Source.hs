@@ -21,7 +21,6 @@ import Jazz.Compiler.ModuleIdentity
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
-    preludeModulePath,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
@@ -653,7 +652,6 @@ emptyInputs :: InferenceInputs
 emptyInputs =
   InferenceInputs
     { inferenceBuiltinMode = ResolveKernelOnly,
-      inferencePreludeModulePath = preludeModulePath,
       inferenceWarningSettings = defaultWarningSettings,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,

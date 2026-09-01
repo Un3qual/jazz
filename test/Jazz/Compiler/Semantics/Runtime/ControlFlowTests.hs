@@ -9,6 +9,8 @@ import Control.Exception
   ( SomeException,
     try,
   )
+import Data.IORef (newIORef, readIORef, writeIORef)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Text as Text
 import Jazz.Compiler.Driver
   ( RunResult,
@@ -16,9 +18,14 @@ import Jazz.Compiler.Driver
     runOutput,
     runRuntimeErrors,
     runSource,
+    withAnalyzedAttachment,
   )
 import Jazz.Compiler.Runtime
   ( evaluateRuntimeExpr,
+  )
+import Jazz.Compiler.SemanticFacts
+  ( CoreNodeId (..),
+    SemanticFactInvariantFailure (MissingExpressionFacts),
   )
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.WarningConfig
@@ -39,6 +46,9 @@ controlFlowTests :: [NamedTest]
 controlFlowTests =
   [ ("if with False condition skips then branch runtime failure", testIfFalseSkipsThenRuntimeFailure),
     ("if with True condition skips else branch runtime failure", testIfTrueSkipsElseRuntimeFailure),
+    ("non-recursive missing bindings remain compile errors", testNonRecursiveMissingBindingRemainsCompileError),
+    ("valid recursive branches receive complete analyzed plans", testValidRecursiveBranchesReceiveCompleteAnalyzedPlans),
+    ("attachment invariant failures cannot enter runtime evaluation", testAttachmentFailureCannotEnterRuntime),
     ("mixed wrapper with eager selected branch produces runtime unbound diagnostic", testMixedWrapperWithSelectedNonAliasSelfUseTerminates),
     ("function-valued pattern guard uses prior rebinding", testFunctionPatternGuardUsesPriorRebinding),
     ("pattern-case without a matching arm produces deterministic runtime diagnostic", testPatternCaseNoMatchRuntimeError)
@@ -57,6 +67,49 @@ testIfTrueSkipsElseRuntimeFailure = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "1") (runOutput result)
+
+testNonRecursiveMissingBindingRemainsCompileError :: IO ()
+testNonRecursiveMissingBindingRemainsCompileError = do
+  result <- runSource defaultWarningSettings "missing."
+  assertSingleDiagnosticContains
+    "non-recursive missing binding compile diagnostic"
+    "E1001"
+    (runCompileErrors result)
+  assertSingleDiagnosticContains
+    "non-recursive missing binding diagnostic text"
+    "unbound variable 'missing'"
+    (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" Nothing (runOutput result)
+
+testValidRecursiveBranchesReceiveCompleteAnalyzedPlans :: IO ()
+testValidRecursiveBranchesReceiveCompleteAnalyzedPlans = do
+  result <-
+    runSource
+      defaultWarningSettings
+      "if False then { f = if True then (f + 1) else f. 0. } else 0."
+  assertEqual "recursive branch compile errors" [] (runCompileErrors result)
+  assertEqual "recursive branch runtime errors" [] (runRuntimeErrors result)
+  assertEqual "recursive branch runtime output" (Just "0") (runOutput result)
+
+testAttachmentFailureCannotEnterRuntime :: IO ()
+testAttachmentFailureCannotEnterRuntime = do
+  executed <- newIORef False
+  outcome <-
+    try
+      ( withAnalyzedAttachment
+          (Left (MissingExpressionFacts (CoreNodeId 7) :| []))
+          (\() -> writeIORef executed True)
+      ) ::
+      IO (Either SomeException ())
+  assertEqual "runtime continuation was not entered" False =<< readIORef executed
+  case outcome of
+    Left err ->
+      assertEqual
+        "attachment failure remains the reported invariant"
+        True
+        ("MissingExpressionFacts" `Text.isInfixOf` Text.pack (show err))
+    Right () -> failTest "attachment failure entered runtime evaluation"
 
 testMixedWrapperWithSelectedNonAliasSelfUseTerminates :: IO ()
 testMixedWrapperWithSelectedNonAliasSelfUseTerminates = do

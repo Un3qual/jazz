@@ -29,7 +29,6 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
-import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -49,7 +48,7 @@ import Jazz.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode,
     numericTypeFromName,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments)
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (..),
     ResolvedName,
@@ -64,6 +63,7 @@ import Jazz.Compiler.RecursiveBindings
     recursiveScopeBindingNames,
     recursiveScopeGroups,
   )
+import Jazz.Compiler.SourceUnitOwnership (sourceUnitStatementRuntimePaths)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     pattern ConstrainedSignature,
@@ -121,21 +121,12 @@ buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath buil
     bindingNames =
       IntMap.fromDistinctAscList
         (Map.toAscList (recursiveScopeBindingNames recursiveScopeFactsValue))
-    (_, modulePathsByStatement) =
-      foldl'
-        collectModulePath
-        (initialModulePath, IntMap.empty)
-        indexedStatements
-    collectModulePath (activeModulePath, pathsByStatement) (statementIndex, statement) =
-      let declaredModulePath =
-            case statement of
-              SModule _ modulePath -> Just modulePath
-              _ -> activeModulePath
-          statementModulePath =
-            if Set.member statementIndex preludeStatementIndices
-              then Just (NonEmpty.toList (modulePathTextSegments preludePath))
-              else declaredModulePath
-       in (declaredModulePath, IntMap.insert statementIndex statementModulePath pathsByStatement)
+    modulePathsByStatement =
+      IntMap.fromDistinctAscList
+        ( zip
+            [0 :: Int ..]
+            (sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModulePath statements)
+        )
     hostRecursiveBindings =
       IntSet.fromList
         [ groupIndex

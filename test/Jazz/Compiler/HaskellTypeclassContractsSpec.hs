@@ -37,7 +37,7 @@ import Jazz.Compiler.ModuleExports
     exportInventory,
     exportInventoryEntries,
   )
-import Jazz.Compiler.ModuleIdentity (mkModulePath, preludeModulePath)
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -348,7 +348,6 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
     inferenceInputs factArgument =
       InferenceInputs
         { inferenceBuiltinMode = ResolveKernelOnly,
-          inferencePreludeModulePath = preludeModulePath,
           inferenceWarningSettings = defaultWarningSettings,
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =

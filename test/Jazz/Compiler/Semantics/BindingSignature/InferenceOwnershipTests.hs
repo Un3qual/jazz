@@ -447,7 +447,6 @@ testProductionScopeElaboratesSignatureOnce =
   where
     (inferredScope, finalState) =
       TypeInferenceScope.inferScopeTypeWithMode
-        Set.empty
         syntheticProductionInfer
         ProduceTypedCoreExpressionDirectCall
         ResolveKernelOnly
@@ -488,7 +487,6 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
     statements = programStatements (resolvedProgram "self = self.")
     (_, ordinaryState, _) =
       TypeInferenceScope.inferScopeTypeWithModeAndForwardBindings
-        Set.empty
         syntheticProductionInfer
         InferenceOnly
         ResolveKernelOnly
@@ -498,7 +496,6 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
     (_, preparedState, _) =
       TypeInferenceScope.inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
         (prepareRecursiveScope (Set.singleton (valueName "self")) statements)
-        Set.empty
         syntheticProductionInfer
         InferenceOnly
         ResolveKernelOnly
@@ -533,7 +530,6 @@ testRecursivePreviewSolverStateIsTransactional =
   where
     (_, finalState) =
       TypeInferenceScope.inferScopeType
-        Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
         Map.empty
@@ -578,7 +574,6 @@ testRecursivePreviewRefreshesAfterSolverChange =
   where
     (_, finalState) =
       TypeInferenceScope.inferScopeType
-        Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
         (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
@@ -655,7 +650,6 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
   where
     (_, finalState) =
       TypeInferenceScope.inferScopeType
-        Set.empty
         syntheticPreviewInfer
         ResolveKernelOnly
         (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
@@ -713,7 +707,6 @@ testRecursivePreviewReuseAtSameFrontier =
   where
     (_, finalState) =
       TypeInferenceScope.inferScopeType
-        Set.empty
         allocatingInfer
         ResolveKernelOnly
         Map.empty

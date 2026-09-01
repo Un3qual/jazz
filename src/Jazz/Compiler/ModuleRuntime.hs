@@ -36,6 +36,7 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Pattern (..),
+    SignatureType,
     Statement (..),
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
@@ -112,6 +113,10 @@ import Jazz.Compiler.Runtime.Outcome
     runtimeControlOutcome,
     runtimeOutcomeAsDiagnosticResult,
   )
+import Jazz.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey,
+    projectRuntimeHints,
+  )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
@@ -165,11 +170,12 @@ evaluateAnalyzedProgramObserved observationRequest resolvedProgram analyzedProgr
 
 evaluateAnalyzedProgramPureUnchecked :: CoreProgram 'Resolved -> CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
 evaluateAnalyzedProgramPureUnchecked resolvedProgram analyzedProgram = do
-  ambientEnv <- evaluatePrelude (coreProgramPrelude resolvedProgram) (coreProgramPrelude analyzedProgram)
+  ambientEnv <- evaluatePrelude runtimeHints (coreProgramPrelude resolvedProgram) (coreProgramPrelude analyzedProgram)
   evaluateModules analyzedProgram ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules resolvedProgram))
   where
     entryPath = coreProgramEntry resolvedProgram
     builtinMode = preludeBuiltinMode (coreProgramPrelude resolvedProgram)
+    runtimeHints = projectRuntimeHints analyzedProgram
 
     evaluateModules analyzed ambientEnv runtimeModules output remainingModules =
       case remainingModules of
@@ -185,15 +191,15 @@ evaluateAnalyzedProgramPureUnchecked resolvedProgram analyzedProgram = do
               (Just (modulePathTexts (preparedModulePath preparedModule)))
               (preparedModuleEvaluationMode preparedModule)
               builtinMode
-              (interfaceRuntimeHints (coreModuleInterface analyzedModule))
+              runtimeHints
               (preparedModuleImportedEnvironment preparedModule)
               (scopeStatements (coreModuleExpr resolvedModule))
           let (nextRuntimeModules, nextOutput) =
                 completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
           evaluateModules analyzed ambientEnv nextRuntimeModules nextOutput rest
 
-evaluatePrelude :: PreludeArtifact 'Resolved -> PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
-evaluatePrelude resolvedPrelude analyzedPrelude =
+evaluatePrelude :: Map BindingRuntimeHintKey (SignatureType 'Resolved) -> PreludeArtifact 'Resolved -> PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
+evaluatePrelude runtimeHints resolvedPrelude analyzedPrelude =
   case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
     (Nothing, Nothing) -> Right Map.empty
     (Just resolvedModule, Just analyzedModule) -> do
@@ -202,7 +208,7 @@ evaluatePrelude resolvedPrelude analyzedPrelude =
           (Just (modulePathTexts (coreModulePath resolvedModule)))
           EvaluateDependencyModule
           (preludeBuiltinMode resolvedPrelude)
-          (interfaceRuntimeHints (coreModuleInterface analyzedModule))
+          runtimeHints
           Map.empty
           (scopeStatements (coreModuleExpr resolvedModule))
       pure
@@ -278,6 +284,7 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgra
       ExceptT
         ( evaluatePreludeWithEvaluationHost
             evaluationHost
+            runtimeHints
             (coreProgramPrelude resolvedProgram)
             (coreProgramPrelude analyzedProgram)
         )
@@ -285,6 +292,7 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgra
   where
     entryPath = coreProgramEntry resolvedProgram
     builtinMode = preludeBuiltinMode (coreProgramPrelude resolvedProgram)
+    runtimeHints = projectRuntimeHints analyzedProgram
 
     evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
@@ -302,7 +310,7 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost resolvedProgra
                   (Just (modulePathTexts (preparedModulePath preparedModule)))
                   (preparedModuleEvaluationMode preparedModule)
                   builtinMode
-                  (interfaceRuntimeHints (coreModuleInterface analyzedModule))
+                  runtimeHints
                   (preparedModuleImportedEnvironment preparedModule)
                   (scopeStatements (coreModuleExpr resolvedModule))
               )
@@ -367,10 +375,11 @@ resolvedProgramRequiresHost resolvedProgram =
 evaluatePreludeWithEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  Map BindingRuntimeHintKey (SignatureType 'Resolved) ->
   PreludeArtifact 'Resolved ->
   PreludeArtifact 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
-evaluatePreludeWithEvaluationHost host resolvedPrelude analyzedPrelude =
+evaluatePreludeWithEvaluationHost host runtimeHints resolvedPrelude analyzedPrelude =
   case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
     (Nothing, Nothing) -> pure (Right Map.empty)
     (Just resolvedModule, Just analyzedModule) -> do
@@ -380,7 +389,7 @@ evaluatePreludeWithEvaluationHost host resolvedPrelude analyzedPrelude =
           (Just (modulePathTexts (coreModulePath resolvedModule)))
           EvaluateDependencyModule
           (preludeBuiltinMode resolvedPrelude)
-          (interfaceRuntimeHints (coreModuleInterface analyzedModule))
+          runtimeHints
           Map.empty
           (scopeStatements (coreModuleExpr resolvedModule))
       pure $

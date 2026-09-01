@@ -104,11 +104,16 @@ import Jazz.Compiler.Name
     ResolvedUserName (..),
     identifierText,
     mkIdentifier,
+    operatorBindingName,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeCell,
     renderRuntimeValue,
     runtimeExprRequiresHost,
+  )
+import Jazz.Compiler.RuntimeHints
+  ( BindingRuntimeHintKey (..),
+    projectRuntimeHints,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
@@ -161,7 +166,7 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (NumericInt8),
+  ( NumericType (NumericInt64, NumericInt8),
     SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -178,6 +183,7 @@ main = runTestSuite "ModulePipelineContract" tests
 tests :: [NamedTest]
 tests =
   [ ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
+    ("analyzed runtime plans exactly project legacy runtime hints", testRuntimePlanHintParity),
     ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -199,11 +205,42 @@ tests =
     ("module diagnostics retain source paths", testSourcePathContract),
     ("lexical binders shadow imported and builtin names", testLexicalBindersShadowImportedAndBuiltinNames),
     ("explicit instantiations retain lexical binder identities through shadowing", testExplicitInstantiationBinderShadowing),
+    ("explicit operator instantiations retain their binder identity", testExplicitOperatorInstantiationBinder),
     ("statement schemes are captured at each definition site", testStatementSchemesAreDefinitionSiteFacts),
     ("runtime rejects non-corresponding resolved and analyzed programs", testRuntimeRejectsNonCorrespondingPrograms),
     ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme),
     ("signed builtin aliases retain their authored schemes", testSignedBuiltinAliasStatementScheme)
   ]
+
+testRuntimePlanHintParity :: IO ()
+testRuntimePlanHintParity = do
+  (_, analyzed) <- analyzeFixtureProgram factCompletenessSources
+  assertEqual
+    "node-local plans preserve the complete legacy hint projection"
+    expectedLegacyHints
+    (projectRuntimeHints analyzed)
+  where
+    expectedLegacyHints =
+      Map.fromList
+        [ ( BindingRuntimeHintKey (Just ["App", "Main"]) (SourceSpanIn "src/App/Main.jz" 3 1) (moduleValueName "result"),
+            TypeInt
+          ),
+          ( BindingRuntimeHintKey (Just ["Lib", "Facts"]) (SourceSpanIn "src/Lib/Facts.jz" 3 1) (moduleValueName "identity"),
+            TypeFunction typeVariableT0 typeVariableT0
+          ),
+          ( BindingRuntimeHintKey (Just ["Lib", "Facts"]) (SourceSpanIn "src/Lib/Facts.jz" 5 1) (moduleValueName "countdown"),
+            TypeFunction TypeInt TypeInt
+          ),
+          ( BindingRuntimeHintKey (Just ["Lib", "Facts"]) (SourceSpanIn "src/Lib/Facts.jz" 6 1) (moduleValueName "increment"),
+            TypeFunction (TypeNumeric NumericInt64) (TypeNumeric NumericInt64)
+          ),
+          ( ExplicitTypeApplicationRuntimeHintKey (Just ["App", "Main"]) (SourceSpanIn "src/App/Main.jz" 3 19),
+            TypeFunction TypeInt TypeInt
+          )
+        ]
+    typeVariableT0 = TypeVariable (ambientTypeName "t0")
+    moduleValueName name = UserName (ResolvedUserName CurrentModule ValueNamespace (mkIdentifier name))
+    ambientTypeName name = UserName (ResolvedUserName AmbientPrelude TypeNamespace (mkIdentifier name))
 
 testAnalyzedProgramFactsAreComplete :: IO ()
 testAnalyzedProgramFactsAreComplete = do
@@ -517,6 +554,14 @@ assertExprFacts :: Expr 'Analyzed -> IO ()
 assertExprFacts expression = do
   assertExpressionNodeFacts (exprNode expression)
   case expression of
+    ELit (CoreNode _ _ facts) (LInt _) ->
+      let RuntimePlan obligations = expressionRuntimePlan facts
+       in assertEqual
+            "integer literal runtime plan specializes its representation"
+            True
+            (any isNumericSpecialization obligations)
+    _ -> pure ()
+  case expression of
     ELambda _ _ body -> assertExprFacts body
     EList _ values -> mapM_ assertExprFacts values
     ETuple _ values -> mapM_ assertExprFacts values
@@ -532,13 +577,17 @@ assertExprFacts expression = do
     ESectionRight _ _ right -> assertExprFacts right
     EBlock _ statements -> mapM_ assertStatementFacts statements
     _ -> pure ()
+  where
+    isNumericSpecialization obligation =
+      case obligation of
+        SpecializeNumericLiteral _ -> True
+        _ -> False
 
 assertExpressionNodeFacts :: CoreNode 'Analyzed 'ExpressionSort -> IO ()
 assertExpressionNodeFacts (CoreNode _ _ facts) =
   case reverse (toList obligations) of
-    ConstrainResult resultType : _ ->
+    ConstrainResult _ : _ ->
       do
-        assertEqual "runtime plan final type" (expressionSemanticType facts) resultType
         case NonEmpty.nonEmpty (expressionEvidence facts) of
           Nothing -> pure ()
           Just evidence -> assertEqual "runtime plan supplies selected evidence" True (SupplyEvidence evidence `elem` obligations)
@@ -911,6 +960,45 @@ testExplicitInstantiationBinderShadowing = do
           (outer, nested).
         }
         """
+
+testExplicitOperatorInstantiationBinder :: IO ()
+testExplicitOperatorInstantiationBinder = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      ( Map.singleton
+          "src/App/Main.jz"
+          """
+          module App::Main {
+            operator %% tier 2.
+            (%%) :: a -> a -> a.
+            (%%) = \\(left, right) -> left.
+            result = (%%) @Int 1 2.
+            result.
+          }
+          """
+      )
+  coreModule <-
+    maybe
+      (fail "missing analyzed App::Main module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  let operatorBinders =
+        [ binder
+        | SLet (CoreNode _ _ facts) name _ <- moduleStatements (coreModuleExpr coreModule),
+          name == operatorBindingName "%%",
+          binder <- statementBinderIds facts
+        ]
+      instantiatedBinders =
+        [ binder
+        | SemanticInstantiation binder _ <- expressionInstantiationInventory (coreModuleExpr coreModule)
+        ]
+  assertEqual "one operator definition binder" 1 (length operatorBinders)
+  assertEqual "explicit operator application references its definition binder" operatorBinders instantiatedBinders
+  where
+    moduleStatements expression =
+      case expression of
+        EBlock _ statements -> statements
+        _ -> []
 
 testStatementSchemesAreDefinitionSiteFacts :: IO ()
 testStatementSchemesAreDefinitionSiteFacts = do

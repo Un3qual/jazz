@@ -44,19 +44,14 @@ import Jazz.Compiler.ModuleCompiler
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleGraph
-  ( AnalyzedModuleFacts (analyzedModuleInterface),
-    CoreProgram,
+  ( CoreProgram,
     PreludeArtifact (..),
     coreModuleExpr,
-    coreModuleFacts,
     coreModulePath,
     coreProgramModules,
     coreProgramPrelude,
   )
 import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath, modulePathTextSegments)
-import Jazz.Compiler.ModuleInterface
-  ( ModuleInterface (interfaceRuntimeHints),
-  )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
     resolveStandaloneExprNames,
@@ -82,6 +77,7 @@ import Jazz.Compiler.Runtime
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationRequest,
   )
+import Jazz.Compiler.RuntimeHints (projectRuntimeHints)
 import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     scopeStatements,
@@ -191,15 +187,14 @@ evaluateAnalyzedPrivateProbeValue targetModulePath probeSource resolvedProgram a
   ambientEnvironment <-
     evaluateTestPrelude
       (coreProgramPrelude resolvedProgram)
-      (coreProgramPrelude analyzedProgram)
   targetScope <-
     evaluateModules
       ambientEnvironment
       Nothing
-      (zip (NonEmpty.toList (coreProgramModules resolvedProgram)) (NonEmpty.toList (coreProgramModules analyzedProgram)))
+      (NonEmpty.toList (coreProgramModules resolvedProgram))
   case targetScope of
     Nothing -> Left (privateProbeDiagnostic targetModulePath)
-    Just (analyzedModule, environment) -> do
+    Just environment -> do
       loweredProbe <- parseAndLowerStandaloneSource probeSource
       probeExpression <-
         case resolveStandaloneExprNames
@@ -213,14 +208,15 @@ evaluateAnalyzedPrivateProbeValue targetModulePath probeSource resolvedProgram a
           (Just targetModulePath)
           EvaluateEntryModule
           (preludeBuiltinMode (coreProgramPrelude resolvedProgram))
-          (interfaceRuntimeHints (analyzedModuleInterface (coreModuleFacts analyzedModule)))
+          runtimeHints
           environment
           (scopeStatements probeExpression)
       pure (scopeResultValue probeResult)
   where
+    runtimeHints = projectRuntimeHints analyzedProgram
     targetNominalPath = nominalModulePath targetModulePath
     evaluateModules _ targetScope [] = Right targetScope
-    evaluateModules availableEnvironment targetScope ((resolvedModule, analyzedModule) : rest) = do
+    evaluateModules availableEnvironment targetScope (resolvedModule : rest) = do
       let modulePath = coreModulePath resolvedModule
           evaluationMode = if modulePath == targetNominalPath then EvaluateEntryModule else EvaluateDependencyModule
       scopeResult <-
@@ -228,7 +224,7 @@ evaluateAnalyzedPrivateProbeValue targetModulePath probeSource resolvedProgram a
           (Just (NonEmpty.toList (modulePathTextSegments modulePath)))
           evaluationMode
           (preludeBuiltinMode (coreProgramPrelude resolvedProgram))
-          (interfaceRuntimeHints (analyzedModuleInterface (coreModuleFacts analyzedModule)))
+          runtimeHints
           availableEnvironment
           (scopeStatements (coreModuleExpr resolvedModule))
       let fullEnvironment = scopeResultEnvironment scopeResult
@@ -236,25 +232,22 @@ evaluateAnalyzedPrivateProbeValue targetModulePath probeSource resolvedProgram a
           nextAvailableEnvironment = Map.union publishedEnvironment availableEnvironment
           nextTargetScope =
             if modulePath == targetNominalPath
-              then Just (analyzedModule, fullEnvironment)
+              then Just fullEnvironment
               else targetScope
       evaluateModules nextAvailableEnvironment nextTargetScope rest
-
-evaluateTestPrelude :: PreludeArtifact 'Resolved -> PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
-evaluateTestPrelude resolvedPrelude analyzedPrelude =
-  case (preludeModule resolvedPrelude, preludeModule analyzedPrelude) of
-    (Nothing, Nothing) -> Right Map.empty
-    (Just resolvedModule, Just analyzedModule) -> do
-      scopeResult <-
-        evaluateModuleScope
-          (Just (NonEmpty.toList (modulePathTextSegments (coreModulePath resolvedModule))))
-          EvaluateDependencyModule
-          (preludeBuiltinMode resolvedPrelude)
-          (interfaceRuntimeHints (analyzedModuleInterface (coreModuleFacts analyzedModule)))
-          Map.empty
-          (scopeStatements (coreModuleExpr resolvedModule))
-      pure (publishTestScope AmbientPrelude (scopeResultEnvironment scopeResult))
-    _ -> Left (privateProbeDiagnostic ["Prelude"])
+    evaluateTestPrelude resolvedPrelude =
+      case preludeModule resolvedPrelude of
+        Nothing -> Right Map.empty
+        Just resolvedModule -> do
+          scopeResult <-
+            evaluateModuleScope
+              (Just (NonEmpty.toList (modulePathTextSegments (coreModulePath resolvedModule))))
+              EvaluateDependencyModule
+              (preludeBuiltinMode resolvedPrelude)
+              runtimeHints
+              Map.empty
+              (scopeStatements (coreModuleExpr resolvedModule))
+          pure (publishTestScope AmbientPrelude (scopeResultEnvironment scopeResult))
 
 publishTestScope :: ResolvedNameOrigin -> RuntimeEnv -> RuntimeEnv
 publishTestScope origin = Map.fromList . concatMap publishCell . Map.toList

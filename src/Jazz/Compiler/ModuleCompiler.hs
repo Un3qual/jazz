@@ -35,7 +35,6 @@ import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
-    qualifiedMethodKey,
   )
 import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic, isWarningDiagnostic)
 import Jazz.Compiler.ModuleExports
@@ -64,7 +63,6 @@ import Jazz.Compiler.ModuleGraph
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
-    moduleIdentityPath,
     modulePathTextSegments,
     moduleQualifierIdentifier,
     renderModulePath,
@@ -86,8 +84,6 @@ import Jazz.Compiler.SemanticFacts
   ( AnalyzedCapabilityFacts,
     CoreBinderId,
     CoreNodeId,
-    ImplId (..),
-    MethodId (..),
     SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
     StatementFacts (..),
@@ -98,6 +94,7 @@ import Jazz.Compiler.TypeInference
   )
 import Jazz.Compiler.TypeInference.Analyzed (projectAnalyzedCapabilityFacts)
 import Jazz.Compiler.TypeInference.Capabilities (applyCapabilityFacts)
+import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
@@ -154,9 +151,6 @@ analyzeProgram inputs resolvedProgram =
             Right analyzed -> pure (diagnostics, Just analyzed)
         _ -> fail "successful analyzed program lost a prelude or module artifact"
   where
-    programPreludePath =
-      moduleIdentityPath
-        (ModuleGraph.preludeIdentity (coreProgramPrelude resolvedProgram))
     analyzeModule ambientInterface (modules, dependenciesByPath, diagnostics) resolvedModule = do
       let importedInterface =
             ambientInterface
@@ -173,7 +167,7 @@ analyzeProgram inputs resolvedProgram =
           (moduleStatementFactSeeds resolvedModule)
           (importedBinderIds importedInterface)
           (Map.unionWith (<>) (moduleEvidenceCandidates resolvedModule) (importedEvidenceCandidates importedInterface))
-          (moduleInferenceInputs inputs (ModuleGraph.preludeBuiltinMode (coreProgramPrelude resolvedProgram)) programPreludePath modulePath importedInterface)
+          (moduleInferenceInputs inputs (ModuleGraph.preludeBuiltinMode (coreProgramPrelude resolvedProgram)) modulePath importedInterface)
           Set.empty
           (coreModuleExpr resolvedModule)
       maybeAnalyzedExpression <- checkedAttachment modulePath attachment
@@ -214,7 +208,7 @@ analyzePrelude inputs prelude =
           (moduleStatementFactSeeds resolvedPreludeModule)
           Map.empty
           (moduleEvidenceCandidates resolvedPreludeModule)
-          (moduleInferenceInputs inputs (ModuleGraph.preludeBuiltinMode prelude) preludePath preludePath mempty)
+          (moduleInferenceInputs inputs (ModuleGraph.preludeBuiltinMode prelude) preludePath mempty)
           (compileInputPreludeHiddenStatementIndices inputs)
           (coreModuleExpr resolvedPreludeModule)
       maybeAnalyzedExpression <- checkedAttachment preludePath attachment
@@ -263,11 +257,10 @@ moduleStatementFactSeeds = map importSeed . coreModuleImports
           (NonEmpty.toList (modulePathTextSegments (ModuleGraph.importedModule importDecl)))
       )
 
-moduleInferenceInputs :: CompileInputs -> BuiltinResolutionMode -> ModulePath -> ModulePath -> ImportedInterface -> InferenceInputs
-moduleInferenceInputs inputs builtinMode preludePath modulePath importedInterface =
+moduleInferenceInputs :: CompileInputs -> BuiltinResolutionMode -> ModulePath -> ImportedInterface -> InferenceInputs
+moduleInferenceInputs inputs builtinMode modulePath importedInterface =
   InferenceInputs
     { inferenceBuiltinMode = builtinMode,
-      inferencePreludeModulePath = preludePath,
       inferenceWarningSettings = compileInputWarningSettings inputs,
       inferenceImportedTypes = interfaceTypeEnv importedInterface,
       inferenceImportedDataTypes = importedDataTypes importedInterface,
@@ -379,21 +372,9 @@ moduleBinderInventory coreModule =
 
 moduleEvidenceCandidates :: CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
 moduleEvidenceCandidates coreModule =
-  Map.fromListWith
-    (flip (<>))
-    [ ( qualifiedMethodKey capabilityName methodName,
-        [ ImplementationEvidenceCandidate
-            { implementationCandidateCapability = capabilityName,
-              implementationCandidateTarget = target,
-              implementationCandidateId = implementationId,
-              implementationCandidateMethodId = MethodId (implementationId, mkIdentifier (identifierText methodName))
-            }
-        ]
-      )
-    | AST.SImpl implementationNode capabilityName [target] methods <- ModuleGraph.coreModuleStatements coreModule,
-      let implementationId = ImplId (coreModulePath coreModule, coreNodeId implementationNode),
-      AST.ImplMethod _ methodName _ <- methods
-    ]
+  implementationEvidenceCandidatesInModule
+    (coreModulePath coreModule)
+    (coreModuleExpr coreModule)
 
 analyzedCapabilities :: ModuleInterface -> AnalyzedCapabilityFacts
 analyzedCapabilities moduleInterface =

@@ -83,7 +83,6 @@ import Jazz.Compiler.Profiling
     withCompilerStageMarkers,
   )
 import Jazz.Compiler.Runtime.Types (RuntimeValue (VConstructor))
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey (ExplicitTypeApplicationRuntimeHintKey))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (ClassMethodType),
@@ -114,7 +113,6 @@ tests =
     ("compiler stage names are stable, non-empty, and unique", testCompilerStageNames),
     ("compiler stage markers pair around successful actions", testSuccessfulStageMarkers),
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
-    ("inference forcing evaluates nested runtime hints", testDeepInferenceForcing),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
     ("diagnostic forcing evaluates nested spans and labels", testDeepDiagnosticForcing),
     ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
@@ -233,20 +231,6 @@ testFailedStageMarkers = do
     ]
     recorded
 
-testDeepInferenceForcing :: IO ()
-testDeepInferenceForcing = do
-  let marker = "nested runtime hint was forced"
-      deferredFailure = throw (userError marker)
-      runtimeHintKey = ExplicitTypeApplicationRuntimeHintKey Nothing (SourceSpan 0 0)
-      inference =
-        InferenceResult
-          { inferredExpr = resolvedZero,
-            inferredDiagnostics = [],
-            inferredRuntimeTypeHints = Map.singleton runtimeHintKey (TypeList deferredFailure),
-            inferredModuleInterface = emptyModuleInterface
-          }
-  assertForcesMarker "nested runtime hint" marker (evaluate (forceInferenceResult inference))
-
 testDeepModuleInterfaceForcing :: IO ()
 testDeepModuleInterfaceForcing =
   mapM_
@@ -296,7 +280,6 @@ testDeepModuleInterfaceForcing =
             InferenceResult
               { inferredExpr = resolvedZero,
                 inferredDiagnostics = [],
-                inferredRuntimeTypeHints = Map.empty,
                 inferredModuleInterface = interface
               }
       assertForcesMarker (label <> " payload") marker (evaluate (forceInferenceResult inference))

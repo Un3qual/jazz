@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
@@ -9,11 +10,18 @@ import Control.Exception
   ( SomeException,
     try,
   )
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Literal (..),
+  ( CaseArm (..),
+    CoreNode (..),
+    CorePhase (Analyzed),
+    Expr (..),
+    ImplMethod (..),
+    Literal (..),
+    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -36,8 +44,10 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
-import Jazz.Compiler.ModuleIdentity (preludeModulePath)
-import Jazz.Compiler.Name (qualifiedName)
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (mkModulePath, preludeModulePath)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Name (ResolvedName, identifierText, mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
@@ -50,15 +60,22 @@ import Jazz.Compiler.Runtime.Types
     runtimeEvidenceTarget,
   )
 import Jazz.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey,
+  ( BindingRuntimeHintKey (..),
+    bindingRuntimeHintKey,
     bindingRuntimeHintKeyInModule,
     explicitTypeApplicationRuntimeHintKeyInModule,
+    projectSourceUnitRuntimeHints,
+  )
+import Jazz.Compiler.SemanticFacts
+  ( EvidenceReference (..),
+    ExpressionFacts (..),
+    ImplId (..),
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
+import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference
-  ( inferExpressionWithBuiltins,
-    inferExpressionWithBuiltinsAndSourceUnitStatements,
+  ( analyzeSourceUnitExpressionWithBuiltins,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeRepresentation
@@ -153,7 +170,7 @@ capabilityTests =
     ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
     ("qualified method dispatch treats plain integer bindings as Int64 when exact candidates overlap", testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates),
     ("qualified method dispatch treats inferred direct integer literals as exact Int", testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt),
-    ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
+    ("successful direct-driver execution projects complete plans for inferred narrow bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
     ("qualified method dispatch preserves phantom ADT application binding hints", testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint),
     ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
@@ -161,6 +178,7 @@ capabilityTests =
     ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName),
     ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
     ("nested binding hints retain their enclosing source unit", testNestedBindingHintsRetainEnclosingSourceUnit),
+    ("authored module transitions own standalone plans and evidence", testAuthoredModuleTransitionOwnsPlansAndEvidence),
     ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
     ("qualified zero-argument method dispatch returns itemValue", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
@@ -1090,49 +1108,52 @@ testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
 
 testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint :: IO ()
 testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
-  let expr =
-        expressionBlock
-          [ statementLet "empty" (SourceSpan 1 1) (expressionList []),
-            statementExpression (SourceSpan 2 1) (expressionVariable "empty")
-          ]
-  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  (inference, runtimeHints) <-
+    analyzeRuntimeHints
+      Set.empty
+      """
+      empty = [].
+      empty.
+      """
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
-  assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
+  assertEqual "plain polymorphic empty list runtime hints" Map.empty runtimeHints
 
 testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate :: IO ()
 testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
-  let expr =
-        expressionBlock
-          [ statementSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (fixtureTypeVariable "a") (fixtureTypeVariable "a"))),
-            statementLet "identity" (SourceSpan 2 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
-            statementExpression (SourceSpan 3 1) (expressionVariable "identity")
-          ]
-  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  (inference, runtimeHints) <-
+    analyzeRuntimeHints
+      Set.empty
+      """
+      identity :: a -> a.
+      identity = \\(itemValue) -> itemValue.
+      identity.
+      """
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "signed polymorphic function runtime template"
     (Just (TypeFunction (fixtureAmbientTypeVariable "t0") (fixtureAmbientTypeVariable "t0")))
-    (Map.lookup (bindingRuntimeHintKey (fixtureValueName "identity") (SourceSpan 2 1)) (inferredRuntimeTypeHints inference))
+    (Map.lookup (bindingRuntimeHintKey (fixtureValueName "identity") (SourceSpan 2 1)) runtimeHints)
 
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint :: IO ()
 testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do
-  let typeArgumentSpan = SourceSpan 4 12
+  let typeArgumentSpan = SourceSpan 4 10
       boxCharType = TypeApplication (fixtureResolvedTypeName "Box") [TypeChar]
-      expr =
-        expressionBlock
-          [ statementData (SourceSpan 1 1) "Box" ["a"] [dataConstructor "Box" [fixtureTypeVariable "a"]],
-            statementSignature "identity" (SourceSpan 2 1) (SignatureType (TypeFunction (fixtureTypeVariable "a") (fixtureTypeVariable "a"))),
-            statementLet "identity" (SourceSpan 3 1) (expressionLambda "itemValue" (expressionVariable "itemValue")),
-            statementExpression (SourceSpan 4 1) (expressionTypeApplication (expressionVariable "identity") typeArgumentSpan boxCharType)
-          ]
-  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
+  (inference, runtimeHints) <-
+    analyzeRuntimeHints
+      Set.empty
+      """
+      data Box a = Box a.
+      identity :: a -> a.
+      identity = \\(itemValue) -> itemValue.
+      identity @Box(Char).
+      """
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "concrete explicit named application hint"
     (Just (TypeFunction boxCharType boxCharType))
     ( Map.lookup
         (explicitTypeApplicationRuntimeHintKeyInModule Nothing typeArgumentSpan)
-        (inferredRuntimeTypeHints inference)
+        runtimeHints
     )
 
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
@@ -2011,47 +2032,165 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
 testNestedBindingHintsRetainEnclosingSourceUnit :: IO ()
 testNestedBindingHintsRetainEnclosingSourceUnit = do
   let preludeBindingSpan = SourceSpan 1 1
-      bindingSpan = SourceSpan 5 3
-      expr =
-        expressionBlock
-          [ statementLet "seed" preludeBindingSpan (expressionLiteral (LInt 0)),
-            statementExpression
-              (SourceSpan 2 1)
-              ( expressionBlock
-                  [ statementLet "itemValue" bindingSpan (expressionLiteral (LInt 1)),
-                    statementExpression (SourceSpan 6 3) (expressionVariable "itemValue")
-                  ]
-              )
-          ]
-  inference <-
-    inferExpressionWithBuiltinsAndSourceUnitStatements
-      ResolveKernelOnly
-      preludeModulePath
-      Set.empty
+      bindingSpan = SourceSpan 3 1
+  (inference, runtimeHints) <-
+    analyzeRuntimeHints
       (Set.singleton 0)
-      defaultWarningSettings
-      expr
+      """
+      seed = 0.
+      {
+      itemValue = 1.
+      itemValue.
+      }.
+      """
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   assertEqual
     "prelude binding hint uses the nominal nonempty module path"
     (Just (TypeNumeric NumericInt64))
     ( Map.lookup
         (bindingRuntimeHintKeyInModule (Just ["Prelude"]) (fixtureValueName "seed") preludeBindingSpan)
-        (inferredRuntimeTypeHints inference)
+        runtimeHints
     )
   assertEqual
     "nested binding hint source-unit path"
     (Just (TypeNumeric NumericInt64))
     ( Map.lookup
         (bindingRuntimeHintKeyInModule Nothing (fixtureValueName "itemValue") bindingSpan)
-        (inferredRuntimeTypeHints inference)
+        runtimeHints
     )
   assertEqual
     "nested binding hint does not reuse the prelude module path"
     Nothing
     ( Map.lookup
         (bindingRuntimeHintKeyInModule (Just ["Prelude"]) (fixtureValueName "itemValue") bindingSpan)
-        (inferredRuntimeTypeHints inference)
+        runtimeHints
+    )
+
+testAuthoredModuleTransitionOwnsPlansAndEvidence :: IO ()
+testAuthoredModuleTransitionOwnsPlansAndEvidence = do
+  (inference, analyzedExpression, runtimeHints) <-
+    analyzeRuntimePlan
+      Set.empty
+      """
+      module App::Main {
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(itemValue) -> True.
+      }.
+      owned = 1.
+      RuntimePick::pick owned.
+      }
+      """
+  assertEqual "authored-module inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
+  assertEqual
+    "authored module binding hint uses its declared path"
+    True
+    (any isOwnedBindingHint (Map.keys runtimeHints))
+  let authoredPath = mkModulePath (mkIdentifier "App" NonEmpty.:| [mkIdentifier "Main"])
+      implementationIds =
+        [ ImplId (authoredPath, coreNodeId node)
+        | SImpl node _ _ _ <- sourceUnitStatements analyzedExpression
+        ]
+      selectedEvidence = expressionEvidenceInventory analyzedExpression
+  assertEqual "one authored implementation" 1 (length implementationIds)
+  assertEqual
+    "qualified method evidence uses the authored module implementation id"
+    implementationIds
+    (map evidenceImplementation selectedEvidence)
+  where
+    isOwnedBindingHint key =
+      case key of
+        BindingRuntimeHintKey (Just ["App", "Main"]) _ name -> identifierText name == "owned"
+        _ -> False
+
+sourceUnitStatements :: Expr 'Analyzed -> [Statement 'Analyzed]
+sourceUnitStatements expression =
+  case expression of
+    EBlock _ statements -> statements
+    _ -> []
+
+expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
+expressionEvidenceInventory expression =
+  nodeEvidence expression
+    <> case expression of
+      ELambda _ _ body -> expressionEvidenceInventory body
+      EList _ elements -> foldMap expressionEvidenceInventory elements
+      ETuple _ elements -> foldMap expressionEvidenceInventory elements
+      EApply _ function argument -> expressionEvidenceInventory function <> expressionEvidenceInventory argument
+      ETypeApplication _ function _ _ -> expressionEvidenceInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidenceInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionEvidenceInventory scrutinee <> foldMap armEvidence arms
+      EBinary _ _ left right -> expressionEvidenceInventory left <> expressionEvidenceInventory right
+      ESectionLeft _ left _ -> expressionEvidenceInventory left
+      ESectionRight _ _ right -> expressionEvidenceInventory right
+      EBlock _ statements -> foldMap statementEvidence statements
+      _ -> []
+  where
+    nodeEvidence value =
+      case value of
+        ELit (CoreNode _ _ facts) _ -> expressionEvidence facts
+        EVar (CoreNode _ _ facts) _ -> expressionEvidence facts
+        ELambda (CoreNode _ _ facts) _ _ -> expressionEvidence facts
+        EOperatorValue (CoreNode _ _ facts) _ -> expressionEvidence facts
+        EList (CoreNode _ _ facts) _ -> expressionEvidence facts
+        ETuple (CoreNode _ _ facts) _ -> expressionEvidence facts
+        EApply (CoreNode _ _ facts) _ _ -> expressionEvidence facts
+        ETypeApplication (CoreNode _ _ facts) _ _ _ -> expressionEvidence facts
+        EIf (CoreNode _ _ facts) _ _ _ -> expressionEvidence facts
+        EPatternCase (CoreNode _ _ facts) _ _ -> expressionEvidence facts
+        EBinary (CoreNode _ _ facts) _ _ _ -> expressionEvidence facts
+        ESectionLeft (CoreNode _ _ facts) _ _ -> expressionEvidence facts
+        ESectionRight (CoreNode _ _ facts) _ _ -> expressionEvidence facts
+        EBlock (CoreNode _ _ facts) _ -> expressionEvidence facts
+    armEvidence (CaseArm (CoreNode _ _ facts) _ guard body) =
+      expressionEvidence facts <> foldMap expressionEvidenceInventory guard <> expressionEvidenceInventory body
+    statementEvidence statement =
+      case statement of
+        SLet _ _ value -> expressionEvidenceInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidenceInventory body) methods
+        SExpr _ value -> expressionEvidenceInventory value
+        _ -> []
+
+analyzeRuntimeHints :: Set.Set Int -> Text.Text -> IO (InferenceResult, Map.Map BindingRuntimeHintKey (SignatureType ResolvedName ResolvedName))
+analyzeRuntimeHints preludeStatementIndices source = do
+  (inference, _, runtimeHints) <- analyzeRuntimePlan preludeStatementIndices source
+  pure (inference, runtimeHints)
+
+analyzeRuntimePlan :: Set.Set Int -> Text.Text -> IO (InferenceResult, Expr 'Analyzed, Map.Map BindingRuntimeHintKey (SignatureType ResolvedName ResolvedName))
+analyzeRuntimePlan preludeStatementIndices source = do
+  expression <-
+    case parseAndLowerStandaloneSource source of
+      Left diagnostic ->
+        failTest ("runtime-plan fixture failed to lower: " <> renderDiagnostic diagnostic)
+      Right lowered ->
+        case resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) lowered of
+          Left diagnostics ->
+            failTest
+              ( "runtime-plan fixture failed to resolve: "
+                  <> Text.unlines (map renderDiagnostic (NonEmpty.toList diagnostics))
+              )
+          Right resolved -> pure resolved
+  (inference, attachment) <-
+    analyzeSourceUnitExpressionWithBuiltins
+      ResolveKernelOnly
+      preludeModulePath
+      Set.empty
+      preludeStatementIndices
+      defaultWarningSettings
+      expression
+  analyzedExpression <-
+    case attachment of
+      Left failures ->
+        failTest ("analyzed runtime-plan attachment failed: " <> Text.pack (show failures))
+      Right Nothing ->
+        failTest "analyzed runtime-plan attachment produced no expression"
+      Right (Just analyzed) -> pure analyzed
+  pure
+    ( inference,
+      analyzedExpression,
+      projectSourceUnitRuntimeHints preludeModulePath preludeStatementIndices analyzedExpression
     )
 
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()

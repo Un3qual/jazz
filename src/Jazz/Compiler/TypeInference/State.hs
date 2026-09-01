@@ -17,7 +17,6 @@ module Jazz.Compiler.TypeInference.State
     inferConstructorWitnessNames,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
-    inferRuntimeHintPath,
     inferDataTypes,
     inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
@@ -36,7 +35,6 @@ module Jazz.Compiler.TypeInference.State
     inferPatternCoverageSites,
     inferPatternFactSeeds,
     inferRigidTypeVars,
-    inferRuntimeTypeHints,
     inferStrictEqualityVars,
     inferStatementFactSeeds,
     inferSubst,
@@ -65,10 +63,8 @@ import Data.Text (Text)
 import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
 import Jazz.Compiler.SemanticFacts
   ( CapabilityId,
     CoreNodeId,
@@ -112,9 +108,7 @@ data DeclarationState = DeclarationState
   deriving (Eq, Show)
 
 data ModuleInferenceState = ModuleInferenceState
-  { moduleInferencePreludePath :: ModulePath,
-    inferenceModulePath :: Maybe [Text],
-    inferenceRuntimeHintPath :: Maybe [Text],
+  { inferenceModulePath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
     inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
@@ -124,8 +118,7 @@ data ModuleInferenceState = ModuleInferenceState
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputRuntimeHints :: Map BindingRuntimeHintKey (SignatureType 'Resolved),
-    outputExpressionFactTypes :: Map CoreNodeId ExpressionType,
+  { outputExpressionFactTypes :: Map CoreNodeId ExpressionType,
     outputExpressionEvidenceSeeds :: Map CoreNodeId ExpressionEvidenceSeed,
     outputPatternFactSeeds :: Map CoreNodeId PatternFacts,
     outputStatementFactSeeds :: Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact),
@@ -208,9 +201,7 @@ initialInferState =
           },
       inferModule =
         ModuleInferenceState
-          { moduleInferencePreludePath = preludeModulePath,
-            inferenceModulePath = Nothing,
-            inferenceRuntimeHintPath = Nothing,
+          { inferenceModulePath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
@@ -219,8 +210,7 @@ initialInferState =
           },
       inferOutput =
         InferenceOutput
-          { outputRuntimeHints = Map.empty,
-            outputExpressionFactTypes = Map.empty,
+          { outputExpressionFactTypes = Map.empty,
             outputExpressionEvidenceSeeds = Map.empty,
             outputPatternFactSeeds = Map.empty,
             outputStatementFactSeeds = Map.empty,
@@ -271,9 +261,6 @@ inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
 inferCurrentModulePath :: InferState -> Maybe [Text]
 inferCurrentModulePath = inferenceModulePath . inferModule
 
-inferRuntimeHintPath :: InferState -> Maybe [Text]
-inferRuntimeHintPath = inferenceRuntimeHintPath . inferModule
-
 inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
 inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
 
@@ -285,9 +272,6 @@ inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
-
-inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey (SignatureType 'Resolved)
-inferRuntimeTypeHints = outputRuntimeHints . inferOutput
 
 inferExpressionFactTypes :: InferState -> Map CoreNodeId ExpressionType
 inferExpressionFactTypes = outputExpressionFactTypes . inferOutput

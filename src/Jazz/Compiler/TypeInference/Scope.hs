@@ -20,14 +20,12 @@ module Jazz.Compiler.TypeInference.Scope
 where
 
 import Data.List (uncons, unsnoc)
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeId, coreNodeSpan),
@@ -55,9 +53,8 @@ import Jazz.Compiler.Diagnostics
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
-import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.Name
-  ( NameNamespace (TypeNamespace, ValueNamespace),
+  ( NameNamespace (ValueNamespace),
     ResolvedName,
     identifierText,
     mkIdentifier,
@@ -70,15 +67,12 @@ import Jazz.Compiler.RecursiveBindings
     exprContainsFunctionBranch,
     freeVarsExprWithBound,
     inferSelfRecursiveBindings,
+    inferSelfReferencedBindings,
     prepareRecursiveScope,
     preparedRecursiveScopeFactsForOuterBindings,
     preparedRecursiveScopeStatements,
     recursiveScopeBindingNames,
     recursiveScopeGroups,
-  )
-import Jazz.Compiler.RuntimeHints
-  ( bindingRuntimeHintKeyInModule,
-    explicitTypeApplicationRuntimeHintKeyInModule,
   )
 import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (..))
 import Jazz.Compiler.TypeInference.Capabilities
@@ -120,12 +114,9 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraints,
     inferNumericVars,
     inferRigidTypeVars,
-    inferRuntimeHintPath,
-    inferRuntimeTypeHints,
     inferStrictEqualityVars,
     modifyDeclarationState,
     modifyInferenceOutput,
-    modifyModuleInferenceState,
     recordExpressionFactType,
     recordStatementFactSeed,
   )
@@ -314,26 +305,6 @@ resolvedExpressionNode expr =
     ESectionRight node _ _ -> node
     EBlock node _ -> node
 
-setStatementRuntimeHintPath :: Set Int -> Int -> InferState -> InferState
-setStatementRuntimeHintPath preludeStatementIndices statementIndex state =
-  modifyModuleInferenceState
-    ( \moduleState ->
-        moduleState
-          { inferenceRuntimeHintPath =
-              if Set.member statementIndex preludeStatementIndices
-                then
-                  Just
-                    ( NonEmpty.toList
-                        (modulePathTextSegments (moduleInferencePreludePath moduleState))
-                    )
-                else
-                  if Set.null preludeStatementIndices
-                    then inferenceRuntimeHintPath moduleState
-                    else inferenceModulePath moduleState
-          }
-    )
-    state
-
 firstInvalidImplTarget :: InferState -> SourceSpan -> [SignatureType 'Resolved] -> Maybe Diagnostic
 firstInvalidImplTarget state implSpan =
   go
@@ -390,11 +361,10 @@ publishVisibleTypes env state =
         (inferModule state) {inferenceVisibleTypes = env}
     }
 
-inferScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (InferredExpr, InferState)
-inferScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+inferScopeTypeWithMode :: InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (InferredExpr, InferState)
+inferScopeTypeWithMode inferExpression mode builtinMode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
         inferScopeTypeWithModeAndForwardBindings
-          preludeStatementIndices
           inferExpression
           mode
           builtinMode
@@ -404,7 +374,6 @@ inferScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode 
    in (inferredResult, finalState)
 
 inferScopeTypeWithModeAndForwardBindings ::
-  Set Int ->
   InferExprWithModeFn ->
   TypedCoreProductionMode ->
   BuiltinResolutionMode ->
@@ -412,11 +381,10 @@ inferScopeTypeWithModeAndForwardBindings ::
   InferState ->
   [Statement 'Resolved] ->
   (InferredExpr, InferState, Map Int (ResolvedName, SourceSpan))
-inferScopeTypeWithModeAndForwardBindings preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+inferScopeTypeWithModeAndForwardBindings inferExpression mode builtinMode initialEnv initialState statements =
   inferScopeTypeInternal
     ScopeInferenceRequest
       { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
-        scopePreludeStatementIndices = preludeStatementIndices,
         scopeInferExpression = inferExpression,
         scopeProductionMode = mode,
         scopeBuiltinMode = builtinMode,
@@ -427,20 +395,18 @@ inferScopeTypeWithModeAndForwardBindings preludeStatementIndices inferExpression
 
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
   PreparedRecursiveScope 'Resolved ->
-  Set Int ->
   InferExprWithModeFn ->
   TypedCoreProductionMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   (InferredExpr, InferState, Map Int (ResolvedName, SourceSpan))
-inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope preludeStatementIndices inferExpression mode builtinMode initialEnv initialState =
+inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferExpression mode builtinMode initialEnv initialState =
   let inferenceScope = preparedInferenceScope (inferenceOuterBindingNames builtinMode initialEnv) preparedScope
    in inferenceScope `seq`
         inferScopeTypeInternal
           ScopeInferenceRequest
             { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
-              scopePreludeStatementIndices = preludeStatementIndices,
               scopeInferExpression = inferExpression,
               scopeProductionMode = mode,
               scopeBuiltinMode = builtinMode,
@@ -449,13 +415,12 @@ inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope prelude
               scopePreparedInference = inferenceScope
             }
 
-inferNestedScopeTypeWithMode :: Set Int -> InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (InferredExpr, InferState)
-inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builtinMode initialEnv initialState statements =
+inferNestedScopeTypeWithMode :: InferExprWithModeFn -> TypedCoreProductionMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (InferredExpr, InferState)
+inferNestedScopeTypeWithMode inferExpression mode builtinMode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
         inferScopeTypeInternal
           ScopeInferenceRequest
             { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
-              scopePreludeStatementIndices = preludeStatementIndices,
               scopeInferExpression = inferExpression,
               scopeProductionMode = mode,
               scopeBuiltinMode = builtinMode,
@@ -465,11 +430,10 @@ inferNestedScopeTypeWithMode preludeStatementIndices inferExpression mode builti
             }
    in (inferredResult, finalState)
 
-inferScopeType :: Set Int -> InferExprWithModeFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferScopeType preludeStatementIndices inferExpression builtinMode initialEnv initialState statements =
+inferScopeType :: InferExprWithModeFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
+inferScopeType inferExpression builtinMode initialEnv initialState statements =
   let (inferredResult, finalState) =
         inferNestedScopeTypeWithMode
-          preludeStatementIndices
           inferExpression
           InferenceOnly
           builtinMode
@@ -506,7 +470,6 @@ forwardSignedFunctionsPermitted policy =
 
 data ScopeInferenceRequest = ScopeInferenceRequest
   { scopeForwardSignedFunctionsPolicy :: ForwardSignedFunctionsPolicy,
-    scopePreludeStatementIndices :: Set Int,
     scopeInferExpression :: InferExprWithModeFn,
     scopeProductionMode :: TypedCoreProductionMode,
     scopeBuiltinMode :: BuiltinResolutionMode,
@@ -541,7 +504,6 @@ inferScopeTypeInternal :: ScopeInferenceRequest -> (InferredExpr, InferState, Ma
 inferScopeTypeInternal
   ScopeInferenceRequest
     { scopeForwardSignedFunctionsPolicy,
-      scopePreludeStatementIndices,
       scopeInferExpression,
       scopeProductionMode,
       scopeBuiltinMode,
@@ -573,7 +535,6 @@ inferScopeTypeInternal
           forwardAnalysisBindings
         )
     where
-      preludeStatementIndices = scopePreludeStatementIndices
       inferExpression = scopeInferExpression
       mode = scopeProductionMode
       builtinMode = scopeBuiltinMode
@@ -777,6 +738,13 @@ inferScopeTypeInternal
           )
           exprContainsFunctionBranch
           indexedStatements
+      selfRecursiveTypeStatements =
+        inferSelfReferencedBindings
+          ( Set.union
+              (Map.keysSet initialEnv)
+              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
+          )
+          indexedStatements
       signedBindingStatements = collectSignedBindingStatements indexedStatements
       statementsByIndex = Map.fromList indexedStatements
       predeclaredDataTypes =
@@ -808,7 +776,7 @@ inferScopeTypeInternal
                 recursiveGroupPreviewCache = scopeWalkRecursiveGroupPreviewCache walkState
                 moduleBaselineFacts = scopeWalkModuleBaselineFacts walkState
                 state = scopeWalkInferState walkState
-                stateForSource = setStatementRuntimeHintPath preludeStatementIndices statementIndex state
+                stateForSource = state
              in case statement of
                   SModule _ modulePath ->
                     go
@@ -1000,7 +968,7 @@ inferScopeTypeInternal
                             bindingNamesByStatement
                             bindingSeedsByStatement
                         envWithBindingSeed =
-                          case ( shouldSeedSelfRecursiveFunction statementIndex name envForStatement,
+                          case ( shouldSeedSelfRecursiveBinding statementIndex name envForStatement,
                                  Map.lookup statementIndex bindingSeedsByStatement
                                ) of
                             (True, Just bindingSeed) ->
@@ -1158,29 +1126,11 @@ inferScopeTypeInternal
                             nextBindingType
                             matchingPendingSignature
                             stateAfterDroppedInferredMethodCheck
-                        stateAfterRuntimeHint =
-                          case runtimeHintForBinding
-                            stateAfterDroppedInferredMethodCheck
-                            maybeNextBinding
-                            nextBindingType of
-                            Just runtimeHint ->
-                              modifyInferenceOutput
-                                ( \output ->
-                                    output
-                                      { outputRuntimeHints =
-                                          Map.insert
-                                            (bindingRuntimeHintKeyInModule (inferRuntimeHintPath stateAfterDroppedInferredMethodCheck) name bindingSpan)
-                                            runtimeHint
-                                            (inferRuntimeTypeHints stateAfterDroppedInferredMethodCheck)
-                                      }
-                                )
-                                stateAfterDroppedInferredMethodCheck
-                            Nothing -> stateAfterDroppedInferredMethodCheck
                         stateAfterCapturedConstraintPrune =
                           case maybeNextBinding of
                             Just binding ->
-                              pruneCapturedInferredClassConstraints stateForStatement binding stateAfterRuntimeHint
-                            Nothing -> stateAfterRuntimeHint
+                              pruneCapturedInferredClassConstraints stateForStatement binding stateAfterDroppedInferredMethodCheck
+                            Nothing -> stateAfterDroppedInferredMethodCheck
                         nextPendingSignaturesByStatement =
                           case matchingPendingSignature of
                             Just pendingSignature ->
@@ -1802,7 +1752,7 @@ inferScopeTypeInternal
                         bindingNamesByStatement
                         bindingSeedsByStatement
                     envWithBindingSeed =
-                      case ( shouldSeedSelfRecursiveFunction memberIndex bindingName currentEnv,
+                      case ( shouldSeedSelfRecursiveBinding memberIndex bindingName currentEnv,
                              Map.lookup memberIndex bindingSeedsByStatement
                            ) of
                         (True, Just bindingSeed) ->
@@ -1834,7 +1784,6 @@ inferScopeTypeInternal
               ( \output ->
                   output
                     { outputErrorsRev = inferErrorsRev originalState,
-                      outputRuntimeHints = inferRuntimeTypeHints originalState,
                       outputDeferredConstraints = outputDeferredConstraints (inferOutput originalState),
                       outputInferredConstraints = inferInferredClassConstraints originalState,
                       outputInferredConstraintCount = inferInferredClassConstraintCount originalState
@@ -1860,6 +1809,13 @@ inferScopeTypeInternal
       shouldSeedSelfRecursiveFunction :: Int -> ResolvedName -> TypeEnv -> Bool
       shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv =
         Set.member statementIndex selfRecursiveFunctionStatements
+          && Map.notMember bindingName visibleEnv
+
+      shouldSeedSelfRecursiveBinding :: Int -> ResolvedName -> TypeEnv -> Bool
+      shouldSeedSelfRecursiveBinding statementIndex bindingName visibleEnv =
+        ( Set.member statementIndex selfRecursiveTypeStatements
+            || shouldSeedSelfRecursiveFunction statementIndex bindingName visibleEnv
+        )
           && Map.notMember bindingName visibleEnv
 
       exposePreviewRecursiveGroupMember :: Int -> TypeEnv -> Set InferenceVariable -> InferState -> (TypeEnv, TypeEnvFreeVariables) -> Int -> (TypeEnv, TypeEnvFreeVariables)
@@ -2750,20 +2706,14 @@ inferExplicitTypeApplicationInternal inferExpression mode builtinMode env state 
           let (maybeInstantiatedType, nextState) =
                 instantiateQualifiedMethodTypeWithExplicitTarget methodKey explicitArgumentType state
            in ( maybeInstantiatedType,
-                recordExplicitTypeApplicationRuntimeHint
-                  typeArgumentSpan
-                  maybeInstantiatedType
-                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState),
+                recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState,
                 Nothing
               )
     (Just typeScheme, Just explicitArgumentType) ->
       let (maybeInstantiatedType, nextState) =
             instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
        in ( maybeInstantiatedType,
-            recordExplicitTypeApplicationRuntimeHint
-              typeArgumentSpan
-              maybeInstantiatedType
-              (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState),
+            recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState,
             Nothing
           )
     (Just _, Nothing) ->
@@ -2795,23 +2745,6 @@ explicitQualifiedMethodTypeApplicationKey env state functionExpr =
       where
         methodKey = identifierText name
     _ -> Nothing
-
-recordExplicitTypeApplicationRuntimeHint :: SourceSpan -> Maybe ExpressionType -> InferState -> InferState
-recordExplicitTypeApplicationRuntimeHint typeArgumentSpan maybeExpressionType state =
-  case maybeExpressionType >>= runtimeHintFromExpressionType state of
-    Just runtimeHint ->
-      modifyInferenceOutput
-        ( \output ->
-            output
-              { outputRuntimeHints =
-                  Map.insert
-                    (explicitTypeApplicationRuntimeHintKeyInModule (inferRuntimeHintPath state) typeArgumentSpan)
-                    runtimeHint
-                    (inferRuntimeTypeHints state)
-              }
-        )
-        state
-    Nothing -> state
 
 explicitTypeApplicationScheme :: TypeEnv -> Expr 'Resolved -> Maybe TypeScheme
 explicitTypeApplicationScheme env functionExpr =
@@ -2861,42 +2794,3 @@ instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state 
     allocateFreshBinding (bindings, stateAcc) typeVar =
       let (freshType, nextState) = freshTypeVar stateAcc
        in (Map.insert typeVar freshType bindings, nextState)
-
-runtimeHintForBinding :: InferState -> Maybe TypeBinding -> Maybe ExpressionType -> Maybe (SignatureType 'Resolved)
-runtimeHintForBinding state maybeBinding maybeExpressionType =
-  case maybeBinding >>= runtimeHintForTypeBinding state of
-    Just runtimeHint -> Just runtimeHint
-    Nothing -> maybeExpressionType >>= runtimeHintFromExpressionType state
-
-runtimeHintForTypeBinding :: InferState -> TypeBinding -> Maybe (SignatureType 'Resolved)
-runtimeHintForTypeBinding state binding =
-  case binding of
-    PlainTypeBinding expressionType ->
-      runtimeHintFromExpressionType state expressionType
-    SchemeTypeBinding typeScheme ->
-      typeSchemeRuntimeHint state typeScheme
-    OperatorAliasSchemeTypeBinding _ typeScheme ->
-      typeSchemeRuntimeHint state typeScheme
-    _ -> Nothing
-
-typeSchemeRuntimeHint :: InferState -> TypeScheme -> Maybe (SignatureType 'Resolved)
-typeSchemeRuntimeHint state typeScheme =
-  case resolvedSchemeType of
-    SemanticFunction {} ->
-      Signature.expressionTypeToRuntimeTemplate runtimeTemplateVariables resolvedSchemeType
-    _ -> Nothing
-  where
-    expressionType = schemeResultType typeScheme
-    resolvedSchemeType =
-      defaultLiteralTypes state (resolveType state expressionType)
-    orderedVariables =
-      quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme)
-    runtimeTemplateVariables =
-      Map.fromList
-        [ (typeVar, resolvedAmbientName TypeNamespace (mkIdentifier ("t" <> Text.pack (show position))))
-        | (position, typeVar) <- zip [0 :: Int ..] orderedVariables
-        ]
-
-runtimeHintFromExpressionType :: InferState -> ExpressionType -> Maybe (SignatureType 'Resolved)
-runtimeHintFromExpressionType state expressionType =
-  Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (resolveType state expressionType))
