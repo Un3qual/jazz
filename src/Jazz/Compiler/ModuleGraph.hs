@@ -113,13 +113,15 @@ data DeclaredModuleFacts = DeclaredModuleFacts
   deriving anyclass (NFData)
 
 data ResolvedModuleFacts = ResolvedModuleFacts
-  { resolvedModuleExports :: ModuleExportInventory
+  { resolvedModuleExports :: ModuleExportInventory,
+    resolvedModuleExportSelectors :: Maybe [ModuleExportSelector]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 data AnalyzedModuleFacts = AnalyzedModuleFacts
   { analyzedModuleExports :: ModuleExportInventory,
+    analyzedModuleExportSelectors :: Maybe [ModuleExportSelector],
     analyzedModuleInterface :: ModuleInterface,
     analyzedModuleDiagnostics :: [Diagnostic]
   }
@@ -164,7 +166,6 @@ data CoreProgram (phase :: CorePhase) = CoreProgram
     coreProgramModules :: NonEmpty (CoreModule phase),
     coreProgramModuleIndex :: Map ModulePath (CoreModule phase)
   }
-  deriving stock (Generic)
 
 type role CoreProgram nominal
 

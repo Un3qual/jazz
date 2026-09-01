@@ -36,6 +36,7 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
+import Jazz.Compiler.ModuleIdentity (preludeModulePath)
 import Jazz.Compiler.Name (qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
@@ -2009,10 +2010,11 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
 
 testNestedBindingHintsRetainEnclosingSourceUnit :: IO ()
 testNestedBindingHintsRetainEnclosingSourceUnit = do
-  let bindingSpan = SourceSpan 5 3
+  let preludeBindingSpan = SourceSpan 1 1
+      bindingSpan = SourceSpan 5 3
       expr =
         expressionBlock
-          [ statementLet "seed" (SourceSpan 1 1) (expressionLiteral (LInt 0)),
+          [ statementLet "seed" preludeBindingSpan (expressionLiteral (LInt 0)),
             statementExpression
               (SourceSpan 2 1)
               ( expressionBlock
@@ -2024,11 +2026,19 @@ testNestedBindingHintsRetainEnclosingSourceUnit = do
   inference <-
     inferExpressionWithBuiltinsAndSourceUnitStatements
       ResolveKernelOnly
+      preludeModulePath
       Set.empty
       (Set.singleton 0)
       defaultWarningSettings
       expr
   assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
+  assertEqual
+    "prelude binding hint uses the nominal nonempty module path"
+    (Just (TypeNumeric NumericInt64))
+    ( Map.lookup
+        (bindingRuntimeHintKeyInModule (Just ["Prelude"]) (fixtureValueName "seed") preludeBindingSpan)
+        (inferredRuntimeTypeHints inference)
+    )
   assertEqual
     "nested binding hint source-unit path"
     (Just (TypeNumeric NumericInt64))
@@ -2037,10 +2047,10 @@ testNestedBindingHintsRetainEnclosingSourceUnit = do
         (inferredRuntimeTypeHints inference)
     )
   assertEqual
-    "nested binding hint does not reuse the prelude path"
+    "nested binding hint does not reuse the prelude module path"
     Nothing
     ( Map.lookup
-        (bindingRuntimeHintKeyInModule (Just []) (fixtureValueName "itemValue") bindingSpan)
+        (bindingRuntimeHintKeyInModule (Just ["Prelude"]) (fixtureValueName "itemValue") bindingSpan)
         (inferredRuntimeTypeHints inference)
     )
 

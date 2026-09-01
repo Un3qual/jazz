@@ -33,7 +33,7 @@ module Jazz.Compiler.ModuleExports
   )
 where
 
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData (..))
 import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -114,8 +114,11 @@ data ModuleExportInventory = ModuleExportInventory
   { inventoryEntries :: Set ModuleExport,
     inventoryConstructorOwners :: Map Text (Set Text)
   }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+  deriving stock (Eq, Show)
+
+instance NFData ModuleExportInventory where
+  rnf (ModuleExportInventory entries constructorOwners) =
+    rnf entries `seq` rnf constructorOwners
 
 instance Semigroup ModuleExportInventory where
   left <> right =

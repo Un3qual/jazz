@@ -12,7 +12,6 @@ module Jazz.Compiler.Prelude
   )
 where
 
-import Data.List.NonEmpty (NonEmpty (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -46,13 +45,12 @@ import Jazz.Compiler.ModuleGraph
   )
 import Jazz.Compiler.ModuleIdentity
   ( ModuleIdentity,
-    mkModulePath,
     mkSourceFile,
     moduleIdentity,
+    preludeModulePath,
   )
 import Jazz.Compiler.Name
   ( NameNamespace (..),
-    mkIdentifier,
     renderName,
   )
 import Jazz.Compiler.Parser (parseSurfaceProgram)
@@ -126,7 +124,7 @@ explicitPreludeIdentity = syntheticPreludeIdentity "<explicit-prelude>"
 syntheticPreludeIdentity :: FilePath -> ModuleIdentity
 syntheticPreludeIdentity sourcePath =
   moduleIdentity
-    (mkModulePath (mkIdentifier "Prelude" :| []))
+    preludeModulePath
     (mkSourceFile sourcePath)
 
 validateAndLowerPrelude :: ModuleIdentity -> Text -> Either Diagnostic (CoreModule 'Lowered)

@@ -523,8 +523,8 @@ testModuleFailureOrder = do
           "module-failure-order"
           """
           module App::Main (value zeta, value alpha) {
-          zeta = ().
           alpha = ().
+          zeta = ().
           }
           """
       expectedFailures =
@@ -545,9 +545,37 @@ testModuleFailureOrder = do
   secondRun <- produceFixture fixture
   assertEqual "module failure order repeatability" firstRun secondRun
   assertProductionUnsupported
-    "module failures precede statements in authored export order"
+    "module failures follow authored export selector order"
     expectedFailures
     (typedCoreProductionStatus firstRun)
+
+testModuleArtifactExportOrder :: IO ()
+testModuleArtifactExportOrder = do
+  let fixture =
+        sourceFixture
+          "module-artifact-export-order"
+          """
+          module App::Main (value zeta, value alpha) {
+          alpha :: Int -> Int.
+          alpha = \\(item) -> item.
+          zeta :: Int -> Int.
+          zeta = \\(item) -> item.
+          alpha 1.
+          }
+          """
+  result <- produceFixture fixture
+  case typedCoreProductionStatus result of
+    TypedCoreProductionSucceeded validatedProgram ->
+      case validatedTypedProgram validatedProgram of
+        TypedProgram _ [TypedModule _ _ _ exports _ _ _ _] _ ->
+          assertEqual
+            "typed module export selector order"
+            [ TypedModuleExport TypedValueNamespace "zeta",
+              TypedModuleExport TypedValueNamespace "alpha"
+            ]
+            exports
+        program -> failTest ("expected one typed module, got " <> Text.pack (show program))
+    status -> failTest ("expected successful typed-core production, got " <> Text.pack (show status))
 
 testExportedCallableFailureOwnership :: IO ()
 testExportedCallableFailureOwnership = do

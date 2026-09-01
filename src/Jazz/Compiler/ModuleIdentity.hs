@@ -17,6 +17,7 @@ module Jazz.Compiler.ModuleIdentity
     moduleIdentityPath,
     moduleIdentitySource,
     moduleQualifierIdentifier,
+    preludeModulePath,
     parseModulePathText,
     modulePathSegments,
     modulePathTextSegments,
@@ -73,6 +74,11 @@ mkModuleQualifier = ModuleQualifier
 
 moduleQualifierIdentifier :: ModuleQualifier -> Identifier
 moduleQualifierIdentifier (ModuleQualifier identifier) = identifier
+
+-- | The single nominal path shared by bundled, explicit, and absent prelude
+-- artifacts and by standalone/module inference and runtime ownership.
+preludeModulePath :: ModulePath
+preludeModulePath = mkModulePath (NonEmpty.singleton (mkIdentifier "Prelude"))
 
 mkSourceFile :: FilePath -> SourceFile
 mkSourceFile = SourceFile

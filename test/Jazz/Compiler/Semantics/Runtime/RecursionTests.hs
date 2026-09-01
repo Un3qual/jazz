@@ -41,7 +41,15 @@ import Jazz.Compiler.Driver
     runSource,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (preludeModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Name
+  ( Name (..),
+    NameNamespace (ValueNamespace),
+    ResolvedNameOrigin (CurrentModule),
+    ResolvedUserName (..),
+    mkIdentifier,
+  )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
@@ -55,7 +63,9 @@ import Jazz.Compiler.Runtime.ScopePlan
     buildRuntimeScopePlan,
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction,
+    scopePlanModulePathForStatement,
   )
+import Jazz.Compiler.Runtime.Semantics (runtimeDefinitionName)
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     RuntimeHostExit (..),
@@ -98,6 +108,8 @@ recursionTests =
     ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
     ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility),
+    ("prelude scope planning uses its nonempty module path", testPreludeScopePlanUsesNonemptyModulePath),
+    ("empty runtime module paths do not impersonate the prelude", testEmptyRuntimeModulePathIsNotPrelude),
     ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility),
     ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility),
     ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
@@ -114,6 +126,16 @@ recursionTests =
     ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
     ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
   ]
+
+testEmptyRuntimeModulePathIsNotPrelude :: IO ()
+testEmptyRuntimeModulePathIsNotPrelude = do
+  let localName =
+        UserName
+          (ResolvedUserName CurrentModule ValueNamespace (mkIdentifier "itemValue"))
+  assertEqual
+    "empty runtime module path"
+    localName
+    (runtimeDefinitionName (Just []) localName)
 
 testTailRecursiveClosureIsStackSafe :: IO ()
 testTailRecursiveClosureIsStackSafe =
@@ -459,6 +481,7 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility :: IO ()
 testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
   let plan =
         buildRuntimeScopePlan
+          preludeModulePath
           Set.empty
           Nothing
           ResolveKernelOnly
@@ -490,6 +513,21 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
           ),
         statementExpression (SourceSpan 1 1) (expressionVariable "f")
       ]
+
+testPreludeScopePlanUsesNonemptyModulePath :: IO ()
+testPreludeScopePlanUsesNonemptyModulePath = do
+  let plan =
+        buildRuntimeScopePlan
+          preludeModulePath
+          (Set.singleton 0)
+          Nothing
+          ResolveKernelOnly
+          Set.empty
+          [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
+  assertEqual
+    "prelude statement path"
+    (Just ["Prelude"])
+    (scopePlanModulePathForStatement plan 0)
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
@@ -529,6 +567,7 @@ scopePlanForSource builtinMode source =
         Right expression ->
           pure
             ( buildRuntimeScopePlan
+                preludeModulePath
                 Set.empty
                 Nothing
                 builtinMode

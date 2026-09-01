@@ -54,6 +54,7 @@ import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
 import Jazz.Compiler.Runtime.Engine
   ( evaluateRuntimeExpressionObserved,
     evaluateRuntimeScopeWithHostRequest,
@@ -113,6 +114,7 @@ evaluateRuntimeExprObserved observationRequest expr =
         disabledRuntimeHost
         RuntimeExpressionRequest
           { runtimeExpressionSourceUnitStatementIndices = Set.empty,
+            runtimeExpressionPreludeModulePath = preludeModulePath,
             runtimeExpressionBuiltinMode = ResolveKernelOnly,
             runtimeExpressionBindingTypeHints = Map.empty,
             runtimeExpression = expr
@@ -128,6 +130,7 @@ evaluateRuntimeExprWithHost host expr =
         host
         RuntimeExpressionRequest
           { runtimeExpressionSourceUnitStatementIndices = Set.empty,
+            runtimeExpressionPreludeModulePath = preludeModulePath,
             runtimeExpressionBuiltinMode = ResolveKernelOnly,
             runtimeExpressionBindingTypeHints = Map.empty,
             runtimeExpression = expr
@@ -139,16 +142,18 @@ evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObse
   RuntimeObservationRequest ->
   RuntimeHost m ->
   Set Int ->
+  ModulePath ->
   BuiltinResolutionMode ->
   Map BindingRuntimeHintKey (SignatureType 'Resolved) ->
   Expr 'Resolved ->
   m (RuntimeObservationResult (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved observationRequest host sourceUnitStatementIndices builtinMode bindingTypeHints expr =
+evaluateRuntimeExprWithHostAndBuiltinsAndBindingHintsAndSourceUnitStatementsObserved observationRequest host sourceUnitStatementIndices preludePath builtinMode bindingTypeHints expr =
   evaluateRuntimeExpressionObserved
     observationRequest
     host
     RuntimeExpressionRequest
       { runtimeExpressionSourceUnitStatementIndices = sourceUnitStatementIndices,
+        runtimeExpressionPreludeModulePath = preludePath,
         runtimeExpressionBuiltinMode = builtinMode,
         runtimeExpressionBindingTypeHints = bindingTypeHints,
         runtimeExpression = expr
@@ -184,6 +189,7 @@ evaluateRuntimeExprWithBuiltinsAndBindingHintsAndSourceUnitStatements sourceUnit
             RuntimeObservationDisabled
             disabledRuntimeHost
             sourceUnitStatementIndices
+            preludeModulePath
             builtinMode
             bindingTypeHints
             expr
@@ -204,6 +210,7 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode bindingTypeHint
         disabledRuntimeHost
         RuntimeScopeRequest
           { runtimeScopeSourceUnitStatementIndices = Set.empty,
+            runtimeScopePreludeModulePath = preludeModulePath,
             runtimeScopeCurrentModulePath = currentModulePath,
             runtimeScopeEvaluationMode = evaluationMode,
             runtimeScopeBuiltinMode = builtinMode,
@@ -228,6 +235,7 @@ evaluateModuleScopeWithHost host currentModulePath evaluationMode builtinMode bi
     host
     RuntimeScopeRequest
       { runtimeScopeSourceUnitStatementIndices = Set.empty,
+        runtimeScopePreludeModulePath = preludeModulePath,
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeBuiltinMode = builtinMode,
@@ -253,6 +261,7 @@ evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builti
         evaluationHost
         RuntimeScopeRequest
           { runtimeScopeSourceUnitStatementIndices = Set.empty,
+            runtimeScopePreludeModulePath = preludeModulePath,
             runtimeScopeCurrentModulePath = currentModulePath,
             runtimeScopeEvaluationMode = evaluationMode,
             runtimeScopeBuiltinMode = builtinMode,
@@ -297,6 +306,7 @@ evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath eval
     host
     RuntimeScopeRequest
       { runtimeScopeSourceUnitStatementIndices = Set.empty,
+        runtimeScopePreludeModulePath = preludeModulePath,
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
         runtimeScopeBuiltinMode = builtinMode,

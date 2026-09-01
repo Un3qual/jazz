@@ -688,7 +688,13 @@ resolveCoreModuleNames builtinMode ambientExports localInventory publicInventory
             ModuleGraph.coreModuleBodyNode = bodyNode,
             ModuleGraph.coreModuleImports = resolvedImports,
             ModuleGraph.coreModuleStatements = statements,
-            ModuleGraph.coreModuleFacts = ModuleGraph.ResolvedModuleFacts publicInventory
+            ModuleGraph.coreModuleFacts =
+              ModuleGraph.ResolvedModuleFacts
+                { ModuleGraph.resolvedModuleExports = publicInventory,
+                  ModuleGraph.resolvedModuleExportSelectors =
+                    ModuleGraph.declaredModuleExportSelectors
+                      <$> ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule)
+                }
           }
     _ ->
       Left

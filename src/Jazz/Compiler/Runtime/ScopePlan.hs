@@ -29,6 +29,7 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -48,6 +49,7 @@ import Jazz.Compiler.BuiltinCatalog
     lookupBuiltinSymbolInMode,
     numericTypeFromName,
   )
+import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments)
 import Jazz.Compiler.Name
   ( NameNamespace (..),
     ResolvedName,
@@ -83,13 +85,14 @@ data RuntimeScopePlan = RuntimeScopePlan
   }
 
 buildRuntimeScopePlan ::
+  ModulePath ->
   Set Int ->
   Maybe [Text] ->
   BuiltinResolutionMode ->
   Set ResolvedName ->
   [Statement 'Resolved] ->
   RuntimeScopePlan
-buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode outerBindingNames statements =
+buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath builtinMode outerBindingNames statements =
   RuntimeScopePlan
     { runtimeScopePlanIndexedStatements = indexedStatements,
       runtimeScopePlanStatementsByIndex = statementsByIndex,
@@ -130,7 +133,7 @@ buildRuntimeScopePlan preludeStatementIndices initialModulePath builtinMode oute
               _ -> activeModulePath
           statementModulePath =
             if Set.member statementIndex preludeStatementIndices
-              then Just []
+              then Just (NonEmpty.toList (modulePathTextSegments preludePath))
               else declaredModulePath
        in (declaredModulePath, IntMap.insert statementIndex statementModulePath pathsByStatement)
     hostRecursiveBindings =

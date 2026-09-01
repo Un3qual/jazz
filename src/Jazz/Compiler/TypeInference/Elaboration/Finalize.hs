@@ -29,7 +29,10 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.ModuleExports
-  ( ModuleExport (..),
+  ( LocatedModuleExportName (..),
+    ModuleExport (..),
+    ModuleExportSelector (..),
+    ModuleTypeConstructorSelector (..),
     exportedConstructorOwners,
     inventoryHasExport,
   )
@@ -2214,10 +2217,45 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
 
     orderedModuleExports =
       stableUniqueExports
-        (filter publicExport sourceOrderedDeclarations)
+        ( case resolvedModuleExportSelectors moduleFacts of
+            Nothing -> filter publicExport sourceOrderedDeclarations
+            Just selectors -> concatMap exportsForSelector selectors
+        )
       where
-        publicInventory = resolvedModuleExports (coreModuleFacts resolvedModule)
+        moduleFacts = coreModuleFacts resolvedModule
+        publicInventory = resolvedModuleExports moduleFacts
         publicExport = (`inventoryHasExport` publicInventory)
+        exportsForSelector selector =
+          case selector of
+            ModuleExportSelector maybeNamespace name ->
+              filter
+                ( \export ->
+                    moduleExportName export == name
+                      && maybe True (== moduleExportNamespace export) maybeNamespace
+                      && publicExport export
+                )
+                sourceOrderedDeclarations
+            ModuleTypeExportSelector typeName _ constructorSelector ->
+              filter publicExport [ModuleExport TypeNamespace typeName]
+                <> constructorExports typeName constructorSelector
+
+        constructorExports typeName constructorSelector =
+          case constructorSelector of
+            AbstractType -> []
+            AllTypeConstructors _ ->
+              filter
+                ( \export ->
+                    moduleExportNamespace export == ConstructorNamespace
+                      && Set.member typeName (exportedConstructorOwners (moduleExportName export) publicInventory)
+                      && publicExport export
+                )
+                sourceOrderedDeclarations
+            SelectedTypeConstructors constructors ->
+              filter
+                publicExport
+                [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
+                | constructor <- NonEmpty.toList constructors
+                ]
         sourceOrderedDeclarations =
           concatMap statementExports (coreModuleStatements resolvedModule)
 

@@ -74,7 +74,7 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralIntegralValue,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
-import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
+import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments, preludeModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     emptyModuleInterface,
@@ -207,6 +207,7 @@ import Jazz.Compiler.WarningConfig
 
 data InferenceInputs = InferenceInputs
   { inferenceBuiltinMode :: BuiltinResolutionMode,
+    inferencePreludeModulePath :: ModulePath,
     inferenceWarningSettings :: WarningSettings,
     inferenceImportedTypes :: TypeEnv,
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
@@ -248,15 +249,19 @@ inferExpressionWithBuiltins builtinMode settings =
 
 inferExpressionWithBuiltinsAndSourceUnitStatements ::
   BuiltinResolutionMode ->
+  ModulePath ->
   Set Int ->
   Set Int ->
   WarningSettings ->
   Expr 'Resolved ->
   IO InferenceResult
-inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode hiddenStatementIndices preludeStatementIndices settings =
+inferExpressionWithBuiltinsAndSourceUnitStatements builtinMode preludePath hiddenStatementIndices preludeStatementIndices settings =
   inferExpressionWithRequest
     InferenceRequest
-      { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
+      { requestedInferenceInputs =
+          (emptyInferenceInputs builtinMode settings)
+            { inferencePreludeModulePath = preludePath
+            },
         requestedHiddenStatementIndices = hiddenStatementIndices,
         requestedPreludeStatementIndices = preludeStatementIndices
       }
@@ -520,6 +525,7 @@ emptyInferenceInputs :: BuiltinResolutionMode -> WarningSettings -> InferenceInp
 emptyInferenceInputs builtinMode settings =
   InferenceInputs
     { inferenceBuiltinMode = builtinMode,
+      inferencePreludeModulePath = preludeModulePath,
       inferenceWarningSettings = settings,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
@@ -566,7 +572,8 @@ initialStateForInference inputs =
             },
         inferModule =
           (inferModule initialInferState)
-            { inferenceModulePath = inferenceCurrentModulePath inputs,
+            { moduleInferencePreludePath = inferencePreludeModulePath inputs,
+              inferenceModulePath = inferenceCurrentModulePath inputs,
               inferenceRuntimeHintPath = inferenceCurrentModulePath inputs,
               inferenceConstructorWitnessNames =
                 inferenceImportedConstructorWitnessNames inputs

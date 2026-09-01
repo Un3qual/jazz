@@ -101,7 +101,11 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
-import Jazz.Compiler.ModuleIdentity (mkModulePath)
+import Jazz.Compiler.ModuleIdentity
+  ( mkModulePath,
+    modulePathTextSegments,
+    preludeModulePath,
+  )
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (..),
@@ -227,22 +231,25 @@ renderConstructorName constructorName =
 runtimeDefinitionName :: Maybe [Text] -> ResolvedName -> ResolvedName
 runtimeDefinitionName maybeModulePath name =
   case (maybeModulePath, name) of
-    (Just modulePath, UserName (ResolvedUserName CurrentModule namespace identifier)) ->
-      UserName (ResolvedUserName (runtimeDefinitionOrigin modulePath) namespace identifier)
+    (Just modulePath, UserName (ResolvedUserName CurrentModule namespace identifier))
+      | Just segments <- NonEmpty.nonEmpty modulePath ->
+          UserName (ResolvedUserName (runtimeDefinitionOrigin segments) namespace identifier)
     _ -> name
 
 runtimeDefinitionNameIn :: NameNamespace -> Maybe [Text] -> ResolvedName -> ResolvedName
 runtimeDefinitionNameIn namespace maybeModulePath name =
   case (maybeModulePath, name) of
-    (Just [], UserName (ResolvedUserName CurrentModule _ identifier)) ->
-      UserName (ResolvedUserName AmbientPrelude namespace identifier)
+    (Just modulePath, UserName (ResolvedUserName CurrentModule _ identifier))
+      | modulePath == NonEmpty.toList (modulePathTextSegments preludeModulePath) ->
+          UserName (ResolvedUserName AmbientPrelude namespace identifier)
     _ -> runtimeDefinitionName maybeModulePath name
 
-runtimeDefinitionOrigin :: [Text] -> ResolvedNameOrigin
-runtimeDefinitionOrigin modulePath =
-  case NonEmpty.nonEmpty modulePath of
-    Nothing -> AmbientPrelude
-    Just segments -> ImportedModule (mkModulePath (fmap mkIdentifier segments))
+runtimeDefinitionOrigin :: NonEmpty.NonEmpty Text -> ResolvedNameOrigin
+runtimeDefinitionOrigin segments
+  | path == preludeModulePath = AmbientPrelude
+  | otherwise = ImportedModule path
+  where
+    path = mkModulePath (fmap mkIdentifier segments)
 
 runtimeConstructorArgument :: Maybe [Text] -> SignatureType 'Resolved -> SignatureType 'Resolved
 runtimeConstructorArgument = runtimeConstraintType

@@ -1,6 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -31,7 +29,7 @@ module Jazz.Compiler.ModuleCompiler
   )
 where
 
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData (..))
 import Control.Monad (foldM)
 import Data.Bifunctor (bimap)
 import Data.Foldable (toList)
@@ -43,7 +41,6 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
@@ -81,6 +78,7 @@ import Jazz.Compiler.ModuleIdentity
     moduleIdentityPath,
     modulePathTextSegments,
     moduleQualifierIdentifier,
+    preludeModulePath,
     renderModulePath,
   )
 import Jazz.Compiler.ModuleInterface
@@ -128,8 +126,16 @@ data CompiledModule = CompiledModule
     compiledModuleDiagnostics :: [Diagnostic],
     compiledModuleExpr :: Expr 'Resolved
   }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+  deriving stock (Eq, Show)
+
+instance NFData CompiledModule where
+  rnf (CompiledModule modulePath imports exports moduleInterface diagnostics expr) =
+    rnf modulePath `seq`
+      rnf imports `seq`
+        rnf exports `seq`
+          rnf moduleInterface `seq`
+            rnf diagnostics `seq`
+              rnf expr
 
 data CompiledProgram = CompiledProgram
   { compiledProgramPrelude :: CompiledPrelude,
@@ -137,8 +143,14 @@ data CompiledProgram = CompiledProgram
     compiledProgramEntryPath :: ModulePath,
     compiledProgramModules :: [CompiledModule]
   }
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+  deriving stock (Eq, Show)
+
+instance NFData CompiledProgram where
+  rnf (CompiledProgram prelude preludePath entryPath modules) =
+    rnf prelude `seq`
+      rnf preludePath `seq`
+        rnf entryPath `seq`
+          rnf modules
 
 compiledProgramDiagnostics :: CompiledProgram -> [Diagnostic]
 compiledProgramDiagnostics compiledProgram =
@@ -177,6 +189,8 @@ compilePreparedPrelude settings hiddenStatementIndices prelude =
         inferExpressionWithInputsAndHiddenStatements
           InferenceInputs
             { inferenceBuiltinMode = ModuleGraph.preludeBuiltinMode prelude,
+              inferencePreludeModulePath =
+                moduleIdentityPath (ModuleGraph.preludeIdentity prelude),
               inferenceWarningSettings = settings,
               inferenceImportedTypes = Map.empty,
               inferenceImportedDataTypes = Map.empty,
@@ -206,8 +220,17 @@ compileResolvedProgram inputs resolvedProgram =
     pure (projectCompiledProgram inputs resolvedProgram (toList compiledModules))
   where
     ambientInterface = ambientPreludeInterface (compileInputPrelude inputs)
+    programPreludePath =
+      moduleIdentityPath
+        (ModuleGraph.preludeIdentity (ModuleGraph.coreProgramPrelude resolvedProgram))
     compileModule (compiledModules, compiledByPath) resolvedModule = do
-      compiledModule <- compileResolvedModuleWithIndex inputs ambientInterface compiledByPath resolvedModule
+      compiledModule <-
+        compileResolvedModuleWithIndex
+          inputs
+          ambientInterface
+          programPreludePath
+          compiledByPath
+          resolvedModule
       pure
         ( compiledModules Seq.|> compiledModule,
           Map.insert (coreModulePath resolvedModule) (compiledDependency compiledModule) compiledByPath
@@ -230,10 +253,11 @@ compileResolvedModule inputs compiledDependencies =
   compileResolvedModuleWithIndex
     inputs
     (ambientPreludeInterface (compileInputPrelude inputs))
+    preludeModulePath
     (buildCompiledDependencyPathIndex compiledDependencies)
 
-compileResolvedModuleWithIndex :: CompileInputs -> ImportedInterface -> Map ModulePath CompiledDependency -> CoreModule 'Resolved -> IO CompiledModule
-compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPath resolvedModule = do
+compileResolvedModuleWithIndex :: CompileInputs -> ImportedInterface -> ModulePath -> Map ModulePath CompiledDependency -> CoreModule 'Resolved -> IO CompiledModule
+compileResolvedModuleWithIndex inputs ambientInterface preludePath compiledDependenciesByPath resolvedModule = do
   let importedInterface =
         ambientInterface
           <> foldMap
@@ -248,6 +272,7 @@ compileResolvedModuleWithIndex inputs ambientInterface compiledDependenciesByPat
     inferExpressionWithInputs
       InferenceInputs
         { inferenceBuiltinMode = compileInputBuiltinMode inputs,
+          inferencePreludeModulePath = preludePath,
           inferenceWarningSettings = compileInputWarningSettings inputs,
           inferenceImportedTypes = interfaceTypeEnv importedInterface,
           inferenceImportedDataTypes = importedDataTypes importedInterface,

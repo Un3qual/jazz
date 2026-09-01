@@ -20,6 +20,7 @@ module Jazz.Compiler.TypeInference.Scope
 where
 
 import Data.List (uncons, unsnoc)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
@@ -52,6 +53,7 @@ import Jazz.Compiler.Diagnostics
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
+import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.Name
   ( NameNamespace (TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -273,7 +275,11 @@ setStatementRuntimeHintPath preludeStatementIndices statementIndex state =
         moduleState
           { inferenceRuntimeHintPath =
               if Set.member statementIndex preludeStatementIndices
-                then Just []
+                then
+                  Just
+                    ( NonEmpty.toList
+                        (modulePathTextSegments (moduleInferencePreludePath moduleState))
+                    )
                 else
                   if Set.null preludeStatementIndices
                     then inferenceRuntimeHintPath moduleState

@@ -29,6 +29,7 @@ import Jazz.Compiler.Diagnostics.Render
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
+    ModuleExportSelector (..),
     exportInventory,
     exportInventoryEntries,
   )
@@ -130,6 +131,10 @@ resolvedModuleExportInventory :: ModuleGraph.CoreModule 'Resolved -> ModuleExpor
 resolvedModuleExportInventory =
   ModuleGraph.resolvedModuleExports . ModuleGraph.coreModuleFacts
 
+resolvedModuleExportSelectors :: ModuleGraph.CoreModule 'Resolved -> Maybe [ModuleExportSelector]
+resolvedModuleExportSelectors =
+  ModuleGraph.resolvedModuleExportSelectors . ModuleGraph.coreModuleFacts
+
 resolveTestProgram ::
   ModuleResolutionConfig ->
   BuiltinResolutionMode ->
@@ -183,6 +188,7 @@ tests =
     ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
+    ("resolved module preserves authored explicit export selector order", testResolvedModulePreservesExplicitExportSelectorOrder),
     ("resolves mixed module facts without changing inventories", testResolvesMixedModuleFacts),
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
     ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
@@ -403,6 +409,38 @@ testResolvedModuleCarriesExplicitPublicInventory = do
             """
           )
         ]
+    lookupSource path = pure (Map.lookup path sources)
+
+testResolvedModulePreservesExplicitExportSelectorOrder :: IO ()
+testResolvedModulePreservesExplicitExportSelectorOrder = do
+  result <-
+    resolveTestProgram
+      testResolverConfig
+      ResolveKernelOnly
+      lookupSource
+      ["App", "Main"]
+  assertRight "resolved explicit export selector order" result $ \program ->
+    case programModules program of
+      [resolvedModule] ->
+        assertEqual
+          "authored selector order"
+          ( Just
+              [ ModuleExportSelector (Just ValueNamespace) "zeta",
+                ModuleExportSelector (Just ValueNamespace) "alpha"
+              ]
+          )
+          (resolvedModuleExportSelectors resolvedModule)
+      modules -> failTest ("expected one resolved App::Main module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.singleton
+        "src/App/Main.jz"
+        """
+        module App::Main (value zeta, value alpha) {
+        alpha = 1.
+        zeta = 2.
+        }
+        """
     lookupSource path = pure (Map.lookup path sources)
 
 testResolvesMixedModuleFacts :: IO ()

@@ -77,7 +77,7 @@ import Jazz.Compiler.Diagnostics
   ( Diagnostic,
     SourceSpan,
   )
-import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
+import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments, preludeModulePath)
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (..),
@@ -373,6 +373,7 @@ runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> [Statement 'Resolve
 runtimeExpressionScopeRequest request statements =
   RuntimeScopeRequest
     { runtimeScopeSourceUnitStatementIndices = runtimeExpressionSourceUnitStatementIndices request,
+      runtimeScopePreludeModulePath = runtimeExpressionPreludeModulePath request,
       runtimeScopeCurrentModulePath = Nothing,
       runtimeScopeEvaluationMode = EvaluateEntryModule,
       runtimeScopeBuiltinMode = runtimeExpressionBuiltinMode request,
@@ -473,6 +474,7 @@ evaluateRuntimeScopeWithRequiredHostRequest host request =
   runExceptT
     ( evalScopeWithHost
         host
+        (runtimeScopePreludeModulePath request)
         (runtimeScopeSourceUnitStatementIndices request)
         currentModulePath
         evaluationMode
@@ -515,6 +517,7 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
       runExceptT
         ( evalScopeWithHost
             host
+            preludePath
             preludeStatementIndices
             currentModulePath
             evaluationMode
@@ -531,6 +534,7 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
             Right value -> Right value
         )
   where
+    preludePath = runtimeScopePreludeModulePath request
     preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
     currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
@@ -543,6 +547,7 @@ evaluateRuntimeScopePureRequest :: RuntimeScopeRequest -> Either Diagnostic Scop
 evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
   where
     preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
+    preludePath = runtimeScopePreludeModulePath request
     currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
     builtinMode = runtimeScopeBuiltinMode request
@@ -551,6 +556,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
     statements = runtimeScopeStatements request
     scopePlan =
       buildRuntimeScopePlan
+        preludePath
         preludeStatementIndices
         currentModulePath
         builtinMode
@@ -977,6 +983,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         blockScopePlan =
           buildRuntimeScopePlan
+            preludeModulePath
             Set.empty
             blockModulePath
             builtinMode
@@ -1667,6 +1674,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
           scopeResult <-
             evalScopeWithHost
               host
+              preludeModulePath
               Set.empty
               (evaluationModulePath context)
               EvaluateEntryModule
@@ -1690,6 +1698,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
           _ <-
             evalScopeWithHost
               host
+              preludeModulePath
               Set.empty
               (evaluationModulePath context)
               EvaluateEntryModule
@@ -2312,6 +2321,7 @@ evalValueWithHostAndResultHint host currentModulePath builtinMode bindingTypeHin
 evalScopeWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  ModulePath ->
   Set Int ->
   Maybe [Text] ->
   ModuleEvaluationMode ->
@@ -2321,7 +2331,7 @@ evalScopeWithHost ::
   RuntimeEnv ->
   [Statement 'Resolved] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements = do
+evalScopeWithHost host preludePath preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements = do
   scopeId <- lift freshDeferredHostScopeId
   observationEnabled <-
     lift
@@ -2330,6 +2340,7 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
     observationEnabled
     scopeId
     host
+    preludePath
     preludeStatementIndices
     currentModulePath
     evaluationMode
@@ -2344,6 +2355,7 @@ evalScopeWithHostInstance ::
   Bool ->
   DeferredHostScopeId ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  ModulePath ->
   Set Int ->
   Maybe [Text] ->
   ModuleEvaluationMode ->
@@ -2353,11 +2365,12 @@ evalScopeWithHostInstance ::
   RuntimeEnv ->
   [Statement 'Resolved] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements =
+evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements =
   go initialEnvMayReachHostCells initialEnv Nothing indexedStatements
   where
     scopePlan =
       buildRuntimeScopePlan
+        preludePath
         preludeStatementIndices
         currentModulePath
         builtinMode
@@ -2385,6 +2398,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
               ( evaluateRuntimeScopePureRequest
                   RuntimeScopeRequest
                     { runtimeScopeSourceUnitStatementIndices = chunkPreludeStatementIndices,
+                      runtimeScopePreludeModulePath = preludePath,
                       runtimeScopeCurrentModulePath = modulePathForStatement statementIndex,
                       runtimeScopeEvaluationMode = evaluationMode,
                       runtimeScopeBuiltinMode = builtinMode,
@@ -2516,6 +2530,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
               case evaluateRuntimeScopePureRequest
                 RuntimeScopeRequest
                   { runtimeScopeSourceUnitStatementIndices = groupPreludeStatementIndices,
+                    runtimeScopePreludeModulePath = preludePath,
                     runtimeScopeCurrentModulePath = modulePathForStatement statementIndex,
                     runtimeScopeEvaluationMode = EvaluateEntryModule,
                     runtimeScopeBuiltinMode = builtinMode,

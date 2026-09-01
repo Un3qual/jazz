@@ -53,6 +53,7 @@ import Data.Text (Text)
 import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
@@ -89,8 +90,8 @@ data DeclarationState = DeclarationState
   deriving (Eq, Show)
 
 data ModuleInferenceState = ModuleInferenceState
-  { inferenceModulePath :: Maybe [Text],
-    -- Standalone prelude statements use the same synthetic path as compiled preludes.
+  { moduleInferencePreludePath :: ModulePath,
+    inferenceModulePath :: Maybe [Text],
     inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
@@ -163,7 +164,8 @@ initialInferState =
           },
       inferModule =
         ModuleInferenceState
-          { inferenceModulePath = Nothing,
+          { moduleInferencePreludePath = preludeModulePath,
+            inferenceModulePath = Nothing,
             inferenceRuntimeHintPath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
