@@ -106,10 +106,9 @@ expectedModuleBatchRendering inputs =
   renderRuntimeValue . (`VList` Nothing) <$> mapM expectedModuleResult inputs
   where
     expectedModuleResult (sourcePath, expectedPath, expression) = do
-      identity <- comparisonModuleIdentity sourcePath expectedPath
       canonicalCoreModuleResultRuntimeValue
         (surfaceDeclaredModulePath expression)
-        (lowerSurfaceModuleDetailed identity expression)
+        (lowerSurfaceModuleDetailed (comparisonModuleIdentity sourcePath expectedPath) expression)
 
 expectedCoreSourceBatchRendering :: [(FilePath, [Text], Text)] -> Either Text Text
 expectedCoreSourceBatchRendering inputs =
@@ -117,14 +116,13 @@ expectedCoreSourceBatchRendering inputs =
   where
     expectedSourceResult (sourcePath, expectedPath, source) = do
       canonicalSourcePath <- normalizeCanonicalSourcePath sourcePath
-      identity <- comparisonModuleIdentity sourcePath expectedPath
       canonicalCoreSourceResultRuntimeValue
         canonicalSourcePath
         ( fmap
             ( fmap
                 ( \expression ->
                     ( surfaceDeclaredModulePath expression,
-                      lowerSurfaceModuleDetailed identity expression
+                      lowerSurfaceModuleDetailed (comparisonModuleIdentity sourcePath expectedPath) expression
                     )
                 )
             )
@@ -353,16 +351,20 @@ surfaceDeclaredModulePath (SurfaceExpr _ (SEBlock statements)) =
     [] -> Nothing
 surfaceDeclaredModulePath _ = Nothing
 
-comparisonModuleIdentity :: FilePath -> [Text] -> Either Text ModuleIdentity
+comparisonModuleIdentity :: FilePath -> [Text] -> ModuleIdentity
 comparisonModuleIdentity sourcePath modulePath =
-  case NonEmpty.nonEmpty modulePath of
-    Just segments ->
-      Right
-        ( moduleIdentity
-            (mkModulePath (fmap mkIdentifier segments))
-            (mkSourceFile sourcePath)
-        )
-    Nothing -> Left "canonical core comparison requires a nonempty module path"
+  moduleIdentity
+    (mkModulePath (fmap mkIdentifier identitySegments))
+    (mkSourceFile sourcePath)
+  where
+    -- Module-free parser fixtures still need an internal identity for the
+    -- phased CoreModule carrier. The path is unobservable unless a source
+    -- module declaration exists, and those fixtures supply their declared
+    -- path explicitly through the corpus manifest.
+    identitySegments =
+      case NonEmpty.nonEmpty modulePath of
+        Just segments -> segments
+        Nothing -> "CanonicalCoreComparison" NonEmpty.:| []
 
 sourceResult :: Text -> Either LexicalFailure (Either ParserFailure SurfaceExpr)
 sourceResult source =

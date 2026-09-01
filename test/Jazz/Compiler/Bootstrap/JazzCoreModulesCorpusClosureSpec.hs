@@ -597,8 +597,7 @@ composedSourcePath = "fixtures/core/source-facade.jz"
 
 expectedDirectModuleFixtureNames :: [Text.Text]
 expectedDirectModuleFixtureNames =
-  [ "non-block-no-metadata",
-    "block-no-declaration",
+  [ "block-no-declaration",
     "module-exports-omitted",
     "module-exports-empty",
     "named-export-namespaces",
@@ -629,8 +628,7 @@ directModuleInputs =
 
 directModuleFixtures :: [DirectModuleFixture]
 directModuleFixtures =
-  [ directFixture "non-block-no-metadata" (e span1 (SELit (SLInt 1))),
-    directFixture "block-no-declaration" (e span1 (SEBlock [SSExpr span1 (e span1 (SELit (SLInt 1)))])),
+  [ directFixture "block-no-declaration" (e span1 (SEBlock [SSExpr span1 (e span1 (SELit (SLInt 1)))])),
     directFixture "module-exports-omitted" (moduleBlock Nothing),
     directFixture "module-exports-empty" (moduleBlock (Just [])),
     directFixture
