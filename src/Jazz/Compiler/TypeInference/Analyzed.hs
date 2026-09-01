@@ -48,16 +48,16 @@ import Jazz.Compiler.SemanticFacts
     CoreNodeId,
     EvidenceReference (..),
     ExpressionFacts (..),
+    NumericTarget (..),
     PatternFacts (..),
     RuntimeObligation (..),
     RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
-    NumericTarget (..),
     StatementFacts (..),
   )
-import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
+import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver (resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExpressionEvidenceSeed (..),
@@ -68,21 +68,21 @@ import Jazz.Compiler.TypeInference.State
     inferPatternFactSeeds,
     inferStatementFactSeeds,
   )
+import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ExpressionType,
     ImplMethodType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
-    SemanticType (..),
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeScheme (..),
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     quantifiedVariablesOrderedList,
   )
-import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 
 data Attachment value = Attachment !(Seq SemanticFactInvariantFailure) (Maybe value)
 
