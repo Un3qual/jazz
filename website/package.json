@@ -15,7 +15,7 @@
     "test:search": "node --test scripts/test-pagefind-search-model.mjs scripts/test-check-built-search.mjs",
     "test:search:production": "node --test scripts/test-built-search-index.mjs",
     "test:signatures": "node --test scripts/test-jazz-signature-metadata.mjs scripts/test-jazz-type-links.mjs",
-    "test:experience": "node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs",
+    "test:experience": "node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs scripts/test-json-ld.mjs scripts/test-sitemap-lastmod.mjs",
     "check": "pnpm run typecheck && pnpm run build"
   },
   "dependencies": {
@@ -42,7 +42,7 @@
     "pagefind": "1.5.2",
     "remark-parse": "11.0.0",
     "sharp": "0.35.4",
-    "typescript": "6.0.2",
+    "typescript": "7.0.2",
     "unified": "11.0.5"
   },
   "browserslist": {

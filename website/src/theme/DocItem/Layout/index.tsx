@@ -16,6 +16,7 @@ import DocVersionBadge from '@theme/DocVersionBadge';
 import DocVersionBanner from '@theme/DocVersionBanner';
 
 import styles from './styles.module.css';
+import {serializeJsonLd} from '../../../seo/jsonLd.mjs';
 
 function useDocTOC() {
   const {frontMatter, toc} = useDoc();
@@ -53,8 +54,9 @@ function DocStructuredData(): ReactNode {
 
   return (
     <Head>
+      <meta property="og:type" content="article" />
       <script type="application/ld+json">
-        {JSON.stringify(structuredData)}
+        {serializeJsonLd(structuredData)}
       </script>
     </Head>
   );

@@ -505,7 +505,7 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   );
   assert.equal(
     packageJson.scripts['test:experience'],
-    'node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs',
+    'node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs scripts/test-json-ld.mjs scripts/test-sitemap-lastmod.mjs',
   );
 
   for (const relativePath of [
@@ -532,11 +532,17 @@ test('active Docusaurus configuration preserves the public site contract', async
   assert.equal(classic.docs.path, '../docs');
   assert.equal(classic.docs.routeBasePath, 'docs');
   assert.equal(classic.blog, false);
-  assert.deepEqual(classic.sitemap, {
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(classic.sitemap).filter(([key]) => key !== 'createSitemapItems'),
+    ),
+    {
     changefreq: null,
     priority: null,
     lastmod: 'date',
-  });
+    },
+  );
+  assert.equal(typeof classic.sitemap.createSitemapItems, 'function');
 });
 
 test('website-producing workflows preserve history for sitemap modification dates', () => {
@@ -870,6 +876,8 @@ test('Jazz TextMate grammar scopes only canonical numeric suffixes', async () =>
 
 test('site metadata, local brand assets, and non-Jazz Prism themes are configured', () => {
   const config = read('website/docusaurus.config.ts');
+  const homepage = read('website/src/pages/index.tsx');
+  const docLayout = read('website/src/theme/DocItem/Layout/index.tsx');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
   assert.match(config, /image:\s*'img\/social-card\.png'/);
   const navbarLogo = config.match(
@@ -883,7 +891,9 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   assert.match(navbarLogo, /height:\s*48/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
-  assert.match(config, /property:\s*'og:type',[\s\S]*content:\s*'website'/);
+  assert.doesNotMatch(config, /property:\s*'og:type'/);
+  assert.match(homepage, /property="og:type" content="website"/);
+  assert.match(docLayout, /property="og:type" content="article"/);
   assert.match(config, /property:\s*'og:site_name',[\s\S]*content:\s*'Jazz programming language'/);
   assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);
   assert.match(config, /theme:\s*prismThemes\.(?:github|vsLight)/);

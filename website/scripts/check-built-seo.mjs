@@ -47,13 +47,17 @@ function canonicalUrl(source) {
   return undefined;
 }
 
+function isNoIndex(source) {
+  return /(?:^|[,\s])noindex(?:$|[,\s])/i.test(metadataValue(source, 'robots') ?? '');
+}
+
 function title(source) {
   return source.match(/<title\b[^>]*>([^<]*)<\/title>/i)?.[1].trim();
 }
 
 function structuredData(source, violations, label) {
   const values = [];
-  const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+  const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script\b[^>]*>/gi;
   for (const match of source.matchAll(pattern)) {
     if (attributes(match[1]).type !== 'application/ld+json') {
       continue;
@@ -67,6 +71,14 @@ function structuredData(source, violations, label) {
   return values.flatMap((value) => (Array.isArray(value) ? value : [value]));
 }
 
+function isDateOnly(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? '')) {
+    return false;
+  }
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function sitemapItems(source, violations) {
   const items = [];
   for (const match of source.matchAll(/<url>([\s\S]*?)<\/url>/gi)) {
@@ -77,7 +89,7 @@ function sitemapItems(source, violations) {
       violations.push('sitemap.xml: contains a URL without loc');
       continue;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(lastmod ?? '')) {
+    if (!isDateOnly(lastmod)) {
       violations.push(`${loc}: sitemap entry is missing a date-only lastmod`);
     }
     items.push({loc, lastmod});
@@ -135,11 +147,15 @@ function checkPage(file, expectedUrl, violations) {
   if (metadataValue(source, 'og:url') !== expectedUrl) {
     violations.push(`${relative}: og:url does not match the canonical URL`);
   }
+  const requiredType = expectedUrl === SITE_ROOT ? 'WebSite' : 'TechArticle';
+  const expectedOpenGraphType = requiredType === 'WebSite' ? 'website' : 'article';
+  if (metadataValue(source, 'og:type') !== expectedOpenGraphType) {
+    violations.push(`${relative}: og:type must be ${expectedOpenGraphType}`);
+  }
   if ((source.match(/<h1\b/gi) ?? []).length !== 1) {
     violations.push(`${relative}: indexable pages must contain exactly one h1`);
   }
 
-  const requiredType = expectedUrl === SITE_ROOT ? 'WebSite' : 'TechArticle';
   const schema = structuredData(source, violations, relative).find(
     (value) => value?.['@type'] === requiredType,
   );
@@ -185,7 +201,11 @@ for (const {loc} of items) {
 for (const file of filesIn(buildRoot).filter((entry) => entry.endsWith('.html'))) {
   const relative = path.relative(buildRoot, file).split(path.sep).join('/');
   const source = readFileSync(file, 'utf8');
-  if (relative === '404.html' || /<meta\b[^>]*http-equiv=["']refresh["']/i.test(source)) {
+  if (
+    relative === '404.html'
+    || /<meta\b[^>]*http-equiv=["']refresh["']/i.test(source)
+    || isNoIndex(source)
+  ) {
     continue;
   }
   const canonical = canonicalUrl(source);

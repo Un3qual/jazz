@@ -5,6 +5,7 @@ import Layout from '@theme/Layout';
 import DocumentationDirectory from '../components/DocumentationDirectory';
 import HomepageHeader from '../components/HomepageHeader';
 import styles from './index.module.css';
+import {serializeJsonLd} from '../seo/jsonLd.mjs';
 
 const title = 'Statically typed functional programming language';
 const description =
@@ -24,8 +25,9 @@ export default function Home(): ReactNode {
   return (
     <Layout title={title} description={description}>
       <Head>
+        <meta property="og:type" content="website" />
         <script type="application/ld+json">
-          {JSON.stringify(structuredData)}
+          {serializeJsonLd(structuredData)}
         </script>
       </Head>
       <div className={styles.page}>

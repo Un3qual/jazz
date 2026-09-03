@@ -2,6 +2,18 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+import {latestGitDate, withHomepageLastmod} from './scripts/sitemap-lastmod.mjs';
+
+const homepageSources = [
+  'website/src/pages/index.tsx',
+  'website/src/pages/index.module.css',
+  'website/src/components',
+  'website/src/generated/factorial.ts',
+  'website/scripts/sync-factorial.mjs',
+  'examples/functions/factorial.jz',
+  'scripts/example-cases.tsv',
+];
+
 const config: Config = {
   title: 'Jazz',
   titleDelimiter: '·',
@@ -56,6 +68,14 @@ const config: Config = {
           changefreq: null,
           priority: null,
           lastmod: 'date',
+          createSitemapItems: async ({defaultCreateSitemapItems, ...params}) => {
+            const items = await defaultCreateSitemapItems(params);
+            return withHomepageLastmod(
+              items,
+              'https://un3qual.github.io/jazz/',
+              latestGitDate(__dirname, homepageSources),
+            );
+          },
         },
         theme: {
           customCss: './src/css/custom.css',
@@ -91,7 +111,6 @@ const config: Config = {
         name: 'description',
         content: 'Documentation for Jazz, an experimental, statically typed functional programming language.',
       },
-      {property: 'og:type', content: 'website'},
       {property: 'og:site_name', content: 'Jazz programming language'},
       {name: 'theme-color', content: '#171824'},
     ],

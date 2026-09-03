@@ -43,7 +43,7 @@ function pageHtml({url, title, description, schemaType}) {
     <meta property="og:description" content="${description}">
     <meta property="og:url" content="${url}">
     <meta property="og:image" content="${siteRoot}img/social-card.png">
-    <meta property="og:type" content="website">
+    <meta property="og:type" content="${schemaType === 'WebSite' ? 'website' : 'article'}">
     <meta property="og:site_name" content="Jazz programming language">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="${siteRoot}img/social-card.png">
@@ -131,14 +131,24 @@ test('SEO artifact checker accepts complete indexable pages and ignores utility 
   });
 });
 
-test('SEO artifact checker rejects sitemap entries without modification dates', () => {
-  withFixture((buildRoot) => {
-    const sitemap = readFileSync(path.join(buildRoot, 'sitemap.xml'), 'utf8');
-    write(buildRoot, 'sitemap.xml', sitemap.replace(/<lastmod>[^<]+<\/lastmod>/, ''));
-    const result = runChecker(buildRoot);
-    assert.equal(result.ok, false);
-    assert.match(result.output, /lastmod/i);
-  });
+test('SEO artifact checker rejects missing, malformed, and impossible dates', () => {
+  for (const replacement of [
+    '',
+    '<lastmod>not-a-date</lastmod>',
+    '<lastmod>2026-02-31</lastmod>',
+  ]) {
+    withFixture((buildRoot) => {
+      const sitemap = readFileSync(path.join(buildRoot, 'sitemap.xml'), 'utf8');
+      write(
+        buildRoot,
+        'sitemap.xml',
+        sitemap.replace(/<lastmod>[^<]+<\/lastmod>/, replacement),
+      );
+      const result = runChecker(buildRoot);
+      assert.equal(result.ok, false, `${replacement}: ${result.output}`);
+      assert.match(result.output, /lastmod/i);
+    });
+  }
 });
 
 test('SEO artifact checker rejects an indexable page missing from the sitemap', () => {
@@ -156,6 +166,24 @@ test('SEO artifact checker rejects an indexable page missing from the sitemap', 
     const result = runChecker(buildRoot);
     assert.equal(result.ok, false);
     assert.match(result.output, /extra.+sitemap/i);
+  });
+});
+
+test('SEO artifact checker excludes noindex pages from sitemap coverage', () => {
+  withFixture((buildRoot) => {
+    write(
+      buildRoot,
+      'private.html',
+      pageHtml({
+        url: `${siteRoot}private`,
+        title: 'Private Jazz guide · Jazz',
+        description: 'A deliberately non-indexable Jazz documentation page.',
+        schemaType: 'TechArticle',
+      }).replace('<head>', '<head><meta name="robots" content="noindex, nofollow">'),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
   });
 });
 
@@ -187,28 +215,50 @@ test('SEO artifact checker rejects social metadata without a site identity', () 
   });
 });
 
-test('SEO artifact checker rejects missing page-specific structured data', () => {
-  withFixture((buildRoot) => {
-    const guide = readFileSync(
-      path.join(buildRoot, 'docs/language/overview.html'),
-      'utf8',
-    );
-    write(
-      buildRoot,
-      'docs/language/overview.html',
-      guide.replace(/<script type="application\/ld\+json">.*?<\/script>/s, ''),
-    );
-    const result = runChecker(buildRoot);
-    assert.equal(result.ok, false);
-    assert.match(result.output, /TechArticle/);
-  });
-});
-
-test('SEO artifact checker accepts whitespace in JSON-LD closing script tags', () => {
+test('SEO artifact checker rejects website Open Graph type on documentation', () => {
   withFixture((buildRoot) => {
     const guidePath = path.join(buildRoot, 'docs/language/overview.html');
     const guide = readFileSync(guidePath, 'utf8');
-    write(buildRoot, 'docs/language/overview.html', guide.replace('</script>', '</script >'));
+    write(
+      buildRoot,
+      'docs/language/overview.html',
+      guide.replace('property="og:type" content="article"', 'property="og:type" content="website"'),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, false);
+    assert.match(result.output, /og:type.+article/i);
+  });
+});
+
+test('SEO artifact checker rejects missing page-specific structured data', () => {
+  for (const [relativePath, schemaType] of [
+    ['index.html', 'WebSite'],
+    ['docs/language/overview.html', 'TechArticle'],
+  ]) {
+    withFixture((buildRoot) => {
+      const page = readFileSync(path.join(buildRoot, relativePath), 'utf8');
+      write(
+        buildRoot,
+        relativePath,
+        page.replace(/<script type="application\/ld\+json">.*?<\/script>/s, ''),
+      );
+      const result = runChecker(buildRoot);
+      assert.equal(result.ok, false);
+      assert.match(result.output, new RegExp(schemaType));
+    });
+  }
+});
+
+test('SEO artifact checker accepts browser-recovered JSON-LD closing script tags', () => {
+  withFixture((buildRoot) => {
+    const guidePath = path.join(buildRoot, 'docs/language/overview.html');
+    const guide = readFileSync(guidePath, 'utf8');
+    write(
+      buildRoot,
+      'docs/language/overview.html',
+      guide.replace('</script>', '</script\t\n data-recovered>'),
+    );
 
     const result = runChecker(buildRoot);
     assert.equal(result.ok, true, result.output);
