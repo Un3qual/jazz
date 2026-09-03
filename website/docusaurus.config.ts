@@ -4,9 +4,13 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 import {latestGitDate, withSitemapLastmods} from './scripts/sitemap-lastmod.mjs';
 import {
+  documentationNavigationGroups,
   documentationSharedSources,
   homepageSources,
 } from './scripts/sitemap-source-paths.mjs';
+
+const siteRoot = 'https://un3qual.github.io/jazz/';
+const documentationRoot = 'https://un3qual.github.io/jazz/docs';
 
 const config: Config = {
   title: 'Jazz',
@@ -66,10 +70,19 @@ const config: Config = {
             const items = await defaultCreateSitemapItems(params);
             return withSitemapLastmods(
               items,
-              'https://un3qual.github.io/jazz/',
+              siteRoot,
               latestGitDate(__dirname, homepageSources),
-              'https://un3qual.github.io/jazz/docs',
+              documentationRoot,
               latestGitDate(__dirname, documentationSharedSources),
+              documentationNavigationGroups.map(({routes, sources}) => ({
+                urls: routes
+                  .filter((route) => route === '')
+                  .map(() => documentationRoot),
+                urlPrefixes: routes
+                  .filter((route) => route !== '')
+                  .map((route) => `${documentationRoot}/${route}`),
+                lastmod: latestGitDate(__dirname, sources),
+              })),
             );
           },
         },

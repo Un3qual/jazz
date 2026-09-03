@@ -131,8 +131,14 @@ function expectedHtmlFile(url, violations) {
     violations.push(`sitemap.xml: URL is outside the canonical site: ${url}`);
     return undefined;
   }
-  const route = decodeURIComponent(new URL(url).pathname.slice(SITE_ROOT_PATH.length))
-    .replace(/\/$/, '');
+  let route;
+  try {
+    route = decodeURIComponent(new URL(url).pathname.slice(SITE_ROOT_PATH.length));
+  } catch {
+    violations.push(`sitemap.xml: URL contains a malformed percent escape: ${url}`);
+    return undefined;
+  }
+  route = route.replace(/\/$/, '');
   return path.join(buildRoot, route ? `${route}.html` : 'index.html');
 }
 

@@ -161,6 +161,34 @@ test('SEO artifact checker resolves percent-encoded sitemap routes to generated 
   });
 });
 
+test('SEO artifact checker reports malformed percent escapes without aborting', () => {
+  withFixture((buildRoot) => {
+    const sitemapPath = path.join(buildRoot, 'sitemap.xml');
+    const sitemap = readFileSync(sitemapPath, 'utf8');
+    write(
+      buildRoot,
+      'sitemap.xml',
+      sitemap.replace(
+        '</urlset>',
+        `<url><loc>${siteRoot}docs/%</loc><lastmod>2026-09-03</lastmod></url></urlset>`,
+      ),
+    );
+    const homepagePath = path.join(buildRoot, 'index.html');
+    const homepage = readFileSync(homepagePath, 'utf8');
+    write(
+      buildRoot,
+      'index.html',
+      homepage.replace(/<meta property="og:description"[^>]+>/, ''),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, false);
+    assert.match(result.output, /malformed percent escape/i);
+    assert.match(result.output, /index\.html: missing og:description/);
+    assert.doesNotMatch(result.output, /URIError/);
+  });
+});
+
 test('SEO artifact checker compares decoded metadata with structured data', () => {
   withFixture((buildRoot) => {
     const url = `${siteRoot}docs/language/overview`;

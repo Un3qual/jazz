@@ -21,13 +21,28 @@ export function withSitemapLastmods(
   homepageLastmod,
   documentationRootUrl,
   documentationLastmod,
+  documentationGroupLastmods = [],
 ) {
   return items.map((item) => {
-    const lastmodFloor = item.url === homepageUrl
+    const sharedLastmodFloor = item.url === homepageUrl
       ? homepageLastmod
       : item.url === documentationRootUrl || item.url.startsWith(`${documentationRootUrl}/`)
         ? documentationLastmod
         : undefined;
+    const groupLastmodFloors = documentationGroupLastmods
+      .filter(({urls, urlPrefixes}) =>
+        urls.includes(item.url)
+        || urlPrefixes.some((urlPrefix) =>
+          item.url === urlPrefix || item.url.startsWith(`${urlPrefix}/`),
+        ),
+      )
+      .map(({lastmod}) => lastmod);
+    const lastmodFloor = [sharedLastmodFloor, ...groupLastmodFloors]
+      .filter(Boolean)
+      .reduce(
+        (latest, candidate) => candidate > latest ? candidate : latest,
+        '',
+      ) || undefined;
     return lastmodFloor && (!item.lastmod || item.lastmod < lastmodFloor)
       ? {...item, lastmod: lastmodFloor}
       : item;

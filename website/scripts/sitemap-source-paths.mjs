@@ -8,6 +8,7 @@ const codeRenderingSources = [
 
 const globalRenderingSources = [
   'website/sidebars.ts',
+  'website/src/css/custom.css',
   'website/src/theme/Navbar/Logo',
   'website/src/theme/SearchBar',
 ];
@@ -32,4 +33,25 @@ export const documentationSharedSources = [
   'website/src/seo/jsonLd.mjs',
   'website/src/theme/DocItem/Layout',
   ...codeRenderingSources,
+];
+
+export const documentationNavigationGroups = [
+  {
+    routes: ['', 'getting-started', 'language', 'compiler', 'project'],
+    sources: [
+      'docs/index.md',
+      'docs/getting-started',
+      'docs/language',
+      'docs/compiler',
+      'docs/project',
+    ],
+  },
+  {
+    routes: ['standard-library'],
+    sources: ['docs/standard-library'],
+  },
+  {
+    routes: ['reference'],
+    sources: ['docs/reference'],
+  },
 ];
