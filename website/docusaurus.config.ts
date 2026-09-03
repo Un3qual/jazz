@@ -3,23 +3,10 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 import {latestGitDate, withSitemapLastmods} from './scripts/sitemap-lastmod.mjs';
-
-const homepageSources = [
-  'website/src/pages/index.tsx',
-  'website/src/pages/index.module.css',
-  'website/src/components',
-  'website/src/seo/jsonLd.mjs',
-  'website/src/generated/factorial.ts',
-  'website/scripts/sync-factorial.mjs',
-  'examples/functions/factorial.jz',
-  'scripts/example-cases.tsv',
-];
-
-const documentationSharedSources = [
-  'website/docusaurus.config.ts',
-  'website/src/seo/jsonLd.mjs',
-  'website/src/theme/DocItem/Layout',
-];
+import {
+  documentationSharedSources,
+  homepageSources,
+} from './scripts/sitemap-source-paths.mjs';
 
 const config: Config = {
   title: 'Jazz',

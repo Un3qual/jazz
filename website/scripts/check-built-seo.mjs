@@ -16,12 +16,36 @@ function filesIn(directory) {
   });
 }
 
+function decodeHtmlReferences(value) {
+  const namedReferences = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    lt: '<',
+    quot: '"',
+  };
+  return value.replace(
+    /&(?:#(\d+)|#x([\da-f]+)|(amp|apos|gt|lt|quot));/gi,
+    (reference, decimal, hexadecimal, name) => {
+      if (name) {
+        return namedReferences[name.toLowerCase()];
+      }
+      const codePoint = Number.parseInt(decimal ?? hexadecimal, decimal ? 10 : 16);
+      return codePoint > 0
+        && codePoint <= 0x10ffff
+        && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+        ? String.fromCodePoint(codePoint)
+        : reference;
+    },
+  );
+}
+
 function attributes(tag) {
   return Object.fromEntries(
     [...tag.matchAll(/([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(
       ([, name, doubleQuoted, singleQuoted]) => [
         name.toLowerCase(),
-        doubleQuoted ?? singleQuoted,
+        decodeHtmlReferences(doubleQuoted ?? singleQuoted),
       ],
     ),
   );

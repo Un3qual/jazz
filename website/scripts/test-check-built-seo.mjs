@@ -131,6 +131,24 @@ test('SEO artifact checker accepts complete indexable pages and ignores utility 
   });
 });
 
+test('SEO artifact checker compares decoded metadata with structured data', () => {
+  withFixture((buildRoot) => {
+    const url = `${siteRoot}docs/language/overview`;
+    const description =
+      'Learn Jazz types & effects through practical functional programming examples.';
+    const guide = pageHtml({
+      url,
+      title: 'Jazz programming language overview · Jazz',
+      description,
+      schemaType: 'TechArticle',
+    }).replaceAll(`content="${description}"`, `content="${description.replace('&', '&amp;')}"`);
+    write(buildRoot, 'docs/language/overview.html', guide);
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
+  });
+});
+
 test('SEO artifact checker rejects missing, malformed, and impossible dates', () => {
   for (const replacement of [
     '',

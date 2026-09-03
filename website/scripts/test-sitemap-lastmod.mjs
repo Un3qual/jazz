@@ -6,6 +6,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {latestGitDate, withSitemapLastmods} from './sitemap-lastmod.mjs';
+import {
+  documentationSharedSources,
+  homepageSources,
+} from './sitemap-source-paths.mjs';
 
 function git(cwd, args, date) {
   execFileSync('git', args, {
@@ -14,6 +18,12 @@ function git(cwd, args, date) {
       ? {...process.env, GIT_AUTHOR_DATE: `${date}T12:00:00Z`, GIT_COMMITTER_DATE: `${date}T12:00:00Z`}
       : process.env,
   });
+}
+
+function write(repositoryRoot, relativePath, contents) {
+  const file = path.join(repositoryRoot, relativePath);
+  mkdirSync(path.dirname(file), {recursive: true});
+  writeFileSync(file, contents);
 }
 
 test('homepage modification date includes generated-content dependencies', () => {
@@ -35,6 +45,65 @@ test('homepage modification date includes generated-content dependencies', () =>
       latestGitDate(websiteRoot, ['website/index.tsx', 'factorial.jz']),
       '2026-09-02',
     );
+  } finally {
+    rmSync(repositoryRoot, {recursive: true, force: true});
+  }
+});
+
+test('homepage modification date tracks configuration and shared code rendering', () => {
+  const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'jazz-sitemap-homepage-git-'));
+  const websiteRoot = path.join(repositoryRoot, 'website');
+  try {
+    git(repositoryRoot, ['init', '--quiet']);
+    git(repositoryRoot, ['config', 'user.email', 'seo-test@example.com']);
+    git(repositoryRoot, ['config', 'user.name', 'SEO test']);
+    write(repositoryRoot, 'website/src/pages/index.tsx', 'homepage');
+    git(repositoryRoot, ['add', 'website/src/pages/index.tsx']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'homepage'], '2026-08-01');
+
+    for (const [relativePath, date] of [
+      ['website/docusaurus.config.ts', '2026-09-01'],
+      ['website/src/theme/CodeBlock/Content/index.tsx', '2026-09-02'],
+      ['website/scripts/jazz-highlighter.mjs', '2026-09-03'],
+      ['website/scripts/jazz-type-links.mjs', '2026-09-04'],
+      ['editors/vscode-jazz/syntaxes/jazz.tmLanguage.json', '2026-09-05'],
+    ]) {
+      write(repositoryRoot, relativePath, date);
+      git(repositoryRoot, ['add', relativePath]);
+      git(repositoryRoot, ['commit', '--quiet', '-m', relativePath], date);
+      assert.equal(latestGitDate(websiteRoot, homepageSources), date, relativePath);
+    }
+  } finally {
+    rmSync(repositoryRoot, {recursive: true, force: true});
+  }
+});
+
+test('documentation modification date tracks every shared code renderer', () => {
+  const repositoryRoot = mkdtempSync(path.join(tmpdir(), 'jazz-sitemap-docs-git-'));
+  const websiteRoot = path.join(repositoryRoot, 'website');
+  try {
+    git(repositoryRoot, ['init', '--quiet']);
+    git(repositoryRoot, ['config', 'user.email', 'seo-test@example.com']);
+    git(repositoryRoot, ['config', 'user.name', 'SEO test']);
+    write(repositoryRoot, 'website/src/theme/DocItem/Layout/index.tsx', 'layout');
+    git(repositoryRoot, ['add', 'website/src/theme/DocItem/Layout/index.tsx']);
+    git(repositoryRoot, ['commit', '--quiet', '-m', 'layout'], '2026-08-01');
+
+    for (const [relativePath, date] of [
+      ['website/src/theme/CodeBlock/Content/index.tsx', '2026-09-01'],
+      ['website/scripts/jazz-highlighter.mjs', '2026-09-02'],
+      ['website/scripts/jazz-type-links.mjs', '2026-09-03'],
+      ['editors/vscode-jazz/syntaxes/jazz.tmLanguage.json', '2026-09-04'],
+    ]) {
+      write(repositoryRoot, relativePath, date);
+      git(repositoryRoot, ['add', relativePath]);
+      git(repositoryRoot, ['commit', '--quiet', '-m', relativePath], date);
+      assert.equal(
+        latestGitDate(websiteRoot, documentationSharedSources),
+        date,
+        relativePath,
+      );
+    }
   } finally {
     rmSync(repositoryRoot, {recursive: true, force: true});
   }
