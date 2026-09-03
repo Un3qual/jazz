@@ -1,6 +1,6 @@
 ---
-title: Command-line essentials
-description: Compile files, run programs, load module graphs, and select warning policies.
+title: Jazz command-line essentials
+description: Use the Jazz compiler to compile files, run programs, load module graphs, and select warning policies.
 sidebar_position: 4
 ---
 

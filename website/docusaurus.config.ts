@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'Jazz',
   titleDelimiter: '·',
-  tagline: 'A statically typed functional language with practical syntax',
+  tagline: 'A statically typed functional programming language with practical syntax',
   favicon: 'img/favicon.svg',
   url: 'https://un3qual.github.io',
   baseUrl: '/jazz/',
@@ -52,6 +52,11 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
         },
         blog: false,
+        sitemap: {
+          changefreq: null,
+          priority: null,
+          lastmod: 'date',
+        },
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -84,8 +89,10 @@ const config: Config = {
     metadata: [
       {
         name: 'description',
-        content: 'Documentation for Jazz, a statically typed functional language with practical syntax.',
+        content: 'Documentation for Jazz, an experimental, statically typed functional programming language.',
       },
+      {property: 'og:type', content: 'website'},
+      {property: 'og:site_name', content: 'Jazz programming language'},
       {name: 'theme-color', content: '#171824'},
     ],
     colorMode: {

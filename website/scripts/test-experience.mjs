@@ -194,6 +194,7 @@ test('homepage introduces Jazz and provides direct documentation routes', () => 
   assert.match(source, /<main\b/);
   assert.match(source, /<header\b/);
   assert.match(source, /<CodeProof\b/);
+  assert.match(source, /statically typed functional programming language/i);
   for (const route of [
     '/docs/getting-started/overview',
     '/docs/language/overview',
@@ -500,7 +501,11 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   assert.equal(packageJson.devDependencies.pagefind, '1.5.2');
   assert.equal(
     packageJson.scripts.build,
-    'node scripts/sync-factorial.mjs && docusaurus build && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
+    'node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-seo.mjs && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
+  );
+  assert.equal(
+    packageJson.scripts['test:experience'],
+    'node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs',
   );
 
   for (const relativePath of [
@@ -527,6 +532,11 @@ test('active Docusaurus configuration preserves the public site contract', async
   assert.equal(classic.docs.path, '../docs');
   assert.equal(classic.docs.routeBasePath, 'docs');
   assert.equal(classic.blog, false);
+  assert.deepEqual(classic.sitemap, {
+    changefreq: null,
+    priority: null,
+    lastmod: 'date',
+  });
 });
 
 test('primary navigation separates learning, library, and reference contexts', async () => {
@@ -857,6 +867,8 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   assert.match(navbarLogo, /height:\s*48/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
+  assert.match(config, /property:\s*'og:type',[\s\S]*content:\s*'website'/);
+  assert.match(config, /property:\s*'og:site_name',[\s\S]*content:\s*'Jazz programming language'/);
   assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);
   assert.match(config, /theme:\s*prismThemes\.(?:github|vsLight)/);
   assert.match(config, /darkTheme:\s*prismThemes\.(?:dracula|vsDark)/);

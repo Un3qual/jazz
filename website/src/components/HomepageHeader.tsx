@@ -17,8 +17,8 @@ export default function HomepageHeader(): ReactNode {
             </h1>
           </div>
           <p className={styles.introSummary}>
-            A statically typed functional language for building programs from
-            expressions and immutable values.
+            A statically typed functional programming language for building
+            programs from expressions and immutable values.
           </p>
           <p className={styles.introDetail}>
             Type inference keeps local code concise. Algebraic data types,

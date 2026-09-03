@@ -6,7 +6,7 @@
   "scripts": {
     "prestart": "node scripts/sync-factorial.mjs",
     "start": "docusaurus start",
-    "build": "node scripts/sync-factorial.mjs && docusaurus build && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs",
+    "build": "node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-seo.mjs && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs",
     "serve": "docusaurus serve",
     "typecheck": "tsc --noEmit",
     "clear": "docusaurus clear",
@@ -15,7 +15,7 @@
     "test:search": "node --test scripts/test-pagefind-search-model.mjs scripts/test-check-built-search.mjs",
     "test:search:production": "node --test scripts/test-built-search-index.mjs",
     "test:signatures": "node --test scripts/test-jazz-signature-metadata.mjs scripts/test-jazz-type-links.mjs",
-    "test:experience": "node --test scripts/test-experience.mjs",
+    "test:experience": "node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs",
     "check": "pnpm run typecheck && pnpm run build"
   },
   "dependencies": {
@@ -42,7 +42,7 @@
     "pagefind": "1.5.2",
     "remark-parse": "11.0.0",
     "sharp": "0.35.4",
-    "typescript": "7.0.2",
+    "typescript": "6.0.2",
     "unified": "11.0.5"
   },
   "browserslist": {

@@ -1,13 +1,14 @@
 ---
-title: Jazz documentation
-description: Learn the Jazz language, command-line tools, standard library, and compiler architecture.
+title: Jazz programming language documentation
+description: Learn the Jazz programming language, command-line tools, standard library, and compiler architecture.
 sidebar_position: 1
 ---
 
-Jazz is an experimental, statically typed functional language. Programs are
-expressions built from immutable values and functions. Algebraic data types and
-pattern matching describe data and its alternatives; modules define namespace
-boundaries; capabilities express the operations required by polymorphic code.
+Jazz is an experimental, statically typed functional programming language.
+Programs are expressions built from immutable values and functions. Algebraic
+data types and pattern matching describe data and its alternatives; modules
+define namespace boundaries; capabilities express the operations required by
+polymorphic code.
 
 Start with the [getting-started overview](getting-started/overview.md), then use
 the [language guide](language/overview.md) to understand how Jazz behaves. Use
