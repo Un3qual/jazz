@@ -549,6 +549,7 @@ test('website-producing workflows preserve history for sitemap modification date
   for (const [relativePath, jobPattern] of [
     ['.github/workflows/docs-pages.yml', /\n  build:[\s\S]*?(?=\n  deploy:)/],
     ['.github/workflows/ci-pr.yml', /\n  docs-and-site:[\s\S]*?(?=\n  compiler-fast:)/],
+    ['.github/workflows/release.yml', /\n  release:[\s\S]*$/],
   ]) {
     const workflow = read(relativePath);
     const websiteJob = workflow.match(jobPattern)?.[0];
