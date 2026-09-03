@@ -154,6 +154,7 @@ function checkPage(file, expectedUrl, violations) {
   }
   const pageTitle = title(source);
   const description = metadataValue(source, 'description');
+  const trimmedDescription = description?.trim();
   const canonical = canonicalUrl(source);
   const requiredMetadata = [
     'og:title',
@@ -169,7 +170,7 @@ function checkPage(file, expectedUrl, violations) {
   if (!pageTitle || pageTitle.length > 70) {
     violations.push(`${relative}: title must contain 1-70 characters`);
   }
-  if (!description || description.length > 160) {
+  if (!trimmedDescription || trimmedDescription.length > 160) {
     violations.push(`${relative}: description must contain 1-160 characters`);
   }
   if (canonical !== expectedUrl) {

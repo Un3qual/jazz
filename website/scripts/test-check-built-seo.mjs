@@ -210,6 +210,25 @@ test('SEO artifact checker compares decoded metadata with structured data', () =
   });
 });
 
+test('SEO artifact checker rejects whitespace-only descriptions', () => {
+  withFixture((buildRoot) => {
+    write(
+      buildRoot,
+      'docs/language/overview.html',
+      pageHtml({
+        url: `${siteRoot}docs/language/overview`,
+        title: 'Jazz programming language overview · Jazz',
+        description: '   ',
+        schemaType: 'TechArticle',
+      }),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, false);
+    assert.match(result.output, /description must contain 1-160 characters/);
+  });
+});
+
 test('SEO artifact checker measures decoded page titles', () => {
   withFixture((buildRoot) => {
     const guidePath = path.join(buildRoot, 'docs/language/overview.html');

@@ -11,6 +11,7 @@ const globalRenderingSources = [
   'website/src/css/custom.css',
   'website/src/theme/Navbar/Logo',
   'website/src/theme/SearchBar',
+  'website/scripts/pagefind-search-model.mjs',
 ];
 
 export const homepageSources = [
