@@ -1,6 +1,6 @@
 ---
-title: Installation
-description: Enter the reproducible Jazz development environment and build the command-line compiler.
+title: Install Jazz
+description: Install the Jazz programming language toolchain in a reproducible environment and build the command-line compiler.
 sidebar_position: 2
 ---
 

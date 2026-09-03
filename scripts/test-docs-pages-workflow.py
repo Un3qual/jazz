@@ -79,6 +79,10 @@ class DocsPagesWorkflowTests(unittest.TestCase):
         self.replace("persist-credentials: false", "persist-credentials: true")
         self.assert_violation("checkout must disable credential persistence")
 
+    def test_checkout_must_preserve_history_for_sitemap_dates(self) -> None:
+        self.replace("          fetch-depth: 0\n", "")
+        self.assert_violation("checkout must fetch full history for sitemap dates")
+
     def test_checkout_credentials_are_checked_in_the_checkout_step(self) -> None:
         self.replace("persist-credentials: false", "persist-credentials: true")
         self.replace(

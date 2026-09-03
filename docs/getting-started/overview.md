@@ -1,6 +1,6 @@
 ---
-title: Getting started
-description: Compile and run a first Jazz program.
+title: Getting started with Jazz
+description: Install the Jazz programming language toolchain, then compile and run your first program.
 sidebar_position: 1
 ---
 

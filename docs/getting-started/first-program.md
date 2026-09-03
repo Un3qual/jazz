@@ -1,6 +1,6 @@
 ---
-title: Your first program
-description: Define, type-check, and run a recursive factorial function in Jazz.
+title: Your first Jazz program
+description: Define, type-check, and run a recursive factorial function in the Jazz programming language.
 sidebar_position: 3
 ---
 
