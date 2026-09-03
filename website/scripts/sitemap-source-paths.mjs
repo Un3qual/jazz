@@ -6,8 +6,15 @@ const codeRenderingSources = [
   'editors/vscode-jazz/syntaxes/jazz.tmLanguage.json',
 ];
 
+const globalRenderingSources = [
+  'website/sidebars.ts',
+  'website/src/theme/Navbar/Logo',
+  'website/src/theme/SearchBar',
+];
+
 export const homepageSources = [
   'website/docusaurus.config.ts',
+  ...globalRenderingSources,
   'website/src/pages/index.tsx',
   'website/src/pages/index.module.css',
   'website/src/components',
@@ -21,6 +28,7 @@ export const homepageSources = [
 
 export const documentationSharedSources = [
   'website/docusaurus.config.ts',
+  ...globalRenderingSources,
   'website/src/seo/jsonLd.mjs',
   'website/src/theme/DocItem/Layout',
   ...codeRenderingSources,
