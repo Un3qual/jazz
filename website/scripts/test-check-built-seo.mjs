@@ -163,7 +163,7 @@ test('SEO artifact checker resolves percent-encoded sitemap routes to generated 
 
 test('SEO artifact checker decodes XML references in sitemap locations', () => {
   withFixture((buildRoot) => {
-    const url = `${siteRoot}docs/language/types&effects`;
+    const url = `${siteRoot}docs/language/types&effects&handlers`;
     const sitemapPath = path.join(buildRoot, 'sitemap.xml');
     const sitemap = readFileSync(sitemapPath, 'utf8');
     write(
@@ -171,12 +171,12 @@ test('SEO artifact checker decodes XML references in sitemap locations', () => {
       'sitemap.xml',
       sitemap.replace(
         '</urlset>',
-        `<url><loc>${url.replace('&', '&amp;')}</loc><lastmod>2026-09-03</lastmod></url></urlset>`,
+        `<url><loc>${url.replaceAll('&', '&amp;')}</loc><lastmod>2026-09-03</lastmod></url></urlset>`,
       ),
     );
     write(
       buildRoot,
-      'docs/language/types&effects.html',
+      'docs/language/types&effects&handlers.html',
       pageHtml({
         url,
         title: 'Jazz types and effects guide · Jazz',

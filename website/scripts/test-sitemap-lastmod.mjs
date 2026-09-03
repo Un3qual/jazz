@@ -69,6 +69,8 @@ test('homepage modification date tracks every rendered source group', () => {
       ['editors/vscode-jazz/syntaxes/jazz.tmLanguage.json', '2026-08-17'],
       ['website/scripts/jazz-signature-metadata.mjs', '2026-08-18'],
       ['website/src/css/custom.css', '2026-08-19'],
+      ['website/package.json', '2026-08-20'],
+      ['website/pnpm-lock.yaml', '2026-08-21'],
     ],
     'jazz-sitemap-homepage-git-',
   );
@@ -91,6 +93,8 @@ test('documentation modification date tracks every shared rendered source group'
       ['editors/vscode-jazz/syntaxes/jazz.tmLanguage.json', '2026-08-11'],
       ['website/scripts/jazz-signature-metadata.mjs', '2026-08-12'],
       ['website/src/css/custom.css', '2026-08-13'],
+      ['website/package.json', '2026-08-14'],
+      ['website/pnpm-lock.yaml', '2026-08-15'],
     ],
     'jazz-sitemap-docs-git-',
   );

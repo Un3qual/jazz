@@ -12,6 +12,8 @@ const globalRenderingSources = [
   'website/src/theme/Navbar/Logo',
   'website/src/theme/SearchBar',
   'website/scripts/pagefind-search-model.mjs',
+  'website/package.json',
+  'website/pnpm-lock.yaml',
 ];
 
 export const homepageSources = [
