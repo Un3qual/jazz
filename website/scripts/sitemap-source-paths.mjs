@@ -1,6 +1,7 @@
 const codeRenderingSources = [
   'website/src/theme/CodeBlock',
   'website/scripts/jazz-highlighter.mjs',
+  'website/scripts/jazz-signature-metadata.mjs',
   'website/scripts/jazz-type-links.mjs',
   'editors/vscode-jazz/syntaxes/jazz.tmLanguage.json',
 ];

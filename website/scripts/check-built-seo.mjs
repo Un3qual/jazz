@@ -35,7 +35,7 @@ function decodeHtmlReferences(value) {
         && codePoint <= 0x10ffff
         && !(codePoint >= 0xd800 && codePoint <= 0xdfff)
         ? String.fromCodePoint(codePoint)
-        : reference;
+        : '\ufffd';
     },
   );
 }
@@ -76,7 +76,8 @@ function isNoIndex(source) {
 }
 
 function title(source) {
-  return source.match(/<title\b[^>]*>([^<]*)<\/title>/i)?.[1].trim();
+  const value = source.match(/<title\b[^>]*>([^<]*)<\/title>/i)?.[1];
+  return value ? decodeHtmlReferences(value).trim() : undefined;
 }
 
 function structuredData(source, violations, label) {

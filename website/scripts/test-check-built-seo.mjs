@@ -135,13 +135,55 @@ test('SEO artifact checker compares decoded metadata with structured data', () =
   withFixture((buildRoot) => {
     const url = `${siteRoot}docs/language/overview`;
     const description =
-      'Learn Jazz types & effects through practical functional programming examples.';
+      'Learn Jazz types & effects through practical examples & documentation.';
     const guide = pageHtml({
       url,
       title: 'Jazz programming language overview · Jazz',
       description,
       schemaType: 'TechArticle',
-    }).replaceAll(`content="${description}"`, `content="${description.replace('&', '&amp;')}"`);
+    }).replaceAll(
+      `content="${description}"`,
+      `content="${description.replaceAll('&', '&amp;')}"`,
+    );
+    write(buildRoot, 'docs/language/overview.html', guide);
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
+  });
+});
+
+test('SEO artifact checker measures decoded page titles', () => {
+  withFixture((buildRoot) => {
+    const guidePath = path.join(buildRoot, 'docs/language/overview.html');
+    const guide = readFileSync(guidePath, 'utf8');
+    const title = 'Jazz & statically typed functional programming language documentation';
+    assert.equal(title.length, 69);
+    write(
+      buildRoot,
+      'docs/language/overview.html',
+      guide.replace(
+        /<title>[^<]+<\/title>/,
+        `<title>${title.replaceAll('&', '&amp;')}</title>`,
+      ),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
+  });
+});
+
+test('SEO artifact checker decodes invalid numeric references as replacement characters', () => {
+  withFixture((buildRoot) => {
+    const url = `${siteRoot}docs/language/overview`;
+    const description = 'Learn Jazz � � � syntax through practical examples.';
+    const encodedDescription =
+      'Learn Jazz &#0; &#xD800; &#x110000; syntax through practical examples.';
+    const guide = pageHtml({
+      url,
+      title: 'Jazz programming language overview · Jazz',
+      description,
+      schemaType: 'TechArticle',
+    }).replaceAll(`content="${description}"`, `content="${encodedDescription}"`);
     write(buildRoot, 'docs/language/overview.html', guide);
 
     const result = runChecker(buildRoot);
