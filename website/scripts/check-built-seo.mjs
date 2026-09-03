@@ -116,6 +116,9 @@ function checkPage(file, expectedUrl, violations) {
     return;
   }
   const source = readFileSync(file, 'utf8');
+  if (isNoIndex(source)) {
+    violations.push(`${relative}: noindex page must not appear in sitemap.xml`);
+  }
   const pageTitle = title(source);
   const description = metadataValue(source, 'description');
   const canonical = canonicalUrl(source);

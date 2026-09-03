@@ -13,3 +13,12 @@ test('JSON-LD serialization cannot terminate its script element', () => {
   assert.doesNotMatch(serialized, /<\/script/i);
   assert.deepEqual(JSON.parse(serialized), value);
 });
+
+test('JSON-LD serialization rejects values without a JSON representation', () => {
+  for (const value of [undefined, () => {}, Symbol('json-ld')]) {
+    assert.throws(
+      () => serializeJsonLd(value),
+      /JSON-LD value must have a JSON representation/,
+    );
+  }
+});

@@ -1,3 +1,7 @@
 export function serializeJsonLd(value) {
-  return JSON.stringify(value).replaceAll('<', '\\u003c');
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new TypeError('JSON-LD value must have a JSON representation');
+  }
+  return serialized.replaceAll('<', '\\u003c');
 }

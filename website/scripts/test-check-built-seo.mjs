@@ -187,6 +187,34 @@ test('SEO artifact checker excludes noindex pages from sitemap coverage', () => 
   });
 });
 
+test('SEO artifact checker rejects noindex pages listed in the sitemap', () => {
+  withFixture((buildRoot) => {
+    const sitemap = readFileSync(path.join(buildRoot, 'sitemap.xml'), 'utf8');
+    write(
+      buildRoot,
+      'sitemap.xml',
+      sitemap.replace(
+        '</urlset>',
+        `<url><loc>${siteRoot}private</loc><lastmod>2026-09-02</lastmod></url></urlset>`,
+      ),
+    );
+    write(
+      buildRoot,
+      'private.html',
+      pageHtml({
+        url: `${siteRoot}private`,
+        title: 'Private Jazz guide · Jazz',
+        description: 'A deliberately non-indexable Jazz documentation page.',
+        schemaType: 'TechArticle',
+      }).replace('<head>', '<head><meta name="robots" content="noindex, nofollow">'),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, false);
+    assert.match(result.output, /private\.html.+noindex.+sitemap/i);
+  });
+});
+
 test('SEO artifact checker rejects incomplete canonical and social metadata', () => {
   withFixture((buildRoot) => {
     const homepage = readFileSync(path.join(buildRoot, 'index.html'), 'utf8');

@@ -6,8 +6,10 @@ type SitemapItem = {
 };
 
 export function latestGitDate(websiteRoot: string, repositoryPaths: string[]): string;
-export function withHomepageLastmod(
+export function withSitemapLastmods(
   items: SitemapItem[],
   homepageUrl: string,
-  lastmod: string,
+  homepageLastmod: string,
+  documentationRootUrl: string,
+  documentationLastmod: string,
 ): SitemapItem[];

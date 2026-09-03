@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import {latestGitDate, withHomepageLastmod} from './sitemap-lastmod.mjs';
+import {latestGitDate, withSitemapLastmods} from './sitemap-lastmod.mjs';
 
 function git(cwd, args, date) {
   execFileSync('git', args, {
@@ -40,17 +40,31 @@ test('homepage modification date includes generated-content dependencies', () =>
   }
 });
 
-test('homepage modification date override leaves documentation entries unchanged', () => {
+test('shared modification dates update affected pages without replacing newer page dates', () => {
   const items = [
     {url: 'https://un3qual.github.io/jazz/', lastmod: '2026-08-01'},
+    {url: 'https://un3qual.github.io/jazz/docs', lastmod: '2026-08-10'},
     {url: 'https://un3qual.github.io/jazz/docs/language/overview', lastmod: '2026-08-15'},
+    {url: 'https://un3qual.github.io/jazz/docs/reference/grammar', lastmod: '2026-09-03'},
+    {url: 'https://un3qual.github.io/jazz/docs-preview', lastmod: '2026-08-18'},
+    {url: 'https://un3qual.github.io/jazz/playground', lastmod: '2026-08-20'},
   ];
 
   assert.deepEqual(
-    withHomepageLastmod(items, 'https://un3qual.github.io/jazz/', '2026-09-02'),
+    withSitemapLastmods(
+      items,
+      'https://un3qual.github.io/jazz/',
+      '2026-09-02',
+      'https://un3qual.github.io/jazz/docs',
+      '2026-09-01',
+    ),
     [
       {url: 'https://un3qual.github.io/jazz/', lastmod: '2026-09-02'},
-      items[1],
+      {url: 'https://un3qual.github.io/jazz/docs', lastmod: '2026-09-01'},
+      {url: 'https://un3qual.github.io/jazz/docs/language/overview', lastmod: '2026-09-01'},
+      items[3],
+      items[4],
+      items[5],
     ],
   );
 });
