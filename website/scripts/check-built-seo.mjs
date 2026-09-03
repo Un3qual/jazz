@@ -2,6 +2,7 @@ import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 
 const SITE_ROOT = 'https://un3qual.github.io/jazz/';
+const SITE_ROOT_PATH = new URL(SITE_ROOT).pathname;
 const buildRoot = path.resolve(
   process.argv[2] ?? path.join(import.meta.dirname, '..', 'build'),
 );
@@ -130,7 +131,8 @@ function expectedHtmlFile(url, violations) {
     violations.push(`sitemap.xml: URL is outside the canonical site: ${url}`);
     return undefined;
   }
-  const route = url.slice(SITE_ROOT.length).replace(/\/$/, '');
+  const route = decodeURIComponent(new URL(url).pathname.slice(SITE_ROOT_PATH.length))
+    .replace(/\/$/, '');
   return path.join(buildRoot, route ? `${route}.html` : 'index.html');
 }
 

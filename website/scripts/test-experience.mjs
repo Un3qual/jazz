@@ -545,6 +545,39 @@ test('active Docusaurus configuration preserves the public site contract', async
   assert.equal(typeof classic.sitemap.createSitemapItems, 'function');
 });
 
+test('site copyright output is reproducible across build dates', () => {
+  function copyrightAt(now) {
+    const script = `
+      const RealDate = Date;
+      const now = ${JSON.stringify(now)};
+      globalThis.Date = class extends RealDate {
+        constructor(...args) {
+          super(...(args.length === 0 ? [now] : args));
+        }
+
+        static now() {
+          return new RealDate(now).valueOf();
+        }
+      };
+      const {loadSiteConfig} = await import('@docusaurus/core/lib/server/config.js');
+      const {siteConfig} = await loadSiteConfig({
+        siteDir: ${JSON.stringify(websiteRoot)},
+      });
+      process.stdout.write(siteConfig.themeConfig.footer.copyright);
+    `;
+    return execFileSync(
+      process.execPath,
+      ['--input-type=module', '--eval', script],
+      {cwd: websiteRoot, encoding: 'utf8'},
+    );
+  }
+
+  assert.equal(
+    copyrightAt('2030-06-01T12:00:00Z'),
+    copyrightAt('2031-06-01T12:00:00Z'),
+  );
+});
+
 test('website-producing workflows preserve history for sitemap modification dates', () => {
   for (const [relativePath, jobPattern] of [
     ['.github/workflows/docs-pages.yml', /\n  build:[\s\S]*?(?=\n  deploy:)/],

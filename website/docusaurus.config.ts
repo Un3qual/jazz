@@ -208,7 +208,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} Jazz contributors.`,
+      copyright: 'Copyright © 2026 Jazz contributors.',
     },
     prism: {
       theme: prismThemes.github,

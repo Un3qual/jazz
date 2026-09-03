@@ -131,6 +131,36 @@ test('SEO artifact checker accepts complete indexable pages and ignores utility 
   });
 });
 
+test('SEO artifact checker resolves percent-encoded sitemap routes to generated files', () => {
+  withFixture((buildRoot) => {
+    const encodedUrl = `${siteRoot}docs/language/caf%C3%A9`;
+    const sitemapPath = path.join(buildRoot, 'sitemap.xml');
+    const sitemap = readFileSync(sitemapPath, 'utf8');
+    write(
+      buildRoot,
+      'sitemap.xml',
+      sitemap.replace(
+        '</urlset>',
+        `<url><loc>${encodedUrl}</loc><lastmod>2026-09-03</lastmod></url></urlset>`,
+      ),
+    );
+    write(
+      buildRoot,
+      'docs/language/café.html',
+      pageHtml({
+        url: encodedUrl,
+        title: 'Jazz Unicode route guide · Jazz',
+        description: 'Learn how Jazz documentation supports canonical Unicode routes.',
+        schemaType: 'TechArticle',
+      }),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
+    assert.match(result.output, /3 indexable pages/);
+  });
+});
+
 test('SEO artifact checker compares decoded metadata with structured data', () => {
   withFixture((buildRoot) => {
     const url = `${siteRoot}docs/language/overview`;
