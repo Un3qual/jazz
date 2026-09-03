@@ -41,6 +41,10 @@ function decodeHtmlReferences(value) {
   );
 }
 
+function unicodeLength(value) {
+  return [...value].length;
+}
+
 function attributes(tag) {
   return Object.fromEntries(
     [...tag.matchAll(/([:\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)].map(
@@ -109,7 +113,8 @@ function sitemapItems(source, violations) {
   const items = [];
   for (const match of source.matchAll(/<url>([\s\S]*?)<\/url>/gi)) {
     const block = match[1];
-    const loc = block.match(/<loc>([^<]+)<\/loc>/i)?.[1];
+    const encodedLoc = block.match(/<loc>([^<]+)<\/loc>/i)?.[1];
+    const loc = encodedLoc ? decodeHtmlReferences(encodedLoc) : undefined;
     const lastmod = block.match(/<lastmod>([^<]+)<\/lastmod>/i)?.[1];
     if (!loc) {
       violations.push('sitemap.xml: contains a URL without loc');
@@ -167,10 +172,10 @@ function checkPage(file, expectedUrl, violations) {
     'twitter:image',
   ];
 
-  if (!pageTitle || pageTitle.length > 70) {
+  if (!pageTitle || unicodeLength(pageTitle) > 70) {
     violations.push(`${relative}: title must contain 1-70 characters`);
   }
-  if (!trimmedDescription || trimmedDescription.length > 160) {
+  if (!trimmedDescription || unicodeLength(trimmedDescription) > 160) {
     violations.push(`${relative}: description must contain 1-160 characters`);
   }
   if (canonical !== expectedUrl) {

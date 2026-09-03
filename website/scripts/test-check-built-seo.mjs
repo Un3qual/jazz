@@ -161,6 +161,36 @@ test('SEO artifact checker resolves percent-encoded sitemap routes to generated 
   });
 });
 
+test('SEO artifact checker decodes XML references in sitemap locations', () => {
+  withFixture((buildRoot) => {
+    const url = `${siteRoot}docs/language/types&effects`;
+    const sitemapPath = path.join(buildRoot, 'sitemap.xml');
+    const sitemap = readFileSync(sitemapPath, 'utf8');
+    write(
+      buildRoot,
+      'sitemap.xml',
+      sitemap.replace(
+        '</urlset>',
+        `<url><loc>${url.replace('&', '&amp;')}</loc><lastmod>2026-09-03</lastmod></url></urlset>`,
+      ),
+    );
+    write(
+      buildRoot,
+      'docs/language/types&effects.html',
+      pageHtml({
+        url,
+        title: 'Jazz types and effects guide · Jazz',
+        description: 'Learn how Jazz represents types and effects in documented programs.',
+        schemaType: 'TechArticle',
+      }),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
+    assert.match(result.output, /3 indexable pages/);
+  });
+});
+
 test('SEO artifact checker reports malformed percent escapes without aborting', () => {
   withFixture((buildRoot) => {
     const sitemapPath = path.join(buildRoot, 'sitemap.xml');
@@ -226,6 +256,28 @@ test('SEO artifact checker rejects whitespace-only descriptions', () => {
     const result = runChecker(buildRoot);
     assert.equal(result.ok, false);
     assert.match(result.output, /description must contain 1-160 characters/);
+  });
+});
+
+test('SEO artifact checker counts Unicode code points in metadata limits', () => {
+  withFixture((buildRoot) => {
+    const title = `${'T'.repeat(69)}🎷`;
+    const description = `${'D'.repeat(159)}🎷`;
+    assert.equal([...title].length, 70);
+    assert.equal([...description].length, 160);
+    write(
+      buildRoot,
+      'docs/language/overview.html',
+      pageHtml({
+        url: `${siteRoot}docs/language/overview`,
+        title,
+        description,
+        schemaType: 'TechArticle',
+      }),
+    );
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
   });
 });
 
