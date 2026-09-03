@@ -53,7 +53,7 @@ function title(source) {
 
 function structuredData(source, violations, label) {
   const values = [];
-  const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
   for (const match of source.matchAll(pattern)) {
     if (attributes(match[1]).type !== 'application/ld+json') {
       continue;

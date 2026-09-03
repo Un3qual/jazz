@@ -203,3 +203,14 @@ test('SEO artifact checker rejects missing page-specific structured data', () =>
     assert.match(result.output, /TechArticle/);
   });
 });
+
+test('SEO artifact checker accepts whitespace in JSON-LD closing script tags', () => {
+  withFixture((buildRoot) => {
+    const guidePath = path.join(buildRoot, 'docs/language/overview.html');
+    const guide = readFileSync(guidePath, 'utf8');
+    write(buildRoot, 'docs/language/overview.html', guide.replace('</script>', '</script >'));
+
+    const result = runChecker(buildRoot);
+    assert.equal(result.ok, true, result.output);
+  });
+});
