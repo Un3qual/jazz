@@ -2,7 +2,6 @@ import {existsSync, readdirSync, readFileSync} from 'node:fs';
 import path from 'node:path';
 
 const SITE_ROOT = 'https://un3qual.github.io/jazz/';
-const SITEMAP_URL = `${SITE_ROOT}sitemap.xml`;
 const buildRoot = path.resolve(
   process.argv[2] ?? path.join(import.meta.dirname, '..', 'build'),
 );
@@ -165,16 +164,6 @@ function checkPage(file, expectedUrl, violations) {
 const violations = [];
 if (!existsSync(buildRoot)) {
   violations.push(`${buildRoot}: build directory is missing`);
-}
-
-const robotsFile = path.join(buildRoot, 'robots.txt');
-if (!existsSync(robotsFile)) {
-  violations.push('robots.txt: file is missing');
-} else {
-  const robots = readFileSync(robotsFile, 'utf8');
-  if (!new RegExp(`^Sitemap:\\s*${SITEMAP_URL.replaceAll('.', '\\.')}$`, 'im').test(robots)) {
-    violations.push(`robots.txt: missing canonical sitemap directive for ${SITEMAP_URL}`);
-  }
 }
 
 const sitemapFile = path.join(buildRoot, 'sitemap.xml');

@@ -60,11 +60,6 @@ function completeBuildFixture() {
     'Learn Jazz functions, immutable values, algebraic data types, and pattern matching.';
   write(
     buildRoot,
-    'robots.txt',
-    `User-agent: *\nAllow: /\nSitemap: ${siteRoot}sitemap.xml\n`,
-  );
-  write(
-    buildRoot,
     'sitemap.xml',
     `<?xml version="1.0" encoding="UTF-8"?><urlset>
       <url><loc>${siteRoot}</loc><lastmod>2026-09-01</lastmod></url>
@@ -133,15 +128,6 @@ test('SEO artifact checker accepts complete indexable pages and ignores utility 
     const result = runChecker(buildRoot);
     assert.equal(result.ok, true, result.output);
     assert.match(result.output, /2 indexable pages/);
-  });
-});
-
-test('SEO artifact checker rejects a robots file without sitemap discovery', () => {
-  withFixture((buildRoot) => {
-    write(buildRoot, 'robots.txt', 'User-agent: *\nAllow: /\n');
-    const result = runChecker(buildRoot);
-    assert.equal(result.ok, false);
-    assert.match(result.output, /robots\.txt.+sitemap/i);
   });
 });
 

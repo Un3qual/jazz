@@ -539,6 +539,22 @@ test('active Docusaurus configuration preserves the public site contract', async
   });
 });
 
+test('website-producing workflows preserve history for sitemap modification dates', () => {
+  for (const [relativePath, jobPattern] of [
+    ['.github/workflows/docs-pages.yml', /\n  build:[\s\S]*?(?=\n  deploy:)/],
+    ['.github/workflows/ci-pr.yml', /\n  docs-and-site:[\s\S]*?(?=\n  compiler-fast:)/],
+  ]) {
+    const workflow = read(relativePath);
+    const websiteJob = workflow.match(jobPattern)?.[0];
+    const docsCheckout = websiteJob?.match(
+      /- name: Check out repository[\s\S]*?(?=\n\s+- name:|$)/,
+    )?.[0];
+
+    assert.ok(docsCheckout, `${relativePath}: missing website checkout`);
+    assert.match(docsCheckout, /fetch-depth:\s*0/);
+  }
+});
+
 test('primary navigation separates learning, library, and reference contexts', async () => {
   const {loadSiteConfig} = await import(
     '@docusaurus/core/lib/server/config.js'
