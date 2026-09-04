@@ -1,33 +1,27 @@
 ---
-id: JN-COMPILER-ANALYZED-CORE-001
+id: JN-COMPILER-OUTCOMES-001
 status: ready
 priority: P1
-size: L
+size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 11"
+plan_section: "Task 12"
 target_paths:
-  - src/Jazz/Compiler/Runtime.hs
-  - src/Jazz/Compiler/Runtime/Request.hs
-  - src/Jazz/Compiler/Runtime/Engine.hs
-  - src/Jazz/Compiler/Runtime/Types.hs
-  - src/Jazz/Compiler/Runtime/ScopePlan.hs
-  - src/Jazz/Compiler/Runtime/HostEvaluation.hs
-  - src/Jazz/Compiler/Runtime/Semantics.hs
-  - src/Jazz/Compiler/Runtime/Primitives.hs
-  - src/Jazz/Compiler/ModuleRuntime.hs
-  - src/Jazz/Compiler/Driver.hs
-  - src/Jazz/Compiler/RuntimeHints.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - src/Jazz/Compiler/TypeInference/Elaboration.hs
+  - src/Jazz/Compiler/TypeInference/Elaboration/Types.hs
+  - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
+  - src/Jazz/Compiler/TypedCore.hs
+  - jazz/compiler/TypedCoreTypes.jz
+  - test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreContract/ManifestTests.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/Support.hs
   - jazz.cabal
-  - test/Jazz/Compiler/Semantics/RuntimeSemanticsSpec.hs
-  - test/Jazz/Compiler/Modules/ModulePipelineContractSpec.hs
-  - test/Jazz/Compiler/Modules/Loader/CapabilitiesTests.hs
-  - test/Jazz/Compiler/ProfilingSpec.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test cli-spec runtime-semantics-spec module-pipeline-contract-spec loader-spec profiling-spec runtime-observation-spec --test-show-details=direct --jobs=1
-deliverable: "Move the retained interpreter onto analyzed core, consume node-local runtime plans directly, and delete the temporary runtime-hint projection protocol."
-last_verified: 2026-09-01
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec jazz-typed-core-contract-spec jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
+deliverable: "Consolidate Typed Core production outcomes into one concrete result, delete adapters, and separate the portable schema while retaining the concrete lowering result."
+last_verified: 2026-09-04
 ---
 
 # Jazz Compiler Architecture Simplification Implementation Plan
@@ -39,7 +33,7 @@ last_verified: 2026-09-01
 
 **Goal:** Replace Jazz's overlapping Haskell compiler representations with one
 phase-indexed canonical program, four intentional type abstraction levels,
-node-local semantic facts, and one checked-build vocabulary while preserving
+node-local semantic facts, and concrete compiler build outcomes while preserving
 the existing interpreter and public language behavior.
 
 **Architecture:** Introduce neutral identity and type modules first, then make
@@ -1190,100 +1184,38 @@ interpreter.
   git commit -m "refactor: interpret analyzed core directly"
   ```
 
-### Task 12: Consolidate compiler artifact outcomes
+### Task 12: Consolidate Typed Core outcomes
 
-**Files:**
+Maintainer-approved revision (2026-09-04): use one concrete Typed Core result;
+retain the concrete lowering result. No generic `CheckedBuild` or speculative
+`Functor`/`Foldable`/`Traversable` API or tests.
 
-- Create: `src/Jazz/Compiler/CheckedBuild.hs`
-- Create: `src/Jazz/Compiler/TypedCore/Portable.hs`
-- Modify: `src/Jazz/Compiler/TypeInference.hs`
-- Modify: `src/Jazz/Compiler/TypeInference/Elaboration.hs`
-- Modify: `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`
-- Modify: `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`
-- Modify: `src/Jazz/Compiler/LoweredIR/Lower.hs`
-- Modify: `src/Jazz/Compiler/TypedCore.hs`
-- Modify: `jazz/compiler/TypedCoreTypes.jz`
-- Modify: `test/Jazz/Compiler/Bootstrap/CanonicalTypedCoreComparison.hs`
-- Modify: `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/Support.hs`
-- Modify: `test/Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs`
-- Modify: `test/Jazz/Compiler/HaskellTypeclassContractsSpec.hs`
-- Modify: `jazz.cabal`
+**Files:** `src/Jazz/Compiler/TypeInference.hs`,
+`src/Jazz/Compiler/TypeInference/Elaboration.hs`,
+`src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`,
+`src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
+`src/Jazz/Compiler/TypedCore.hs`, new `src/Jazz/Compiler/TypedCore/Portable.hs`,
+`jazz/compiler/TypedCoreTypes.jz`, affected bootstrap contract tests, `jazz.cabal`.
 
-**Interfaces:**
-
-- Produces:
-
-  ```haskell
-  data CheckedBuild rejected unsupported invalid output
-    = BuildRejected rejected
-    | BuildUnsupported (NonEmpty unsupported)
-    | BuildInvalid (NonEmpty invalid)
-    | BuildSucceeded output
-
-  data TypedCoreRejection = TypedCoreRejectedByDiagnostics
-
-  type TypedCoreBuildResult =
-    CheckedBuild
-      TypedCoreRejection
-      TypedCoreProductionFailure
-      TypedCoreValidationFailure
-      ValidatedTypedProgram
-
-  type LoweredIRBuildResult =
-    CheckedBuild
-      (NonEmpty TypedCoreValidationFailure)
-      LoweredIRLoweringFailure
-      LoweredIRValidationFailure
-      ValidatedLoweredProgram
-  ```
-
-- [ ] **Step 1: Add failing checked-build contracts.** Test `Functor`,
-      `Foldable`, and `Traversable` affect only success, `NonEmpty` failure
-      preservation, and exact conversion of all current production/lowering
-      statuses.
-
-- [ ] **Step 2: Run focused suites and confirm `CheckedBuild` is absent.**
+- [ ] Run the existing characterization suites before editing:
 
   ```sh
-  nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
+  nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec jazz-typed-core-contract-spec jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=failures --jobs=1
   ```
 
-- [ ] **Step 3: Implement the generic outcome.** Derive stock/anyclass instances
-      and `Functor`/`Foldable`/`Traversable`; do not add a type-level status.
-
-- [ ] **Step 4: Replace Typed Core wrappers.** Make
-      `TypedCoreProductionResult` a record containing `InferenceResult` and
-      `TypedCoreBuildResult`. Delete `TypedCoreProductionStatus`, private
-      `TypedCoreProductionOutcome`, conversion functions, and duplicated public
-      result constructors. Temporary domain pattern synonyms may exist only during
-      this task.
-
-- [ ] **Step 5: Replace lowerer results.** Return `LoweredIRBuildResult` from raw
-      and validated entry points; raw Typed Core validation maps to
-      `BuildRejected`, profile gaps to `BuildUnsupported`, Lowered IR validation to
-      `BuildInvalid`, and success to `BuildSucceeded`.
-
-- [ ] **Step 6: Isolate the portable schema.** Rename the hosted contract to
-      `PortableTypedCoreOutcome`, implement one total projection in
-      `TypedCore.Portable`, and update hosted Jazz plus canonical comparison. No
-      production consumer may pattern-match the portable type.
-
-- [ ] **Step 7: Delete migration patterns and verify absence.**
-
-  ```sh
-  rg -n "TypedCoreProductionStatus|TypedCoreProductionOutcome|TypedCoreOutcome|LoweredIRLoweringResult" src test jazz
-  nix --extra-experimental-features 'nix-command flakes' develop --command cabal test haskell-typeclass-contracts-spec jazz-typed-core-contract-spec jazz-typed-core-expression-direct-call-spec jazz-lowered-ir-contract-spec --test-show-details=direct --jobs=1
-  ```
-
-  Expected: only `PortableTypedCoreOutcome` remains from the portable naming
-  family and all suites pass.
-
-- [ ] **Step 8: Commit.**
-
-  ```sh
-  git add src/Jazz/Compiler jazz/compiler/TypedCoreTypes.jz test/Jazz/Compiler jazz.cabal
-  git commit -m "refactor: unify checked compiler outcomes"
-  ```
+- [ ] Rename the concrete public sum to `TypedCoreBuildResult`, retaining its
+      domain-specific constructors and validated success payload. Store it directly
+      in the private `TypedCoreProductionResult`. Remove the duplicate private
+      outcome, constructor adapters, and status conversion. Migrate consumers to
+      direct construction and observation without compatibility aliases.
+- [ ] Move the existing portable schema to `TypedCore.Portable`, rename its type
+      to `PortableTypedCoreOutcome` in Haskell and Jazz, and preserve encoded
+      constructor names. Retain the existing canonical encoder; do not introduce
+      an unused or lossy production-to-portable conversion.
+- [ ] Run the same characterization suites after editing, format touched files,
+      and run `git diff --check`. Confirm no old production status/outcome type
+      or adapter remains. Leave `LoweredIRLoweringResult` unchanged.
+- [ ] Commit with `refactor: consolidate typed core outcomes`.
 
 ### Task 13: Make Typed Core construction total after eligibility
 
@@ -1332,7 +1264,7 @@ interpreter.
 
 - [ ] **Step 1: Add failing eligibility separation tests.** For every currently
       accepted and rejected producer fixture, assert diagnostics map to
-      `BuildRejected`, unsupported features accumulate in canonical pre-order,
+      `TypedCoreProductionBlockedByDiagnostics`, unsupported features accumulate in canonical pre-order,
       eligible programs reach validation, and no failed result exposes a partial
       `TypedProgram`.
 
@@ -1354,10 +1286,10 @@ interpreter.
       than reconstructing them from names or spans.
 
 - [ ] **Step 5: Validate only after construction.** `produceTypedProgram`
-      implements this exact order: error diagnostics -> `BuildRejected`;
-      eligibility failures -> `BuildUnsupported`; `buildTypedProgram` ->
-      `validateTypedProgramOnce`; validation failure -> `BuildInvalid`; validated
-      artifact -> `BuildSucceeded`.
+      implements this exact order: error diagnostics -> `TypedCoreProductionBlockedByDiagnostics`;
+      eligibility failures -> `TypedCoreProductionUnsupported`; `buildTypedProgram` ->
+      `validateTypedProgramOnce`; validation failure -> `TypedCoreProductionInvariantFailures`; validated
+      artifact -> `TypedCoreProductionSucceeded`.
 
 - [ ] **Step 6: Delete provisional trees.** Remove `ProvisionalTypedExpr`,
       `ProvisionalTypedStatement`, retained per-node production failures, unsupported
@@ -1485,7 +1417,7 @@ interpreter.
   rg -n "SurfaceNumericType|SurfaceSignatureType|TypedNumericType|TIntegerLiteralType" src test
   rg -n "data (ParsedImport|CoreResolvedImport|ResolvedImport|ParsedModule|ResolvedModule|ResolvedProgram|CompiledModule|CompiledProgram|CompiledDependency|CompiledPrelude)" src
   rg -n "BindingRuntimeHintKey|RuntimeHints|RuntimeTypeHints|ProvisionalTypedExpr|ProvisionalTypedStatement" src test
-  rg -n "TypedCoreProductionStatus|TypedCoreProductionOutcome|LoweredIRLoweringResult|VTyped|VExplicitTypeApplication|VRuntimeExplicitResultHints" src test
+  rg -n "TypedCoreProductionStatus|TypedCoreProductionOutcome|VTyped|VExplicitTypeApplication|VRuntimeExplicitResultHints" src test
   rg -n "pattern (Surface|Typed|Legacy)|legacy.*(Name|Type|Expr|Module|Import|Program)" src test
   ```
 

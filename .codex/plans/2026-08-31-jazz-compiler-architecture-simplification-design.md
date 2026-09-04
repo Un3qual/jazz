@@ -377,59 +377,37 @@ projection provides material value.
 Runtime-owned `RuntimeModule` and `RuntimeProgram` remain separate because they
 hold evaluated values rather than compiler syntax.
 
-### 5. One checked-build outcome
+### 5. Concrete compiler build outcomes
 
-Compiler artifact construction uses one ordinary generic outcome:
-
-```haskell
-data CheckedBuild rejected unsupported invalid output
-  = BuildRejected rejected
-  | BuildUnsupported (NonEmpty unsupported)
-  | BuildInvalid (NonEmpty invalid)
-  | BuildSucceeded output
-  deriving stock (Eq, Show, Generic)
-  deriving (Functor, Foldable, Traversable, NFData)
-```
-
-Phase aliases retain domain language:
+Maintainer-approved revision (2026-09-04): consolidate the duplicated Typed Core
+outcomes without introducing a generic compiler-result abstraction.
 
 ```haskell
-type TypedCoreBuildResult =
-  CheckedBuild
-    TypedCoreRejection
-    TypedCoreProductionFailure
-    TypedCoreValidationFailure
-    ValidatedTypedProgram
-
-type LoweredIRBuildResult =
-  CheckedBuild
-    (NonEmpty TypedCoreValidationFailure)
-    LoweredIRLoweringFailure
-    LoweredIRValidationFailure
-    ValidatedLoweredProgram
-
-data TypedCoreRejection
-  = TypedCoreRejectedByDiagnostics
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (NFData)
+data TypedCoreBuildResult
+  = TypedCoreProductionBlockedByDiagnostics
+  | TypedCoreProductionUnsupported (NonEmpty TypedCoreProductionFailure)
+  | TypedCoreProductionInvariantFailures (NonEmpty TypedCoreValidationFailure)
+  | TypedCoreProductionSucceeded ValidatedTypedProgram
+  deriving (Eq, Show)
 ```
 
-Domain-specific pattern synonyms may make migration call sites readable, but
-they must not recreate separate status and outcome types.
+`TypedCoreProductionResult` retains its private constructor, containing
+`InferenceResult` and `TypedCoreBuildResult`. Callers observe the concrete build
+result directly. Delete the duplicate private outcome, constructor adapters, and
+status conversion. Preserve the validated-program observation projection.
 
-`TypedCoreProductionResult` becomes a record containing the ordinary
-`InferenceResult` and a `TypedCoreBuildResult`. The private production outcome,
-public result outcome, and separate production-status sum disappear.
+Keep `LoweredIRLoweringResult` and its domain-specific constructors. There is no
+current shared caller requiring polymorphic result processing, so do not add
+`CheckedBuild`, generic instances, or tests of compiler-derived machinery.
 
-The hosted schema remains a deliberate serialization boundary. It is renamed
-`PortableTypedCoreOutcome`, owned by the bootstrap/contract layer, and produced
-by a total projection from `TypedCoreBuildResult`. Portable schema duplication
-is acceptable only at this boundary.
+Move the existing hosted outcome schema into `TypedCore.Portable` and name its
+type `PortableTypedCoreOutcome` in Haskell and Jazz. Preserve constructor names
+and encoded values. Keep its existing canonical encoder in the contract layer;
+do not invent an unused conversion from production failures to the narrower
+portable schema.
 
-`RuntimeOutcome` and `RunExecution` remain distinct. They describe program
-termination and host/driver orchestration, not compiler artifact construction.
-Type-level outcomes are not introduced; runtime success and failure are
-ordinary data.
+`RuntimeOutcome` and `RunExecution` remain distinct: they describe program
+termination and host/driver orchestration.
 
 ### 6. Complete analyzed-node facts
 
@@ -576,10 +554,10 @@ boundary without a role annotation. The builder is total over that input and
 performs one structural traversal into final Typed Core.
 
 The top-level producer constructs `TypedCoreBuildResult`: error diagnostics
-produce `BuildRejected TypedCoreRejectedByDiagnostics`; eligibility failures
-produce `BuildUnsupported`; and the completed `TypedProgram` is passed through
-the existing invariant validator to produce either `BuildInvalid` or
-`BuildSucceeded`. Thus eligibility does not claim to know about validation
+produce `TypedCoreProductionBlockedByDiagnostics`; eligibility failures
+produce `TypedCoreProductionUnsupported`; and the completed `TypedProgram` is passed through
+the existing invariant validator to produce either `TypedCoreProductionInvariantFailures` or
+`TypedCoreProductionSucceeded`. Thus eligibility does not claim to know about validation
 failures before an artifact exists, while unsupported constructs still cannot
 enter a successful typed artifact.
 
@@ -692,7 +670,7 @@ Specific gates are:
 - Runtime hint maps disappear after analyzed facts drive identical interpreter
   behavior across single- and multi-module execution.
 - Overlapping outcome wrappers disappear after all consumers use
-  `CheckedBuild` specializations or the portable projection.
+  the concrete build result or the portable schema.
 - Runtime value wrappers disappear only after runtime obligations fully own
   their behavior.
 - The raw-core interpreter can be retired only after full Typed Core ordinary
