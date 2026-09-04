@@ -24,6 +24,7 @@ module Jazz.Compiler.CapabilityFacts
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
     substituteClassMethodSignature,
+    substituteSignatureType,
     constraintFunctionArgumentTypes,
   )
 where

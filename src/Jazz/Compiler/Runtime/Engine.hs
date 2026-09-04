@@ -52,7 +52,6 @@ import Jazz.Compiler.AST
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
-    SignaturePayload,
     SignatureType,
     Statement (..),
   )
@@ -66,7 +65,8 @@ import Jazz.Compiler.BuiltinCatalog
 import Jazz.Compiler.CapabilityFacts
   ( concreteConstraintArgument,
     qualifiedMethodKey,
-    substituteClassMethodSignature,
+    signaturePayloadConstraintType,
+    substituteSignatureType,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -1027,7 +1027,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                         ( VQualifiedMethodApplication
                             methodKey
                             classParameter
-                            methodSignature
+                            (signaturePayloadConstraintType methodSignature)
                             emptyRuntimeMethodCandidates
                             emptyRuntimeAppliedArguments
                         )
@@ -1053,7 +1053,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 ( \(ImplMethod _ methodName methodExpr) ->
                     let methodKey = qualifiedMethodKey capabilityName methodName
                         methodName' = qualifiedMemberName capabilityName methodName
-                        evidence = runtimeEvidence methodModulePath implementationNodeId capabilityName methodName runtimeImplTarget methodKey
+                        evidence = runtimeEvidence methodModulePath implementationNodeId capabilityName methodName runtimeImplTarget
                      in ( methodName',
                           methodKey,
                           RuntimeMethodCandidate evidence (methodCandidateCell runtimeImplTarget methodName' methodKey methodExpr)
@@ -1102,7 +1102,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         Just (Right (VQualifiedMethodApplication _ classParameter methodSignature _ _)) ->
           attachRuntimeTypeHint
             ( runtimeConstraintType signatureModulePath
-                <$> substituteClassMethodSignature classParameter implTarget methodSignature
+                . substituteSignatureType classParameter implTarget
+                <$> methodSignature
             )
             methodValue
         _ ->
@@ -2189,7 +2190,7 @@ selectRuntimeEvidence evidenceReferences runtimeValue =
       any (runtimeEvidenceMatches runtimeEvidenceValue) evidenceReferences
 
 runtimeEvidenceMatches :: RuntimeEvidence -> EvidenceReference -> Bool
-runtimeEvidenceMatches (RuntimeEvidence capability implementation method _ _) reference =
+runtimeEvidenceMatches (RuntimeEvidence capability implementation method _) reference =
   canonicalCapability implementation capability
     == canonicalCapability (evidenceImplementation reference) (evidenceCapability reference)
     && implementation == evidenceImplementation reference
@@ -2209,15 +2210,13 @@ runtimeEvidence ::
   ResolvedName ->
   ResolvedName ->
   SignatureType 'Resolved ->
-  Text ->
   RuntimeEvidence
-runtimeEvidence modulePath implementationNodeId capabilityName methodName targetType methodKey =
+runtimeEvidence modulePath implementationNodeId capabilityName methodName targetType =
   RuntimeEvidence
     (CapabilityId capabilityName)
     implementationId
     (Just (MethodId (implementationId, mkIdentifier (identifierText methodName))))
     targetType
-    (Just methodKey)
   where
     implementationId = ImplId (runtimeModulePath modulePath, implementationNodeId)
 
@@ -2515,9 +2514,8 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
             methodCandidates =
               map
                 ( \(ImplMethod methodNode methodName methodExpr) ->
-                    let methodKey = qualifiedMethodKey capabilityName methodName
-                        qualifiedMethodName = qualifiedMemberName capabilityName methodName
-                        evidence = runtimeEvidence methodModulePath implementationNodeId capabilityName methodName runtimeImplTarget methodKey
+                    let qualifiedMethodName = qualifiedMemberName capabilityName methodName
+                        evidence = runtimeEvidence methodModulePath implementationNodeId capabilityName methodName runtimeImplTarget
                      in ( qualifiedMethodName,
                           RuntimeMethodCandidate
                             evidence
@@ -2645,7 +2643,7 @@ applyQualifiedMethodWithHost ::
   BuiltinResolutionMode ->
   Text ->
   Text ->
-  SignaturePayload 'Resolved ->
+  Maybe (SignatureType 'Resolved) ->
   RuntimeMethodCandidates ->
   RuntimeAppliedArguments ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue

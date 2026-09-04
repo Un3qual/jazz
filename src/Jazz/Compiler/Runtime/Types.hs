@@ -86,7 +86,6 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
     NumericType,
-    SignaturePayload,
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
@@ -112,11 +111,11 @@ newtype RuntimeIntMetadata = RuntimeIntMetadata
   }
   deriving stock (Eq, Show)
 
-data RuntimeEvidence = RuntimeEvidence CapabilityId ImplId (Maybe MethodId) (SignatureType 'Resolved) (Maybe Text)
+data RuntimeEvidence = RuntimeEvidence CapabilityId ImplId (Maybe MethodId) (SignatureType 'Resolved)
   deriving (Eq, Show)
 
 runtimeEvidenceTarget :: RuntimeEvidence -> SignatureType 'Resolved
-runtimeEvidenceTarget (RuntimeEvidence _ _ _ implTarget _) = implTarget
+runtimeEvidenceTarget (RuntimeEvidence _ _ _ implTarget) = implTarget
 
 data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
 
@@ -194,7 +193,7 @@ data RuntimeValue
   | VSectionRight Text RuntimeValue
   | VDeclaredOperatorRightSection Text RuntimeValue RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
-  | VQualifiedMethodState Text Text (SignaturePayload 'Resolved) RuntimeMethodCandidates RuntimeAppliedArguments
+  | VQualifiedMethodState Text Text (Maybe (SignatureType 'Resolved)) RuntimeMethodCandidates RuntimeAppliedArguments
   | VAnnotatedState RuntimeAnnotation RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
@@ -285,7 +284,7 @@ pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
 -- | Historical ordered-list view retained for public runtime consumers.
-pattern VQualifiedMethod :: Text -> Text -> SignaturePayload 'Resolved -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
+pattern VQualifiedMethod :: Text -> Text -> Maybe (SignatureType 'Resolved) -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
 pattern VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs <-
   VQualifiedMethodState
     methodKey
@@ -303,7 +302,7 @@ pattern VQualifiedMethod methodKey classParameter methodSignature candidates cap
         (runtimeAppliedArgumentsFromList capturedArgs)
 
 -- | Internal evaluator view retaining append-efficient ordered collections.
-pattern VQualifiedMethodApplication :: Text -> Text -> SignaturePayload 'Resolved -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
+pattern VQualifiedMethodApplication :: Text -> Text -> Maybe (SignatureType 'Resolved) -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
 pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
   VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
 

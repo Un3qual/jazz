@@ -51,6 +51,7 @@ module Jazz.Compiler.Runtime.Semantics
 where
 
 import Control.Monad (foldM, zipWithM)
+import Data.Bifunctor (bimap)
 import Data.Char
   ( isControl,
     ord,
@@ -68,7 +69,6 @@ import Jazz.Compiler.AST
     Expr,
     Literal (..),
     Pattern (..),
-    SignaturePayload,
     SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -85,8 +85,7 @@ import Jazz.Compiler.CapabilityFacts
     constraintSignatureTypeVariableNamesInOrder,
     constraintSignatureTypesCompatible,
     identifierLooksLikeTypeVariable,
-    signaturePayloadConstraintType,
-    substituteClassMethodSignature,
+    substituteSignatureType,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -253,21 +252,8 @@ runtimeConstructorArgument :: Maybe [Text] -> SignatureType 'Resolved -> Signatu
 runtimeConstructorArgument = runtimeConstraintType
 
 runtimeConstraintType :: Maybe [Text] -> SignatureType 'Resolved -> SignatureType 'Resolved
-runtimeConstraintType maybeModulePath signatureType =
-  case signatureType of
-    TypeVariable name -> TypeVariable (runtimeTypeName maybeModulePath name)
-    TypeName name -> TypeName (runtimeTypeName maybeModulePath name)
-    TypeApplication name arguments ->
-      TypeApplication
-        (runtimeTypeName maybeModulePath name)
-        (map (runtimeConstraintType maybeModulePath) arguments)
-    TypeList elementType -> TypeList (runtimeConstraintType maybeModulePath elementType)
-    TypeTuple elementTypes -> TypeTuple (map (runtimeConstraintType maybeModulePath) elementTypes)
-    TypeFunction argumentType resultType ->
-      TypeFunction
-        (runtimeConstraintType maybeModulePath argumentType)
-        (runtimeConstraintType maybeModulePath resultType)
-    _ -> signatureType
+runtimeConstraintType maybeModulePath =
+  bimap (runtimeTypeName maybeModulePath) (runtimeTypeName maybeModulePath)
 
 runtimeTypeName :: Maybe [Text] -> ResolvedName -> ResolvedName
 runtimeTypeName maybeModulePath name
@@ -734,7 +720,7 @@ substituteSignatureTypeVariable variableName replacementType signatureType =
 
 runtimeQualifiedMethodIsFullyApplied ::
   Text ->
-  SignaturePayload 'Resolved ->
+  Maybe (SignatureType 'Resolved) ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   Bool
@@ -745,7 +731,7 @@ runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments ca
     candidates
   where
     candidateIsFullyApplied (RuntimeMethodCandidate evidence _) =
-      case substituteClassMethodSignature classParameter implTarget methodSignature of
+      case substituteSignatureType classParameter implTarget <$> methodSignature of
         Just substitutedSignature ->
           let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
            in runtimeAppliedArgumentCount arguments >= length argumentTypes
@@ -754,11 +740,12 @@ runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments ca
       where
         implTarget = runtimeEvidenceTarget evidence
 
-runtimeMethodCandidateExactlyMatches :: Text -> SignaturePayload 'Resolved -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateExactlyMatches :: Text -> Maybe (SignatureType 'Resolved) -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
-  case (signaturePayloadConstraintType methodSignature, substituteClassMethodSignature classParameter implTarget methodSignature) of
-    (Just genericSignature, Just substitutedSignature) ->
-      let (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
+  case methodSignature of
+    Just genericSignature ->
+      let substitutedSignature = substituteSignatureType classParameter implTarget genericSignature
+          (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
           (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
           suppliedArgumentCount = length arguments
           suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
@@ -870,9 +857,9 @@ runtimeFloatExactlyMatchesTypeName typeName metadata =
     ("Float64", Just NumericFloat64) -> True
     _ -> False
 
-runtimeMethodCandidateMatches :: Text -> SignaturePayload 'Resolved -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateMatches :: Text -> Maybe (SignatureType 'Resolved) -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
-  case substituteClassMethodSignature classParameter implTarget methodSignature of
+  case substituteSignatureType classParameter implTarget <$> methodSignature of
     Just substitutedSignature ->
       let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
        in length arguments <= length argumentTypes
@@ -1353,7 +1340,7 @@ isFunctionValue value =
 
 preferredRuntimeMethodCandidates ::
   Text ->
-  SignaturePayload 'Resolved ->
+  Maybe (SignatureType 'Resolved) ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
@@ -1375,7 +1362,7 @@ preferredRuntimeMethodCandidates classParameter methodSignature arguments candid
 preferredRuntimeMethodCandidatesForTypeHint ::
   SignatureType 'Resolved ->
   Text ->
-  SignaturePayload 'Resolved ->
+  Maybe (SignatureType 'Resolved) ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
@@ -1396,10 +1383,8 @@ preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignat
 
     candidateRemainingType (RuntimeMethodCandidate evidence _) = do
       substitutedSignature <-
-        substituteClassMethodSignature
-          classParameter
-          (runtimeEvidenceTarget evidence)
-          methodSignature
+        substituteSignatureType classParameter (runtimeEvidenceTarget evidence)
+          <$> methodSignature
       dropFunctionArguments (runtimeAppliedArgumentCount arguments) substitutedSignature
 
     dropFunctionArguments remaining signatureType
