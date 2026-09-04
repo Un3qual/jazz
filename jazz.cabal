@@ -118,6 +118,7 @@ library jazz-internal
       Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
       Jazz.Compiler.LoweredIR.Validate
       Jazz.Compiler.TypedCore
+      Jazz.Compiler.TypedCore.Portable
       Jazz.Compiler.TypedCore.Query
       Jazz.Compiler.TypedCore.Validate
       Jazz.Compiler.ModuleGraph

@@ -5,8 +5,7 @@
 -- inference path does not retain these values; they are used only by the
 -- explicit resolved-module producer.
 module Jazz.Compiler.TypeInference.Elaboration
-  ( TypedCoreProductionStatus (..),
-    TypedCoreProductionOutcome,
+  ( TypedCoreBuildResult (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
@@ -19,14 +18,11 @@ module Jazz.Compiler.TypeInference.Elaboration
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
     blockProductionFailureKindAndDetail,
-    blockedTypedCoreProductionOutcome,
     expressionDependencyNames,
     specializeInferredExpression,
     finalizeValidatedTypedCoreExpressionDirectCall,
     isTypedCoreDirectCallOperator,
-    typedCoreProductionOutcomeStatus,
-    typedCoreProductionOutcomeValidatedProgram,
-    unsupportedTypedCoreProductionOutcome,
+    typedCoreBuildValidatedProgram,
   )
 where
 
@@ -51,18 +47,14 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
+    TypedCoreBuildResult (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
-    TypedCoreProductionOutcome,
     TypedCoreProductionPath (..),
-    TypedCoreProductionStatus (..),
     blockProductionFailureKindAndDetail,
-    blockedTypedCoreProductionOutcome,
-    typedCoreProductionOutcomeStatus,
-    typedCoreProductionOutcomeValidatedProgram,
-    unsupportedTypedCoreProductionOutcome,
+    typedCoreBuildValidatedProgram,
   )
 
 -- | Canonical free value references for dependency analysis. This walks the

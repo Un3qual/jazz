@@ -64,7 +64,7 @@ assertCompleteProduction label fixture = do
     (label <> " diagnostics")
     []
     (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult firstRun)))
-  case typedCoreProductionStatus firstRun of
+  case typedCoreProductionBuildResult firstRun of
     TypedCoreProductionSucceeded validatedProgram -> do
       let programValue = validatedTypedProgram validatedProgram
       assertEqual (label <> " typed-core validation") [] (validateTypedProgram programValue)
@@ -82,14 +82,14 @@ assertCompleteProduction label fixture = do
             <> Text.pack (show status)
         )
 
-assertProductionSucceeded :: Text -> TypedProgram -> TypedCoreProductionStatus -> IO ()
+assertProductionSucceeded :: Text -> TypedProgram -> TypedCoreBuildResult -> IO ()
 assertProductionSucceeded label expectedProgram status =
   case status of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual label expectedProgram (validatedTypedProgram validatedProgram)
     other -> failTest (label <> ": expected successful production, got " <> Text.pack (show other))
 
-assertProductionUnsupported :: Text -> [TypedCoreProductionFailure] -> TypedCoreProductionStatus -> IO ()
+assertProductionUnsupported :: Text -> [TypedCoreProductionFailure] -> TypedCoreBuildResult -> IO ()
 assertProductionUnsupported label expectedFailures status =
   case status of
     TypedCoreProductionUnsupported failures ->
@@ -132,7 +132,7 @@ assertUnboundName label name inferenceResult =
 assertUnboundLater :: Text -> InferenceResult -> IO ()
 assertUnboundLater label = assertUnboundName label "later"
 
-rejectedManifestExpectedStatuses :: [(Text, TypedCoreProductionStatus)]
+rejectedManifestExpectedStatuses :: [(Text, TypedCoreBuildResult)]
 rejectedManifestExpectedStatuses =
   [ ("source-diagnostic", TypedCoreProductionBlockedByDiagnostics),
     ( "invalid-portable-source-path",
@@ -205,7 +205,7 @@ rejectedManifestFailureKinds =
   | (name, status) <- rejectedManifestExpectedStatuses
   ]
 
-statusFailureKinds :: TypedCoreProductionStatus -> [TypedCoreProductionFailureKind]
+statusFailureKinds :: TypedCoreBuildResult -> [TypedCoreProductionFailureKind]
 statusFailureKinds status =
   case status of
     TypedCoreProductionBlockedByDiagnostics -> []

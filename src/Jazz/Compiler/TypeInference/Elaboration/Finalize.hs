@@ -86,14 +86,11 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
+    TypedCoreBuildResult (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
-    TypedCoreProductionOutcome,
     TypedCoreProductionPath (..),
-    invariantFailuresTypedCoreProductionOutcome,
-    succeededTypedCoreProductionOutcome,
-    unsupportedTypedCoreProductionOutcome,
   )
 import Jazz.Compiler.TypeInference.Solver
   ( integerLiteralRangeFitsNumericType,
@@ -116,7 +113,7 @@ finalizeValidatedTypedCoreExpressionDirectCall ::
   CoreModule 'Resolved ->
   InferState ->
   ProvisionalTypedExpr ->
-  TypedCoreProductionOutcome
+  TypedCoreBuildResult
 finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
@@ -163,7 +160,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
           moduleFailures = missingResultFailures <> fst exportResult
           productionFailures = structuredCatalogFailures <> moduleFailures <> statementFailures
        in case NonEmpty.nonEmpty productionFailures of
-            Just failures -> unsupportedTypedCoreProductionOutcome failures
+            Just failures -> TypedCoreProductionUnsupported failures
             Nothing ->
               case reverse typedStatements of
                 TypedExpressionStatement _ terminalExpression : _ ->
@@ -174,13 +171,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                           typedStatements
                           (typedExpressionInfo terminalExpression)
                    in case validateTypedProgramOnce programValue of
-                        Right validatedProgram -> succeededTypedCoreProductionOutcome validatedProgram
-                        Left failures -> invariantFailuresTypedCoreProductionOutcome failures
-                _ -> unsupportedTypedCoreProductionOutcome (NonEmpty.singleton missingModuleResultFailure)
+                        Right validatedProgram -> TypedCoreProductionSucceeded validatedProgram
+                        Left failures -> TypedCoreProductionInvariantFailures failures
+                _ -> TypedCoreProductionUnsupported (NonEmpty.singleton missingModuleResultFailure)
     ProvisionalUnsupportedExpression kind detail ->
-      unsupportedTypedCoreProductionOutcome (NonEmpty.singleton (failureAt 0 [] kind detail))
+      TypedCoreProductionUnsupported (NonEmpty.singleton (failureAt 0 [] kind detail))
     _ ->
-      unsupportedTypedCoreProductionOutcome
+      TypedCoreProductionUnsupported
         (NonEmpty.singleton (failureAt 0 [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail))
   where
     modulePath = NonEmpty.toList (modulePathTextSegments (coreModulePath resolvedModule))

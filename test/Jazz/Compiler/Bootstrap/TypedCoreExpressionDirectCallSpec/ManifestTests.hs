@@ -197,9 +197,9 @@ testRejectedManifestProducerFailures = do
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " manifest rejection repeatability") firstRun secondRun
-      assertEqual (name <> " first complete rejection") expectedStatus (typedCoreProductionStatus firstRun)
-      assertEqual (name <> " second complete rejection") expectedStatus (typedCoreProductionStatus secondRun)
-      pure (name, expectedStatus, typedCoreProductionStatus firstRun)
+      assertEqual (name <> " first complete rejection") expectedStatus (typedCoreProductionBuildResult firstRun)
+      assertEqual (name <> " second complete rejection") expectedStatus (typedCoreProductionBuildResult secondRun)
+      pure (name, expectedStatus, typedCoreProductionBuildResult firstRun)
 
 testAcceptedManifestPipeline :: IO ()
 testAcceptedManifestPipeline =
@@ -246,9 +246,9 @@ testAcceptedManifestPipeline =
           assertProductionSucceeded
             (name <> " complete typed production")
             expectedTypedProgram
-            (typedCoreProductionStatus firstProduction)
+            (typedCoreProductionBuildResult firstProduction)
           assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedTypedProgram)
-          case typedCoreProductionStatus firstProduction of
+          case typedCoreProductionBuildResult firstProduction of
             TypedCoreProductionSucceeded validatedTyped -> do
               let typedProgram = validatedTypedProgram validatedTyped
               assertEqual (name <> " produced typed validation") [] (validateTypedProgram typedProgram)

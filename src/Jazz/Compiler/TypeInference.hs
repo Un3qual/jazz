@@ -7,14 +7,14 @@
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
-    TypedCoreProductionStatus (..),
+    TypedCoreBuildResult (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionResult,
     typedCoreProductionInferenceResult,
-    typedCoreProductionStatus,
+    typedCoreProductionBuildResult,
     typedCoreProductionValidatedProgram,
     inferResolvedModuleTypedCoreExpressionDirectCall,
     analyzeSourceUnitExpressionWithBuiltins,
@@ -130,18 +130,14 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     InferredProductionFailure (..),
     ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
+    TypedCoreBuildResult (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionMode (..),
-    TypedCoreProductionOutcome,
     TypedCoreProductionPath (..),
-    TypedCoreProductionStatus (..),
     blockProductionFailureKindAndDetail,
-    blockedTypedCoreProductionOutcome,
-    typedCoreProductionOutcomeStatus,
-    typedCoreProductionOutcomeValidatedProgram,
-    unsupportedTypedCoreProductionOutcome,
+    typedCoreBuildValidatedProgram,
   )
 import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInSourceUnit)
 import Jazz.Compiler.TypeInference.Operator
@@ -239,18 +235,18 @@ data InferenceRequest = InferenceRequest
 
 -- | The constructor is private so callers can observe, but cannot rewrite, the
 -- inference result and its proof-carrying production outcome independently.
-data TypedCoreProductionResult = TypedCoreProductionResult InferenceResult TypedCoreProductionOutcome
+data TypedCoreProductionResult = TypedCoreProductionResult InferenceResult TypedCoreBuildResult
   deriving (Eq, Show)
 
 typedCoreProductionInferenceResult :: TypedCoreProductionResult -> InferenceResult
 typedCoreProductionInferenceResult (TypedCoreProductionResult inferenceResult _) = inferenceResult
 
-typedCoreProductionStatus :: TypedCoreProductionResult -> TypedCoreProductionStatus
-typedCoreProductionStatus (TypedCoreProductionResult _ outcome) = typedCoreProductionOutcomeStatus outcome
+typedCoreProductionBuildResult :: TypedCoreProductionResult -> TypedCoreBuildResult
+typedCoreProductionBuildResult (TypedCoreProductionResult _ outcome) = outcome
 
 typedCoreProductionValidatedProgram :: TypedCoreProductionResult -> Maybe ValidatedTypedProgram
 typedCoreProductionValidatedProgram (TypedCoreProductionResult _ outcome) =
-  typedCoreProductionOutcomeValidatedProgram outcome
+  typedCoreBuildValidatedProgram outcome
 
 inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Resolved -> IO InferenceResult
 inferExpressionWithBuiltins builtinMode settings =
@@ -578,17 +574,17 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
     let outcome = productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
     pure (TypedCoreProductionResult inferenceResult outcome)
 
-productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> InferredExpr -> TypedCoreProductionOutcome
+productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> InferredExpr -> TypedCoreBuildResult
 productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
-  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = blockedTypedCoreProductionOutcome
+  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = TypedCoreProductionBlockedByDiagnostics
   | otherwise =
       case NonEmpty.nonEmpty profileFailures of
-        Just failures -> unsupportedTypedCoreProductionOutcome failures
+        Just failures -> TypedCoreProductionUnsupported failures
         Nothing ->
           case inferredProvisionalExpr inferredResult of
             Just provisionalExpr -> finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
             Nothing ->
-              unsupportedTypedCoreProductionOutcome
+              TypedCoreProductionUnsupported
                 ( NonEmpty.singleton
                     (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
                 )

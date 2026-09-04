@@ -46,7 +46,7 @@ testLexicalCaptureProduction =
       assertProductionSucceeded
         (name <> " exact lexical typed program")
         expectedProgram
-        (typedCoreProductionStatus firstRun)
+        (typedCoreProductionBuildResult firstRun)
       assertEqual (name <> " expected lexical typed validation") [] (validateTypedProgram expectedProgram)
 
 testCurriedApplicationProduction :: IO ()
@@ -61,7 +61,7 @@ testCurriedApplicationProduction =
       assertProductionSucceeded
         (name <> " exact typed program")
         expectedProgram
-        (typedCoreProductionStatus firstRun)
+        (typedCoreProductionBuildResult firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
 testCurriedApplicationLowering :: IO ()
@@ -100,7 +100,7 @@ testNonCallableOversaturationDiagnostic = do
   assertEqual
     "non-callable oversaturation blocks typed-core production"
     TypedCoreProductionBlockedByDiagnostics
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
   assertEqual "blocked oversaturation has no validation proof" Nothing (typedCoreProductionValidatedProgram firstRun)
 
 testLexicalCaptureLowering :: IO ()
@@ -122,7 +122,7 @@ testLexicalCaptureFixtureMatrix = do
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable typed production") firstRun secondRun
-      case typedCoreProductionStatus firstRun of
+      case typedCoreProductionBuildResult firstRun of
         TypedCoreProductionSucceeded validatedTyped -> do
           let typedProgram = validatedTypedProgram validatedTyped
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
@@ -247,7 +247,7 @@ testClosureCaptureReviewRegression name = do
   firstProduction <- produceFixture fixture
   secondProduction <- produceFixture fixture
   assertEqual (name <> " repeatable typed production") firstProduction secondProduction
-  case typedCoreProductionStatus firstProduction of
+  case typedCoreProductionBuildResult firstProduction of
     TypedCoreProductionSucceeded validatedTyped -> do
       let typedProgram = validatedTypedProgram validatedTyped
       assertEqual (name <> " valid typed core") [] (validateTypedProgram typedProgram)
@@ -566,7 +566,7 @@ testForwardVisibilityBoundary = do
   assertEqual
     "ordinary unsigned forward caller blocks typed-core production"
     TypedCoreProductionBlockedByDiagnostics
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
   mapM_ assertInvisible forwardVisibilityNegativeFixtures
   where
     assertInvisible fixture = do
@@ -585,7 +585,7 @@ testForwardVisibilityBoundary = do
       assertEqual
         (fixtureName fixture <> " blocks typed-core production")
         TypedCoreProductionBlockedByDiagnostics
-        (typedCoreProductionStatus firstRun)
+        (typedCoreProductionBuildResult firstRun)
 
 testUnitForwardVisibility :: IO ()
 testUnitForwardVisibility = do
@@ -595,7 +595,7 @@ testUnitForwardVisibility = do
     "unit forward function diagnostics"
     []
     (filter isErrorDiagnostic (inferredDiagnostics (typedCoreProductionInferenceResult result)))
-  case typedCoreProductionStatus result of
+  case typedCoreProductionBuildResult result of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "unit forward function typed-core validation"
@@ -609,7 +609,7 @@ testCurriedArgumentCapture = do
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "captured direct-call argument repeatability" firstRun secondRun
-  case typedCoreProductionStatus firstRun of
+  case typedCoreProductionBuildResult firstRun of
     TypedCoreProductionSucceeded validatedTyped -> do
       let typedProgram = validatedTypedProgram validatedTyped
       assertEqual "captured direct-call argument typed validation" [] (validateTypedProgram typedProgram)
@@ -633,7 +633,7 @@ testPartialApplicationArgumentCapture = do
     ordinary
     (typedCoreProductionInferenceResult firstRun)
   assertEqual "partial-call argument repeatability" firstRun secondRun
-  case typedCoreProductionStatus firstRun of
+  case typedCoreProductionBuildResult firstRun of
     TypedCoreProductionSucceeded validatedTyped -> do
       let typedProgram = validatedTypedProgram validatedTyped
       assertEqual "partial-call argument typed validation" [] (validateTypedProgram typedProgram)
@@ -666,7 +666,7 @@ testNonLocalCallArgumentFailureAccumulation = do
   assertProductionUnsupported
     "non-local-call argument failure accumulation"
     expectedFailures
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
 
 testClosureUseArgumentFailureOrder :: IO ()
 testClosureUseArgumentFailureOrder = do
@@ -688,7 +688,7 @@ testClosureUseArgumentFailureOrder = do
   assertProductionUnsupported
     "closure-use argument and later sibling failure order"
     expectedFailures
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
 
 testClosureShapeClassificationCollapse :: IO ()
 testClosureShapeClassificationCollapse = do
@@ -702,7 +702,7 @@ testClosureShapeClassificationCollapse = do
   firstRun <- produceFixture fixture
   secondRun <- produceFixture fixture
   assertEqual "mixed callable-use classification repeatability" firstRun secondRun
-  case typedCoreProductionStatus firstRun of
+  case typedCoreProductionBuildResult firstRun of
     TypedCoreProductionSucceeded validatedProgram ->
       case validatedTypedProgram validatedProgram of
         TypedProgram _ [TypedModule _ _ _ _ _ _ statements _] _ ->

@@ -2,11 +2,10 @@
 
 -- | Internal contracts shared by inference and Typed Core elaboration.
 --
--- The production outcome stays abstract so its raw program and validation
--- proof cannot be separated accidentally.
+-- Successful production carries an opaque validated program; the enclosing
+-- production result keeps that outcome tied to its inference result.
 module Jazz.Compiler.TypeInference.Elaboration.Types
-  ( TypedCoreProductionStatus (..),
-    TypedCoreProductionOutcome,
+  ( TypedCoreBuildResult (..),
     TypedCoreProductionFailure (..),
     TypedCoreProductionPath (..),
     TypedCoreProductionFailureKind (..),
@@ -25,12 +24,7 @@ module Jazz.Compiler.TypeInference.Elaboration.Types
     ExpressionEvaluation (..),
     FinalizationEnv (..),
     FinalizationLocation (..),
-    blockedTypedCoreProductionOutcome,
-    unsupportedTypedCoreProductionOutcome,
-    invariantFailuresTypedCoreProductionOutcome,
-    succeededTypedCoreProductionOutcome,
-    typedCoreProductionOutcomeStatus,
-    typedCoreProductionOutcomeValidatedProgram,
+    typedCoreBuildValidatedProgram,
     blockProductionFailureKindAndDetail,
   )
 where
@@ -60,44 +54,17 @@ import Jazz.Compiler.TypedCore.Validate
   ( ValidatedTypedProgram,
   )
 
-data TypedCoreProductionStatus
+data TypedCoreBuildResult
   = TypedCoreProductionBlockedByDiagnostics
   | TypedCoreProductionUnsupported (NonEmpty TypedCoreProductionFailure)
   | TypedCoreProductionInvariantFailures (NonEmpty TypedCoreValidationFailure)
   | TypedCoreProductionSucceeded ValidatedTypedProgram
   deriving (Eq, Show)
 
-data TypedCoreProductionOutcome
-  = ProductionBlockedByDiagnostics
-  | ProductionUnsupported (NonEmpty TypedCoreProductionFailure)
-  | ProductionInvariantFailures (NonEmpty TypedCoreValidationFailure)
-  | ProductionSucceeded ValidatedTypedProgram
-  deriving (Eq, Show)
-
-blockedTypedCoreProductionOutcome :: TypedCoreProductionOutcome
-blockedTypedCoreProductionOutcome = ProductionBlockedByDiagnostics
-
-unsupportedTypedCoreProductionOutcome :: NonEmpty TypedCoreProductionFailure -> TypedCoreProductionOutcome
-unsupportedTypedCoreProductionOutcome = ProductionUnsupported
-
-invariantFailuresTypedCoreProductionOutcome :: NonEmpty TypedCoreValidationFailure -> TypedCoreProductionOutcome
-invariantFailuresTypedCoreProductionOutcome = ProductionInvariantFailures
-
-succeededTypedCoreProductionOutcome :: ValidatedTypedProgram -> TypedCoreProductionOutcome
-succeededTypedCoreProductionOutcome = ProductionSucceeded
-
-typedCoreProductionOutcomeStatus :: TypedCoreProductionOutcome -> TypedCoreProductionStatus
-typedCoreProductionOutcomeStatus outcome =
-  case outcome of
-    ProductionBlockedByDiagnostics -> TypedCoreProductionBlockedByDiagnostics
-    ProductionUnsupported failures -> TypedCoreProductionUnsupported failures
-    ProductionInvariantFailures failures -> TypedCoreProductionInvariantFailures failures
-    ProductionSucceeded validatedProgram -> TypedCoreProductionSucceeded validatedProgram
-
-typedCoreProductionOutcomeValidatedProgram :: TypedCoreProductionOutcome -> Maybe ValidatedTypedProgram
-typedCoreProductionOutcomeValidatedProgram outcome =
-  case outcome of
-    ProductionSucceeded validatedProgram -> Just validatedProgram
+typedCoreBuildValidatedProgram :: TypedCoreBuildResult -> Maybe ValidatedTypedProgram
+typedCoreBuildValidatedProgram result =
+  case result of
+    TypedCoreProductionSucceeded validatedProgram -> Just validatedProgram
     _ -> Nothing
 
 data TypedCoreProductionPath

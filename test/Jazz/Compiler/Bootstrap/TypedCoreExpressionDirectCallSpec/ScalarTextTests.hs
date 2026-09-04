@@ -120,7 +120,7 @@ testNestedTailControlFlow =
       secondProduction <- produceFixture (producerEdgeFixture name)
       assertEqual (name <> " repeatable production") firstProduction secondProduction
       assertEqual (name <> " expected lowered validation") [] (validateLoweredProgram expectedProgram)
-      case typedCoreProductionStatus firstProduction of
+      case typedCoreProductionBuildResult firstProduction of
         TypedCoreProductionSucceeded validatedProgram -> do
           let typedProgram = validatedTypedProgram validatedProgram
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
@@ -145,7 +145,7 @@ testScalarPatternCaseProduction =
       assertProductionSucceeded
         (name <> " exact typed production")
         expectedProgram
-        (typedCoreProductionStatus firstProduction)
+        (typedCoreProductionBuildResult firstProduction)
       assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
       case lookup name expectedLowerings of
         Just expectedLowering ->
@@ -237,7 +237,7 @@ testScalarPatternCaseProducerBoundaries = do
       assertProductionUnsupported
         (name <> " exact producer-profile rejection")
         expectedFailures
-        (typedCoreProductionStatus firstProduction)
+        (typedCoreProductionBuildResult firstProduction)
 
     assertDiagnosticBoundary (name, expectedDiagnosticCode) = do
       let fixture = producerEdgeFixture name
@@ -249,7 +249,7 @@ testScalarPatternCaseProducerBoundaries = do
       assertEqual
         (name <> " remains owned by inference diagnostics")
         TypedCoreProductionBlockedByDiagnostics
-        (typedCoreProductionStatus firstProduction)
+        (typedCoreProductionBuildResult firstProduction)
       assertEqual
         (name <> " exact inference diagnostic")
         [expectedDiagnosticCode]
@@ -314,7 +314,7 @@ testScalarPatternCaseAnalysisProduction =
       assertProductionSucceeded
         (name <> " exact analysis-preserving production")
         expectedProgram
-        (typedCoreProductionStatus firstProduction)
+        (typedCoreProductionBuildResult firstProduction)
       assertEqual (name <> " typed validation") [] (validateTypedProgram expectedProgram)
 
 testScalarPatternCaseTransportLowering :: IO ()
@@ -349,7 +349,7 @@ testScalarPatternCaseTransportLowering = do
       firstProduction <- produceFixture fixture
       secondProduction <- produceFixture fixture
       assertEqual (name <> " repeatable production") firstProduction secondProduction
-      case typedCoreProductionStatus firstProduction of
+      case typedCoreProductionBuildResult firstProduction of
         TypedCoreProductionSucceeded validatedProgram -> do
           let typedProgram = validatedTypedProgram validatedProgram
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
@@ -896,7 +896,7 @@ testConditionalProfileCoverage =
       secondProduction <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstProduction)
       assertEqual (name <> " repeatable production") firstProduction secondProduction
-      case typedCoreProductionStatus firstProduction of
+      case typedCoreProductionBuildResult firstProduction of
         TypedCoreProductionSucceeded validatedProgram -> do
           let typedProgram = validatedTypedProgram validatedProgram
           assertEqual (name <> " typed validation") [] (validateTypedProgram typedProgram)
@@ -1226,7 +1226,7 @@ testScalarBindingProduction = do
       assertProductionSucceeded
         (name <> " exact typed program")
         expectedProgram
-        (typedCoreProductionStatus firstRun)
+        (typedCoreProductionBuildResult firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
     assertFailedBindingHidden = do
@@ -1238,7 +1238,7 @@ testScalarBindingProduction = do
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual "failed scalar binding repeatable rejection" firstRun secondRun
-      assertProductionUnsupported "failed scalar binding remains hidden" expectedFailures (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported "failed scalar binding remains hidden" expectedFailures (typedCoreProductionBuildResult firstRun)
     expressionFailure statementIndex childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
@@ -1259,7 +1259,7 @@ testManagedTextProduction =
       assertProductionSucceeded
         (name <> " exact typed program")
         expectedProgram
-        (typedCoreProductionStatus firstRun)
+        (typedCoreProductionBuildResult firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
 testManagedTextOperationProduction :: IO ()
@@ -1276,7 +1276,7 @@ testManagedTextOperationProduction =
       assertProductionSucceeded
         (name <> " exact typed program")
         expectedProgram
-        (typedCoreProductionStatus firstRun)
+        (typedCoreProductionBuildResult firstRun)
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
 
 testManagedTextOperationLowering :: IO ()
@@ -1321,7 +1321,7 @@ testManagedTextKernelBoundaries = do
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable rejection") firstRun secondRun
-      assertProductionUnsupported (name <> " exact producer boundary") expectedFailures (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " exact producer boundary") expectedFailures (typedCoreProductionBuildResult firstRun)
     assertBlockedByDiagnostics name = do
       let fixture = producerEdgeFixture name
       ordinary <- inferFixture fixture
@@ -1329,7 +1329,7 @@ testManagedTextKernelBoundaries = do
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable rejection") firstRun secondRun
-      assertEqual (name <> " diagnostic precedence") TypedCoreProductionBlockedByDiagnostics (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " diagnostic precedence") TypedCoreProductionBlockedByDiagnostics (typedCoreProductionBuildResult firstRun)
 
 testManagedTextProfileExclusions :: IO ()
 testManagedTextProfileExclusions = do
@@ -1363,7 +1363,7 @@ testManagedTextProfileExclusions = do
       secondRun <- produceFixture fixture
       assertEqual (name <> " inference compatibility") ordinary (typedCoreProductionInferenceResult firstRun)
       assertEqual (name <> " repeatable exclusion") firstRun secondRun
-      assertProductionUnsupported (name <> " exact exclusion") failures (typedCoreProductionStatus firstRun)
+      assertProductionUnsupported (name <> " exact exclusion") failures (typedCoreProductionBuildResult firstRun)
     assertManifestExclusion name = do
       let fixture = fixtureByName name
           expected =
@@ -1373,7 +1373,7 @@ testManagedTextProfileExclusions = do
       firstRun <- produceFixture fixture
       secondRun <- produceFixture fixture
       assertEqual (name <> " repeatable established exclusion") firstRun secondRun
-      assertEqual (name <> " exact established exclusion") expected (typedCoreProductionStatus firstRun)
+      assertEqual (name <> " exact established exclusion") expected (typedCoreProductionBuildResult firstRun)
     expressionFailure statementIndex childPath kind detail =
       TypedCoreProductionFailure
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)

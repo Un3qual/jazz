@@ -78,7 +78,7 @@ testManagedPatternProducerExclusions =
   assertProductionUnsupported
     "managed nested Text pattern remains producer-owned"
     [expressionFailure 0 [0, 1] TypedCorePatternCaseUnsupported TypedCorePatternCaseDetail]
-    . typedCoreProductionStatus
+    . typedCoreProductionBuildResult
     =<< produceFixture
       ( sourceFixtureNoExports
           "managed-nested-text-pattern"
@@ -223,7 +223,7 @@ testManagedProductVariantProduction =
       secondRun <- produceFixture (managedProductVariantFixture name)
       assertEqual (name <> " repeatable exact production") firstRun secondRun
       assertEqual (name <> " expected typed validation") [] (validateTypedProgram expectedProgram)
-      case typedCoreProductionStatus firstRun of
+      case typedCoreProductionBuildResult firstRun of
         TypedCoreProductionSucceeded validatedProgram ->
           assertEqual (name <> " exact typed program") expectedProgram (validatedTypedProgram validatedProgram)
         status -> failTest (name <> " did not produce typed core: " <> Text.pack (show status))
@@ -505,7 +505,7 @@ testManagedConstructorRebindingExport = do
           )
   assertCompleteProduction "constructor rebinding export" fixture
   production <- produceFixture fixture
-  case typedCoreProductionStatus production of
+  case typedCoreProductionBuildResult production of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "constructor export retains only its source-visible declaration"
@@ -541,7 +541,7 @@ testManagedStandaloneConstructorDependencyRebindingExport = do
           )
   assertCompleteProduction "standalone constructor dependency rebinding export" fixture
   production <- produceFixture fixture
-  case typedCoreProductionStatus production of
+  case typedCoreProductionBuildResult production of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "standalone constructor export retains its source-visible owner and private dependency"
@@ -558,7 +558,7 @@ testManagedStandaloneConstructorDependencyRebindingExport = do
         TypedCoreUnsupportedExport
         (TypedCoreNameDetail "C")
     ]
-    (typedCoreProductionStatus abstractTypeProduction)
+    (typedCoreProductionBuildResult abstractTypeProduction)
 
 testManagedTypeSelectorRebindingExport :: IO ()
 testManagedTypeSelectorRebindingExport = do
@@ -575,7 +575,7 @@ testManagedTypeSelectorRebindingExport = do
           )
   assertCompleteProduction "type-selector constructor rebinding export" fixture
   production <- produceFixture fixture
-  case typedCoreProductionStatus production of
+  case typedCoreProductionBuildResult production of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "type selector retains its declared constructor owner"
@@ -610,7 +610,7 @@ testManagedPrivateDataInterfaceDependencies = do
           )
   assertCompleteProduction "managed private constructor dependency" constructorFixture
   constructorProduction <- produceFixture constructorFixture
-  case typedCoreProductionStatus constructorProduction of
+  case typedCoreProductionBuildResult constructorProduction of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "private constructor dependencies remain metadata without becoming exports"
@@ -621,7 +621,7 @@ testManagedPrivateDataInterfaceDependencies = do
     status -> failTest ("private constructor dependency fixture did not produce typed core: " <> Text.pack (show status))
   assertCompleteProduction "managed private value dependency" valueFixture
   valueProduction <- produceFixture valueFixture
-  case typedCoreProductionStatus valueProduction of
+  case typedCoreProductionBuildResult valueProduction of
     TypedCoreProductionSucceeded validatedProgram ->
       assertEqual
         "private value dependencies remain metadata without becoming exports"
@@ -718,7 +718,7 @@ testManagedStructuredFailureAccumulation = do
   assertProductionUnsupported
     "structured failure accumulation preserves source order"
     expectedFailures
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
 
 testManagedStructuredModuleFailureOrder :: IO ()
 testManagedStructuredModuleFailureOrder = do
@@ -736,7 +736,7 @@ testManagedStructuredModuleFailureOrder = do
         TypedCoreUnsupportedRootExpression
         TypedCoreUnsupportedRootDetail
     ]
-    (typedCoreProductionStatus production)
+    (typedCoreProductionBuildResult production)
 
 interfaceDataNames :: TypedProgram -> [TypedCoreName]
 interfaceDataNames (TypedProgram _ [TypedModule _ _ _ _ (TypedModuleInterface _ datas _ _) _ _ _] _) =
@@ -845,7 +845,7 @@ assertBoundary name expectedFailures = do
   assertProductionUnsupported
     (name <> " exact producer boundary")
     expectedFailures
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
 
 expressionFailure :: Int -> [Int] -> TypedCoreProductionFailureKind -> TypedCoreProductionFailureDetail -> TypedCoreProductionFailure
 expressionFailure statementIndex childPath kind detail =

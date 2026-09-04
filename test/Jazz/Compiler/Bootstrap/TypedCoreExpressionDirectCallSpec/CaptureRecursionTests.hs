@@ -19,7 +19,6 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Elaboration
   ( finalizeValidatedTypedCoreExpressionDirectCall,
-    typedCoreProductionOutcomeStatus,
   )
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( ProvisionalCallableDeclaration (..),
@@ -90,7 +89,7 @@ testEarlierCallerTransitiveCaptureAvailability = do
   assertProductionUnsupported
     "earlier caller transitive capture rejection"
     expectedFailures
-    (typedCoreProductionStatus firstRun)
+    (typedCoreProductionBuildResult firstRun)
 
 testCapturedNumericScalarReferenceSpecialization :: IO ()
 testCapturedNumericScalarReferenceSpecialization = do
@@ -1186,13 +1185,11 @@ testEagerRecursiveClosureCaptureAvailability = do
             (TypedCoreNameDetail "loop")
         ]
       status =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
+        finalizeValidatedTypedCoreExpressionDirectCall
+          (TypedSourcePath "src/App/Main.jz")
+          resolvedModule
+          initialInferState
+          provisionalScope
   assertProductionUnsupported "eager recursive closure capture rejection" expectedFailures status
 
 testEagerNestedClosureCaptureAvailability :: IO ()
@@ -1272,13 +1269,11 @@ testEagerNestedClosureCaptureAvailability = do
             (TypedCoreNameDetail "loop")
         ]
       status =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
+        finalizeValidatedTypedCoreExpressionDirectCall
+          (TypedSourcePath "src/App/Main.jz")
+          resolvedModule
+          initialInferState
+          provisionalScope
   assertProductionUnsupported "eager nested closure capture rejection" expectedFailures status
 
 assertProvisionalProductionCompletes :: Text -> ProvisionalTypedExpr -> IO ()
@@ -1289,13 +1284,11 @@ assertProvisionalProductionTypes :: Text -> [(Text, TypedType)] -> Maybe TypedTy
 assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType provisionalScope = do
   resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
   let status =
-        typedCoreProductionOutcomeStatus
-          ( finalizeValidatedTypedCoreExpressionDirectCall
-              (TypedSourcePath "src/App/Main.jz")
-              resolvedModule
-              initialInferState
-              provisionalScope
-          )
+        finalizeValidatedTypedCoreExpressionDirectCall
+          (TypedSourcePath "src/App/Main.jz")
+          resolvedModule
+          initialInferState
+          provisionalScope
   case status of
     TypedCoreProductionSucceeded validatedProgram -> do
       let programValue = validatedTypedProgram validatedProgram

@@ -34,6 +34,7 @@ import Jazz.Compiler.TypeRepresentation
     SemanticType (..),
   )
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Portable (PortableTypedCoreOutcome (..))
 
 data CanonicalTypedCoreStructure
   = CanonicalStructureInt Integer
@@ -100,7 +101,7 @@ canonicalTypedProgramRuntimeValue (TypedProgram prelude modules entryModule) =
       textListValue entryModule
     ]
 
-canonicalTypedCoreOutcomeRuntimeValue :: TypedCoreOutcome -> RuntimeValue
+canonicalTypedCoreOutcomeRuntimeValue :: PortableTypedCoreOutcome -> RuntimeValue
 canonicalTypedCoreOutcomeRuntimeValue outcome =
   case outcome of
     TypedCoreBlockedByDiagnostics -> nullary "TypedCoreBlockedByDiagnostics"

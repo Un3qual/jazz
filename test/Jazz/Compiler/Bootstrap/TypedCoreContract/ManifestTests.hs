@@ -31,6 +31,7 @@ import Jazz.Compiler.Runtime
     renderRuntimeValue,
   )
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Portable (PortableTypedCoreOutcome (..))
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgram,
     validateTypedProgramOnce,

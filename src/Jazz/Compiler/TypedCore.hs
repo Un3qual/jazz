@@ -468,9 +468,3 @@ data TypedCoreValidationFailure
       TypedCoreValidationKind
       TypedCoreValidationDetail
   deriving (Eq, Ord, Show)
-
-data TypedCoreOutcome
-  = TypedCoreBlockedByDiagnostics
-  | TypedCoreInvariantFailures [TypedCoreValidationFailure]
-  | TypedCoreSucceeded TypedProgram
-  deriving (Eq, Ord, Show)

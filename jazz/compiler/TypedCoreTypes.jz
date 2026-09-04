@@ -285,7 +285,7 @@ module TypedCoreTypes {
     = TypedCoreValidationFailure
       TypedCoreValidationPath TypedCoreValidationKind TypedCoreValidationDetail.
 
-  data TypedCoreOutcome
+  data PortableTypedCoreOutcome
     = TypedCoreBlockedByDiagnostics
     | TypedCoreInvariantFailures [TypedCoreValidationFailure]
     | TypedCoreSucceeded TypedProgram.
