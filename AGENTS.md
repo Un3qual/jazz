@@ -2,6 +2,10 @@
 
 Make sure you commit along the way as needed.
 
+## Haskell Style
+
+- Use advanced Haskell features and language extensions when they simplify or reduce code, or improve maintainability. Evaluate the concrete benefit rather than avoiding features categorically.
+
 ## Active Compiler Paths
 
 - `src/` contains the active Haskell compiler and runtime implementation.

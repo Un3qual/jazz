@@ -531,83 +531,29 @@ type-indexed `RuntimeValue` GADT is rejected because Jazz values are
 heterogeneous and runtime checked; the additional existential packaging would
 not remove those checks.
 
-### 10. Total Typed Core construction
+### 10. Checked Typed Core construction
 
-Analysis produces one complete `CoreProgram 'Analyzed`. Typed Core production
-starts with an explicit eligibility check:
+Maintainer-approved revision (2026-09-04): construct Typed Core directly from
+analyzed core and report unsupported features during construction. Keep checks
+that require constructed expressions alongside construction, including recursive
+support and capture checks. Preliminary function information and multiple passes
+are allowed where needed; do not force a single traversal or add an eligibility
+wrapper that discards preparation results.
 
-```haskell
-checkBackendEligibility
-  :: CoreProgram 'Analyzed
-  -> Either
-       (NonEmpty TypedCoreProductionFailure)
-       BackendEligibleProgram
+The producer returns the concrete `TypedCoreBuildResult`. Error diagnostics
+block production first. Checked construction accumulates unsupported failures in
+the existing order; only a successfully constructed raw `TypedProgram` reaches
+the independent validator. Validation failures remain distinct from unsupported
+features. No failed construction exposes a successful partial artifact.
 
-buildTypedProgram
-  :: BackendEligibleProgram
-  -> TypedProgram
-```
+Remove provisional expression/statement trees and inference-owned production
+failures. Preserve analyzed semantic decisions needed by construction without
+retaining the solver state. Reuse earlier work only when capture and
+specialization contexts match; do not add a speculative cache or another IR.
 
-`BackendEligibleProgram` is an opaque newtype. Only the eligibility checker can
-construct it; hiding the parameterless newtype constructor protects the checked
-boundary without a role annotation. The builder is total over that input and
-performs one structural traversal into final Typed Core.
-
-The top-level producer constructs `TypedCoreBuildResult`: error diagnostics
-produce `TypedCoreProductionBlockedByDiagnostics`; eligibility failures
-produce `TypedCoreProductionUnsupported`; and the completed `TypedProgram` is passed through
-the existing invariant validator to produce either `TypedCoreProductionInvariantFailures` or
-`TypedCoreProductionSucceeded`. Thus eligibility does not claim to know about validation
-failures before an artifact exists, while unsupported constructs still cannot
-enter a successful typed artifact.
-
-`ProvisionalTypedExpr` and `ProvisionalTypedStatement` disappear. Unsupported
-placeholder nodes and retained production failures cannot enter a successful
-typed artifact.
-
-Backend support is not a promoted phase or singleton-indexed profile. It is an
-evolving predicate over program contents, so an opaque checked wrapper provides
-the useful invariant without type-level ceremony.
-
-## Migration plan
-
-The architecture is migrated in ordered, independently compiling milestones:
-
-| Milestone | Change                                                                                            | Temporary compatibility                                  | Completion gate                                                                       |
-| --------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 0         | Capture semantic and performance baselines                                                        | None                                                     | Current compiler, runtime, module, Typed Core, and Lowered IR suites green            |
-| 1         | Consolidate names, module paths, source files, numeric types, signature types, and semantic types | Pattern synonyms and narrow total conversions            | Duplicate representations contain no independent logic                                |
-| 2         | Introduce the phase-indexed core and complete node identity/spans                                 | Transitional type aliases and stage-local adapters       | Pass signatures enforce legal phase transitions                                       |
-| 3         | Replace module/import/program carriers                                                            | One boundary converting old module records               | Resolver, compiler, and loader use one indexed program representation                 |
-| 4         | Attach analyzed semantic facts and runtime plans                                                  | Project facts into the old hint map                      | Projected hints match current behavior; provisional typed nodes have no analyzer role |
-| 5         | Move the existing interpreter to analyzed core                                                    | Hint-based interpreter retained as a differential oracle | CLI, modules, capabilities, numerics, and explicit applications match                 |
-| 6         | Consolidate outcomes and make Typed Core construction total after eligibility                     | Domain pattern synonyms                                  | No provisional nodes, placeholder nodes, or overlapping outcomes remain               |
-| 7         | Remove obsolete runtime wrappers                                                                  | Differential interpreter remains                         | Each removed wrapper is proven semantically inert                                     |
-| 8         | Add the validated-Typed-Core interpreter and close backend parity feature by feature              | Both interpreters remain                                 | Each accepted profile has differential parity                                         |
-| 9         | Optionally retire raw-core interpretation                                                         | Separate explicit approval                               | Full parity, multi-module coverage, diagnostics, performance, and soak criteria pass  |
-
-Representation-only commits remain separate from semantic changes. Every
-temporary adapter has a named removal milestone. No milestone begins by deleting
-the fallback path it is intended to replace.
-
-## Queue integration
-
-The execution queue currently names managed product and variant pattern cases
-as the next Typed Core curation target. This simplification umbrella does not
-silently displace that accepted feature ordering.
-
-Before implementation, each architectural milestone must be either:
-
-- promoted as its own queue row with exact target paths and verification; or
-- explicitly coordinated with the accepted feature child that it enables.
-
-Architecture work must not smuggle a new language profile into a refactor.
-Typed Core parity milestones consume separately accepted feature contracts.
-
-## Verification design
-
-Tests focus on behavior and invariant boundaries rather than concrete record or
-constructor layouts.
+Advanced Haskell features and extensions are permitted whenever they simplify
+code or improve maintainability. Earlier blanket exclusions do not override
+this maintainer-approved criterion.
 
 ### Boundary coverage
 
@@ -718,7 +664,7 @@ After the architecture milestones, Jazz has:
 - no span-keyed semantic side channel;
 - one checked-build outcome vocabulary;
 - fewer module and import carriers;
-- total Typed Core construction after explicit eligibility checking;
+- checked Typed Core construction from analyzed facts;
 - a preserved interpreter with better input invariants; and
 - explicit, testable criteria for any eventual execution cutover.
 

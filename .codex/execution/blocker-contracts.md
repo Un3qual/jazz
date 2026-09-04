@@ -282,16 +282,17 @@ Each blocked item should answer these questions:
   carriers; Task 10 completed node-local runtime plans and removed inference-
   and interface-owned hint production while preserving the hosted schema and
   retained interpreter.
-- Smallest unblocker: execute `JN-COMPILER-OUTCOMES-001`, the revised Task 12.
-- Decision: maintainer approved concrete Typed Core outcomes on `2026-09-04`.
-  Keep the concrete lowering result; delete duplicated production outcomes and
-  adapters without a generic checked-build abstraction.
-- Ready child: `JN-COMPILER-OUTCOMES-001`.
-- Task 11 evidence: `9e9cf962` moves interpretation onto analyzed core.
-- Target paths and verification: the Task 12 frontmatter and matching queue row.
-- Still not in scope: public language changes, a Typed Core interpreter, or
-  normal compile/run cutover. Later quality tasks require the same maintainability
-  review before promotion.
+- Smallest unblocker: execute `JN-COMPILER-TYPED-CORE-BUILD-001` under revised Task 13.
+- Decision: checked construction from analyzed facts was approved on `2026-09-04`.
+  Keep construction-dependent checks with construction and preserve failure order.
+- Ready child: `JN-COMPILER-TYPED-CORE-BUILD-001`.
+- Completed: analyzed-core interpretation (`9e9cf962`) and concrete outcomes
+  (`29cf6c6b`). The Task 12 development build and four characterization suites passed.
+- Target paths and verification: the matching Task 13 frontmatter and queue row.
+- Advanced Haskell features and extensions are permitted when they simplify code
+  or improve maintainability. Discuss new quality concerns inline.
+- Still separate: public language changes, Typed Core interpreter parity, and
+  ordinary compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
