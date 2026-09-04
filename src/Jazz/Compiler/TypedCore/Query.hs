@@ -1,5 +1,6 @@
 module Jazz.Compiler.TypedCore.Query
   ( typedExpressionReferencesAnyBinder,
+    typedExpressionChildren,
     typedPatternInfo,
     typedPatternChildren,
   )
@@ -11,35 +12,33 @@ import Jazz.Compiler.TypedCore
 typedExpressionReferencesAnyBinder :: Set.Set TypedBinderId -> TypedExpr -> Bool
 typedExpressionReferencesAnyBinder binders expression =
   case expression of
-    TypedLiteralExpr {} -> False
-    TypedVariableExpr _ _ binderReference ->
-      maybe False (`Set.member` binders) binderReference
-    TypedLambdaExpr _ _ _ body -> child body
-    TypedOperatorValueExpr {} -> False
-    TypedListExpr _ elements -> any child elements
-    TypedTupleExpr _ elements -> any child elements
-    TypedApplyExpr _ function argument -> child function || child argument
-    TypedTypeApplicationExpr _ function _ _ -> child function
-    TypedIfExpr _ condition thenExpression elseExpression ->
-      any child [condition, thenExpression, elseExpression]
-    TypedPatternCaseExpr _ scrutinee arms ->
-      child scrutinee || any armReferencesBinder arms
-    TypedBinaryExpr _ _ left right -> child left || child right
-    TypedLeftSectionExpr _ left _ -> child left
-    TypedRightSectionExpr _ _ right -> child right
-    TypedBlockExpr _ statements -> any statementReferencesBinder statements
+    TypedVariableExpr _ _ reference -> maybe False (`Set.member` binders) reference
+    _ -> any (typedExpressionReferencesAnyBinder binders) (typedExpressionChildren expression)
+
+-- | Immediate expression children in authored order, including statement and
+-- case-arm bodies. Pattern binders are not expression references.
+typedExpressionChildren :: TypedExpr -> [TypedExpr]
+typedExpressionChildren expression = case expression of
+  TypedLiteralExpr {} -> []
+  TypedVariableExpr {} -> []
+  TypedLambdaExpr _ _ _ body -> [body]
+  TypedOperatorValueExpr {} -> []
+  TypedListExpr _ elements -> elements
+  TypedTupleExpr _ elements -> elements
+  TypedApplyExpr _ function argument -> [function, argument]
+  TypedTypeApplicationExpr _ function _ _ -> [function]
+  TypedIfExpr _ condition thenExpression elseExpression -> [condition, thenExpression, elseExpression]
+  TypedPatternCaseExpr _ scrutinee arms -> scrutinee : concat [maybe [] (: []) guardExpression <> [body] | TypedCaseArm _ guardExpression body <- arms]
+  TypedBinaryExpr _ _ left right -> [left, right]
+  TypedLeftSectionExpr _ left _ -> [left]
+  TypedRightSectionExpr _ _ right -> [right]
+  TypedBlockExpr _ statements -> concatMap statementChildren statements
   where
-    child = typedExpressionReferencesAnyBinder binders
-    armReferencesBinder (TypedCaseArm _ maybeGuard result) =
-      maybe False child maybeGuard || child result
-    statementReferencesBinder statement =
-      case statement of
-        TypedLetStatement _ _ _ _ initializer -> child initializer
-        TypedExpressionStatement _ result -> child result
-        TypedImplStatement (TypedImplDeclaration _ _ methods) ->
-          any methodReferencesBinder methods
-        _ -> False
-    methodReferencesBinder (TypedMethodDefinition _ _ _ _ body) = child body
+    statementChildren statement = case statement of
+      TypedLetStatement _ _ _ _ initializer -> [initializer]
+      TypedExpressionStatement _ result -> [result]
+      TypedImplStatement (TypedImplDeclaration _ _ methods) -> [body | TypedMethodDefinition _ _ _ _ body <- methods]
+      _ -> []
 
 typedPatternInfo :: TypedPattern -> TypedNodeInfo
 typedPatternInfo patternValue =

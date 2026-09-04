@@ -123,8 +123,7 @@ import Jazz.Compiler.TypeInference.Analyzed
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Elaboration
-  ( finalizeValidatedTypedCoreExpressionDirectCall,
-    isTypedCoreDirectCallOperator,
+  ( isTypedCoreDirectCallOperator,
     specializeInferredExpression,
   )
 import Jazz.Compiler.TypeInference.Elaboration.Types
@@ -210,6 +209,7 @@ import Jazz.Compiler.TypeInference.Types
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import Jazz.Compiler.TypedCore (TypedSourcePath, validTypedSourcePath)
+import Jazz.Compiler.TypedCore.Build (buildTypedProgram)
 import Jazz.Compiler.TypedCore.Validate (ValidatedTypedProgram)
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
@@ -573,24 +573,21 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
         inferredResult
         forwardBindings
         finalizedInference
-    outcome <- productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
+    outcome <- productionOutcome inputs sourcePath resolvedModule finalState inferenceResult
     pure (TypedCoreProductionResult inferenceResult outcome)
 
-productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> InferredExpr -> IO TypedCoreBuildResult
-productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
+productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> IO TypedCoreBuildResult
+productionOutcome inputs sourcePath resolvedModule finalState inferenceResult
   | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = pure TypedCoreProductionBlockedByDiagnostics
   | otherwise =
       case NonEmpty.nonEmpty profileFailures of
         Just failures -> pure (TypedCoreProductionUnsupported failures)
         Nothing ->
-          case inferredProvisionalExpr inferredResult of
-            Just provisionalExpr ->
-              case attachAnalyzedExpression (ModuleGraph.coreModulePath resolvedModule) Map.empty finalState (inferredExpr inferenceResult) of
-                Left failures -> fail ("semantic fact invariant failure in Typed Core production: " <> show failures)
-                Right (EBlock _ statements) ->
-                  pure (finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState statements provisionalExpr)
-                Right _ -> pure unsupportedRoot
-            Nothing -> pure unsupportedRoot
+          case attachAnalyzedExpression (ModuleGraph.coreModulePath resolvedModule) Map.empty finalState (inferredExpr inferenceResult) of
+            Left failures -> fail ("semantic fact invariant failure in Typed Core production: " <> show failures)
+            Right (EBlock _ statements) ->
+              pure (buildTypedProgram sourcePath modulePath (ModuleGraph.coreModuleFacts resolvedModule) statements)
+            Right _ -> pure unsupportedRoot
   where
     unsupportedRoot =
       TypedCoreProductionUnsupported

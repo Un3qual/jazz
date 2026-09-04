@@ -150,7 +150,6 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference (InferenceInputs (..), inferResolvedModuleTypedCoreExpressionDirectCall, typedCoreProductionBuildResult)
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedCapabilityFacts)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
@@ -191,11 +190,9 @@ import Jazz.Compiler.TypedCore
     TypedExpr (..),
     TypedNameNamespace (..),
     TypedNameOrigin (..),
-    TypedSourcePath (..),
     typedExpressionInfo,
     typedNodeType,
   )
-import Jazz.Compiler.TypedCore.Build (buildTypedProgram)
 import Jazz.Compiler.TypedCore.Build.Expressions (ExpressionBinding (..), ExpressionContext (..), ExpressionPurpose (..), buildExpression)
 import Jazz.Compiler.TypedCore.Build.StructuredValues (buildStructuredValueCatalog, structuredDataStatement)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -231,7 +228,6 @@ tests =
     ("analyzed generic constructor fields remain module-stable", testAnalyzedGenericConstructorFieldsRemainModuleStable),
     ("Typed Core constructor fields come from analyzed schemes", testTypedConstructorFieldsUseAnalyzedSchemes),
     ("direct construction specializes analyzed expressions in context", testDirectExpressionConstruction),
-    ("direct module construction matches the existing producer", testDirectModuleConstruction),
     ("analyzed dependency terminal expressions are skipped", testAnalyzedDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
@@ -1089,36 +1085,12 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
           ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box [a]. }")
         ]
 
-testDirectModuleConstruction :: IO ()
-testDirectModuleConstruction = mapM_ check sources
-  where
-    sources =
-      [ "().",
-        "1 + 2.",
-        "(1 + 2, if True then 3 else 4).",
-        "bump :: Int8 -> Int8. bump = \\(item) -> item + 1. bump 2.",
-        "add :: Int -> Int -> Int. add = \\(left, right) -> left + right. add 1 2.",
-        "seed :: Int8. seed = 1. bump :: Int8 -> Int8. bump = \\(item) -> item + seed. bump 2.",
-        "identity :: Int -> Int. identity = \\(item) -> item. identity.",
-        "loop :: Bool -> Bool. loop = \\(flag) -> if flag then loop False else False. loop True.",
-        "data Pair a b = Pair b a. ()."
-      ]
-    inputs = InferenceInputs ResolveKernelOnly defaultWarningSettings Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty (Just ["App", "Main"])
-    check source = do
-      (resolved, analyzed) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main () { " <> source <> " }"))
-      let resolvedModule = NonEmpty.head (coreProgramModules resolved)
-          analyzedModule = NonEmpty.head (coreProgramModules analyzed)
-          sourcePath = TypedSourcePath "src/App/Main.jz"
-          direct = buildTypedProgram sourcePath ["App", "Main"] (coreModuleFacts resolvedModule) (coreModuleStatements analyzedModule)
-      existing <- inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule
-      assertEqual ("direct module parity: " <> source) (typedCoreProductionBuildResult existing) direct
-
 testDirectExpressionConstruction :: IO ()
 testDirectExpressionConstruction = do
   (_, analyzed) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main () { 1 + 2. (1 + 2, if True then 3 else 4). plus = (+). plus 5 6. }")
   let statements = coreModuleStatements (NonEmpty.head (coreProgramModules analyzed))
       (catalogFailures, catalog) = buildStructuredValueCatalog ["App", "Main"] statements
-      context index expected = ExpressionContext ["App", "Main"] index [] expected Map.empty ExpressionValue
+      context index expected = ExpressionContext ["App", "Main"] index [] expected Map.empty ExpressionValue False Map.empty
       build index expected expression = either (fail . show) pure (buildExpression catalog (context index expected) expression)
       narrowType = SemanticNumeric NumericInt8
       unsignedType = SemanticNumeric NumericUInt16
