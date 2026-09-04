@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 
--- | Finalization contracts for retained products and local data declarations.
-module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
+-- | Construct product and local-data contracts from resolved semantic types.
+module Jazz.Compiler.TypedCore.Build.StructuredValues
   ( StructuredConstructor (..),
     StructuredValueCatalog,
     buildStructuredValueCatalog,
@@ -26,26 +26,19 @@ import Data.Text (Text)
 import Jazz.Compiler.AST (CoreNode (..), CorePhase (Analyzed), DataConstructor (..), Statement (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Name (ResolvedName, identifierText)
-import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), StatementFacts (..))
-import Jazz.Compiler.TypeInference.Elaboration.Types
+import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), AnalyzedType, StatementFacts (..))
+import Jazz.Compiler.TypeRepresentation
+  ( InferenceVariable (..),
+    NumericType,
+    SemanticType (..),
+  )
+import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Build.Result
   ( TypedCoreProductionFailure (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionPath (..),
   )
-import Jazz.Compiler.TypeInference.Solver
-  ( integerLiteralRangeFitsNumericType,
-    integerLiteralRangeFor,
-    resolveType,
-  )
-import Jazz.Compiler.TypeInference.State (InferState)
-import Jazz.Compiler.TypeInference.TypeOps (replaceTypeVariables)
-import Jazz.Compiler.TypeInference.Types (ExpressionType, SemanticType (..))
-import Jazz.Compiler.TypeRepresentation
-  ( InferenceVariable (..),
-    NumericType (..),
-  )
-import Jazz.Compiler.TypedCore
 import Prelude hiding (unzip)
 
 data StructuredConstructor = StructuredConstructor
@@ -56,7 +49,7 @@ data StructuredConstructor = StructuredConstructor
     structuredConstructorDataSourceName :: ResolvedName,
     structuredConstructorDataName :: TypedCoreName,
     structuredConstructorParameters :: [TypedTypeParameterId],
-    structuredConstructorFieldTemplates :: [ExpressionType],
+    structuredConstructorFieldTemplates :: [AnalyzedType],
     structuredConstructorFieldContracts :: [(TypedType, TypedRepresentationRecipe)]
   }
   deriving (Eq, Show)
@@ -80,10 +73,9 @@ data StructuredValueCatalog = StructuredValueCatalog
 
 buildStructuredValueCatalog ::
   [Text] ->
-  InferState ->
   [Statement 'Analyzed] ->
   ([TypedCoreProductionFailure], StructuredValueCatalog)
-buildStructuredValueCatalog modulePath state statements =
+buildStructuredValueCatalog modulePath statements =
   let skeletons = mapMaybeSkeleton statements
       skeletonMap = Map.fromList [(skeletonSourceName skeleton, skeleton) | skeleton <- skeletons]
       resolvedResults = map (resolveData skeletonMap) skeletons
@@ -146,7 +138,7 @@ buildStructuredValueCatalog modulePath state statements =
               [ (InferenceVariable (negate index - 1), parameter)
               | (index, parameter) <- zip [0 :: Int ..] (skeletonParameters skeleton)
               ]
-          contract template = expressionContract skeletonMap parameterVariables state template
+          contract template = expressionContract skeletonMap parameterVariables template
       fieldContracts <-
         case traverse contract fieldTemplates of
           Just values -> Right values
@@ -178,7 +170,7 @@ buildStructuredValueCatalog modulePath state statements =
               [ (parameter, SemanticVariable (InferenceVariable (negate index - 1)))
               | (index, parameter) <- zip [0 :: Int ..] parameters
               ]
-      pure (map (replaceTypeVariables replacements) fields)
+      traverse (substituteConstructorAnalyzedType replacements) fields
 
     parameterVariable (SemanticVariable variable) = Just variable
     parameterVariable _ = Nothing
@@ -205,9 +197,9 @@ buildStructuredValueCatalog modulePath state statements =
 structuredDataStatement :: StructuredValueCatalog -> Int -> Maybe TypedStatement
 structuredDataStatement catalog statementIndex = IntMap.lookup statementIndex (catalogStatementsByIndex catalog)
 
-structuredNodeInfo :: StructuredValueCatalog -> InferState -> ExpressionType -> Maybe TypedNodeInfo
-structuredNodeInfo catalog state expressionType = do
-  (typeValue, recipe) <- expressionContract (catalogDataSkeletons catalog) Map.empty state expressionType
+structuredNodeInfo :: StructuredValueCatalog -> AnalyzedType -> Maybe TypedNodeInfo
+structuredNodeInfo catalog expressionType = do
+  (typeValue, recipe) <- expressionContract (catalogDataSkeletons catalog) Map.empty expressionType
   pure (TypedNodeInfo typeValue recipe [] [])
 
 structuredConstructorAtStatement :: StructuredValueCatalog -> Int -> ResolvedName -> Maybe StructuredConstructor
@@ -221,12 +213,11 @@ structuredConstructorAtStatement catalog statementIndex sourceName = do
 -- The catalog remains the sole owner of declaration-era constructor metadata.
 concreteConstructorContract ::
   StructuredValueCatalog ->
-  InferState ->
   StructuredConstructor ->
-  ExpressionType ->
+  AnalyzedType ->
   Maybe ([TypedNodeInfo], TypedNodeInfo, [TypedInstantiation])
-concreteConstructorContract catalog state constructor resultExpressionType = do
-  resultInfo@(TypedNodeInfo resultType _ _ _) <- structuredNodeInfo catalog state resultExpressionType
+concreteConstructorContract catalog constructor resultExpressionType = do
+  resultInfo@(TypedNodeInfo resultType _ _ _) <- structuredNodeInfo catalog resultExpressionType
   concreteArguments <-
     case resultType of
       SemanticData dataName arguments
@@ -255,84 +246,78 @@ concreteConstructorContract catalog state constructor resultExpressionType = do
         <*> substituteStructuredRecipe bindings recipe
 
 concreteConstructorFieldTypes ::
-  InferState ->
   StructuredConstructor ->
-  ExpressionType ->
-  Maybe [ExpressionType]
-concreteConstructorFieldTypes state constructor resultExpressionType = do
+  AnalyzedType ->
+  Maybe [AnalyzedType]
+concreteConstructorFieldTypes constructor resultExpressionType = do
   concreteArguments <-
-    case resolveType state resultExpressionType of
+    case resultExpressionType of
       SemanticData dataName arguments
         | dataName == structuredConstructorDataSourceName constructor -> Just arguments
       _ -> Nothing
   guard (length concreteArguments == length (structuredConstructorParameters constructor))
   let parameterVariables =
         Map.fromList
-          [ (InferenceVariable (negate index - 1), resolveType state argument)
+          [ (InferenceVariable (negate index - 1), argument)
           | (index, argument) <- zip [0 :: Int ..] concreteArguments
           ]
   traverse
-    (substituteConstructorExpressionType parameterVariables . resolveType state)
+    (substituteConstructorAnalyzedType parameterVariables)
     (structuredConstructorFieldTemplates constructor)
 
 expressionContract ::
   Map ResolvedName StructuredDataSkeleton ->
   Map InferenceVariable TypedTypeParameterId ->
-  InferState ->
-  ExpressionType ->
+  AnalyzedType ->
   Maybe (TypedType, TypedRepresentationRecipe)
-expressionContract dataSkeletons parameterVariables state expressionType
-  | Just literalRange <- integerLiteralRangeFor state expressionType,
-    integerLiteralRangeFitsNumericType literalRange NumericInt64 =
-      scalar SemanticInt (TypedSignedIntegerRecipe 64)
-  | otherwise =
-      case resolveType state expressionType of
-        SemanticInt -> scalar SemanticInt (TypedSignedIntegerRecipe 64)
-        SemanticFloat -> scalar SemanticFloat (TypedFloatRecipe 64)
-        SemanticNumeric numericType -> numericContract numericType
-        SemanticBool -> scalar SemanticBool TypedBoolRecipe
-        SemanticChar -> scalar SemanticChar TypedCharRecipe
-        SemanticText -> scalar SemanticText TypedManagedTextRecipe
-        SemanticList {} -> Nothing
-        SemanticTuple elementTypes -> do
-          elementContracts <- traverse child elementTypes
-          pure
-            ( SemanticTuple (map fst elementContracts),
-              case elementContracts of
-                [] -> TypedUnitRecipe
-                _ -> TypedManagedProductRecipe (map snd elementContracts)
-            )
-        SemanticData sourceName arguments -> do
-          skeleton <- Map.lookup sourceName dataSkeletons
-          argumentContracts <- traverse child arguments
-          let typedArguments = map fst argumentContracts
-          pure
-            ( SemanticData (skeletonName skeleton) typedArguments,
-              TypedManagedVariantRecipe (skeletonName skeleton) typedArguments
-            )
-        SemanticFunction argument result -> do
-          (argumentType, argumentRecipe) <- child argument
-          (resultType, resultRecipe) <- child result
-          pure
-            ( SemanticFunction argumentType resultType,
-              TypedClosureRecipe [argumentRecipe] resultRecipe
-            )
-        SemanticVariable variable -> do
-          parameter <- Map.lookup variable parameterVariables
-          pure
-            ( SemanticVariable parameter,
-              TypedRepresentationParameterRecipe parameter
-            )
+expressionContract dataSkeletons parameterVariables expressionType =
+  case expressionType of
+    SemanticInt -> scalar SemanticInt (TypedSignedIntegerRecipe 64)
+    SemanticFloat -> scalar SemanticFloat (TypedFloatRecipe 64)
+    SemanticNumeric numericType -> numericContract numericType
+    SemanticBool -> scalar SemanticBool TypedBoolRecipe
+    SemanticChar -> scalar SemanticChar TypedCharRecipe
+    SemanticText -> scalar SemanticText TypedManagedTextRecipe
+    SemanticList {} -> Nothing
+    SemanticTuple elementTypes -> do
+      elementContracts <- traverse child elementTypes
+      pure
+        ( SemanticTuple (map fst elementContracts),
+          case elementContracts of
+            [] -> TypedUnitRecipe
+            _ -> TypedManagedProductRecipe (map snd elementContracts)
+        )
+    SemanticData sourceName arguments -> do
+      skeleton <- Map.lookup sourceName dataSkeletons
+      argumentContracts <- traverse child arguments
+      let typedArguments = map fst argumentContracts
+      pure
+        ( SemanticData (skeletonName skeleton) typedArguments,
+          TypedManagedVariantRecipe (skeletonName skeleton) typedArguments
+        )
+    SemanticFunction argument result -> do
+      (argumentType, argumentRecipe) <- child argument
+      (resultType, resultRecipe) <- child result
+      pure
+        ( SemanticFunction argumentType resultType,
+          TypedClosureRecipe [argumentRecipe] resultRecipe
+        )
+    SemanticVariable variable -> do
+      parameter <- Map.lookup variable parameterVariables
+      pure
+        ( SemanticVariable parameter,
+          TypedRepresentationParameterRecipe parameter
+        )
   where
-    child = expressionContract dataSkeletons parameterVariables state
+    child = expressionContract dataSkeletons parameterVariables
     scalar typeValue recipe = Just (typeValue, recipe)
 
 numericContract :: NumericType -> Maybe (TypedType, TypedRepresentationRecipe)
 numericContract numericType =
   Just (SemanticNumeric numericType, typedNumericRepresentationRecipe numericType)
 
-substituteConstructorExpressionType :: Map InferenceVariable ExpressionType -> ExpressionType -> Maybe ExpressionType
-substituteConstructorExpressionType bindings expressionType =
+substituteConstructorAnalyzedType :: Map InferenceVariable AnalyzedType -> AnalyzedType -> Maybe AnalyzedType
+substituteConstructorAnalyzedType bindings expressionType =
   case expressionType of
     SemanticList elementType -> SemanticList <$> child elementType
     SemanticTuple elementTypes -> SemanticTuple <$> traverse child elementTypes
@@ -341,7 +326,7 @@ substituteConstructorExpressionType bindings expressionType =
     SemanticVariable variable -> Map.lookup variable bindings
     _ -> Just expressionType
   where
-    child = substituteConstructorExpressionType bindings
+    child = substituteConstructorAnalyzedType bindings
 
 substituteStructuredType ::
   Map TypedTypeParameterId (TypedType, TypedRepresentationRecipe) ->

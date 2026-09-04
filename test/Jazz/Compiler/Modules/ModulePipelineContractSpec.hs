@@ -76,6 +76,7 @@ import Jazz.Compiler.ModuleGraph
     coreModuleFacts,
     coreModuleImports,
     coreModulePath,
+    coreModuleStatements,
     coreProgramModules,
     coreProgramPrelude,
     lookupCoreModule,
@@ -149,8 +150,8 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
+import Jazz.Compiler.TypeInference (InferenceInputs (..), inferResolvedModuleTypedCoreExpressionDirectCall, typedCoreProductionBuildResult)
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedCapabilityFacts)
-import Jazz.Compiler.TypeInference.Elaboration.StructuredValues (buildStructuredValueCatalog, structuredDataStatement)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -179,10 +180,24 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (NumericFloat64, NumericInt8),
+  ( NumericType (NumericFloat64, NumericInt8, NumericUInt16),
     SignaturePayload (..),
     SignatureType (..),
   )
+import Jazz.Compiler.TypedCore
+  ( TypedBinderId (..),
+    TypedCallableShape (..),
+    TypedCoreName (..),
+    TypedExpr (..),
+    TypedNameNamespace (..),
+    TypedNameOrigin (..),
+    TypedSourcePath (..),
+    typedExpressionInfo,
+    typedNodeType,
+  )
+import Jazz.Compiler.TypedCore.Build (buildTypedProgram)
+import Jazz.Compiler.TypedCore.Build.Expressions (ExpressionBinding (..), ExpressionContext (..), ExpressionPurpose (..), buildExpression)
+import Jazz.Compiler.TypedCore.Build.StructuredValues (buildStructuredValueCatalog, structuredDataStatement)
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
@@ -215,6 +230,8 @@ tests =
     ("grouped exports publish selected constructors through interface and runtime inventories", testGroupedExportsPublishSelectedConstructor),
     ("analyzed generic constructor fields remain module-stable", testAnalyzedGenericConstructorFieldsRemainModuleStable),
     ("Typed Core constructor fields come from analyzed schemes", testTypedConstructorFieldsUseAnalyzedSchemes),
+    ("direct construction specializes analyzed expressions in context", testDirectExpressionConstruction),
+    ("direct module construction matches the existing producer", testDirectModuleConstruction),
     ("analyzed dependency terminal expressions are skipped", testAnalyzedDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
@@ -1072,6 +1089,83 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
           ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box [a]. }")
         ]
 
+testDirectModuleConstruction :: IO ()
+testDirectModuleConstruction = mapM_ check sources
+  where
+    sources =
+      [ "().",
+        "1 + 2.",
+        "(1 + 2, if True then 3 else 4).",
+        "bump :: Int8 -> Int8. bump = \\(item) -> item + 1. bump 2.",
+        "add :: Int -> Int -> Int. add = \\(left, right) -> left + right. add 1 2.",
+        "seed :: Int8. seed = 1. bump :: Int8 -> Int8. bump = \\(item) -> item + seed. bump 2.",
+        "identity :: Int -> Int. identity = \\(item) -> item. identity.",
+        "loop :: Bool -> Bool. loop = \\(flag) -> if flag then loop False else False. loop True.",
+        "data Pair a b = Pair b a. ()."
+      ]
+    inputs = InferenceInputs ResolveKernelOnly defaultWarningSettings Map.empty Map.empty Map.empty emptyScopeCapabilityFacts Set.empty (Just ["App", "Main"])
+    check source = do
+      (resolved, analyzed) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" ("module App::Main () { " <> source <> " }"))
+      let resolvedModule = NonEmpty.head (coreProgramModules resolved)
+          analyzedModule = NonEmpty.head (coreProgramModules analyzed)
+          sourcePath = TypedSourcePath "src/App/Main.jz"
+          direct = buildTypedProgram sourcePath ["App", "Main"] (coreModuleFacts resolvedModule) (coreModuleStatements analyzedModule)
+      existing <- inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule
+      assertEqual ("direct module parity: " <> source) (typedCoreProductionBuildResult existing) direct
+
+testDirectExpressionConstruction :: IO ()
+testDirectExpressionConstruction = do
+  (_, analyzed) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main () { 1 + 2. (1 + 2, if True then 3 else 4). plus = (+). plus 5 6. }")
+  let statements = coreModuleStatements (NonEmpty.head (coreProgramModules analyzed))
+      (catalogFailures, catalog) = buildStructuredValueCatalog ["App", "Main"] statements
+      context index expected = ExpressionContext ["App", "Main"] index [] expected Map.empty ExpressionValue
+      build index expected expression = either (fail . show) pure (buildExpression catalog (context index expected) expression)
+      narrowType = SemanticNumeric NumericInt8
+      unsignedType = SemanticNumeric NumericUInt16
+      assertBinary label expected expression = case expression of
+        TypedBinaryExpr _ _ left right ->
+          assertEqual label [expected, expected, expected] (map (typedNodeType . typedExpressionInfo) [expression, left, right])
+        _ -> fail (Text.unpack label <> ": expected binary expression, got " <> show expression)
+  assertEqual "direct construction catalog" [] catalogFailures
+  case [expression | SExpr _ expression <- statements] of
+    [binary, tuple, alias] -> do
+      defaultBinary <- build 0 Nothing binary
+      narrowBinary <- build 0 (Just narrowType) binary
+      assertBinary "default numeric construction" SemanticInt defaultBinary
+      assertBinary "context-selected numeric construction" narrowType narrowBinary
+      narrowAlias <- build 3 (Just narrowType) alias
+      assertBinary "operator alias uses the retained operation and original operands" narrowType narrowAlias
+      productExpression <- build 1 (Just (SemanticTuple [narrowType, unsignedType])) tuple
+      case productExpression of
+        TypedTupleExpr info [first, TypedIfExpr branchInfo _ thenExpression elseExpression] -> do
+          assertEqual "context-selected product" (SemanticTuple [narrowType, unsignedType]) (typedNodeType info)
+          assertBinary "product element context" narrowType first
+          assertEqual "conditional branch contexts" [unsignedType, unsignedType, unsignedType] [typedNodeType branchInfo, typedNodeType (typedExpressionInfo thenExpression), typedNodeType (typedExpressionInfo elseExpression)]
+        _ -> fail ("unexpected direct product: " <> show productExpression)
+    _ -> fail "missing direct-construction fixture expressions"
+
+  (_, callableProgram) <- analyzeFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main () { bump :: Int8 -> Int8. bump = \\(item) -> item + 1. bump 2. }")
+  let callableStatements = coreModuleStatements (NonEmpty.head (coreProgramModules callableProgram))
+  case callableStatements of
+    [_, SLet _ name lambda, SExpr _ application] -> do
+      let functionType = SemanticFunction narrowType narrowType
+          binder = TypedBinderId (["App", "Main"], [1], TypedResolvedName TypedCurrentModule TypedValueNamespace "bump")
+          bindings = Map.singleton name (ExpressionBinding binder functionType (Just (TypedDirectCallableShape, 1)))
+          lambdaContext = (context 1 (Just functionType)) {expressionChildPath = [0]}
+          applicationContext = (context 2 Nothing) {expressionBindings = bindings}
+      function <- either (fail . show) pure (buildExpression catalog lambdaContext lambda)
+      call <- either (fail . show) pure (buildExpression catalog applicationContext application)
+      case function of
+        TypedLambdaExpr _ parameterBinder _ (TypedBinaryExpr _ _ (TypedVariableExpr _ _ (Just referenceBinder)) _) ->
+          assertEqual "direct lambda parameter identity" parameterBinder referenceBinder
+        _ -> fail ("unexpected direct function: " <> show function)
+      case call of
+        TypedApplyExpr info (TypedVariableExpr _ _ (Just calleeBinder)) argument -> do
+          assertEqual "direct call binding identity" binder calleeBinder
+          assertEqual "direct call argument specialization" [SemanticNumeric NumericInt8, SemanticNumeric NumericInt8] [typedNodeType info, typedNodeType (typedExpressionInfo argument)]
+        _ -> fail ("unexpected direct call: " <> show call)
+    _ -> fail "missing direct callable fixture"
+
 testTypedConstructorFieldsUseAnalyzedSchemes :: IO ()
 testTypedConstructorFieldsUseAnalyzedSchemes = do
   (_, analyzed) <-
@@ -1086,7 +1180,7 @@ testTypedConstructorFieldsUseAnalyzedSchemes = do
     _ -> fail "expected analyzed constructor fixture block"
   where
     declarations statements = do
-      let (failures, catalog) = buildStructuredValueCatalog ["App", "Main"] initialInferState statements
+      let (failures, catalog) = buildStructuredValueCatalog ["App", "Main"] statements
       assertEqual "analyzed constructor contracts are supported" [] failures
       pure
         [ declaration

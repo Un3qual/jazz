@@ -10,10 +10,12 @@ module Jazz.Compiler.TypeInference.Elaboration.Specialize
     specializeExpressionType,
     concreteIntegralType,
     defaultScalarLiterals,
+    defaultStructuredLiterals,
   )
 where
 
 import Control.Applicative ((<|>))
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Jazz.Compiler.AST (Pattern (..))
 import Jazz.Compiler.BuiltinCatalog
@@ -34,6 +36,7 @@ import Jazz.Compiler.TypeInference.Solver
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
+import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables, replaceTypeVariables)
 import Jazz.Compiler.TypeInference.Types (ExpressionType, SemanticType (..))
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
@@ -430,3 +433,11 @@ defaultScalarLiterals state expressionType =
     Just literalRange
       | integerLiteralRangeFitsNumericType literalRange NumericInt64 -> SemanticInt
     _ -> expressionType
+
+-- | Select default literal representations before constructing a structured
+-- contract. The catalog consumes this type without consulting inference state.
+defaultStructuredLiterals :: InferState -> ExpressionType -> ExpressionType
+defaultStructuredLiterals state expressionType =
+  let resolvedType = resolveType state expressionType
+      replacements = Map.fromSet (defaultScalarLiterals state . SemanticVariable) (freeTypeVariables resolvedType)
+   in replaceTypeVariables replacements resolvedType

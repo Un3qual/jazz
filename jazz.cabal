@@ -121,6 +121,11 @@ library jazz-internal
       Jazz.Compiler.TypedCore.Portable
       Jazz.Compiler.TypedCore.Query
       Jazz.Compiler.TypedCore.Validate
+      Jazz.Compiler.TypedCore.Build
+      Jazz.Compiler.TypedCore.Build.Exports
+      Jazz.Compiler.TypedCore.Build.Expressions
+      Jazz.Compiler.TypedCore.Build.Result
+      Jazz.Compiler.TypedCore.Build.StructuredValues
       Jazz.Compiler.ModuleGraph
       Jazz.Compiler.ModuleIdentity
       Jazz.Compiler.ModuleExports
@@ -175,7 +180,6 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Elaboration.Finalize
       Jazz.Compiler.TypeInference.Elaboration.Profiles
       Jazz.Compiler.TypeInference.Elaboration.Specialize
-      Jazz.Compiler.TypeInference.Elaboration.StructuredValues
       Jazz.Compiler.TypeInference.Elaboration.Types
       Jazz.Compiler.TypeInference.Evidence
       Jazz.Compiler.TypeInference.Operator

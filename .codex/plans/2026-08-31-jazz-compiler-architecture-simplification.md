@@ -1259,6 +1259,27 @@ pass, including a contract that erased source field signatures cannot change
 Typed Core constructor fields. Expression construction still uses the provisional
 tree and remains part of this task.
 
+Further progress (2026-09-04): product/constructor contracts, export construction,
+and build outcomes now live under `TypedCore.Build` without inference-state
+inputs. Direct expression and module construction use explicit expected types
+and binding context; nine module characterization programs match the existing
+producer, including curried calls, a scalar capture, a function value, simple
+recursion, and generic data declarations. The complete producer fixture gate and
+removal of inference-owned expression construction remain unfinished.
+
+Retrospective audit (2026-09-04): checked the recommendations and commits in
+this task against Tasks 13-15 and the deferred interpreter cutover. The suggestion
+to retain a private provisional tree is withdrawn: Task 13 already owns moving
+its decisions into analyzed facts and construction-local specialization context.
+The earlier warning about blanket runtime-wrapper deletion also overstated the
+plan, which requires replacing behavior before deleting wrappers. Keep the
+verified annotation consolidation, but reevaluate each carrier after Task 14's
+semantic migration; the source-signature normalization is an intermediate step,
+not a permanent runtime boundary. Concrete build outcomes, checked construction,
+explicit method-parameter identity, and retained numeric/operator decisions remain
+consistent with the remaining tasks. Before raising another design concern,
+check whether a pending task supplies its replacement or removes the limitation.
+
 Advanced Haskell features and language extensions are welcome when they reduce
 code or improve maintainability. This applies to subsequent tasks as well;
 concrete benefit takes precedence over the earlier blanket restrictions.

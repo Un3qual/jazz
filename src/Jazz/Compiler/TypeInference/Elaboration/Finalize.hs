@@ -14,11 +14,10 @@ import Control.Applicative ((<|>))
 import Data.Either (partitionEithers)
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
-import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CorePhase (..), DataConstructor (..), Literal (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST (CorePhase (..), Literal (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (ResolveKernelOnly),
     BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength),
@@ -28,14 +27,7 @@ import Jazz.Compiler.BuiltinCatalog
   )
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
-import Jazz.Compiler.ModuleExports
-  ( LocatedModuleExportName (..),
-    ModuleExport (..),
-    ModuleExportSelector (..),
-    ModuleTypeConstructorSelector (..),
-    exportedConstructorOwners,
-    inventoryHasExport,
-  )
+import Jazz.Compiler.ModuleExports (ModuleExport (..))
 import Jazz.Compiler.ModuleGraph (CoreModule (..), ResolvedModuleFacts (..), coreModulePath)
 import Jazz.Compiler.ModuleIdentity (modulePathTextSegments)
 import Jazz.Compiler.Name
@@ -55,6 +47,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Profiles
 import Jazz.Compiler.TypeInference.Elaboration.Specialize
   ( concreteIntegralType,
     defaultScalarLiterals,
+    defaultStructuredLiterals,
     provisionalExpressionType,
     provisionalParameterReferenceTypes,
     specializeCallableCaptureType,
@@ -64,15 +57,6 @@ import Jazz.Compiler.TypeInference.Elaboration.Specialize
     specializeProvisionalExpression,
     specializeProvisionalParameterReferences,
   )
-import Jazz.Compiler.TypeInference.Elaboration.StructuredValues
-  ( StructuredConstructor (..),
-    StructuredValueCatalog,
-    buildStructuredValueCatalog,
-    structuredConstructorAtStatement,
-    structuredDataStatement,
-    structuredNodeInfo,
-  )
-import qualified Jazz.Compiler.TypeInference.Elaboration.StructuredValues as StructuredValues
 import Jazz.Compiler.TypeInference.Elaboration.Types
   ( ExpressionEvaluation (..),
     ExpressionRole (..),
@@ -99,6 +83,16 @@ import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType, IntegerLiteralRange (..), SemanticType (..), TypeBinding (..))
 import Jazz.Compiler.TypeRepresentation (NumericType (NumericInt64))
 import Jazz.Compiler.TypedCore
+import Jazz.Compiler.TypedCore.Build.Exports (buildExports, sourceOrderedExports)
+import Jazz.Compiler.TypedCore.Build.StructuredValues
+  ( StructuredConstructor (..),
+    StructuredValueCatalog,
+    buildStructuredValueCatalog,
+    structuredConstructorAtStatement,
+    structuredDataStatement,
+    structuredNodeInfo,
+  )
+import qualified Jazz.Compiler.TypedCore.Build.StructuredValues as StructuredValues
 import Jazz.Compiler.TypedCore.Query (typedExpressionReferencesAnyBinder)
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgramOnce,
@@ -116,7 +110,7 @@ finalizeValidatedTypedCoreExpressionDirectCall ::
 finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state analyzedStatements provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
-      let (structuredCatalogFailures, structuredCatalog) = buildStructuredValueCatalog modulePath state analyzedStatements
+      let (structuredCatalogFailures, structuredCatalog) = buildStructuredValueCatalog modulePath analyzedStatements
           profile = analyzeFinalizationProfile modulePath provisionalStatements
           baseFunctions = profileBaseFunctions profile
           callableShapes = profileCallableShapes profile
@@ -151,7 +145,13 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
               unavailableClosureCaptureBinders
               provisionalStatements
           exportResult =
-            finalizeExports structuredCatalog functions callableShapes
+            buildExports
+              modulePath
+              (resolvedModuleExports (coreModuleFacts resolvedModule))
+              orderedModuleExports
+              analyzedStatements
+              structuredCatalog
+              (Map.mapWithKey (exportedFunctionScheme structuredCatalog callableShapes) functions)
           missingResultFailures =
             [ missingModuleResultFailure
             | not (hasTerminalResult provisionalStatements)
@@ -459,7 +459,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
               elementFailures = concatMap fst finalizedElements
            in case elementFailures of
                 _ : _ -> (elementFailures, Nothing)
-                [] -> case structuredNodeInfo structuredCatalog finalizationState expressionType of
+                [] -> case structuredNodeInfo structuredCatalog (defaultStructuredLiterals finalizationState expressionType) of
                   Just info -> ([], TypedTupleExpr info <$> traverse snd finalizedElements)
                   Nothing ->
                     ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail],
@@ -499,7 +499,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
           | Just constructor <- structuredConstructorAtStatement structuredCatalog statementIndex name ->
               case structuredConstructorFieldContracts constructor of
                 [] ->
-                  case StructuredValues.concreteConstructorContract structuredCatalog finalizationState constructor expressionType of
+                  case StructuredValues.concreteConstructorContract structuredCatalog constructor (defaultStructuredLiterals finalizationState expressionType) of
                     Just (_, resultInfo, instantiations) ->
                       ( [],
                         Just
@@ -781,7 +781,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
         finalizeManagedPattern _ patternFinalizationState patternStatementIndex patternPath expressionType binders = go True patternPath expressionType
           where
             go isRoot currentPath currentType pattern =
-              case structuredNodeInfo structuredCatalog patternFinalizationState currentType of
+              case structuredNodeInfo structuredCatalog (defaultStructuredLiterals patternFinalizationState currentType) of
                 Nothing -> unsupported currentPath
                 Just currentInfo ->
                   case pattern of
@@ -813,7 +813,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
                     PConstructor _ constructorName nested ->
                       case structuredConstructorAtStatement structuredCatalog patternStatementIndex constructorName of
                         Just constructor ->
-                          case StructuredValues.concreteConstructorFieldTypes patternFinalizationState constructor currentType of
+                          case StructuredValues.concreteConstructorFieldTypes constructor (resolveType patternFinalizationState currentType) of
                             Just fieldTypes
                               | length fieldTypes == length nested ->
                                   finalizeChildren
@@ -1067,7 +1067,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
                     Nothing
                   )
                 Just resultExpressionType ->
-                  case StructuredValues.concreteConstructorContract structuredCatalog (finalizationInferState finalizationEnv) constructor resultExpressionType of
+                  case StructuredValues.concreteConstructorContract structuredCatalog constructor (defaultStructuredLiterals (finalizationInferState finalizationEnv) resultExpressionType) of
                     Nothing ->
                       ( [failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail]
                           <> argumentFailures,
@@ -1115,7 +1115,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
             []
 
     constructorApplicationArguments finalizationState constructor expression provisionalArguments =
-      case provisionalExpressionType finalizationState expression >>= StructuredValues.concreteConstructorFieldTypes finalizationState constructor of
+      case provisionalExpressionType finalizationState expression >>= StructuredValues.concreteConstructorFieldTypes constructor of
         Just fieldTypes ->
           zipWith
             ( \fieldType (argumentPath, argument) ->
@@ -2040,245 +2040,19 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
             _ -> False
         methodHasNestedReference (TypedMethodDefinition _ _ _ _ body) = nestedReference body
 
-    finalizeExports structuredCatalog functions callableShapes =
-      let (reversedFailures, TypedModuleInterface reversedValues datas classes impls) =
-            foldl'
-              collect
-              ([], TypedModuleInterface [] selectedDataInterfaces [] [])
-              orderedModuleExports
-       in (reverse reversedFailures, TypedModuleInterface (reverse reversedValues) datas classes impls)
-      where
-        localDataDeclarations =
-          [ ( identifierText sourceName,
-              Set.fromList [identifierText constructorName | DataConstructor _ constructorName _ <- constructors],
-              declaration
-            )
-          | (statementIndex, SData _ sourceName _ constructors) <- zip [0 ..] analyzedStatements,
-            Just (TypedDataStatement declaration) <- [structuredDataStatement structuredCatalog statementIndex]
-          ]
-
-        selectedDataInterfaces =
-          [ TypedDataInterface declaration
-          | (typeName, _, declaration) <- localDataDeclarations,
-            Set.member typeName selectedDataNames
-          ]
-
-        localDataByName =
-          Map.fromList
-            [(typeName, declaration) | (typeName, _, declaration) <- localDataDeclarations]
-
-        visibleConstructorOwners =
-          Map.fromList
-            [ (constructorName, typeName)
-            | (typeName, constructorNames, _) <- localDataDeclarations,
-              constructorName <- Set.toList constructorNames
-            ]
-
-        constructorExportRepresentable constructorName =
-          case selectedConstructorOwner constructorName of
-            Just owner -> flattenedConstructorOwner constructorName == Just owner
-            Nothing -> False
-
-        selectedConstructorOwner constructorName =
-          declaredConstructorOwner constructorName
-            <|> Map.lookup constructorName visibleConstructorOwners
-
-        declaredConstructorOwner constructorName =
-          case Set.toList
-            ( exportedConstructorOwners
-                constructorName
-                (resolvedModuleExports (coreModuleFacts resolvedModule))
-            ) of
-            [owner] -> Just owner
-            _ -> Nothing
-
-        flattenedConstructorOwner constructorName =
-          case exportedCandidates of
-            [owner] -> Just owner
-            [] -> listToMaybe (reverse candidates)
-            _ -> Nothing
-          where
-            candidates =
-              [ typeName
-              | (typeName, constructorNames, _) <- localDataDeclarations,
-                Set.member typeName selectedDataNames,
-                Set.member constructorName constructorNames
-              ]
-            exportedCandidates =
-              [ typeName
-              | typeName <- candidates,
-                ModuleExport TypeNamespace typeName `elem` orderedModuleExports
-              ]
-
-        selectedDataNames =
-          closeDataNames
-            ( Set.fromList
-                (directlySelectedDataNames <> exportedValueDataNames)
-            )
-
-        directlySelectedDataNames =
-          concatMap dataNamesForExport orderedModuleExports
-
-        dataNamesForExport (ModuleExport namespace name) =
-          case namespace of
-            TypeNamespace
-              | Map.member name localDataByName -> [name]
-            ConstructorNamespace ->
-              case selectedConstructorOwner name of
-                Just owner -> [owner]
-                Nothing -> []
-            _ -> []
-
-        exportedValueDataNames =
-          [ dependencyName
-          | ModuleExport ValueNamespace exportName <- orderedModuleExports,
-            (sourceName, function) <- exportedFunctions exportName,
-            let callableShape = shapeFor callableShapes sourceName,
-            Right info <-
-              [ callableInfo
-                  structuredCatalog
-                  callableShape
-                  (functionArity function)
-                  (functionStatementIndex function)
-                  []
-                  (functionType function)
-              ],
-            dependencyName <- localTypedDataIdentifiers (typedNodeType info),
-            Map.member dependencyName localDataByName
-          ]
-
-        exportedFunctions exportName =
-          case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == exportName] of
-            [entry] -> [entry]
-            _ -> []
-
-        closeDataNames initial = go initial initial
-          where
-            go selected pending
-              | Set.null pending = selected
-              | otherwise =
-                  let dependencies =
-                        Set.fromList
-                          [ dependencyName
-                          | selectedName <- Set.toList pending,
-                            declaration <- maybe [] (: []) (Map.lookup selectedName localDataByName),
-                            dependencyName <- dataDeclarationDependencies declaration,
-                            Map.member dependencyName localDataByName
-                          ]
-                      unseen = Set.difference dependencies selected
-                   in go (Set.union selected unseen) unseen
-
-        dataDeclarationDependencies (TypedDataDeclaration _ _ _ constructors) =
-          concat
-            [ concatMap localTypedDataIdentifiers fields
-            | TypedConstructorDeclaration _ _ fields _ <- constructors
-            ]
-
-        localTypedDataIdentifiers typeValue =
-          case typeValue of
-            SemanticList elementType -> localTypedDataIdentifiers elementType
-            SemanticTuple elementTypes -> concatMap localTypedDataIdentifiers elementTypes
-            SemanticData name arguments ->
-              localIdentifier name <> concatMap localTypedDataIdentifiers arguments
-            SemanticFunction argument result ->
-              localTypedDataIdentifiers argument <> localTypedDataIdentifiers result
-            _ -> []
-
-        localIdentifier name =
-          case name of
-            TypedResolvedName TypedCurrentModule TypedTypeNamespace identifier -> [identifier]
-            _ -> []
-
-        collect (reversedFailures, TypedModuleInterface reversedValues datas classes impls) (ModuleExport namespace name)
-          | namespace == ValueNamespace =
-              case [(sourceName, function) | (sourceName, function) <- Map.toList functions, identifierText sourceName == name] of
-                [(sourceName, function)] ->
-                  let callableShape = shapeFor callableShapes sourceName
-                   in case callableInfo structuredCatalog callableShape (functionArity function) (functionStatementIndex function) [] (functionType function) of
-                        Right info ->
-                          let typedName = TypedResolvedName TypedCurrentModule TypedValueNamespace name
-                              owner = binderAt (functionStatementIndex function) [] typedName
-                           in (reversedFailures, TypedModuleInterface (TypedValueInterface typedName (scheme owner callableShape info) : reversedValues) datas classes impls)
-                        Left _ -> (reversedFailures, TypedModuleInterface reversedValues datas classes impls)
-                _ -> (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name) : reversedFailures, TypedModuleInterface reversedValues datas classes impls)
-          | namespace == TypeNamespace,
-            Map.member name localDataByName =
-              (reversedFailures, TypedModuleInterface reversedValues datas classes impls)
-          | namespace == ConstructorNamespace,
-            Map.member name visibleConstructorOwners,
-            constructorExportRepresentable name =
-              (reversedFailures, TypedModuleInterface reversedValues datas classes impls)
-          | otherwise =
-              (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedExport (TypedCoreNameDetail name) : reversedFailures, TypedModuleInterface reversedValues datas classes impls)
+    exportedFunctionScheme structuredCatalog callableShapes name function =
+      let shape = shapeFor callableShapes name
+          owner = binderAt (functionStatementIndex function) [] (resolvedValueName name)
+       in either
+            (const Nothing)
+            (Just . scheme owner shape)
+            (callableInfo structuredCatalog shape (functionArity function) (functionStatementIndex function) [] (functionType function))
 
     orderedModuleExports =
-      stableUniqueExports
-        ( case resolvedModuleExportSelectors moduleFacts of
-            Nothing -> filter publicExport sourceOrderedDeclarations
-            Just selectors -> concatMap exportsForSelector selectors
-        )
-      where
-        moduleFacts = coreModuleFacts resolvedModule
-        publicInventory = resolvedModuleExports moduleFacts
-        publicExport = (`inventoryHasExport` publicInventory)
-        exportsForSelector selector =
-          case selector of
-            ModuleExportSelector maybeNamespace name ->
-              filter
-                ( \export ->
-                    moduleExportName export == name
-                      && maybe True (== moduleExportNamespace export) maybeNamespace
-                      && publicExport export
-                )
-                sourceOrderedDeclarations
-            ModuleTypeExportSelector typeName _ constructorSelector ->
-              filter publicExport [ModuleExport TypeNamespace typeName]
-                <> constructorExports typeName constructorSelector
-
-        constructorExports typeName constructorSelector =
-          case constructorSelector of
-            AbstractType -> []
-            AllTypeConstructors _ ->
-              filter
-                ( \export ->
-                    moduleExportNamespace export == ConstructorNamespace
-                      && Set.member typeName (exportedConstructorOwners (moduleExportName export) publicInventory)
-                      && publicExport export
-                )
-                sourceOrderedDeclarations
-            SelectedTypeConstructors constructors ->
-              filter
-                publicExport
-                [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
-                | constructor <- NonEmpty.toList constructors
-                ]
-        sourceOrderedDeclarations =
-          concatMap statementExports (coreModuleStatements resolvedModule)
-
-        statementExports statement =
-          case statement of
-            SLet _ name _
-              | not (generatedOperatorName name) ->
-                  [ModuleExport ValueNamespace (identifierText name)]
-            SData _ typeName _ constructors ->
-              ModuleExport TypeNamespace (identifierText typeName)
-                : [ ModuleExport ConstructorNamespace (identifierText constructorName)
-                  | DataConstructor _ constructorName _ <- constructors
-                  ]
-            SClass _ className _ _ ->
-              [ModuleExport CapabilityNamespace (identifierText className)]
-            _ -> []
-
-        generatedOperatorName name =
-          case name of
-            GeneratedName (OperatorBinding _) -> True
-            _ -> False
-
-        stableUniqueExports = reverse . snd . foldl' keep (Set.empty, [])
-          where
-            keep (seen, exports) export
-              | Set.member export seen = (seen, exports)
-              | otherwise = (Set.insert export seen, export : exports)
+      sourceOrderedExports
+        (resolvedModuleExports (coreModuleFacts resolvedModule))
+        (resolvedModuleExportSelectors (coreModuleFacts resolvedModule))
+        analyzedStatements
 
     scalarInfo structuredCatalog statementIndex childPath expressionType =
       case defaultScalarLiterals state (resolveType state expressionType) of
@@ -2294,12 +2068,12 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state a
           maybe
             (Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreTupleValueDetail))
             Right
-            (structuredNodeInfo structuredCatalog state resolvedTupleType)
+            (structuredNodeInfo structuredCatalog (defaultStructuredLiterals state resolvedTupleType))
         resolvedDataType@SemanticData {} ->
           maybe
             (Left (failureAt statementIndex childPath TypedCoreStructuredValueUnsupported TypedCoreDataValueDetail))
             Right
-            (structuredNodeInfo structuredCatalog state resolvedDataType)
+            (structuredNodeInfo structuredCatalog (defaultStructuredLiterals state resolvedDataType))
         SemanticFunction {} -> Left (failureAt statementIndex childPath TypedCoreManagedValueUnsupported TypedCoreUnsupportedRootDetail)
         SemanticVariable {} -> Left (failureAt statementIndex childPath TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail)
       where
