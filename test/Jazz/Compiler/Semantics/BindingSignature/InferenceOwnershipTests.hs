@@ -29,15 +29,10 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.RecursiveBindings
   ( prepareRecursiveScope,
   )
+import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (SignatureDeclaration))
 import Jazz.Compiler.Semantics.BindingSignature.Shared (resolvedProgram)
 import Jazz.Compiler.TypeInference.Capabilities
   ( typeSchemeReferencedCapabilityFacts,
-  )
-import Jazz.Compiler.TypeInference.Elaboration.Types
-  ( InferredExpr (..),
-    ProvisionalTypedExpr (..),
-    ProvisionalTypedStatement (..),
-    TypedCoreProductionMode (..),
   )
 import Jazz.Compiler.TypeInference.Operator
   ( builtinSectionOperatorSymbol,
@@ -76,6 +71,7 @@ import Jazz.Compiler.TypeInference.State
     inferInferredClassConstraints,
     inferNextTypeVar,
     inferNumericVars,
+    inferStatementFactSeeds,
     inferStrictEqualityVars,
     initialInferState,
     modifyDeclarationState,
@@ -84,6 +80,7 @@ import Jazz.Compiler.TypeInference.State
   )
 import Jazz.Compiler.TypeInference.Traversal
   ( InferExprWithModeFn,
+    InferenceMode (..),
   )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
@@ -103,6 +100,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
+    schemeResultType,
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -432,23 +430,17 @@ testFailedSignaturePayloadNormalizationRollsBackState =
     payload = SignatureType (TypeName (typeName "Missing"))
 
 testProductionScopeElaboratesSignatureOnce :: IO ()
-testProductionScopeElaboratesSignatureOnce =
-  case inferredProvisionalExpr inferredScope of
-    Just (ProvisionalScopeStatements (ProvisionalSignature _ _ _ signatureType : _)) -> do
-      assertEqual
-        "source-ordered prepared signature"
-        (SemanticFunction (SemanticVariable 0) (SemanticVariable 0))
-        signatureType
-      assertEqual
-        "one signature allocation plus one binding seed"
-        2
-        (inferNextTypeVar finalState)
-    _ -> failTest "expected a retained provisional signature"
+testProductionScopeElaboratesSignatureOnce = do
+  assertEqual
+    "source-ordered prepared signature"
+    [SemanticFunction (SemanticVariable 0) (SemanticVariable 0)]
+    [signatureType | (bindings, SignatureDeclaration _) <- Map.elems (inferStatementFactSeeds finalState), (_, binding) <- bindings, signatureType <- case binding of PlainTypeBinding t -> [t]; SchemeTypeBinding scheme -> [schemeResultType scheme]; _ -> []]
+  assertEqual "one signature allocation plus one binding seed" 2 (inferNextTypeVar finalState)
   where
-    (inferredScope, finalState) =
+    (_, finalState) =
       TypeInferenceScope.inferScopeTypeWithMode
         syntheticProductionInfer
-        ProduceTypedCoreExpressionDirectCall
+        InferConcreteFunctions
         ResolveKernelOnly
         Map.empty
         initialInferState
@@ -457,19 +449,14 @@ testProductionScopeElaboratesSignatureOnce =
     syntheticProductionInfer :: InferExprWithModeFn
     syntheticProductionInfer mode _ env state expression =
       case mode of
-        ProduceTypedCoreExpressionDirectCall ->
+        InferConcreteFunctions ->
           case expression of
             EVar _ name ->
               case Map.lookup name env of
                 Just (PlainTypeBinding expressionType) ->
-                  ( InferredExpr
-                      (Just expressionType)
-                      (Just (ProvisionalVariableExpression name expressionType))
-                      [],
-                    state
-                  )
-                _ -> (InferredExpr Nothing Nothing [], state)
-            _ -> (InferredExpr Nothing Nothing [], state)
+                  ((Just expressionType), state)
+                _ -> (Nothing, state)
+            _ -> (Nothing, state)
         InferenceOnly ->
           error "expected production callback invocation"
 
@@ -510,15 +497,15 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
             EVar _ name ->
               case Map.lookup name env of
                 Just (PlainTypeBinding expressionType) ->
-                  (InferredExpr (Just expressionType) Nothing [], state)
+                  ((Just expressionType), state)
                 _ ->
-                  ( InferredExpr Nothing Nothing [],
+                  ( Nothing,
                     modifyInferenceOutput
                       (\output -> output {outputErrorCount = outputErrorCount output + 1})
                       state
                   )
-            _ -> (InferredExpr Nothing Nothing [], state)
-        ProduceTypedCoreExpressionDirectCall ->
+            _ -> (Nothing, state)
+        InferConcreteFunctions ->
           error "expected inference-only callback invocation"
 
 testRecursivePreviewSolverStateIsTransactional :: IO ()
@@ -731,11 +718,11 @@ typeName = resolvedLocalName TypeNamespace . mkIdentifier
 capabilityName :: Text -> ResolvedName
 capabilityName = resolvedLocalName CapabilityNamespace . mkIdentifier
 
-inferenceOnlyResult :: TypedCoreProductionMode -> Maybe ExpressionType -> InferState -> (InferredExpr, InferState)
+inferenceOnlyResult :: InferenceMode -> Maybe ExpressionType -> InferState -> (Maybe ExpressionType, InferState)
 inferenceOnlyResult mode expressionType state =
   case mode of
-    InferenceOnly -> (InferredExpr expressionType Nothing [], state)
-    ProduceTypedCoreExpressionDirectCall ->
+    InferenceOnly -> (expressionType, state)
+    InferConcreteFunctions ->
       error "expected inference-only callback invocation"
 
 testOperatorRulePresenceAndSectionSupport :: IO ()

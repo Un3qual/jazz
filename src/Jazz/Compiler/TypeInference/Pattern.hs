@@ -38,10 +38,6 @@ import Jazz.Compiler.SemanticFacts
   )
 import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Elaboration.Types
-  ( InferredExpr (..),
-    TypedCoreProductionMode (InferenceOnly),
-  )
 import Jazz.Compiler.TypeInference.Solver
   ( freshIntegerLiteralType,
     freshTypeVar,
@@ -57,7 +53,7 @@ import Jazz.Compiler.TypeInference.State
     recordExpressionFactType,
     recordPatternFactSeed,
   )
-import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn)
+import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode (InferenceOnly))
 import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
@@ -72,8 +68,8 @@ import Jazz.Compiler.TypeInference.Types
 data InferredPatternCaseArm
   = InferredPatternCaseArm
       (Pattern 'Resolved)
-      (Maybe InferredExpr)
-      (Maybe InferredExpr)
+      (Maybe (Maybe ExpressionType))
+      (Maybe (Maybe ExpressionType))
   deriving (Eq, Show)
 
 data PatternCaseArmResult result
@@ -104,7 +100,7 @@ inferPatternCaseType inferExpression builtinMode env scrutineeType initialState 
 
 inferPatternCaseTypeWithResults ::
   InferExprWithModeFn ->
-  TypedCoreProductionMode ->
+  InferenceMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   ExpressionType ->
@@ -128,13 +124,13 @@ inferPatternCaseTypeWithResults inferExpression mode builtinMode env scrutineeTy
 
 inferPatternCaseTypeInternal ::
   InferExprWithModeFn ->
-  TypedCoreProductionMode ->
+  InferenceMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   ExpressionType ->
   InferState ->
   [CaseArm 'Resolved] ->
-  (Maybe ExpressionType, InferState, [PatternCaseArmResult InferredExpr])
+  (Maybe ExpressionType, InferState, [PatternCaseArmResult (Maybe ExpressionType)])
 inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType initialState caseArms =
   let (expressionType, finalState, reversedResults) =
         foldl' step (Nothing, initialState, []) caseArms
@@ -160,7 +156,7 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
                     inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
                   (bodyResult, stateAfterBody) =
                     inferExpression mode builtinMode armEnv stateAfterGuard bodyExpr
-                  maybeBodyType = inferredExpressionType bodyResult
+                  maybeBodyType = bodyResult
                   stateAfterBodyFacts =
                     maybe
                       stateAfterBody
@@ -194,7 +190,7 @@ inferPatternCaseTypeInternal inferExpression mode builtinMode env scrutineeType 
         Just conditionExpr ->
           let (guardResult, stateAfterGuard) =
                 inferExpression mode builtinMode' armEnv stateAcc conditionExpr
-              maybeGuardType = inferredExpressionType guardResult
+              maybeGuardType = guardResult
               checkedState =
                 case maybeGuardType of
                   Just inferredGuardType ->

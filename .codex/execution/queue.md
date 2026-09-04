@@ -10,15 +10,16 @@ public behavior.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id                                 | title                                | priority | size | kind   | autonomous_ready | depends_on | plan                                                                                  | plan_section | target_paths                                                                                                                                                                                                                                                                                                  | deliverable                                                                                                             | verification                                                                                                                                                                                                                                                | last_verified |
-| ---------------------------------- | ------------------------------------ | -------- | ---- | ------ | ---------------- | ---------- | ------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `JN-COMPILER-TYPED-CORE-BUILD-001` | Build Typed Core from analyzed facts | `P1`     | `M`  | `impl` | `yes`            | `-`        | [architecture plan](../plans/2026-08-31-jazz-compiler-architecture-simplification.md) | `Task 13`    | `src/Jazz/Compiler/TypeInference.hs`, `src/Jazz/Compiler/TypedCore/Build.hs`, `src/Jazz/Compiler/TypedCore/Build/Expressions.hs`, `src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`, `test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CaptureRecursionTests.hs` | Build Typed Core from analyzed facts with checked construction, preserving behavior and removing provisional machinery. | `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec recursive-bindings-spec --test-show-details=failures --jobs=1` | `2026-09-04`  |
+| id                                 | title                                 | priority | size | kind   | autonomous_ready | depends_on | plan                                                                                  | plan_section | target_paths                                                                                                                                                                                           | deliverable                                                                                              | verification                                                                                                                                                                                                                                       | last_verified |
+| ---------------------------------- | ------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `JN-COMPILER-TYPED-CORE-BUILD-001` | Simplify runtime semantic annotations | `P1`     | `M`  | `impl` | `yes`            | `-`        | [architecture plan](../plans/2026-08-31-jazz-compiler-architecture-simplification.md) | `Task 14`    | `src/Jazz/Compiler/SemanticFacts.hs`, `src/Jazz/Compiler/Runtime/Types.hs`, `src/Jazz/Compiler/Runtime/Engine.hs`, `src/Jazz/Compiler/Runtime/Semantics.hs`, `src/Jazz/Compiler/Runtime/Primitives.hs` | Replace runtime source-type conversions with semantic annotations while preserving deferred obligations. | `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec runtime-observation-spec -fdevelopment --test-show-details=failures --jobs=1` | `2026-09-04`  |
 
-Current executor status (`2026-09-04`, Task 13 approved):
-Task 12 is verified at `29cf6c6b`. The maintainer approved checked construction
-from analyzed facts, retaining construction-dependent checks alongside building.
-Task 13 is active inline. Use advanced Haskell features when they simplify code
-or improve maintainability; discuss new quality concerns inline.
+Current executor status (`2026-09-04`, Task 14 active):
+Tasks 12-13 are verified. Typed Core now builds from analyzed facts, and the
+provisional inference tree is removed. The runtime baseline passes. Continue
+Task 14 inline, then Task 15's deletion audit and full gate. Before raising a
+quality concern, check the remaining tasks for its replacement or resolution.
+Advanced Haskell features are welcome when they simplify code or maintenance.
 
 ## Next Curation Target
 
@@ -33,7 +34,6 @@ target and no named candidate currently.
 
 | blocked_id | candidate_child_id | kind | source_contract | why_next | target_paths | verification | promotion_check |
 | ---------- | ------------------ | ---- | --------------- | -------- | ------------ | ------------ | --------------- |
-
 
 ## Blocked
 
@@ -55,7 +55,6 @@ Remove completed items after their verified commit is recorded. This table stays
 
 | id  | closure evidence | completed_on |
 | --- | ---------------- | ------------ |
-
 
 ## Entry Template
 

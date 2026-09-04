@@ -127,10 +127,6 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
   )
-import Jazz.Compiler.TypeInference.Elaboration.Types
-  ( InferredExpr (..),
-    TypedCoreProductionMode,
-  )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
@@ -168,7 +164,7 @@ import Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState,
     recordExpressionEvidenceSeed,
   )
-import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn)
+import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode)
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
@@ -502,18 +498,18 @@ qualifiedMethodClassIsVisible methodKey state =
 
 inferQualifiedMethodApplicationWithResults ::
   InferExprWithModeFn ->
-  TypedCoreProductionMode ->
+  InferenceMode ->
   BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   CoreNodeId ->
   Text ->
   [Expr 'Resolved] ->
-  (Maybe ExpressionType, InferState, [InferredExpr])
+  (Maybe ExpressionType, InferState, [Maybe ExpressionType])
 inferQualifiedMethodApplicationWithResults inferExpression mode builtinMode env state nodeId methodKey argumentExprs =
   let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
       results = reverse reversedResults
-   in case traverse inferredExpressionType results of
+   in case sequenceA results of
         Nothing -> (Nothing, stateAfterArguments, results)
         Just typedArgumentTypes ->
           let (expressionType, finalState) =

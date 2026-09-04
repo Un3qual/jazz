@@ -6,16 +6,16 @@ size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 13"
+plan_section: "Task 14"
 target_paths:
-  - src/Jazz/Compiler/TypeInference.hs
-  - src/Jazz/Compiler/TypedCore/Build.hs
-  - src/Jazz/Compiler/TypedCore/Build/Expressions.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration/Types.hs
-  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CaptureRecursionTests.hs
+  - src/Jazz/Compiler/SemanticFacts.hs
+  - src/Jazz/Compiler/Runtime/Types.hs
+  - src/Jazz/Compiler/Runtime/Engine.hs
+  - src/Jazz/Compiler/Runtime/Semantics.hs
+  - src/Jazz/Compiler/Runtime/Primitives.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec recursive-bindings-spec --test-show-details=failures --jobs=1
-deliverable: "Build Typed Core from analyzed facts with checked construction, preserving behavior and removing provisional machinery."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec runtime-observation-spec -fdevelopment --test-show-details=failures --jobs=1
+deliverable: "Replace runtime source-type conversions with semantic annotations while preserving deferred obligations."
 last_verified: 2026-09-04
 ---
 
@@ -1186,7 +1186,7 @@ retain the concrete lowering result. No generic `CheckedBuild` or speculative
 
 **Files:** `src/Jazz/Compiler/TypeInference.hs`,
 `src/Jazz/Compiler/TypeInference/Elaboration.hs`,
-`src/Jazz/Compiler/TypeInference/Elaboration/Types.hs`,
+`src/Jazz/Compiler/TypeInference/Traversal.hs`,
 `src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs`,
 `src/Jazz/Compiler/TypedCore.hs`, new `src/Jazz/Compiler/TypedCore/Portable.hs`,
 `jazz/compiler/TypedCoreTypes.jz`, affected bootstrap contract tests, `jazz.cabal`.
@@ -1239,33 +1239,28 @@ fixtures in `test/Jazz/Compiler/Bootstrap/`.
       semantic facts. Keep construction-dependent recursive support checks with
       the builder. Preserve catalog/module/statement failure precedence and all
       current profile boundaries.
-- [ ] Delete provisional expression and statement trees, inference-owned
+- [x] Delete provisional expression and statement trees, inference-owned
       production failures, and migration-only adapters. Remove obsolete synthetic
       bridge tests only when their failure signal is covered at the new boundary.
 - [x] Validate a successfully constructed raw `TypedProgram` with the existing
       independent validator. Return ordered unsupported failures or invariant
       failures without exposing a successful partial program.
-- [ ] Run focused suites, the development build, formatting, and whitespace
+- [x] Run focused suites, the development build, formatting, and whitespace
       checks; commit green milestones and the completed task.
 
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec recursive-bindings-spec --test-show-details=failures --jobs=1
 ```
 
-Progress (2026-09-04): constructor catalogs and data exports now consume analyzed
-constructor schemes. Removed inference-owned constructor/data snapshots. The
-producer, Typed Core, Lowered IR, recursive-binding, and module-pipeline suites
-pass, including a contract that erased source field signatures cannot change
-Typed Core constructor fields. Expression construction still uses the provisional
-tree and remains part of this task.
-
-Further progress (2026-09-04): the live producer now constructs directly from
-analyzed expressions and statements (`ebec0326`). The producer, Typed Core,
-Lowered IR, recursive-binding, and module-pipeline suites pass. Removed the
-unused provisional finalizer and profile module, and replaced synthetic capture
-cases with valid source programs at the analyzed boundary. The producer and
-module-pipeline suites pass after that deletion. Inference still creates unused
-provisional nodes; deleting that remaining machinery is the next step.
+Completion (2026-09-04): the live producer constructs directly from analyzed
+expressions and statements (`ebec0326`), and the old finalizer/profile modules
+are retired (`2065408c`). Inference no longer creates provisional expressions,
+statements, or production failures. Removed the now-redundant inferred-result
+wrapper, elaboration modules, and unused child-result bookkeeping. Inference
+retains its two existing signature/forward-binding policies; construction reads
+only analyzed facts. The development build, formatter, whitespace/queue checks,
+and eight suites pass: producer, Typed Core, Lowered IR, recursive bindings,
+binding signatures, module pipeline, loader, and runtime semantics.
 
 The deletion audit also retired eager-capture checks that existed only for
 injected provisional trees. The analyzer exposes forward names only within
