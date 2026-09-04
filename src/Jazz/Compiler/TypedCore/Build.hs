@@ -147,7 +147,7 @@ buildTypedProgram sourcePath modulePath publicFacts statements =
           monomorphic declaredScheme,
           not (generatedOperator name),
           Set.notMember index reboundDeclarations,
-          Right typedBody <- [buildExpression catalog (ExpressionContext modulePath index [0] (Just (expressionTypeOf expression)) (Map.union (Map.findWithDefault Map.empty index scalarsBefore) functionBindings) (FunctionDefinition (shape name) arity) True Map.empty) expression]
+          Right typedBody <- [buildExpression catalog (ExpressionContext modulePath index [0] (Just (expressionTypeOf expression)) (Map.union (Map.findWithDefault Map.empty index scalarsBefore) functionBindings) (FunctionDefinition (shape name) arity)) expression]
         ]
     rejectedRecursiveMembers =
       Set.fromList
@@ -191,21 +191,13 @@ buildTypedProgram sourcePath modulePath publicFacts statements =
           Set.notMember index rejectedRecursiveMembers,
           capture <- Map.findWithDefault [] index directScalarCaptures
         ]
-    eagerCaptureAvailability =
-      Map.fromList
-        [ (name, maximum (Set.toList captures))
-        | (index, (name, _, _)) <- Map.toList candidateBodies,
-          shape name == TypedClosureCallableShape,
-          let captures = captureStatements Set.empty index,
-          not (Set.null captures)
-        ]
     unavailableCaptures =
       Set.fromList
         [ index
         | (index, (name, _, _)) <- Map.toList candidateBodies,
+          shape name == TypedClosureCallableShape,
           Map.notMember index groups,
-          Just availableAfter <- [Map.lookup name eagerCaptureAvailability],
-          availableAfter >= index
+          any (>= index) (Set.toList (captureStatements Set.empty index))
         ]
     supportedGroup members = case traverse (`Map.lookup` candidateBodies) members of
       Just candidates@((firstName, _, _) : _) ->
@@ -220,7 +212,7 @@ buildTypedProgram sourcePath modulePath publicFacts statements =
     typedStatements = reverse reversedStatements
     buildStatement (failures, built, scalars) (index, statement) =
       let bindings = Map.union scalars functionBindings
-          context path expected purpose = ExpressionContext modulePath index path expected bindings purpose (case purpose of FunctionDefinition {} -> True; _ -> False) eagerCaptureAvailability
+          context path expected purpose = ExpressionContext modulePath index path expected bindings purpose
           append result nextBindings = case result of
             Left errors -> (map productionFailure errors : failures, built, scalars)
             Right typedStatement -> (failures, typedStatement : built, nextBindings)

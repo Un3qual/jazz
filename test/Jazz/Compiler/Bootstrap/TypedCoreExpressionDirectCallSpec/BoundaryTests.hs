@@ -33,21 +33,10 @@ import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     mkIdentifier,
-    operatorBindingName,
     resolvedLocalName,
   )
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
-import Jazz.Compiler.TypeInference.Elaboration
-  ( expressionDependencyNames,
-    finalizeValidatedTypedCoreExpressionDirectCall,
-  )
-import Jazz.Compiler.TypeInference.Elaboration.Types
-  ( ProvisionalCallableDeclaration (..),
-    ProvisionalTypedExpr (..),
-    ProvisionalTypedStatement (..),
-  )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
-import Jazz.Compiler.TypeInference.State (initialInferState)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
     ScopeCapabilityFacts (..),
@@ -743,49 +732,6 @@ testProducerIdentityBoundary =
         expectedFailures
         (typedCoreProductionBuildResult firstRun)
 
-testIncompleteRecursiveGroupOwnership :: IO ()
-testIncompleteRecursiveGroupOwnership = do
-  resolvedModule <- resolveFixtureModule (fixtureByName "unit-entry")
-  let spanValue = SourceSpan 1 1
-      functionType = SemanticFunction SemanticBool SemanticBool
-      loopDeclaration =
-        ProvisionalCallableDeclaration
-          1
-          (localName ValueNamespace "loop")
-          spanValue
-          functionType
-          (Just (PlainTypeBinding functionType))
-          (Just [1, 3])
-      loopExpression =
-        ProvisionalLambdaExpression
-          (localName ValueNamespace "item")
-          functionType
-          ( ProvisionalApplyExpression
-              SemanticBool
-              (ProvisionalVariableExpression (localName ValueNamespace "loop") functionType)
-              (ProvisionalVariableExpression (localName ValueNamespace "item") SemanticBool)
-          )
-      provisionalScope =
-        ProvisionalScopeStatements
-          [ ProvisionalFunctionBinding loopDeclaration loopExpression,
-            ProvisionalTerminalExpression 2 spanValue (ProvisionalLiteralExpression (LBool True) SemanticBool)
-          ]
-      status =
-        finalizeValidatedTypedCoreExpressionDirectCall
-          (TypedSourcePath "src/App/Main.jz")
-          resolvedModule
-          initialInferState
-          []
-          provisionalScope
-  assertProductionUnsupported
-    "missing recursive declaration owner rejects the complete group"
-    [ TypedCoreProductionFailure
-        (TypedCoreProductionStatementPath ["App", "Main"] 1)
-        TypedCoreRecursiveFunctionUnsupported
-        (TypedCoreNameDetail "loop")
-    ]
-    status
-
 testSameStatementFailureKindOrder :: IO ()
 testSameStatementFailureKindOrder = do
   let fixture = producerEdgeFixture "self-recursive-function-rebinding"
@@ -1346,38 +1292,6 @@ testRejectedProducerDependencyTransport =
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
         kind
         detail
-
-testOperatorDependencyNames :: IO ()
-testOperatorDependencyNames = do
-  let userOperator = operatorBindingName "%%"
-      literal = resolvedLiteral (LInt 1)
-  assertEqual
-    "operator value dependency"
-    (Set.singleton userOperator)
-    (expressionDependencyNames (resolvedOperatorValue "%%"))
-  assertEqual
-    "infix operator dependency"
-    (Set.singleton userOperator)
-    (expressionDependencyNames (resolvedBinary "%%" literal literal))
-  assertEqual
-    "left section operator dependency"
-    (Set.singleton userOperator)
-    (expressionDependencyNames (resolvedSectionLeft literal "%%"))
-  assertEqual
-    "right section operator dependency"
-    (Set.singleton userOperator)
-    (expressionDependencyNames (resolvedSectionRight "%%" literal))
-  assertEqual
-    "builtin operator forms are dependency free"
-    Set.empty
-    ( foldMap
-        expressionDependencyNames
-        [ resolvedOperatorValue "+",
-          resolvedBinary "+" literal literal,
-          resolvedSectionLeft literal "+",
-          resolvedSectionRight "+" literal
-        ]
-    )
 
 testDiagnosticPrecedence :: IO ()
 testDiagnosticPrecedence = do

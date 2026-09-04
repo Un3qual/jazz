@@ -22,14 +22,12 @@ where
 import Control.Applicative ((<|>))
 import Data.Either (partitionEithers)
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CaseArm (..), CoreNode (..), CoreNodeId, CorePhase (Analyzed), Expr (..), ImplMethod (..), Literal (..), Pattern (..), Statement (..))
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly), BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength), builtinSymbolArity, builtinSymbolKernelName, lookupBuiltinSymbolInMode, numericTypeIntegerBounds, numericTypeIsIntegral)
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
-import Jazz.Compiler.RecursiveBindings (freeVarsExprWithBound)
 import Jazz.Compiler.SemanticFacts (AnalyzedNumericConstraint (..), AnalyzedType, BinaryOperandTyping (..), BinaryOperation (..), ExpressionFacts (..))
 import Jazz.Compiler.TypeRepresentation (NumericType (..), SemanticType (..))
 import Jazz.Compiler.TypedCore
@@ -47,9 +45,7 @@ data ExpressionContext = ExpressionContext
     expressionChildPath :: [Int],
     expressionExpectedType :: Maybe AnalyzedType,
     expressionBindings :: Map.Map ResolvedName ExpressionBinding,
-    expressionPurpose :: ExpressionPurpose,
-    expressionDeferred :: Bool,
-    expressionCaptureAvailability :: Map.Map ResolvedName Int
+    expressionPurpose :: ExpressionPurpose
   }
 
 data ExpressionBinding = ExpressionBinding
@@ -105,7 +101,6 @@ buildExpression catalog context expression
         info <- nodeInfo selectedType
         pure (TypedTupleExpr info children)
       EVar _ name
-        | not (expressionDeferred context), Just availableAfter <- Map.lookup name (expressionCaptureAvailability context), availableAfter >= expressionStatementIndex context -> reject TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText name))
         | Just constructor <- structuredConstructorAtStatement catalog (expressionStatementIndex context) name ->
             if null (structuredConstructorFieldContracts constructor)
               then case concreteConstructorContract catalog constructor selectedType of
@@ -134,7 +129,6 @@ buildExpression catalog context expression
                 context
                   { expressionChildPath = expressionChildPath context <> [0],
                     expressionExpectedType = Just resultType,
-                    expressionDeferred = True,
                     expressionBindings = Map.insert name (ExpressionBinding binder argumentType parameterCallable) (expressionBindings context),
                     expressionPurpose = case expressionPurpose context of
                       FunctionDefinition _ remaining -> FunctionDefinition shape (max 0 (remaining - 1))
@@ -142,11 +136,10 @@ buildExpression catalog context expression
                   }
           let bodyResult = buildExpression catalog bodyContext body
               duplicateFailures = [failure context TypedCoreDuplicateParameterUnsupported (TypedCoreNameDetail (identifierText name)) | FunctionDefinition {} <- [expressionPurpose context], Just previous <- [Map.lookup name (expressionBindings context)], TypedBinderId (_, index : _ : _, _) <- [bindingOwner previous], index == expressionStatementIndex context]
-              captureFailures = [failure context TypedCoreCaptureUnsupported (TypedCoreNameDetail (identifierText capture)) | not (expressionDeferred context), capture <- Set.toAscList (freeVarsExprWithBound (Set.singleton name) body), Just availableAfter <- [Map.lookup capture (expressionCaptureAvailability context)], availableAfter >= expressionStatementIndex context]
               retained = sourceFailures (errors bodyResult)
-          case (infoResult, bodyResult, captureFailures <> duplicateFailures) of
+          case (infoResult, bodyResult, duplicateFailures) of
             (Right info, Right typedBody, []) -> Right (TypedLambdaExpr info binder (valueName name) typedBody)
-            _ -> Left (if null retained then captureFailures <> duplicateFailures <> errors infoResult <> (if null (errors infoResult) then errors bodyResult else []) else retained)
+            _ -> Left (if null retained then duplicateFailures <> errors infoResult <> (if null (errors infoResult) then errors bodyResult else []) else retained)
         _ -> reject TypedCoreUnresolvedExpressionType TypedCoreUnsupportedRootDetail
       EApply {} -> buildApplication
       EPatternCase _ scrutinee arms -> buildCase scrutinee arms

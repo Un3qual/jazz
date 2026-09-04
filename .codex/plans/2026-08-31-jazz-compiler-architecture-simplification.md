@@ -9,8 +9,8 @@ depends_on: []
 plan_section: "Task 13"
 target_paths:
   - src/Jazz/Compiler/TypeInference.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration/Profiles.hs
-  - src/Jazz/Compiler/TypeInference/Elaboration/Finalize.hs
+  - src/Jazz/Compiler/TypedCore/Build.hs
+  - src/Jazz/Compiler/TypedCore/Build/Expressions.hs
   - src/Jazz/Compiler/TypeInference/Elaboration/Types.hs
   - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/CaptureRecursionTests.hs
 verification:
@@ -1233,16 +1233,16 @@ fixtures in `test/Jazz/Compiler/Bootstrap/`.
 
 - [x] Run the existing producer, Typed Core, Lowered IR, and recursive-binding
       characterization suites before editing.
-- [ ] Establish the analyzed input contract. Preserve semantic decisions needed
+- [x] Establish the analyzed input contract. Preserve semantic decisions needed
       by the producer without retaining `InferState` or a second expression tree.
-- [ ] Move checked construction onto analyzed expressions, statements, and
+- [x] Move checked construction onto analyzed expressions, statements, and
       semantic facts. Keep construction-dependent recursive support checks with
       the builder. Preserve catalog/module/statement failure precedence and all
       current profile boundaries.
 - [ ] Delete provisional expression and statement trees, inference-owned
       production failures, and migration-only adapters. Remove obsolete synthetic
       bridge tests only when their failure signal is covered at the new boundary.
-- [ ] Validate a successfully constructed raw `TypedProgram` with the existing
+- [x] Validate a successfully constructed raw `TypedProgram` with the existing
       independent validator. Return ordered unsupported failures or invariant
       failures without exposing a successful partial program.
 - [ ] Run focused suites, the development build, formatting, and whitespace
@@ -1259,13 +1259,19 @@ pass, including a contract that erased source field signatures cannot change
 Typed Core constructor fields. Expression construction still uses the provisional
 tree and remains part of this task.
 
-Further progress (2026-09-04): product/constructor contracts, export construction,
-and build outcomes now live under `TypedCore.Build` without inference-state
-inputs. Direct expression and module construction use explicit expected types
-and binding context; nine module characterization programs match the existing
-producer, including curried calls, a scalar capture, a function value, simple
-recursion, and generic data declarations. The complete producer fixture gate and
-removal of inference-owned expression construction remain unfinished.
+Further progress (2026-09-04): the live producer now constructs directly from
+analyzed expressions and statements (`ebec0326`). The producer, Typed Core,
+Lowered IR, recursive-binding, and module-pipeline suites pass. Removed the
+unused provisional finalizer and profile module, and replaced synthetic capture
+cases with valid source programs at the analyzed boundary. The producer and
+module-pipeline suites pass after that deletion. Inference still creates unused
+provisional nodes; deleting that remaining machinery is the next step.
+
+The deletion audit also retired eager-capture checks that existed only for
+injected provisional trees. The analyzer exposes forward names only within
+signed function bodies; equivalent eager source uses already fail name analysis.
+The builder therefore needs no eager-evaluation flag or availability map.
+Declaration-level transitive capture checks remain covered by source fixtures.
 
 Retrospective audit (2026-09-04): checked the recommendations and commits in
 this task against Tasks 13-15 and the deferred interpreter cutover. The suggestion
