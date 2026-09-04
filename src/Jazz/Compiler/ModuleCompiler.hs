@@ -275,6 +275,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
   case analyzedExpression of
     EBlock bodyNode statements -> do
       analyzedImports <- traverse (analyzedImport statementFactsByNode) (coreModuleImports resolvedModule)
+      capabilities <- analyzedCapabilities moduleInterface
       pure
         ( ModuleGraph.CoreModule
             { ModuleGraph.coreModuleIdentity = coreModuleIdentity resolvedModule,
@@ -287,7 +288,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
                     ModuleGraph.analyzedModuleExportSelectors = ModuleGraph.resolvedModuleExportSelectors (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleInterface = moduleInterface,
                     ModuleGraph.analyzedModuleDiagnostics = inferredDiagnostics inference,
-                    ModuleGraph.analyzedModuleCapabilities = analyzedCapabilities moduleInterface
+                    ModuleGraph.analyzedModuleCapabilities = capabilities
                   }
             }
         )
@@ -376,7 +377,7 @@ moduleEvidenceCandidates coreModule =
     (coreModulePath coreModule)
     (coreModuleExpr coreModule)
 
-analyzedCapabilities :: ModuleInterface -> AnalyzedCapabilityFacts
+analyzedCapabilities :: ModuleInterface -> Either SemanticFactInvariantFailure AnalyzedCapabilityFacts
 analyzedCapabilities moduleInterface =
   projectAnalyzedCapabilityFacts projectionState capabilityFacts
   where

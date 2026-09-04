@@ -1265,6 +1265,11 @@ only when its behavior has a simpler equivalent; deleting every wrapper is not
 an acceptance criterion. This runtime cleanup is independent of Task 13's
 builder migration and can be implemented while that migration remains active.
 
+Method-identity refinement (2026-09-04): retain one explicit, signature-local
+semantic class-parameter binder, including when unused. Checked analyzed
+projection rejects unsupported method variables rather than dropping methods.
+Do not add general method-variable ordering metadata.
+
 **Files:**
 
 - Modify: `src/Jazz/Compiler/SemanticFacts.hs`

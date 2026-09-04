@@ -12,6 +12,7 @@ module Jazz.Compiler.TypeInference.Analyzed
   )
 where
 
+import Data.Bifunctor (first)
 import Data.List (mapAccumL)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -67,7 +68,7 @@ import Jazz.Compiler.SourceUnitOwnership
   )
 import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
-import Jazz.Compiler.TypeInference.Solver (resolveType)
+import Jazz.Compiler.TypeInference.Solver (freshTypeVariable, resolveType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
@@ -97,6 +98,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint (..),
     quantifiedVariablesOrderedList,
   )
+import Jazz.Compiler.TypeRepresentation (SignaturePayload (..))
 
 data Attachment value = Attachment !(Seq SemanticFactInvariantFailure) (Maybe value)
 
@@ -497,9 +499,9 @@ projectStatementFacts modulePath state nodeId =
     Nothing -> missing (MissingStatementFacts nodeId)
     Just (bindings, declarationFact) ->
       let binderId = CoreBinderId (modulePath, nodeId)
-       in case traverse (projectTypeBinding state . snd) bindings of
-            Nothing -> missing (MissingStatementScheme nodeId binderId)
-            Just projectedSchemes ->
+       in case traverse (projectTypeBinding state binderId . snd) bindings of
+            Left failure -> missing failure
+            Right projectedSchemes ->
               pure
                 StatementFacts
                   { statementBinderIds = [binderId | not (null bindings)],
@@ -508,15 +510,17 @@ projectStatementFacts modulePath state nodeId =
                     statementDeclarationFact = declarationFact
                   }
 
-projectTypeBinding :: InferState -> TypeBinding -> Maybe AnalyzedScheme
-projectTypeBinding state binding =
+projectTypeBinding :: InferState -> CoreBinderId -> TypeBinding -> Either SemanticFactInvariantFailure AnalyzedScheme
+projectTypeBinding state binderId@(CoreBinderId (_, nodeId)) binding =
   case binding of
-    PlainTypeBinding expressionType -> Just (monomorphicScheme state expressionType)
-    SchemeTypeBinding scheme -> Just (projectScheme state scheme)
-    OperatorAliasSchemeTypeBinding _ scheme -> Just (projectScheme state scheme)
-    ConstructorTypeBinding {} -> projectConstructorBinding state binding
-    BuiltinAliasTypeBinding {} -> Nothing
-    BuiltinOperatorAliasTypeBinding {} -> Nothing
+    PlainTypeBinding expressionType -> Right (monomorphicScheme state expressionType)
+    SchemeTypeBinding scheme -> projectScheme state scheme
+    OperatorAliasSchemeTypeBinding _ scheme -> projectScheme state scheme
+    ConstructorTypeBinding {} -> maybe missingScheme Right (projectConstructorBinding state binding)
+    BuiltinAliasTypeBinding {} -> missingScheme
+    BuiltinOperatorAliasTypeBinding {} -> missingScheme
+  where
+    missingScheme = Left (MissingStatementScheme nodeId binderId)
 
 projectConstructorBinding :: InferState -> TypeBinding -> Maybe AnalyzedScheme
 projectConstructorBinding state binding = do
@@ -542,15 +546,17 @@ monomorphicScheme state expressionType =
       analyzedSchemeType = resolveType state expressionType
     }
 
-projectScheme :: InferState -> TypeScheme -> AnalyzedScheme
-projectScheme state scheme =
-  AnalyzedScheme
-    { analyzedSchemeVariables = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme),
-      analyzedSchemeConstraints = map (projectSchemeConstraint state) (schemeClassConstraints scheme),
-      analyzedSchemePrimitiveConstraints = map (projectPrimitiveConstraint state) (schemePrimitiveConstraints scheme),
-      analyzedSchemeDefiningCapabilities = projectAnalyzedCapabilityFacts state (schemeDefiningCapabilities scheme),
-      analyzedSchemeType = resolveType state (schemeResultType scheme)
-    }
+projectScheme :: InferState -> TypeScheme -> Either SemanticFactInvariantFailure AnalyzedScheme
+projectScheme state scheme = do
+  capabilities <- projectAnalyzedCapabilityFacts state (schemeDefiningCapabilities scheme)
+  pure
+    AnalyzedScheme
+      { analyzedSchemeVariables = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme),
+        analyzedSchemeConstraints = map (projectSchemeConstraint state) (schemeClassConstraints scheme),
+        analyzedSchemePrimitiveConstraints = map (projectPrimitiveConstraint state) (schemePrimitiveConstraints scheme),
+        analyzedSchemeDefiningCapabilities = capabilities,
+        analyzedSchemeType = resolveType state (schemeResultType scheme)
+      }
 
 projectSchemeConstraint :: InferState -> TypeSchemeConstraint -> AnalyzedSchemeConstraint
 projectSchemeConstraint state constraint =
@@ -576,32 +582,43 @@ projectNumericConstraint constraint =
     IntegralNumericConstraint -> AnalyzedIntegralNumericConstraint
     IntegralLiteralNumericConstraint (IntegerLiteralRange lower upper) -> AnalyzedIntegralLiteralNumericConstraint lower upper
 
-projectAnalyzedCapabilityFacts :: InferState -> ScopeCapabilityFacts -> AnalyzedCapabilityFacts
-projectAnalyzedCapabilityFacts state facts =
-  AnalyzedCapabilityFacts
-    { analyzedClassArities = scopeClassFacts facts,
-      analyzedGeneratedEqualityClasses = scopeGeneratedEqualityClassFacts facts,
-      analyzedConcreteImplementations =
-        Set.fromList
-          (mapMaybe projectConcreteImpl (Set.toList (scopeConcreteImplFacts facts))),
-      analyzedClassMethodSignatures = Map.mapMaybe projectClassMethod (scopeClassMethodSignatures facts),
-      analyzedConcreteImplMethods = Map.map (mapMaybe projectImplMethod) (scopeConcreteImplMethods facts)
-    }
+projectAnalyzedCapabilityFacts :: InferState -> ScopeCapabilityFacts -> Either SemanticFactInvariantFailure AnalyzedCapabilityFacts
+projectAnalyzedCapabilityFacts state facts = do
+  methods <- Map.traverseWithKey projectClassMethod (scopeClassMethodSignatures facts)
+  pure
+    AnalyzedCapabilityFacts
+      { analyzedClassArities = scopeClassFacts facts,
+        analyzedGeneratedEqualityClasses = scopeGeneratedEqualityClassFacts facts,
+        analyzedConcreteImplementations =
+          Set.fromList
+            (mapMaybe projectConcreteImpl (Set.toList (scopeConcreteImplFacts facts))),
+        analyzedClassMethodSignatures = methods,
+        analyzedConcreteImplMethods = Map.map (mapMaybe projectImplMethod) (scopeConcreteImplMethods facts)
+      }
   where
     projectConcreteImpl (ConcreteImplFact capabilityName signatureType) =
       case Signature.signatureTypeToExpressionType state Map.empty signatureType of
         Left _ -> Nothing
         Right expressionType -> Just (AnalyzedConcreteImplFact (CapabilityId capabilityName) (resolveType state expressionType))
-    projectClassMethod (ClassMethodType parameter payload) =
-      case Signature.signaturePayloadToSignatureType payload state of
-        (Nothing, _) -> Nothing
-        (Just payloadType, _) ->
-          Just
-            AnalyzedMethodSignature
-              { analyzedMethodClassParameter = parameter,
-                analyzedMethodConstraints = map (projectSchemeConstraint state) (Signature.signaturePayloadExplicitConstraints payloadType),
-                analyzedMethodType = resolveType state (Signature.signaturePayloadDeclaredType payloadType)
-              }
+    projectClassMethod methodName (ClassMethodType parameter payload) = do
+      signatureType <- case payload of
+        SignatureType value -> Right value
+        ConstrainedSignature [] value -> Right value
+        _ -> Left failure
+      -- Allocate the declared binder before conversion. The explicit environment
+      -- rejects other variables, including future unsupported method polymorphism.
+      let (parameterId, parameterType, methodState) = freshTypeVariable state
+      methodType <-
+        first
+          (const failure)
+          (Signature.signatureTypeToExpressionType methodState (Map.singleton parameter parameterType) signatureType)
+      pure
+        AnalyzedMethodSignature
+          { analyzedMethodClassParameter = parameterId,
+            analyzedMethodType = methodType
+          }
+      where
+        failure = InvalidAnalyzedMethodSignature methodName
     projectImplMethod (ImplMethodType signatureType) =
       either (const Nothing) (Just . resolveType state) (Signature.signatureTypeToExpressionType state Map.empty signatureType)
 

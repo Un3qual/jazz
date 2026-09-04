@@ -126,6 +126,7 @@ import Jazz.Compiler.RuntimeHost
   )
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedCapabilityFacts (..),
+    AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
@@ -148,7 +149,7 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression)
+import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedCapabilityFacts)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -162,11 +163,13 @@ import Jazz.Compiler.TypeInference.State
     recordStatementFactSeed,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ConstructorArgumentType (..),
+  ( ClassMethodType (..),
+    ConstructorArgumentType (..),
     DataTypeBinding (..),
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    ScopeCapabilityFacts (..),
     SemanticType (..),
     TypeBinding (..),
     TypeScheme (..),
@@ -176,6 +179,7 @@ import Jazz.Compiler.TypeInference.Types
   )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (NumericFloat64, NumericInt8),
+    SignaturePayload (..),
     SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -195,6 +199,8 @@ tests =
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
     ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
+    ("analyzed methods identify used and unused class parameters", testAnalyzedMethodParameterIdentity),
+    ("method projection rejects variables outside the class binder", testAnalyzedMethodParameterBoundary),
     ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -404,6 +410,51 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
           assertEqual "analyzed class method signature is populated" True (Map.member "Eq::equals" (analyzedClassMethodSignatures capabilityFacts))
           assertEqual "analyzed implementation method inventory is populated" True (Map.member "Eq::equals" (analyzedConcreteImplMethods capabilityFacts))
       | otherwise = pure ()
+
+testAnalyzedMethodParameterIdentity :: IO ()
+testAnalyzedMethodParameterIdentity = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      ( Map.singleton
+          "src/App/Main.jz"
+          "module App::Main { class Probe(a) { nested :: [a] -> [a]. constant :: Int -> Bool. }. 0. }"
+      )
+  let methods =
+        analyzedClassMethodSignatures
+          (analyzedModuleCapabilities (coreModuleFacts (NonEmpty.head (coreProgramModules analyzed))))
+  case (Map.lookup "Probe::nested" methods, Map.lookup "Probe::constant" methods) of
+    (Just nested, Just constant) -> do
+      let parameter = SemanticVariable (analyzedMethodClassParameter nested)
+      assertEqual
+        "nested occurrences refer to the explicit class parameter"
+        (SemanticFunction (SemanticList parameter) (SemanticList parameter))
+        (analyzedMethodType nested)
+      assertEqual
+        "a method can leave its class parameter unused"
+        (SemanticFunction SemanticInt SemanticBool)
+        (analyzedMethodType constant)
+    _ -> fail "missing analyzed Probe methods"
+
+testAnalyzedMethodParameterBoundary :: IO ()
+testAnalyzedMethodParameterBoundary =
+  mapM_
+    checkRejected
+    [ TypeFunction foreignVariable foreignVariable,
+      TypeFunction classVariable foreignVariable
+    ]
+  where
+    classVariable = TypeVariable (BuiltinName (mkIdentifier "a"))
+    foreignVariable = TypeVariable (BuiltinName (mkIdentifier "b"))
+    checkRejected signatureType =
+      assertEqual
+        "an unexpected variable fails projection instead of dropping or guessing the binder"
+        (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
+        (projectAnalyzedCapabilityFacts initialInferState (invalidFacts signatureType))
+    invalidFacts signatureType =
+      emptyScopeCapabilityFacts
+        { scopeClassMethodSignatures =
+            Map.singleton "Probe::bad" (ClassMethodType "a" (SignatureType signatureType))
+        }
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

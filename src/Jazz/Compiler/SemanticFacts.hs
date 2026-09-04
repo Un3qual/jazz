@@ -201,6 +201,7 @@ data SemanticFactInvariantFailure
   | MissingStatementFacts CoreNodeId
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
+  | InvalidAnalyzedMethodSignature Text
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -258,9 +259,11 @@ data AnalyzedConcreteImplFact = AnalyzedConcreteImplFact CapabilityId AnalyzedTy
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
+-- | The class parameter is an explicit binder local to this signature, even
+-- when the method does not use it. No other free variables are admitted by
+-- checked projection; consumers never infer parameter identity from type shape.
 data AnalyzedMethodSignature = AnalyzedMethodSignature
-  { analyzedMethodClassParameter :: Text,
-    analyzedMethodConstraints :: [AnalyzedSchemeConstraint],
+  { analyzedMethodClassParameter :: InferenceVariable,
     analyzedMethodType :: AnalyzedType
   }
   deriving stock (Eq, Generic, Ord, Show)
