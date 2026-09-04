@@ -25,6 +25,7 @@ module Jazz.Compiler.TypeInference.State
     inferErrorCount,
     inferErrorsRev,
     inferExpressionFactTypes,
+    inferBinaryOperations,
     inferExpressionEvidenceSeeds,
     inferExplicitInstantiationSeeds,
     inferImplementationEvidenceCandidates,
@@ -47,6 +48,7 @@ module Jazz.Compiler.TypeInference.State
     modifyInferenceOutput,
     modifyModuleInferenceState,
     recordExpressionFactType,
+    recordBinaryOperation,
     recordExpressionEvidenceSeed,
     recordExplicitInstantiationSeed,
     recordPatternFactSeed,
@@ -71,7 +73,8 @@ import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
 import Jazz.Compiler.SemanticFacts
-  ( CapabilityId,
+  ( BinaryOperation,
+    CapabilityId,
     CoreNodeId,
     ImplId,
     MethodId,
@@ -124,6 +127,7 @@ data ModuleInferenceState = ModuleInferenceState
 
 data InferenceOutput = InferenceOutput
   { outputExpressionFactTypes :: Map CoreNodeId ExpressionType,
+    outputBinaryOperations :: Map CoreNodeId BinaryOperation,
     outputExpressionEvidenceSeeds :: Map CoreNodeId ExpressionEvidenceSeed,
     outputExplicitInstantiationSeeds :: Map CoreNodeId ExplicitInstantiationSeed,
     outputPatternFactSeeds :: Map CoreNodeId PatternFacts,
@@ -228,6 +232,7 @@ initialInferState =
       inferOutput =
         InferenceOutput
           { outputExpressionFactTypes = Map.empty,
+            outputBinaryOperations = Map.empty,
             outputExpressionEvidenceSeeds = Map.empty,
             outputExplicitInstantiationSeeds = Map.empty,
             outputPatternFactSeeds = Map.empty,
@@ -293,6 +298,18 @@ inferVisibleTypes = inferenceVisibleTypes . inferModule
 
 inferExpressionFactTypes :: InferState -> Map CoreNodeId ExpressionType
 inferExpressionFactTypes = outputExpressionFactTypes . inferOutput
+
+inferBinaryOperations :: InferState -> Map CoreNodeId BinaryOperation
+inferBinaryOperations = outputBinaryOperations . inferOutput
+
+recordBinaryOperation :: CoreNodeId -> BinaryOperation -> InferState -> InferState
+recordBinaryOperation nodeId operation =
+  recordFact
+    outputBinaryOperations
+    (\facts output -> output {outputBinaryOperations = facts})
+    DuplicateExpressionFacts
+    nodeId
+    operation
 
 inferExpressionEvidenceSeeds :: InferState -> Map CoreNodeId ExpressionEvidenceSeed
 inferExpressionEvidenceSeeds = outputExpressionEvidenceSeeds . inferOutput

@@ -107,7 +107,9 @@ import Jazz.Compiler.RecursiveBindings
     preparedRecursiveScopeStatements,
   )
 import Jazz.Compiler.SemanticFacts
-  ( CoreBinderId,
+  ( BinaryOperandTyping (..),
+    BinaryOperation (..),
+    CoreBinderId,
     CoreNodeId,
     SemanticFactInvariantFailure,
     StatementDeclarationFact,
@@ -142,7 +144,6 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
 import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInSourceUnit)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
-    binaryNumericPromotionType,
     builtinSectionOperatorSymbol,
     hasOperatorRule,
     inferBinaryType,
@@ -188,6 +189,7 @@ import Jazz.Compiler.TypeInference.State
     initialInferState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
+    recordBinaryOperation,
     recordExpressionFactType,
     recordPatternCoverageSite,
     recordStatementFactSeed,
@@ -856,24 +858,13 @@ inferExprTypeDetailedRaw builtinMode env state expr =
       | isTypedCoreDirectCallOperator operatorSymbol ->
           let (leftResult, stateAfterLeft) = inferExprTypeDetailed builtinMode env state leftExpr
               (rightResult, stateAfterRight) = inferExprTypeDetailed builtinMode env stateAfterLeft rightExpr
-              (expressionType, finalState) =
+              (expressionType, operandTyping, finalState) =
                 case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
                   (Just leftType, Just rightType) ->
                     inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType stateAfterRight
-                  _ -> (Nothing, stateAfterRight)
-              promotionFailures =
-                case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
-                  (Just leftType, Just rightType)
-                    | Just _ <-
-                        binaryNumericPromotionType
-                          operatorSymbol
-                          leftExpr
-                          rightExpr
-                          leftType
-                          rightType
-                          finalState ->
-                        [InferredProductionFailure [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
-                  _ -> []
+                  _ -> (Nothing, Nothing, stateAfterRight)
+              operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
+              promotionFailures = operationPromotionFailures operation
               failures =
                 promotionFailures
                   <> childFailures 0 leftResult
@@ -883,16 +874,16 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                   _ : _ -> Just (ProvisionalRetainedFailures failures)
                   [] -> do
                     resultType <- expressionType
-                    leftType <- inferredExpressionType leftResult
-                    rightType <- inferredExpressionType rightResult
+                    BinaryOperation _ (UniformBinaryOperands operandType) _ _ <- operation
                     provisionalBinaryExpression
                       finalState
                       operatorSymbol
                       resultType
-                      (mergedUnifiedType finalState leftType rightType)
+                      operandType
                       leftResult
                       rightResult
-           in (InferredExpr expressionType provisionalExpr failures, finalState)
+              stateWithOperation = recordSelectedBinaryOperation operation finalState
+           in (InferredExpr expressionType provisionalExpr failures, stateWithOperation)
     EBinary {} ->
       inferUnsupportedWithProduction
         TypedCoreUserDefinedOperatorUnsupported
@@ -1242,11 +1233,11 @@ inferExprTypeDetailedRaw builtinMode env state expr =
             inferExprTypeDetailed builtinMode env state leftExpr
           (rightResult, stateAfterRight) =
             inferExprTypeDetailed builtinMode env stateAfterLeft rightExpr
-          (expressionType, stateAfterBinary) =
+          (expressionType, operandTyping, stateAfterBinary) =
             case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
               (Just leftType, Just rightType) ->
                 inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType stateAfterRight
-              _ -> (Nothing, stateAfterRight)
+              _ -> (Nothing, Nothing, stateAfterRight)
           finalState =
             case (maybeAliasScheme, inferredExpressionType leftResult, inferredExpressionType rightResult) of
               (Just aliasScheme, Just leftType, Just rightType)
@@ -1269,19 +1260,8 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                   resultType
                   finalState
               _ -> finalState
-          promotionFailures =
-            case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
-              (Just leftType, Just rightType)
-                | Just _ <-
-                    binaryNumericPromotionType
-                      operatorSymbol
-                      leftExpr
-                      rightExpr
-                      leftType
-                      rightType
-                      stateWithSpineFacts ->
-                    [InferredProductionFailure [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
-              _ -> []
+          operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
+          promotionFailures = operationPromotionFailures operation
           childProductionFailures =
             prefixFailures leftPath leftResult <> prefixFailures rightPath rightResult
           failures = promotionFailures <> childProductionFailures
@@ -1290,16 +1270,34 @@ inferExprTypeDetailedRaw builtinMode env state expr =
               _ : _ -> Just (ProvisionalRetainedFailures failures)
               [] -> do
                 resultType <- expressionType
-                leftType <- inferredExpressionType leftResult
-                rightType <- inferredExpressionType rightResult
+                BinaryOperation _ (UniformBinaryOperands operandType) _ _ <- operation
                 provisionalBinaryExpression
                   stateWithSpineFacts
                   operatorSymbol
                   resultType
-                  (mergedUnifiedType finalState leftType rightType)
+                  operandType
                   leftResult
                   rightResult
-       in (InferredExpr expressionType provisionalExpr failures, stateWithSpineFacts)
+          stateWithOperation = recordSelectedBinaryOperation operation stateWithSpineFacts
+       in (InferredExpr expressionType provisionalExpr failures, stateWithOperation)
+
+    selectedBinaryOperation operatorSymbol leftExpr rightExpr operandTyping =
+      BinaryOperation
+        operatorSymbol
+        operandTyping
+        (coreNodeId (expressionNode leftExpr))
+        (coreNodeId (expressionNode rightExpr))
+
+    operationPromotionFailures operation = case binaryOperationOperandTyping <$> operation of
+      Just Float64PromotedOperands ->
+        [InferredProductionFailure [] TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail]
+      _ -> []
+
+    recordSelectedBinaryOperation operation finalState =
+      maybe
+        finalState
+        (\selected -> recordBinaryOperation (coreNodeId (expressionNode expr)) selected finalState)
+        operation
 
     -- Optimized builtin operator inference visits the two operands directly.
     -- Record the callable and partial-application nodes it intentionally
@@ -1560,7 +1558,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                 inferExprTypeDetailed builtinMode env state leftExpr
               (rightResult, stateAfterRight) =
                 inferExprTypeDetailed builtinMode env stateAfterLeft rightExpr
-              (expressionType, finalState) =
+              (expressionType, operandTyping, finalState) =
                 case (inferredExpressionType leftResult, inferredExpressionType rightResult) of
                   (Just leftType, Just rightType) ->
                     inferBinaryType
@@ -1570,8 +1568,9 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                       leftType
                       rightType
                       stateAfterRight
-                  _ -> (Nothing, stateAfterRight)
-           in (expressionType, finalState, leftResult, rightResult)
+                  _ -> (Nothing, Nothing, stateAfterRight)
+              operation = selectedBinaryOperation operatorSymbol leftExpr rightExpr <$> operandTyping
+           in (expressionType, recordSelectedBinaryOperation operation finalState, leftResult, rightResult)
       | otherwise =
           inferDeclaredBinaryWithProduction env state operatorSymbol leftExpr rightExpr
 

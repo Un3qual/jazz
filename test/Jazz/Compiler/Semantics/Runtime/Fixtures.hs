@@ -98,6 +98,7 @@ expressionNode =
     (SourceSpan 1 1)
     ( ExpressionFacts
         (TypeRepresentation.SemanticVariable (TypeRepresentation.InferenceVariable 0))
+        Nothing
         Map.empty
         []
         []

@@ -46,6 +46,8 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
+    BinaryOperandTyping (..),
+    BinaryOperation (..),
     CapabilityId (..),
     CoreBinderId (..),
     CoreNodeId,
@@ -71,6 +73,7 @@ import Jazz.Compiler.TypeInference.State
     ExplicitInstantiationTarget (..),
     ExpressionEvidenceSeed (..),
     InferState,
+    inferBinaryOperations,
     inferExplicitInstantiationSeeds,
     inferExpressionEvidenceSeeds,
     inferExpressionFactTypes,
@@ -241,16 +244,27 @@ attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
        in makeNode semanticType evidence evidenceObligations
             <$> explicitInstantiationFacts state binders nodeId expression
       where
+        operation = resolveOperation <$> Map.lookup nodeId (inferBinaryOperations state)
+        resolveOperation selected =
+          selected
+            { binaryOperationOperandTyping = case binaryOperationOperandTyping selected of
+                UniformBinaryOperands operandType -> UniformBinaryOperands (resolveType state operandType)
+                Float64PromotedOperands -> Float64PromotedOperands
+            }
+        operandVariables = case binaryOperationOperandTyping <$> operation of
+          Just (UniformBinaryOperands operandType) -> freeTypeVariables operandType
+          _ -> Set.empty
         makeNode semanticType evidence evidenceObligations explicitFacts =
           CoreNode
             nodeId
             spanValue
             ExpressionFacts
               { expressionSemanticType = semanticType,
+                expressionBinaryOperation = operation,
                 expressionNumericConstraints =
                   Map.map
                     projectNumericConstraint
-                    (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType)),
+                    (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType <> operandVariables)),
                 expressionInstantiations = attachedSemanticInstantiations explicitFacts,
                 expressionEvidence = evidence,
                 expressionRuntimePlan =

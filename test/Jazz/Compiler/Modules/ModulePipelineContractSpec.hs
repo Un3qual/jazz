@@ -130,6 +130,8 @@ import Jazz.Compiler.SemanticFacts
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedType,
+    BinaryOperandTyping (..),
+    BinaryOperation (..),
     CapabilityId (..),
     CoreBinderId (..),
     EvidenceReference (..),
@@ -173,7 +175,7 @@ import Jazz.Compiler.TypeInference.Types
     quantifiedVariablesFromPreferred,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (NumericInt8),
+  ( NumericType (NumericFloat64, NumericInt8),
     SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
@@ -189,7 +191,9 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
+  [ ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
+    ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
+    ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
@@ -217,6 +221,93 @@ tests =
     ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme),
     ("signed builtin aliases retain their authored schemes", testSignedBuiltinAliasStatementScheme)
   ]
+
+testBinaryOperandAliasSelection :: IO ()
+testBinaryOperandAliasSelection = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      ( Map.singleton
+          "src/App/Main.jz"
+          "module App::Main { a :: Float. a = 1.0. b :: Float64. b = 2.0. a + b. }"
+      )
+  coreModule <-
+    maybe
+      (fail "missing analyzed module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  case coreModuleExpr coreModule of
+    EBlock _ statements -> case [coreNodeFacts node | SExpr _ (EBinary node _ _ _) <- statements] of
+      [facts] -> do
+        assertEqual
+          "numeric rule selects the concrete alias"
+          (SemanticNumeric NumericFloat64)
+          (expressionSemanticType facts)
+        assertEqual
+          "operand fact preserves that exact decision"
+          (Just (UniformBinaryOperands (SemanticNumeric NumericFloat64)))
+          (binaryOperationOperandTyping <$> expressionBinaryOperation facts)
+      _ -> fail "missing binary operation"
+    _ -> fail "expected analyzed block"
+
+testAnalyzedBinaryOperations :: IO ()
+testAnalyzedBinaryOperations = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      ( Map.singleton
+          "src/App/Main.jz"
+          "module App::Main { add = (+). x :: Int8. x = 1. x == 2. add x 3. 1 + 2.0. }"
+      )
+  coreModule <-
+    maybe
+      (fail "missing analyzed module")
+      pure
+      (lookupCoreModule (nominalModulePath ("App" :| ["Main"])) analyzed)
+  case coreModuleExpr coreModule of
+    EBlock _ statements ->
+      case [expression | SExpr _ expression <- statements] of
+        [ EBinary comparisonNode _ (EVar leftNode _) (ELit rightNode _),
+          EApply applicationNode (EApply _ _ (EVar aliasLeftNode _)) (ELit aliasRightNode _),
+          EBinary promotionNode _ (ELit promotionLeftNode _) (ELit promotionRightNode _)
+          ] -> do
+            assertEqual
+              "comparison result remains Bool"
+              SemanticBool
+              (expressionSemanticType (coreNodeFacts comparisonNode))
+            assertEqual
+              "comparison operands use the signed context"
+              ( Just
+                  ( BinaryOperation
+                      "=="
+                      (UniformBinaryOperands (SemanticNumeric NumericInt8))
+                      (coreNodeId leftNode)
+                      (coreNodeId rightNode)
+                  )
+              )
+              (expressionBinaryOperation (coreNodeFacts comparisonNode))
+            assertEqual
+              "operator alias retains its selected primitive and original operands"
+              ( Just
+                  ( BinaryOperation
+                      "+"
+                      (UniformBinaryOperands (SemanticNumeric NumericInt8))
+                      (coreNodeId aliasLeftNode)
+                      (coreNodeId aliasRightNode)
+                  )
+              )
+              (expressionBinaryOperation (coreNodeFacts applicationNode))
+            assertEqual
+              "implicit promotion is distinct from uniform operand typing"
+              ( Just
+                  ( BinaryOperation
+                      "+"
+                      Float64PromotedOperands
+                      (coreNodeId promotionLeftNode)
+                      (coreNodeId promotionRightNode)
+                  )
+              )
+              (expressionBinaryOperation (coreNodeFacts promotionNode))
+        expressions -> fail ("unexpected operation fixture: " <> show expressions)
+    expression -> fail ("expected analyzed block: " <> show expression)
 
 testAnalyzedLiteralRangeFacts :: IO ()
 testAnalyzedLiteralRangeFacts = do

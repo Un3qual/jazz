@@ -15,6 +15,8 @@ module Jazz.Compiler.SemanticFacts
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
+    BinaryOperation (..),
+    BinaryOperandTyping (..),
     CapabilityId (..),
     CoreBinderId (..),
     CoreNodeId (..),
@@ -108,8 +110,27 @@ data RuntimeObligation
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
+-- | The primitive operation selected by inference, including the original
+-- operand identities when application syntax or an alias selected the operator.
+-- This is a decision attached to the existing tree, not a second expression.
+data BinaryOperation = BinaryOperation
+  { binaryOperationSymbol :: Text,
+    binaryOperationOperandTyping :: BinaryOperandTyping,
+    binaryOperationLeftOperand :: CoreNodeId,
+    binaryOperationRightOperand :: CoreNodeId
+  }
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+data BinaryOperandTyping
+  = UniformBinaryOperands AnalyzedType
+  | Float64PromotedOperands
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
 data ExpressionFacts = ExpressionFacts
   { expressionSemanticType :: AnalyzedType,
+    expressionBinaryOperation :: Maybe BinaryOperation,
     expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
