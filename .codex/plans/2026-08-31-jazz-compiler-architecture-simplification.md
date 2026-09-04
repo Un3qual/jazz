@@ -1231,7 +1231,7 @@ is identical; recursive capture specialization can change that context.
 `src/Jazz/Compiler/TypeInference/Elaboration/`, `jazz.cabal`, and producer contract
 fixtures in `test/Jazz/Compiler/Bootstrap/`.
 
-- [ ] Run the existing producer, Typed Core, Lowered IR, and recursive-binding
+- [x] Run the existing producer, Typed Core, Lowered IR, and recursive-binding
       characterization suites before editing.
 - [ ] Establish the analyzed input contract. Preserve semantic decisions needed
       by the producer without retaining `InferState` or a second expression tree.
@@ -1251,6 +1251,13 @@ fixtures in `test/Jazz/Compiler/Bootstrap/`.
 ```sh
 nix --extra-experimental-features 'nix-command flakes' develop --command cabal test jazz-typed-core-expression-direct-call-spec jazz-typed-core-contract-spec jazz-lowered-ir-contract-spec recursive-bindings-spec --test-show-details=failures --jobs=1
 ```
+
+Progress (2026-09-04): constructor catalogs and data exports now consume analyzed
+constructor schemes. Removed inference-owned constructor/data snapshots. The
+producer, Typed Core, Lowered IR, recursive-binding, and module-pipeline suites
+pass, including a contract that erased source field signatures cannot change
+Typed Core constructor fields. Expression construction still uses the provisional
+tree and remains part of this task.
 
 Advanced Haskell features and language extensions are welcome when they reduce
 code or improve maintainability. This applies to subsequent tasks as well;

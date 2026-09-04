@@ -81,8 +81,6 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     FunctionProfile (..),
     InferredProductionFailure (..),
     ProvisionalCallableDeclaration (..),
-    ProvisionalConstructorDeclaration (..),
-    ProvisionalDataDeclaration (..),
     ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
@@ -112,12 +110,13 @@ finalizeValidatedTypedCoreExpressionDirectCall ::
   TypedSourcePath ->
   CoreModule 'Resolved ->
   InferState ->
+  [Statement 'Analyzed] ->
   ProvisionalTypedExpr ->
   TypedCoreBuildResult
-finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state provisionalScope =
+finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state analyzedStatements provisionalScope =
   case provisionalScope of
     ProvisionalScopeStatements provisionalStatements ->
-      let (structuredCatalogFailures, structuredCatalog) = buildStructuredValueCatalog modulePath state provisionalStatements
+      let (structuredCatalogFailures, structuredCatalog) = buildStructuredValueCatalog modulePath state analyzedStatements
           profile = analyzeFinalizationProfile modulePath provisionalStatements
           baseFunctions = profileBaseFunctions profile
           callableShapes = profileCallableShapes profile
@@ -152,7 +151,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
               unavailableClosureCaptureBinders
               provisionalStatements
           exportResult =
-            finalizeExports structuredCatalog provisionalStatements functions callableShapes
+            finalizeExports structuredCatalog functions callableShapes
           missingResultFailures =
             [ missingModuleResultFailure
             | not (hasTerminalResult provisionalStatements)
@@ -395,7 +394,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
                   (FinalizationLocation statementIndex [] Map.empty scalarBindings EagerExpression ScalarExpression)
                   selectedExpression
            in (failures, TypedExpressionStatement (typedSpan spanValue) <$> maybeTypedExpression, scalarBindings)
-        ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex _ _ _ _) ->
+        ProvisionalDataStatement statementIndex ->
           case structuredDataStatement structuredCatalog statementIndex of
             Just typedStatement -> ([], Just typedStatement, scalarBindings)
             Nothing -> ([], Nothing, scalarBindings)
@@ -1879,7 +1878,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             ProvisionalFunctionBinding declaration _ -> provisionalCallableStatementIndex declaration
             ProvisionalScalarBinding statementIndex _ _ _ _ -> statementIndex
             ProvisionalTerminalExpression statementIndex _ _ -> statementIndex
-            ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex _ _ _ _) -> statementIndex
+            ProvisionalDataStatement statementIndex -> statementIndex
             ProvisionalUnsupportedCallableBinding declaration _ _ _ -> provisionalCallableStatementIndex declaration
             ProvisionalUnsupportedStatement statementIndex _ _ _ -> statementIndex
         generatedOperatorName name =
@@ -2041,7 +2040,7 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
             _ -> False
         methodHasNestedReference (TypedMethodDefinition _ _ _ _ body) = nestedReference body
 
-    finalizeExports structuredCatalog provisionalStatements functions callableShapes =
+    finalizeExports structuredCatalog functions callableShapes =
       let (reversedFailures, TypedModuleInterface reversedValues datas classes impls) =
             foldl'
               collect
@@ -2051,10 +2050,10 @@ finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule state p
       where
         localDataDeclarations =
           [ ( identifierText sourceName,
-              Set.fromList [identifierText constructorName | ProvisionalConstructorDeclaration constructorName _ <- constructors],
+              Set.fromList [identifierText constructorName | DataConstructor _ constructorName _ <- constructors],
               declaration
             )
-          | ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex _ sourceName _ constructors) <- provisionalStatements,
+          | (statementIndex, SData _ sourceName _ constructors) <- zip [0 ..] analyzedStatements,
             Just (TypedDataStatement declaration) <- [structuredDataStatement structuredCatalog statementIndex]
           ]
 

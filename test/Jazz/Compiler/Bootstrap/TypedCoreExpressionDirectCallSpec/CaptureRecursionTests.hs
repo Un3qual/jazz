@@ -1189,6 +1189,7 @@ testEagerRecursiveClosureCaptureAvailability = do
           (TypedSourcePath "src/App/Main.jz")
           resolvedModule
           initialInferState
+          []
           provisionalScope
   assertProductionUnsupported "eager recursive closure capture rejection" expectedFailures status
 
@@ -1273,6 +1274,7 @@ testEagerNestedClosureCaptureAvailability = do
           (TypedSourcePath "src/App/Main.jz")
           resolvedModule
           initialInferState
+          []
           provisionalScope
   assertProductionUnsupported "eager nested closure capture rejection" expectedFailures status
 
@@ -1288,6 +1290,7 @@ assertProvisionalProductionTypes label expectedBindingTypes expectedTerminalType
           (TypedSourcePath "src/App/Main.jz")
           resolvedModule
           initialInferState
+          []
           provisionalScope
   case status of
     TypedCoreProductionSucceeded validatedProgram -> do

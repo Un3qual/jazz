@@ -150,6 +150,7 @@ import Jazz.Compiler.SemanticFacts
     StatementFacts (..),
   )
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedCapabilityFacts)
+import Jazz.Compiler.TypeInference.Elaboration.StructuredValues (buildStructuredValueCatalog, structuredDataStatement)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -213,6 +214,7 @@ tests =
     ("namespace-aware runtime exports publish selected constructor only", testNamespaceAwareRuntimeExportPublishesConstructorOnly),
     ("grouped exports publish selected constructors through interface and runtime inventories", testGroupedExportsPublishSelectedConstructor),
     ("analyzed generic constructor fields remain module-stable", testAnalyzedGenericConstructorFieldsRemainModuleStable),
+    ("Typed Core constructor fields come from analyzed schemes", testTypedConstructorFieldsUseAnalyzedSchemes),
     ("analyzed dependency terminal expressions are skipped", testAnalyzedDependencyTerminalExpressionIsSkipped),
     ("host-free and host-capable module paths preserve observable results", testModuleRuntimePathParity),
     ("run result projections distinguish all execution states", testRunResultProjectionInvariants),
@@ -1069,6 +1071,32 @@ testAnalyzedGenericConstructorFieldsRemainModuleStable = do
         [ ("src/App/Main.jz", "module App::Main { import Lib::Box. Box [1]. }"),
           ("src/Lib/Box.jz", "module Lib::Box { data Box a = Box [a]. }")
         ]
+
+testTypedConstructorFieldsUseAnalyzedSchemes :: IO ()
+testTypedConstructorFieldsUseAnalyzedSchemes = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      (Map.singleton "src/App/Main.jz" "module App::Main { data Pair a b = Pair b a. data Phantom a = Phantom Int. (). }")
+  case coreModuleExpr (NonEmpty.head (coreProgramModules analyzed)) of
+    EBlock _ statements -> do
+      original <- declarations statements
+      withoutSourceFields <- declarations (map eraseSourceFields statements)
+      assertEqual "both analyzed data declarations are constructed" 2 (length original)
+      assertEqual "source signatures cannot override analyzed constructor fields" original withoutSourceFields
+    _ -> fail "expected analyzed constructor fixture block"
+  where
+    declarations statements = do
+      let (failures, catalog) = buildStructuredValueCatalog ["App", "Main"] initialInferState statements
+      assertEqual "analyzed constructor contracts are supported" [] failures
+      pure
+        [ declaration
+        | index <- [0 .. length statements - 1],
+          Just declaration <- [structuredDataStatement catalog index]
+        ]
+    eraseSourceFields statement = case statement of
+      SData node name parameters constructors ->
+        SData node name parameters [DataConstructor constructorNode constructorName [] | DataConstructor constructorNode constructorName _ <- constructors]
+      _ -> statement
 
 testLexicalBindersShadowImportedAndBuiltinNames :: IO ()
 testLexicalBindersShadowImportedAndBuiltinNames = do

@@ -14,8 +14,6 @@ module Jazz.Compiler.TypeInference.Elaboration.Types
     InferredExpr (..),
     InferredProductionFailure (..),
     ProvisionalCallableDeclaration (..),
-    ProvisionalConstructorDeclaration (..),
-    ProvisionalDataDeclaration (..),
     ProvisionalPatternCaseArm (..),
     ProvisionalTypedExpr (..),
     ProvisionalTypedStatement (..),
@@ -185,22 +183,9 @@ data ProvisionalTypedStatement
   | ProvisionalFunctionBinding ProvisionalCallableDeclaration ProvisionalTypedExpr
   | ProvisionalScalarBinding Int ResolvedName SourceSpan ExpressionType ProvisionalTypedExpr
   | ProvisionalTerminalExpression Int SourceSpan ProvisionalTypedExpr
-  | ProvisionalDataStatement ProvisionalDataDeclaration
+  | ProvisionalDataStatement Int
   | ProvisionalUnsupportedCallableBinding ProvisionalCallableDeclaration TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
   | ProvisionalUnsupportedStatement Int TypedCoreProductionFailureKind TypedCoreProductionFailureDetail [InferredProductionFailure]
-  deriving (Eq, Show)
-
-data ProvisionalConstructorDeclaration
-  = ProvisionalConstructorDeclaration ResolvedName [ExpressionType]
-  deriving (Eq, Show)
-
-data ProvisionalDataDeclaration
-  = ProvisionalDataDeclaration
-      Int
-      SourceSpan
-      ResolvedName
-      [ResolvedName]
-      [ProvisionalConstructorDeclaration]
   deriving (Eq, Show)
 
 data ProvisionalCallableDeclaration = ProvisionalCallableDeclaration

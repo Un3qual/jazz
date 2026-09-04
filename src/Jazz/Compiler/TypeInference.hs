@@ -141,7 +141,7 @@ import Jazz.Compiler.TypeInference.Elaboration.Types
     blockProductionFailureKindAndDetail,
     typedCoreBuildValidatedProgram,
   )
-import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInSourceUnit)
+import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule, implementationEvidenceCandidatesInSourceUnit)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
     builtinSectionOperatorSymbol,
@@ -560,7 +560,7 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
   do
     let sourceExpression = ModuleGraph.coreModuleExpr resolvedModule
         (inferredResult, finalState, forwardBindings, inferenceSubject) =
-          inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs [] Map.empty sourceExpression
+          inferExpressionWork ProduceTypedCoreExpressionDirectCall inputs [] (implementationEvidenceCandidatesInModule (ModuleGraph.coreModulePath resolvedModule) sourceExpression) sourceExpression
         expression = inferenceSubjectExpr inferenceSubject
         finalizedInference = finalizeInferenceState inputs expression finalState
     expression `seq` pure ()
@@ -573,24 +573,28 @@ inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModul
         inferredResult
         forwardBindings
         finalizedInference
-    let outcome = productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
+    outcome <- productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
     pure (TypedCoreProductionResult inferenceResult outcome)
 
-productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> InferredExpr -> TypedCoreBuildResult
+productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> InferredExpr -> IO TypedCoreBuildResult
 productionOutcome inputs sourcePath resolvedModule finalState inferenceResult inferredResult
-  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = TypedCoreProductionBlockedByDiagnostics
+  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = pure TypedCoreProductionBlockedByDiagnostics
   | otherwise =
       case NonEmpty.nonEmpty profileFailures of
-        Just failures -> TypedCoreProductionUnsupported failures
+        Just failures -> pure (TypedCoreProductionUnsupported failures)
         Nothing ->
           case inferredProvisionalExpr inferredResult of
-            Just provisionalExpr -> finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState provisionalExpr
-            Nothing ->
-              TypedCoreProductionUnsupported
-                ( NonEmpty.singleton
-                    (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail)
-                )
+            Just provisionalExpr ->
+              case attachAnalyzedExpression (ModuleGraph.coreModulePath resolvedModule) Map.empty finalState (inferredExpr inferenceResult) of
+                Left failures -> fail ("semantic fact invariant failure in Typed Core production: " <> show failures)
+                Right (EBlock _ statements) ->
+                  pure (finalizeValidatedTypedCoreExpressionDirectCall sourcePath resolvedModule finalState statements provisionalExpr)
+                Right _ -> pure unsupportedRoot
+            Nothing -> pure unsupportedRoot
   where
+    unsupportedRoot =
+      TypedCoreProductionUnsupported
+        (NonEmpty.singleton (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail))
     profileFailures = inputFailures <> moduleFailures
     inputFailures =
       concat

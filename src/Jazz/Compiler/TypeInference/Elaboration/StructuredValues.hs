@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 -- | Finalization contracts for retained products and local data declarations.
 module Jazz.Compiler.TypeInference.Elaboration.StructuredValues
   ( StructuredConstructor (..),
@@ -21,13 +23,12 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
+import Jazz.Compiler.AST (CoreNode (..), CorePhase (Analyzed), DataConstructor (..), Statement (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Name (ResolvedName, identifierText)
+import Jazz.Compiler.SemanticFacts (AnalyzedScheme (..), StatementFacts (..))
 import Jazz.Compiler.TypeInference.Elaboration.Types
-  ( ProvisionalConstructorDeclaration (..),
-    ProvisionalDataDeclaration (..),
-    ProvisionalTypedStatement (..),
-    TypedCoreProductionFailure (..),
+  ( TypedCoreProductionFailure (..),
     TypedCoreProductionFailureDetail (..),
     TypedCoreProductionFailureKind (..),
     TypedCoreProductionPath (..),
@@ -38,6 +39,7 @@ import Jazz.Compiler.TypeInference.Solver
     resolveType,
   )
 import Jazz.Compiler.TypeInference.State (InferState)
+import Jazz.Compiler.TypeInference.TypeOps (replaceTypeVariables)
 import Jazz.Compiler.TypeInference.Types (ExpressionType, SemanticType (..))
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),
@@ -65,7 +67,7 @@ data StructuredDataSkeleton = StructuredDataSkeleton
     skeletonStatementIndex :: Int,
     skeletonSpan :: SourceSpan,
     skeletonParameters :: [TypedTypeParameterId],
-    skeletonConstructors :: [ProvisionalConstructorDeclaration]
+    skeletonConstructors :: [DataConstructor 'Analyzed]
   }
   deriving (Eq, Show)
 
@@ -79,7 +81,7 @@ data StructuredValueCatalog = StructuredValueCatalog
 buildStructuredValueCatalog ::
   [Text] ->
   InferState ->
-  [ProvisionalTypedStatement] ->
+  [Statement 'Analyzed] ->
   ([TypedCoreProductionFailure], StructuredValueCatalog)
 buildStructuredValueCatalog modulePath state statements =
   let skeletons = mapMaybeSkeleton statements
@@ -108,15 +110,15 @@ buildStructuredValueCatalog modulePath state statements =
         Left resolutionFailures -> (resolutionFailures <> failures, resolvedData)
         Right dataEntry -> (failures, dataEntry : resolvedData)
 
-    mapMaybeSkeleton = foldr collectSkeleton []
+    mapMaybeSkeleton = foldr collectSkeleton [] . zip [0 ..]
     collectSkeleton statement collected =
       case statement of
-        ProvisionalDataStatement (ProvisionalDataDeclaration statementIndex spanValue sourceName parameters constructors) ->
+        (statementIndex, SData node sourceName parameters constructors) ->
           StructuredDataSkeleton
             { skeletonSourceName = sourceName,
               skeletonName = resolvedTypeName sourceName,
               skeletonStatementIndex = statementIndex,
-              skeletonSpan = spanValue,
+              skeletonSpan = coreNodeSpan node,
               skeletonParameters = [TypedTypeParameterId index | index <- [0 .. length parameters - 1]],
               skeletonConstructors = constructors
             }
@@ -137,7 +139,8 @@ buildStructuredValueCatalog modulePath state statements =
           statementEntry = (skeletonStatementIndex skeleton, TypedDataStatement declaration)
       pure (statementEntry, constructors)
 
-    resolveConstructor skeletonMap skeleton constructorIndex (ProvisionalConstructorDeclaration sourceName fieldTemplates) = do
+    resolveConstructor skeletonMap skeleton constructorIndex (DataConstructor node sourceName _) = do
+      fieldTemplates <- maybe (Left [statementFailure (skeletonStatementIndex skeleton)]) Right (constructorFieldTemplates skeleton node)
       let parameterVariables =
             Map.fromList
               [ (InferenceVariable (negate index - 1), parameter)
@@ -162,6 +165,28 @@ buildStructuredValueCatalog modulePath state statements =
             structuredConstructorFieldTemplates = fieldTemplates,
             structuredConstructorFieldContracts = fieldContracts
           }
+
+    constructorFieldTemplates skeleton node = do
+      [scheme] <- pure (Map.elems (statementGeneralizedSchemes (coreNodeFacts node)))
+      let (fields, result) = constructorSignature (analyzedSchemeType scheme)
+      SemanticData typeName arguments <- pure result
+      guard (typeName == skeletonSourceName skeleton)
+      guard (length arguments == length (skeletonParameters skeleton))
+      parameters <- traverse parameterVariable arguments
+      let replacements =
+            Map.fromList
+              [ (parameter, SemanticVariable (InferenceVariable (negate index - 1)))
+              | (index, parameter) <- zip [0 :: Int ..] parameters
+              ]
+      pure (map (replaceTypeVariables replacements) fields)
+
+    parameterVariable (SemanticVariable variable) = Just variable
+    parameterVariable _ = Nothing
+
+    constructorSignature (SemanticFunction argument result) =
+      let (arguments, resultType) = constructorSignature result
+       in (argument : arguments, resultType)
+    constructorSignature resultType = ([], resultType)
 
     constructorDeclaration constructor =
       let (fieldTypes, fieldRecipes) = unzip (structuredConstructorFieldContracts constructor)

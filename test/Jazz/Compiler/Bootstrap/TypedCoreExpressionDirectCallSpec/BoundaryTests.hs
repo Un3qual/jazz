@@ -30,8 +30,7 @@ import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleGraph (CoreModule (..))
 import Jazz.Compiler.Name
-  ( Name (BuiltinName),
-    NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
     mkIdentifier,
     operatorBindingName,
@@ -102,36 +101,38 @@ testRootDataFailureAccumulation = do
   assertProductionUnsupported "root data failure structural order" expectedFailures (typedCoreProductionBuildResult firstRun)
 
 testNestedDataFailureAccumulation :: IO ()
-testNestedDataFailureAccumulation =
-  case fixtures of
-    fixture : _ -> do
-      resolvedModule <- resolveFixtureModule fixture
-      let spanValue = SourceSpan 1 1
-          nestedBlock =
-            resolvedBlock
-              [ resolvedExpression spanValue (resolvedList [resolvedLiteral (LInt 1)]),
-                resolvedData spanValue "Box" "Box",
-                resolvedExpression spanValue (resolvedTuple [])
-              ]
-          forgedModule =
-            withStatements
-              [resolvedExpression spanValue nestedBlock]
-              resolvedModule
-          expectedFailures =
-            [ TypedCoreProductionFailure
-                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
-                TypedCoreStructuredValueUnsupported
-                TypedCoreDataValueDetail,
-              TypedCoreProductionFailure
-                (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
-                TypedCoreStructuredValueUnsupported
-                TypedCoreListValueDetail
-            ]
-      firstRun <- produceResolvedFixture fixture forgedModule
-      secondRun <- produceResolvedFixture fixture forgedModule
-      assertEqual "nested data failure repeatable production" firstRun secondRun
-      assertProductionUnsupported "nested data failure structural order" expectedFailures (typedCoreProductionBuildResult firstRun)
-    [] -> failTest "unit fixture is missing"
+testNestedDataFailureAccumulation = do
+  let fixture = fixtureByName "unit-entry"
+  resolvedModule <- resolveFixtureModule fixture
+  let node index = CoreNode (CoreNodeId index) (SourceSpan 1 1) ()
+      -- Nested data declarations are outside the source grammar. Keep this
+      -- resolved-core boundary fixture explicit, with distinct node identities.
+      nestedBlock =
+        EBlock
+          (node 2)
+          [ SExpr (node 3) (EList (node 4) [ELit (node 5) (LInt 1)]),
+            SData
+              (node 6)
+              (localName TypeNamespace "Box")
+              []
+              [DataConstructor (node 7) (localName ConstructorNamespace "Box") []],
+            SExpr (node 8) (ETuple (node 9) [])
+          ]
+      forgedModule = resolvedModule {coreModuleStatements = [SExpr (node 1) nestedBlock]}
+      expectedFailures =
+        [ TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreDataValueDetail,
+          TypedCoreProductionFailure
+            (TypedCoreProductionExpressionPath ["App", "Main"] 0 [0])
+            TypedCoreStructuredValueUnsupported
+            TypedCoreListValueDetail
+        ]
+  firstRun <- produceResolvedFixture fixture forgedModule
+  secondRun <- produceResolvedFixture fixture forgedModule
+  assertEqual "nested data failure repeatable production" firstRun secondRun
+  assertProductionUnsupported "nested data failure structural order" expectedFailures (typedCoreProductionBuildResult firstRun)
 
 testAnonymousLambdaResultAcceptance :: IO ()
 testAnonymousLambdaResultAcceptance = do
@@ -774,6 +775,7 @@ testIncompleteRecursiveGroupOwnership = do
           (TypedSourcePath "src/App/Main.jz")
           resolvedModule
           initialInferState
+          []
           provisionalScope
   assertProductionUnsupported
     "missing recursive declaration owner rejects the complete group"
@@ -1444,7 +1446,8 @@ testAdditionalProfileFailures :: IO ()
 testAdditionalProfileFailures =
   case fixtures of
     unitFixture : _ -> do
-      resolvedUnitModule <- resolveFixtureModule unitFixture
+      nonLocalCall <- resolveFixtureModule (sourceFixture "nonlocal-call" "module App::Main { __kernel_toInt8 1. }")
+      leadingStatement <- resolveFixtureModule (sourceFixture "leading-statement" "module App::Main () { ignored = (). (). }")
       let pathMismatch =
             unitFixture
               { fixtureInputs = (fixtureInputs unitFixture) {inferenceCurrentModulePath = Just ["Other", "Main"]}
@@ -1470,19 +1473,6 @@ testAdditionalProfileFailures =
                     { inferenceImportedCapabilities = emptyScopeCapabilityFacts {scopeClassFacts = Map.singleton "Foreign" 0}
                     }
               }
-          nonLocalCall =
-            withStatements
-              [ resolvedExpression
-                  (SourceSpan 1 1)
-                  (resolvedApply (resolvedVariable (BuiltinName (mkIdentifier "__kernel_toInt8"))) (resolvedLiteral (LInt 1)))
-              ]
-              resolvedUnitModule
-          leadingStatement =
-            withStatements
-              [ resolvedLet (SourceSpan 1 1) "ignored" (resolvedTuple []),
-                resolvedExpression (SourceSpan 2 1) (resolvedTuple [])
-              ]
-              resolvedUnitModule
           inputFailure = [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail]
       assertUnsupported pathMismatch [TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail]
       assertUnsupported importedValue inputFailure
@@ -1509,10 +1499,6 @@ assertUnsupportedResolved fixture resolvedModule expectedFailures = do
     (fixtureName fixture <> " production status")
     expectedFailures
     (typedCoreProductionBuildResult result)
-
-withStatements :: [Statement 'Resolved] -> CoreModule 'Resolved -> CoreModule 'Resolved
-withStatements statements moduleValue =
-  moduleValue {coreModuleStatements = statements}
 
 resolvedNode :: CoreNode 'Resolved sort
 resolvedNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
@@ -1550,19 +1536,8 @@ resolvedSectionLeft = ESectionLeft resolvedNode
 resolvedSectionRight :: Text -> Expr 'Resolved -> Expr 'Resolved
 resolvedSectionRight = ESectionRight resolvedNode
 
-resolvedBlock :: [Statement 'Resolved] -> Expr 'Resolved
-resolvedBlock = EBlock resolvedNode
-
 resolvedExpression :: SourceSpan -> Expr 'Resolved -> Statement 'Resolved
 resolvedExpression spanValue = SExpr (resolvedStatementNode spanValue)
 
 resolvedLet :: SourceSpan -> Text -> Expr 'Resolved -> Statement 'Resolved
 resolvedLet spanValue name = SLet (resolvedStatementNode spanValue) (localName ValueNamespace name)
-
-resolvedData :: SourceSpan -> Text -> Text -> Statement 'Resolved
-resolvedData spanValue typeName constructorName =
-  SData
-    (resolvedStatementNode spanValue)
-    (localName TypeNamespace typeName)
-    []
-    [DataConstructor (resolvedStatementNode spanValue) (localName ConstructorNamespace constructorName) []]
