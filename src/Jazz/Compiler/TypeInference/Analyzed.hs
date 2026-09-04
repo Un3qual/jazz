@@ -247,6 +247,10 @@ attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
             spanValue
             ExpressionFacts
               { expressionSemanticType = semanticType,
+                expressionNumericConstraints =
+                  Map.map
+                    projectNumericConstraint
+                    (Map.restrictKeys (inferNumericVars state) (freeTypeVariables semanticType)),
                 expressionInstantiations = attachedSemanticInstantiations explicitFacts,
                 expressionEvidence = evidence,
                 expressionRuntimePlan =

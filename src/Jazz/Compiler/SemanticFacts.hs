@@ -110,6 +110,7 @@ data RuntimeObligation
 
 data ExpressionFacts = ExpressionFacts
   { expressionSemanticType :: AnalyzedType,
+    expressionNumericConstraints :: Map InferenceVariable AnalyzedNumericConstraint,
     expressionInstantiations :: [SemanticInstantiation],
     expressionEvidence :: [EvidenceReference],
     expressionRuntimePlan :: RuntimePlan

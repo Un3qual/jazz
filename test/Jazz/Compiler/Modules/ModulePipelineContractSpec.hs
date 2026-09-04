@@ -147,6 +147,7 @@ import Jazz.Compiler.SemanticFacts
     StatementFacts (..),
   )
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression)
+import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
     ExplicitInstantiationTarget (..),
@@ -188,7 +189,8 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
+  [ ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
+    ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
     ("analyzed fact attachment rejects missing and duplicate entries", testAnalyzedFactInvariantFailures),
     ("dependency expressions are checked but not executed", testDependencyExpressionContract),
     ("analyzed interfaces expose only declared exports", testAnalyzedInterfacesExposeOnlyDeclaredExports),
@@ -215,6 +217,21 @@ tests =
     ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme),
     ("signed builtin aliases retain their authored schemes", testSignedBuiltinAliasStatementScheme)
   ]
+
+testAnalyzedLiteralRangeFacts :: IO ()
+testAnalyzedLiteralRangeFacts = do
+  let nodeId = CoreNodeId 17
+      expression = ELit (CoreNode nodeId (SourceSpan 1 1) ()) (LInt 255)
+      (literalType, literalState) = freshIntegerLiteralType (IntegerLiteralRange 0 255) initialInferState
+      state = recordExpressionFactType nodeId literalType literalState
+  case attachAnalyzedExpression (nominalModulePath ("App" :| ["Main"])) Map.empty state expression of
+    Right (ELit (CoreNode _ _ facts) _) -> do
+      assertEqual "uncommitted numeric representation" literalType (expressionSemanticType facts)
+      assertEqual
+        "backend retains the solver's complete literal range"
+        [AnalyzedIntegralLiteralNumericConstraint 0 255]
+        (Map.elems (expressionNumericConstraints facts))
+    result -> fail ("literal fact attachment failed: " <> show result)
 
 testAnalyzedProgramFactsAreComplete :: IO ()
 testAnalyzedProgramFactsAreComplete = do
