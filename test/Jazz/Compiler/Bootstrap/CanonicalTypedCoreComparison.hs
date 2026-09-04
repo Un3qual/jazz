@@ -28,7 +28,7 @@ import Jazz.Compiler.Bootstrap.CanonicalValue
     runtimeValueCategory,
   )
 import Jazz.Compiler.Name (identifierText)
-import Jazz.Compiler.Runtime (RuntimeValue (..))
+import Jazz.Compiler.Runtime (RuntimeAnnotation (..), RuntimeValue (..))
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SemanticType (..),
@@ -69,9 +69,9 @@ decodeCanonicalTypedCoreStructure value =
                 <> identifierText constructorName
                 <> "' is only partially applied"
             )
-    VTyped _ innerValue ->
+    VAnnotated (RuntimeTypeHint _) innerValue ->
       decodeCanonicalTypedCoreStructure innerValue
-    VExplicitTypeApplication _ innerValue ->
+    VAnnotated (RuntimeTypeApplication _) innerValue ->
       decodeCanonicalTypedCoreStructure innerValue
     _ ->
       Left

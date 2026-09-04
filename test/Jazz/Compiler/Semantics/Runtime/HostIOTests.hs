@@ -41,6 +41,7 @@ import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
 import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
+    RuntimeAnnotation (..),
     RuntimeValue (..),
     ScopeResult (..),
     evaluateModuleScopeWithHost,
@@ -647,8 +648,8 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
               runtimeClosureCallableIdentity = ClosureCallable "<test>" 1 "itemValue"
             }
       stackedFunction =
-        VTyped
-          (TypeFunction TypeInt TypeInt)
+        VAnnotated
+          (RuntimeTypeHint (TypeFunction TypeInt TypeInt))
           (prependRuntimeExplicitResultHint (TypeNumeric NumericUInt8) identityClosure)
       statements =
         [ statementExpression

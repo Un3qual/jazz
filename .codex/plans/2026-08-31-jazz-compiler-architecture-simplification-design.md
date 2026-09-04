@@ -510,6 +510,13 @@ The required order is:
 3. prove parity with focused and differential tests; and
 4. remove only wrappers that are then semantically inert.
 
+Maintainer-approved clarification (2026-09-04): deferred obligations may need to
+remain attached to first-class values after their expression has finished
+executing. Simplify redundant conversions and repeated annotation handling;
+retaining necessary value-associated metadata is allowed. The acceptance
+criterion is clearer ownership and less duplicated code, not zero wrapper
+constructors.
+
 Runtime evidence uses stable semantic identity rather than source syntax:
 
 ```haskell

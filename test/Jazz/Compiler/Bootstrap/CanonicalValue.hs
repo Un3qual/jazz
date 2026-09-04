@@ -37,7 +37,8 @@ import Jazz.Compiler.Name
     resolvedLocalName,
   )
 import Jazz.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( RuntimeAnnotation (..),
+    RuntimeValue (..),
     untypedIntMetadata,
   )
 import Jazz.Compiler.TypeRepresentation
@@ -171,6 +172,6 @@ runtimeValueCategory value =
     VSectionLeft {} -> "left section"
     VSectionRight {} -> "right section"
     VQualifiedMethod {} -> "qualified method"
-    VTyped {} -> "typed value"
-    VExplicitTypeApplication {} -> "explicit type application"
+    VAnnotated (RuntimeTypeHint {}) _ -> "typed value"
+    VAnnotated (RuntimeTypeApplication {}) _ -> "explicit type application"
     _ -> "runtime value"

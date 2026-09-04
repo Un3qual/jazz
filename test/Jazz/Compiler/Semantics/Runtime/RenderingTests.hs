@@ -33,7 +33,8 @@ import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.Runtime
-  ( RuntimeValue (..),
+  ( RuntimeAnnotation (..),
+    RuntimeValue (..),
     evaluateRuntimeExpr,
     evaluateRuntimeExprWithBuiltins,
   )
@@ -159,15 +160,15 @@ testRuntimeValueMatchesLiteral = do
   assertEqual
     "typed integer literal matches"
     True
-    (runtimeValueMatchesLiteral (VTyped TypeInt (VInt 7 (RuntimeIntMetadata Nothing))) (LInt 7))
+    (runtimeValueMatchesLiteral (VAnnotated (RuntimeTypeHint TypeInt) (VInt 7 (RuntimeIntMetadata Nothing))) (LInt 7))
   assertEqual
     "nested type wrappers preserve literal matching"
     True
     ( runtimeValueMatchesLiteral
-        ( VTyped
-            TypeInt
-            ( VExplicitTypeApplication
-                TypeInt
+        ( VAnnotated
+            (RuntimeTypeHint TypeInt)
+            ( VAnnotated
+                (RuntimeTypeApplication TypeInt)
                 (prependRuntimeExplicitResultHint TypeInt (VInt 7 (RuntimeIntMetadata Nothing)))
             )
         )

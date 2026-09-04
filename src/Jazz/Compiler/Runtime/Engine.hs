@@ -200,6 +200,7 @@ import Jazz.Compiler.Runtime.Types
     DeferredHostBindingState (..),
     DeferredHostScopeId (..),
     ModuleEvaluationMode (..),
+    RuntimeAnnotation (..),
     RuntimeAppliedArguments,
     RuntimeCell,
     RuntimeClosure (..),
@@ -213,7 +214,6 @@ import Jazz.Compiler.Runtime.Types
     ScopeResult (..),
     appendRuntimeAppliedArgument,
     appendRuntimeMethodCandidate,
-    attachRuntimeExplicitResultHints,
     constructorApplicationIsSaturated,
     emptyRuntimeAppliedArguments,
     emptyRuntimeMethodCandidates,
@@ -222,7 +222,6 @@ import Jazz.Compiler.Runtime.Types
     runtimeAppliedArgumentsInOrder,
     runtimeConstructorName,
     runtimeMethodCandidatesInOrder,
-    pattern VExplicitResultHints,
     pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.RuntimeHost
@@ -1214,14 +1213,8 @@ nameRuntimeClosureBinding currentModulePath bindingName runtimeValue =
                 1
                 (renderName (runtimeClosureParameter closure))
           }
-    VTyped typeHint innerValue ->
-      VTyped typeHint (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
-    VExplicitTypeApplication typeHint innerValue ->
-      VExplicitTypeApplication typeHint (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
-    VExplicitResultHints hints innerValue ->
-      attachRuntimeExplicitResultHints
-        hints
-        (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
+    VAnnotated annotation innerValue ->
+      VAnnotated annotation (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
     _ -> runtimeValue
   where
     qualifiedBindingName =
@@ -1624,17 +1617,17 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
           forcedFunctionValue <-
             forceRuntimeValueWithHost host builtinMode functionValue
           continueWith (ApplyCallable forcedFunctionValue argumentValue) machine
-        VExplicitTypeApplication typeHint innerFunctionValue ->
+        VAnnotated (RuntimeTypeApplication typeHint) innerFunctionValue ->
           case explicitTypeApplicationRuntimeFunctionHint typeHint innerFunctionValue of
             Just instantiatedFunctionHint ->
               continueWith
-                (ApplyCallable (VTyped instantiatedFunctionHint innerFunctionValue) argumentValue)
+                (ApplyCallable (VAnnotated (RuntimeTypeHint instantiatedFunctionHint) innerFunctionValue) argumentValue)
                 machine
             Nothing ->
               continueWith
                 (ApplyCallable innerFunctionValue argumentValue)
                 (appendRuntimeResultObligation (ApplyExplicitResultHint typeHint) machine)
-        VExplicitResultHints hints innerFunctionValue ->
+        VAnnotated (RuntimeResultHints hints) innerFunctionValue ->
           continueWith
             (ApplyCallable innerFunctionValue argumentValue)
             ( foldRuntimeExplicitResultHints
@@ -1646,7 +1639,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
                 machine
                 hints
             )
-        VTyped typeHint innerFunctionValue -> do
+        VAnnotated (RuntimeTypeHint typeHint) innerFunctionValue -> do
           hintedArgumentValue <-
             liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
           continueWith
@@ -2154,7 +2147,7 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
         Just typeHint ->
           let resolvedTypeHint = runtimeConstraintType modulePath typeHint
            in if isFunctionValue runtimeValue
-                then Right (VExplicitTypeApplication resolvedTypeHint runtimeValue)
+                then Right (VAnnotated (RuntimeTypeApplication resolvedTypeHint) runtimeValue)
                 else
                   applyRuntimeTypeHint
                     (fromMaybe resolvedTypeHint (explicitTypeApplicationRuntimeValueHint resolvedTypeHint runtimeValue))
@@ -2181,12 +2174,8 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
 selectRuntimeEvidence :: NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> RuntimeValue
 selectRuntimeEvidence evidenceReferences runtimeValue =
   case runtimeValue of
-    VTyped typeHint innerValue ->
-      VTyped typeHint (selectRuntimeEvidence evidenceReferences innerValue)
-    VExplicitTypeApplication typeHint innerValue ->
-      VExplicitTypeApplication typeHint (selectRuntimeEvidence evidenceReferences innerValue)
-    VExplicitResultHints hints innerValue ->
-      attachRuntimeExplicitResultHints hints (selectRuntimeEvidence evidenceReferences innerValue)
+    VAnnotated annotation innerValue ->
+      VAnnotated annotation (selectRuntimeEvidence evidenceReferences innerValue)
     VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
       VQualifiedMethodApplication
         methodKey
@@ -2631,13 +2620,8 @@ forceRuntimeValueWithHost host builtinMode runtimeValue =
                 (Map.insert bindingKey (DeferredHostBindingEvaluated result))
             )
           liftRuntimeControl result
-    VTyped typeHint innerValue ->
-      VTyped typeHint <$> forceRuntimeValueWithHost host builtinMode innerValue
-    VExplicitTypeApplication typeHint innerValue ->
-      VExplicitTypeApplication typeHint <$> forceRuntimeValueWithHost host builtinMode innerValue
-    VExplicitResultHints hints innerValue ->
-      attachRuntimeExplicitResultHints hints
-        <$> forceRuntimeValueWithHost host builtinMode innerValue
+    VAnnotated annotation innerValue ->
+      VAnnotated annotation <$> forceRuntimeValueWithHost host builtinMode innerValue
     _ ->
       forceQualifiedMethodValueWithHost host builtinMode runtimeValue
 
@@ -2929,9 +2913,7 @@ runtimeHostExitStatus :: RuntimeValue -> Maybe Integer
 runtimeHostExitStatus runtimeValue =
   case runtimeValue of
     VInt status _ -> Just status
-    VTyped _ innerValue -> runtimeHostExitStatus innerValue
-    VExplicitTypeApplication _ innerValue -> runtimeHostExitStatus innerValue
-    VExplicitResultHints _ innerValue -> runtimeHostExitStatus innerValue
+    VAnnotated _ innerValue -> runtimeHostExitStatus innerValue
     _ -> Nothing
 
 evalBinaryWithHost ::

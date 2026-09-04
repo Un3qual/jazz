@@ -73,13 +73,13 @@ import Jazz.Compiler.Runtime.Semantics
     untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Types
-  ( RuntimeClosure (..),
+  ( RuntimeAnnotation (..),
+    RuntimeClosure (..),
     RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
     RuntimeValue (..),
     constructorIsSaturated,
     foldrRuntimeAppliedArguments,
-    pattern VExplicitResultHints,
   )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -357,18 +357,14 @@ runtimeChar :: RuntimeValue -> Maybe Char
 runtimeChar runtimeValue =
   case runtimeValue of
     VChar value -> Just value
-    VTyped _ innerValue -> runtimeChar innerValue
-    VExplicitTypeApplication _ innerValue -> runtimeChar innerValue
-    VExplicitResultHints _ innerValue -> runtimeChar innerValue
+    VAnnotated _ innerValue -> runtimeChar innerValue
     _ -> Nothing
 
 runtimeText :: RuntimeValue -> Maybe Text
 runtimeText runtimeValue =
   case runtimeValue of
     VText value -> Just value
-    VTyped _ innerValue -> runtimeText innerValue
-    VExplicitTypeApplication _ innerValue -> runtimeText innerValue
-    VExplicitResultHints _ innerValue -> runtimeText innerValue
+    VAnnotated _ innerValue -> runtimeText innerValue
     _ -> Nothing
 
 -- | Evaluate filter predicates element-by-element and enforce that each
@@ -402,11 +398,11 @@ filterElements injectDiagnostic applyRuntimeValue predicate values = do
 runtimeFunctionResultType :: RuntimeValue -> Maybe (SignatureType 'Resolved)
 runtimeFunctionResultType runtimeValue =
   case runtimeValue of
-    VExplicitTypeApplication _ innerValue ->
+    VAnnotated (RuntimeTypeApplication _) innerValue ->
       runtimeFunctionResultType innerValue
-    VExplicitResultHints _ innerValue ->
+    VAnnotated (RuntimeResultHints _) innerValue ->
       runtimeFunctionResultType innerValue
-    VTyped (TypeFunction _ resultType) _ ->
+    VAnnotated (RuntimeTypeHint (TypeFunction _ resultType)) _ ->
       Just resultType
     VClosure closure
       | Just (TypeFunction _ resultType) <- runtimeClosureTypeHint closure ->
@@ -455,14 +451,14 @@ evalBinaryPure operatorSymbol leftValue rightValue
       Left (runtimeCallableEqualityDiagnostic operatorSymbol leftValue rightValue)
   | otherwise =
       case (operatorSymbol, leftValue, rightValue) of
-        (_, VTyped leftTypeHint leftInnerValue, _)
+        (_, VAnnotated (RuntimeTypeHint leftTypeHint) leftInnerValue, _)
           | isStrictEqualityOperator operatorSymbol,
             runtimeTypeHintRequiresStructuralEquality leftTypeHint ->
               evalStructuralEquality operatorSymbol leftValue rightValue
           | otherwise ->
               preserveLeftTypedNumericOperatorResult operatorSymbol leftTypeHint
                 =<< evalBinaryPure operatorSymbol leftInnerValue rightValue
-        (_, _, VTyped rightTypeHint rightInnerValue)
+        (_, _, VAnnotated (RuntimeTypeHint rightTypeHint) rightInnerValue)
           | isStrictEqualityOperator operatorSymbol,
             runtimeTypeHintRequiresStructuralEquality rightTypeHint ->
               evalStructuralEquality operatorSymbol leftValue rightValue
@@ -921,11 +917,7 @@ runtimeValueContainsFunction value =
             (\argumentValue containsFunction -> runtimeValueContainsFunction argumentValue || containsFunction)
             False
             capturedArgs
-        VTyped _ innerValue ->
-          runtimeValueContainsFunction innerValue
-        VExplicitTypeApplication _ innerValue ->
-          runtimeValueContainsFunction innerValue
-        VExplicitResultHints _ innerValue ->
+        VAnnotated _ innerValue ->
           runtimeValueContainsFunction innerValue
         _ ->
           False
@@ -933,22 +925,22 @@ runtimeValueContainsFunction value =
 runtimeStructuralEquality :: RuntimeValue -> RuntimeValue -> Maybe Bool
 runtimeStructuralEquality leftValue rightValue =
   case (leftValue, rightValue) of
-    (VExplicitTypeApplication _ leftInnerValue, _) ->
+    (VAnnotated (RuntimeTypeApplication _) leftInnerValue, _) ->
       runtimeStructuralEquality leftInnerValue rightValue
-    (_, VExplicitTypeApplication _ rightInnerValue) ->
+    (_, VAnnotated (RuntimeTypeApplication _) rightInnerValue) ->
       runtimeStructuralEquality leftValue rightInnerValue
-    (VExplicitResultHints _ leftInnerValue, _) ->
+    (VAnnotated (RuntimeResultHints _) leftInnerValue, _) ->
       runtimeStructuralEquality leftInnerValue rightValue
-    (_, VExplicitResultHints _ rightInnerValue) ->
+    (_, VAnnotated (RuntimeResultHints _) rightInnerValue) ->
       runtimeStructuralEquality leftValue rightInnerValue
-    (VTyped leftTypeHint leftInnerValue, VTyped rightTypeHint rightInnerValue)
+    (VAnnotated (RuntimeTypeHint leftTypeHint) leftInnerValue, VAnnotated (RuntimeTypeHint rightTypeHint) rightInnerValue)
       | constraintSignatureTypesCompatible leftTypeHint rightTypeHint ->
           runtimeStructuralEquality leftInnerValue rightInnerValue
       | otherwise ->
           Just False
-    (VTyped _ leftInnerValue, _) ->
+    (VAnnotated (RuntimeTypeHint _) leftInnerValue, _) ->
       runtimeStructuralEquality leftInnerValue rightValue
-    (_, VTyped _ rightInnerValue) ->
+    (_, VAnnotated (RuntimeTypeHint _) rightInnerValue) ->
       runtimeStructuralEquality leftValue rightInnerValue
     (VInt leftInt leftMetadata, VInt rightInt rightMetadata) ->
       runtimeIntegerStructuralEquality leftInt leftMetadata rightInt rightMetadata

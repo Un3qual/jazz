@@ -253,6 +253,13 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
     "mixed hints remain outermost-to-innermost without deduplication"
     [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
     (runtimeExplicitResultHintsInOrder runtimeValue)
+  case runtimeValue of
+    VAnnotated annotation _ ->
+      assertEqual
+        "reattaching result annotations combines their ordered obligations"
+        [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
+        (runtimeExplicitResultHintsInOrder (VAnnotated annotation runtimeValue))
+    _ -> failTest "expected pending result annotations on the callable"
   appliedValue <- requireRuntimeValue "mixed explicit result hint application" appliedExpression
   assertEqual "mixed explicit result hint application renders" "7" (renderRuntimeValue appliedValue)
   assertEqual

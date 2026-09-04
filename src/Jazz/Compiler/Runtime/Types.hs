@@ -21,6 +21,7 @@ module Jazz.Compiler.Runtime.Types
     RuntimeHostEvaluationT,
     RuntimeExplicitResultHints,
     RuntimeClosure (..),
+    RuntimeAnnotation (..),
     RuntimeValue
       ( VInt,
         VFloat,
@@ -38,11 +39,9 @@ module Jazz.Compiler.Runtime.Types
         VConstructor,
         VConstructorApplication,
         VQualifiedMethod,
-        VTyped,
-        VExplicitTypeApplication,
+        VAnnotated,
         VDeferredHostBinding
       ),
-    pattern VExplicitResultHints,
     pattern VQualifiedMethodApplication,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
@@ -173,6 +172,13 @@ newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
 -- insertion order, so construction stays private and append-only.
 newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCandidate)
 
+-- | Value-associated typing information survives storing and partially applying
+-- a callable. Operations that only inspect the payload can ignore its kind.
+data RuntimeAnnotation
+  = RuntimeTypeHint (SignatureType 'Resolved)
+  | RuntimeTypeApplication (SignatureType 'Resolved)
+  | RuntimeResultHints RuntimeExplicitResultHints
+
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
   | VFloat Double RuntimeFloatMetadata
@@ -189,15 +195,21 @@ data RuntimeValue
   | VDeclaredOperatorRightSection Text RuntimeValue RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
   | VQualifiedMethodState Text Text (SignaturePayload 'Resolved) RuntimeMethodCandidates RuntimeAppliedArguments
-  | VTyped (SignatureType 'Resolved) RuntimeValue
-  | VExplicitTypeApplication (SignatureType 'Resolved) RuntimeValue
-  | VRuntimeExplicitResultHints RuntimeExplicitResultHints RuntimeValue
+  | VAnnotatedState RuntimeAnnotation RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
       Diagnostic
       (Maybe [Text])
       (Expr 'Analyzed)
       RuntimeEnv
+
+-- | All annotation construction preserves flat, ordered pending result hints.
+pattern VAnnotated :: RuntimeAnnotation -> RuntimeValue -> RuntimeValue
+pattern VAnnotated annotation value <- VAnnotatedState annotation value
+  where
+    VAnnotated annotation value = case annotation of
+      RuntimeResultHints hints -> attachRuntimeExplicitResultHints hints value
+      _ -> VAnnotatedState annotation value
 
 instance Show RuntimeValue where
   show value =
@@ -244,18 +256,13 @@ instance Show RuntimeValue where
           <> show (runtimeMethodCandidatesInOrder candidates)
           <> " "
           <> show (runtimeAppliedArgumentsInOrder capturedArgs)
-      VTyped typeHint innerValue ->
+      VAnnotatedState (RuntimeTypeHint typeHint) innerValue ->
         "VTyped " <> show typeHint <> " " <> show innerValue
-      VExplicitTypeApplication typeHint innerValue ->
+      VAnnotatedState (RuntimeTypeApplication typeHint) innerValue ->
         "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
-      VRuntimeExplicitResultHints hints innerValue ->
+      VAnnotatedState (RuntimeResultHints hints) innerValue ->
         "VExplicitResultHints " <> show hints <> " " <> show innerValue
       VDeferredHostBinding {} -> "VDeferredHostBinding <thunk>"
-
--- | Match an explicit-result-hint wrapper without exposing a constructor that
--- could be used to build nested wrappers.
-pattern VExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
-pattern VExplicitResultHints hints innerValue <- VRuntimeExplicitResultHints hints innerValue
 
 -- | Historical ordered-list constructor view used by runtime semantics and
 -- tests. Construction establishes the shape and argument invariants once.
@@ -316,9 +323,7 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VDeclaredOperatorRightSection,
   VConstructor,
   VQualifiedMethod,
-  VTyped,
-  VExplicitTypeApplication,
-  VExplicitResultHints,
+  VAnnotated,
   VDeferredHostBinding
   #-}
 
@@ -338,40 +343,38 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VDeclaredOperatorRightSection,
   VConstructorApplication,
   VQualifiedMethodApplication,
-  VTyped,
-  VExplicitTypeApplication,
-  VExplicitResultHints,
+  VAnnotated,
   VDeferredHostBinding
   #-}
 
 prependRuntimeExplicitResultHint :: SignatureType 'Resolved -> RuntimeValue -> RuntimeValue
 prependRuntimeExplicitResultHint typeHint runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints (RuntimeExplicitResultHints innerHints) innerValue ->
-      VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints (typeHint Seq.<| innerHints))
+    VAnnotatedState (RuntimeResultHints (RuntimeExplicitResultHints innerHints)) innerValue ->
+      VAnnotatedState
+        (RuntimeResultHints (RuntimeExplicitResultHints (typeHint Seq.<| innerHints)))
         innerValue
     _ ->
-      VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints (Seq.singleton typeHint))
+      VAnnotatedState
+        (RuntimeResultHints (RuntimeExplicitResultHints (Seq.singleton typeHint)))
         runtimeValue
 
 attachRuntimeExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
 attachRuntimeExplicitResultHints outerHints runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints innerHints innerValue ->
-      VRuntimeExplicitResultHints
-        (outerHints <> innerHints)
+    VAnnotatedState (RuntimeResultHints innerHints) innerValue ->
+      VAnnotatedState
+        (RuntimeResultHints (outerHints <> innerHints))
         innerValue
     _ ->
-      VRuntimeExplicitResultHints
-        outerHints
+      VAnnotatedState
+        (RuntimeResultHints outerHints)
         runtimeValue
 
 runtimeExplicitResultHintsView :: RuntimeValue -> Maybe (RuntimeExplicitResultHints, RuntimeValue)
 runtimeExplicitResultHintsView runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints hints innerValue -> Just (hints, innerValue)
+    VAnnotated (RuntimeResultHints hints) innerValue -> Just (hints, innerValue)
     _ -> Nothing
 
 runtimeExplicitResultHintsInOrder :: RuntimeValue -> [SignatureType 'Resolved]

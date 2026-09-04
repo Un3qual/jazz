@@ -1256,7 +1256,14 @@ Advanced Haskell features and language extensions are welcome when they reduce
 code or improve maintainability. This applies to subsequent tasks as well;
 concrete benefit takes precedence over the earlier blanket restrictions.
 
-### Task 14: Remove source-type wrappers from runtime values and evidence
+### Task 14: Simplify runtime annotations and remove source-type conversions
+
+Maintainer-approved revision (2026-09-04): target redundant conversions and
+repeated wrapper handling. Preserve value-associated metadata needed by partial
+applications, stored callables, and deferred host execution. Eliminate a wrapper
+only when its behavior has a simpler equivalent; deleting every wrapper is not
+an acceptance criterion. This runtime cleanup is independent of Task 13's
+builder migration and can be implemented while that migration remains active.
 
 **Files:**
 
@@ -1301,37 +1308,40 @@ concrete benefit takes precedence over the earlier blanket restrictions.
       Remove textual capability/implementation identity and source signatures from
       `RuntimeEvidence`.
 
-- [ ] **Step 4: Move wrapper behavior into obligations.** Make application,
+- [ ] **Step 4: Consume semantic obligations at the correct lifetime.** Make application,
       primitive dispatch, numeric specialization, and result handling consume
-      `RuntimeObligation` frames. Preserve outermost-to-innermost source order with
-      `Seq`.
+      semantic obligations. Keep deferred obligations with the value until
+      application, rather than only on the current evaluation stack. Preserve
+      outermost-to-innermost source order with `Seq`.
 
-- [ ] **Step 5: Remove inert value wrappers.** Delete `VTyped`,
-      `VExplicitTypeApplication`, `VRuntimeExplicitResultHints`, their pattern
-      synonym, wrapper-stripping branches, and recursive rewrapping. Replace
-      `VList` element hints, constructor field types, method payloads, and deferred
-      host type fields with analyzed semantic data or already-selected obligations.
+- [ ] **Step 5: Consolidate repeated annotation handling.** Retain the distinct
+      semantics of type hints, explicit instantiation, and pending result hints.
+      Share transparent reads and annotation-preserving transformations where
+      they are identical. Replace source-type payloads with semantic data;
+      remove wrappers only when a simpler representation preserves their behavior.
+      Compare the resulting conversions, branches, and ownership with the baseline.
 
 - [ ] **Step 6: Keep runtime callables explicit.** Do not add a
-      `RuntimeCallable` abstraction in this task; after wrapper deletion the
+      `RuntimeCallable` abstraction in this task; the
       existing callable constructors directly encode different runtime behavior,
       and the approved design requires measured duplication before consolidation.
 
 - [ ] **Step 7: Verify runtime source syntax is gone.**
 
   ```sh
-  rg -n "SignatureType|VTyped|VExplicitTypeApplication|VRuntimeExplicitResultHints|RuntimeExplicitResultHints" src/Jazz/Compiler/Runtime src/Jazz/Compiler/ModuleRuntime.hs
+  rg -n "SignatureType" src/Jazz/Compiler/Runtime src/Jazz/Compiler/ModuleRuntime.hs
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec runtime-observation-spec --test-show-details=direct --jobs=1
   ```
 
-  Expected: the search has no matches and all suites pass.
+  Expected: no runtime dependency on source-type syntax remains. Retained
+  annotation carriers have a semantic purpose. All suites pass.
 
 - [ ] **Step 8: Run stage performance checks and commit.**
 
   ```sh
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test benchmark-stage-spec profiling-spec --test-show-details=direct --jobs=1
   git add src/Jazz/Compiler test/Jazz/Compiler
-  git commit -m "refactor: remove runtime type hint wrappers"
+  git commit -m "refactor: simplify runtime annotations"
   ```
 
 ### Task 15: Remove migration scaffolding and close the simplification pass
@@ -1362,7 +1372,7 @@ concrete benefit takes precedence over the earlier blanket restrictions.
   rg -n "SurfaceNumericType|SurfaceSignatureType|TypedNumericType|TIntegerLiteralType" src test
   rg -n "data (ParsedImport|CoreResolvedImport|ResolvedImport|ParsedModule|ResolvedModule|ResolvedProgram|CompiledModule|CompiledProgram|CompiledDependency|CompiledPrelude)" src
   rg -n "BindingRuntimeHintKey|RuntimeHints|RuntimeTypeHints|ProvisionalTypedExpr|ProvisionalTypedStatement" src test
-  rg -n "TypedCoreProductionStatus|TypedCoreProductionOutcome|VTyped|VExplicitTypeApplication|VRuntimeExplicitResultHints" src test
+  rg -n "TypedCoreProductionStatus|TypedCoreProductionOutcome" src test
   rg -n "pattern (Surface|Typed|Legacy)|legacy.*(Name|Type|Expr|Module|Import|Program)" src test
   ```
 

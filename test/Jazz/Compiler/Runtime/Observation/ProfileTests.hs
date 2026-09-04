@@ -13,7 +13,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CorePhase (Analyzed),
     Expr,
     Literal (..),
   )
@@ -227,12 +227,12 @@ testFailureProfile = do
   assertBalancedEvents profile
   assertBytesContain "incomplete profile name" "incomplete: failed" (encodeRuntimeSemanticProfile profile)
 
-profileFor :: Expr 'Resolved -> IO RuntimeSemanticProfile
+profileFor :: Expr 'Analyzed -> IO RuntimeSemanticProfile
 profileFor expression = do
   report <- reportFor RuntimeObservationProfile expression
   requireProfile report
 
-reportFor :: RuntimeObservationRequest -> Expr 'Resolved -> IO RuntimeObservationReport
+reportFor :: RuntimeObservationRequest -> Expr 'Analyzed -> IO RuntimeObservationReport
 reportFor request expression = do
   let observed = evaluateRuntimeExprObserved request expression
   case runtimeObservationOutcome observed of
@@ -289,10 +289,10 @@ assertBytesContain label expected actual =
     then pure ()
     else failTest (label <> ": expected " <> Text.pack (show expected) <> " in profile JSON")
 
-kernelBuiltin :: BuiltinSymbol -> Expr 'Resolved
+kernelBuiltin :: BuiltinSymbol -> Expr 'Analyzed
 kernelBuiltin = expressionVariable . BuiltinName . mkIdentifier . builtinSymbolKernelName
 
-qualifiedMethodExpression :: Expr 'Resolved
+qualifiedMethodExpression :: Expr 'Analyzed
 qualifiedMethodExpression =
   expressionBlock
     [ statementClass
@@ -330,7 +330,7 @@ qualifiedMethodExpression =
         (expressionApply (expressionQualifiedMethod "Probe" "identity") (expressionLiteral (LInt 1)))
     ]
 
-generatedSectionExpression :: Expr 'Resolved
+generatedSectionExpression :: Expr 'Analyzed
 generatedSectionExpression =
   expressionBlock
     [ statementLet

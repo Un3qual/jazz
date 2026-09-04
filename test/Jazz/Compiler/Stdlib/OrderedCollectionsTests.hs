@@ -21,7 +21,6 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    pattern VExplicitResultHints,
   )
 import Jazz.Compiler.Stdlib.Shared
   ( assertStdlibConstructorPrivate,
@@ -205,9 +204,7 @@ runtimeInteger runtimeValue =
 runtimeValueCore :: RuntimeValue -> RuntimeValue
 runtimeValueCore runtimeValue =
   case runtimeValue of
-    VTyped _ innerValue -> runtimeValueCore innerValue
-    VExplicitTypeApplication _ innerValue -> runtimeValueCore innerValue
-    VExplicitResultHints _ innerValue -> runtimeValueCore innerValue
+    VAnnotated _ innerValue -> runtimeValueCore innerValue
     _ -> runtimeValue
 
 testPrivateConstructors :: IO ()

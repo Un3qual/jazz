@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Jazz.Compiler.AST
-  ( CorePhase (Resolved),
+  ( CorePhase (Analyzed),
     Expr,
     Literal (..),
   )
@@ -258,7 +258,6 @@ testDisabledObservationSkipsContinuationDepthState = do
                 Nothing
                 EvaluateEntryModule
                 ResolveKernelOnly
-                Map.empty
                 Map.empty
                 [statementExpression (SourceSpan 1 1) expression]
           )
@@ -593,15 +592,15 @@ assertPositive label value =
     then pure ()
     else failTest (label <> ": expected a positive value, got " <> Text.pack (show value))
 
-statisticsFor :: Expr 'Resolved -> IO RuntimeStatistics
+statisticsFor :: Expr 'Analyzed -> IO RuntimeStatistics
 statisticsFor expression = do
   report <- requireObservedSuccess (evaluateRuntimeExprObserved RuntimeObservationStatistics expression)
   pure (runtimeObservationStatistics report)
 
-kernelBuiltin :: BuiltinSymbol -> Expr 'Resolved
+kernelBuiltin :: BuiltinSymbol -> Expr 'Analyzed
 kernelBuiltin = expressionVariable . BuiltinName . mkIdentifier . builtinSymbolKernelName
 
-nestedIdentityApplication :: Int -> Expr 'Resolved
+nestedIdentityApplication :: Int -> Expr 'Analyzed
 nestedIdentityApplication depth =
   foldr
     (\_ argument -> expressionApply identity argument)

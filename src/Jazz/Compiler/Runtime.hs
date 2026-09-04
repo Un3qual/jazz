@@ -12,8 +12,8 @@ module Jazz.Compiler.Runtime
     RuntimeEnv,
     RuntimeHostEvaluationT,
     RuntimeValue (..),
+    RuntimeAnnotation (..),
     RuntimeExplicitResultHints,
-    pattern VExplicitResultHints,
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
@@ -80,6 +80,7 @@ import Jazz.Compiler.Runtime.Request
   )
 import Jazz.Compiler.Runtime.Types
   ( ModuleEvaluationMode (..),
+    RuntimeAnnotation (..),
     RuntimeCell,
     RuntimeEnv,
     RuntimeExplicitResultHints,
@@ -88,7 +89,6 @@ import Jazz.Compiler.Runtime.Types
     ScopeResult (..),
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
-    pattern VExplicitResultHints,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
