@@ -1410,7 +1410,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
             Just runtimeCell -> do
               runtimeValue <- liftRuntimeResult runtimeCell
               continueWith
-                (ForceRuntimeValue (prepareRuntimeEvidence (evaluationModulePath context) (expressionRuntimePlanOf expression) runtimeValue))
+                (ForceRuntimeValue (prepareRuntimeEvidence (expressionRuntimePlanOf expression) runtimeValue))
                 expressionMachine
             Nothing ->
               case lookupBuiltinSymbolInMode builtinMode (identifierText name) of
@@ -1467,7 +1467,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
                 liftRuntimeResult
                   (lookupDeclaredOperatorCell operatorSymbol (evaluationEnvironment context))
               continueWith
-                (ForceRuntimeValue (prepareRuntimeEvidence (evaluationModulePath context) (expressionRuntimePlanOf expression) operatorValue))
+                (ForceRuntimeValue (prepareRuntimeEvidence (expressionRuntimePlanOf expression) operatorValue))
                 expressionMachine
         EList _ [] ->
           continueWith (ReturnRuntimeValue (VList [] Nothing)) expressionMachine
@@ -1500,7 +1500,6 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
                     VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs -> do
                       let matchingValue =
                             prepareRuntimeEvidence
-                              (evaluationModulePath context)
                               (expressionRuntimePlanOf expression)
                               (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs)
                           matchingCandidates =
@@ -2143,7 +2142,7 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
         InstantiateTypes instantiatedTypes ->
           foldM applyInstantiation runtimeValue instantiatedTypes
         SupplyEvidence evidenceReferences ->
-          Right (selectRuntimeEvidence modulePath evidenceReferences runtimeValue)
+          Right (selectRuntimeEvidence evidenceReferences runtimeValue)
         SpecializeNumericLiteral numericTarget ->
           specializeNumericLiteral numericTarget runtimeValue
         ConstrainResult semanticType ->
@@ -2179,15 +2178,15 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
             Just typeHint ->
               applyRuntimeTypeHint (runtimeConstraintType modulePath typeHint) runtimeValue
 
-selectRuntimeEvidence :: Maybe [Text] -> NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> RuntimeValue
-selectRuntimeEvidence referenceModulePath evidenceReferences runtimeValue =
+selectRuntimeEvidence :: NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> RuntimeValue
+selectRuntimeEvidence evidenceReferences runtimeValue =
   case runtimeValue of
     VTyped typeHint innerValue ->
-      VTyped typeHint (selectRuntimeEvidence referenceModulePath evidenceReferences innerValue)
+      VTyped typeHint (selectRuntimeEvidence evidenceReferences innerValue)
     VExplicitTypeApplication typeHint innerValue ->
-      VExplicitTypeApplication typeHint (selectRuntimeEvidence referenceModulePath evidenceReferences innerValue)
+      VExplicitTypeApplication typeHint (selectRuntimeEvidence evidenceReferences innerValue)
     VExplicitResultHints hints innerValue ->
-      attachRuntimeExplicitResultHints hints (selectRuntimeEvidence referenceModulePath evidenceReferences innerValue)
+      attachRuntimeExplicitResultHints hints (selectRuntimeEvidence evidenceReferences innerValue)
     VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
       VQualifiedMethodApplication
         methodKey
@@ -2198,21 +2197,22 @@ selectRuntimeEvidence referenceModulePath evidenceReferences runtimeValue =
     _ -> runtimeValue
   where
     selected (RuntimeMethodCandidate runtimeEvidenceValue _) =
-      any (runtimeEvidenceMatches referenceModulePath runtimeEvidenceValue) evidenceReferences
+      any (runtimeEvidenceMatches runtimeEvidenceValue) evidenceReferences
 
-runtimeEvidenceMatches :: Maybe [Text] -> RuntimeEvidence -> EvidenceReference -> Bool
-runtimeEvidenceMatches referenceModulePath (RuntimeEvidence capability implementation method _ _) reference =
-  canonicalCapability implementationModulePath capability
-    == canonicalCapability referenceModulePath (evidenceCapability reference)
+runtimeEvidenceMatches :: RuntimeEvidence -> EvidenceReference -> Bool
+runtimeEvidenceMatches (RuntimeEvidence capability implementation method _ _) reference =
+  canonicalCapability implementation capability
+    == canonicalCapability (evidenceImplementation reference) (evidenceCapability reference)
     && implementation == evidenceImplementation reference
     && method == evidenceMethod reference
-  where
-    ImplId (implementationPath, _) = implementation
-    implementationModulePath = Just (NonEmpty.toList (modulePathTextSegments implementationPath))
 
-canonicalCapability :: Maybe [Text] -> CapabilityId -> CapabilityId
-canonicalCapability modulePath (CapabilityId capabilityName) =
-  CapabilityId (runtimeDefinitionNameIn CapabilityNamespace modulePath capabilityName)
+-- Evidence is owned by its implementation, regardless of the module evaluating
+-- the reference. This also gives standalone references the same qualification
+-- as their runtime candidates.
+canonicalCapability :: ImplId -> CapabilityId -> CapabilityId
+canonicalCapability (ImplId (modulePath, _)) (CapabilityId capabilityName) =
+  CapabilityId
+    (runtimeDefinitionNameIn CapabilityNamespace (Just (NonEmpty.toList (modulePathTextSegments modulePath))) capabilityName)
 
 runtimeEvidence ::
   Maybe [Text] ->
@@ -2238,13 +2238,13 @@ runtimeModulePath modulePath =
     Nothing -> standaloneModulePath
     Just path -> mkModulePath (fmap mkIdentifier path)
 
-prepareRuntimeEvidence :: Maybe [Text] -> RuntimePlan -> RuntimeValue -> RuntimeValue
-prepareRuntimeEvidence modulePath (RuntimePlan obligations) initialValue =
+prepareRuntimeEvidence :: RuntimePlan -> RuntimeValue -> RuntimeValue
+prepareRuntimeEvidence (RuntimePlan obligations) initialValue =
   foldl' applyEvidence initialValue obligations
   where
     applyEvidence runtimeValue obligation =
       case obligation of
-        SupplyEvidence evidenceReferences -> selectRuntimeEvidence modulePath evidenceReferences runtimeValue
+        SupplyEvidence evidenceReferences -> selectRuntimeEvidence evidenceReferences runtimeValue
         _ -> runtimeValue
 
 lookupDeclaredOperatorCell :: Text -> RuntimeEnv -> Either Diagnostic RuntimeValue
