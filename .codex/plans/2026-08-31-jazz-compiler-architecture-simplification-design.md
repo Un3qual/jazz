@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-31
 
-**Status:** Approved for implementation planning
+**Status:** Implemented and verified at `daea3d1a` on 2026-09-04.
 
 ## Purpose
 
@@ -497,9 +497,12 @@ migration roles and would not eliminate invalid states.
 
 ### 9. Runtime value and evidence cleanup
 
-`VTyped`, `VExplicitTypeApplication`, and
-`VRuntimeExplicitResultHints` currently influence evaluation and primitive
-selection. They are not removed mechanically.
+Before this migration, `VTyped`, `VExplicitTypeApplication`, and
+`VRuntimeExplicitResultHints` influenced evaluation and primitive selection.
+They were consolidated into semantic annotations, preserving deferred obligations
+with the values that own them. Runtime values and method candidates now consume
+analyzed types and `EvidenceReference` directly; source-signature conversion and
+optional method-signature handling are removed.
 
 The required order is:
 
@@ -531,10 +534,10 @@ data EvidenceReference = EvidenceReference
 It does not retain free-form textual identity or source-level
 `SignatureType`.
 
-A `RuntimeCallable` sum may consolidate closure, builtin, operator,
-constructor, and method application only if implementation measurements show
-that it materially removes repeated dispatch and wrapper handling. A fully
-type-indexed `RuntimeValue` GADT is rejected because Jazz values are
+The completed pass retains the existing closure, builtin, operator, constructor,
+and method variants. A `RuntimeCallable` abstraction is outside this pass; any
+future proposal must demonstrate less repeated dispatch and annotation handling.
+A fully type-indexed `RuntimeValue` GADT is rejected because Jazz values are
 heterogeneous and runtime checked; the additional existential packaging would
 not remove those checks.
 

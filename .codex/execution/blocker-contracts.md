@@ -282,17 +282,22 @@ Each blocked item should answer these questions:
   carriers; Task 10 completed node-local runtime plans and removed inference-
   and interface-owned hint production while preserving the hosted schema and
   retained interpreter.
-- Smallest unblocker: execute `JN-COMPILER-TYPED-CORE-BUILD-001` under revised Task 13.
-- Decision: checked construction from analyzed facts was approved on `2026-09-04`.
-  Keep construction-dependent checks with construction and preserve failure order.
-- Ready child: `JN-COMPILER-TYPED-CORE-BUILD-001`.
-- Completed: analyzed-core interpretation (`9e9cf962`) and concrete outcomes
-  (`29cf6c6b`). The Task 12 development build and four characterization suites passed.
-- Target paths and verification: the matching Task 13 frontmatter and queue row.
+- Completed architecture: Tasks 11-15 moved ordinary execution to analyzed core
+  (`9e9cf962`), consolidated build outcomes (`29cf6c6b`), replaced provisional
+  Typed Core production (`81ae52e6`), and migrated runtime annotations to semantic
+  types/evidence (`43631af4`). Final cleanup and full verification: `daea3d1a`.
+- Verification: development build and all 63 default-enabled suites, Cabal metadata, executable
+  examples, repository checks, and isolated Nix flake check pass. The portable
+  hosted schema and ordinary language behavior are preserved.
+- Smallest unblocker: none under accepted contracts. No source-backed next
+  curation target or named candidate currently exists; a concrete next profile
+  requires its own accepted child.
+- Ready child: none.
 - Advanced Haskell features and extensions are permitted when they simplify code
-  or improve maintainability. Discuss new quality concerns inline.
-- Still separate: public language changes, Typed Core interpreter parity, and
-  ordinary compile/run cutover.
+  or improve maintainability. Before raising a quality concern, check remaining
+  tasks for its replacement or resolution.
+- Still separate: public language changes, missing Typed Core profiles, full
+  interpreter parity, and a separately approved ordinary compile/run cutover.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 
