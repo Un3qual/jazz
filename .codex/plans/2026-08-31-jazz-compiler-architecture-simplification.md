@@ -6,16 +6,21 @@ size: M
 kind: impl
 autonomous_ready: yes
 depends_on: []
-plan_section: "Task 14"
+plan_section: "Task 15"
 target_paths:
-  - src/Jazz/Compiler/SemanticFacts.hs
-  - src/Jazz/Compiler/Runtime/Types.hs
+  - src/Jazz/Compiler/TypeInference.hs
+  - src/Jazz/Compiler/TypeInference/Signature.hs
+  - src/Jazz/Compiler/TypeInference/Capabilities.hs
+  - src/Jazz/Compiler/TypeInference/Pattern.hs
+  - src/Jazz/Compiler/TypeInference/Scope.hs
   - src/Jazz/Compiler/Runtime/Engine.hs
-  - src/Jazz/Compiler/Runtime/Semantics.hs
-  - src/Jazz/Compiler/Runtime/Primitives.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
+  - test/Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec/ScalarTextTests.hs
+  - test/Jazz/Compiler/Semantics/BindingSignature/InferenceOwnershipTests.hs
+  - test/Jazz/Compiler/Semantics/BuiltinCatalogSpec.hs
 verification:
-  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test runtime-semantics-spec loader-spec module-pipeline-contract-spec profiling-spec runtime-observation-spec -fdevelopment --test-show-details=failures --jobs=1
-deliverable: "Replace runtime source-type conversions with semantic annotations while preserving deferred obligations."
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --jobs=1
+deliverable: "Remove unused migration helpers and verify the completed compiler architecture. Normal execution remains analyzed-core based."
 last_verified: 2026-09-04
 ---
 
@@ -1390,6 +1395,20 @@ benchmark-stage, and binding-signature suites pass; formatting and whitespace
 checks pass. No `SignatureType` reference remains in runtime owners.
 
 ### Task 15: Remove migration scaffolding and close the simplification pass
+
+Audit (2026-09-04): Tasks 13 and 14 are committed at `81ae52e6` and
+`43631af4`. Provisional trees, inference runtime-hint maps, and old outcome
+carriers are absent. Parser `SurfaceSignatureType`/`SurfaceNumericType` aliases
+name the shared types required by Task 3; they are not duplicate representations.
+Hosted `TypedNumericType` strings belong to the preserved portable schema.
+Neither should be deleted to satisfy a broad text search. Removed the unused
+runtime-template conversion policy and its bridge tests. The remaining concrete
+signature conversion serves inference capability rules and is named accordingly.
+The final caller audit also removed unused pattern-arm and explicit-application
+result carriers, the obsolete carrier test, and unused runtime declaration
+parameters. The complete test-component build caught two builtin runtime helpers
+with stale resolved-phase annotations; these now declare their analyzed inputs.
+All test components compile with development warnings treated as errors.
 
 **Files:**
 

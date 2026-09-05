@@ -6,7 +6,7 @@ module Main (main) where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (Lowered, Resolved),
+  ( CorePhase (Analyzed, Lowered),
     Expr,
     Literal (..),
   )
@@ -370,7 +370,7 @@ testRuntimeBuiltinOverApplicationFails =
 
 -- Apply one extra argument after a builtin is fully saturated. Runtime should
 -- reject application of the resulting non-function value.
-overAppliedBuiltinExpr :: Text -> Expr 'Resolved
+overAppliedBuiltinExpr :: Text -> Expr 'Analyzed
 overAppliedBuiltinExpr name =
   runtimeExpr $
     case name of
@@ -451,7 +451,7 @@ compileExprInput expr =
   loweredBlock
     [loweredExpression (SourceSpan 1 1) expr]
 
-runtimeExpr :: Expr 'Resolved -> Expr 'Resolved
+runtimeExpr :: Expr 'Analyzed -> Expr 'Analyzed
 runtimeExpr expr =
   expressionBlock
     [ statementExpression

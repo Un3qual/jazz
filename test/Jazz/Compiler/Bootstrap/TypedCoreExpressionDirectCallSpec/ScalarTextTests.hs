@@ -1,42 +1,21 @@
-{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests where
 
-import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( CaseArm (..),
-    CoreNode (..),
-    CoreNodeId (..),
-    CorePhase (Resolved),
-    Expr (..),
-    Literal (..),
-    Pattern (..),
-  )
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
 import Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..),
-    diagnosticCode,
+  ( diagnosticCode,
     isErrorDiagnostic,
   )
 import Jazz.Compiler.LoweredIR
 import Jazz.Compiler.LoweredIR.Lower
 import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.TypeInference hiding (InferenceResult (..))
-import Jazz.Compiler.TypeInference.Pattern (InferredPatternCaseArm (..), inferPatternCaseTypeWithResults)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
-import Jazz.Compiler.TypeInference.State (initialInferState)
-import Jazz.Compiler.TypeInference.Traversal
-  ( InferenceMode (..),
-  )
-import Jazz.Compiler.TypeInference.Types
-  ( SemanticType (..),
-  )
 import Jazz.Compiler.TypedCore
 import Jazz.Compiler.TypedCore.Validate
   ( validateTypedProgram,
@@ -269,37 +248,6 @@ testScalarPatternCaseProducerBoundaries = do
         (TypedCoreProductionExpressionPath ["App", "Main"] statementIndex childPath)
         kind
         detail
-
-testScalarPatternCaseArmResultPositions :: IO ()
-testScalarPatternCaseArmResultPositions =
-  assertEqual
-    "pattern inference retains one result slot per authored arm"
-    [literalPattern, wildcardPattern]
-    (map inferredArmPattern armResults)
-  where
-    (_, _, armResults) =
-      inferPatternCaseTypeWithResults
-        inferChild
-        InferenceOnly
-        ResolveKernelOnly
-        Map.empty
-        SemanticBool
-        initialInferState
-        [ CaseArm syntheticNode literalPattern Nothing (ELit syntheticNode (LBool False)),
-          CaseArm syntheticNode wildcardPattern Nothing (ELit syntheticNode (LBool True))
-        ]
-    inferChild mode _ _ state _ =
-      case mode of
-        InferenceOnly -> ((Just SemanticBool), state)
-        InferConcreteFunctions ->
-          error "expected inference-only pattern callback invocation"
-    inferredArmPattern (InferredPatternCaseArm pattern _ _) = pattern
-
-    literalPattern = PLiteral syntheticNode (LInt 1)
-    wildcardPattern = PWildcard syntheticNode
-
-syntheticNode :: CoreNode 'Resolved sort
-syntheticNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
 
 testScalarPatternCaseAnalysisProduction :: IO ()
 testScalarPatternCaseAnalysisProduction =

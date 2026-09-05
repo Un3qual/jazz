@@ -130,11 +130,11 @@ import Jazz.Compiler.TypeInference.Operator
     instantiateOperatorType,
   )
 import Jazz.Compiler.TypeInference.Pattern
-  ( inferPatternCaseTypeWithResults,
+  ( inferPatternCaseType,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Scope
-  ( inferExplicitTypeApplicationWithResult,
+  ( inferExplicitTypeApplication,
     inferNestedScopeTypeWithMode,
     inferScopeTypeWithMode,
     inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope,
@@ -835,7 +835,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
           (scrutineeType, stateWithScrutineeType) = case scrutineeResult of
             Just inferredType -> (inferredType, stateAfterScrutinee)
             Nothing -> freshTypeVar stateAfterScrutinee
-          (expressionType, inferredFinalState, _) = inferPatternCaseTypeWithResults inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env scrutineeType stateWithScrutineeType caseArms
+          (expressionType, inferredFinalState) = inferPatternCaseType inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env scrutineeType stateWithScrutineeType caseArms
           finalState =
             recordPatternCoverageSite
               ( PatternCoverageSite
@@ -873,8 +873,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
            in (expressionType, stateWithSpineFacts)
       | otherwise -> inferGenericApplication function argument
     ETypeApplication node function argumentSpan argument ->
-      let (expressionType, finalState, _) = inferExplicitTypeApplicationWithResult inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env state (coreNodeId node) function argumentSpan argument
-       in (expressionType, finalState)
+      inferExplicitTypeApplication inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env state (coreNodeId node) function argumentSpan argument
     ESectionLeft _ left symbol -> inferLeftSection symbol left
     ESectionRight _ symbol right -> inferRightSection symbol right
   where

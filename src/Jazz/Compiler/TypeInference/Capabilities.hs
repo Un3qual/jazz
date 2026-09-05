@@ -722,7 +722,7 @@ inferredConstraintTargetConcrete :: InferState -> ExpressionType -> Bool
 inferredConstraintTargetConcrete state argumentType =
   let resolvedArgumentType = defaultLiteralTypes state (resolveType state argumentType)
    in Set.null (freeTypeVariables resolvedArgumentType)
-        && case Signature.expressionTypeToRuntimeHint resolvedArgumentType of
+        && case Signature.expressionTypeToConcreteSignature resolvedArgumentType of
           Just _ -> True
           Nothing -> False
 
@@ -1094,7 +1094,7 @@ constraintCandidateSignaturesForDeferred facts state inferredConstraint _ maybeM
   | inferredConstraint =
       inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType
   | otherwise =
-      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state argumentType) of
+      case Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
         Nothing -> []
 
@@ -1109,7 +1109,7 @@ inferredConstraintCandidateSignatures facts state maybeMethodKey argumentType =
   dedupeSignatureTypes (defaultHint ++ methodCandidateHints)
   where
     defaultHint =
-      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state argumentType) of
+      case Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state argumentType) of
         Just argumentHint -> [argumentHint]
         Nothing -> []
 
@@ -1162,7 +1162,7 @@ constraintSignatureTypeMatchesExpressionType state signatureType expressionType 
       constraintSignatureTypeMatchesExpressionType state signatureArgument argumentType
         && constraintSignatureTypeMatchesExpressionType state signatureResult resultType
     _ ->
-      case Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (resolveType state expressionType)) of
+      case Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state (resolveType state expressionType)) of
         Just argumentHint -> constraintSignatureTypesCompatible signatureType argumentHint
         Nothing -> False
 
@@ -1586,7 +1586,7 @@ scalarApplicationRuntimeHint state env expressionType argumentExpr =
     _ -> Nothing
   where
     inferredScalarHint =
-      Signature.expressionTypeToRuntimeHint
+      Signature.expressionTypeToConcreteSignature
         =<< if integerLiteralRangeFor state resolvedType /= Nothing
           then Just (SemanticNumeric NumericInt64)
           else case resolvedType of
@@ -1726,7 +1726,7 @@ signaturePayloadRuntimeHint signaturePayload =
       | null (constraintSignatureTypeVariableNamesInOrder signatureType) ->
           Just signatureType
     ConstrainedSignature _ signatureType ->
-      Signature.constraintSignatureTypeToExpressionType signatureType >>= Signature.expressionTypeToRuntimeHint
+      Signature.constraintSignatureTypeToExpressionType signatureType >>= Signature.expressionTypeToConcreteSignature
     UnsupportedSignature {} ->
       Nothing
 
@@ -1734,13 +1734,13 @@ typeBindingRuntimeHint :: InferState -> TypeBinding -> Maybe (SignatureType 'Res
 typeBindingRuntimeHint state binding =
   case binding of
     PlainTypeBinding bindingType ->
-      Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state bindingType)
+      Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state bindingType)
     SchemeTypeBinding typeScheme
       | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
-          Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (schemeResultType typeScheme))
+          Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state (schemeResultType typeScheme))
     OperatorAliasSchemeTypeBinding _ typeScheme
       | Set.null (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme)) ->
-          Signature.expressionTypeToRuntimeHint (defaultLiteralTypes state (schemeResultType typeScheme))
+          Signature.expressionTypeToConcreteSignature (defaultLiteralTypes state (schemeResultType typeScheme))
     _ -> Nothing
 
 constraintSignatureTypeContainsList :: SignatureType 'Resolved -> Bool

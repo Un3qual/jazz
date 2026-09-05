@@ -10,8 +10,7 @@ module Jazz.Compiler.TypeInference.Signature
     constraintSignatureTypeToExpressionType,
     constraintSignatureTypeToExpressionTypeWithState,
     duplicateConstraintName,
-    expressionTypeToRuntimeHint,
-    expressionTypeToRuntimeTemplate,
+    expressionTypeToConcreteSignature,
     renderSignatureTypeFailure,
     signaturePayloadToSignatureType,
     signatureTypeToExpressionType,
@@ -372,24 +371,10 @@ duplicateConstraintName constraints =
                 then Just constraintNameText
                 else go (Set.insert constraintNameText seen) rest
 
--- | Convert a resolved expression type into a concrete runtime dispatch hint.
--- Uncommitted integer ranges are valid only when the complete range fits Int64.
-expressionTypeToRuntimeHint :: ExpressionType -> Maybe (SignatureType 'Resolved)
-expressionTypeToRuntimeHint =
-  expressionTypeToRuntimeSignature RuntimeHintPolicy
-
--- | Preserve quantified variables as actual signature variables when building
--- runtime templates. This avoids disguising them as zero-arity data types.
-expressionTypeToRuntimeTemplate :: Map InferenceVariable ResolvedName -> ExpressionType -> Maybe (SignatureType 'Resolved)
-expressionTypeToRuntimeTemplate variableNames =
-  expressionTypeToRuntimeSignature (RuntimeTemplatePolicy variableNames)
-
-data RuntimeSignaturePolicy
-  = RuntimeHintPolicy
-  | RuntimeTemplatePolicy (Map InferenceVariable ResolvedName)
-
-expressionTypeToRuntimeSignature :: RuntimeSignaturePolicy -> ExpressionType -> Maybe (SignatureType 'Resolved)
-expressionTypeToRuntimeSignature policy expressionType =
+-- | Project a concrete inferred type for the signature-based capability rules.
+-- Quantified variables have no concrete signature and propagate failure.
+expressionTypeToConcreteSignature :: ExpressionType -> Maybe (SignatureType 'Resolved)
+expressionTypeToConcreteSignature expressionType =
   case expressionType of
     SemanticInt -> Just TypeInt
     SemanticFloat -> Just TypeFloat
@@ -410,13 +395,9 @@ expressionTypeToRuntimeSignature policy expressionType =
       TypeFunction
         <$> convert inputType
         <*> convert outputType
-    SemanticVariable typeVar ->
-      case policy of
-        RuntimeHintPolicy -> Nothing
-        RuntimeTemplatePolicy variableNames ->
-          TypeVariable <$> Map.lookup typeVar variableNames
+    SemanticVariable _ -> Nothing
   where
-    convert = expressionTypeToRuntimeSignature policy
+    convert = expressionTypeToConcreteSignature
 
 tshow :: (Show a) => a -> Text
 tshow = Text.pack . show

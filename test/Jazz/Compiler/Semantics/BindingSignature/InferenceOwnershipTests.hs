@@ -42,8 +42,7 @@ import qualified Jazz.Compiler.TypeInference.Scope as TypeInferenceScope
 import Jazz.Compiler.TypeInference.Signature
   ( SignaturePayloadType (..),
     duplicateConstraintName,
-    expressionTypeToRuntimeHint,
-    expressionTypeToRuntimeTemplate,
+    expressionTypeToConcreteSignature,
     signaturePayloadToSignatureType,
   )
 import Jazz.Compiler.TypeInference.Solver
@@ -121,9 +120,7 @@ import Jazz.TestHarness
 
 inferenceOwnershipTests :: [NamedTest]
 inferenceOwnershipTests =
-  [ ("runtime templates accept only mapped quantified variables", testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables),
-    ("runtime hint child failures propagate through lists and functions", testRuntimeHintChildFailuresPropagate),
-    ("runtime template child failures propagate through lists and functions", testRuntimeTemplateChildFailuresPropagate),
+  [ ("concrete signature projection rejects variable children", testConcreteSignatureChildFailuresPropagate),
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
     ("inference output preserves constraint order and explicit cursors", testInferenceOutputConstraintCursors),
@@ -148,40 +145,16 @@ inferenceOwnershipTests =
     ("operator rule presence remains distinct from section support", testOperatorRulePresenceAndSectionSupport)
   ]
 
-testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables :: IO ()
-testRuntimeTemplatesAcceptOnlyMappedQuantifiedVariables = do
-  let variableName = typeName "a"
-  assertEqual
-    "mapped variable template"
-    (Just (TypeVariable variableName))
-    (expressionTypeToRuntimeTemplate (Map.singleton 7 variableName) (SemanticVariable 7))
-  assertEqual
-    "unmapped variable template"
-    Nothing
-    (expressionTypeToRuntimeTemplate Map.empty (SemanticVariable 7))
-
-testRuntimeHintChildFailuresPropagate :: IO ()
-testRuntimeHintChildFailuresPropagate = do
+testConcreteSignatureChildFailuresPropagate :: IO ()
+testConcreteSignatureChildFailuresPropagate = do
   assertEqual
     "list child failure"
     Nothing
-    (expressionTypeToRuntimeHint (SemanticList (SemanticVariable 1)))
+    (expressionTypeToConcreteSignature (SemanticList (SemanticVariable 1)))
   assertEqual
     "function child failure"
     Nothing
-    (expressionTypeToRuntimeHint (SemanticFunction SemanticInt (SemanticVariable 1)))
-
-testRuntimeTemplateChildFailuresPropagate :: IO ()
-testRuntimeTemplateChildFailuresPropagate = do
-  let unmappedType = SemanticVariable 1
-  assertEqual
-    "list child failure"
-    Nothing
-    (expressionTypeToRuntimeTemplate Map.empty (SemanticList unmappedType))
-  assertEqual
-    "function child failure"
-    Nothing
-    (expressionTypeToRuntimeTemplate Map.empty (SemanticFunction SemanticInt unmappedType))
+    (expressionTypeToConcreteSignature (SemanticFunction SemanticInt (SemanticVariable 1)))
 
 testDuplicateConstraintsReportFirstRepeatedName :: IO ()
 testDuplicateConstraintsReportFirstRepeatedName =

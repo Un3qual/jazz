@@ -550,10 +550,10 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       case statement of
         SLet _ bindingName _ ->
           LazyMap.insert bindingName (bindingCellAt statementIndex) env
-        SData _ typeName typeParameters constructors ->
-          insertDataConstructors (modulePathForStatement statementIndex) typeName typeParameters constructors env
-        SClass _ capabilityName parameters methods ->
-          insertClassMethods capabilityName parameters methods env
+        SData _ _ _ constructors ->
+          insertDataConstructors (modulePathForStatement statementIndex) constructors env
+        SClass _ capabilityName _ methods ->
+          insertClassMethods capabilityName methods env
         SImpl implementationNode capabilityName _ methods ->
           insertImplMethods (modulePathForStatement statementIndex) implementationNode capabilityName methods env
         _ -> env
@@ -931,10 +931,10 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
           case statement of
             SLet _ bindingName _ ->
               LazyMap.insert bindingName (blockBindingCellAt statementIndex) env
-            SData _ typeName typeParameters constructors ->
-              insertDataConstructors blockModulePath typeName typeParameters constructors env
-            SClass _ capabilityName parameters methods ->
-              insertClassMethods capabilityName parameters methods env
+            SData _ _ _ constructors ->
+              insertDataConstructors blockModulePath constructors env
+            SClass _ capabilityName _ methods ->
+              insertClassMethods capabilityName methods env
             SImpl implementationNode capabilityName _ methods ->
               insertImplMethods blockModulePath implementationNode capabilityName methods env
             _ -> env
@@ -990,8 +990,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 _ ->
                   envAcc
 
-    insertDataConstructors :: Maybe [Text] -> ResolvedName -> [ResolvedName] -> [DataConstructor 'Analyzed] -> RuntimeEnv -> RuntimeEnv
-    insertDataConstructors definitionModulePath _ _ constructors env =
+    insertDataConstructors :: Maybe [Text] -> [DataConstructor 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertDataConstructors definitionModulePath constructors env =
       foldl' insertConstructor env constructors
       where
         insertConstructor envAcc (DataConstructor node constructorName _) =
@@ -1013,8 +1013,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         parameterVariable (SemanticVariable variable) = Just variable
         parameterVariable _ = Nothing
 
-    insertClassMethods :: ResolvedName -> [ResolvedName] -> [ClassMethodSignature 'Analyzed] -> RuntimeEnv -> RuntimeEnv
-    insertClassMethods capabilityName _ methods env =
+    insertClassMethods :: ResolvedName -> [ClassMethodSignature 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertClassMethods capabilityName methods env =
       foldl' insertMethod env methods
       where
         insertMethod envAcc (ClassMethodSignature node methodName _) =

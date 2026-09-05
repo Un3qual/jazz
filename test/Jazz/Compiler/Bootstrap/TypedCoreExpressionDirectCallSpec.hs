@@ -25,7 +25,6 @@ tests =
     ("produces exact scalar pattern cases before lowering", testScalarPatternCaseProduction),
     ("rechecks the scalar pattern-case lowerer profile", testScalarPatternCaseLowererBoundary),
     ("rejects scalar pattern cases outside the bounded producer profile", testScalarPatternCaseProducerBoundaries),
-    ("retains scalar pattern-case arm positions after pattern typing failures", testScalarPatternCaseArmResultPositions),
     ("preserves pattern-case captures and closure-valued arm profiles", testScalarPatternCaseAnalysisProduction),
     ("transports nested and in-flight scalar pattern-case values", testScalarPatternCaseTransportLowering),
     ("produces and lowers conditional profile combinations", testConditionalProfileCoverage),
