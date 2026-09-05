@@ -175,7 +175,8 @@ data StatementDeclarationFact
   | SignatureDeclaration ResolvedName
   | DataDeclaration ResolvedName [ResolvedName]
   | CapabilityDeclaration ResolvedName [ResolvedName]
-  | ImplementationDeclaration ResolvedName
+  | MethodDeclaration ResolvedName AnalyzedMethodSignature
+  | ImplementationDeclaration ResolvedName [AnalyzedType]
   | ModuleDeclaration [Text]
   | ImportDeclaration [Text]
   | ExpressionDeclaration
@@ -202,6 +203,7 @@ data SemanticFactInvariantFailure
   | MissingStatementScheme CoreNodeId CoreBinderId
   | AnalyzedModuleRootNotBlock CoreNodeId
   | InvalidAnalyzedMethodSignature Text
+  | InvalidAnalyzedImplementationTarget CoreNodeId
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

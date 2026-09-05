@@ -111,6 +111,7 @@ import Jazz.Compiler.Name
   )
 import Jazz.Compiler.Runtime
   ( RuntimeCell,
+    evaluateRuntimeExpr,
     renderRuntimeValue,
     runtimeExprRequiresHost,
   )
@@ -208,7 +209,8 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
+  [ ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
+    ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
     ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
     ("successful inference attaches complete analyzed facts", testAnalyzedProgramFactsAreComplete),
@@ -966,7 +968,9 @@ assertStatementFacts statement = do
           assertEqual "capability declaration fact" (CapabilityDeclaration name parameters) (statementDeclarationFact facts)
           mapM_ assertClassMethodFacts methods
         SImpl _ name _ methods -> do
-          assertEqual "implementation declaration fact" (ImplementationDeclaration name) (statementDeclarationFact facts)
+          case statementDeclarationFact facts of
+            ImplementationDeclaration factName [_] -> assertEqual "implementation declaration identity" name factName
+            other -> fail ("missing analyzed implementation target: " <> show other)
           mapM_ assertImplMethodFacts methods
         SModule _ path -> assertEqual "module declaration fact" (ModuleDeclaration path) (statementDeclarationFact facts)
         SImport _ path _ _ -> assertEqual "import declaration fact" (ImportDeclaration path) (statementDeclarationFact facts)
@@ -980,7 +984,10 @@ assertStatementFacts statement = do
       assertEqual "statement owns one binder" 1 (length (statementBinderIds facts))
       assertEqual "statement binder owns a generalized scheme" (Set.fromList (statementBinderIds facts)) (Map.keysSet (statementGeneralizedSchemes facts))
     assertConstructorFacts (DataConstructor (CoreNode _ _ facts) name _) = assertBindingStatement (ValueDeclaration name) facts
-    assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) = assertEqual "class method declaration fact" (SignatureDeclaration name) (statementDeclarationFact facts)
+    assertClassMethodFacts (ClassMethodSignature (CoreNode _ _ facts) name _) =
+      case statementDeclarationFact facts of
+        MethodDeclaration factName _ -> assertEqual "class method declaration identity" name factName
+        other -> fail ("missing analyzed method signature: " <> show other)
     assertImplMethodFacts (ImplMethod (CoreNode _ _ facts) name body) = do
       assertEqual "impl method declaration fact" (ValueDeclaration name) (statementDeclarationFact facts)
       assertExprFacts body
@@ -1137,6 +1144,26 @@ testDirectExpressionConstruction = do
           assertEqual "direct call argument specialization" [SemanticNumeric NumericInt8, SemanticNumeric NumericInt8] [typedNodeType info, typedNodeType (typedExpressionInfo argument)]
         _ -> fail ("unexpected direct call: " <> show call)
     _ -> fail "missing direct callable fixture"
+
+testRuntimeUsesAnalyzedDeclarations :: IO ()
+testRuntimeUsesAnalyzedDeclarations = do
+  (_, analyzed) <-
+    analyzeFixtureProgram
+      (Map.singleton "src/App/Main.jz" "module App::Main { data Box a = Box a. class Echo(a) { echo :: a -> a. }. impl Echo(Int) { echo = \\(item) -> item. }. result = Echo::echo 7. (Box result, result). }")
+  let expression = coreModuleExpr (NonEmpty.head (coreProgramModules analyzed))
+      rendered = fmap (fmap renderRuntimeValue) . evaluateRuntimeExpr
+  assertEqual "analyzed declarations evaluate" (Right (Just "(Box(7), 7)")) (rendered expression)
+  assertEqual "source type erasure does not change execution" (rendered expression) (rendered (erase expression))
+  where
+    erase (EBlock node statements) = EBlock node (map eraseStatement statements)
+    erase expression = expression
+    eraseStatement statement = case statement of
+      SData node name parameters constructors ->
+        SData node name parameters [DataConstructor child constructorName [] | DataConstructor child constructorName _ <- constructors]
+      SClass node name parameters methods ->
+        SClass node name parameters [ClassMethodSignature child methodName (SignatureType TypeBool) | ClassMethodSignature child methodName _ <- methods]
+      SImpl node name _ methods -> SImpl node name [] methods
+      _ -> statement
 
 testTypedConstructorFieldsUseAnalyzedSchemes :: IO ()
 testTypedConstructorFieldsUseAnalyzedSchemes = do

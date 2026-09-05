@@ -45,6 +45,7 @@ where
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -63,7 +64,9 @@ import Jazz.Compiler.AST
     SignatureType,
     Statement (..),
   )
+import Jazz.Compiler.CapabilityFacts (signaturePayloadConstraintType)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.ModuleIdentity (standaloneModulePath)
 import Jazz.Compiler.Name
   ( Name (BuiltinName),
     NameNamespace (CapabilityNamespace, ConstructorNamespace, TypeNamespace, ValueNamespace),
@@ -78,13 +81,17 @@ import Jazz.Compiler.Name
     resolvedAmbientName,
   )
 import Jazz.Compiler.SemanticFacts
-  ( ExpressionFacts (..),
+  ( AnalyzedCapabilityFacts (..),
+    AnalyzedMethodSignature (..),
+    AnalyzedScheme (..),
+    CoreBinderId (..),
+    ExpressionFacts (..),
     PatternConstructorFact (PatternHasNoConstructor),
     PatternFacts (..),
     PatternRefutability (RefutablePattern),
     RuntimeObligation (ConstrainResult, InstantiateTypes),
     RuntimePlan (RuntimePlan),
-    StatementDeclarationFact (ExpressionDeclaration),
+    StatementDeclarationFact (..),
     StatementFacts (..),
   )
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
@@ -222,7 +229,10 @@ expressionTypeApplication function argumentSpan argumentType =
     argumentType
 
 fixtureSemanticType :: SignatureType 'Analyzed -> TypeRepresentation.SemanticType ResolvedName TypeRepresentation.InferenceVariable
-fixtureSemanticType signatureType =
+fixtureSemanticType = fixtureSemanticTypeWith Map.empty
+
+fixtureSemanticTypeWith :: Map.Map ResolvedName TypeRepresentation.InferenceVariable -> SignatureType 'Analyzed -> TypeRepresentation.SemanticType ResolvedName TypeRepresentation.InferenceVariable
+fixtureSemanticTypeWith variables signatureType =
   case signatureType of
     TypeRepresentation.TypeInt -> TypeRepresentation.SemanticInt
     TypeRepresentation.TypeFloat -> TypeRepresentation.SemanticFloat
@@ -230,16 +240,18 @@ fixtureSemanticType signatureType =
     TypeRepresentation.TypeBool -> TypeRepresentation.SemanticBool
     TypeRepresentation.TypeChar -> TypeRepresentation.SemanticChar
     TypeRepresentation.TypeText -> TypeRepresentation.SemanticText
-    TypeRepresentation.TypeVariable _ -> TypeRepresentation.SemanticVariable (TypeRepresentation.InferenceVariable 0)
+    TypeRepresentation.TypeVariable name -> TypeRepresentation.SemanticVariable (Map.findWithDefault (TypeRepresentation.InferenceVariable 0) name variables)
     TypeRepresentation.TypeName name -> TypeRepresentation.SemanticData name []
     TypeRepresentation.TypeApplication name arguments ->
-      TypeRepresentation.SemanticData name (map fixtureSemanticType arguments)
-    TypeRepresentation.TypeList elementType -> TypeRepresentation.SemanticList (fixtureSemanticType elementType)
-    TypeRepresentation.TypeTuple elementTypes -> TypeRepresentation.SemanticTuple (map fixtureSemanticType elementTypes)
+      TypeRepresentation.SemanticData name (map recur arguments)
+    TypeRepresentation.TypeList elementType -> TypeRepresentation.SemanticList (recur elementType)
+    TypeRepresentation.TypeTuple elementTypes -> TypeRepresentation.SemanticTuple (map recur elementTypes)
     TypeRepresentation.TypeFunction argumentType resultType ->
       TypeRepresentation.SemanticFunction
-        (fixtureSemanticType argumentType)
-        (fixtureSemanticType resultType)
+        (recur argumentType)
+        (recur resultType)
+  where
+    recur = fixtureSemanticTypeWith variables
 
 expressionIf :: Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed
 expressionIf = EIf expressionNode
@@ -293,13 +305,56 @@ statementSignature :: UnresolvedName -> SourceSpan -> SignaturePayload 'Analyzed
 statementSignature name spanValue = SSignature (statementNode spanValue) (valueName name)
 
 statementData :: SourceSpan -> UnresolvedName -> [UnresolvedName] -> [DataConstructor 'Analyzed] -> Statement 'Analyzed
-statementData spanValue name parameters = SData (statementNode spanValue) (typeName name) (map typeName parameters)
+statementData spanValue name parameters constructors =
+  SData (statementNode spanValue) (typeName name) (map typeName parameters) (map analyzedConstructor constructors)
+  where
+    variables = zip (map typeName parameters) (map TypeRepresentation.InferenceVariable [0 ..])
+    resultType = TypeRepresentation.SemanticData (typeName name) (map (TypeRepresentation.SemanticVariable . snd) variables)
+    analyzedConstructor (DataConstructor node constructor fields) =
+      DataConstructor node {coreNodeFacts = StatementFacts [binder] (Map.singleton binder scheme) (ValueDeclaration constructor)} constructor fields
+      where
+        binder = CoreBinderId (standaloneModulePath, coreNodeId node)
+        scheme =
+          AnalyzedScheme
+            (map snd variables)
+            []
+            []
+            (AnalyzedCapabilityFacts Map.empty Set.empty Set.empty Map.empty Map.empty)
+            (foldr TypeRepresentation.SemanticFunction resultType (map (fixtureSemanticTypeWith (Map.fromList variables)) fields))
 
 statementClass :: SourceSpan -> UnresolvedName -> [UnresolvedName] -> [ClassMethodSignature 'Analyzed] -> Statement 'Analyzed
-statementClass spanValue name parameters = SClass (statementNode spanValue) (capabilityName name) (map typeName parameters)
+statementClass spanValue name parameters methods =
+  SClass (statementNode spanValue) (capabilityName name) (map typeName parameters) (map analyzedMethod methods)
+  where
+    analyzedMethod (ClassMethodSignature node method signature) =
+      case signaturePayloadConstraintType signature of
+        Just signatureType ->
+          ClassMethodSignature
+            node
+              { coreNodeFacts =
+                  (coreNodeFacts node)
+                    { statementDeclarationFact =
+                        MethodDeclaration method (AnalyzedMethodSignature (TypeRepresentation.InferenceVariable 0) (fixtureSemanticType signatureType))
+                    }
+              }
+            method
+            signature
+        Nothing -> error "runtime fixture requires a supported method signature"
 
 statementImpl :: SourceSpan -> UnresolvedName -> [SignatureType 'Analyzed] -> [ImplMethod 'Analyzed] -> Statement 'Analyzed
-statementImpl spanValue name = SImpl (statementNode spanValue) (capabilityName name)
+statementImpl spanValue name targets =
+  SImpl
+    node
+      { coreNodeFacts =
+          (coreNodeFacts node)
+            { statementDeclarationFact =
+                ImplementationDeclaration (capabilityName name) (map fixtureSemanticType targets)
+            }
+      }
+    (capabilityName name)
+    targets
+  where
+    node = statementNode spanValue
 
 statementExpression :: SourceSpan -> Expr 'Analyzed -> Statement 'Analyzed
 statementExpression spanValue = SExpr (statementNode spanValue)

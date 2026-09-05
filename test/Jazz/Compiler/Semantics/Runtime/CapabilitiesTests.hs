@@ -53,7 +53,6 @@ import Jazz.Compiler.Runtime
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeMethodCandidate (..),
-    runtimeEvidenceTarget,
   )
 import Jazz.Compiler.SemanticFacts
   ( CapabilityId (..),
@@ -223,11 +222,11 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
     Right (Just methodValue@(VQualifiedMethod _ _ _ candidates _)) -> do
       assertEqual
         "runtime candidate evidence target order"
-        [TypeInt, TypeBool]
-        [runtimeEvidenceTarget evidence | RuntimeMethodCandidate evidence _ <- candidates]
+        [SemanticInt, SemanticBool]
+        [evidenceType evidence | RuntimeMethodCandidate evidence _ <- candidates]
       assertContains
         "runtime candidate evidence record"
-        "RuntimeEvidence"
+        "EvidenceReference"
         (Text.pack (show methodValue))
       assertContains
         "runtime candidate evidence class"
@@ -1189,7 +1188,7 @@ testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
   assertEqual
     "untyped empty list exact match"
     False
-    (runtimeValueExactlyMatchesConstraint (TypeList (TypeInt)) (VList [] Nothing))
+    (runtimeValueExactlyMatchesConstraint (SemanticList (SemanticInt)) (VList [] Nothing))
 
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do

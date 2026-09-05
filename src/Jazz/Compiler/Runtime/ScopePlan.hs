@@ -16,8 +16,6 @@ module Jazz.Compiler.Runtime.ScopePlan
     scopePlanIsSelfRecursiveFunction,
     scopePlanBindingNameAt,
     scopePlanIsHostRecursiveBinding,
-    scopePlanPreviousSignaturePayload,
-    runtimeSignatureNumericTarget,
     runtimeExprRequiresHost,
     runtimeStatementRequiresHost,
     exprContainsFunctionBranch,
@@ -38,7 +36,6 @@ import Jazz.Compiler.AST
     CorePhase (..),
     Expr (..),
     ImplMethod (..),
-    SignaturePayload,
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
@@ -46,7 +43,6 @@ import Jazz.Compiler.BuiltinCatalog
     BuiltinSymbol (..),
     builtinNamesInMode,
     lookupBuiltinSymbolInMode,
-    numericTypeFromName,
   )
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name
@@ -64,15 +60,6 @@ import Jazz.Compiler.RecursiveBindings
     recursiveScopeGroups,
   )
 import Jazz.Compiler.SourceUnitOwnership (sourceUnitStatementRuntimePaths)
-import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
-    pattern ConstrainedSignature,
-    pattern SignatureType,
-    pattern TypeFloat,
-    pattern TypeInt,
-    pattern TypeName,
-    pattern TypeNumeric,
-  )
 
 data RuntimeScopePlan = RuntimeScopePlan
   { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
@@ -179,35 +166,6 @@ scopePlanBindingNameAt plan statementIndex =
 scopePlanIsHostRecursiveBinding :: RuntimeScopePlan -> Int -> Bool
 scopePlanIsHostRecursiveBinding plan statementIndex =
   IntSet.member statementIndex (runtimeScopePlanHostRecursiveBindings plan)
-
-scopePlanPreviousSignaturePayload :: RuntimeScopePlan -> Int -> ResolvedName -> Maybe (SignaturePayload 'Resolved)
-scopePlanPreviousSignaturePayload plan statementIndex bindingName =
-  case scopePlanStatementAt plan (statementIndex - 1) of
-    Just (SSignature _ signatureName signaturePayload)
-      | identifierText signatureName == identifierText bindingName ->
-          Just signaturePayload
-    _ -> Nothing
-
-runtimeSignatureNumericTarget :: SignaturePayload 'Resolved -> Maybe NumericType
-runtimeSignatureNumericTarget signaturePayload =
-  case signaturePayload of
-    SignatureType TypeInt -> Just NumericInt64
-    SignatureType TypeFloat -> Just NumericFloat64
-    SignatureType (TypeNumeric targetType) -> Just targetType
-    ConstrainedSignature _ signatureType -> signatureNumericTarget signatureType
-    _ -> Nothing
-  where
-    signatureNumericTarget signatureType =
-      case signatureType of
-        TypeInt -> Just NumericInt64
-        TypeFloat -> Just NumericFloat64
-        TypeNumeric numericType -> Just numericType
-        TypeName typeName ->
-          case identifierText typeName of
-            "Int" -> Just NumericInt64
-            "Float" -> Just NumericFloat64
-            typeNameText -> numericTypeFromName typeNameText
-        _ -> Nothing
 
 runtimeExprRequiresHost :: Expr 'Analyzed -> Bool
 runtimeExprRequiresHost expr =

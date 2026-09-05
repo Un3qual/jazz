@@ -10,8 +10,6 @@
 module Jazz.Compiler.Runtime.Types
   ( RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
-    RuntimeEvidence (..),
-    runtimeEvidenceTarget,
     RuntimeMethodCandidate (..),
     DeferredHostScopeId (..),
     DeferredHostBindingKey (..),
@@ -86,7 +84,6 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
     NumericType,
-    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
 import Jazz.Compiler.Diagnostics (Diagnostic)
@@ -98,7 +95,8 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.SemanticFacts (CapabilityId, CoreNodeId, ImplId, MethodId)
+import Jazz.Compiler.SemanticFacts (AnalyzedType, CoreNodeId, EvidenceReference (..))
+import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -111,18 +109,12 @@ newtype RuntimeIntMetadata = RuntimeIntMetadata
   }
   deriving stock (Eq, Show)
 
-data RuntimeEvidence = RuntimeEvidence CapabilityId ImplId (Maybe MethodId) (SignatureType 'Resolved)
-  deriving (Eq, Show)
-
-runtimeEvidenceTarget :: RuntimeEvidence -> SignatureType 'Resolved
-runtimeEvidenceTarget (RuntimeEvidence _ _ _ implTarget) = implTarget
-
-data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
+data RuntimeMethodCandidate = RuntimeMethodCandidate EvidenceReference (Either Diagnostic RuntimeValue)
 
 -- | Ordered explicit result obligations attached to one runtime value. The
 -- constructor stays private so callers cannot reintroduce nested hint wrappers.
 -- Hints are stored outermost-to-innermost, matching source evaluation order.
-newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq (SignatureType 'Resolved))
+newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq AnalyzedType)
   deriving stock (Eq, Show)
   deriving newtype (Semigroup)
 
@@ -152,14 +144,14 @@ data RuntimeClosure = RuntimeClosure
     runtimeClosureLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
     runtimeClosureParameter :: ResolvedName,
     runtimeClosureBody :: Expr 'Analyzed,
-    runtimeClosureTypeHint :: Maybe (SignatureType 'Resolved),
+    runtimeClosureTypeHint :: Maybe AnalyzedType,
     runtimeClosureModulePath :: Maybe [Text],
     runtimeClosureCallableIdentity :: RuntimeCallableIdentity
   }
 
 -- | Constructor metadata shared by every partial application. Its constructor
 -- stays private so the cached arity cannot disagree with the field types.
-data RuntimeConstructorShape = RuntimeConstructorShape ResolvedName [ResolvedName] ResolvedName !Int [SignatureType 'Resolved]
+data RuntimeConstructorShape = RuntimeConstructorShape ResolvedName [InferenceVariable] ResolvedName !Int [AnalyzedType]
   deriving (Eq)
 
 -- | Append-efficient arguments shared by curried runtime applications.
@@ -174,8 +166,8 @@ newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCand
 -- | Value-associated typing information survives storing and partially applying
 -- a callable. Operations that only inspect the payload can ignore its kind.
 data RuntimeAnnotation
-  = RuntimeTypeHint (SignatureType 'Resolved)
-  | RuntimeTypeApplication (SignatureType 'Resolved)
+  = RuntimeTypeHint AnalyzedType
+  | RuntimeTypeApplication AnalyzedType
   | RuntimeResultHints RuntimeExplicitResultHints
 
 data RuntimeValue
@@ -184,7 +176,7 @@ data RuntimeValue
   | VBool Bool
   | VChar Char
   | VText Text
-  | VList [RuntimeValue] (Maybe (SignatureType 'Resolved))
+  | VList [RuntimeValue] (Maybe AnalyzedType)
   | VTuple [RuntimeValue]
   | VClosure RuntimeClosure
   | VBuiltin BuiltinSymbol [RuntimeValue]
@@ -193,7 +185,7 @@ data RuntimeValue
   | VSectionRight Text RuntimeValue
   | VDeclaredOperatorRightSection Text RuntimeValue RuntimeValue
   | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
-  | VQualifiedMethodState Text Text (Maybe (SignatureType 'Resolved)) RuntimeMethodCandidates RuntimeAppliedArguments
+  | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
   | VAnnotatedState RuntimeAnnotation RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
@@ -265,7 +257,7 @@ instance Show RuntimeValue where
 
 -- | Historical ordered-list constructor view used by runtime semantics and
 -- tests. Construction establishes the shape and argument invariants once.
-pattern VConstructor :: ResolvedName -> [ResolvedName] -> ResolvedName -> [SignatureType 'Resolved] -> [RuntimeValue] -> RuntimeValue
+pattern VConstructor :: ResolvedName -> [InferenceVariable] -> ResolvedName -> [AnalyzedType] -> [RuntimeValue] -> RuntimeValue
 pattern VConstructor typeName typeParameters constructorName fieldTypes capturedArgs <-
   VConstructorState
     (RuntimeConstructorShape typeName typeParameters constructorName _ fieldTypes)
@@ -284,7 +276,7 @@ pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
 -- | Historical ordered-list view retained for public runtime consumers.
-pattern VQualifiedMethod :: Text -> Text -> Maybe (SignatureType 'Resolved) -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
+pattern VQualifiedMethod :: Text -> InferenceVariable -> AnalyzedType -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
 pattern VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs <-
   VQualifiedMethodState
     methodKey
@@ -302,7 +294,7 @@ pattern VQualifiedMethod methodKey classParameter methodSignature candidates cap
         (runtimeAppliedArgumentsFromList capturedArgs)
 
 -- | Internal evaluator view retaining append-efficient ordered collections.
-pattern VQualifiedMethodApplication :: Text -> Text -> Maybe (SignatureType 'Resolved) -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
+pattern VQualifiedMethodApplication :: Text -> InferenceVariable -> AnalyzedType -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
 pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
   VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
 
@@ -346,7 +338,7 @@ pattern VQualifiedMethodApplication methodKey classParameter methodSignature can
   VDeferredHostBinding
   #-}
 
-prependRuntimeExplicitResultHint :: SignatureType 'Resolved -> RuntimeValue -> RuntimeValue
+prependRuntimeExplicitResultHint :: AnalyzedType -> RuntimeValue -> RuntimeValue
 prependRuntimeExplicitResultHint typeHint runtimeValue =
   case runtimeValue of
     VAnnotatedState (RuntimeResultHints (RuntimeExplicitResultHints innerHints)) innerValue ->
@@ -376,14 +368,14 @@ runtimeExplicitResultHintsView runtimeValue =
     VAnnotated (RuntimeResultHints hints) innerValue -> Just (hints, innerValue)
     _ -> Nothing
 
-runtimeExplicitResultHintsInOrder :: RuntimeValue -> [SignatureType 'Resolved]
+runtimeExplicitResultHintsInOrder :: RuntimeValue -> [AnalyzedType]
 runtimeExplicitResultHintsInOrder runtimeValue =
   case runtimeExplicitResultHintsView runtimeValue of
     Just (RuntimeExplicitResultHints hints, _) -> Foldable.toList hints
     Nothing -> []
 
 foldRuntimeExplicitResultHints ::
-  (accumulator -> SignatureType 'Resolved -> accumulator) ->
+  (accumulator -> AnalyzedType -> accumulator) ->
   accumulator ->
   RuntimeExplicitResultHints ->
   accumulator
@@ -409,7 +401,7 @@ data ModuleEvaluationMode
   | EvaluateEntryModule
   deriving (Eq, Show)
 
-constructorIsSaturated :: [SignatureType 'Resolved] -> [RuntimeValue] -> Bool
+constructorIsSaturated :: [AnalyzedType] -> [RuntimeValue] -> Bool
 constructorIsSaturated fieldTypes capturedArgs =
   length capturedArgs >= length fieldTypes
 
@@ -471,14 +463,14 @@ constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedAr
 constructorApplicationIsSaturated shape capturedArgs =
   runtimeAppliedArgumentCount capturedArgs >= runtimeConstructorArity shape
 
-runtimeConstructorShape :: ResolvedName -> [ResolvedName] -> ResolvedName -> [SignatureType 'Resolved] -> RuntimeConstructorShape
+runtimeConstructorShape :: ResolvedName -> [InferenceVariable] -> ResolvedName -> [AnalyzedType] -> RuntimeConstructorShape
 runtimeConstructorShape typeName typeParameters constructorName fieldTypes =
   RuntimeConstructorShape typeName typeParameters constructorName (length fieldTypes) fieldTypes
 
 runtimeConstructorTypeName :: RuntimeConstructorShape -> ResolvedName
 runtimeConstructorTypeName (RuntimeConstructorShape typeName _ _ _ _) = typeName
 
-runtimeConstructorTypeParameters :: RuntimeConstructorShape -> [ResolvedName]
+runtimeConstructorTypeParameters :: RuntimeConstructorShape -> [InferenceVariable]
 runtimeConstructorTypeParameters (RuntimeConstructorShape _ typeParameters _ _ _) = typeParameters
 
 runtimeConstructorName :: RuntimeConstructorShape -> ResolvedName
@@ -487,5 +479,5 @@ runtimeConstructorName (RuntimeConstructorShape _ _ constructorName _ _) = const
 runtimeConstructorArity :: RuntimeConstructorShape -> Int
 runtimeConstructorArity (RuntimeConstructorShape _ _ _ arity _) = arity
 
-runtimeConstructorFieldTypes :: RuntimeConstructorShape -> [SignatureType 'Resolved]
+runtimeConstructorFieldTypes :: RuntimeConstructorShape -> [AnalyzedType]
 runtimeConstructorFieldTypes (RuntimeConstructorShape _ _ _ _ fieldTypes) = fieldTypes

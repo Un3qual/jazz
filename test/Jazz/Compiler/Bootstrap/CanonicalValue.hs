@@ -42,7 +42,7 @@ import Jazz.Compiler.Runtime
     untypedIntMetadata,
   )
 import Jazz.Compiler.TypeRepresentation
-  ( SignatureType (TypeName),
+  ( SemanticType (SemanticData),
   )
 
 newtype CanonicalSourcePath = CanonicalSourcePath Text
@@ -93,7 +93,7 @@ canonicalConstructor name arguments =
     (replicate (length arguments) canonicalFieldType)
     arguments
   where
-    canonicalFieldType = TypeName (resolvedLocalName TypeNamespace (mkIdentifier "$canonical-field"))
+    canonicalFieldType = SemanticData (resolvedLocalName TypeNamespace (mkIdentifier "$canonical-field")) []
 
 runtimeIntValue :: Int -> RuntimeValue
 runtimeIntValue value = VInt (fromIntegral value) untypedIntMetadata

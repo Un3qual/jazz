@@ -413,7 +413,7 @@ testRuntimeResultForcingFollowsRendering = do
                   (resolvedLocalName TypeNamespace (mkIdentifier "Container"))
                   []
                   (resolvedLocalName ConstructorNamespace (mkIdentifier "Partial"))
-                  [TypeInt, TypeInt]
+                  [SemanticInt, SemanticInt]
                   [unrenderedPartialArgument]
               )
           )

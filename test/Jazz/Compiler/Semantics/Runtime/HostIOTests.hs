@@ -71,6 +71,7 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
+    SemanticType (..),
     SignaturePayload (..),
     SignatureType (..),
   )
@@ -427,7 +428,7 @@ testHostScopePreservesBindingSignatureHints = do
       assertEqual
         "host scope keeps Int8 runtime hint"
         True
-        (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericInt8) itemValue)
+        (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericInt8) itemValue)
     _ -> assertEqual "host scope produces signed itemValue" True False
 
 testHostDependencyScopeKeepsUnusedBindingLazy :: IO ()
@@ -649,8 +650,8 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
             }
       stackedFunction =
         VAnnotated
-          (RuntimeTypeHint (TypeFunction TypeInt TypeInt))
-          (prependRuntimeExplicitResultHint (TypeNumeric NumericUInt8) identityClosure)
+          (RuntimeTypeHint (SemanticFunction SemanticInt SemanticInt))
+          (prependRuntimeExplicitResultHint (SemanticNumeric NumericUInt8) identityClosure)
       statements =
         [ statementExpression
             (SourceSpan 1 1)
@@ -675,11 +676,11 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
           assertEqual
             "outer result hint applies after inner result hint"
             True
-            (runtimeValueExactlyMatchesConstraint TypeInt itemValue)
+            (runtimeValueExactlyMatchesConstraint SemanticInt itemValue)
           assertEqual
             "inner result hint does not escape the outer result hint"
             False
-            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) itemValue)
+            (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
         Nothing -> assertEqual "stacked result obligations produce a itemValue" True False
     Left _ -> assertEqual "stacked result obligations evaluate" True False
 
@@ -725,7 +726,7 @@ testHostDependencyBindingRetainsRuntimePlan = do
           assertEqual
             "dependency keeps UInt8 runtime plan"
             True
-            (runtimeValueExactlyMatchesConstraint (TypeNumeric NumericUInt8) itemValue)
+            (runtimeValueExactlyMatchesConstraint (SemanticNumeric NumericUInt8) itemValue)
         Nothing -> assertEqual "dependency produces a hinted itemValue" True False
     Left _ -> assertEqual "dependency hint evaluation succeeds" True False
 

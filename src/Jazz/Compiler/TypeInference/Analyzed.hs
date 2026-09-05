@@ -22,6 +22,7 @@ import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
+import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -37,7 +38,7 @@ import Jazz.Compiler.AST
   )
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact (..))
 import Jazz.Compiler.ModuleIdentity (ModulePath)
-import Jazz.Compiler.Name (ResolvedName, operatorBindingName)
+import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
 import Jazz.Compiler.RecursiveBindings (inferRecursiveGroupsOrdered)
 import Jazz.Compiler.SemanticFacts
   ( AnalyzedCapabilityFacts (..),
@@ -60,6 +61,7 @@ import Jazz.Compiler.SemanticFacts
     RuntimePlan (..),
     SemanticFactInvariantFailure (..),
     SemanticInstantiation (..),
+    StatementDeclarationFact (..),
     StatementFacts (..),
   )
 import Jazz.Compiler.SourceUnitOwnership
@@ -406,8 +408,8 @@ attachStatementNode modulePath state binders statement =
     SLet node name value -> makeLet name <$> facts node <*> recur value
     SSignature node name signature -> SSignature <$> facts node <*> pure name <*> pure signature
     SData node name parameters constructors -> SData <$> facts node <*> pure name <*> pure parameters <*> traverse attachConstructor constructors
-    SClass node name parameters methods -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse attachClassMethod methods
-    SImpl node name arguments methods -> SImpl <$> facts node <*> pure name <*> pure arguments <*> traverse attachImplMethod methods
+    SClass node name parameters methods -> SClass <$> facts node <*> pure name <*> pure parameters <*> traverse (attachClassMethod parameters) methods
+    SImpl node name arguments methods -> SImpl <$> attachImplementationFacts name arguments node <*> pure name <*> pure arguments <*> traverse attachImplMethod methods
     SModule node path -> SModule <$> facts node <*> pure path
     SImport node path alias names -> SImport <$> facts node <*> pure path <*> pure alias <*> pure names
     SExpr node value -> SExpr <$> facts node <*> recur value
@@ -415,7 +417,20 @@ attachStatementNode modulePath state binders statement =
     recur = attachExpr modulePath state binders
     facts = attachStatementFacts modulePath state
     attachConstructor (DataConstructor node name arguments) = DataConstructor <$> facts node <*> pure name <*> pure arguments
-    attachClassMethod (ClassMethodSignature node name signature) = ClassMethodSignature <$> facts node <*> pure name <*> pure signature
+    attachClassMethod parameters (ClassMethodSignature node name signature) =
+      ClassMethodSignature <$> analyzedMethodNode <*> pure name <*> pure signature
+      where
+        analyzedMethodNode = case parameters of
+          [parameter] -> case projectAnalyzedMethodSignature state (identifierText name) (ClassMethodType (identifierText parameter) signature) of
+            Left failure -> missing failure
+            Right method -> setDeclaration (MethodDeclaration name method) <$> facts node
+          _ -> missing (InvalidAnalyzedMethodSignature (identifierText name))
+    attachImplementationFacts name arguments node =
+      case traverse (Signature.signatureTypeToExpressionType state Map.empty) arguments of
+        Left _ -> missing (InvalidAnalyzedImplementationTarget (coreNodeId node))
+        Right targets -> setDeclaration (ImplementationDeclaration name (map (resolveType state) targets)) <$> facts node
+    setDeclaration declaration node =
+      node {coreNodeFacts = (coreNodeFacts node) {statementDeclarationFact = declaration}}
     attachImplMethod (ImplMethod node name body) =
       ImplMethod
         <$> facts node
@@ -584,7 +599,7 @@ projectNumericConstraint constraint =
 
 projectAnalyzedCapabilityFacts :: InferState -> ScopeCapabilityFacts -> Either SemanticFactInvariantFailure AnalyzedCapabilityFacts
 projectAnalyzedCapabilityFacts state facts = do
-  methods <- Map.traverseWithKey projectClassMethod (scopeClassMethodSignatures facts)
+  methods <- Map.traverseWithKey (projectAnalyzedMethodSignature state) (scopeClassMethodSignatures facts)
   pure
     AnalyzedCapabilityFacts
       { analyzedClassArities = scopeClassFacts facts,
@@ -600,27 +615,29 @@ projectAnalyzedCapabilityFacts state facts = do
       case Signature.signatureTypeToExpressionType state Map.empty signatureType of
         Left _ -> Nothing
         Right expressionType -> Just (AnalyzedConcreteImplFact (CapabilityId capabilityName) (resolveType state expressionType))
-    projectClassMethod methodName (ClassMethodType parameter payload) = do
-      signatureType <- case payload of
-        SignatureType value -> Right value
-        ConstrainedSignature [] value -> Right value
-        _ -> Left failure
-      -- Allocate the declared binder before conversion. The explicit environment
-      -- rejects other variables, including future unsupported method polymorphism.
-      let (parameterId, parameterType, methodState) = freshTypeVariable state
-      methodType <-
-        first
-          (const failure)
-          (Signature.signatureTypeToExpressionType methodState (Map.singleton parameter parameterType) signatureType)
-      pure
-        AnalyzedMethodSignature
-          { analyzedMethodClassParameter = parameterId,
-            analyzedMethodType = methodType
-          }
-      where
-        failure = InvalidAnalyzedMethodSignature methodName
     projectImplMethod (ImplMethodType signatureType) =
       either (const Nothing) (Just . resolveType state) (Signature.signatureTypeToExpressionType state Map.empty signatureType)
+
+projectAnalyzedMethodSignature :: InferState -> Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
+projectAnalyzedMethodSignature state methodName (ClassMethodType parameter payload) = do
+  signatureType <- case payload of
+    SignatureType value -> Right value
+    ConstrainedSignature [] value -> Right value
+    _ -> Left failure
+  -- Allocate the declared binder before conversion. The explicit environment
+  -- rejects other variables, including future unsupported method polymorphism.
+  let (parameterId, parameterType, methodState) = freshTypeVariable state
+  methodType <-
+    first
+      (const failure)
+      (Signature.signatureTypeToExpressionType methodState (Map.singleton parameter parameterType) signatureType)
+  pure
+    AnalyzedMethodSignature
+      { analyzedMethodClassParameter = parameterId,
+        analyzedMethodType = methodType
+      }
+  where
+    failure = InvalidAnalyzedMethodSignature methodName
 
 emptyAnalyzedCapabilityFacts :: AnalyzedCapabilityFacts
 emptyAnalyzedCapabilityFacts =

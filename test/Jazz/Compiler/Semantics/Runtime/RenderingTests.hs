@@ -51,6 +51,7 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
+    SemanticType (..),
     SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig
@@ -160,16 +161,16 @@ testRuntimeValueMatchesLiteral = do
   assertEqual
     "typed integer literal matches"
     True
-    (runtimeValueMatchesLiteral (VAnnotated (RuntimeTypeHint TypeInt) (VInt 7 (RuntimeIntMetadata Nothing))) (LInt 7))
+    (runtimeValueMatchesLiteral (VAnnotated (RuntimeTypeHint SemanticInt) (VInt 7 (RuntimeIntMetadata Nothing))) (LInt 7))
   assertEqual
     "nested type wrappers preserve literal matching"
     True
     ( runtimeValueMatchesLiteral
         ( VAnnotated
-            (RuntimeTypeHint TypeInt)
+            (RuntimeTypeHint SemanticInt)
             ( VAnnotated
-                (RuntimeTypeApplication TypeInt)
-                (prependRuntimeExplicitResultHint TypeInt (VInt 7 (RuntimeIntMetadata Nothing)))
+                (RuntimeTypeApplication SemanticInt)
+                (prependRuntimeExplicitResultHint SemanticInt (VInt 7 (RuntimeIntMetadata Nothing)))
             )
         )
         (LInt 7)

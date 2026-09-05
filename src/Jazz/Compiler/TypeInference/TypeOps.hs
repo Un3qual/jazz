@@ -24,6 +24,7 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemeConstraint (..),
     TypeSchemePrimitiveConstraint (..),
   )
+import Jazz.Compiler.TypeRepresentation (substituteSemanticVariables)
 
 dedupeTypeSchemeConstraints :: [TypeSchemeConstraint] -> [TypeSchemeConstraint]
 dedupeTypeSchemeConstraints constraints =
@@ -62,26 +63,8 @@ freeTypeVariables :: ExpressionType -> Set InferenceVariable
 freeTypeVariables = foldMap Set.singleton
 
 replaceTypeVariables :: Map InferenceVariable ExpressionType -> ExpressionType -> ExpressionType
-replaceTypeVariables replacements expressionType =
-  case expressionType of
-    SemanticInt -> SemanticInt
-    SemanticFloat -> SemanticFloat
-    SemanticNumeric numericType -> SemanticNumeric numericType
-    SemanticBool -> SemanticBool
-    SemanticChar -> SemanticChar
-    SemanticText -> SemanticText
-    SemanticList elementType ->
-      SemanticList (replaceTypeVariables replacements elementType)
-    SemanticTuple elementTypes ->
-      SemanticTuple (map (replaceTypeVariables replacements) elementTypes)
-    SemanticData typeName typeArguments ->
-      SemanticData typeName (map (replaceTypeVariables replacements) typeArguments)
-    SemanticFunction inputType outputType ->
-      SemanticFunction
-        (replaceTypeVariables replacements inputType)
-        (replaceTypeVariables replacements outputType)
-    SemanticVariable typeVar ->
-      Map.findWithDefault expressionType typeVar replacements
+replaceTypeVariables replacements =
+  substituteSemanticVariables (\variable -> Map.findWithDefault (SemanticVariable variable) variable replacements)
 
 instantiateTypeSchemeConstraint :: Map InferenceVariable ExpressionType -> TypeSchemeConstraint -> TypeSchemeConstraint
 instantiateTypeSchemeConstraint replacements constraint =

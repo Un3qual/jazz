@@ -1323,13 +1323,13 @@ Do not add general method-variable ordering metadata.
   constructor shapes, method candidates, and runtime evidence contain no
   `SignatureType`.
 
-- [ ] **Step 1: Characterize every wrapper behavior.** Retain exact tests for
+- [x] **Step 1: Characterize every wrapper behavior.** Retain exact tests for
       typed numeric dispatch, explicit type applications, explicit result
       constraints, list element specialization, constructor fields, capability
       candidate filtering, imported method results, rendering, and deferred host
       bindings.
 
-- [ ] **Step 2: Run the runtime matrix before edits.**
+- [x] **Step 2: Run the runtime matrix before edits.**
 
   ```sh
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test runtime-semantics-spec loader-spec module-pipeline-contract-spec jazz-typed-core-contract-spec --test-show-details=direct --jobs=1
@@ -1337,30 +1337,30 @@ Do not add general method-variable ordering metadata.
 
   Expected: existing behavior passes.
 
-- [ ] **Step 3: Replace runtime evidence identity.** Use the stable semantic
+- [x] **Step 3: Replace runtime evidence identity.** Use the stable semantic
       IDs constructed during analysis and carry `EvidenceReference` through runtime plans.
       Remove textual capability/implementation identity and source signatures from
       `RuntimeEvidence`.
 
-- [ ] **Step 4: Consume semantic obligations at the correct lifetime.** Make application,
+- [x] **Step 4: Consume semantic obligations at the correct lifetime.** Make application,
       primitive dispatch, numeric specialization, and result handling consume
       semantic obligations. Keep deferred obligations with the value until
       application, rather than only on the current evaluation stack. Preserve
       outermost-to-innermost source order with `Seq`.
 
-- [ ] **Step 5: Consolidate repeated annotation handling.** Retain the distinct
+- [x] **Step 5: Consolidate repeated annotation handling.** Retain the distinct
       semantics of type hints, explicit instantiation, and pending result hints.
       Share transparent reads and annotation-preserving transformations where
       they are identical. Replace source-type payloads with semantic data;
       remove wrappers only when a simpler representation preserves their behavior.
       Compare the resulting conversions, branches, and ownership with the baseline.
 
-- [ ] **Step 6: Keep runtime callables explicit.** Do not add a
+- [x] **Step 6: Keep runtime callables explicit.** Do not add a
       `RuntimeCallable` abstraction in this task; the
       existing callable constructors directly encode different runtime behavior,
       and the approved design requires measured duplication before consolidation.
 
-- [ ] **Step 7: Verify runtime source syntax is gone.**
+- [x] **Step 7: Verify runtime source syntax is gone.**
 
   ```sh
   rg -n "SignatureType" src/Jazz/Compiler/Runtime src/Jazz/Compiler/ModuleRuntime.hs
@@ -1370,13 +1370,24 @@ Do not add general method-variable ordering metadata.
   Expected: no runtime dependency on source-type syntax remains. Retained
   annotation carriers have a semantic purpose. All suites pass.
 
-- [ ] **Step 8: Run stage performance checks and commit.**
+- [x] **Step 8: Run stage performance checks and commit.**
 
   ```sh
   nix --extra-experimental-features 'nix-command flakes' develop --command cabal test benchmark-stage-spec profiling-spec --test-show-details=direct --jobs=1
   git add src/Jazz/Compiler test/Jazz/Compiler
   git commit -m "refactor: simplify runtime annotations"
   ```
+
+Verified completion (2026-09-04): runtime annotations, closure hints, constructor
+fields, method signatures, and candidates use analyzed semantic types. Runtime
+candidates carry `EvidenceReference` directly. Constructor fields come from
+analyzed schemes; class and implementation nodes carry checked semantic
+declarations. Source erasure after analysis leaves execution unchanged. Removed
+runtime source conversions, numeric-name parsing, missing-method-signature cases,
+and unused signature helpers. Value-associated explicit result obligations remain
+ordered and deferred. Runtime, loader, module-pipeline, profiling, observation,
+benchmark-stage, and binding-signature suites pass; formatting and whitespace
+checks pass. No `SignatureType` reference remains in runtime owners.
 
 ### Task 15: Remove migration scaffolding and close the simplification pass
 

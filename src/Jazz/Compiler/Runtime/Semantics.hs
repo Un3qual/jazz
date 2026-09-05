@@ -12,11 +12,9 @@ module Jazz.Compiler.Runtime.Semantics
     runtimeDiagnostic,
     runtimeDefinitionName,
     runtimeDefinitionNameIn,
-    runtimeConstructorArgument,
-    runtimeConstraintType,
+    qualifyRuntimeType,
     literalRuntimeValue,
     runtimeValueMatchesLiteral,
-    attachRuntimeTypeHint,
     applyRuntimeTypeHint,
     applyRuntimeFunctionArgumentHint,
     applyRuntimeFunctionResultHint,
@@ -27,6 +25,9 @@ module Jazz.Compiler.Runtime.Semantics
     isFunctionValue,
     runtimeValueExactlyMatchesConstraint,
     runtimeValueMatchesConstraint,
+    runtimeTypesCompatible,
+    substituteRuntimeVariable,
+    runtimeFunctionArguments,
     runtimeIntMatchesTarget,
     integerValueMatchesTarget,
     runtimeQualifiedMethodIsFullyApplied,
@@ -57,10 +58,11 @@ import Data.Char
     ord,
     toUpper,
   )
+import qualified Data.Foldable as Foldable
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, listToMaybe)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
@@ -69,23 +71,13 @@ import Jazz.Compiler.AST
     Expr,
     Literal (..),
     Pattern (..),
-    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
     builtinSymbolName,
     numericTypeFloatMax,
-    numericTypeFromName,
     numericTypeIntegerBounds,
     renderNumericTypeName,
-  )
-import Jazz.Compiler.CapabilityFacts
-  ( constraintFunctionArgumentTypes,
-    constraintSignatureTypeContainsClassParameter,
-    constraintSignatureTypeVariableNamesInOrder,
-    constraintSignatureTypesCompatible,
-    identifierLooksLikeTypeVariable,
-    substituteSignatureType,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -139,24 +131,15 @@ import Jazz.Compiler.Runtime.Types
     runtimeConstructorName,
     runtimeConstructorTypeName,
     runtimeConstructorTypeParameters,
-    runtimeEvidenceTarget,
     runtimeMethodCandidatesInOrder,
     pattern VQualifiedMethodApplication,
   )
+import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (evidenceType))
 import Jazz.Compiler.TypeRepresentation
-  ( NumericType (..),
-    pattern TypeApplication,
-    pattern TypeBool,
-    pattern TypeChar,
-    pattern TypeFloat,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeNumeric,
-    pattern TypeText,
-    pattern TypeTuple,
-    pattern TypeVariable,
+  ( InferenceVariable,
+    NumericType (..),
+    SemanticType (..),
+    substituteSemanticVariables,
   )
 import Numeric (showHex)
 
@@ -248,19 +231,8 @@ runtimeDefinitionOrigin segments
   where
     path = mkModulePath (fmap mkIdentifier segments)
 
-runtimeConstructorArgument :: Maybe [Text] -> SignatureType 'Resolved -> SignatureType 'Resolved
-runtimeConstructorArgument = runtimeConstraintType
-
-runtimeConstraintType :: Maybe [Text] -> SignatureType 'Resolved -> SignatureType 'Resolved
-runtimeConstraintType maybeModulePath =
-  bimap (runtimeTypeName maybeModulePath) (runtimeTypeName maybeModulePath)
-
-runtimeTypeName :: Maybe [Text] -> ResolvedName -> ResolvedName
-runtimeTypeName maybeModulePath name
-  | identifierText name `elem` ["Int", "Float", "Bool", "Char", "Text"] = name
-  | Just _ <- numericTypeFromName (identifierText name) = name
-  | identifierLooksLikeTypeVariable name = name
-  | otherwise = runtimeDefinitionNameIn TypeNamespace maybeModulePath name
+qualifyRuntimeType :: Maybe [Text] -> AnalyzedType -> AnalyzedType
+qualifyRuntimeType modulePath = bimap (runtimeDefinitionNameIn TypeNamespace modulePath) id
 
 literalRuntimeValue :: Literal -> RuntimeValue
 literalRuntimeValue literal =
@@ -293,15 +265,7 @@ runtimeValueMatchesLiteral runtimeValue literal =
     VText actual -> case literal of LText expected -> actual == expected; _ -> False
     _ -> False
 
-attachRuntimeTypeHint :: Maybe (SignatureType 'Resolved) -> RuntimeValue -> Either Diagnostic RuntimeValue
-attachRuntimeTypeHint maybeTypeHint runtimeValue =
-  case maybeTypeHint of
-    Just typeHint ->
-      applyRuntimeTypeHint typeHint runtimeValue
-    Nothing ->
-      Right runtimeValue
-
-applyRuntimeTypeHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeTypeHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeTypeHint typeHint runtimeValue =
   case runtimeValue of
     VAnnotated (RuntimeTypeHint existingTypeHint) _
@@ -310,7 +274,7 @@ applyRuntimeTypeHint typeHint runtimeValue =
     VAnnotated _ innerValue ->
       applyRuntimeTypeHint typeHint innerValue
     VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs
-      | null (constraintSignatureTypeVariableNamesInOrder typeHint) ->
+      | Foldable.null typeHint ->
           Right
             ( VAnnotated
                 (RuntimeTypeHint typeHint)
@@ -330,30 +294,18 @@ applyRuntimeTypeHint typeHint runtimeValue =
             )
     _ ->
       case (typeHint, runtimeValue) of
-        (TypeInt, _) -> do
+        (SemanticInt, _) -> do
           convertedValue <- evalNumericConversion (numericConversionBuiltinForTarget NumericInt64) NumericInt64 runtimeValue
-          Right (VAnnotated (RuntimeTypeHint TypeInt) convertedValue)
-        (TypeFloat, _) -> do
+          Right (VAnnotated (RuntimeTypeHint SemanticInt) convertedValue)
+        (SemanticFloat, _) -> do
           convertedValue <- evalNumericConversion (numericConversionBuiltinForTarget NumericFloat64) NumericFloat64 runtimeValue
-          Right (VAnnotated (RuntimeTypeHint TypeFloat) convertedValue)
-        (TypeNumeric targetType, _) ->
+          Right (VAnnotated (RuntimeTypeHint SemanticFloat) convertedValue)
+        (SemanticNumeric targetType, _) ->
           evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
-        (TypeBool, VBool {}) -> Right runtimeValue
-        (TypeChar, VChar {}) -> Right runtimeValue
-        (TypeText, VText {}) -> Right runtimeValue
-        (TypeName typeName, _)
-          | Just targetType <- constraintTypeNameNumericTarget typeName -> do
-              convertedValue <- evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
-              if identifierText typeName == "Int" || identifierText typeName == "Float"
-                then Right (VAnnotated (RuntimeTypeHint typeHint) convertedValue)
-                else Right convertedValue
-        (TypeName typeName, VChar {})
-          | identifierText typeName == "Char" ->
-              Right runtimeValue
-        (TypeName typeName, VText {})
-          | identifierText typeName == "Text" ->
-              Right runtimeValue
-        (TypeName hintedTypeName, VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
+        (SemanticBool, VBool {}) -> Right runtimeValue
+        (SemanticChar, VChar {}) -> Right runtimeValue
+        (SemanticText, VText {}) -> Right runtimeValue
+        (SemanticData hintedTypeName [], VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
           | identifierText hintedTypeName == identifierText typeName,
             constructorIsSaturated constructorArguments capturedArgs -> do
               hintedCapturedArgs <-
@@ -366,30 +318,30 @@ applyRuntimeTypeHint typeHint runtimeValue =
                     (RuntimeTypeHint typeHint)
                     (VConstructor typeName typeParameters constructorName constructorArguments hintedCapturedArgs)
                 )
-        (TypeList _, VList _ (Just existingTypeHint))
+        (SemanticList _, VList _ (Just existingTypeHint))
           | runtimeTypeHintAtLeastAsSpecific existingTypeHint typeHint ->
               Right runtimeValue
-        (TypeList elementType, VList elements _) -> do
+        (SemanticList elementType, VList elements _) -> do
           hintedElements <- mapM (applyRuntimeTypeHint elementType) elements
           Right (VList hintedElements (Just typeHint))
-        (TypeTuple elementTypes, VTuple elements)
+        (SemanticTuple elementTypes, VTuple elements)
           | length elementTypes == length elements ->
               VTuple <$> zipWithM applyRuntimeTypeHint elementTypes elements
-        (TypeFunction {}, VClosure closure) ->
+        (SemanticFunction {}, VClosure closure) ->
           Right
             ( VClosure
                 closure
                   { runtimeClosureTypeHint = Just typeHint
                   }
             )
-        (TypeFunction {}, _)
+        (SemanticFunction {}, _)
           | isFunctionValue runtimeValue ->
               Right (VAnnotated (RuntimeTypeHint typeHint) runtimeValue)
-        (TypeApplication hintedTypeName hintedArguments, VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
+        (SemanticData hintedTypeName hintedArguments, VConstructor typeName typeParameters constructorName constructorArguments capturedArgs)
           | identifierText hintedTypeName == identifierText typeName,
             length hintedArguments == length typeParameters -> do
               let typeParameterHints =
-                    Map.fromList (zip (map identifierText typeParameters) hintedArguments)
+                    Map.fromList (zip typeParameters hintedArguments)
               hintedCapturedArgs <-
                 zipWithM
                   (applyConstructorArgumentRuntimeHint typeParameterHints)
@@ -404,74 +356,41 @@ applyRuntimeTypeHint typeHint runtimeValue =
 -- satisfies a later polymorphic @[a]@ result hint. Preserving the stronger
 -- evidence avoids both losing concrete dispatch information and repeatedly
 -- traversing persistent values at polymorphic function boundaries.
-runtimeTypeHintAtLeastAsSpecific :: SignatureType 'Resolved -> SignatureType 'Resolved -> Bool
+runtimeTypeHintAtLeastAsSpecific :: AnalyzedType -> AnalyzedType -> Bool
 runtimeTypeHintAtLeastAsSpecific existingHint requestedHint
   | existingHint == requestedHint = True
-runtimeTypeHintAtLeastAsSpecific _ (TypeVariable _) = True
-runtimeTypeHintAtLeastAsSpecific _ (TypeName name)
-  | identifierLooksLikeTypeVariable name = True
+runtimeTypeHintAtLeastAsSpecific _ (SemanticVariable _) = True
 runtimeTypeHintAtLeastAsSpecific
-  (TypeApplication existingName existingArguments)
-  (TypeApplication requestedName requestedArguments) =
+  (SemanticData existingName existingArguments)
+  (SemanticData requestedName requestedArguments) =
     existingName == requestedName
       && length existingArguments == length requestedArguments
       && and (zipWith runtimeTypeHintAtLeastAsSpecific existingArguments requestedArguments)
-runtimeTypeHintAtLeastAsSpecific (TypeList existingElement) (TypeList requestedElement) =
+runtimeTypeHintAtLeastAsSpecific (SemanticList existingElement) (SemanticList requestedElement) =
   runtimeTypeHintAtLeastAsSpecific existingElement requestedElement
-runtimeTypeHintAtLeastAsSpecific (TypeTuple existingElements) (TypeTuple requestedElements) =
+runtimeTypeHintAtLeastAsSpecific (SemanticTuple existingElements) (SemanticTuple requestedElements) =
   length existingElements == length requestedElements
     && and (zipWith runtimeTypeHintAtLeastAsSpecific existingElements requestedElements)
 runtimeTypeHintAtLeastAsSpecific
-  (TypeFunction existingArgument existingResult)
-  (TypeFunction requestedArgument requestedResult) =
+  (SemanticFunction existingArgument existingResult)
+  (SemanticFunction requestedArgument requestedResult) =
     runtimeTypeHintAtLeastAsSpecific existingArgument requestedArgument
       && runtimeTypeHintAtLeastAsSpecific existingResult requestedResult
 runtimeTypeHintAtLeastAsSpecific _ _ = False
 
 applyConstructorArgumentRuntimeHint ::
-  Map Text (SignatureType 'Resolved) ->
-  SignatureType 'Resolved ->
+  Map InferenceVariable AnalyzedType ->
+  AnalyzedType ->
   RuntimeValue ->
   Either Diagnostic RuntimeValue
 applyConstructorArgumentRuntimeHint typeParameterHints fieldType runtimeValue =
-  attachRuntimeTypeHint
-    (Just (substituteConstructorFieldType typeParameterHints fieldType))
+  applyRuntimeTypeHint
+    (substituteConstructorFieldType typeParameterHints fieldType)
     runtimeValue
 
-substituteConstructorFieldType :: Map Text (SignatureType 'Resolved) -> SignatureType 'Resolved -> SignatureType 'Resolved
-substituteConstructorFieldType typeParameterHints fieldType =
-  case fieldType of
-    TypeVariable name ->
-      Map.findWithDefault fieldType (identifierText name) typeParameterHints
-    TypeApplication name arguments ->
-      TypeApplication name (map (substituteConstructorFieldType typeParameterHints) arguments)
-    TypeList elementType ->
-      TypeList (substituteConstructorFieldType typeParameterHints elementType)
-    TypeTuple elementTypes ->
-      TypeTuple (map (substituteConstructorFieldType typeParameterHints) elementTypes)
-    TypeFunction argumentType resultType ->
-      TypeFunction
-        (substituteConstructorFieldType typeParameterHints argumentType)
-        (substituteConstructorFieldType typeParameterHints resultType)
-    _ -> fieldType
-
-constraintTypeNameNumericTarget :: ResolvedName -> Maybe NumericType
-constraintTypeNameNumericTarget typeName =
-  case identifierText typeName of
-    "Int" -> Just NumericInt64
-    "Int8" -> Just NumericInt8
-    "Int16" -> Just NumericInt16
-    "Int32" -> Just NumericInt32
-    "Int64" -> Just NumericInt64
-    "UInt8" -> Just NumericUInt8
-    "UInt16" -> Just NumericUInt16
-    "UInt32" -> Just NumericUInt32
-    "UInt64" -> Just NumericUInt64
-    "Float" -> Just NumericFloat64
-    "Float16" -> Just NumericFloat16
-    "Float32" -> Just NumericFloat32
-    "Float64" -> Just NumericFloat64
-    _ -> Nothing
+substituteConstructorFieldType :: Map InferenceVariable AnalyzedType -> AnalyzedType -> AnalyzedType
+substituteConstructorFieldType replacements =
+  substituteSemanticVariables (\variable -> Map.findWithDefault (SemanticVariable variable) variable replacements)
 
 untypedIntMetadata :: RuntimeIntMetadata
 untypedIntMetadata =
@@ -585,23 +504,23 @@ constructorPatternScrutinee runtimeValue =
     VAnnotated _ innerValue -> constructorPatternScrutinee innerValue
     _ -> runtimeValue
 
-applyRuntimeFunctionResultHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeFunctionResultHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunctionResultHint typeHint runtimeValue =
   case typeHint of
-    TypeFunction _ resultType ->
+    SemanticFunction _ resultType ->
       applyRuntimeTypeHint resultType runtimeValue
     _ ->
       Right runtimeValue
 
-applyRuntimeFunctionArgumentHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeFunctionArgumentHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeFunctionArgumentHint typeHint runtimeValue =
   case typeHint of
-    TypeFunction argumentType _ ->
+    SemanticFunction argumentType _ ->
       applyRuntimeTypeHint argumentType runtimeValue
     _ ->
       Right runtimeValue
 
-applyExplicitTypeApplicationResultHint :: SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyExplicitTypeApplicationResultHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyExplicitTypeApplicationResultHint typeHint runtimeValue
   | isFunctionValue runtimeValue =
       Right (prependRuntimeExplicitResultHint typeHint runtimeValue)
@@ -610,117 +529,110 @@ applyExplicitTypeApplicationResultHint typeHint runtimeValue
   | otherwise =
       Right runtimeValue
 
-runtimeValueCanAcceptTypeHint :: SignatureType 'Resolved -> RuntimeValue -> Bool
+runtimeValueCanAcceptTypeHint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueCanAcceptTypeHint typeHint runtimeValue =
   case runtimeValue of
     VAnnotated _ innerValue ->
       runtimeValueCanAcceptTypeHint typeHint innerValue
     _ ->
       case (typeHint, runtimeValue) of
-        (TypeInt, VInt {}) -> True
-        (TypeFloat, VFloat {}) -> True
-        (TypeNumeric _, VInt {}) -> True
-        (TypeNumeric _, VFloat {}) -> True
-        (TypeBool, VBool {}) -> True
-        (TypeChar, VChar {}) -> True
-        (TypeText, VText {}) -> True
-        (TypeName typeName, VInt {}) ->
-          identifierText typeName == "Int" || isJust (constraintTypeNameNumericTarget typeName)
-        (TypeName typeName, VFloat {}) ->
-          identifierText typeName == "Float" || isJust (constraintTypeNameNumericTarget typeName)
-        (TypeName typeName, VBool {}) ->
-          identifierText typeName == "Bool"
-        (TypeName typeName, VChar {}) ->
-          identifierText typeName == "Char"
-        (TypeName typeName, VText {}) ->
-          identifierText typeName == "Text"
-        (TypeName typeName, VConstructorApplication shape capturedArgs) ->
+        (SemanticInt, VInt {}) -> True
+        (SemanticFloat, VFloat {}) -> True
+        (SemanticNumeric _, VInt {}) -> True
+        (SemanticNumeric _, VFloat {}) -> True
+        (SemanticBool, VBool {}) -> True
+        (SemanticChar, VChar {}) -> True
+        (SemanticText, VText {}) -> True
+        (SemanticData typeName [], VConstructorApplication shape capturedArgs) ->
           identifierText typeName == identifierText (runtimeConstructorTypeName shape)
             && constructorApplicationIsSaturated shape capturedArgs
-        (TypeApplication typeName arguments, VConstructorApplication shape capturedArgs) ->
+        (SemanticData typeName arguments, VConstructorApplication shape capturedArgs) ->
           identifierText typeName == identifierText (runtimeConstructorTypeName shape)
             && length arguments == length (runtimeConstructorTypeParameters shape)
             && constructorApplicationIsSaturated shape capturedArgs
-        (TypeList {}, VList {}) ->
+        (SemanticList {}, VList {}) ->
           True
-        (TypeTuple elementTypes, VTuple elements) ->
+        (SemanticTuple elementTypes, VTuple elements) ->
           length elementTypes == length elements
-        (TypeFunction {}, _) ->
+        (SemanticFunction {}, _) ->
           isFunctionValue runtimeValue
         _ ->
           False
 
-explicitTypeApplicationRuntimeFunctionHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
+explicitTypeApplicationRuntimeFunctionHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
 explicitTypeApplicationRuntimeFunctionHint typeHint runtimeValue = do
   explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue
 
-explicitTypeApplicationRuntimeValueHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
+explicitTypeApplicationRuntimeValueHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
 explicitTypeApplicationRuntimeValueHint typeHint runtimeValue =
   case explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue of
     Just instantiatedTemplate -> Just instantiatedTemplate
     Nothing -> explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue
 
-explicitTypeApplicationRuntimeTemplateHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
+explicitTypeApplicationRuntimeTemplateHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
 explicitTypeApplicationRuntimeTemplateHint typeHint runtimeValue = do
-  templateHint <- runtimeValueSignatureHint runtimeValue
-  variableName <- listToMaybe (constraintSignatureTypeVariableNamesInOrder templateHint)
-  pure (substituteSignatureTypeVariable variableName typeHint templateHint)
+  templateHint <- runtimeValueTypeHint runtimeValue
+  variableName <- listToMaybe (Foldable.toList templateHint)
+  pure (substituteRuntimeVariable variableName typeHint templateHint)
 
-explicitTypeApplicationRuntimeShapeHint :: SignatureType 'Resolved -> RuntimeValue -> Maybe (SignatureType 'Resolved)
+explicitTypeApplicationRuntimeShapeHint :: AnalyzedType -> RuntimeValue -> Maybe AnalyzedType
 explicitTypeApplicationRuntimeShapeHint typeHint runtimeValue =
   case runtimeValue of
     VAnnotated _ innerValue ->
       explicitTypeApplicationRuntimeShapeHint typeHint innerValue
     VList {} ->
-      Just (TypeList typeHint)
+      Just (SemanticList typeHint)
     VConstructorApplication shape capturedArgs
       | [_] <- runtimeConstructorTypeParameters shape,
         constructorApplicationIsSaturated shape capturedArgs ->
-          Just (TypeApplication (runtimeConstructorTypeName shape) [typeHint])
+          Just (SemanticData (runtimeConstructorTypeName shape) [typeHint])
     _ -> Nothing
 
-runtimeValueSignatureHint :: RuntimeValue -> Maybe (SignatureType 'Resolved)
-runtimeValueSignatureHint runtimeValue =
+runtimeValueTypeHint :: RuntimeValue -> Maybe AnalyzedType
+runtimeValueTypeHint runtimeValue =
   case runtimeValue of
     VAnnotated (RuntimeTypeHint typeHint) _ ->
       Just typeHint
     VAnnotated (RuntimeTypeApplication _) innerValue ->
-      runtimeValueSignatureHint innerValue
+      runtimeValueTypeHint innerValue
     VAnnotated (RuntimeResultHints _) innerValue ->
-      runtimeValueSignatureHint innerValue
+      runtimeValueTypeHint innerValue
     VClosure closure ->
       runtimeClosureTypeHint closure
     VList _ (Just typeHint) ->
       Just typeHint
     _ -> Nothing
 
-substituteSignatureTypeVariable :: Text -> SignatureType 'Resolved -> SignatureType 'Resolved -> SignatureType 'Resolved
-substituteSignatureTypeVariable variableName replacementType signatureType =
-  case signatureType of
-    TypeVariable name
-      | identifierText name == variableName -> replacementType
-      | otherwise -> signatureType
-    TypeName name
-      | identifierLooksLikeTypeVariable name,
-        identifierText name == variableName ->
-          replacementType
-      | otherwise ->
-          signatureType
-    TypeApplication typeName arguments ->
-      TypeApplication typeName (map (substituteSignatureTypeVariable variableName replacementType) arguments)
-    TypeList innerType ->
-      TypeList (substituteSignatureTypeVariable variableName replacementType innerType)
-    TypeTuple elementTypes ->
-      TypeTuple (map (substituteSignatureTypeVariable variableName replacementType) elementTypes)
-    TypeFunction argumentType resultType ->
-      TypeFunction
-        (substituteSignatureTypeVariable variableName replacementType argumentType)
-        (substituteSignatureTypeVariable variableName replacementType resultType)
-    _ -> signatureType
+substituteRuntimeVariable :: InferenceVariable -> AnalyzedType -> AnalyzedType -> AnalyzedType
+substituteRuntimeVariable variable replacement =
+  substituteSemanticVariables (\current -> if current == variable then replacement else SemanticVariable current)
+
+runtimeFunctionArguments :: AnalyzedType -> ([AnalyzedType], AnalyzedType)
+runtimeFunctionArguments (SemanticFunction argument result) =
+  let (arguments, resultType) = runtimeFunctionArguments result
+   in (argument : arguments, resultType)
+runtimeFunctionArguments resultType = ([], resultType)
+
+runtimeTypesCompatible :: AnalyzedType -> AnalyzedType -> Bool
+runtimeTypesCompatible left right
+  | left == right = True
+runtimeTypesCompatible SemanticInt (SemanticNumeric NumericInt64) = True
+runtimeTypesCompatible (SemanticNumeric NumericInt64) SemanticInt = True
+runtimeTypesCompatible SemanticFloat (SemanticNumeric NumericFloat64) = True
+runtimeTypesCompatible (SemanticNumeric NumericFloat64) SemanticFloat = True
+runtimeTypesCompatible (SemanticList left) (SemanticList right) = runtimeTypesCompatible left right
+runtimeTypesCompatible (SemanticTuple left) (SemanticTuple right) = compatibleElements left right
+runtimeTypesCompatible (SemanticData leftName left) (SemanticData rightName right) = leftName == rightName && compatibleElements left right
+runtimeTypesCompatible (SemanticFunction leftArgument leftResult) (SemanticFunction rightArgument rightResult) =
+  runtimeTypesCompatible leftArgument rightArgument && runtimeTypesCompatible leftResult rightResult
+runtimeTypesCompatible _ _ = False
+
+compatibleElements :: [AnalyzedType] -> [AnalyzedType] -> Bool
+compatibleElements left right = length left == length right && and (zipWith runtimeTypesCompatible left right)
 
 runtimeQualifiedMethodIsFullyApplied ::
-  Text ->
-  Maybe (SignatureType 'Resolved) ->
+  InferenceVariable ->
+  AnalyzedType ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   Bool
@@ -731,47 +643,38 @@ runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments ca
     candidates
   where
     candidateIsFullyApplied (RuntimeMethodCandidate evidence _) =
-      case substituteSignatureType classParameter implTarget <$> methodSignature of
-        Just substitutedSignature ->
-          let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-           in runtimeAppliedArgumentCount arguments >= length argumentTypes
-        Nothing ->
-          False
-      where
-        implTarget = runtimeEvidenceTarget evidence
+      let substitutedSignature = substituteRuntimeVariable classParameter (evidenceType evidence) methodSignature
+          (argumentTypes, _) = runtimeFunctionArguments substitutedSignature
+       in runtimeAppliedArgumentCount arguments >= length argumentTypes
 
-runtimeMethodCandidateExactlyMatches :: Text -> Maybe (SignatureType 'Resolved) -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateExactlyMatches :: InferenceVariable -> AnalyzedType -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateExactlyMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
-  case methodSignature of
-    Just genericSignature ->
-      let substitutedSignature = substituteSignatureType classParameter implTarget genericSignature
-          (genericArgumentTypes, _) = constraintFunctionArgumentTypes genericSignature
-          (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-          suppliedArgumentCount = length arguments
-          suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
-          suppliedArgumentTypes = take suppliedArgumentCount argumentTypes
-          targetArgumentPositions =
-            map (constraintSignatureTypeContainsClassParameter classParameter) suppliedGenericArgumentTypes
-       in suppliedArgumentCount <= length genericArgumentTypes
-            && suppliedArgumentCount <= length argumentTypes
-            && or targetArgumentPositions
-            && and
-              ( zipWith3
-                  runtimeExactCandidateArgumentMatches
-                  targetArgumentPositions
-                  suppliedArgumentTypes
-                  arguments
-              )
-    _ ->
-      False
+  let substitutedSignature = substituteRuntimeVariable classParameter implTarget methodSignature
+      (genericArgumentTypes, _) = runtimeFunctionArguments methodSignature
+      (argumentTypes, _) = runtimeFunctionArguments substitutedSignature
+      suppliedArgumentCount = length arguments
+      suppliedGenericArgumentTypes = take suppliedArgumentCount genericArgumentTypes
+      suppliedArgumentTypes = take suppliedArgumentCount argumentTypes
+      targetArgumentPositions =
+        map (Foldable.elem classParameter) suppliedGenericArgumentTypes
+   in suppliedArgumentCount <= length genericArgumentTypes
+        && suppliedArgumentCount <= length argumentTypes
+        && or targetArgumentPositions
+        && and
+          ( zipWith3
+              runtimeExactCandidateArgumentMatches
+              targetArgumentPositions
+              suppliedArgumentTypes
+              arguments
+          )
   where
-    implTarget = runtimeEvidenceTarget evidence
+    implTarget = evidenceType evidence
 
-runtimeExactCandidateArgumentMatches :: Bool -> SignatureType 'Resolved -> RuntimeValue -> Bool
+runtimeExactCandidateArgumentMatches :: Bool -> AnalyzedType -> RuntimeValue -> Bool
 runtimeExactCandidateArgumentMatches targetArgumentPosition signatureType runtimeValue =
   not targetArgumentPosition || runtimeValueExactlyMatchesConstraint signatureType runtimeValue
 
-runtimeValueExactlyMatchesConstraint :: SignatureType 'Resolved -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VAnnotated (RuntimeTypeApplication _) innerValue ->
@@ -784,92 +687,59 @@ runtimeValueExactlyMatchesConstraint signatureType runtimeValue =
       runtimeClosureTypeHint closure == Just signatureType
     VInt _ metadata ->
       case signatureType of
-        TypeInt -> runtimeIntTargetType metadata == Nothing
-        TypeNumeric numericType -> runtimeIntTargetType metadata == Just numericType
-        TypeName typeName ->
-          runtimeIntExactlyMatchesTypeName (identifierText typeName) metadata
+        SemanticInt -> runtimeIntTargetType metadata == Nothing
+        SemanticNumeric numericType -> runtimeIntTargetType metadata == Just numericType
         _ -> False
     VFloat _ metadata ->
       case signatureType of
-        TypeFloat -> runtimeFloatTargetType metadata == Nothing
-        TypeNumeric numericType -> runtimeFloatTargetType metadata == Just numericType
-        TypeName typeName ->
-          runtimeFloatExactlyMatchesTypeName (identifierText typeName) metadata
+        SemanticFloat -> runtimeFloatTargetType metadata == Nothing
+        SemanticNumeric numericType -> runtimeFloatTargetType metadata == Just numericType
         _ -> False
     VChar {} ->
       case signatureType of
-        TypeChar -> True
-        TypeName typeName -> identifierText typeName == "Char"
+        SemanticChar -> True
         _ -> False
     VText {} ->
       case signatureType of
-        TypeText -> True
-        TypeName typeName -> identifierText typeName == "Text"
+        SemanticText -> True
         _ -> False
     VBool {} ->
       case signatureType of
-        TypeBool -> True
-        TypeName typeName -> identifierText typeName == "Bool"
+        SemanticBool -> True
         _ -> False
     VList _ (Just typeHint) ->
       typeHint == signatureType
     VList elements Nothing ->
       case signatureType of
-        TypeList elementType ->
+        SemanticList elementType ->
           not (null elements)
             && all (runtimeValueExactlyMatchesConstraint elementType) elements
         _ -> False
     VTuple elements ->
       case signatureType of
-        TypeTuple elementTypes
+        SemanticTuple elementTypes
           | length elementTypes == length elements ->
               and (zipWith runtimeValueExactlyMatchesConstraint elementTypes elements)
         _ -> False
     VConstructorApplication {} ->
       case signatureType of
-        TypeName typeName ->
+        SemanticData typeName [] ->
           runtimeValueExactlyMatchesDataTypeName typeName runtimeValue
-        TypeApplication typeName typeArguments ->
+        SemanticData typeName typeArguments ->
           runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue
         _ -> False
     _ -> False
 
-runtimeIntExactlyMatchesTypeName :: Text -> RuntimeIntMetadata -> Bool
-runtimeIntExactlyMatchesTypeName typeName metadata =
-  case (typeName, runtimeIntTargetType metadata) of
-    ("Int", Nothing) -> True
-    ("Int8", Just NumericInt8) -> True
-    ("Int16", Just NumericInt16) -> True
-    ("Int32", Just NumericInt32) -> True
-    ("Int64", Just NumericInt64) -> True
-    ("UInt8", Just NumericUInt8) -> True
-    ("UInt16", Just NumericUInt16) -> True
-    ("UInt32", Just NumericUInt32) -> True
-    ("UInt64", Just NumericUInt64) -> True
-    _ -> False
-
-runtimeFloatExactlyMatchesTypeName :: Text -> RuntimeFloatMetadata -> Bool
-runtimeFloatExactlyMatchesTypeName typeName metadata =
-  case (typeName, runtimeFloatTargetType metadata) of
-    ("Float", Nothing) -> True
-    ("Float16", Just NumericFloat16) -> True
-    ("Float32", Just NumericFloat32) -> True
-    ("Float64", Just NumericFloat64) -> True
-    _ -> False
-
-runtimeMethodCandidateMatches :: Text -> Maybe (SignatureType 'Resolved) -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
+runtimeMethodCandidateMatches :: InferenceVariable -> AnalyzedType -> [RuntimeValue] -> RuntimeMethodCandidate -> Bool
 runtimeMethodCandidateMatches classParameter methodSignature arguments (RuntimeMethodCandidate evidence _) =
-  case substituteSignatureType classParameter implTarget <$> methodSignature of
-    Just substitutedSignature ->
-      let (argumentTypes, _) = constraintFunctionArgumentTypes substitutedSignature
-       in length arguments <= length argumentTypes
-            && and (zipWith runtimeValueMatchesConstraint argumentTypes arguments)
-    Nothing ->
-      False
+  let substitutedSignature = substituteRuntimeVariable classParameter implTarget methodSignature
+      (argumentTypes, _) = runtimeFunctionArguments substitutedSignature
+   in length arguments <= length argumentTypes
+        && and (zipWith runtimeValueMatchesConstraint argumentTypes arguments)
   where
-    implTarget = runtimeEvidenceTarget evidence
+    implTarget = evidenceType evidence
 
-runtimeValueMatchesConstraint :: SignatureType 'Resolved -> RuntimeValue -> Bool
+runtimeValueMatchesConstraint :: AnalyzedType -> RuntimeValue -> Bool
 runtimeValueMatchesConstraint signatureType runtimeValue =
   case runtimeValue of
     VAnnotated (RuntimeTypeApplication _) innerValue ->
@@ -877,61 +747,42 @@ runtimeValueMatchesConstraint signatureType runtimeValue =
     VAnnotated (RuntimeResultHints _) innerValue ->
       runtimeValueMatchesConstraint signatureType innerValue
     VAnnotated (RuntimeTypeHint typeHint) _ ->
-      constraintSignatureTypesCompatible typeHint signatureType
+      runtimeTypesCompatible typeHint signatureType
     _ ->
       case signatureType of
-        TypeInt -> runtimeValueMatchesTypeName "Int" runtimeValue
-        TypeFloat -> runtimeValueMatchesTypeName "Float" runtimeValue
-        TypeNumeric numericType -> runtimeValueMatchesTypeName (renderNumericTypeName numericType) runtimeValue
-        TypeBool -> runtimeValueMatchesTypeName "Bool" runtimeValue
-        TypeChar -> runtimeValueMatchesTypeName "Char" runtimeValue
-        TypeText -> runtimeValueMatchesTypeName "Text" runtimeValue
-        TypeVariable {} -> False
-        TypeName typeName ->
-          runtimeValueMatchesTypeName (identifierText typeName) runtimeValue
-        TypeApplication typeName typeArguments ->
+        SemanticInt -> runtimeIntMatchesIntAlias runtimeValue
+        SemanticFloat -> runtimeFloatMatchesFloatAlias runtimeValue
+        SemanticNumeric numericType
+          | Just _ <- numericTypeIntegerBounds numericType -> runtimeIntMatchesTarget numericType runtimeValue
+          | otherwise -> runtimeFloatHasTarget numericType runtimeValue
+        SemanticBool -> isRuntimeBool runtimeValue
+        SemanticChar -> isRuntimeChar runtimeValue
+        SemanticText -> isRuntimeText runtimeValue
+        SemanticVariable {} -> False
+        SemanticData typeName [] ->
+          runtimeValueMatchesDataTypeName (identifierText typeName) runtimeValue
+        SemanticData typeName typeArguments ->
           runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue
-        TypeList elementType ->
+        SemanticList elementType ->
           case runtimeValue of
             VList elements maybeTypeHint ->
               case maybeTypeHint of
-                Just typeHint -> constraintSignatureTypesCompatible typeHint signatureType
+                Just typeHint -> runtimeTypesCompatible typeHint signatureType
                 Nothing -> all (runtimeValueMatchesConstraint elementType) elements
             _ -> False
-        TypeTuple elementTypes ->
+        SemanticTuple elementTypes ->
           case runtimeValue of
             VTuple elements
               | length elementTypes == length elements ->
                   and (zipWith runtimeValueMatchesConstraint elementTypes elements)
             _ -> False
-        TypeFunction {} ->
+        SemanticFunction {} ->
           case runtimeValue of
             VClosure closure ->
               case runtimeClosureTypeHint closure of
-                Just typeHint -> constraintSignatureTypesCompatible typeHint signatureType
+                Just typeHint -> runtimeTypesCompatible typeHint signatureType
                 Nothing -> True
             _ -> isFunctionValue runtimeValue
-
-runtimeValueMatchesTypeName :: Text -> RuntimeValue -> Bool
-runtimeValueMatchesTypeName typeName runtimeValue =
-  case typeName of
-    "Int" -> runtimeIntMatchesIntAlias runtimeValue
-    "Int8" -> runtimeIntMatchesTarget NumericInt8 runtimeValue
-    "Int16" -> runtimeIntMatchesTarget NumericInt16 runtimeValue
-    "Int32" -> runtimeIntMatchesTarget NumericInt32 runtimeValue
-    "Int64" -> runtimeIntMatchesTarget NumericInt64 runtimeValue
-    "UInt8" -> runtimeIntMatchesTarget NumericUInt8 runtimeValue
-    "UInt16" -> runtimeIntMatchesTarget NumericUInt16 runtimeValue
-    "UInt32" -> runtimeIntMatchesTarget NumericUInt32 runtimeValue
-    "UInt64" -> runtimeIntMatchesTarget NumericUInt64 runtimeValue
-    "Float" -> runtimeFloatMatchesFloatAlias runtimeValue
-    "Float16" -> runtimeFloatHasTarget NumericFloat16 runtimeValue
-    "Float32" -> runtimeFloatHasTarget NumericFloat32 runtimeValue
-    "Float64" -> runtimeFloatHasTarget NumericFloat64 runtimeValue
-    "Bool" -> isRuntimeBool runtimeValue
-    "Char" -> isRuntimeChar runtimeValue
-    "Text" -> isRuntimeText runtimeValue
-    _ -> runtimeValueMatchesDataTypeName typeName runtimeValue
 
 runtimeValueMatchesDataTypeName :: Text -> RuntimeValue -> Bool
 runtimeValueMatchesDataTypeName typeName runtimeValue =
@@ -941,14 +792,14 @@ runtimeValueMatchesDataTypeName typeName runtimeValue =
         && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
 
-runtimeValueMatchesDataTypeApplication :: ResolvedName -> [SignatureType 'Resolved] -> RuntimeValue -> Bool
+runtimeValueMatchesDataTypeApplication :: ResolvedName -> [AnalyzedType] -> RuntimeValue -> Bool
 runtimeValueMatchesDataTypeApplication typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
       | valueTypeName == typeName,
         length typeParameters == length typeArguments,
         constructorIsSaturated constructorArguments capturedArgs ->
-          let typeParameterBindings = Map.fromList (zip (map identifierText typeParameters) typeArguments)
+          let typeParameterBindings = Map.fromList (zip typeParameters typeArguments)
            in and
                 ( zipWith
                     (runtimeValueMatchesConstructorArgument typeParameterBindings)
@@ -965,14 +816,14 @@ runtimeValueExactlyMatchesDataTypeName typeName runtimeValue =
         && constructorApplicationIsSaturated shape capturedArgs
     _ -> False
 
-runtimeValueExactlyMatchesDataTypeApplication :: ResolvedName -> [SignatureType 'Resolved] -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesDataTypeApplication :: ResolvedName -> [AnalyzedType] -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValue =
   case runtimeValue of
     VConstructor valueTypeName typeParameters _ constructorArguments capturedArgs
       | valueTypeName == typeName,
         length typeParameters == length typeArguments,
         constructorIsSaturated constructorArguments capturedArgs ->
-          let typeParameterBindings = Map.fromList (zip (map identifierText typeParameters) typeArguments)
+          let typeParameterBindings = Map.fromList (zip typeParameters typeArguments)
            in and
                 ( zipWith
                     (runtimeValueExactlyMatchesConstructorArgument typeParameterBindings)
@@ -981,13 +832,13 @@ runtimeValueExactlyMatchesDataTypeApplication typeName typeArguments runtimeValu
                 )
     _ -> False
 
-runtimeValueMatchesConstructorArgument :: Map Text (SignatureType 'Resolved) -> SignatureType 'Resolved -> RuntimeValue -> Bool
+runtimeValueMatchesConstructorArgument :: Map InferenceVariable AnalyzedType -> AnalyzedType -> RuntimeValue -> Bool
 runtimeValueMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
   runtimeValueMatchesConstraint
     (substituteConstructorFieldType typeParameterBindings fieldType)
     runtimeValue
 
-runtimeValueExactlyMatchesConstructorArgument :: Map Text (SignatureType 'Resolved) -> SignatureType 'Resolved -> RuntimeValue -> Bool
+runtimeValueExactlyMatchesConstructorArgument :: Map InferenceVariable AnalyzedType -> AnalyzedType -> RuntimeValue -> Bool
 runtimeValueExactlyMatchesConstructorArgument typeParameterBindings fieldType runtimeValue =
   runtimeValueExactlyMatchesConstraint
     (substituteConstructorFieldType typeParameterBindings fieldType)
@@ -1309,7 +1160,7 @@ attachDefaultBindingIntegerTarget runtimeValue =
       VQualifiedMethodApplication methodKey classParameter methodSignature candidates
         <$> foldM appendConvertedArgument emptyRuntimeAppliedArguments (runtimeAppliedArgumentsInOrder capturedArgs)
     VAnnotated (RuntimeTypeHint typeHint) innerValue
-      | TypeFunction {} <- typeHint ->
+      | SemanticFunction {} <- typeHint ->
           Right (VAnnotated (RuntimeTypeHint typeHint) innerValue)
       | otherwise ->
           VAnnotated (RuntimeTypeHint typeHint) <$> attachDefaultBindingIntegerTarget innerValue
@@ -1339,8 +1190,8 @@ isFunctionValue value =
     _ -> False
 
 preferredRuntimeMethodCandidates ::
-  Text ->
-  Maybe (SignatureType 'Resolved) ->
+  InferenceVariable ->
+  AnalyzedType ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
@@ -1360,9 +1211,9 @@ preferredRuntimeMethodCandidates classParameter methodSignature arguments candid
         candidates
 
 preferredRuntimeMethodCandidatesForTypeHint ::
-  SignatureType 'Resolved ->
-  Text ->
-  Maybe (SignatureType 'Resolved) ->
+  AnalyzedType ->
+  InferenceVariable ->
+  AnalyzedType ->
   RuntimeAppliedArguments ->
   RuntimeMethodCandidates ->
   RuntimeMethodCandidates
@@ -1378,20 +1229,19 @@ preferredRuntimeMethodCandidatesForTypeHint typeHint classParameter methodSignat
 
     compatibleCandidates =
       filterRuntimeMethodCandidates
-        (maybe False (constraintSignatureTypesCompatible typeHint) . candidateRemainingType)
+        (maybe False (runtimeTypesCompatible typeHint) . candidateRemainingType)
         candidates
 
-    candidateRemainingType (RuntimeMethodCandidate evidence _) = do
-      substitutedSignature <-
-        substituteSignatureType classParameter (runtimeEvidenceTarget evidence)
-          <$> methodSignature
-      dropFunctionArguments (runtimeAppliedArgumentCount arguments) substitutedSignature
+    candidateRemainingType (RuntimeMethodCandidate evidence _) =
+      dropFunctionArguments
+        (runtimeAppliedArgumentCount arguments)
+        (substituteRuntimeVariable classParameter (evidenceType evidence) methodSignature)
 
     dropFunctionArguments remaining signatureType
       | remaining <= 0 = Just signatureType
       | otherwise =
           case signatureType of
-            TypeFunction _ resultType ->
+            SemanticFunction _ resultType ->
               dropFunctionArguments (remaining - 1) resultType
             _ -> Nothing
 

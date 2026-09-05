@@ -34,9 +34,7 @@ import Data.Char
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CorePhase (..),
-    Expr (..),
-    SignatureType,
+  ( Expr (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol (..),
@@ -46,12 +44,8 @@ import Jazz.Compiler.BuiltinCatalog
     numericTypeIsIntegral,
     renderNumericTypeName,
   )
-import Jazz.Compiler.CapabilityFacts
-  ( constraintSignatureTypesCompatible,
-  )
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (..))
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Runtime.Semantics
   ( applyRuntimeTypeHint,
     convertIntegerToFloatTarget,
@@ -66,6 +60,7 @@ import Jazz.Compiler.Runtime.Semantics
     roundFloatTarget,
     runtimeDiagnostic,
     runtimeIntMatchesTarget,
+    runtimeTypesCompatible,
     runtimeValueMatchesConstraint,
     targetedFloatMetadata,
     targetedIntMetadata,
@@ -81,17 +76,10 @@ import Jazz.Compiler.Runtime.Types
     constructorIsSaturated,
     foldrRuntimeAppliedArguments,
   )
+import Jazz.Compiler.SemanticFacts (AnalyzedType)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
-    pattern TypeApplication,
-    pattern TypeChar,
-    pattern TypeFloat,
-    pattern TypeFunction,
-    pattern TypeInt,
-    pattern TypeList,
-    pattern TypeName,
-    pattern TypeText,
-    pattern TypeTuple,
+    SemanticType (..),
   )
 
 -- | The only evaluator capability needed by primitive value semantics.
@@ -127,7 +115,7 @@ evalBuiltin injectDiagnostic applyRuntimeValue builtinFunction arguments =
           case collection of
             VList elements maybeCollectionTypeHint -> do
               mappedElements <- traverse (applyRuntimeValue mapper) elements
-              let maybeMappedTypeHint = TypeList <$> runtimeMapResultElementType mapper maybeCollectionTypeHint
+              let maybeMappedTypeHint = SemanticList <$> runtimeMapResultElementType mapper maybeCollectionTypeHint
               pure (VList mappedElements maybeMappedTypeHint)
             other ->
               throwE
@@ -170,7 +158,7 @@ evalBuiltinPure builtinFunction arguments =
       Left (runtimeDiagnostic E3009 "runtime primitive 'hd' failed: empty list")
     (BuiltinHd, [VList (headValue : _) maybeTypeHint]) ->
       case maybeTypeHint of
-        Just (TypeList elementType) ->
+        Just (SemanticList elementType) ->
           applyRuntimeTypeHint elementType headValue
         _ ->
           Right headValue
@@ -196,7 +184,7 @@ evalBuiltinPure builtinFunction arguments =
       Right value
     (BuiltinListPrependRaw, [value, VList elements maybeTypeHint]) ->
       case maybeTypeHint of
-        Just (TypeList elementType) -> do
+        Just (SemanticList elementType) -> do
           hintedValue <- applyRuntimeTypeHint elementType value
           Right (VList (hintedValue : elements) maybeTypeHint)
         _ ->
@@ -225,7 +213,7 @@ evalBuiltinPure builtinFunction arguments =
         )
     (BuiltinCharFromUInt32Raw, [value@(VInt scalar _)])
       | runtimeIntMatchesTarget NumericUInt32 value ->
-          let listTypeHint = Just (TypeList TypeChar)
+          let listTypeHint = Just (SemanticList SemanticChar)
            in if scalar <= 0x10FFFF && not (scalar >= 0xD800 && scalar <= 0xDFFF)
                 then Right (VList [VChar (chr (fromInteger scalar))] listTypeHint)
                 else Right (VList [] listTypeHint)
@@ -263,7 +251,7 @@ evalBuiltinPure builtinFunction arguments =
             ("runtime primitive 'textLength' expects a Text argument, found " <> renderRuntimeType other)
         )
     (BuiltinTextUnconsRaw, [VText textValue]) ->
-      let listTypeHint = Just (TypeList (TypeTuple [TypeChar, TypeText]))
+      let listTypeHint = Just (SemanticList (SemanticTuple [SemanticChar, SemanticText]))
        in case Text.uncons textValue of
             Nothing ->
               Right (VList [] listTypeHint)
@@ -395,22 +383,22 @@ filterElements injectDiagnostic applyRuntimeValue predicate values = do
                 )
             )
 
-runtimeFunctionResultType :: RuntimeValue -> Maybe (SignatureType 'Resolved)
+runtimeFunctionResultType :: RuntimeValue -> Maybe AnalyzedType
 runtimeFunctionResultType runtimeValue =
   case runtimeValue of
     VAnnotated (RuntimeTypeApplication _) innerValue ->
       runtimeFunctionResultType innerValue
     VAnnotated (RuntimeResultHints _) innerValue ->
       runtimeFunctionResultType innerValue
-    VAnnotated (RuntimeTypeHint (TypeFunction _ resultType)) _ ->
+    VAnnotated (RuntimeTypeHint (SemanticFunction _ resultType)) _ ->
       Just resultType
     VClosure closure
-      | Just (TypeFunction _ resultType) <- runtimeClosureTypeHint closure ->
+      | Just (SemanticFunction _ resultType) <- runtimeClosureTypeHint closure ->
           Just resultType
     _ ->
       Nothing
 
-runtimeMapResultElementType :: RuntimeValue -> Maybe (SignatureType 'Resolved) -> Maybe (SignatureType 'Resolved)
+runtimeMapResultElementType :: RuntimeValue -> Maybe AnalyzedType -> Maybe AnalyzedType
 runtimeMapResultElementType mapper maybeCollectionTypeHint =
   case runtimeFunctionResultType mapper of
     Just resultType ->
@@ -418,12 +406,12 @@ runtimeMapResultElementType mapper maybeCollectionTypeHint =
     Nothing ->
       runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint
 
-runtimeBuiltinMapResultElementType :: RuntimeValue -> Maybe (SignatureType 'Resolved) -> Maybe (SignatureType 'Resolved)
+runtimeBuiltinMapResultElementType :: RuntimeValue -> Maybe AnalyzedType -> Maybe AnalyzedType
 runtimeBuiltinMapResultElementType mapper maybeCollectionTypeHint =
   case (mapper, maybeCollectionTypeHint) of
-    (VBuiltin BuiltinHd [], Just (TypeList (TypeList elementType))) ->
+    (VBuiltin BuiltinHd [], Just (SemanticList (SemanticList elementType))) ->
       Just elementType
-    (VClosure closure, Just (TypeList elementType))
+    (VClosure closure, Just (SemanticList elementType))
       | EVar _ resultName <- runtimeClosureBody closure,
         Nothing <- runtimeClosureTypeHint closure,
         resultName == runtimeClosureParameter closure ->
@@ -606,7 +594,7 @@ isStrictEqualityOperator :: Text -> Bool
 isStrictEqualityOperator operatorSymbol =
   operatorSymbol == "==" || operatorSymbol == "!="
 
-preserveLeftTypedNumericOperatorResult :: Text -> SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveLeftTypedNumericOperatorResult :: Text -> AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 preserveLeftTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
   | numericArithmeticOperator operatorSymbol,
     numericAliasTypeHint typeHint,
@@ -615,7 +603,7 @@ preserveLeftTypedNumericOperatorResult operatorSymbol typeHint runtimeValue
   | otherwise =
       Right runtimeValue
 
-preserveRightTypedNumericOperatorResult :: Text -> RuntimeValue -> SignatureType 'Resolved -> RuntimeValue -> Either Diagnostic RuntimeValue
+preserveRightTypedNumericOperatorResult :: Text -> RuntimeValue -> AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 preserveRightTypedNumericOperatorResult operatorSymbol leftValue typeHint runtimeValue
   | numericArithmeticOperator operatorSymbol,
     numericAliasTypeHint typeHint,
@@ -629,13 +617,11 @@ numericArithmeticOperator :: Text -> Bool
 numericArithmeticOperator operatorSymbol =
   operatorSymbol == "+" || operatorSymbol == "-" || operatorSymbol == "*" || operatorSymbol == "/"
 
-numericAliasTypeHint :: SignatureType 'Resolved -> Bool
+numericAliasTypeHint :: AnalyzedType -> Bool
 numericAliasTypeHint typeHint =
   case typeHint of
-    TypeInt -> True
-    TypeFloat -> True
-    TypeName typeName ->
-      identifierText typeName == "Int" || identifierText typeName == "Float"
+    SemanticInt -> True
+    SemanticFloat -> True
     _ ->
       False
 
@@ -649,12 +635,12 @@ runtimeValueHasTargetedNumericMetadata runtimeValue =
     _ ->
       False
 
-runtimeTypeHintRequiresStructuralEquality :: SignatureType 'Resolved -> Bool
+runtimeTypeHintRequiresStructuralEquality :: AnalyzedType -> Bool
 runtimeTypeHintRequiresStructuralEquality signatureType =
   case signatureType of
-    TypeApplication {} -> True
-    TypeList {} -> True
-    TypeTuple {} -> True
+    SemanticData _ (_ : _) -> True
+    SemanticList {} -> True
+    SemanticTuple {} -> True
     _ -> False
 
 runtimeCallableEqualityDiagnostic :: Text -> RuntimeValue -> RuntimeValue -> Diagnostic
@@ -934,7 +920,7 @@ runtimeStructuralEquality leftValue rightValue =
     (_, VAnnotated (RuntimeResultHints _) rightInnerValue) ->
       runtimeStructuralEquality leftValue rightInnerValue
     (VAnnotated (RuntimeTypeHint leftTypeHint) leftInnerValue, VAnnotated (RuntimeTypeHint rightTypeHint) rightInnerValue)
-      | constraintSignatureTypesCompatible leftTypeHint rightTypeHint ->
+      | runtimeTypesCompatible leftTypeHint rightTypeHint ->
           runtimeStructuralEquality leftInnerValue rightInnerValue
       | otherwise ->
           Just False

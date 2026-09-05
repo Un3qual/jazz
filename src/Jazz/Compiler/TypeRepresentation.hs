@@ -11,6 +11,7 @@ module Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),
     NumericType (..),
     SemanticType (..),
+    substituteSemanticVariables,
     SignatureConstraint (..),
     SignaturePayload (..),
     SignatureToken (..),
@@ -107,6 +108,23 @@ instance Bitraversable SemanticType where
           <$> bitraverse mapTypeName mapVariable argumentType
           <*> bitraverse mapTypeName mapVariable resultType
       SemanticVariable variable -> SemanticVariable <$> mapVariable variable
+
+-- | Substitute variables without changing semantic type names or structure.
+substituteSemanticVariables :: (variable -> SemanticType name replacement) -> SemanticType name variable -> SemanticType name replacement
+substituteSemanticVariables replace typeValue = case typeValue of
+  SemanticInt -> SemanticInt
+  SemanticFloat -> SemanticFloat
+  SemanticNumeric numeric -> SemanticNumeric numeric
+  SemanticBool -> SemanticBool
+  SemanticChar -> SemanticChar
+  SemanticText -> SemanticText
+  SemanticList element -> SemanticList (recur element)
+  SemanticTuple elements -> SemanticTuple (map recur elements)
+  SemanticData name arguments -> SemanticData name (map recur arguments)
+  SemanticFunction argument result -> SemanticFunction (recur argument) (recur result)
+  SemanticVariable variable -> replace variable
+  where
+    recur = substituteSemanticVariables replace
 
 -- | Recursive syntax shared by surface and resolved signatures. The first
 -- parameter identifies named types; the second identifies type variables.

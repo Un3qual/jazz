@@ -78,6 +78,7 @@ import Jazz.Compiler.SourceProgram
 import Jazz.Compiler.TypeInference (analyzeSourceUnitExpressionWithBuiltins)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
+    SemanticType (..),
     SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig
@@ -202,7 +203,7 @@ testExplicitlyHintedTailRecursionPreservesResultObligations = do
     Right (Just runtimeValue) ->
       assertEqual
         "repeated explicit tail hints in outermost-to-innermost order"
-        (replicate recursionDepth TypeInt)
+        (replicate recursionDepth SemanticInt)
         (runtimeExplicitResultHintsInOrder runtimeValue)
     Left diagnostic ->
       failTest ("explicitly hinted tail recursion failed: " <> renderDiagnostic diagnostic)
@@ -224,7 +225,7 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
                   observedHints = runtimeExplicitResultHintsInOrder callableValue
               _ <- evaluate (Text.length renderedCallable)
               observedCount <- evaluate (length observedHints)
-              allHintsMatch <- evaluate (all (== TypeInt) observedHints)
+              allHintsMatch <- evaluate (all (== SemanticInt) observedHints)
               appliedValue <- requireRuntimeValue "100,000-hint application" appliedExpression
               let renderedAppliedValue = renderRuntimeValue appliedValue
               _ <- evaluate (Text.length renderedAppliedValue)
@@ -245,19 +246,19 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
 
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity :: IO ()
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
-  let uint8 = TypeNumeric NumericUInt8
+  let uint8 = SemanticNumeric NumericUInt8
       callableExpression = mixedExplicitlyHintedCallable 6
       appliedExpression = expressionApply callableExpression (expressionLiteral (LInt 7))
   runtimeValue <- requireRuntimeValue "mixed explicit result hints" callableExpression
   assertEqual
     "mixed hints remain outermost-to-innermost without deduplication"
-    [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
+    [uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool]
     (runtimeExplicitResultHintsInOrder runtimeValue)
   case runtimeValue of
     VAnnotated annotation _ ->
       assertEqual
         "reattaching result annotations combines their ordered obligations"
-        [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
+        [uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool]
         (runtimeExplicitResultHintsInOrder (VAnnotated annotation runtimeValue))
     _ -> failTest "expected pending result annotations on the callable"
   appliedValue <- requireRuntimeValue "mixed explicit result hint application" appliedExpression
@@ -269,7 +270,7 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
   assertEqual
     "mixed explicit result hint application does not retain intermediate Int result"
     False
-    (runtimeValueExactlyMatchesConstraint TypeInt appliedValue)
+    (runtimeValueExactlyMatchesConstraint SemanticInt appliedValue)
 
 mixedExplicitlyHintedCallable :: Int -> Expr 'Analyzed
 mixedExplicitlyHintedCallable recursionDepth =

@@ -524,7 +524,7 @@ inferScopeTypeInternal
                 | ClassMethodSignature methodNode methodName _ <- methods
                 ]
           SImpl node capabilityName _ methods ->
-            (coreNodeId node, [], ImplementationDeclaration capabilityName)
+            (coreNodeId node, [], ImplementationDeclaration capabilityName [])
               : [ (coreNodeId methodNode, bindingFor methodName, ValueDeclaration methodName)
                 | ImplMethod methodNode methodName _ <- methods
                 ]
