@@ -6,7 +6,7 @@ module Jazz.Repository.OpaqueCarrierContracts
 where
 
 import Control.Exception (bracket)
-import Control.Monad (forM_, unless)
+import Control.Monad (filterM, forM_, unless)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -149,18 +149,17 @@ findCompilerPackageDatabase packageRoot = do
       ""
   case (exitCode, words standardOutput) of
     (ExitSuccess, [compilerVersion]) -> do
-      let packageDatabase =
-            packageRoot
-              </> "dist-newstyle"
-              </> "packagedb"
-              </> ("ghc-" <> compilerVersion)
-      exists <- doesDirectoryExist packageDatabase
-      if exists
-        then pure packageDatabase
-        else
+      let candidates =
+            [ packageRoot </> "dist-newstyle" </> "packagedb" </> ("ghc-" <> compilerVersion),
+              packageRoot </> "dist" </> "package.conf.inplace"
+            ]
+      databases <- filterM doesDirectoryExist candidates
+      case databases of
+        packageDatabase : _ -> pure packageDatabase
+        [] ->
           failTest
-            ( "could not locate the compiler package database at "
-                <> Text.pack packageDatabase
+            ( "could not locate the compiler package database in "
+                <> Text.pack (show candidates)
             )
     _ ->
       failTest
