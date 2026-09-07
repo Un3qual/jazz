@@ -114,6 +114,7 @@ hostIOTests =
     ("stacked result obligations preserve recursive unwind order", testStackedResultObligationsPreserveRecursiveUnwindOrder),
     ("host binding cache separates dynamic scope invocations", testHostBindingCacheSeparatesDynamicScopeInvocations),
     ("host scopes force zero-argument impl methods", testHostZeroArgumentImplMethod),
+    ("nullary evidence selection preserves host method caching", testNullaryEvidencePreservesHostMethodCaching),
     ("direct runtime wrappers normalize disabled host calls", testDirectRuntimeWrapperUsesDisabledHost),
     ("direct runtime wrappers reject disabled host exits", testDirectRuntimeWrapperRejectsDisabledExit),
     ("exit rejects statuses outside the portable range", testExitRejectsInvalidStatus),
@@ -818,6 +819,34 @@ testHostZeroArgumentImplMethod = do
       (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
   assertRuntimeBool "zero-argument host method result" True result
   assertEqual "zero-argument host method call" [WriteStdoutCall "enabled"] calls
+
+testNullaryEvidencePreservesHostMethodCaching :: IO ()
+testNullaryEvidencePreservesHostMethodCaching = do
+  callsRef <- newIORef []
+  result <-
+    runSourceWithPreludeAndHost
+      (recordingIOHost callsRef)
+      defaultWarningSettings
+      Nothing
+      """
+      class RuntimeDefault(a) {
+        defaultValue! :: a.
+      }.
+      impl RuntimeDefault(Int) {
+        defaultValue! = { __kernel_writeStdoutRaw! "int". 41. }.
+      }.
+      impl RuntimeDefault(Bool) {
+        defaultValue! = { __kernel_writeStdoutRaw! "bool". True. }.
+      }.
+      first! :: Int.
+      first! = RuntimeDefault::defaultValue!.
+      (first!, RuntimeDefault::defaultValue! @Bool, first!, RuntimeDefault::defaultValue! @Int).
+      """
+  calls <- readIORef callsRef
+  assertEqual "nullary host compile errors" [] (runCompileErrors result)
+  assertEqual "nullary host runtime errors" [] (runRuntimeErrors result)
+  assertEqual "nullary host output" (Just "(41, True, 41, 41)") (runOutput result)
+  assertEqual "each selected host method runs once" [WriteStdoutCall "int", WriteStdoutCall "bool"] calls
 
 testDirectRuntimeWrapperRejectsDisabledExit :: IO ()
 testDirectRuntimeWrapperRejectsDisabledExit = do

@@ -45,7 +45,7 @@ in [architecture design](2026-08-31-jazz-compiler-architecture-simplification-de
 - [x] Replace `mergedUnifiedType state left right` with `resolveType state left`;
       implement solver substitution through `substituteSemanticVariables`, keeping
       recursive resolution of replacements.
-- [ ] Trace evidence selection before forcing and result-plan execution. Retain
+- [x] Trace evidence selection before forcing and result-plan execution. Retain
       ordered obligations while consuming selection once; remove the evidence-only
       pre-scan. Verify nullary, explicit, polymorphic, partial, stored, imported,
       and deferred method behavior with the runtime capability and host suites.
@@ -65,3 +65,11 @@ The structural cleanup passes the development-warning build and the runtime
 semantics, recursive bindings, module pipeline, Haskell typeclass, and binding
 signature suites on 2026-09-07. The solver chain regression still resolves
 replacements recursively, and method signature checks now read declaration facts.
+
+The runtime cleanup passes runtime semantics, runtime observation, profiling,
+benchmark-stage, and module-pipeline tests with development warnings. The new
+source-level host test passes both before and after the change: contextual and
+explicit nullary selections share method cells and perform each host effect once.
+Callable obligations are consumed as an ordered prefix; only the remaining
+result obligations stay on the return path. Deferred host cells retain their
+plan until they expose a value. No new runtime representation was introduced.

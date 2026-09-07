@@ -40,6 +40,7 @@ import qualified Data.Map.Lazy as LazyMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -1356,13 +1357,7 @@ stepEvaluationMachine ::
 stepEvaluationMachine observeStatistics observeProfile host builtinMode machine =
   case evaluationControl machine of
     EvaluateExpression context expression ->
-      stepExpression
-        ( appendRuntimeResultObligation
-            (ApplyExpressionRuntimePlan (evaluationModulePath context) (expressionRuntimePlanOf expression))
-            machine
-        )
-        context
-        expression
+      stepExpression context expression
     ApplyCallable functionValue argumentValue ->
       stepCallable functionValue argumentValue
     ForceRuntimeValue runtimeValue -> do
@@ -1391,7 +1386,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
             frame
             dischargedValue
   where
-    stepExpression expressionMachine context expression =
+    stepExpression context expression =
       case expression of
         ELit _ literal ->
           continueWith (ReturnRuntimeValue (literalRuntimeValue literal)) expressionMachine
@@ -1399,9 +1394,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
           case Map.lookup name (evaluationEnvironment context) of
             Just runtimeCell -> do
               runtimeValue <- liftRuntimeResult runtimeCell
-              continueWith
-                (ForceRuntimeValue (prepareRuntimeEvidence (expressionRuntimePlanOf expression) runtimeValue))
-                expressionMachine
+              forceReference runtimeValue
             Nothing ->
               case lookupBuiltinSymbolInMode builtinMode (identifierText name) of
                 Just builtinFunction ->
@@ -1456,9 +1449,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
               operatorValue <-
                 liftRuntimeResult
                   (lookupDeclaredOperatorCell operatorSymbol (evaluationEnvironment context))
-              continueWith
-                (ForceRuntimeValue (prepareRuntimeEvidence (expressionRuntimePlanOf expression) operatorValue))
-                expressionMachine
+              forceReference operatorValue
         EList _ [] ->
           continueWith (ReturnRuntimeValue (VList [] Nothing)) expressionMachine
         EList _ (element : rest) ->
@@ -1487,25 +1478,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
                 Just runtimeCell -> do
                   unforcedValue <- liftRuntimeResult runtimeCell
                   case unforcedValue of
-                    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs -> do
-                      let matchingValue =
-                            prepareRuntimeEvidence
-                              (expressionRuntimePlanOf expression)
-                              (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs)
-                          matchingCandidates =
-                            case matchingValue of
-                              VQualifiedMethodApplication _ _ _ selectedCandidates _ -> selectedCandidates
-                              _ -> candidates
-                      selectedValue <-
-                        applyQualifiedMethodWithHost
-                          host
-                          builtinMode
-                          methodKey
-                          classParameter
-                          methodSignature
-                          matchingCandidates
-                          capturedArgs
-                      continueWith (ReturnRuntimeValue selectedValue) expressionMachine
+                    VQualifiedMethodApplication {} -> forceReference unforcedValue
                     _ -> evaluateTypeApplicationNormally expressionMachine context functionExpr
                 Nothing -> evaluateTypeApplicationNormally expressionMachine context functionExpr
             _ -> evaluateTypeApplicationNormally expressionMachine context functionExpr
@@ -1545,6 +1518,30 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode machine 
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) rightExpr)
         EBlock _ statements ->
           stepBlock expressionMachine context statements
+      where
+        modulePath = evaluationModulePath context
+        runtimePlan@(RuntimePlan obligations) = expressionRuntimePlanOf expression
+        expressionMachine =
+          appendRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath runtimePlan) machine
+
+        forceReference runtimeValue = do
+          -- Consume the callable prefix before a method can run. Deferred host
+          -- cells expose their value first; their plan stays on the return path.
+          let (callableObligations, resultObligations) =
+                if isFunctionValue runtimeValue
+                  then Seq.spanl preparesCallable obligations
+                  else (Seq.empty, obligations)
+          preparedValue <-
+            liftRuntimeResult (applyExpressionRuntimePlan modulePath (RuntimePlan callableObligations) runtimeValue)
+          continueWith
+            (ForceRuntimeValue preparedValue)
+            (appendRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath (RuntimePlan resultObligations)) machine)
+
+        preparesCallable obligation = case obligation of
+          InstantiateTypes {} -> True
+          SupplyEvidence {} -> True
+          SpecializeNumericLiteral {} -> False
+          ConstrainResult {} -> False
 
     evaluateTypeApplicationNormally expressionMachine context functionExpr =
       suspendEvaluation
@@ -2199,15 +2196,6 @@ runtimeModulePath modulePath =
   case modulePath >>= NonEmpty.nonEmpty of
     Nothing -> standaloneModulePath
     Just path -> mkModulePath (fmap mkIdentifier path)
-
-prepareRuntimeEvidence :: RuntimePlan -> RuntimeValue -> RuntimeValue
-prepareRuntimeEvidence (RuntimePlan obligations) initialValue =
-  foldl' applyEvidence initialValue obligations
-  where
-    applyEvidence runtimeValue obligation =
-      case obligation of
-        SupplyEvidence evidenceReferences -> selectRuntimeEvidence evidenceReferences runtimeValue
-        _ -> runtimeValue
 
 lookupDeclaredOperatorCell :: Text -> RuntimeEnv -> Either Diagnostic RuntimeValue
 lookupDeclaredOperatorCell operatorSymbol env =
