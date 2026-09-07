@@ -2121,13 +2121,7 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
     applyInstantiation runtimeValue semanticType
       | not (Foldable.null semanticType) = Right runtimeValue
       | otherwise =
-          let typeHint = qualifyRuntimeType modulePath semanticType
-           in if isFunctionValue runtimeValue
-                then Right (VAnnotated (RuntimeTypeApplication typeHint) runtimeValue)
-                else
-                  applyRuntimeTypeHint
-                    (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
-                    runtimeValue
+          applyRuntimeInstantiation (qualifyRuntimeType modulePath semanticType) runtimeValue
 
     specializeNumericLiteral numericTarget runtimeValue =
       case numericTarget of
@@ -2142,6 +2136,14 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
       SemanticInt -> attachDefaultBindingIntegerTarget runtimeValue
       _ | Foldable.null semanticType -> applyRuntimeTypeHint (qualifyRuntimeType modulePath semanticType) runtimeValue
       _ -> Right runtimeValue
+
+applyRuntimeInstantiation :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeInstantiation typeHint runtimeValue
+  | isFunctionValue runtimeValue = Right (VAnnotated (RuntimeTypeApplication typeHint) runtimeValue)
+  | otherwise =
+      applyRuntimeTypeHint
+        (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
+        runtimeValue
 
 selectRuntimeEvidence :: NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> RuntimeValue
 selectRuntimeEvidence evidenceReferences runtimeValue =
@@ -2579,8 +2581,13 @@ forceRuntimeValueWithHost host builtinMode runtimeValue =
                 (Map.insert bindingKey (DeferredHostBindingEvaluated result))
             )
           liftRuntimeControl result
-    VAnnotated annotation innerValue ->
-      VAnnotated annotation <$> forceRuntimeValueWithHost host builtinMode innerValue
+    VAnnotated annotation innerValue -> do
+      forcedValue <- forceRuntimeValueWithHost host builtinMode innerValue
+      case annotation of
+        -- Nullary methods produce a value while being forced, so their pending
+        -- type application must become a value hint rather than a callable tag.
+        RuntimeTypeApplication typeHint -> liftRuntimeResult (applyRuntimeInstantiation typeHint forcedValue)
+        _ -> pure (VAnnotated annotation forcedValue)
     _ ->
       forceQualifiedMethodValueWithHost host builtinMode runtimeValue
 

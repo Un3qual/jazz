@@ -840,12 +840,13 @@ testNullaryEvidencePreservesHostMethodCaching = do
       }.
       first! :: Int.
       first! = RuntimeDefault::defaultValue!.
-      (first!, RuntimeDefault::defaultValue! @Bool, first!, RuntimeDefault::defaultValue! @Int).
+      (first!, RuntimeDefault::defaultValue! @Bool, first!,
+       RuntimeDefault::defaultValue! @Int, RuntimeDefault::defaultValue! @Int == 41).
       """
   calls <- readIORef callsRef
   assertEqual "nullary host compile errors" [] (runCompileErrors result)
   assertEqual "nullary host runtime errors" [] (runRuntimeErrors result)
-  assertEqual "nullary host output" (Just "(41, True, 41, 41)") (runOutput result)
+  assertEqual "nullary host output" (Just "(41, True, 41, 41, True)") (runOutput result)
   assertEqual "each selected host method runs once" [WriteStdoutCall "int", WriteStdoutCall "bool"] calls
 
 testDirectRuntimeWrapperRejectsDisabledExit :: IO ()
