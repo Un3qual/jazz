@@ -59,7 +59,6 @@ import Data.Char
     toUpper,
   )
 import qualified Data.Foldable as Foldable
-import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (listToMaybe)
@@ -92,11 +91,6 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
-import Jazz.Compiler.ModuleIdentity
-  ( mkModulePath,
-    modulePathTextSegments,
-    preludeModulePath,
-  )
 import Jazz.Compiler.Name
   ( Name (..),
     NameNamespace (..),
@@ -104,7 +98,6 @@ import Jazz.Compiler.Name
     ResolvedNameOrigin (..),
     ResolvedUserName (..),
     identifierText,
-    mkIdentifier,
   )
 import Jazz.Compiler.Runtime.Types
   ( RuntimeAnnotation (..),
@@ -135,6 +128,7 @@ import Jazz.Compiler.Runtime.Types
     pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.SemanticFacts (AnalyzedType, EvidenceReference (evidenceType))
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitOwnerOrigin)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
     NumericType (..),
@@ -208,30 +202,21 @@ renderConstructorName constructorName =
     UserName (ResolvedUserName _ ConstructorNamespace identifier) -> identifierText identifier
     _ -> identifierText constructorName
 
-runtimeDefinitionName :: Maybe [Text] -> ResolvedName -> ResolvedName
-runtimeDefinitionName maybeModulePath name =
-  case (maybeModulePath, name) of
-    (Just modulePath, UserName (ResolvedUserName CurrentModule namespace identifier))
-      | Just segments <- NonEmpty.nonEmpty modulePath ->
-          UserName (ResolvedUserName (runtimeDefinitionOrigin segments) namespace identifier)
+runtimeDefinitionName :: Maybe SourceUnitOwner -> ResolvedName -> ResolvedName
+runtimeDefinitionName maybeOwner name =
+  case (maybeOwner, name) of
+    (Just owner, UserName (ResolvedUserName CurrentModule namespace identifier)) ->
+      UserName (ResolvedUserName (sourceUnitOwnerOrigin owner) namespace identifier)
     _ -> name
 
-runtimeDefinitionNameIn :: NameNamespace -> Maybe [Text] -> ResolvedName -> ResolvedName
-runtimeDefinitionNameIn namespace maybeModulePath name =
-  case (maybeModulePath, name) of
-    (Just modulePath, UserName (ResolvedUserName CurrentModule _ identifier))
-      | modulePath == NonEmpty.toList (modulePathTextSegments preludeModulePath) ->
-          UserName (ResolvedUserName AmbientPrelude namespace identifier)
-    _ -> runtimeDefinitionName maybeModulePath name
+runtimeDefinitionNameIn :: NameNamespace -> Maybe SourceUnitOwner -> ResolvedName -> ResolvedName
+runtimeDefinitionNameIn namespace maybeOwner name =
+  case (maybeOwner, name) of
+    (Just (PreludeSourceUnit _), UserName (ResolvedUserName CurrentModule _ identifier)) ->
+      UserName (ResolvedUserName AmbientPrelude namespace identifier)
+    _ -> runtimeDefinitionName maybeOwner name
 
-runtimeDefinitionOrigin :: NonEmpty.NonEmpty Text -> ResolvedNameOrigin
-runtimeDefinitionOrigin segments
-  | path == preludeModulePath = AmbientPrelude
-  | otherwise = ImportedModule path
-  where
-    path = mkModulePath (fmap mkIdentifier segments)
-
-qualifyRuntimeType :: Maybe [Text] -> AnalyzedType -> AnalyzedType
+qualifyRuntimeType :: Maybe SourceUnitOwner -> AnalyzedType -> AnalyzedType
 qualifyRuntimeType modulePath = bimap (runtimeDefinitionNameIn TypeNamespace modulePath) id
 
 literalRuntimeValue :: Literal -> RuntimeValue
@@ -268,6 +253,7 @@ runtimeValueMatchesLiteral runtimeValue literal =
 applyRuntimeTypeHint :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyRuntimeTypeHint typeHint runtimeValue =
   case runtimeValue of
+    VDeferredHostBinding {} -> Right (VAnnotated (RuntimeTypeHint typeHint) runtimeValue)
     VAnnotated (RuntimeTypeHint existingTypeHint) _
       | runtimeTypeHintAtLeastAsSpecific existingTypeHint typeHint ->
           Right runtimeValue
@@ -424,7 +410,7 @@ targetedFloatMetadataWithSource targetType literalSource =
 -- | Pattern bindings are prepended to the arm environment so they shadow outer
 -- runtime bindings only while evaluating the selected arm body.
 matchCaseArm ::
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   RuntimeEnv ->
   RuntimeValue ->
   CaseArm 'Analyzed ->
@@ -435,7 +421,7 @@ matchCaseArm currentModulePath env scrutineeValue (CaseArm _ casePattern guardEx
       Just (Map.union patternBindings env, guardExpr, bodyExpr)
     Nothing -> Nothing
 
-matchPattern :: Maybe [Text] -> RuntimeValue -> Pattern 'Analyzed -> Maybe RuntimeEnv
+matchPattern :: Maybe SourceUnitOwner -> RuntimeValue -> Pattern 'Analyzed -> Maybe RuntimeEnv
 matchPattern currentModulePath scrutineeValue casePattern =
   case casePattern of
     PWildcard _ -> Just Map.empty
@@ -480,7 +466,7 @@ matchPattern currentModulePath scrutineeValue casePattern =
     POr _ alternatives ->
       matchFirstAlternative currentModulePath scrutineeValue alternatives
 
-matchFirstAlternative :: Maybe [Text] -> RuntimeValue -> [Pattern 'Analyzed] -> Maybe RuntimeEnv
+matchFirstAlternative :: Maybe SourceUnitOwner -> RuntimeValue -> [Pattern 'Analyzed] -> Maybe RuntimeEnv
 matchFirstAlternative currentModulePath scrutineeValue alternatives =
   case alternatives of
     [] -> Nothing
@@ -489,7 +475,7 @@ matchFirstAlternative currentModulePath scrutineeValue alternatives =
         Just patternBindings -> Just patternBindings
         Nothing -> matchFirstAlternative currentModulePath scrutineeValue rest
 
-matchPatternList :: Maybe [Text] -> [RuntimeValue] -> [Pattern 'Analyzed] -> Maybe RuntimeEnv
+matchPatternList :: Maybe SourceUnitOwner -> [RuntimeValue] -> [Pattern 'Analyzed] -> Maybe RuntimeEnv
 matchPatternList currentModulePath values patterns =
   foldM step Map.empty (zip values patterns)
   where

@@ -4,7 +4,8 @@
 -- module declaration. This fold is the single ownership transition used by
 -- analysis, evidence identity, runtime-plan projection, and the interpreter.
 module Jazz.Compiler.SourceUnitOwnership
-  ( SourceUnitOwner,
+  ( SourceUnitOwner (..),
+    sourceUnitOwnerOrigin,
     sourceUnitOwnerModulePath,
     sourceUnitOwnerRuntimePath,
     sourceUnitStatementRuntimePaths,
@@ -16,26 +17,35 @@ import Data.List (mapAccumL)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.AST (Statement (..))
-import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath, modulePathTextSegments)
-import Jazz.Compiler.Name (mkIdentifier)
+import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
+import Jazz.Compiler.Name (ResolvedNameOrigin (..), mkIdentifier)
 
 data SourceUnitOwner
   = StandaloneSourceUnit ModulePath
   | NamedSourceUnit ModulePath
+  | PreludeSourceUnit ModulePath
+  deriving (Eq, Show)
 
 sourceUnitOwnerModulePath :: SourceUnitOwner -> ModulePath
 sourceUnitOwnerModulePath owner =
   case owner of
     StandaloneSourceUnit path -> path
     NamedSourceUnit path -> path
+    PreludeSourceUnit path -> path
 
-sourceUnitOwnerRuntimePath :: SourceUnitOwner -> Maybe [Text]
+sourceUnitOwnerOrigin :: SourceUnitOwner -> ResolvedNameOrigin
+sourceUnitOwnerOrigin owner =
+  case owner of
+    StandaloneSourceUnit _ -> CurrentModule
+    NamedSourceUnit path -> ImportedModule path
+    PreludeSourceUnit _ -> AmbientPrelude
+
+sourceUnitOwnerRuntimePath :: SourceUnitOwner -> Maybe SourceUnitOwner
 sourceUnitOwnerRuntimePath owner =
   case owner of
     StandaloneSourceUnit _ -> Nothing
-    NamedSourceUnit path -> Just (NonEmpty.toList (modulePathTextSegments path))
+    _ -> Just owner
 
 sourceUnitStatementOwners ::
   ModulePath ->
@@ -46,7 +56,7 @@ sourceUnitStatementOwners ::
 sourceUnitStatementOwners sourcePath preludePath preludeStatementIndices statements =
   statementOwners
     (StandaloneSourceUnit sourcePath)
-    (NamedSourceUnit preludePath)
+    (PreludeSourceUnit preludePath)
     namedOwner
     preludeStatementIndices
     statements
@@ -61,19 +71,21 @@ sourceUnitStatementOwners sourcePath preludePath preludeStatementIndices stateme
 sourceUnitStatementRuntimePaths ::
   ModulePath ->
   Set Int ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   [Statement phase] ->
-  [Maybe [Text]]
+  [Maybe SourceUnitOwner]
 sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModulePath =
   statementOwners
     initialModulePath
-    (Just (NonEmpty.toList (modulePathTextSegments preludePath)))
+    (Just (PreludeSourceUnit preludePath))
     declaredPath
     preludeStatementIndices
   where
     declaredPath statement =
       case statement of
-        SModule _ modulePathSegments -> Just (Just modulePathSegments)
+        SModule _ modulePathSegments ->
+          Just . NamedSourceUnit . mkModulePath . fmap mkIdentifier
+            <$> NonEmpty.nonEmpty modulePathSegments
         _ -> Nothing
 
 statementOwners ::

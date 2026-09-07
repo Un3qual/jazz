@@ -37,7 +37,9 @@ import Jazz.TestHarness
 
 visibilityTests :: [NamedTest]
 visibilityTests =
-  [ ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
+  [ ("ordinary Prelude modules retain nominal constructor identity", testOrdinaryPreludeIdentity),
+    ("local constructors remain visible before value rebinding", testLocalConstructorRebinding),
+    ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
     ("run module graph transports Char/Text values", testRunModuleGraphTransportsCharTextValues),
     ("compile module graph without prelude rejects public aliases across files", testCompileModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
     ("run module graph without prelude rejects public aliases across files", testRunModuleGraphWithoutPreludeRejectsPublicAliasesAcrossFiles),
@@ -1688,3 +1690,23 @@ testRunModuleGraphKeepsPrivateEntryBindingsUsable = do
         }
         """
     lookupSource path = pure (Map.lookup path sourceMap)
+
+testOrdinaryPreludeIdentity :: IO ()
+testOrdinaryPreludeIdentity = do
+  let sources =
+        Map.fromList
+          [ ("src/Prelude.jz", "module Prelude { data Token = Token | Other. token = Token. }"),
+            ("src/App/Main.jz", "module App::Main { import Prelude. case token { | Token -> 1 | _ -> 0 }. }")
+          ]
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  assertEqual "ordinary Prelude compile errors" [] (runCompileErrors result)
+  assertEqual "ordinary Prelude runtime errors" [] (runRuntimeErrors result)
+  assertEqual "ordinary Prelude constructor match" (Just "1") (runOutput result)
+
+testLocalConstructorRebinding :: IO ()
+testLocalConstructorRebinding = do
+  let sources = Map.singleton "src/App/Main.jz" "module App::Main { data Maybe = Just. saved = Just. Just = Just. Just = 1. (saved, Just). }"
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  assertEqual "constructor rebinding compile errors" [] (runCompileErrors result)
+  assertEqual "constructor rebinding runtime errors" [] (runRuntimeErrors result)
+  assertEqual "constructor rebinding preserves earlier value" (Just "(Just, 1)") (runOutput result)

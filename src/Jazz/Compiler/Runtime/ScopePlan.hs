@@ -27,10 +27,10 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.IntSet (IntSet)
 import qualified Data.IntSet as IntSet
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     CorePhase (..),
@@ -44,7 +44,7 @@ import Jazz.Compiler.BuiltinCatalog
     builtinNamesInMode,
     lookupBuiltinSymbolInMode,
   )
-import Jazz.Compiler.ModuleIdentity (ModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.Name
   ( NameNamespace (..),
     ResolvedName,
@@ -59,12 +59,12 @@ import Jazz.Compiler.RecursiveBindings
     recursiveScopeBindingNames,
     recursiveScopeGroups,
   )
-import Jazz.Compiler.SourceUnitOwnership (sourceUnitStatementRuntimePaths)
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitStatementRuntimePaths)
 
 data RuntimeScopePlan = RuntimeScopePlan
   { runtimeScopePlanIndexedStatements :: [(Int, Statement 'Analyzed)],
     runtimeScopePlanStatementsByIndex :: IntMap (Statement 'Analyzed),
-    runtimeScopePlanModulePathsByStatement :: IntMap (Maybe [Text]),
+    runtimeScopePlanModulePathsByStatement :: IntMap (Maybe SourceUnitOwner),
     runtimeScopePlanRecursiveGroups :: IntMap [Int],
     runtimeScopePlanSelfRecursiveFunctions :: IntSet,
     runtimeScopePlanBindingNames :: IntMap ResolvedName,
@@ -74,7 +74,7 @@ data RuntimeScopePlan = RuntimeScopePlan
 buildRuntimeScopePlan ::
   ModulePath ->
   Set Int ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   BuiltinResolutionMode ->
   Set ResolvedName ->
   [Statement 'Analyzed] ->
@@ -134,16 +134,17 @@ scopePlanStatementAt :: RuntimeScopePlan -> Int -> Maybe (Statement 'Analyzed)
 scopePlanStatementAt plan statementIndex =
   IntMap.lookup statementIndex (runtimeScopePlanStatementsByIndex plan)
 
-scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe [Text]
+scopePlanModulePathForStatement :: RuntimeScopePlan -> Int -> Maybe SourceUnitOwner
 scopePlanModulePathForStatement plan statementIndex =
   IntMap.findWithDefault Nothing statementIndex (runtimeScopePlanModulePathsByStatement plan)
 
-runtimeModulePathAfterStatements :: Maybe [Text] -> [Statement 'Analyzed] -> Maybe [Text]
+runtimeModulePathAfterStatements :: Maybe SourceUnitOwner -> [Statement 'Analyzed] -> Maybe SourceUnitOwner
 runtimeModulePathAfterStatements =
   foldl'
     ( \activeModulePath statement ->
         case statement of
-          SModule _ modulePath -> Just modulePath
+          SModule _ modulePath
+            | Just segments <- NonEmpty.nonEmpty modulePath -> Just (NamedSourceUnit (mkModulePath (fmap mkIdentifier segments)))
           _ -> activeModulePath
     )
 

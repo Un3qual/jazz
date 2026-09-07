@@ -21,6 +21,7 @@ import Data.IORef
     newIORef,
     readIORef,
   )
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -37,6 +38,7 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runSourceWithPreludeAndHost,
   )
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.Name (UnresolvedName, qualifiedName)
 import Jazz.Compiler.RecursiveBindings (emptyLambdaCaptureHints)
 import Jazz.Compiler.Runtime
@@ -69,6 +71,7 @@ import Jazz.Compiler.RuntimeHost
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared (assertRuntimeBool)
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SemanticType (..),
@@ -104,6 +107,7 @@ hostIOTests =
     ("host scopes preserve mutually recursive functions", testHostScopePreservesMutualRecursion),
     ("host scopes preserve hostful recursive peers", testHostScopePreservesHostfulRecursivePeers),
     ("host scopes evaluate impl method selectors with the injected host", testHostImplMethodSelector),
+    ("host method signatures retain numeric conversions", testHostImplMethodNumericSignature),
     ("host scopes preserve binding signature hints", testHostScopePreservesBindingSignatureHints),
     ("host dependency scopes keep unused bindings lazy", testHostDependencyScopeKeepsUnusedBindingLazy),
     ("host dependency bindings are shared when forced", testHostDependencyBindingIsShared),
@@ -410,6 +414,38 @@ testHostImplMethodSelector = do
   assertRuntimeBool "host-selected impl method result" True result
   assertEqual "host-selected impl method call" [ArgumentsCall] calls
 
+testHostImplMethodNumericSignature :: IO ()
+testHostImplMethodNumericSignature = do
+  let method = expressionVariable (qualifiedName "RuntimePick" "pick")
+      argument = expressionLiteral (LInt 1)
+      parameter = fixtureTypeVariable "a"
+  check (TypeFunction parameter parameter) (expressionLambda "value" (expressionVariable "value")) (expressionApply method argument)
+  check parameter argument method
+  where
+    check signature body invocation = do
+      let selector =
+            expressionBinary
+              "=="
+              (hostCall "__kernel_arguments!" [expressionTuple []])
+              (expressionList [expressionLiteral (LText "one"), expressionLiteral (LText "two")])
+          expression =
+            expressionBlock
+              [ statementClass
+                  (SourceSpan 1 1)
+                  "RuntimePick"
+                  ["a"]
+                  [classMethodSignature "pick" (SourceSpan 2 1) (ConstrainedSignature [] signature)],
+                statementImpl
+                  (SourceSpan 3 1)
+                  "RuntimePick"
+                  [TypeFloat]
+                  [implMethod "pick" (SourceSpan 4 1) (expressionIf selector body body)],
+                statementExpression (SourceSpan 5 1) invocation
+              ]
+          (result, calls) = runState (evaluateRuntimeExprWithHost statefulHost expression) []
+      assertEqual "host method numeric conversion" (Right (Just "1.0")) (fmap (fmap renderRuntimeValue) result)
+      assertEqual "host selector runs once" [ArgumentsCall] calls
+
 testHostScopePreservesBindingSignatureHints :: IO ()
 testHostScopePreservesBindingSignatureHints = do
   let expression =
@@ -471,7 +507,7 @@ testHostDependencyBindingIsShared = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just ["Dependency"])
+            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
@@ -481,7 +517,7 @@ testHostDependencyBindingIsShared = do
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just ["Main"])
+              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
@@ -521,7 +557,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
           dependencyResult <-
             evaluateModuleScopeWithRequiredEvaluationHost
               evaluationHost
-              (Just ["Dependency"])
+              (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
               EvaluateDependencyModule
               ResolveKernelOnly
               Map.empty
@@ -531,7 +567,7 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
             Right dependencyScope ->
               evaluateModuleScopeWithRequiredEvaluationHost
                 evaluationHost
-                (Just ["Main"])
+                (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
                 EvaluateEntryModule
                 ResolveKernelOnly
                 (scopeResultEnvironment dependencyScope)
@@ -562,7 +598,7 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just ["Dependency"])
+            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
@@ -572,7 +608,7 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
           Right dependencyScope ->
             evaluateModuleScopeWithHost
               statefulHost
-              (Just ["Main"])
+              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
@@ -610,7 +646,7 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just ["Dependency"])
+            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
@@ -620,7 +656,7 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just ["Main"])
+              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
@@ -703,7 +739,7 @@ testHostDependencyBindingRetainsRuntimePlan = do
         dependencyResult <-
           evaluateModuleScopeWithRequiredHost
             statefulHost
-            (Just ["Dependency"])
+            (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
             ResolveKernelOnly
             Map.empty
@@ -713,7 +749,7 @@ testHostDependencyBindingRetainsRuntimePlan = do
           Right dependencyScope ->
             evaluateModuleScopeWithRequiredHost
               statefulHost
-              (Just ["Main"])
+              (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
               ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)

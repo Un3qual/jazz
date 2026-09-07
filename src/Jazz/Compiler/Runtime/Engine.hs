@@ -74,8 +74,6 @@ import Jazz.Compiler.DiagnosticCatalog
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
-    mkModulePath,
-    modulePathTextSegments,
     preludeModulePath,
     standaloneModulePath,
   )
@@ -247,6 +245,7 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitOwnerModulePath)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
     SemanticType (..),
@@ -371,7 +370,7 @@ opaqueRuntimeEnvironmentMayReachHostCells = not . Map.null
 -- transfer replaces only the captured environment and module path; builtin
 -- resolution remains stable for the whole machine run.
 data EvaluationContext = EvaluationContext
-  { evaluationModulePath :: Maybe [Text],
+  { evaluationModulePath :: Maybe SourceUnitOwner,
     evaluationBuiltinMode :: BuiltinResolutionMode,
     evaluationEnvironment :: RuntimeEnv,
     evaluationEnvironmentMayReachHostCells :: Bool,
@@ -390,7 +389,7 @@ evaluationContextForLambdaChild childIndex context =
 data RuntimeResultObligation
   = ApplyFunctionResultHint AnalyzedType
   | ApplyExplicitResultHint AnalyzedType
-  | ApplyExpressionRuntimePlan (Maybe [Text]) RuntimePlan
+  | ApplyExpressionRuntimePlan (Maybe SourceUnitOwner) RuntimePlan
   | AttachDefaultIntegerResult
   | CloseRuntimeProfileFrame
   deriving (Eq, Show)
@@ -594,7 +593,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                   value <- evalValueAt statementIndex (envBefore statementIndex) expr
                   go (Just value) rest
 
-    modulePathForStatement :: Int -> Maybe [Text]
+    modulePathForStatement :: Int -> Maybe SourceUnitOwner
     modulePathForStatement = scopePlanModulePathForStatement scopePlan
 
     evalValueAt :: Int -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
@@ -806,7 +805,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             )
 
     selectMatchingCaseArmForAlias ::
-      Maybe [Text] ->
+      Maybe SourceUnitOwner ->
       (RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue) ->
       RuntimeEnv ->
       RuntimeValue ->
@@ -902,7 +901,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
           Nothing ->
             Nothing
 
-    blockLocalAliasEnv :: Maybe [Text] -> RuntimeEnv -> [Statement 'Analyzed] -> RuntimeEnv
+    blockLocalAliasEnv :: Maybe SourceUnitOwner -> RuntimeEnv -> [Statement 'Analyzed] -> RuntimeEnv
     blockLocalAliasEnv blockModulePath blockInitialEnv blockStatements =
       case LazyIntMap.lookup (length indexedBlockStatements) blockPrefixEnvironments of
         Just env -> env
@@ -992,7 +991,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 _ ->
                   envAcc
 
-    insertDataConstructors :: Maybe [Text] -> [DataConstructor 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertDataConstructors :: Maybe SourceUnitOwner -> [DataConstructor 'Analyzed] -> RuntimeEnv -> RuntimeEnv
     insertDataConstructors definitionModulePath constructors env =
       foldl' insertConstructor env constructors
       where
@@ -1035,7 +1034,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 _ -> Left (runtimeDiagnostic E3021 "runtime method is missing its analyzed signature")
            in Map.insertWith (\_ existing -> existing) methodName' methodValue envAcc
 
-    insertImplMethods :: Maybe [Text] -> CoreNode 'Analyzed 'StatementSort -> ResolvedName -> [ImplMethod 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertImplMethods :: Maybe SourceUnitOwner -> CoreNode 'Analyzed 'StatementSort -> ResolvedName -> [ImplMethod 'Analyzed] -> RuntimeEnv -> RuntimeEnv
     insertImplMethods methodModulePath implementationNode capabilityName methods env =
       case statementDeclarationFact (coreNodeFacts implementationNode) of
         ImplementationDeclaration _ [implTarget] ->
@@ -1090,29 +1089,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 )
             _ -> methodCell
 
-    attachRuntimeMethodSignature ::
-      Maybe [Text] ->
-      RuntimeEnv ->
-      AnalyzedType ->
-      ResolvedName ->
-      RuntimeValue ->
-      Either Diagnostic RuntimeValue
-    attachRuntimeMethodSignature methodModulePath env implTarget methodName methodValue =
-      case Map.lookup methodName env of
-        Just (Right (VQualifiedMethodApplication _ classParameter methodSignature _ _)) ->
-          applyRuntimeTypeHint
-            (qualifyRuntimeType signatureModulePath (substituteRuntimeVariable classParameter implTarget methodSignature))
-            methodValue
-        _ ->
-          Right methodValue
-      where
-        signatureModulePath =
-          case methodName of
-            UserName (ResolvedUserName (ImportedModule classModulePath) _ _) ->
-              Just (NonEmpty.toList (modulePathTextSegments classModulePath))
-            _ -> methodModulePath
-
-    selectedQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Either Diagnostic Bool
+    selectedQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Either Diagnostic Bool
     selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey expr
       | Set.member methodKey visitedMethodKeys =
           Right True
@@ -1158,7 +1135,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         nextVisitedMethodKeys = Set.insert methodKey visitedMethodKeys
 
-    selectQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
+    selectQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
     selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValueWithModulePath methodModulePath builtinMode env conditionExpr
       case conditionValue of
@@ -1177,7 +1154,29 @@ evalValue :: BuiltinResolutionMode -> RuntimeEnv -> Expr 'Analyzed -> Either Dia
 evalValue =
   evalValueWithModulePath Nothing
 
-evalValueWithModulePath :: Maybe [Text] -> BuiltinResolutionMode -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
+attachRuntimeMethodSignature ::
+  Maybe SourceUnitOwner ->
+  RuntimeEnv ->
+  AnalyzedType ->
+  ResolvedName ->
+  RuntimeValue ->
+  Either Diagnostic RuntimeValue
+attachRuntimeMethodSignature methodModulePath env implTarget methodName methodValue =
+  case Map.lookup methodName env of
+    Just (Right (VQualifiedMethodApplication _ classParameter methodSignature _ _)) ->
+      applyRuntimeTypeHint
+        (qualifyRuntimeType signatureModulePath (substituteRuntimeVariable classParameter implTarget methodSignature))
+        methodValue
+    _ ->
+      Right methodValue
+  where
+    signatureModulePath =
+      case methodName of
+        UserName (ResolvedUserName (ImportedModule classModulePath) _ _) ->
+          Just (NamedSourceUnit classModulePath)
+        _ -> methodModulePath
+
+evalValueWithModulePath :: Maybe SourceUnitOwner -> BuiltinResolutionMode -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
 evalValueWithModulePath currentModulePath builtinMode env expr =
   runtimeControlAsDiagnosticResult
     ( runIdentity
@@ -1199,7 +1198,7 @@ evalValueWithModulePath currentModulePath builtinMode env expr =
         )
     )
 
-nameRuntimeClosureBinding :: Maybe [Text] -> ResolvedName -> RuntimeValue -> RuntimeValue
+nameRuntimeClosureBinding :: Maybe SourceUnitOwner -> ResolvedName -> RuntimeValue -> RuntimeValue
 nameRuntimeClosureBinding currentModulePath bindingName runtimeValue =
   case runtimeValue of
     VClosure closure ->
@@ -2103,7 +2102,7 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
 expressionRuntimePlanOf :: Expr 'Analyzed -> RuntimePlan
 expressionRuntimePlanOf = expressionRuntimePlan . coreNodeFacts . expressionNode
 
-applyExpressionRuntimePlan :: Maybe [Text] -> RuntimePlan -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyExpressionRuntimePlan :: Maybe SourceUnitOwner -> RuntimePlan -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
   foldM applyObligation initialValue obligations
   where
@@ -2175,10 +2174,10 @@ runtimeEvidenceMatches candidate reference =
 canonicalCapability :: ImplId -> CapabilityId -> CapabilityId
 canonicalCapability (ImplId (modulePath, _)) (CapabilityId capabilityName) =
   CapabilityId
-    (runtimeDefinitionNameIn CapabilityNamespace (Just (NonEmpty.toList (modulePathTextSegments modulePath))) capabilityName)
+    (runtimeDefinitionNameIn CapabilityNamespace (Just (NamedSourceUnit modulePath)) capabilityName)
 
 runtimeEvidence ::
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   CoreNodeId ->
   ResolvedName ->
   ResolvedName ->
@@ -2193,11 +2192,8 @@ runtimeEvidence modulePath implementationNodeId capabilityName methodName target
   where
     implementationId = ImplId (runtimeModulePath modulePath, implementationNodeId)
 
-runtimeModulePath :: Maybe [Text] -> ModulePath
-runtimeModulePath modulePath =
-  case modulePath >>= NonEmpty.nonEmpty of
-    Nothing -> standaloneModulePath
-    Just path -> mkModulePath (fmap mkIdentifier path)
+runtimeModulePath :: Maybe SourceUnitOwner -> ModulePath
+runtimeModulePath = maybe standaloneModulePath sourceUnitOwnerModulePath
 
 lookupDeclaredOperatorCell :: Text -> RuntimeEnv -> Either Diagnostic RuntimeValue
 lookupDeclaredOperatorCell operatorSymbol env =
@@ -2213,7 +2209,7 @@ lookupDeclaredOperatorCell operatorSymbol env =
 evalValueWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   BuiltinResolutionMode ->
   RuntimeEnv ->
   Bool ->
@@ -2238,7 +2234,7 @@ evalScopeWithHost ::
   RuntimeHost (RuntimeHostEvaluationT m) ->
   ModulePath ->
   Set Int ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   Bool ->
@@ -2270,7 +2266,7 @@ evalScopeWithHostInstance ::
   RuntimeHost (RuntimeHostEvaluationT m) ->
   ModulePath ->
   Set Int ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   Bool ->
@@ -2482,7 +2478,11 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
                      in ( qualifiedMethodName,
                           RuntimeMethodCandidate
                             evidence
-                            ( Right
+                            ( attachRuntimeMethodSignature
+                                methodModulePath
+                                methodEnv
+                                runtimeImplTarget
+                                qualifiedMethodName
                                 ( VDeferredHostBinding
                                     (DeferredHostBindingKey scopeId (coreNodeId methodNode) qualifiedMethodName)
                                     (runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value")
@@ -2515,7 +2515,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeSta
 evalHostBindingValue ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   BuiltinResolutionMode ->
   RuntimeEnv ->
   ResolvedName ->
@@ -2587,6 +2587,7 @@ forceRuntimeValueWithHost host builtinMode runtimeValue =
         -- Nullary methods produce a value while being forced, so their pending
         -- type application must become a value hint rather than a callable tag.
         RuntimeTypeApplication typeHint -> liftRuntimeResult (applyRuntimeInstantiation typeHint forcedValue)
+        RuntimeTypeHint typeHint -> liftRuntimeResult (applyRuntimeTypeHint typeHint forcedValue)
         _ -> pure (VAnnotated annotation forcedValue)
     _ ->
       forceQualifiedMethodValueWithHost host builtinMode runtimeValue

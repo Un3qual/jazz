@@ -246,8 +246,9 @@ parseCliOptions args = do
       go options {rawCliWarningsConfigPath = Just path} rest
     go _ ("--warnings-config" : []) =
       Left (cliArgumentDiagnostic "missing path after --warnings-config")
-    go options ("--prelude" : path : rest) =
-      go options {rawCliPreludePath = Just path} rest
+    go options ("--prelude" : path : rest)
+      | "--" `Text.isPrefixOf` Text.pack path = Left (cliArgumentDiagnostic "missing path after --prelude")
+      | otherwise = go options {rawCliPreludePath = Just path} rest
     go _ ("--prelude" : []) =
       Left (cliArgumentDiagnostic "missing path after --prelude")
     go options ("--no-prelude" : rest) =

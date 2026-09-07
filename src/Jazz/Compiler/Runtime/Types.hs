@@ -96,6 +96,7 @@ import Jazz.Compiler.Runtime.Observation
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
 import Jazz.Compiler.SemanticFacts (AnalyzedType, CoreNodeId, EvidenceReference (..))
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
@@ -145,7 +146,7 @@ data RuntimeClosure = RuntimeClosure
     runtimeClosureParameter :: ResolvedName,
     runtimeClosureBody :: Expr 'Analyzed,
     runtimeClosureTypeHint :: Maybe AnalyzedType,
-    runtimeClosureModulePath :: Maybe [Text],
+    runtimeClosureModulePath :: Maybe SourceUnitOwner,
     runtimeClosureCallableIdentity :: RuntimeCallableIdentity
   }
 
@@ -190,7 +191,7 @@ data RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
       Diagnostic
-      (Maybe [Text])
+      (Maybe SourceUnitOwner)
       (Expr 'Analyzed)
       RuntimeEnv
 

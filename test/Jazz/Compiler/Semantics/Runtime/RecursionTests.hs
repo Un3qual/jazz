@@ -75,6 +75,7 @@ import Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     scopeStatements,
   )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 import Jazz.Compiler.TypeInference (analyzeSourceUnitExpressionWithBuiltins)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -111,7 +112,7 @@ recursionTests =
     ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
     ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility),
     ("prelude scope planning uses its nonempty module path", testPreludeScopePlanUsesNonemptyModulePath),
-    ("empty runtime module paths do not impersonate the prelude", testEmptyRuntimeModulePathIsNotPrelude),
+    ("standalone runtime owners do not impersonate the prelude", testStandaloneRuntimeOwnerIsNotPrelude),
     ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility),
     ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility),
     ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
@@ -129,15 +130,15 @@ recursionTests =
     ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
   ]
 
-testEmptyRuntimeModulePathIsNotPrelude :: IO ()
-testEmptyRuntimeModulePathIsNotPrelude = do
+testStandaloneRuntimeOwnerIsNotPrelude :: IO ()
+testStandaloneRuntimeOwnerIsNotPrelude = do
   let localName =
         UserName
           (ResolvedUserName CurrentModule ValueNamespace (mkIdentifier "itemValue"))
   assertEqual
-    "empty runtime module path"
+    "standalone runtime owner"
     localName
-    (runtimeDefinitionName (Just []) localName)
+    (runtimeDefinitionName Nothing localName)
 
 testTailRecursiveClosureIsStackSafe :: IO ()
 testTailRecursiveClosureIsStackSafe =
@@ -535,7 +536,7 @@ testPreludeScopePlanUsesNonemptyModulePath = do
           [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
   assertEqual
     "prelude statement path"
-    (Just ["Prelude"])
+    (Just (PreludeSourceUnit preludeModulePath))
     (scopePlanModulePathForStatement plan 0)
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()

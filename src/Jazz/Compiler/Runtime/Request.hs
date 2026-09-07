@@ -7,7 +7,6 @@ module Jazz.Compiler.Runtime.Request
 where
 
 import Data.Set (Set)
-import Data.Text (Text)
 import Jazz.Compiler.AST (CorePhase (..), Expr, Statement)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
@@ -15,6 +14,7 @@ import Jazz.Compiler.Runtime.Types
   ( ModuleEvaluationMode,
     RuntimeEnv,
   )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 
 data RuntimeExpressionRequest = RuntimeExpressionRequest
   { runtimeExpressionSourceUnitStatementIndices :: Set Int,
@@ -26,7 +26,7 @@ data RuntimeExpressionRequest = RuntimeExpressionRequest
 data RuntimeScopeRequest = RuntimeScopeRequest
   { runtimeScopeSourceUnitStatementIndices :: Set Int,
     runtimeScopePreludeModulePath :: ModulePath,
-    runtimeScopeCurrentModulePath :: Maybe [Text],
+    runtimeScopeCurrentModulePath :: Maybe SourceUnitOwner,
     runtimeScopeEvaluationMode :: ModuleEvaluationMode,
     runtimeScopeBuiltinMode :: BuiltinResolutionMode,
     runtimeScopeInitialEnvironment :: RuntimeEnv,

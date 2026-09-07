@@ -960,7 +960,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
                   SLet _ bindingName _ ->
                     Set.unions
                       [ visibleBoundValues,
-                        maybe Set.empty Set.singleton (sourceNameText bindingName),
+                        maybe Set.empty selfBoundValue (sourceNameText bindingName),
                         recursivePeerBoundValues statementIndex
                       ]
                   _ -> visibleBoundValues
@@ -971,6 +971,10 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
                     maybe visibleBoundValues (`Set.insert` visibleBoundValues) (sourceNameText bindingName)
                   _ -> visibleBoundValues
            in (nextVisibleBoundValues, resolvedStatement : resolvedRev)
+
+        selfBoundValue name
+          | Set.member name localConstructors = Set.empty
+          | otherwise = Set.singleton name
 
         recursivePeerBoundValues statementIndex =
           Set.fromList
@@ -984,8 +988,8 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
       case name of
         UserName (UnqualifiedSourceName identifier)
           | Set.member nameText boundValues -> ValueNamespace
-          | Set.member nameText localValues -> ValueNamespace
           | Set.member nameText localConstructors -> ConstructorNamespace
+          | Set.member nameText localValues -> ValueNamespace
           | Map.member nameText visibleValueOrigins -> ValueNamespace
           | Map.member nameText visibleConstructorOrigins -> ConstructorNamespace
           | Set.member nameText ambientValues -> ValueNamespace

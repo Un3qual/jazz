@@ -40,7 +40,6 @@ where
 import Data.Functor.Identity (runIdentity)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
@@ -94,6 +93,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 
 evaluateRuntimeExpr :: Expr 'Analyzed -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpr =
@@ -177,7 +177,7 @@ evaluateRuntimeExprWithBuiltinsAndSourceUnitStatements sourceUnitStatementIndice
     )
 
 evaluateModuleScope ::
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   RuntimeEnv ->
@@ -201,7 +201,7 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode initialEnv stat
 evaluateModuleScopeWithHost ::
   (Monad m) =>
   RuntimeHost m ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   RuntimeEnv ->
@@ -223,7 +223,7 @@ evaluateModuleScopeWithHost host currentModulePath evaluationMode builtinMode in
 evaluateModuleScopeWithRequiredHost ::
   (Monad m) =>
   RuntimeHost m ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   RuntimeEnv ->
@@ -247,7 +247,7 @@ evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builti
 evaluateModuleScopeWithRequiredEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   RuntimeEnv ->
@@ -266,7 +266,7 @@ evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationM
 evaluateModuleScopeWithRequiredEvaluationHostControl ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
   BuiltinResolutionMode ->
   RuntimeEnv ->

@@ -194,8 +194,8 @@ eraseExprMetadata expression =
     EList node items -> EList (eraseNodeMetadata node) (map eraseExprMetadata items)
     ETuple node items -> ETuple (eraseNodeMetadata node) (map eraseExprMetadata items)
     EApply node function argument -> EApply (eraseNodeMetadata node) (eraseExprMetadata function) (eraseExprMetadata argument)
-    ETypeApplication node function spanValue signatureType ->
-      ETypeApplication (eraseNodeMetadata node) (eraseExprMetadata function) spanValue signatureType
+    ETypeApplication node function _ signatureType ->
+      ETypeApplication (eraseNodeMetadata node) (eraseExprMetadata function) (SourceSpan 1 1) signatureType
     EIf node condition trueBranch falseBranch ->
       EIf (eraseNodeMetadata node) (eraseExprMetadata condition) (eraseExprMetadata trueBranch) (eraseExprMetadata falseBranch)
     EPatternCase node scrutinee arms ->

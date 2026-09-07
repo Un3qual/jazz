@@ -107,6 +107,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
 -- ordinary values instead of encoding their owner in a value-name string.
@@ -172,7 +173,7 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
                 prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             evaluateModuleScope
-              (Just (modulePathTexts (preparedModulePath preparedModule)))
+              (Just (NamedSourceUnit (preparedModulePath preparedModule)))
               (preparedModuleEvaluationMode preparedModule)
               builtinMode
               (preparedModuleImportedEnvironment preparedModule)
@@ -188,7 +189,7 @@ evaluatePrelude analyzedPrelude =
     Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScope
-          (Just (modulePathTexts (coreModulePath analyzedModule)))
+          (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
           (preludeBuiltinMode analyzedPrelude)
           Map.empty
@@ -285,7 +286,7 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgra
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
-                  (Just (modulePathTexts (preparedModulePath preparedModule)))
+                  (Just (NamedSourceUnit (preparedModulePath preparedModule)))
                   (preparedModuleEvaluationMode preparedModule)
                   builtinMode
                   (preparedModuleImportedEnvironment preparedModule)
@@ -360,7 +361,7 @@ evaluatePreludeWithEvaluationHost host analyzedPrelude =
       scopeResult <-
         evaluateModuleScopeWithRequiredEvaluationHostControl
           host
-          (Just (modulePathTexts (coreModulePath analyzedModule)))
+          (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
           (preludeBuiltinMode analyzedPrelude)
           Map.empty

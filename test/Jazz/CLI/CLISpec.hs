@@ -342,6 +342,12 @@ testParseModuleGraphOptions = do
 
 testParsePreludePath :: IO ()
 testParsePreludePath = do
+  mapM_
+    ( \flag -> case parseCliOptions ["--prelude", flag] of
+        Left err -> assertContains "missing prelude path" "missing path after --prelude" (renderDiagnostic err)
+        Right _ -> failTest "an option must not be consumed as a prelude path"
+    )
+    ["--run", "--no-prelude"]
   options <-
     case parseCliOptions ["--prelude", "stdlib/Prelude.jz"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)

@@ -171,7 +171,8 @@ expressionConstrainedAs resultType expression =
           { coreNodeFacts =
               (coreNodeFacts node)
                 { expressionRuntimePlan =
-                    RuntimePlan (Seq.singleton (ConstrainResult (fixtureSemanticType resultType)))
+                    let RuntimePlan operations = expressionRuntimePlan (coreNodeFacts node)
+                     in RuntimePlan (operations Seq.|> ConstrainResult (fixtureSemanticType resultType))
                 }
           }
     )

@@ -5,7 +5,6 @@ module Jazz.Compiler.Parser.Foundation.SignaturesTests
   )
 where
 
-import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Literal (..),
   )
@@ -50,9 +49,9 @@ import Jazz.TestCore
   )
 import Jazz.TestHarness
   ( NamedTest,
-    assertContains,
     assertEqual,
     assertRight,
+    failTest,
   )
 
 signatureTests :: [NamedTest]
@@ -73,7 +72,6 @@ signatureTests =
     ("parses constrained signature with empty constraint block", testParseEmptyConstraintBlockSignaturePayload),
     ("parses constrained tuple signature into structured nodes", testParseConstrainedTupleSignaturePayload),
     ("parses explicit type application expression", testParseExplicitTypeApplicationExpression),
-    ("lowers explicit type application expression", testLowerExplicitTypeApplicationExpression),
     ("lowered explicit type application needs no post-pass", testLoweredExplicitTypeApplicationIsCanonical),
     ("lowers tuple literal and signature into analyzer AST", testLowerTupleLiteralAndSignatureProgram),
     ("lowers Unit value and signature into analyzer AST", testLowerUnitValueAndSignature),
@@ -479,26 +477,13 @@ testParseExplicitTypeApplicationExpression =
         result.
         """
     )
-    ( \surfaceProgram -> do
-        let rendered = Text.pack (show surfaceProgram)
-        assertContains "surface type application" "SETypeApplication" rendered
-        assertContains "surface type application argument" "TypeInt" rendered
-    )
-
-testLowerExplicitTypeApplicationExpression :: IO ()
-testLowerExplicitTypeApplicationExpression =
-  assertRight
-    "explicit type application lowering"
-    ( parseSurfaceProgram
-        """
-        result = id @Int 1.
-        result.
-        """
-    )
-    ( \surfaceProgram -> do
-        let rendered = Text.pack (show (lowerSurfaceExpr surfaceProgram))
-        assertContains "lowered type application" "ETypeApplication" rendered
-        assertContains "lowered type application argument" "TypeInt" rendered
+    ( \surfaceProgram ->
+        case surfaceExprForm surfaceProgram of
+          SEBlock [SSLet result _ (SurfaceExpr _ (SEApply (SurfaceExpr _ (SETypeApplication (SurfaceExpr _ (SEVar function)) _ TypeInt)) (SurfaceExpr _ (SELit (SLInt 1))))), SSExpr _ (SurfaceExpr _ (SEVar output))] -> do
+            assertEqual "binding name" "result" result
+            assertEqual "applied function" "id" function
+            assertEqual "result reference" "result" output
+          _ -> failTest "expected result = (id @Int) 1 followed by result"
     )
 
 testLoweredExplicitTypeApplicationIsCanonical :: IO ()
