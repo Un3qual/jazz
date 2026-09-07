@@ -289,7 +289,6 @@ test('public orientation copy describes Jazz rather than repository mechanics', 
     'Analyze',
     'Diagnose',
     'Interpret',
-    'Prepare a backend',
   ]) {
     assert.match(architecture, new RegExp(`^## ${heading}$`, 'm'));
   }

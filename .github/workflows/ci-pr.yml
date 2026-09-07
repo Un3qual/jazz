@@ -91,7 +91,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Cold Nix dependency builds can consume over 20 minutes before tests start.
+    timeout-minutes: 60
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
