@@ -70,7 +70,6 @@ import Jazz.Compiler.ModuleIdentity
   )
 import Jazz.Compiler.ModuleInterface (ModuleInterface)
 import Jazz.Compiler.Name (Identifier)
-import Jazz.Compiler.SemanticFacts (AnalyzedCapabilityFacts)
 
 data DeclaredModuleExports = DeclaredModuleExports
   { declaredModuleExportsSpan :: SourceSpan,
@@ -124,8 +123,7 @@ data AnalyzedModuleFacts = AnalyzedModuleFacts
   { analyzedModuleExports :: ModuleExportInventory,
     analyzedModuleExportSelectors :: Maybe [ModuleExportSelector],
     analyzedModuleInterface :: ModuleInterface,
-    analyzedModuleDiagnostics :: [Diagnostic],
-    analyzedModuleCapabilities :: AnalyzedCapabilityFacts
+    analyzedModuleDiagnostics :: [Diagnostic]
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

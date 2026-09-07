@@ -8,7 +8,7 @@ module Jazz.Compiler.TypeInference.Analyzed
   ( attachAnalyzedExpression,
     attachAnalyzedSourceUnitExpression,
     attachAnalyzedStatementFacts,
-    projectAnalyzedCapabilityFacts,
+    projectAnalyzedMethodSignature,
   )
 where
 
@@ -18,7 +18,6 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
@@ -35,22 +34,19 @@ import Jazz.Compiler.AST
     Literal (..),
     Pattern (..),
     Statement (..),
+    expressionNode,
   )
-import Jazz.Compiler.CapabilityFacts (ConcreteImplFact (..))
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
 import Jazz.Compiler.RecursiveBindings (inferRecursiveGroupsOrdered)
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedCapabilityFacts (..),
-    AnalyzedConcreteImplFact (..),
-    AnalyzedMethodSignature (..),
+  ( AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
     AnalyzedSchemeConstraint (..),
     BinaryOperandTyping (..),
     BinaryOperation (..),
-    CapabilityId (..),
     CoreBinderId (..),
     CoreNodeId,
     EvidenceReference (..),
@@ -89,10 +85,8 @@ import Jazz.Compiler.TypeInference.TypeOps (freeTypeVariables)
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ExpressionType,
-    ImplMethodType (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
-    ScopeCapabilityFacts (..),
     SemanticType (..),
     TypeBinding (..),
     TypeScheme (..),
@@ -529,8 +523,8 @@ projectTypeBinding :: InferState -> CoreBinderId -> TypeBinding -> Either Semant
 projectTypeBinding state binderId@(CoreBinderId (_, nodeId)) binding =
   case binding of
     PlainTypeBinding expressionType -> Right (monomorphicScheme state expressionType)
-    SchemeTypeBinding scheme -> projectScheme state scheme
-    OperatorAliasSchemeTypeBinding _ scheme -> projectScheme state scheme
+    SchemeTypeBinding scheme -> Right (projectScheme state scheme)
+    OperatorAliasSchemeTypeBinding _ scheme -> Right (projectScheme state scheme)
     ConstructorTypeBinding {} -> maybe missingScheme Right (projectConstructorBinding state binding)
     BuiltinAliasTypeBinding {} -> missingScheme
     BuiltinOperatorAliasTypeBinding {} -> missingScheme
@@ -547,7 +541,6 @@ projectConstructorBinding state binding = do
       { analyzedSchemeVariables = Set.toAscList (freeTypeVariables resolvedConstructorType),
         analyzedSchemeConstraints = [],
         analyzedSchemePrimitiveConstraints = [],
-        analyzedSchemeDefiningCapabilities = emptyAnalyzedCapabilityFacts,
         analyzedSchemeType = resolvedConstructorType
       }
 
@@ -557,21 +550,17 @@ monomorphicScheme state expressionType =
     { analyzedSchemeVariables = [],
       analyzedSchemeConstraints = [],
       analyzedSchemePrimitiveConstraints = [],
-      analyzedSchemeDefiningCapabilities = emptyAnalyzedCapabilityFacts,
       analyzedSchemeType = resolveType state expressionType
     }
 
-projectScheme :: InferState -> TypeScheme -> Either SemanticFactInvariantFailure AnalyzedScheme
-projectScheme state scheme = do
-  capabilities <- projectAnalyzedCapabilityFacts state (schemeDefiningCapabilities scheme)
-  pure
-    AnalyzedScheme
-      { analyzedSchemeVariables = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme),
-        analyzedSchemeConstraints = map (projectSchemeConstraint state) (schemeClassConstraints scheme),
-        analyzedSchemePrimitiveConstraints = map (projectPrimitiveConstraint state) (schemePrimitiveConstraints scheme),
-        analyzedSchemeDefiningCapabilities = capabilities,
-        analyzedSchemeType = resolveType state (schemeResultType scheme)
-      }
+projectScheme :: InferState -> TypeScheme -> AnalyzedScheme
+projectScheme state scheme =
+  AnalyzedScheme
+    { analyzedSchemeVariables = quantifiedVariablesOrderedList (schemeQuantifiedVariables scheme),
+      analyzedSchemeConstraints = map (projectSchemeConstraint state) (schemeClassConstraints scheme),
+      analyzedSchemePrimitiveConstraints = map (projectPrimitiveConstraint state) (schemePrimitiveConstraints scheme),
+      analyzedSchemeType = resolveType state (schemeResultType scheme)
+    }
 
 projectSchemeConstraint :: InferState -> TypeSchemeConstraint -> AnalyzedSchemeConstraint
 projectSchemeConstraint state constraint =
@@ -597,27 +586,6 @@ projectNumericConstraint constraint =
     IntegralNumericConstraint -> AnalyzedIntegralNumericConstraint
     IntegralLiteralNumericConstraint (IntegerLiteralRange lower upper) -> AnalyzedIntegralLiteralNumericConstraint lower upper
 
-projectAnalyzedCapabilityFacts :: InferState -> ScopeCapabilityFacts -> Either SemanticFactInvariantFailure AnalyzedCapabilityFacts
-projectAnalyzedCapabilityFacts state facts = do
-  methods <- Map.traverseWithKey (projectAnalyzedMethodSignature state) (scopeClassMethodSignatures facts)
-  pure
-    AnalyzedCapabilityFacts
-      { analyzedClassArities = scopeClassFacts facts,
-        analyzedGeneratedEqualityClasses = scopeGeneratedEqualityClassFacts facts,
-        analyzedConcreteImplementations =
-          Set.fromList
-            (mapMaybe projectConcreteImpl (Set.toList (scopeConcreteImplFacts facts))),
-        analyzedClassMethodSignatures = methods,
-        analyzedConcreteImplMethods = Map.map (mapMaybe projectImplMethod) (scopeConcreteImplMethods facts)
-      }
-  where
-    projectConcreteImpl (ConcreteImplFact capabilityName signatureType) =
-      case Signature.signatureTypeToExpressionType state Map.empty signatureType of
-        Left _ -> Nothing
-        Right expressionType -> Just (AnalyzedConcreteImplFact (CapabilityId capabilityName) (resolveType state expressionType))
-    projectImplMethod (ImplMethodType signatureType) =
-      either (const Nothing) (Just . resolveType state) (Signature.signatureTypeToExpressionType state Map.empty signatureType)
-
 projectAnalyzedMethodSignature :: InferState -> Text -> ClassMethodType -> Either SemanticFactInvariantFailure AnalyzedMethodSignature
 projectAnalyzedMethodSignature state methodName (ClassMethodType parameter payload) = do
   signatureType <- case payload of
@@ -638,10 +606,6 @@ projectAnalyzedMethodSignature state methodName (ClassMethodType parameter paylo
       }
   where
     failure = InvalidAnalyzedMethodSignature methodName
-
-emptyAnalyzedCapabilityFacts :: AnalyzedCapabilityFacts
-emptyAnalyzedCapabilityFacts =
-  AnalyzedCapabilityFacts Map.empty Set.empty Set.empty Map.empty Map.empty
 
 statementEnvironments :: ModulePath -> Map ResolvedName CoreBinderId -> [Statement 'Resolved] -> [(Map ResolvedName CoreBinderId, Statement 'Resolved)]
 statementEnvironments modulePath outerBinders statements =
@@ -703,21 +667,3 @@ extendPatternBinders modulePath = go
 insertBinder :: ModulePath -> ResolvedName -> CoreNode 'Resolved (sort :: CoreSort) -> Map ResolvedName CoreBinderId -> Map ResolvedName CoreBinderId
 insertBinder modulePath name node =
   Map.insert name (CoreBinderId (modulePath, coreNodeId node))
-
-expressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
-expressionNode expression =
-  case expression of
-    ELit node _ -> node
-    EVar node _ -> node
-    ELambda node _ _ -> node
-    EOperatorValue node _ -> node
-    EList node _ -> node
-    ETuple node _ -> node
-    EApply node _ _ -> node
-    ETypeApplication node _ _ _ -> node
-    EIf node _ _ _ -> node
-    EPatternCase node _ _ -> node
-    EBinary node _ _ _ -> node
-    ESectionLeft node _ _ -> node
-    ESectionRight node _ _ -> node
-    EBlock node _ -> node

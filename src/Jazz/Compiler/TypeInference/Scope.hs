@@ -30,13 +30,13 @@ import Jazz.Compiler.AST
     CoreNode (coreNodeId, coreNodeSpan),
     CoreNodeId,
     CorePhase (..),
-    CoreSort (ExpressionSort),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
     Literal (..),
     SignatureType,
     Statement (..),
+    expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -164,7 +164,7 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
             maybe inferredState (\expressionType -> recordExpressionFactType nodeId expressionType inferredState) result
           )
   where
-    nodeId = coreNodeId (resolvedExpressionNode expr)
+    nodeId = coreNodeId (expressionNode expr)
 
 inferExprTypeWithExpectedModeRaw ::
   InferExprWithModeFn ->
@@ -215,24 +215,6 @@ inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expe
                 Just checkedState <- unifyTypes expectedType expressionType nextState ->
                   (specializeExpectedType checkedState expectedType <$> inferred, checkedState)
             _ -> (inferred, nextState)
-
-resolvedExpressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
-resolvedExpressionNode expr =
-  case expr of
-    ELit node _ -> node
-    EVar node _ -> node
-    ELambda node _ _ -> node
-    EOperatorValue node _ -> node
-    EList node _ -> node
-    ETuple node _ -> node
-    EApply node _ _ -> node
-    ETypeApplication node _ _ _ -> node
-    EIf node _ _ _ -> node
-    EPatternCase node _ _ -> node
-    EBinary node _ _ _ -> node
-    ESectionLeft node _ _ -> node
-    ESectionRight node _ _ -> node
-    EBlock node _ -> node
 
 firstInvalidImplTarget :: InferState -> SourceSpan -> [SignatureType 'Resolved] -> Maybe Diagnostic
 firstInvalidImplTarget state implSpan =
@@ -488,7 +470,7 @@ inferScopeTypeInternal
           _ -> binding
         where
           generalizedAliasBinding =
-            case Map.lookup (coreNodeId (resolvedExpressionNode valueExpr)) (inferExpressionFactTypes state) of
+            case Map.lookup (coreNodeId (expressionNode valueExpr)) (inferExpressionFactTypes state) of
               Nothing -> binding
               Just inferredType ->
                 let resolvedType = resolveType state inferredType

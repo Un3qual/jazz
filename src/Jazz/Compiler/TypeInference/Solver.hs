@@ -54,7 +54,7 @@ import Jazz.Compiler.TypeInference.Types
     SemanticType (..),
     instantiateConstructorFieldType,
   )
-import Jazz.Compiler.TypeRepresentation (NumericType (..))
+import Jazz.Compiler.TypeRepresentation (NumericType (..), substituteSemanticVariables)
 
 freshTypeVar :: InferState -> (ExpressionType, InferState)
 freshTypeVar state =
@@ -93,26 +93,11 @@ resolveType :: InferState -> ExpressionType -> ExpressionType
 resolveType state = applySubstitution (inferSubst state)
 
 applySubstitution :: Map.Map InferenceVariable ExpressionType -> ExpressionType -> ExpressionType
-applySubstitution substitution expressionType =
-  case expressionType of
-    SemanticInt -> SemanticInt
-    SemanticFloat -> SemanticFloat
-    SemanticNumeric numericType -> SemanticNumeric numericType
-    SemanticBool -> SemanticBool
-    SemanticChar -> SemanticChar
-    SemanticText -> SemanticText
-    SemanticList elementType -> SemanticList (applySubstitution substitution elementType)
-    SemanticTuple elementTypes -> SemanticTuple (map (applySubstitution substitution) elementTypes)
-    SemanticData typeName typeArguments ->
-      SemanticData typeName (map (applySubstitution substitution) typeArguments)
-    SemanticFunction inputType outputType ->
-      SemanticFunction
-        (applySubstitution substitution inputType)
-        (applySubstitution substitution outputType)
-    SemanticVariable typeVar ->
-      case Map.lookup typeVar substitution of
-        Just replacementType -> applySubstitution substitution replacementType
-        Nothing -> SemanticVariable typeVar
+applySubstitution substitution = resolve
+  where
+    resolve = substituteSemanticVariables replace
+    replace variable =
+      maybe (SemanticVariable variable) resolve (Map.lookup variable substitution)
 
 unifyTypes :: ExpressionType -> ExpressionType -> InferState -> Maybe InferState
 unifyTypes leftType rightType state =

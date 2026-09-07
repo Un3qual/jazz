@@ -8,8 +8,6 @@
 -- inference and runtime populate or consume it in later phases.
 module Jazz.Compiler.SemanticFacts
   ( AnalyzedType,
-    AnalyzedCapabilityFacts (..),
-    AnalyzedConcreteImplFact (..),
     AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
@@ -41,7 +39,6 @@ import Control.DeepSeq (NFData)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
-import Data.Set (Set)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.ModuleIdentity (ModulePath)
@@ -214,7 +211,6 @@ data AnalyzedScheme = AnalyzedScheme
   { analyzedSchemeVariables :: [InferenceVariable],
     analyzedSchemeConstraints :: [AnalyzedSchemeConstraint],
     analyzedSchemePrimitiveConstraints :: [AnalyzedPrimitiveConstraint],
-    analyzedSchemeDefiningCapabilities :: AnalyzedCapabilityFacts,
     analyzedSchemeType :: AnalyzedType
   }
   deriving stock (Eq, Generic, Ord, Show)
@@ -242,28 +238,6 @@ data AnalyzedNumericConstraint
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
--- | Neutral semantic projection of the capability environment captured by a
--- generalized scheme. Task 9 constructs this projection from inference-owned
--- facts; retaining it here prevents analyzed statements from depending on
--- solver state while preserving every entailment input the current scheme
--- representation owns.
-data AnalyzedCapabilityFacts = AnalyzedCapabilityFacts
-  { analyzedClassArities :: Map Text Int,
-    analyzedGeneratedEqualityClasses :: Set Text,
-    analyzedConcreteImplementations :: Set AnalyzedConcreteImplFact,
-    analyzedClassMethodSignatures :: Map Text AnalyzedMethodSignature,
-    analyzedConcreteImplMethods :: Map Text [AnalyzedType]
-  }
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-data AnalyzedConcreteImplFact = AnalyzedConcreteImplFact CapabilityId AnalyzedType
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
--- | The class parameter is an explicit binder local to this signature, even
--- when the method does not use it. No other free variables are admitted by
--- checked projection; consumers never infer parameter identity from type shape.
 data AnalyzedMethodSignature = AnalyzedMethodSignature
   { analyzedMethodClassParameter :: InferenceVariable,
     analyzedMethodType :: AnalyzedType

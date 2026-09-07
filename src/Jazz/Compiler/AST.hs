@@ -15,11 +15,11 @@ module Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
     CoreNameAt,
-    CorePhaseNames (..),
     CoreNode (..),
     CoreNodeId (..),
     CorePhase (..),
     CoreSort (..),
+    CoreUserNameAt,
     DataConstructor (..),
     Expr (..),
     FactsAt,
@@ -32,6 +32,9 @@ module Jazz.Compiler.AST
     SignatureToken,
     SignatureType,
     Statement (..),
+    expressionNode,
+    patternNode,
+    statementNode,
   )
 where
 
@@ -42,9 +45,9 @@ import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics (SourceSpan)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
 import Jazz.Compiler.Name
-  ( ResolvedName,
-    UnresolvedName,
-    operatorBindingName,
+  ( Name,
+    ResolvedUserName,
+    SourceName,
   )
 import Jazz.Compiler.SemanticFacts
   ( CoreNodeId (..),
@@ -58,22 +61,12 @@ data CorePhase = Lowered | Resolved | Analyzed
 
 data CoreSort = ExpressionSort | PatternSort | StatementSort
 
-type family CoreNameAt (phase :: CorePhase) :: Type where
-  CoreNameAt 'Lowered = UnresolvedName
-  CoreNameAt 'Resolved = ResolvedName
-  CoreNameAt 'Analyzed = ResolvedName
+type family CoreUserNameAt (phase :: CorePhase) :: Type where
+  CoreUserNameAt 'Lowered = SourceName
+  CoreUserNameAt 'Resolved = ResolvedUserName
+  CoreUserNameAt 'Analyzed = ResolvedUserName
 
-class (Ord (CoreNameAt phase)) => CorePhaseNames (phase :: CorePhase) where
-  coreOperatorBindingName :: proxy phase -> Text -> CoreNameAt phase
-
-instance CorePhaseNames 'Lowered where
-  coreOperatorBindingName _ = operatorBindingName
-
-instance CorePhaseNames 'Resolved where
-  coreOperatorBindingName _ = operatorBindingName
-
-instance CorePhaseNames 'Analyzed where
-  coreOperatorBindingName _ = operatorBindingName
+type CoreNameAt phase = Name (CoreUserNameAt phase)
 
 type family FactsAt (phase :: CorePhase) (sort :: CoreSort) :: Type where
   FactsAt 'Lowered sort = ()
@@ -200,6 +193,48 @@ data Statement (phase :: CorePhase)
   deriving stock (Generic)
 
 type role Statement nominal
+
+expressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
+expressionNode expression =
+  case expression of
+    ELit node _ -> node
+    EVar node _ -> node
+    ELambda node _ _ -> node
+    EOperatorValue node _ -> node
+    EList node _ -> node
+    ETuple node _ -> node
+    EApply node _ _ -> node
+    ETypeApplication node _ _ _ -> node
+    EIf node _ _ _ -> node
+    EPatternCase node _ _ -> node
+    EBinary node _ _ _ -> node
+    ESectionLeft node _ _ -> node
+    ESectionRight node _ _ -> node
+    EBlock node _ -> node
+
+patternNode :: Pattern phase -> CoreNode phase 'PatternSort
+patternNode pattern = case pattern of
+  PWildcard node -> node
+  PVariable node _ -> node
+  PLiteral node _ -> node
+  PConstructor node _ _ -> node
+  PList node _ -> node
+  PConsList node _ _ -> node
+  PTuple node _ -> node
+  PAs node _ _ -> node
+  POr node _ -> node
+
+statementNode :: Statement phase -> CoreNode phase 'StatementSort
+statementNode statement =
+  case statement of
+    SLet node _ _ -> node
+    SSignature node _ _ -> node
+    SData node _ _ _ -> node
+    SClass node _ _ _ -> node
+    SImpl node _ _ _ -> node
+    SModule node _ -> node
+    SImport node _ _ _ -> node
+    SExpr node _ -> node
 
 type CoreEq phase =
   ( Eq (CoreNameAt phase),

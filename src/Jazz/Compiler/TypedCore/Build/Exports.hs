@@ -233,6 +233,7 @@ sourceOrderedExports publicInventory selectors analyzedStatements =
     sourceOrderedDeclarations =
       concatMap statementExports analyzedStatements
 
+    statementExports :: Statement 'Analyzed -> [ModuleExport]
     statementExports statement =
       case statement of
         SLet _ name _

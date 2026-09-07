@@ -6,7 +6,6 @@ module Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
     instantiateTypeSchemeConstraint,
     instantiateTypeSchemePrimitiveConstraint,
-    mergedUnifiedType,
     replaceTypeVariables,
   )
 where
@@ -15,8 +14,6 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Jazz.Compiler.TypeInference.Solver (resolveType)
-import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
     InferenceVariable,
@@ -83,6 +80,3 @@ instantiateTypeSchemePrimitiveConstraint replacements primitiveConstraint =
       TypeSchemeNumericConstraint numericConstraint (replaceTypeVariables replacements argumentType)
     TypeSchemeStrictEqualityConstraint argumentType ->
       TypeSchemeStrictEqualityConstraint (replaceTypeVariables replacements argumentType)
-
-mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-mergedUnifiedType state leftType _ = resolveType state leftType

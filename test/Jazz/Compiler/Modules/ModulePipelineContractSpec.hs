@@ -127,8 +127,7 @@ import Jazz.Compiler.RuntimeHost
     productionRuntimeHost,
   )
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedCapabilityFacts (..),
-    AnalyzedMethodSignature (..),
+  ( AnalyzedMethodSignature (..),
     AnalyzedNumericConstraint (..),
     AnalyzedPrimitiveConstraint (..),
     AnalyzedScheme (..),
@@ -151,7 +150,7 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedCapabilityFacts)
+import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedMethodSignature)
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -171,7 +170,6 @@ import Jazz.Compiler.TypeInference.Types
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
-    ScopeCapabilityFacts (..),
     SemanticType (..),
     TypeBinding (..),
     TypeScheme (..),
@@ -408,7 +406,6 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
             "analyzed module diagnostics"
             []
             (analyzedModuleDiagnostics (coreModuleFacts analyzedModule))
-          assertModuleCapabilityFacts analyzedModule
           assertExprFacts (coreModuleExpr analyzedModule)
           mapM_ assertImportFacts (coreModuleImports analyzedModule)
 
@@ -419,15 +416,6 @@ assertAnalyzedProgramFacts resolvedProgram analyzedProgram = do
             ImportDeclaration _ -> pure ()
             declarationFact -> fail ("unexpected analyzed import declaration fact: " <> show declarationFact)
 
-    assertModuleCapabilityFacts analyzedModule
-      | coreModulePath analyzedModule == nominalModulePath ("Lib" :| ["Facts"]) = do
-          let capabilityFacts = analyzedModuleCapabilities (coreModuleFacts analyzedModule)
-          assertEqual "analyzed class arity" (Just 1) (Map.lookup "Eq" (analyzedClassArities capabilityFacts))
-          assertEqual "analyzed concrete implementation inventory is populated" False (Set.null (analyzedConcreteImplementations capabilityFacts))
-          assertEqual "analyzed class method signature is populated" True (Map.member "Eq::equals" (analyzedClassMethodSignatures capabilityFacts))
-          assertEqual "analyzed implementation method inventory is populated" True (Map.member "Eq::equals" (analyzedConcreteImplMethods capabilityFacts))
-      | otherwise = pure ()
-
 testAnalyzedMethodParameterIdentity :: IO ()
 testAnalyzedMethodParameterIdentity = do
   (_, analyzed) <-
@@ -437,9 +425,13 @@ testAnalyzedMethodParameterIdentity = do
           "module App::Main { class Probe(a) { nested :: [a] -> [a]. constant :: Int -> Bool. }. 0. }"
       )
   let methods =
-        analyzedClassMethodSignatures
-          (analyzedModuleCapabilities (coreModuleFacts (NonEmpty.head (coreProgramModules analyzed))))
-  case (Map.lookup "Probe::nested" methods, Map.lookup "Probe::constant" methods) of
+        Map.fromList
+          [ (identifierText name, signature)
+          | SClass _ _ _ declarations <- coreModuleStatements (NonEmpty.head (coreProgramModules analyzed)),
+            ClassMethodSignature node name _ <- declarations,
+            MethodDeclaration _ signature <- [statementDeclarationFact (coreNodeFacts node)]
+          ]
+  case (Map.lookup "nested" methods, Map.lookup "constant" methods) of
     (Just nested, Just constant) -> do
       let parameter = SemanticVariable (analyzedMethodClassParameter nested)
       assertEqual
@@ -466,12 +458,7 @@ testAnalyzedMethodParameterBoundary =
       assertEqual
         "an unexpected variable fails projection instead of dropping or guessing the binder"
         (Left (InvalidAnalyzedMethodSignature "Probe::bad"))
-        (projectAnalyzedCapabilityFacts initialInferState (invalidFacts signatureType))
-    invalidFacts signatureType =
-      emptyScopeCapabilityFacts
-        { scopeClassMethodSignatures =
-            Map.singleton "Probe::bad" (ClassMethodType "a" (SignatureType signatureType))
-        }
+        (projectAnalyzedMethodSignature initialInferState "Probe::bad" (ClassMethodType "a" (SignatureType signatureType)))
 
 testAnalyzedFactInvariantFailures :: IO ()
 testAnalyzedFactInvariantFailures = do

@@ -24,11 +24,13 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CoreNode (..),
     CorePhase (..),
-    CoreSort (ExpressionSort, StatementSort),
+    CoreSort (StatementSort),
     Expr (EBlock),
     SignaturePayload,
     SignatureType,
     Statement (..),
+    expressionNode,
+    statementNode,
   )
 import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
@@ -81,8 +83,7 @@ import Jazz.Compiler.Name
     sourceName,
   )
 import Jazz.Compiler.SemanticFacts
-  ( AnalyzedCapabilityFacts,
-    CoreBinderId,
+  ( CoreBinderId,
     CoreNodeId,
     SemanticFactInvariantFailure (..),
     StatementDeclarationFact (..),
@@ -92,15 +93,10 @@ import Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     analyzeExpressionWithInputs,
   )
-import Jazz.Compiler.TypeInference.Analyzed (projectAnalyzedCapabilityFacts)
-import Jazz.Compiler.TypeInference.Capabilities (applyCapabilityFacts)
 import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule)
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.State
-  ( DeclarationState (..),
-    ImplementationEvidenceCandidate (..),
-    InferState (..),
-    initialInferState,
+  ( ImplementationEvidenceCandidate (..),
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
@@ -275,7 +271,6 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
   case analyzedExpression of
     EBlock bodyNode statements -> do
       analyzedImports <- traverse (analyzedImport statementFactsByNode) (coreModuleImports resolvedModule)
-      capabilities <- analyzedCapabilities moduleInterface
       pure
         ( ModuleGraph.CoreModule
             { ModuleGraph.coreModuleIdentity = coreModuleIdentity resolvedModule,
@@ -287,8 +282,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
                   { ModuleGraph.analyzedModuleExports = ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleExportSelectors = ModuleGraph.resolvedModuleExportSelectors (coreModuleFacts resolvedModule),
                     ModuleGraph.analyzedModuleInterface = moduleInterface,
-                    ModuleGraph.analyzedModuleDiagnostics = inferredDiagnostics inference,
-                    ModuleGraph.analyzedModuleCapabilities = capabilities
+                    ModuleGraph.analyzedModuleDiagnostics = inferredDiagnostics inference
                   }
             }
         )
@@ -303,7 +297,7 @@ analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analy
                 ]
             )
         moduleInterface = inferredModuleInterface inference
-    _ -> Left (AnalyzedModuleRootNotBlock (coreNodeId (analyzedExpressionNode analyzedExpression)))
+    _ -> Left (AnalyzedModuleRootNotBlock (coreNodeId (expressionNode analyzedExpression)))
 
 analyzedImport :: Map CoreNodeId StatementFacts -> ModuleImport 'Resolved -> Either SemanticFactInvariantFailure (ModuleImport 'Analyzed)
 analyzedImport factsByNode importDecl =
@@ -319,36 +313,6 @@ analyzedImport factsByNode importDecl =
                 ModuleGraph.importAlias = ModuleGraph.importAlias importDecl,
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
-
-analyzedExpressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
-analyzedExpressionNode expression =
-  case expression of
-    AST.ELit node _ -> node
-    AST.EVar node _ -> node
-    AST.ELambda node _ _ -> node
-    AST.EOperatorValue node _ -> node
-    AST.EList node _ -> node
-    AST.ETuple node _ -> node
-    AST.EApply node _ _ -> node
-    AST.ETypeApplication node _ _ _ -> node
-    AST.EIf node _ _ _ -> node
-    AST.EPatternCase node _ _ -> node
-    AST.EBinary node _ _ _ -> node
-    AST.ESectionLeft node _ _ -> node
-    AST.ESectionRight node _ _ -> node
-    AST.EBlock node _ -> node
-
-statementNode :: Statement phase -> CoreNode phase 'StatementSort
-statementNode statement =
-  case statement of
-    AST.SLet node _ _ -> node
-    AST.SSignature node _ _ -> node
-    AST.SData node _ _ _ -> node
-    AST.SClass node _ _ _ -> node
-    AST.SImpl node _ _ _ -> node
-    AST.SModule node _ -> node
-    AST.SImport node _ _ _ -> node
-    AST.SExpr node _ -> node
 
 moduleBinderInventory :: CoreModule 'Analyzed -> Map ModuleExport CoreBinderId
 moduleBinderInventory coreModule =
@@ -376,27 +340,6 @@ moduleEvidenceCandidates coreModule =
   implementationEvidenceCandidatesInModule
     (coreModulePath coreModule)
     (coreModuleExpr coreModule)
-
-analyzedCapabilities :: ModuleInterface -> Either SemanticFactInvariantFailure AnalyzedCapabilityFacts
-analyzedCapabilities moduleInterface =
-  projectAnalyzedCapabilityFacts projectionState capabilityFacts
-  where
-    capabilityFacts =
-      ScopeCapabilityFacts
-        { scopeClassFacts = interfaceClassFacts moduleInterface,
-          scopeGeneratedEqualityClassFacts = interfaceGeneratedEqualityClassFacts moduleInterface,
-          scopeConcreteImplFacts = interfaceConcreteImplFacts moduleInterface,
-          scopeClassMethodSignatures = interfaceClassMethods moduleInterface,
-          scopeConcreteImplMethods = interfaceConcreteImplMethods moduleInterface
-        }
-    stateWithDataTypes =
-      initialInferState
-        { inferDeclarations =
-            (inferDeclarations initialInferState)
-              { declarationDataTypes = interfaceDataTypes moduleInterface
-              }
-        }
-    projectionState = applyCapabilityFacts capabilityFacts stateWithDataTypes
 
 dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map ModuleExport CoreBinderId, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface
 dependencyImportInterface importDecl (publicInventory, moduleInterface, binderIds, evidenceCandidates) =

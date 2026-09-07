@@ -34,14 +34,13 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( CoreNode,
-    CorePhase (..),
-    CoreSort (ExpressionSort),
+  ( CorePhase (..),
     DataConstructor (..),
     Expr (..),
     Literal (..),
     Statement (..),
     coreNodeId,
+    expressionNode,
   )
 import Jazz.Compiler.Analyzer
   ( AnalysisBinding (..),
@@ -171,7 +170,6 @@ import Jazz.Compiler.TypeInference.State
     reservePatternCoverageSite,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferenceMode (..))
-import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding,
     ExpressionType,
@@ -690,6 +688,7 @@ declaredModuleNames expression =
     EBlock _ statements -> foldl' collect (Set.empty, Set.empty) statements
     _ -> (Set.empty, Set.empty)
   where
+    collect :: (Set ResolvedName, Set Text) -> Statement 'Resolved -> (Set ResolvedName, Set Text)
     collect (valueNames, dataTypeNames) statement =
       case statement of
         SLet _ name _
@@ -719,24 +718,6 @@ inferExpressionDefault =
         requestedModuleStatementFacts = [],
         requestedImplementationEvidenceCandidates = Map.empty
       }
-
-expressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
-expressionNode expr =
-  case expr of
-    ELit node _ -> node
-    EVar node _ -> node
-    ELambda node _ _ -> node
-    EOperatorValue node _ -> node
-    EList node _ -> node
-    ETuple node _ -> node
-    EApply node _ _ -> node
-    ETypeApplication node _ _ _ -> node
-    EIf node _ _ _ -> node
-    EPatternCase node _ _ -> node
-    EBinary node _ _ _ -> node
-    ESectionLeft node _ _ -> node
-    ESectionRight node _ _ -> node
-    EBlock node _ -> node
 
 instantiateEnvBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
 instantiateEnvBinding binding state =
@@ -1131,7 +1112,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
             (Just inferredThenType, Just inferredElseType) ->
               case unifyTypes inferredThenType inferredElseType stateAfterConditionCheck of
                 Just unifiedState ->
-                  (Just (mergedUnifiedType unifiedState inferredThenType inferredElseType), unifiedState)
+                  (Just (resolveType unifiedState inferredThenType), unifiedState)
                 Nothing ->
                   ( Nothing,
                     addTypeError
@@ -1302,7 +1283,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                 case unifyTypes inferredExpectedType inferredActualType stateAfterElement of
                   Just unifiedState ->
                     ( Just
-                        (mergedUnifiedType unifiedState inferredExpectedType inferredActualType),
+                        (resolveType unifiedState inferredExpectedType),
                       unifiedState
                     )
                   Nothing ->

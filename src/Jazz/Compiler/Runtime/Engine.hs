@@ -55,6 +55,7 @@ import Jazz.Compiler.AST
     Expr (..),
     ImplMethod (..),
     Statement (..),
+    expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinResolutionMode (..),
@@ -2103,24 +2104,7 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
           pure currentValue
 
 expressionRuntimePlanOf :: Expr 'Analyzed -> RuntimePlan
-expressionRuntimePlanOf expression =
-  case expression of
-    ELit node _ -> plan node
-    EVar node _ -> plan node
-    ELambda node _ _ -> plan node
-    EOperatorValue node _ -> plan node
-    EList node _ -> plan node
-    ETuple node _ -> plan node
-    EApply node _ _ -> plan node
-    ETypeApplication node _ _ _ -> plan node
-    EIf node _ _ _ -> plan node
-    EPatternCase node _ _ -> plan node
-    EBinary node _ _ _ -> plan node
-    ESectionLeft node _ _ -> plan node
-    ESectionRight node _ _ -> plan node
-    EBlock node _ -> plan node
-  where
-    plan = expressionRuntimePlan . coreNodeFacts
+expressionRuntimePlanOf = expressionRuntimePlan . coreNodeFacts . expressionNode
 
 applyExpressionRuntimePlan :: Maybe [Text] -> RuntimePlan -> RuntimeValue -> Either Diagnostic RuntimeValue
 applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =

@@ -152,6 +152,7 @@ collectPreludeExports :: CoreModule 'Lowered -> ModuleExportInventory
 collectPreludeExports coreModule =
   exportInventory (concatMap statementExports (coreModuleStatements coreModule))
   where
+    statementExports :: Statement 'Lowered -> [ModuleExport]
     statementExports statement =
       case statement of
         SLet _ name _ ->

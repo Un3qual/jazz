@@ -21,6 +21,7 @@ import Jazz.Compiler.AST
     CorePhase (..),
     Literal (..),
     Pattern (..),
+    patternNode,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
@@ -29,8 +30,7 @@ import Jazz.Compiler.Pattern
     patternBinderNames,
   )
 import Jazz.Compiler.SemanticFacts
-  ( CoreNodeId,
-    PatternConstructorFact (..),
+  ( PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
   )
@@ -52,7 +52,6 @@ import Jazz.Compiler.TypeInference.State
     recordPatternFactSeed,
   )
 import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode)
-import Jazz.Compiler.TypeInference.TypeOps (mergedUnifiedType)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     ExpressionType,
@@ -106,7 +105,7 @@ inferPatternCaseType inferExpression mode builtinMode env scrutineeType initialS
                     (Just inferredExpectedBodyType, Just inferredBodyType) ->
                       case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBodyFacts of
                         Just unifiedState ->
-                          (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState)
+                          (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
                         Nothing ->
                           ( Just inferredExpectedBodyType,
                             addTypeError
@@ -257,7 +256,7 @@ inferPatternType env scrutineeType pattern state =
             patternConstructorFact = patternConstructor pattern,
             patternRefutability = patternRefutabilityFact pattern
           }
-   in (typing, recordPatternFactSeed (patternNodeId pattern) facts inferredState)
+   in (typing, recordPatternFactSeed (coreNodeId (patternNode pattern)) facts inferredState)
 
 inferPatternTypeRaw :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
 inferPatternTypeRaw env scrutineeType pattern state =
@@ -313,19 +312,6 @@ inferPatternTypeRaw env scrutineeType pattern state =
 
 resolvedPatternBindingMap :: InferState -> PatternBindings -> Map ResolvedName ExpressionType
 resolvedPatternBindingMap state (PatternBindings bindings) = Map.map (resolveType state) bindings
-
-patternNodeId :: Pattern phase -> CoreNodeId
-patternNodeId pattern =
-  coreNodeId $ case pattern of
-    PVariable node _ -> node
-    PWildcard node -> node
-    PLiteral node _ -> node
-    PConstructor node _ _ -> node
-    PList node _ -> node
-    PConsList node _ _ -> node
-    PTuple node _ -> node
-    PAs node _ _ -> node
-    POr node _ -> node
 
 patternConstructor :: Pattern 'Resolved -> PatternConstructorFact
 patternConstructor pattern =

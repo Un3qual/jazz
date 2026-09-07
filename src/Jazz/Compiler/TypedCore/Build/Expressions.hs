@@ -24,7 +24,7 @@ import Data.Either (partitionEithers)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST (CaseArm (..), CoreNode (..), CoreNodeId, CorePhase (Analyzed), Expr (..), ImplMethod (..), Literal (..), Pattern (..), Statement (..))
+import Jazz.Compiler.AST (CaseArm (..), CoreNode (..), CoreNodeId, CorePhase (Analyzed), Expr (..), ImplMethod (..), Literal (..), Pattern (..), Statement (..), expressionNode)
 import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly), BuiltinSymbol (BuiltinTextAppend, BuiltinTextAppendChar, BuiltinTextLength), builtinSymbolArity, builtinSymbolKernelName, lookupBuiltinSymbolInMode, numericTypeIntegerBounds, numericTypeIsIntegral)
 import Jazz.Compiler.FractionalLiteral (fractionalLiteralSourceParts)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
@@ -424,21 +424,7 @@ concreteIntegral expressionType = case expressionType of
   _ -> Nothing
 
 expressionFacts :: Expr 'Analyzed -> ExpressionFacts
-expressionFacts expression = case expression of
-  ELit node _ -> coreNodeFacts node
-  EVar node _ -> coreNodeFacts node
-  ELambda node _ _ -> coreNodeFacts node
-  EOperatorValue node _ -> coreNodeFacts node
-  EList node _ -> coreNodeFacts node
-  ETuple node _ -> coreNodeFacts node
-  EApply node _ _ -> coreNodeFacts node
-  ETypeApplication node _ _ _ -> coreNodeFacts node
-  EIf node _ _ _ -> coreNodeFacts node
-  EPatternCase node _ _ -> coreNodeFacts node
-  EBinary node _ _ _ -> coreNodeFacts node
-  ESectionLeft node _ _ -> coreNodeFacts node
-  ESectionRight node _ _ -> coreNodeFacts node
-  EBlock node _ -> coreNodeFacts node
+expressionFacts = coreNodeFacts . expressionNode
 
 findExpression :: CoreNodeId -> Expr 'Analyzed -> Maybe (Expr 'Analyzed)
 findExpression requested expression =

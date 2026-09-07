@@ -10,16 +10,13 @@ public behavior.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
-| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| id                                    | title                                    | priority | size | kind   | autonomous_ready | depends_on | plan                                                                    | plan_section     | target_paths                                                                                                     | deliverable                                                                                                          | verification                                                                                                                                | last_verified |
+| ------------------------------------- | ---------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ----------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
+| `JN-COMPILER-ARCHITECTURE-REVIEW-001` | Apply approved architecture review fixes | `P1`     | `M`  | `impl` | `yes`            | `-`        | [review follow-up](../plans/2026-09-07-architecture-review-followup.md) | `Approved fixes` | `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/TypeInference/Analyzed.hs`, `src/Jazz/Compiler/Runtime/Engine.hs` | Remove unused analyzed data and repeated compiler plumbing; execute runtime evidence once while preserving behavior. | `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --jobs=1` | `2026-09-07`  |
 
-Current executor status (`2026-09-04`, terminal):
-Compiler architecture Tasks 1-15 are complete and verified at `daea3d1a`.
-The full development, example, repository, and Nix gates pass. There is no
-source-backed next curation target under accepted contracts and no named
-candidate currently. Ready Now is empty; Next Curation Target is also empty. Further
-Typed Core profiles and any interpreter cutover require a separately accepted
-child; ordinary execution remains on analyzed core.
+Current executor status (`2026-09-07`, active):
+The maintainer approved the five architecture review fixes. Execute the linked
+follow-up inline; preserve ordinary language behavior and the analyzed interpreter.
 
 ## Next Curation Target
 
