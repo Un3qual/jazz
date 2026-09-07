@@ -10,13 +10,14 @@ public behavior.
 
 `Ready Now` should contain implementation-first entries by default. `kind: docs` or `kind: coordination` items belong here only when they are the smallest verified unblocker for the next implementation batch.
 
-| id                                    | title                                    | priority | size | kind   | autonomous_ready | depends_on | plan                                                                    | plan_section     | target_paths                                                                                                     | deliverable                                                                                                          | verification                                                                                                                                | last_verified |
-| ------------------------------------- | ---------------------------------------- | -------- | ---- | ------ | ---------------- | ---------- | ----------------------------------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------- |
-| `JN-COMPILER-ARCHITECTURE-REVIEW-001` | Apply approved architecture review fixes | `P1`     | `M`  | `impl` | `yes`            | `-`        | [review follow-up](../plans/2026-09-07-architecture-review-followup.md) | `Approved fixes` | `src/Jazz/Compiler/AST.hs`, `src/Jazz/Compiler/TypeInference/Analyzed.hs`, `src/Jazz/Compiler/Runtime/Engine.hs` | Remove unused analyzed data and repeated compiler plumbing; execute runtime evidence once while preserving behavior. | `nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --jobs=1` | `2026-09-07`  |
+| id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
+| --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-07`, active):
-The maintainer approved the five architecture review fixes. Execute the linked
-follow-up inline; preserve ordinary language behavior and the analyzed interpreter.
+Current executor status (`2026-09-07`, terminal):
+Ready Now is empty. There is no source-backed next curation target and no named
+candidate currently. The five approved architecture review fixes are complete
+and verified at `172038df`; details are recorded in the
+[review follow-up plan](../plans/2026-09-07-architecture-review-followup.md).
 
 ## Next Curation Target
 

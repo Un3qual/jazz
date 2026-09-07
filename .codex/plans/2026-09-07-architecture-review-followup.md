@@ -1,10 +1,10 @@
 ---
 id: JN-COMPILER-ARCHITECTURE-REVIEW-001
-status: ready
+status: complete
 priority: P1
 size: M
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 plan_section: "Approved fixes"
 target_paths:
@@ -18,6 +18,10 @@ last_verified: 2026-09-07
 ---
 
 # Architecture Review Follow-up Implementation Plan
+
+Completed on 2026-09-07. Final implementation and verification revision:
+`172038df` (following structural cleanup `a546d77c` and runtime cleanup
+`253dd1de`). All five approved fixes are delivered.
 
 **Goal:** Implement the five review recommendations approved on 2026-09-07, inline.
 
@@ -49,7 +53,7 @@ in [architecture design](2026-08-31-jazz-compiler-architecture-simplification-de
       ordered obligations while consuming selection once; remove the evidence-only
       pre-scan. Verify nullary, explicit, polymorphic, partial, stored, imported,
       and deferred method behavior with the runtime capability and host suites.
-- [ ] Format changed sources, compile all enabled components with development
+- [x] Format changed sources, compile all enabled components with development
       warnings, run focused gates during implementation and all default suites at
       the end. Run executable examples and repository checks. Commit green
       milestones and record final verification.
@@ -73,3 +77,28 @@ explicit nullary selections share method cells and perform each host effect once
 Callable obligations are consumed as an ordered prefix; only the remaining
 result obligations stay on the return path. Deferred host cells retain their
 plan until they expose a value. No new runtime representation was introduced.
+
+## Final verification
+
+The full run exposed an explicit-nullary-default regression: a pending callable
+type application survived forcing as a callable tag on an integer value. The
+forcing path now realizes that annotation through the same instantiation helper
+used by runtime plans. The host regression also compares the explicit integer
+result, retaining the method-cache and effect-order assertions. The failing
+prelude case and all affected focused suites pass after the correction.
+
+At `172038df`, verification passed:
+
+- Development-warning build of every enabled component, including tests.
+- All 63 default-enabled test suites. The four opt-in full-scale parser suites
+  remain disabled under the standard gate.
+- Cabal metadata checks and executable Jazz examples.
+- Repository workflow, documentation, queue, and release-checker checks.
+- Pinned Haskell formatting and Git whitespace checks.
+- The isolated Nix flake check on `aarch64-darwin`, including all 63 default
+  suites and the normal and profiling library builds.
+
+No public language contract changed. Inference capability environments, nominal
+identities, checked method signatures, and analyzed-core execution remain the
+owners of their existing behavior. No new framework or runtime representation
+was introduced. No accepted future task supersedes these fixes.
