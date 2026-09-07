@@ -1,10 +1,10 @@
 ---
 id: JN-REMOVE-OPTIONAL-BACKEND-001
-status: ready
+status: complete
 priority: P1
 size: L
 kind: impl
-autonomous_ready: yes
+autonomous_ready: no
 depends_on: []
 plan_section: "2. Remove the optional backend and all executable integration together"
 target_paths:
@@ -140,16 +140,16 @@ Update retained owners:
 
 ## 4. Verify the final retained project and close the queue item
 
-- [ ] Search for residual backend dependencies; distinguish historical mentions
+- [x] Search for residual backend dependencies; distinguish historical mentions
       from active requirements. Confirm neither executable nor retained test
       and benchmark components import the removed modules.
-- [ ] Check formatting and Git whitespace for every changed file.
-- [ ] Run the final enabled-component build, all retained default suites, Cabal
+- [x] Check formatting and Git whitespace for every changed file.
+- [x] Run the final enabled-component build, all retained default suites, Cabal
       metadata checks, and executable examples. Report the actual remaining
       suite count; a smaller count is expected after deleting feature suites.
-- [ ] Run the repository phase and isolated Nix gate once on the final code.
+- [x] Run the repository phase and isolated Nix gate once on the final code.
       Repeat only checks invalidated by a correction.
-- [ ] Commit final verification evidence and return the queue to its accurate
+- [x] Commit final verification evidence and return the queue to its accurate
       state. Report removed scope, retained behavior, test results, and any
       actual limitation. Do not claim native execution or self-hosting.
 
@@ -196,3 +196,26 @@ verification passed CI policy, public documentation, RFC, authority, and queue
 checks. The code and its superseding RFC are committed together so retirement
 and the governing decision remain one coherent milestone. Final full-suite and
 isolated Nix verification follow below.
+
+## Final verification (2026-09-07)
+
+Removal commit: `6a646a18`.
+
+- Development build passed with all tests and benchmarks enabled.
+- All 60 retained default suites passed. The four full-scale opt-in suites
+  remain disabled, as before the removal; the three backend-only suites were
+  deleted.
+- Benchmark smoke passed all six retained groups.
+- Cabal metadata reported no errors or warnings. Executable examples passed
+  for hello, factorial, result, and module programs.
+- Repository checks passed, including CI policy, documentation, RFC structure,
+  authority, and execution queue checks. Changed Haskell files passed Ormolu;
+  changed Markdown passed the pinned formatter, and Git whitespace checks passed.
+- The isolated Nix gate passed on aarch64-darwin, including all 60 suites and
+  package installation. Other systems were not evaluated.
+- No retained source, test, benchmark, or Cabal registration references the
+  removed modules. Historical RFCs retain explicit supersession notices.
+
+The removal and its governing decision are complete. No next implementation
+child is approved; further hosted or native work requires a concrete goal and
+fresh design. Final dispatcher reconciliation changes internal state only.

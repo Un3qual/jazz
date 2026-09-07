@@ -51,17 +51,18 @@ Each blocked item should answer these questions:
   [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md), which removes
   the optional Typed Core/Lowered IR backend and its mirrors. Historical backend
   child plans do not authorize restoring or extending it.
-- Active removal: [approved removal plan](../plans/2026-09-07-remove-optional-backend.md).
+- Verified removal: [approved removal plan](../plans/2026-09-07-remove-optional-backend.md).
   The completed [architecture plan](../plans/2026-08-31-jazz-compiler-architecture-simplification.md)
   remains implementation history; its backend and interpreter-cutover proposals
   are superseded. The analyzed-core interpreter remains the execution path.
 - Smallest unblocker: choose a concrete hosted-compiler or native-execution goal
-  after the approved removal is verified.
+  following the completed removal.
 - Decision needed: the executable goal, integration boundary, and acceptance
   evidence for that goal. Native work requires a fresh accepted design.
 - Recommended default: keep the tested compiler and hosted frontend; do not
   restore speculative representations or schedule a second interpreter.
-- Candidate child: none beyond the approved removal already in Ready Now.
+- Candidate child: none. The approved removal is complete at `6a646a18`,
+  with all 60 retained suites and the isolated Nix gate passing.
 - Target paths: determined by a new concrete goal, not the retired backend.
 - Verification: a new child must name focused behavioral and integration checks.
 - Not in scope: automatic interpreter cutover, restoring IR schema mirroring,
