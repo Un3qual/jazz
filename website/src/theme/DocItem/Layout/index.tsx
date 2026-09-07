@@ -1,7 +1,9 @@
 import React, {type ReactNode} from 'react';
 import clsx from 'clsx';
+import Head from '@docusaurus/Head';
 import {useDoc} from '@docusaurus/plugin-content-docs/client';
 import {useWindowSize} from '@docusaurus/theme-common';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import ContentVisibility from '@theme/ContentVisibility';
 import DocBreadcrumbs from '@theme/DocBreadcrumbs';
 import DocItemContent from '@theme/DocItem/Content';
@@ -14,6 +16,7 @@ import DocVersionBadge from '@theme/DocVersionBadge';
 import DocVersionBanner from '@theme/DocVersionBanner';
 
 import styles from './styles.module.css';
+import {serializeJsonLd} from '../../../seo/jsonLd.mjs';
 
 function useDocTOC() {
   const {frontMatter, toc} = useDoc();
@@ -30,33 +33,65 @@ function useDocTOC() {
   };
 }
 
+function DocStructuredData(): ReactNode {
+  const {metadata} = useDoc();
+  const {siteConfig} = useDocusaurusContext();
+  const url = new URL(metadata.permalink, siteConfig.url).href.replace(/\/$/, '');
+  const structuredData = {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: metadata.title,
+    description: metadata.description,
+    url,
+    mainEntityOfPage: url,
+    inLanguage: 'en',
+    isPartOf: {
+      '@type': 'WebSite',
+      name: 'Jazz programming language',
+      url: 'https://un3qual.github.io/jazz/',
+    },
+  };
+
+  return (
+    <Head>
+      <meta property="og:type" content="article" />
+      <script type="application/ld+json">
+        {serializeJsonLd(structuredData)}
+      </script>
+    </Head>
+  );
+}
+
 export default function DocItemLayout({children}: Props): ReactNode {
   const docTOC = useDocTOC();
   const {metadata} = useDoc();
 
   return (
-    <div className={clsx('row', styles.docRow)}>
-      <div className={clsx('col', docTOC.desktop && styles.docItemCol)}>
-        <ContentVisibility metadata={metadata} />
-        <DocVersionBanner />
-        <div className={styles.docItemContainer}>
-          <article>
-            <DocBreadcrumbs />
-            <DocVersionBadge />
-            {docTOC.mobile}
-            <div data-pagefind-body>
-              <DocItemContent>{children}</DocItemContent>
-            </div>
-            <DocItemFooter />
-          </article>
-          <DocItemPaginator />
+    <>
+      <DocStructuredData />
+      <div className={clsx('row', styles.docRow)}>
+        <div className={clsx('col', docTOC.desktop && styles.docItemCol)}>
+          <ContentVisibility metadata={metadata} />
+          <DocVersionBanner />
+          <div className={styles.docItemContainer}>
+            <article>
+              <DocBreadcrumbs />
+              <DocVersionBadge />
+              {docTOC.mobile}
+              <div data-pagefind-body>
+                <DocItemContent>{children}</DocItemContent>
+              </div>
+              <DocItemFooter />
+            </article>
+            <DocItemPaginator />
+          </div>
         </div>
+        {docTOC.desktop ? (
+          <aside className={clsx('col col--3', styles.tocColumn)} aria-label="On this page">
+            {docTOC.desktop}
+          </aside>
+        ) : null}
       </div>
-      {docTOC.desktop ? (
-        <aside className={clsx('col col--3', styles.tocColumn)} aria-label="On this page">
-          {docTOC.desktop}
-        </aside>
-      ) : null}
-    </div>
+    </>
   );
 }

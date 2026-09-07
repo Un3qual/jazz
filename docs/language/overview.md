@@ -1,6 +1,6 @@
 ---
-title: Language overview
-description: Understand the implemented Jazz programming model and its current boundaries.
+title: Jazz programming language overview
+description: Learn the implemented Jazz programming model, including expressions, immutable values, functions, types, and modules.
 sidebar_position: 1
 ---
 

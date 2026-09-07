@@ -133,6 +133,8 @@ def validate(root: Path) -> list[str]:
         violations.append("checkout must use the triggering repository and revision")
     if re.search(r"(?m)^\s*persist-credentials:\s*false\s*$", checkout) is None:
         violations.append("checkout must disable credential persistence")
+    if re.search(r"(?m)^\s*fetch-depth:\s*0\s*$", checkout) is None:
+        violations.append("checkout must fetch full history for sitemap dates")
 
     for fragment in REQUIRED_FRAGMENTS:
         if fragment not in source:

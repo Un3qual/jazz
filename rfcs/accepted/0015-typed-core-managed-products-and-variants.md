@@ -61,13 +61,14 @@ or match-failure runtime service is added.
 
 Delivery is ordered. The first implementation child owns local data retention,
 tuple and exactly saturated constructor production, canonical layout
-collection, construction, and transport. The second child owns managed pattern
-decision trees and projections. Both ordered children are complete.
+collection, construction, and transport. A later child owns managed pattern
+decision trees and projections. Only one child is promoted at a time.
 
-Ordinary `compile` and `run` remain on canonical core and the reference
-interpreter. Public language behavior, Typed Core and Lowered IR schemas, and
-Lowered IR version 1 remain unchanged. The Haskell and hosted Jazz validators
-remain behaviorally aligned.
+Public language behavior, Typed Core and Lowered IR schemas, Lowered IR
+version 1, runtime services, and the ordinary `compile`/`run`
+canonical-core/reference-interpreter path remain unchanged. The mirrored
+validator contract treats reordered or-pattern binders with the same names,
+types, and recipes as equivalent.
 
 ## Implementation status
 
@@ -81,24 +82,24 @@ references cross bindings, direct and closure parameters and results, calls and
 tail calls, lexical and recursive captures, conditional and scalar-case joins,
 and returns.
 
-The second ordered child completed on 2026-08-31. The opt-in backend now
-supports source-ordered tuple and local-constructor matching, including nested
-tuple and constructor patterns, as-patterns, and top-level alternatives. It
-checks totality independently from source coverage; guarded rows do not cover,
-complete closed constructor sets and the single tuple shape need no synthetic
-wildcard, and incomplete admitted cases fail before partial lowering. Matching
-tests a variant tag before projecting only the selected constructor's fields
-and retains tuple field order. Pattern binders become visible only after a
-complete match and remain local to the selected arm's guard and body. Nested
-failures and false guards continue in source order.
+The second ordered child completed on 2026-08-29. The same opt-in producer and
+lowerer now support wildcard, variable, immediate scalar literal, constructor,
+tuple, as-, and top-level or-pattern cases over managed products and variants,
+including nested constructor and tuple patterns. The lowerer independently
+proves totality from admitted Typed Core: guarded rows do not cover, complete
+local constructor sets need no synthetic wildcard, and incomplete arbitrary
+Typed Core fails with `LoweredIRIncompletePatternCase` before emission. Decision
+trees preserve source arm order, test a variant tag before any field projection,
+and carry matched binders only into the selected guard and body.
 
-This remains an opt-in backend stage for existing case semantics, not a public
-language semantic change. Lists and list fields, list patterns, Text literal
-patterns, product/variant equality, first-class non-nullary constructors,
-pattern lambdas, imported data, multi-module lowering, runtime ABI, native
-execution, and ordinary compile/run cutover remain excluded. Typed Core and
-Lowered IR schemas and Lowered IR version 1 remain unchanged. The Haskell and
-hosted Jazz validators remain behaviorally aligned.
+Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
+imported or multi-module data, product/variant equality, runtime ABI/native
+execution, and ordinary compile/run cutover remain excluded. The second child
+does not change Typed Core or Lowered IR schemas, Lowered IR version 1, runtime
+services, or the ordinary canonical-core/reference-interpreter path. Its
+mirrored validator contract adjustment accepts equivalent reordered
+or-pattern binders by matching their names, types, and recipes
+order-independently.
 
 ## Context
 
@@ -134,9 +135,8 @@ runtime match-failure path.
   block parameters, joins, and tail terminators.
 - Complete constructor cases can lower without an artificial wildcard while
   malformed incomplete Typed Core still fails closed.
-- No Typed Core or Lowered IR schema, version, runtime service, host callback,
-  or native symbol changes.
-- Haskell and hosted Jazz validator behavior remains aligned.
+- No Typed Core or Lowered IR schema, version, hosted validator, runtime
+  service, host callback, or native symbol changes.
 - Lists, list patterns, `Text` literal patterns, product/variant equality,
   first-class constructors, pattern lambdas, imported data, multi-module
   lowering, runtime ABI, native execution, and ordinary compile/run cutover

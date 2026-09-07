@@ -194,6 +194,7 @@ test('homepage introduces Jazz and provides direct documentation routes', () => 
   assert.match(source, /<main\b/);
   assert.match(source, /<header\b/);
   assert.match(source, /<CodeProof\b/);
+  assert.match(source, /statically typed functional programming language/i);
   for (const route of [
     '/docs/getting-started/overview',
     '/docs/language/overview',
@@ -500,7 +501,11 @@ test('Docusaurus renders Jazz with TextMate and delegates other languages', () =
   assert.equal(packageJson.devDependencies.pagefind, '1.5.2');
   assert.equal(
     packageJson.scripts.build,
-    'node scripts/sync-factorial.mjs && docusaurus build && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
+    'node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-seo.mjs && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
+  );
+  assert.equal(
+    packageJson.scripts['test:experience'],
+    'node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs scripts/test-json-ld.mjs scripts/test-sitemap-lastmod.mjs',
   );
 
   for (const relativePath of [
@@ -527,6 +532,67 @@ test('active Docusaurus configuration preserves the public site contract', async
   assert.equal(classic.docs.path, '../docs');
   assert.equal(classic.docs.routeBasePath, 'docs');
   assert.equal(classic.blog, false);
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.entries(classic.sitemap).filter(([key]) => key !== 'createSitemapItems'),
+    ),
+    {
+    changefreq: null,
+    priority: null,
+    lastmod: 'date',
+    },
+  );
+  assert.equal(typeof classic.sitemap.createSitemapItems, 'function');
+});
+
+test('site copyright output is reproducible across build dates', () => {
+  function copyrightAt(now) {
+    const script = `
+      const RealDate = Date;
+      const now = ${JSON.stringify(now)};
+      globalThis.Date = class extends RealDate {
+        constructor(...args) {
+          super(...(args.length === 0 ? [now] : args));
+        }
+
+        static now() {
+          return new RealDate(now).valueOf();
+        }
+      };
+      const {loadSiteConfig} = await import('@docusaurus/core/lib/server/config.js');
+      const {siteConfig} = await loadSiteConfig({
+        siteDir: ${JSON.stringify(websiteRoot)},
+      });
+      process.stdout.write(siteConfig.themeConfig.footer.copyright);
+    `;
+    return execFileSync(
+      process.execPath,
+      ['--input-type=module', '--eval', script],
+      {cwd: websiteRoot, encoding: 'utf8'},
+    );
+  }
+
+  assert.equal(
+    copyrightAt('2030-06-01T12:00:00Z'),
+    copyrightAt('2031-06-01T12:00:00Z'),
+  );
+});
+
+test('website-producing workflows preserve history for sitemap modification dates', () => {
+  for (const [relativePath, jobPattern] of [
+    ['.github/workflows/docs-pages.yml', /\n  build:[\s\S]*?(?=\n  deploy:)/],
+    ['.github/workflows/ci-pr.yml', /\n  docs-and-site:[\s\S]*?(?=\n  compiler-fast:)/],
+    ['.github/workflows/release.yml', /\n  release:[\s\S]*$/],
+  ]) {
+    const workflow = read(relativePath);
+    const websiteJob = workflow.match(jobPattern)?.[0];
+    const docsCheckout = websiteJob?.match(
+      /- name: Check out repository[\s\S]*?(?=\n\s+- name:|$)/,
+    )?.[0];
+
+    assert.ok(docsCheckout, `${relativePath}: missing website checkout`);
+    assert.match(docsCheckout, /fetch-depth:\s*0/);
+  }
 });
 
 test('primary navigation separates learning, library, and reference contexts', async () => {
@@ -844,6 +910,8 @@ test('Jazz TextMate grammar scopes only canonical numeric suffixes', async () =>
 
 test('site metadata, local brand assets, and non-Jazz Prism themes are configured', () => {
   const config = read('website/docusaurus.config.ts');
+  const homepage = read('website/src/pages/index.tsx');
+  const docLayout = read('website/src/theme/DocItem/Layout/index.tsx');
   assert.match(config, /favicon:\s*'img\/favicon\.svg'/);
   assert.match(config, /image:\s*'img\/social-card\.png'/);
   const navbarLogo = config.match(
@@ -857,6 +925,10 @@ test('site metadata, local brand assets, and non-Jazz Prism themes are configure
   assert.match(navbarLogo, /height:\s*48/);
   assert.match(config, /theme-color/);
   assert.match(config, /metadata:/);
+  assert.doesNotMatch(config, /property:\s*'og:type'/);
+  assert.match(homepage, /property="og:type" content="website"/);
+  assert.match(docLayout, /property="og:type" content="article"/);
+  assert.match(config, /property:\s*'og:site_name',[\s\S]*content:\s*'Jazz programming language'/);
   assert.doesNotMatch(config, /additionalLanguages:\s*\['jazz'\]/);
   assert.match(config, /theme:\s*prismThemes\.(?:github|vsLight)/);
   assert.match(config, /darkTheme:\s*prismThemes\.(?:dracula|vsDark)/);
