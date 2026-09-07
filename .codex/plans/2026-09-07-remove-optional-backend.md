@@ -1,3 +1,21 @@
+---
+id: JN-REMOVE-OPTIONAL-BACKEND-001
+status: ready
+priority: P1
+size: L
+kind: impl
+autonomous_ready: yes
+depends_on: []
+plan_section: "2. Remove the optional backend and all executable integration together"
+target_paths:
+  - src/Jazz/Compiler/TypeInference.hs
+  - jazz.cabal
+verification:
+  - nix --extra-experimental-features 'nix-command flakes' develop --command cabal test all -fdevelopment --test-show-details=direct --jobs=1
+deliverable: "Remove the optional backend and its exclusive consumers while preserving the working compiler and hosted frontend."
+last_verified: 2026-09-07
+---
+
 # Optional Backend Removal Implementation Plan
 
 > Execute inline with the executing-plans workflow. The maintainer approved
@@ -39,15 +57,15 @@ executable examples, repository checks, and the isolated Nix gate.
 
 ## 1. Confirm the removal inventory and preserve independent coverage
 
-- [ ] Inventory imports and call sites of `Jazz.Compiler.TypedCore*` and
+- [x] Inventory imports and call sites of `Jazz.Compiler.TypedCore*` and
       `Jazz.Compiler.LoweredIR*`, including Cabal, test, benchmark, documentation,
       script, and CI references. Classify direct consumers and shared helpers.
-- [ ] Review the Typed Core/Lowered IR tests for independent language behavior.
+- [x] Review the Typed Core/Lowered IR tests for independent language behavior.
       Keep existing equivalent runtime/inference tests; move only genuinely
       unique behavior checks to the corresponding retained suite. Delete IR
       shape, portable-schema, validator, and backend capability fixtures with
       their owner. Do not translate every backend assertion into a new test.
-- [ ] Use the existing successful full baseline instead of rerunning it before
+- [x] Use the existing successful full baseline instead of rerunning it before
       edits. Run any moved behavior tests before deleting their old owner.
 
 Primary ownership checks:
@@ -91,34 +109,34 @@ Update retained owners:
   `scripts/test-check-ci-policy.py`: remove deleted suite requirements while
   retaining the existing checks for surviving compiler behavior.
 
-- [ ] Apply the deletions and integration updates as one buildable milestone.
-- [ ] Build all enabled components with development warnings and repair genuine
+- [x] Apply the deletions and integration updates as one buildable milestone.
+- [x] Build all enabled components with development warnings and repair genuine
       residual dependencies without compatibility scaffolding.
-- [ ] Run the retained runtime, inference, module, prelude, hosted frontend,
+- [x] Run the retained runtime, inference, module, prelude, hosted frontend,
       profiling, benchmark, and repository suites affected by the deletion.
-- [ ] Review the diff and commit the green removal milestone.
+- [x] Review the diff and commit the green removal milestone.
 
 ## 3. Reconcile the durable architecture and active documentation
 
-- [ ] Record the approved change in a concise accepted RFC, with an index entry
+- [x] Record the approved change in a concise accepted RFC, with an index entry
       and explicit supersession of the optional backend commitments in RFCs
       0003-0006, 0009-0011, and 0013-0015 as applicable. Preserve the unrelated
       stage-0, hosted frontend, runtime-host, and language decisions.
-- [ ] Add a clear supersession notice to affected historical RFCs. Retain their
+- [x] Add a clear supersession notice to affected historical RFCs. Retain their
       files and accepted-history metadata; the current checker requires those
       historical files, so no new RFC lifecycle framework is needed.
-- [ ] Update `docs/compiler/bootstrapping.md`, `docs/compiler/pipeline.md`,
+- [x] Update `docs/compiler/bootstrapping.md`, `docs/compiler/pipeline.md`,
       `docs/compiler/architecture.md`, `docs/project/status.md`, relevant roadmap
       and performance documentation, and any other live references found by
       the inventory. Describe the existing analyzed interpreter accurately.
-- [ ] Remove active requirements to mirror or extend deleted schemas and the
+- [x] Remove active requirements to mirror or extend deleted schemas and the
       assumed future Typed Core interpreter cutover. Keep native compilation
       as future work requiring a fresh concrete design and executable goal.
-- [ ] Reconcile `.codex/execution/queue.md` and affected internal plans without
+- [x] Reconcile `.codex/execution/queue.md` and affected internal plans without
       treating historical completed checklists as new implementation work.
-- [ ] Update documentation-policy assertions only where they require removed
+- [x] Update documentation-policy assertions only where they require removed
       behavior. Preserve authority, link, and documentation validation.
-- [ ] Format and run documentation, queue, RFC, and policy checks; commit.
+- [x] Format and run documentation, queue, RFC, and policy checks; commit.
 
 ## 4. Verify the final retained project and close the queue item
 
@@ -156,3 +174,25 @@ leave a disabled subsystem behind. Shared inference modes are explicitly
 protected. Deleting the optional backend changes the development roadmap and
 internal APIs, not Jazz language behavior. No source files have been removed
 while preparing this plan.
+
+## Inventory evidence (2026-09-07)
+
+The dedicated backend suites exercise IR shape, validation, schemas, and
+lowering, with source semantics covered by retained inference/runtime suites.
+No unique ordinary-language assertion needed moving. ModulePipelineContractSpec
+retains analyzed generic constructor, module identity, and runtime source-type
+erasure checks; only its two backend-builder checks were removed. Shared
+canonical value adapters and all hosted frontend suites remain. Ordinary
+inference still uses InferConcreteFunctions. No baseline rerun was needed.
+
+## Removal milestone verification (2026-09-07)
+
+The development build passed with all test and benchmark components enabled.
+Fresh Cabal runs passed runtime semantics, binding/signature coherence, module
+pipeline contracts, Prelude loading, Haskell typeclass contracts, profiling,
+benchmark stages, benchmark metadata, repository audit, and canonical-core
+comparison. Benchmark smoke passed all six retained groups. Repository
+verification passed CI policy, public documentation, RFC, authority, and queue
+checks. The code and its superseding RFC are committed together so retirement
+and the governing decision remain one coherent milestone. Final full-suite and
+isolated Nix verification follow below.

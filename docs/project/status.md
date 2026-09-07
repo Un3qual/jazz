@@ -4,7 +4,7 @@ description: See the implemented, partial, and planned Jazz language and compile
 sidebar_position: 1
 ---
 
-Updated: 2026-08-27
+Updated: 2026-09-07
 
 Jazz is experimental and pre-1.0. This matrix separates implemented behavior
 from partial areas and planned work.
@@ -22,67 +22,13 @@ from partial areas and planned work.
 | Capability declarations and concrete method dispatch                  | Partial     | [Capabilities](../language/capabilities.md)                           |
 | Name-based purity analysis                                            | Partial     | [Purity](../language/purity.md)                                       |
 | Jazz-authored lexer, parser, and canonical-core lowering              | Partial     | [Bootstrapping](../compiler/bootstrapping.md)                         |
-| Typed-core production and backend-neutral IR lowering                 | Partial     | [Compiler pipeline](../compiler/pipeline.md)                          |
 | Canonical Jazz-authored semantic compiler                             | Planned     | [Roadmap](roadmap.md)                                                 |
 | Native code generation, linking, and runtime                          | Planned     | [Roadmap](roadmap.md)                                                 |
 | Stable releases, package ecosystem, and language server               | Planned     | [Roadmap](roadmap.md)                                                 |
 
-`Partial` means that working, tested behavior has an explicit boundary. The
-typed-core and backend-neutral lowering path currently covers scalar bindings,
-direct calls, function values, unary closures, lexical capture, higher-order
-calls, partial application, ordered application of additional arguments, and
-capture-free, non-escaping direct self and mutual recursion. It also covers
-closure-shaped self and mutual recursion when every external capture precedes
-the first group member. These groups reuse one immutable shared environment
-containing ordered external captures and reconstruct self or peer closures
-without cyclic initialization. Bounded value-producing conditionals and the
-admitted scalar, tuple, and local-constructor pattern cases can nest throughout
-that profile. In value positions, a case evaluates its scrutinee once, retains
-source-ordered arms, and falls through nested pattern failures and false
-guards. Tuple fields are matched in source order. Variant tags are tested before
-fields are projected, and only the selected tag's fields are projected. Pattern
-binders become visible only after a complete match and remain local to the
-selected guard and body.
-
-For complete named or lifted function results, the profile records direct and
-closure tail intent. It propagates that result position through selected
-conditional branches and bounded scalar-case bodies, which terminate directly
-without result joins. Conditions, scrutinees, guards, operands, and nested value
-contexts remain ordinary value positions. Partial applications still return
-closure values; oversaturated calls tail-terminate only at the final exact
-stage; and module entry remains ordinary call/join/return lowering. This uses
-the existing Lowered IR schema, format, and validator and changes neither the
-runtime ABI, public language semantics, hosted compiler, nor native-stack
-behavior. The backend checks totality independently from source pattern
-coverage: guarded rows do not cover, complete closed local-constructor sets and
-the single tuple shape need no synthetic wildcard, and open scalar literal
-domains still need an unguarded catch-all. Source-level static exhaustiveness
-and unreachable-arm analysis remain implemented under RFC 0012.
-
-Managed `Text` construction and transport now spans bindings, parameters,
-results, captures, calls, conditional and scalar-case results, returns, and
-tail-call operands. The Lowered IR path uses one semantic Text layout and exact
-pure services for equality, length, append, and append-char; inequality reuses
-equality followed by Boolean-not. Text-only transport declares no service, and
-referenced services are deduplicated in fixed catalog order.
-
-Non-unit tuple and exactly saturated local algebraic-data construction and
-transport now span the same complete profile. Concrete generic, recursive, and
-mutually recursive data layouts may contain admitted scalars, Text, closures,
-products, or variants. Lowering gives products structural semantic identities,
-variants nominal semantic identities, and constructors declaration-ordered
-zero-based tags; it emits deduplicated layouts deterministically and evaluates
-every field exactly once from left to right.
-
-The same opt-in backend stage now supports source-ordered tuple and local-
-constructor matching, including nested tuple and constructor patterns,
-as-patterns, and top-level alternatives. This supports existing public case
-semantics without changing them or the IR version.
-
-Lists and list fields, list patterns, other managed scrutinees, product or
-variant equality, first-class non-nullary constructors, pattern-lambda backend
-lowering, Text literal patterns, Text uncons/from-chars/concat/I/O, imported
-data, complete multi-module integration, later or interleaved external
-captures, and scalar exports remain excluded. No managed product or variant
-work adds a `RuntimeHost` operation, runtime ABI, or native execution path.
-Ordinary compile and run modes remain on canonical core and the interpreter.
+`Partial` means that working, tested behavior has an explicit boundary.
+Capability dispatch supports the current concrete profile, and purity uses the
+current name-based rules. The Jazz-authored frontend has differential coverage
+but is not yet the canonical semantic compiler. Ordinary execution uses the
+Haskell compiler and analyzed-core interpreter; native compilation remains
+planned.

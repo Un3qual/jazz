@@ -107,25 +107,6 @@ library jazz-internal
       Jazz.Compiler.Force
       Jazz.Compiler.FractionalLiteral
       Jazz.Compiler.Identifier
-      Jazz.Compiler.LoweredIR
-      Jazz.Compiler.LoweredIR.Lower
-      Jazz.Compiler.LoweredIR.Lower.Emit
-      Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
-      Jazz.Compiler.LoweredIR.Lower.ManagedPatterns
-      Jazz.Compiler.LoweredIR.Lower.Requirements
-      Jazz.Compiler.LoweredIR.Lower.Shapes
-      Jazz.Compiler.LoweredIR.Lower.Types
-      Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
-      Jazz.Compiler.LoweredIR.Validate
-      Jazz.Compiler.TypedCore
-      Jazz.Compiler.TypedCore.Portable
-      Jazz.Compiler.TypedCore.Query
-      Jazz.Compiler.TypedCore.Validate
-      Jazz.Compiler.TypedCore.Build
-      Jazz.Compiler.TypedCore.Build.Exports
-      Jazz.Compiler.TypedCore.Build.Expressions
-      Jazz.Compiler.TypedCore.Build.Result
-      Jazz.Compiler.TypedCore.Build.StructuredValues
       Jazz.Compiler.ModuleGraph
       Jazz.Compiler.ModuleIdentity
       Jazz.Compiler.ModuleExports
@@ -190,13 +171,6 @@ library jazz-internal
       Jazz.Compiler.TypeRepresentation
       Jazz.Compiler.WarningConfig
   other-modules:
-      Jazz.Compiler.TypedCore.Validate.Declarations
-      Jazz.Compiler.TypedCore.Validate.Evidence
-      Jazz.Compiler.TypedCore.Validate.Expressions
-      Jazz.Compiler.TypedCore.Validate.Internal
-      Jazz.Compiler.TypedCore.Validate.Patterns
-      Jazz.Compiler.TypedCore.Validate.Program
-      Jazz.Compiler.TypedCore.Validate.TypeRecipes
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
@@ -524,71 +498,6 @@ test-suite jazz-core-modules-corpus-closure-spec
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
-
-test-suite jazz-lowered-ir-contract-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-typed-core-contract-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
-  build-depends:
-      deepseq >= 1.5 && < 1.6
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.TypedCoreContract.Fixtures
-      Jazz.Compiler.Bootstrap.TypedCoreContract.FixedFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreContract.ManifestTests
-      Jazz.Compiler.Bootstrap.TypedCoreContract.ParityTests
-      Jazz.Compiler.Bootstrap.TypedCoreContract.RegressionTests
-      Jazz.Compiler.Bootstrap.TypedCoreContract.ReviewFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreContract.Tests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-typed-core-expression-direct-call-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 
 test-suite parser-core-spec
   import: test-common

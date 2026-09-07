@@ -128,17 +128,14 @@ artifacts.
 
 The benchmark tree has nine boundaries:
 
-| Group                 | Timed work                                                    |
-| --------------------- | ------------------------------------------------------------- |
+| Group                 | Timed work                                                     |
+| --------------------- | -------------------------------------------------------------- |
 | `parse-lower`         | Tokenize, parse the surface program, and lower to the core AST |
-| `analysis`            | Re-analyze the lowered entry module with imported interfaces  |
-| `diagnostic-analysis` | Analyze a direct core expression and materialize diagnostics  |
-| `module-preparation`  | Discover, resolve, analyze, and prepare a module program      |
-| `typed-validation`    | Validate an already generated Typed Core program              |
-| `lowered-validation`  | Validate an already generated Lowered IR program              |
-| `typed-lowering`      | Validate trusted Typed Core and lower it into Lowered IR      |
-| `runtime`             | Evaluate an already prepared program                          |
-| `whole-program`       | Load the entry program through final runtime result           |
+| `analysis`            | Re-analyze the lowered entry module with imported interfaces   |
+| `diagnostic-analysis` | Analyze a direct core expression and materialize diagnostics   |
+| `module-preparation`  | Discover, resolve, analyze, and prepare a module program       |
+| `runtime`             | Evaluate an already prepared program                           |
+| `whole-program`       | Load the entry program through final runtime result            |
 
 Setup required by a narrower group is performed before its timed action, and
 the result is forced before the sample ends. Smoke mode executes one fast case
@@ -157,9 +154,8 @@ interfaces.
 Compiler-scale cases are generated in memory and are opt-in, so the ordinary
 repeated corpus tree and extended benchmark workload remain unchanged. Smoke
 mode still executes one case per boundary. No corpus case owns the
-diagnostic-analysis, validation, or typed-lowering boundaries, so smoke uses
-the smallest analyzer chain, recursive Typed Core, Lowered IR temporary, and
-Typed Core handoff fixtures for those four boundaries. The registered case
+diagnostic-analysis boundary, so smoke uses the smallest analyzer chain for
+that boundary. The registered case
 families isolate these growth curves:
 
 | Scenario                          | Stable case sizes                   | Timed groups                                      | Exact result or artifact            |
@@ -169,11 +165,6 @@ families isolate these growth curves:
 | Wide module fanout, width 1       | 64, 128, 256, 512                   | `module-preparation`, `whole-program`             | `0`                                 |
 | Shared-interface fanout, width 16 | 16, 32, 64, 128 modules             | `module-preparation`, `whole-program`             | `0`                                 |
 | Resolver fact-rich declarations   | 16, 32, 64, 128 groups              | `module-preparation`                              | `Token`                             |
-| Typed validation handoff          | 64, 128, 256, 512 nodes             | `typed-lowering`                                  | valid Lowered IR                    |
-| Lowered temporary validation      | 64, 256, 1024, 4096 instructions    | `lowered-validation`                              | valid Lowered IR                    |
-| Typed recursive statement graph   | 128, 512, 1024, 2048 statements     | `typed-validation`                                | valid Typed Core graph              |
-| Typed forward-signed functions    | 128, 512, 1024, 2048 functions      | `typed-lowering`                                  | valid Lowered IR                    |
-| Typed wide export providers       | 128, 512, 1024, 2048 providers      | `typed-validation`                                | valid Typed Core export inventory   |
 | Wide constructor applications     | 32, 64, 128, 256 fields             | `analysis`, `runtime`, `whole-program`            | `(<function>, (0, midpoint, last))` |
 | Capability candidate width        | 16, 32, 64, 128 candidates          | `analysis`, `runtime`, `whole-program`            | last candidate index                |
 | Host-free opaque environments     | 64, 256, 1024, 4096 bindings        | `runtime`, `whole-program`                        | `1`                                 |
@@ -394,14 +385,12 @@ Stable stages are:
 | ------------------------------- | -------------------------------------------------------- |
 | `source-loading`                | Read requested source text                               |
 | `module-discovery`              | Find module files and dependencies                       |
-| `lexing`, `parsing`, `lowering` | Convert source or Typed Core into the next compiler IR   |
+| `lexing`, `parsing`, `lowering` | Convert source into canonical core                       |
 | `module-resolution`             | Build and validate the dependency-ordered module program |
 | `static-analysis`               | Run module/expression semantic analysis                  |
 | `type-inference`                | Infer types at the public inference boundary             |
 | `constraint-solving`            | Solve accumulated type constraints                       |
 | `capability-solving`            | Resolve capability requirements                          |
-| `typed-core-validation`         | Validate a generated Typed Core artifact                 |
-| `lowered-ir-validation`         | Validate a generated Lowered IR artifact                 |
 | `runtime-preparation`           | Build runtime-ready module state                         |
 | `evaluation`                    | Execute Jazz evaluator work                              |
 | `host-operation`                | Invoke validated host effects                            |

@@ -25,12 +25,6 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (SourceSpan),
     isErrorDiagnostic,
   )
-import Jazz.Compiler.LoweredIR.Lower.Types
-  ( RuntimeRequirements (..),
-  )
-import Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
-  ( RuntimeServiceKey (TextAppendService, TextEqualService, TextLengthService),
-  )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
     ModuleExportInventory,
@@ -94,7 +88,6 @@ tests =
     ("stable set insertion is idempotent", testStableSetInsertion),
     ("stable set deletion and difference preserve retained order", testStableSetRemoval),
     ("stable sets form their intended left-biased monoid", testStableSetMonoid),
-    ("runtime requirements form their intended monoid", testRuntimeRequirements),
     ("scope capability facts preserve collision order", testScopeCapabilityFacts),
     ("concrete implementation facts use rendered identity", testConcreteImplFactsUseRenderedIdentity),
     ("inference accepts imported TypeName facts for source-origin constraints", testInferenceAcceptsImportedTypeNameFact),
@@ -234,18 +227,6 @@ assertMonoidLaws label first second third = do
     (label <> " associativity")
     ((first <> second) <> third)
     (first <> (second <> third))
-
-testRuntimeRequirements :: IO ()
-testRuntimeRequirements = do
-  assertMonoidLaws "runtime requirements" first second third
-  assertEqual
-    "runtime requirements composition"
-    (RuntimeRequirements True (Set.fromList [TextAppendService, TextLengthService]))
-    (first <> second)
-  where
-    first = RuntimeRequirements False (Set.singleton TextLengthService)
-    second = RuntimeRequirements True (Set.singleton TextAppendService)
-    third = RuntimeRequirements False (Set.singleton TextEqualService)
 
 testScopeCapabilityFacts :: IO ()
 testScopeCapabilityFacts = do

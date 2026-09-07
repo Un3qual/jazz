@@ -27,6 +27,13 @@ last_verified: 2026-09-04
 
 # Jazz Compiler Architecture Simplification Implementation Plan
 
+> Backend scope superseded on 2026-09-07 by
+> [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) and the
+> [approved removal plan](2026-09-07-remove-optional-backend.md). Backend
+> representations, mirrors, and future Typed Core interpreter migration below
+> are historical proposals, not remaining tasks. Retained compiler and runtime
+> simplifications remain in place.
+
 Completed on 2026-09-04. Final implementation and verification revision:
 `daea3d1a`. Tasks 1-15 are delivered; the original step commands below remain
 as implementation history. Older unchecked step boxes are not outstanding work;

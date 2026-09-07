@@ -7,16 +7,6 @@
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
-    TypedCoreBuildResult (..),
-    TypedCoreProductionFailure (..),
-    TypedCoreProductionPath (..),
-    TypedCoreProductionFailureKind (..),
-    TypedCoreProductionFailureDetail (..),
-    TypedCoreProductionResult,
-    typedCoreProductionInferenceResult,
-    typedCoreProductionBuildResult,
-    typedCoreProductionValidatedProgram,
-    inferResolvedModuleTypedCoreExpressionDirectCall,
     analyzeSourceUnitExpressionWithBuiltins,
     inferExpressionWithBuiltins,
     inferExpressionWithInputs,
@@ -71,8 +61,7 @@ import Jazz.Compiler.FractionalLiteral
     fractionalLiteralExceedsMagnitude,
     fractionalLiteralIntegralValue,
   )
-import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
-import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
     emptyModuleInterface,
@@ -118,7 +107,7 @@ import Jazz.Compiler.TypeInference.Analyzed
   )
 import Jazz.Compiler.TypeInference.Capabilities
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInModule, implementationEvidenceCandidatesInSourceUnit)
+import Jazz.Compiler.TypeInference.Evidence (implementationEvidenceCandidatesInSourceUnit)
 import Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
     builtinSectionOperatorSymbol,
@@ -183,17 +172,6 @@ import Jazz.Compiler.TypeInference.Types
     emptyScopeCapabilityFacts,
   )
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
-import Jazz.Compiler.TypedCore (TypedSourcePath, validTypedSourcePath)
-import Jazz.Compiler.TypedCore.Build (buildTypedProgram)
-import Jazz.Compiler.TypedCore.Build.Result
-  ( TypedCoreBuildResult (..),
-    TypedCoreProductionFailure (..),
-    TypedCoreProductionFailureDetail (..),
-    TypedCoreProductionFailureKind (..),
-    TypedCoreProductionPath (..),
-    typedCoreBuildValidatedProgram,
-  )
-import Jazz.Compiler.TypedCore.Validate (ValidatedTypedProgram)
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,
@@ -217,21 +195,6 @@ data InferenceRequest = InferenceRequest
     requestedModuleStatementFacts :: [(CoreNodeId, StatementDeclarationFact)],
     requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
-
--- | The constructor is private so callers can observe, but cannot rewrite, the
--- inference result and its proof-carrying production outcome independently.
-data TypedCoreProductionResult = TypedCoreProductionResult InferenceResult TypedCoreBuildResult
-  deriving (Eq, Show)
-
-typedCoreProductionInferenceResult :: TypedCoreProductionResult -> InferenceResult
-typedCoreProductionInferenceResult (TypedCoreProductionResult inferenceResult _) = inferenceResult
-
-typedCoreProductionBuildResult :: TypedCoreProductionResult -> TypedCoreBuildResult
-typedCoreProductionBuildResult (TypedCoreProductionResult _ outcome) = outcome
-
-typedCoreProductionValidatedProgram :: TypedCoreProductionResult -> Maybe ValidatedTypedProgram
-typedCoreProductionValidatedProgram (TypedCoreProductionResult _ outcome) =
-  typedCoreBuildValidatedProgram outcome
 
 inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Resolved -> IO InferenceResult
 inferExpressionWithBuiltins builtinMode settings =
@@ -485,8 +448,7 @@ finishInference mode inputs hiddenStatementIndices subject inferredResult forwar
 
 -- Ordinary inference owns the finalized diagnostics before the analyzer walk,
 -- so rendering thunks cannot keep the complete solver state alive. The
--- remaining result containers are materialized only to WHNF; the Typed Core
--- producer skips this boundary because its finalizer still needs that state.
+-- remaining result containers are materialized only to WHNF.
 forceFinalizedInferenceContainers :: FinalizedInference -> ()
 forceFinalizedInferenceContainers finalizedInference =
   forceListWith forceDiagnostic (finalizedTypeErrors finalizedInference) `seq`
@@ -532,76 +494,6 @@ forceListWith forceValue values =
   case values of
     [] -> ()
     value : remaining -> forceValue value `seq` forceListWith forceValue remaining
-
-inferResolvedModuleTypedCoreExpressionDirectCall ::
-  InferenceInputs ->
-  TypedSourcePath ->
-  ModuleGraph.CoreModule 'Resolved ->
-  IO TypedCoreProductionResult
-inferResolvedModuleTypedCoreExpressionDirectCall inputs sourcePath resolvedModule =
-  {-# SCC "jazz-stage:type-inference" #-}
-  do
-    let sourceExpression = ModuleGraph.coreModuleExpr resolvedModule
-        (inferredResult, finalState, forwardBindings, inferenceSubject) =
-          inferExpressionWork InferConcreteFunctions inputs [] (implementationEvidenceCandidatesInModule (ModuleGraph.coreModulePath resolvedModule) sourceExpression) sourceExpression
-        expression = inferenceSubjectExpr inferenceSubject
-        finalizedInference = finalizeInferenceState inputs expression finalState
-    expression `seq` pure ()
-    inferenceResult <-
-      finishInference
-        InferConcreteFunctions
-        inputs
-        Set.empty
-        inferenceSubject
-        inferredResult
-        forwardBindings
-        finalizedInference
-    outcome <- productionOutcome inputs sourcePath resolvedModule finalState inferenceResult
-    pure (TypedCoreProductionResult inferenceResult outcome)
-
-productionOutcome :: InferenceInputs -> TypedSourcePath -> ModuleGraph.CoreModule 'Resolved -> InferState -> InferenceResult -> IO TypedCoreBuildResult
-productionOutcome inputs sourcePath resolvedModule finalState inferenceResult
-  | any isErrorDiagnostic (inferredDiagnostics inferenceResult) = pure TypedCoreProductionBlockedByDiagnostics
-  | otherwise =
-      case NonEmpty.nonEmpty profileFailures of
-        Just failures -> pure (TypedCoreProductionUnsupported failures)
-        Nothing ->
-          case attachAnalyzedExpression (ModuleGraph.coreModulePath resolvedModule) Map.empty finalState (inferredExpr inferenceResult) of
-            Left failures -> fail ("semantic fact invariant failure in Typed Core production: " <> show failures)
-            Right (EBlock _ statements) ->
-              pure (buildTypedProgram sourcePath modulePath (ModuleGraph.coreModuleFacts resolvedModule) statements)
-            Right _ -> pure unsupportedRoot
-  where
-    unsupportedRoot =
-      TypedCoreProductionUnsupported
-        (NonEmpty.singleton (TypedCoreProductionFailure (TypedCoreProductionModulePath modulePath) TypedCoreUnsupportedRootExpression TypedCoreUnsupportedRootDetail))
-    profileFailures = inputFailures <> moduleFailures
-    inputFailures =
-      concat
-        [ [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreModulePathMismatch TypedCoreNoFailureDetail
-          | inferenceCurrentModulePath inputs /= Just modulePath
-          ],
-          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreInvalidPortableSourcePath TypedCoreNoFailureDetail
-          | not (validTypedSourcePath sourcePath)
-          ],
-          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreImportedInputsUnsupported TypedCoreNoFailureDetail
-          | not (Map.null (inferenceImportedTypes inputs))
-              || not (Map.null (inferenceImportedDataTypes inputs))
-              || inferenceImportedCapabilities inputs /= emptyScopeCapabilityFacts
-          ],
-          [ TypedCoreProductionFailure TypedCoreProductionInputPath TypedCoreAmbientPreludeInputUnsupported TypedCoreNoFailureDetail
-          | not (Set.null (inferenceImportedClassNames inputs))
-          ]
-        ]
-    moduleFailures =
-      [ TypedCoreProductionFailure
-          (TypedCoreProductionModulePath modulePath)
-          TypedCoreResolvedImportsUnsupported
-          TypedCoreNoFailureDetail
-      | not (null (ModuleGraph.coreModuleImports resolvedModule))
-      ]
-    modulePath =
-      NonEmpty.toList (modulePathTextSegments (ModuleGraph.coreModulePath resolvedModule))
 
 emptyInferenceInputs :: BuiltinResolutionMode -> WarningSettings -> InferenceInputs
 emptyInferenceInputs builtinMode settings =
@@ -766,7 +658,6 @@ inferExprTypeWithMode allowForwardSignedFunctions mode builtinMode env state exp
         statements
 
 -- | Infer expression types and record the semantic facts consumed by analysis.
--- Typed Core construction reads the analyzed tree after inference completes.
 inferExprTypeDetailedWithMode ::
   InferenceMode ->
   BuiltinResolutionMode ->

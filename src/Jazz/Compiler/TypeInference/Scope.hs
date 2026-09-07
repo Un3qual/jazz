@@ -5,7 +5,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 -- | Scope, binding, signature, and constructor inference. The resulting
--- semantic facts feed analyzed nodes and subsequent Typed Core construction.
+-- semantic facts feed the analyzed nodes used by execution.
 module Jazz.Compiler.TypeInference.Scope
   ( inferExplicitTypeApplication,
     inferNestedScopeTypeWithMode,

@@ -4,6 +4,9 @@ Status: Accepted
 Date: 2026-08-27
 Supersedes: None.
 
+> This RFC is superseded by
+> [RFC 0016](0016-optional-backend-removal.md). The following text records the retired backend design.
+
 ## Decision
 
 Jazz will extend the opt-in Typed Core and backend-neutral Lowered IR profile

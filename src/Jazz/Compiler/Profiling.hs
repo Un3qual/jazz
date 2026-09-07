@@ -29,9 +29,6 @@ data BenchmarkGroup
   | AnalysisBenchmark
   | DiagnosticAnalysisBenchmark
   | ModulePreparationBenchmark
-  | TypedValidationBenchmark
-  | LoweredValidationBenchmark
-  | TypedLoweringBenchmark
   | RuntimeBenchmark
   | WholeProgramBenchmark
   deriving (Bounded, Enum, Eq, Ord, Show)
@@ -47,8 +44,6 @@ data CompilerStage
   | TypeInferenceStage
   | ConstraintSolvingStage
   | CapabilitySolvingStage
-  | TypedCoreValidationStage
-  | LoweredIRValidationStage
   | RuntimePreparationStage
   | EvaluationStage
   | HostOperationStage
@@ -74,9 +69,6 @@ benchmarkGroupName group =
     AnalysisBenchmark -> "analysis"
     DiagnosticAnalysisBenchmark -> "diagnostic-analysis"
     ModulePreparationBenchmark -> "module-preparation"
-    TypedValidationBenchmark -> "typed-validation"
-    LoweredValidationBenchmark -> "lowered-validation"
-    TypedLoweringBenchmark -> "typed-lowering"
     RuntimeBenchmark -> "runtime"
     WholeProgramBenchmark -> "whole-program"
 
@@ -87,9 +79,6 @@ benchmarkGroupStages group =
     AnalysisBenchmark -> [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]
     DiagnosticAnalysisBenchmark -> [StaticAnalysisStage]
     ModulePreparationBenchmark -> [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]
-    TypedValidationBenchmark -> [TypedCoreValidationStage]
-    LoweredValidationBenchmark -> [LoweredIRValidationStage]
-    TypedLoweringBenchmark -> [TypedCoreValidationStage, LoweringStage]
     RuntimeBenchmark -> [EvaluationStage, HostOperationStage]
     WholeProgramBenchmark ->
       [ SourceLoadingStage,
@@ -120,8 +109,6 @@ compilerStageName compilerStage =
     TypeInferenceStage -> "type-inference"
     ConstraintSolvingStage -> "constraint-solving"
     CapabilitySolvingStage -> "capability-solving"
-    TypedCoreValidationStage -> "typed-core-validation"
-    LoweredIRValidationStage -> "lowered-ir-validation"
     RuntimePreparationStage -> "runtime-preparation"
     EvaluationStage -> "evaluation"
     HostOperationStage -> "host-operation"

@@ -141,8 +141,8 @@ for file in "${execution_files[@]}"; do
 done
 
 require_pattern ".codex/execution/blocker-contracts.md" "hosted compiler RFC" 'rfcs/accepted/0004-hosted-canonical-compiler\.md'
-require_pattern ".codex/execution/blocker-contracts.md" "typed-core RFC" 'rfcs/accepted/0005-typed-core-elaboration\.md'
-require_pattern ".codex/execution/blocker-contracts.md" "lowered IR RFC" 'rfcs/accepted/0006-lowered-ir-contract\.md'
+
+require_pattern ".codex/execution/blocker-contracts.md" "backend removal RFC" 'rfcs/accepted/0016-optional-backend-removal\.md'
 
 if rg -n -e 'docs/(execution/|feature-status\.md|spec/|jazz-language-state\.md|jazz-improvement-backlog\.md|superpowers/|plans/)' .codex/execution --glob '*.md' >/dev/null 2>&1; then
   fail ".codex/execution contains a live reference to a deleted documentation owner"

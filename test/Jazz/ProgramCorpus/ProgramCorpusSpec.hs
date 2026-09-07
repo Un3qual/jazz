@@ -417,20 +417,9 @@ testAlgorithmicWorkloads = do
         False
         (GenericAdtsFeature `elem` programCaseFeatures programCase)
 
--- Direct diagnostic analysis, Typed and Lowered validation, and Typed lowering
--- are exercised by generated compiler-scale cases; the checked-in corpus is
--- not expected to cover them.
+-- Direct diagnostic analysis uses generated compiler-scale cases.
 corpusBenchmarkGroups :: [BenchmarkGroup]
-corpusBenchmarkGroups =
-  filter
-    ( `notElem`
-        [ DiagnosticAnalysisBenchmark,
-          TypedValidationBenchmark,
-          LoweredValidationBenchmark,
-          TypedLoweringBenchmark
-        ]
-    )
-    [minBound .. maxBound]
+corpusBenchmarkGroups = filter (/= DiagnosticAnalysisBenchmark) [minBound .. maxBound]
 
 algorithmicCaseIdentifiers :: [Text]
 algorithmicCaseIdentifiers =

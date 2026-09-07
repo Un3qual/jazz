@@ -1,5 +1,12 @@
 # Jazz compiler architecture simplification design
 
+> Backend scope superseded on 2026-09-07 by
+> [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md) and the
+> [approved removal plan](2026-09-07-remove-optional-backend.md). Backend
+> representations, mirrors, and future Typed Core interpreter migration below
+> are historical proposals, not remaining tasks. Retained compiler and runtime
+> simplifications remain in place.
+
 **Date:** 2026-08-31
 
 **Status:** Implemented and verified at `daea3d1a` on 2026-09-04.

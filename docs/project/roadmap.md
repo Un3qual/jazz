@@ -19,13 +19,12 @@ documentation.
 
 - add Jazz-authored name resolution, type inference, and semantic validation;
 - promote hosted components only after complete differential conformance;
-- lower closures, recursion, control flow, and module programs through typed
-  core; and
+- integrate the hosted semantic compiler with complete module programs; and
 - compile the compiler's own sources through the canonical hosted pipeline.
 
 ## Native backend
 
-- complete backend-neutral lowered IR for the full language;
+- choose and prove a backend architecture for a concrete execution target;
 - define the versioned runtime and host ABI;
 - add native code emission, object generation, linking, and conformance; and
 - preserve deterministic diagnostics and runtime semantics across targets.

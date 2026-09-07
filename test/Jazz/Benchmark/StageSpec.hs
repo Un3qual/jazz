@@ -66,15 +66,6 @@ tests =
     ("sequential polymorphism preserves exact compiler semantics", testSequentialPolymorphismSemantics),
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("resolver fact-rich modules preserve exact compiler semantics", testResolverFactRichSemantics),
-    ("typed validation handoff lowers exact valid programs", testTypedValidationHandoffSemantics),
-    ("lowered temporary validation scale cases have exact metadata", testLoweredTemporaryValidationRegistry),
-    ("smallest lowered temporary validation executes prepared validation", testLoweredTemporaryValidationSmallestCase),
-    ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
-    ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
-    ("typed forward signed function scale cases have exact metadata", testTypedForwardSignedFunctionsRegistry),
-    ("smallest typed forward signed function case executes prepared lowering", testTypedForwardSignedFunctionsSmallestCase),
-    ("typed wide export provider scale cases have exact metadata", testTypedWideExportProvidersRegistry),
-    ("smallest typed wide export provider case executes prepared validation", testTypedWideExportProvidersSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
     ("capability candidate width scale cases have exact metadata", testCapabilityCandidateWidthRegistry),
     ("smallest capability candidate width case preserves real and prepared semantics", testCapabilityCandidateWidthSemantics),
@@ -221,26 +212,6 @@ testCompilerScaleRegistry =
       ("resolver-fact-rich-0032", ResolverFactRich, 32, Nothing),
       ("resolver-fact-rich-0064", ResolverFactRich, 64, Nothing),
       ("resolver-fact-rich-0128", ResolverFactRich, 128, Nothing),
-      ("typed-validation-handoff-0064", TypedValidationHandoff, 64, Nothing),
-      ("typed-validation-handoff-0128", TypedValidationHandoff, 128, Nothing),
-      ("typed-validation-handoff-0256", TypedValidationHandoff, 256, Nothing),
-      ("typed-validation-handoff-0512", TypedValidationHandoff, 512, Nothing),
-      ("lowered-temporary-validation-0064", LoweredTemporaryValidation, 64, Nothing),
-      ("lowered-temporary-validation-0256", LoweredTemporaryValidation, 256, Nothing),
-      ("lowered-temporary-validation-1024", LoweredTemporaryValidation, 1024, Nothing),
-      ("lowered-temporary-validation-4096", LoweredTemporaryValidation, 4096, Nothing),
-      ("typed-recursive-statement-graph-0128", TypedRecursiveStatementGraph, 128, Nothing),
-      ("typed-recursive-statement-graph-0512", TypedRecursiveStatementGraph, 512, Nothing),
-      ("typed-recursive-statement-graph-1024", TypedRecursiveStatementGraph, 1024, Nothing),
-      ("typed-recursive-statement-graph-2048", TypedRecursiveStatementGraph, 2048, Nothing),
-      ("typed-forward-signed-functions-0128", TypedForwardSignedFunctions, 128, Nothing),
-      ("typed-forward-signed-functions-0512", TypedForwardSignedFunctions, 512, Nothing),
-      ("typed-forward-signed-functions-1024", TypedForwardSignedFunctions, 1024, Nothing),
-      ("typed-forward-signed-functions-2048", TypedForwardSignedFunctions, 2048, Nothing),
-      ("typed-wide-export-providers-0128", TypedWideExportProviders, 128, Nothing),
-      ("typed-wide-export-providers-0512", TypedWideExportProviders, 512, Nothing),
-      ("typed-wide-export-providers-1024", TypedWideExportProviders, 1024, Nothing),
-      ("typed-wide-export-providers-2048", TypedWideExportProviders, 2048, Nothing),
       ("wide-constructor-application-0032", WideConstructorApplication, 32, Nothing),
       ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
       ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
@@ -421,97 +392,6 @@ testResolverFactRichSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "resolver fact-rich output" "Token" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedValidationHandoffSemantics :: IO ()
-testTypedValidationHandoffSemantics = do
-  programCase <- loadCompilerScaleCase "typed-validation-handoff-0064"
-  assertEqual
-    "typed validation handoff benchmark boundary"
-    [TypedLoweringBenchmark]
-    (compilerScaleCaseBenchmarks programCase)
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testLoweredTemporaryValidationRegistry :: IO ()
-testLoweredTemporaryValidationRegistry =
-  assertScenarioRegistry
-    "lowered temporary validation registry"
-    LoweredTemporaryValidation
-    [ ("lowered-temporary-validation-0064", 64, [LoweredValidationBenchmark]),
-      ("lowered-temporary-validation-0256", 256, [LoweredValidationBenchmark]),
-      ("lowered-temporary-validation-1024", 1024, [LoweredValidationBenchmark]),
-      ("lowered-temporary-validation-4096", 4096, [LoweredValidationBenchmark])
-    ]
-
-testLoweredTemporaryValidationSmallestCase :: IO ()
-testLoweredTemporaryValidationSmallestCase = do
-  programCase <- loadCompilerScaleCase "lowered-temporary-validation-0064"
-  prepared <- prepareCompilerScaleBenchmark LoweredValidationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedForwardSignedFunctionsRegistry :: IO ()
-testTypedForwardSignedFunctionsRegistry =
-  assertScenarioRegistry
-    "typed forward signed function registry"
-    TypedForwardSignedFunctions
-    [ ("typed-forward-signed-functions-0128", 128, [TypedLoweringBenchmark]),
-      ("typed-forward-signed-functions-0512", 512, [TypedLoweringBenchmark]),
-      ("typed-forward-signed-functions-1024", 1024, [TypedLoweringBenchmark]),
-      ("typed-forward-signed-functions-2048", 2048, [TypedLoweringBenchmark])
-    ]
-
-testTypedForwardSignedFunctionsSmallestCase :: IO ()
-testTypedForwardSignedFunctionsSmallestCase = do
-  programCase <- loadCompilerScaleCase "typed-forward-signed-functions-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedWideExportProvidersRegistry :: IO ()
-testTypedWideExportProvidersRegistry =
-  assertScenarioRegistry
-    "typed wide export provider registry"
-    TypedWideExportProviders
-    [ ("typed-wide-export-providers-0128", 128, [TypedValidationBenchmark]),
-      ("typed-wide-export-providers-0512", 512, [TypedValidationBenchmark]),
-      ("typed-wide-export-providers-1024", 1024, [TypedValidationBenchmark]),
-      ("typed-wide-export-providers-2048", 2048, [TypedValidationBenchmark])
-    ]
-
-testTypedWideExportProvidersSmallestCase :: IO ()
-testTypedWideExportProvidersSmallestCase = do
-  programCase <- loadCompilerScaleCase "typed-wide-export-providers-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedValidationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedRecursiveStatementGraphRegistry :: IO ()
-testTypedRecursiveStatementGraphRegistry =
-  assertScenarioRegistry
-    "typed recursive statement graph registry"
-    TypedRecursiveStatementGraph
-    [ ("typed-recursive-statement-graph-0128", 128, [TypedValidationBenchmark]),
-      ("typed-recursive-statement-graph-0512", 512, [TypedValidationBenchmark]),
-      ("typed-recursive-statement-graph-1024", 1024, [TypedValidationBenchmark]),
-      ("typed-recursive-statement-graph-2048", 2048, [TypedValidationBenchmark])
-    ]
-
-assertScenarioRegistry :: Text -> CompilerScaleScenario -> [(Text, Int, [BenchmarkGroup])] -> IO ()
-assertScenarioRegistry label scenario expected =
-  assertEqual
-    label
-    expected
-    [ ( compilerScaleCaseIdentifier programCase,
-        compilerScaleCaseSize programCase,
-        compilerScaleCaseBenchmarks programCase
-      )
-    | programCase <- compilerScaleCases,
-      compilerScaleCaseScenario programCase == scenario
-    ]
-
-testTypedRecursiveStatementGraphSmallestCase :: IO ()
-testTypedRecursiveStatementGraphSmallestCase = do
-  programCase <- loadCompilerScaleCase "typed-recursive-statement-graph-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedValidationBenchmark programCase
   runPreparedCompilerScaleBenchmark prepared
 
 testWideConstructorApplicationSemantics :: IO ()

@@ -41,263 +41,31 @@ Each blocked item should answer these questions:
 
 ### JN-BOOTSTRAP-INTERPRETER-PROFILE-PLAN-001
 
-- Completed children: `JN-BOOTSTRAP-MAYBE-RESULT-LIBRARIES-001` added ordinary
-  `Maybe` and `Result` modules, and `JN-BOOTSTRAP-TEXT-TRAVERSAL-001` added the
-  explicit-import scalar traversal API with private backend-neutral adapters.
-  `JN-BOOTSTRAP-HOST-TEXT-IO-001` added explicit-import `IO`/`IOError`, seven
-  private host bridges, the typed monadic runtime-host seam, strict UTF-8
-  production operations, arguments, and exit without coupling the public
-  contract to Haskell or LLVM. `JN-BOOTSTRAP-STACK-SAFE-EVALUATION-001` added
-  the shared explicit evaluator machine and proved pure, host-backed, and
-  imported closure depth floors without introducing bytecode or LLVM coupling.
-  `JN-BOOTSTRAP-CANONICAL-COMPARISON-001` preserved structured stage-0 lexical
-  failures, added the ordinary Jazz-owned canonical ADTs and test-only Haskell
-  adapter, and established the explicit accepted/rejected parser corpus.
-  `JN-BOOTSTRAP-JAZZ-LEXER-001` added permanent generic list construction and
-  Unicode scalar/text services, ordinary `List`/`Char`/`Text` modules, and the
-  two-space-indented Jazz lexer; it matches all 333 canonical cases
-  deterministically and completes 20,000-character and 10,000-token traversal
-  floors without host stack growth. `JN-BOOTSTRAP-JAZZ-PARSER-DESIGN-001`
-  accepted the fail-fast surface-AST, structured-failure, façade, parser-kernel,
-  and ordered grammar-slice contract on `2026-07-16`.
-  `JN-BOOTSTRAP-JAZZ-PARSER-FOUNDATION-001` then preserved structured stage-0
-  parser failures behind compatible diagnostics, added the complete ordinary
-  `ParserTypes` contract and total Haskell comparison adapter, and implemented
-  the generic compiler-local `ParserCore` with deterministic consumption,
-  rollback, farthest-failure selection, progress checks, and 20,000-token
-  traversal evidence without adding grammar.
-  `JN-BOOTSTRAP-JAZZ-PARSER-EXPRESSION-FOUNDATION-001` added the compiler-local
-  `ParserToken`, `ParserExpression`, `ParserProgram`, and `Parser` stack for
-  literals, names, application, lists, tuples, unit, ordinary statements,
-  recursive blocks, complete programs, and distinct token/source façades. Its
-  explicit 43-case family matches stage 0 exactly and its isolated 512-binding
-  scale suite produces deterministic runtime observations without host
-  operations.
-  `JN-BOOTSTRAP-JAZZ-PARSER-TYPES-DECLARATIONS-MODULES-001` added shared
-  signature types and explicit type application, immutable scoped alias
-  context, data/class/impl declarations, module/import/export forms, exact
-  101-case stage-0 parity through both façades, and deterministic
-  513-statement mixed scale evidence. It preserved the fixed parser schema and
-  left `ParserCore` and `ParserTypes` unchanged.
-  `JN-BOOTSTRAP-JAZZ-PARSER-CONTROL-FLOW-PATTERNS-001` added independent
-  compiler-local pattern grammar plus stop-aware lambdas, conditionals, cases,
-  single case-arm guards, and nested control-flow bodies. Its fixed 75-case
-  family matches complete stage-0 token/source results twice, both landed
-  families remain exact, and all three 513-statement scale profiles are
-  deterministic with zero host operations. `ParserCore`, `ParserTypes`,
-  `ParserContext`, and the parser façades remain unchanged.
-  `JN-BOOTSTRAP-JAZZ-PARSER-OPERATORS-FULL-PARITY-001` completed the fifth and
-  final grammar child with centralized operator metadata, immutable
-  source-order context, declarations, bindings, signatures, precedence,
-  associativity, values, sections, and mixed control-flow composition. Its six
-  52 / 101 / 75 / 55 / 26 / 56 case families assign all 365 fixtures exactly
-  once and match complete token/source results twice. All four scale profiles
-  are deterministic with zero host operations; the operator profile records
-  49,040,140 transitions / 5,914,883 applications / 186,465 list cells / depth
-  1,116.
-  `JN-BOOTSTRAP-JAZZ-CORE-EXPRESSION-FOUNDATION-001` then defined the complete
-  ordinary Jazz canonical-core schema, a checked structural stage-0 adapter,
-  and the shared direct/composed parity harness. Its internal
-  `lowerFoundationExpression` entry point exactly lowers literals, source and
-  qualified names, operator values, collections, tuples, application,
-  non-`$` binary nodes, both section forms, and ordinary blocks. Repeated
-  direct and hosted-parser composition match stage 0 exactly, while every
-  deferred or recursively unsupported tree returns `Nothing` without a fake
-  core value or lowering diagnostic.
-  `JN-BOOTSTRAP-JAZZ-CORE-CONTROL-FLOW-PATTERNS-001` then refactored the hosted
-  lowerer around one shared profile-driven kernel and added every pattern,
-  guarded case, conditional, nested control-flow, and multi-parameter or
-  pattern-lambda rule. Its 18 direct and 14 composed positive fixtures match
-  stage 0 twice; 12 root and nested later-child fixtures return only `Nothing`
-  twice; and exact one-based generated parameter names are preserved for both
-  binder and scrutinee.
-  `JN-BOOTSTRAP-JAZZ-CORE-SIGNATURES-DECLARATIONS-OPERATORS-001` then added the
-  ordered third lowering profile for every signature type, constraint,
-  unsupported token, declaration payload, explicit type application, `$`
-  application, and exact hidden operator-storage name. Its 20 direct and 16
-  hosted-parser-composed positive fixtures match complete stage-0 values
-  twice, while all 8 root and nested module/import fixtures return only
-  `Nothing` twice.
-  `JN-BOOTSTRAP-JAZZ-CORE-MODULES-CORPUS-CLOSURE-001` completed the fourth and
-  final canonical-core profile with total expression lowering, exact
-  module/import metadata and source qualification, structured `E4005`/`E4006`
-  counterparts, and the single-call `Core.lowerCoreSource` facade. All 17
-  direct module fixtures and 13 composed sources match stage 0 twice, and an
-  audited ordered manifest covers all 196 accepted parser fixtures with exact
-  repeated module results.
-  `JN-BOOTSTRAP-LOWERED-IR-CONTRACT-FOUNDATION-001` then established matching
-  Haskell/Jazz backend-neutral CFG schemas, complete stable validators, and a
-  checked comparison adapter. Its exact 10-valid / 31-invalid manifest runs all
-  41 programs through Jazz twice with complete ordered parity and keeps
-  temporaries block-local.
-- Accepted decision: [RFC 0004: Hosted canonical compiler](../../rfcs/accepted/0004-hosted-canonical-compiler.md)
-  preserves the stage-0 parser/lowerer boundary, ordinary Jazz ADTs, pure
-  lowering, and structural differential comparison before production cutover.
-- Accepted decision: [RFC 0005: Typed-core elaboration](../../rfcs/accepted/0005-typed-core-elaboration.md)
-  owns the separate typed tree and its implemented opt-in, single-pass,
-  one-module scalar/direct-call profile while preserving canonical core and the
-  interpreter boundary.
-- Accepted decision: [RFC 0006: Lowered IR contract](../../rfcs/accepted/0006-lowered-ir-contract.md)
-  owns the mirrored backend-neutral CFG, explicit calls and closures,
-  representations, layout requests, structured validation, and canonical
-  parity.
-- Accepted decision: [RFC 0009: Typed-core closures and recursive callable groups](../../rfcs/accepted/0009-typed-core-closure-and-recursion.md)
-  fixes callable-shape and binder-reference transport, unary closure staging,
-  empty environments, deterministic capture identity, and the six-child
-  delivery order without changing normal compile/run.
-- Accepted decision: [RFC 0010: Typed-core conditional control flow](../../rfcs/accepted/0010-typed-core-conditional-control-flow.md)
-  authorizes bounded value-producing `if` production plus deterministic
-  then/else/join lowering with explicit transport of block-local ambient values.
-- Accepted decision: [RFC 0011: Typed-core scalar pattern cases](../../rfcs/accepted/0011-typed-core-scalar-pattern-cases.md)
-  authorizes ordered immediate-scalar literal, wildcard, and variable patterns,
-  guarded fallthrough, arm-local binders, one result join, and a required final
-  unguarded catch-all without a runtime failure service or exhaustiveness claim.
-- Accepted decision: [RFC 0012: Static pattern coverage](../../rfcs/accepted/0012-static-pattern-coverage.md)
-  requires strict post-inference exhaustiveness and unreachable-arm analysis
-  across the complete active pattern surface while retaining runtime `E3022` as
-  a defensive boundary.
-- Accepted decision: [RFC 0013: Typed-core tail-position lowering](../../rfcs/accepted/0013-typed-core-tail-position-lowering.md)
-  authorizes exact local direct and closure tail terminators in true named or
-  lifted function-result position, including selected conditional branches and
-  bounded scalar-case bodies without result joins.
-- Accepted decision: [RFC 0014: Typed-core managed Text](../../rfcs/accepted/0014-typed-core-managed-text.md)
-  authorizes managed Text construction and transport throughout the existing
-  opt-in expression profile plus strict equality, length, append, and
-  append-char through one semantic Text layout and exact pure runtime-service
-  dependencies.
-- Accepted decision: [RFC 0015: Typed-core managed products and variants](../../rfcs/accepted/0015-typed-core-managed-products-and-variants.md)
-  authorizes local tuple and ADT construction, deterministic product and
-  variant layouts, established-boundary transport, and a separately delivered
-  independently total managed-pattern decision tree. Its detailed design is
-  recorded in [the managed products and variants design](../plans/2026-08-27-jazz-typed-core-managed-products-variants-design.md).
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-EXPRESSION-DIRECT-CALL-001`
-  completed on `2026-07-30`. It produces the verified opt-in single-pass
-  scalar/direct-call typed-core profile and deterministic validated lowering;
-  normal compile/run remains canonical-core/interpreter based.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-CALL-FOUNDATION-001`
-  completed on `2026-08-10`. The opt-in path now transports callable shape and
-  binder references, closed named functions as values, recursively represented
-  unary closure parameters and results, explicit empty environments, and unary
-  higher-order closure calls while preserving every scalar/direct-call fixture.
-  Normal compile/run remains canonical-core/interpreter based.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-BINDING-001` completed on
-  `2026-08-12`. The opt-in producer now emits concrete scalar signatures and
-  bindings in source order, later expressions carry exact scalar binder
-  references, and entry lowering evaluates each initializer once and reuses
-  its binder-indexed operand. At that milestone, managed values and
-  function-body capture remained rejected. Normal compile/run remains
-  canonical-core/interpreter based.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-LEXICAL-CAPTURE-001` completed on
-  `2026-08-12`. The opt-in producer now resolves inline and nested lambda
-  binders exactly; lowering emits deterministic lifted functions, immutable
-  first-occurrence capture environments, and entry projections for scalar and
-  closure-valued captures. Unsupported managed capture still fails closed.
-  Normal compile/run remains canonical-core/interpreter based.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CURRIED-APPLICATION-001` completed
-  on `2026-08-12`. The opt-in producer and lowerer now preserve unary source
-  staging for named functions, callable parameters, and inline lambdas;
-  partial application returns the remaining closure, and additional arguments
-  proceed only through callable intermediate results. Source non-callable
-  oversaturation remains an ordinary diagnostic, and malformed typed artifacts
-  fail validation. Normal compile/run remains canonical-core/interpreter-based.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-DIRECT-RECURSION-001` completed on
-  `2026-08-12`. The opt-in producer now transports ordered direct recursive
-  groups by exact binder identity, both validators enforce declared reachability,
-  and the lowerer consumes those validated groups without rebuilding an SCC.
-  Capture-free, non-escaping self and mutual recursion use the existing direct
-  callable representation. Normal compile/run remains canonical-core/interpreter
-  based.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CLOSURE-RECURSION-001` completed on
-  `2026-08-13`. The opt-in producer promotes closure-shaped recursive groups
-  together, requires every external capture before the first member, and the
-  lowerer constructs one immutable shared environment for member closures and
-  self/peer reconstruction. Later or interleaved captures fail closed. This
-  completes RFC 0009 without changing normal compile/run.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-CONDITIONAL-CONTROL-FLOW-001`
-  completed on `2026-08-13`. The opt-in producer now retains value-producing
-  conditionals throughout the scalar, closure, capture, currying, and recursion
-  profile. The lowerer emits deterministic nested then/else/join CFGs and
-  transports local bindings, shared environments, and in-flight evaluation
-  operands explicitly across every edge. Normal compile/run remains on
-  canonical core and the reference interpreter.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-SCALAR-PATTERN-CASES-001`
-  completed on `2026-08-14`. The opt-in producer now retains ordered immediate
-  scalar literal, wildcard, and variable cases throughout the established
-  expression profile. Guards fall through in source order, binders remain
-  arm-local, and the lowerer independently enforces the final unguarded
-  catch-all while transporting nested, ambient, captured, and in-flight values
-  through deterministic branch and join edges. Normal compile/run remains on
-  canonical core and the reference interpreter.
-- Completed child: `JN-PATTERN-COVERAGE-ANALYSIS-001` completed on
-  `2026-08-14`. One resolved-type usefulness analysis now rejects incomplete
-  cases and pattern lambdas with `E2018`, rejects wholly unreachable arms with
-  `E2019`, treats guards as non-covering, and preserves runtime `E3022` as a
-  defensive boundary.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-TAIL-POSITION-LOWERING-001`
-  completed on `2026-08-14`. The opt-in lowerer records exact direct and
-  closure tail intent only for complete named or lifted function results,
-  including recursively selected conditional branches and bounded scalar-case
-  bodies. Module entry remains ordinary call/join/return lowering.
-- Completed child: `JN-BOOTSTRAP-TYPED-CORE-MANAGED-TEXT-001` completed on
-  `2026-08-15`. The opt-in producer now retains managed Text through the
-  established value, callable, capture, CFG, return, and tail-operand profile.
-  Lowering uses `jazz.layout.text.v1` and exact pure services for equality,
-  length, append, and append-char, deduplicated in catalog order. Inequality
-  reuses equality followed by Boolean-not. Normal compile/run remains on
-  canonical core and the reference interpreter.
-- Completed child:
-  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-CONSTRUCTION-001`
-  completed on `2026-08-27`. Implementation milestone `092897af` closes
-  deterministic non-unit tuple and exactly saturated local ADT construction
-  plus every established managed-value transport boundary. The focused
-  producer, Typed Core contract, and Lowered IR contract suites pass, and
-  `cabal test all --test-show-details=direct --jobs=1` passes inside the
-  checked-in Nix shell.
-- Completed child:
-  `JN-BOOTSTRAP-TYPED-CORE-MANAGED-PRODUCT-VARIANT-PATTERN-CASES-001`
-  completed on `2026-08-31`. Implementation milestones `b73c6271`, `11327a97`,
-  `539a8c2b`, and `825ca9a0`, with focused fixes and plan evidence through the
-  reviewed `0116b724`, close source-ordered tuple and local-constructor matching,
-  independent backend totality, tag-before-selected-field projection, and
-  success-only arm binders. The focused producer, Typed Core contract, and
-  Lowered IR contract suites pass at the reviewed closeout base. Lists, list
-  patterns or services, Text literal patterns, first-class constructors,
-  pattern lambdas, imported data, multiple modules, Text
-  uncons/from-chars/concat, Text I/O, RuntimeHost changes, native ABI or
-  execution, product/variant equality, and normal compile/run cutover remain
-  independent decisions.
-- Completed child: `JN-COMPILER-CORE-IDENTITY-TYPES-001` completed on
-  `2026-08-31`. Tasks 2-5 introduced nominal module/source identities, shared
-  signature and numeric representations, solver-owned literal ranges, and one
-  neutral `SemanticType` specialized by inference and Typed Core. The six-suite
-  focused gate, production build, and all-test-component compile pass. Schemes,
-  constraints, evidence, binders, recipes, and phase-specific identifiers remain
-  phase-owned; the canonical adapter alone preserves the hosted `Typed*Type`
-  vocabulary. Public syntax and semantics are unchanged.
-- Completed milestones: Tasks 6-7 located and phase-indexed canonical core with
-  split names and collision-free node identities; Task 8 consolidated imports,
-  modules, prelude artifacts, and resolved programs behind one opaque,
-  dependency-ordered phase-indexed program; Task 9 attached complete
-  success-only analyzed facts and removed the temporary compiled syntax
-  carriers; Task 10 completed node-local runtime plans and removed inference-
-  and interface-owned hint production while preserving the hosted schema and
-  retained interpreter.
-- Completed architecture: Tasks 11-15 moved ordinary execution to analyzed core
-  (`9e9cf962`), consolidated build outcomes (`29cf6c6b`), replaced provisional
-  Typed Core production (`81ae52e6`), and migrated runtime annotations to semantic
-  types/evidence (`43631af4`). Final cleanup and full verification: `daea3d1a`.
-- Verification: development build and all 63 default-enabled suites, Cabal metadata, executable
-  examples, repository checks, and isolated Nix flake check pass. The portable
-  hosted schema and ordinary language behavior are preserved.
-- Smallest unblocker: none under accepted contracts. No source-backed next
-  curation target or named candidate currently exists; a concrete next profile
-  requires its own accepted child.
-- Ready child: none.
-- Advanced Haskell features and extensions are permitted when they simplify code
-  or improve maintainability. Before raising a quality concern, check remaining
-  tasks for its replacement or resolution.
-- Still separate: public language changes, missing Typed Core profiles, full
-  interpreter parity, and a separately approved ordinary compile/run cutover.
+- Retained implementation: the working Haskell compiler and analyzed-core
+  interpreter, shared semantic types, nominal identities, runtime plans,
+  standard library, runtime host boundary, and stack-safe evaluation machine.
+  Jazz-authored lexing, parsing, and canonical-core lowering retain structural
+  differential coverage against stage 0.
+- Accepted frontend decision: [RFC 0004](../../rfcs/accepted/0004-hosted-canonical-compiler.md).
+  Its backend requirements are superseded by
+  [RFC 0016](../../rfcs/accepted/0016-optional-backend-removal.md), which removes
+  the optional Typed Core/Lowered IR backend and its mirrors. Historical backend
+  child plans do not authorize restoring or extending it.
+- Active removal: [approved removal plan](../plans/2026-09-07-remove-optional-backend.md).
+  The completed [architecture plan](../plans/2026-08-31-jazz-compiler-architecture-simplification.md)
+  remains implementation history; its backend and interpreter-cutover proposals
+  are superseded. The analyzed-core interpreter remains the execution path.
+- Smallest unblocker: choose a concrete hosted-compiler or native-execution goal
+  after the approved removal is verified.
+- Decision needed: the executable goal, integration boundary, and acceptance
+  evidence for that goal. Native work requires a fresh accepted design.
+- Recommended default: keep the tested compiler and hosted frontend; do not
+  restore speculative representations or schedule a second interpreter.
+- Candidate child: none beyond the approved removal already in Ready Now.
+- Target paths: determined by a new concrete goal, not the retired backend.
+- Verification: a new child must name focused behavioral and integration checks.
+- Not in scope: automatic interpreter cutover, restoring IR schema mirroring,
+  native target selection, or language changes without a separate decision.
 
 ### JN-ABSTRACTION-SEMANTICS-PLAN-001
 

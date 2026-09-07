@@ -16,11 +16,9 @@ module Jazz.Compiler.Force
     forceResolvedExpr,
     forceInferenceResult,
     forceListWith,
-    forceLoweredProgram,
     forceResolvedModule,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
-    forceTypedProgram,
     forceTokens,
   )
 where
@@ -30,7 +28,6 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST (CorePhase (Analyzed, Lowered, Resolved), Expr)
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Diagnostics.Strictness (forceDiagnostic)
-import Jazz.Compiler.LoweredIR (LoweredProgram)
 import Jazz.Compiler.ModuleGraph (CoreModule, CoreProgram)
 import Jazz.Compiler.ModuleRuntime (RuntimeProgram (runtimeProgramOutput))
 import Jazz.Compiler.Parser.AST (SurfaceExpr)
@@ -38,7 +35,6 @@ import Jazz.Compiler.Parser.Lexer (Token)
 import Jazz.Compiler.Runtime.Semantics (renderRuntimeValue)
 import Jazz.Compiler.Runtime.Types (RuntimeValue)
 import Jazz.Compiler.TypeInference.Result (InferenceResult)
-import qualified Jazz.Compiler.TypedCore as Typed
 
 forceLoweredExpr :: Expr 'Lowered -> ()
 forceLoweredExpr = rnf
@@ -51,9 +47,6 @@ forceTokens = rnf
 
 forceSurfaceExpr :: SurfaceExpr -> ()
 forceSurfaceExpr = rnf
-
-forceTypedProgram :: Typed.TypedProgram -> ()
-forceTypedProgram = rnf
 
 forceInferenceResult :: InferenceResult -> ()
 forceInferenceResult = rnf
@@ -74,9 +67,6 @@ forceRuntimeProgramOutputResult result =
 forceRenderedRuntimeValue :: RuntimeValue -> ()
 forceRenderedRuntimeValue runtimeValue =
   Text.length (renderRuntimeValue runtimeValue) `seq` ()
-
-forceLoweredProgram :: LoweredProgram -> ()
-forceLoweredProgram = rnf
 
 forceAnalyzedModule :: CoreModule 'Analyzed -> ()
 forceAnalyzedModule = rnf

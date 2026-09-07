@@ -59,10 +59,8 @@ data NumericType
   deriving stock (Bounded, Enum, Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
--- | Recursive semantic type shape shared by inference and Typed Core. The
--- parameters preserve each phase's nominal type identities and variables;
--- schemes, constraints, evidence, binders, and representation recipes remain
--- owned by their respective phases.
+-- | Recursive semantic type shape used by inference and analyzed facts.
+-- Parameters distinguish nominal type identities and inference variables.
 data SemanticType typeName variable
   = SemanticInt
   | SemanticFloat

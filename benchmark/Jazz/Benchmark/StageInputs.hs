@@ -25,13 +25,11 @@ import Jazz.Benchmark.Force
     forceDiagnostic,
     forceListWith,
     forceLoweredExpr,
-    forceLoweredProgram,
     forceProgramCaseResult,
     forceResolvedExpr,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
-    forceTypedProgram,
   )
 import Jazz.Benchmark.ScaleCases
   ( CompilerScaleCase,
@@ -59,13 +57,6 @@ import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..), isErrorDiagnostic)
 import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Driver (ResolvedPrelude (PreludeBundled), buildAnalyzedProgram)
-import Jazz.Compiler.LoweredIR
-import Jazz.Compiler.LoweredIR.Lower
-  ( LoweredIRLoweringResult (..),
-    lowerValidatedTypedCoreExpressionDirectCall,
-    validatedLoweredProgram,
-  )
-import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import qualified Jazz.Compiler.ModuleCompiler as ModuleCompiler
 import Jazz.Compiler.ModuleGraph
   ( CoreProgram,
@@ -89,12 +80,6 @@ import Jazz.Compiler.Profiling
     withCompilerStage,
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
-import Jazz.Compiler.TypeRepresentation (SemanticType (..))
-import Jazz.Compiler.TypedCore
-import Jazz.Compiler.TypedCore.Validate
-  ( validateTypedProgram,
-    validateTypedProgramOnce,
-  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.ProgramCorpus.Runner
   ( ProgramCaseResult (..),
@@ -120,9 +105,6 @@ data PreparedCompilerScaleBenchmark
   | PreparedCompilerScaleAnalysis CompileInputs (CoreProgram 'Resolved)
   | PreparedCompilerScaleModulePreparation CompilerScaleCase
   | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput (CoreProgram 'Analyzed)
-  | PreparedCompilerScaleLoweredValidation LoweredProgram
-  | PreparedCompilerScaleTypedValidation TypedProgram
-  | PreparedCompilerScaleTypedLowering TypedProgram
   | PreparedCompilerScaleDiagnosticAnalysis (Expr 'Resolved) Int
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
 
@@ -152,9 +134,6 @@ instance NFData PreparedCompilerScaleBenchmark where
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
       PreparedCompilerScaleRuntime expectedOutput analyzedProgram ->
         forceExpectedCompilerScaleOutput expectedOutput `seq` forceAnalyzedProgram analyzedProgram
-      PreparedCompilerScaleLoweredValidation loweredProgram -> forceLoweredProgram loweredProgram
-      PreparedCompilerScaleTypedValidation typedProgram -> forceTypedProgram typedProgram
-      PreparedCompilerScaleTypedLowering typedProgram -> forceTypedProgram typedProgram
       PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
         forceResolvedExpr expression `seq` rnf expectedDiagnosticCount
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
@@ -182,9 +161,6 @@ prepareBenchmark benchmarkGroup programCase =
         )
     ModulePreparationBenchmark -> prepareFully (PreparedModulePreparation programCase)
     DiagnosticAnalysisBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
-    TypedValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
-    LoweredValidationBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
-    TypedLoweringBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     RuntimeBenchmark -> do
       (_, analyzedProgram) <- prepareValidProgram programCase
       prepareFully
@@ -224,39 +200,6 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
           prepareFully
             (PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount)
     ModulePreparationBenchmark -> prepareFully (PreparedCompilerScaleModulePreparation programCase)
-    TypedValidationBenchmark -> do
-      typedProgram <-
-        fromDirectArtifact
-          benchmarkGroup
-          programCase
-          (typedValidationProgramForScenario (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase))
-      evaluate (forceTypedProgram typedProgram)
-      case validateTypedProgram typedProgram of
-        [] -> prepareFully (PreparedCompilerScaleTypedValidation typedProgram)
-        failures ->
-          ioError (userError ("typed validation scale fixture is invalid: " <> show failures))
-    LoweredValidationBenchmark -> do
-      loweredProgram <-
-        fromDirectArtifact
-          benchmarkGroup
-          programCase
-          (loweredValidationProgramForScenario (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase))
-      evaluate (forceLoweredProgram loweredProgram)
-      case validateLoweredProgram loweredProgram of
-        [] -> prepareFully (PreparedCompilerScaleLoweredValidation loweredProgram)
-        failures ->
-          ioError (userError ("lowered validation scale fixture is invalid: " <> show failures))
-    TypedLoweringBenchmark -> do
-      typedProgram <-
-        fromDirectArtifact
-          benchmarkGroup
-          programCase
-          (typedLoweringProgramForScenario (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase))
-      evaluate (forceTypedProgram typedProgram)
-      case validateTypedProgram typedProgram of
-        [] -> prepareFully (PreparedCompilerScaleTypedLowering typedProgram)
-        failures ->
-          ioError (userError ("typed-lowering scale fixture is invalid: " <> show failures))
     WholeProgramBenchmark -> prepareFully (PreparedCompilerScaleWholeProgram programCase)
     RuntimeBenchmark -> do
       (_, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
@@ -316,31 +259,6 @@ runPreparedCompilerScaleBenchmark preparedBenchmark =
         let runtimeResult = evaluateAnalyzedProgram analyzedProgram
         evaluate (forceRuntimeProgramOutputResult runtimeResult)
         requireExpectedCompilerScaleRuntimeResult expectedOutput runtimeResult
-    PreparedCompilerScaleLoweredValidation loweredProgram ->
-      withCompilerStage LoweredIRValidationStage $
-        case validateLoweredProgram loweredProgram of
-          [] -> pure ()
-          failures ->
-            ioError (userError ("lowered validation benchmark failed: " <> show failures))
-    PreparedCompilerScaleTypedValidation typedProgram ->
-      withCompilerStage TypedCoreValidationStage $
-        case validateTypedProgram typedProgram of
-          [] -> pure ()
-          failures ->
-            ioError (userError ("typed validation benchmark failed: " <> show failures))
-    PreparedCompilerScaleTypedLowering typedProgram -> do
-      validatedProgram <-
-        withCompilerStage TypedCoreValidationStage $
-          case validateTypedProgramOnce typedProgram of
-            Left failures ->
-              ioError (userError ("trusted typed program failed producer validation: " <> show failures))
-            Right value -> pure value
-      withCompilerStage LoweringStage $
-        case lowerValidatedTypedCoreExpressionDirectCall validatedProgram of
-          LoweredIRSucceeded validatedLowered ->
-            evaluate (forceLoweredProgram (validatedLoweredProgram validatedLowered))
-          loweringResult ->
-            ioError (userError ("typed-lowering benchmark failed: " <> show loweringResult))
     PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
       withCompilerStage StaticAnalysisStage $ do
         analysisResult <- analyzeProgram defaultWarningSettings expression
@@ -417,11 +335,6 @@ diagnosticAnalysisInput scenario size =
     NestedRuntimeApplications -> unsupported
     RuntimeImportWidth -> unsupported
     ResolverFactRich -> unsupported
-    TypedValidationHandoff -> unsupported
-    LoweredTemporaryValidation -> unsupported
-    TypedRecursiveStatementGraph -> unsupported
-    TypedForwardSignedFunctions -> unsupported
-    TypedWideExportProviders -> unsupported
     WideConstructorApplication -> unsupported
     CapabilityCandidateWidth -> unsupported
     HostFreeOpaqueEnvironment -> unsupported
@@ -439,105 +352,6 @@ diagnosticAnalysisInput scenario size =
     LiteralTokenStream -> unsupported
   where
     unsupported = Left "scenario has no direct analyzer-diagnostic artifact"
-
-typedValidationProgramForScenario :: CompilerScaleScenario -> Int -> Either Text TypedProgram
-typedValidationProgramForScenario scenario size =
-  case scenario of
-    TypedRecursiveStatementGraph -> Right (typedRecursiveStatementGraphProgram size)
-    TypedWideExportProviders -> Right (typedWideExportProvidersProgram size)
-    SequentialPolymorphicBindings -> unsupported
-    WideModuleFanout -> unsupported
-    SharedInterfaceFanout -> unsupported
-    NestedRuntimeApplications -> unsupported
-    RuntimeImportWidth -> unsupported
-    ResolverFactRich -> unsupported
-    TypedValidationHandoff -> unsupported
-    LoweredTemporaryValidation -> unsupported
-    TypedForwardSignedFunctions -> unsupported
-    WideConstructorApplication -> unsupported
-    CapabilityCandidateWidth -> unsupported
-    HostFreeOpaqueEnvironment -> unsupported
-    AnalyzerDiagnosticChain -> unsupported
-    InterleavedRecursiveGroups -> unsupported
-    RecursivePreviewBursts -> unsupported
-    RecursiveRebindings -> unsupported
-    ConstrainedSignatures -> unsupported
-    DeferredConstraintBursts -> unsupported
-    DeepNestedLambdas -> unsupported
-    LargeOperatorTables -> unsupported
-    NestedBlocks -> unsupported
-    AmbiguousCaseArmPipes -> unsupported
-    LongTokenStream -> unsupported
-    IdentifierTokenStream -> unsupported
-    LiteralTokenStream -> unsupported
-  where
-    unsupported = Left "scenario has no direct Typed Core validation artifact"
-
-loweredValidationProgramForScenario :: CompilerScaleScenario -> Int -> Either Text LoweredProgram
-loweredValidationProgramForScenario scenario size =
-  case scenario of
-    LoweredTemporaryValidation -> Right (loweredTemporaryValidationProgram size)
-    SequentialPolymorphicBindings -> unsupported
-    WideModuleFanout -> unsupported
-    SharedInterfaceFanout -> unsupported
-    NestedRuntimeApplications -> unsupported
-    RuntimeImportWidth -> unsupported
-    ResolverFactRich -> unsupported
-    TypedValidationHandoff -> unsupported
-    TypedRecursiveStatementGraph -> unsupported
-    TypedForwardSignedFunctions -> unsupported
-    TypedWideExportProviders -> unsupported
-    WideConstructorApplication -> unsupported
-    CapabilityCandidateWidth -> unsupported
-    HostFreeOpaqueEnvironment -> unsupported
-    AnalyzerDiagnosticChain -> unsupported
-    InterleavedRecursiveGroups -> unsupported
-    RecursivePreviewBursts -> unsupported
-    RecursiveRebindings -> unsupported
-    ConstrainedSignatures -> unsupported
-    DeferredConstraintBursts -> unsupported
-    DeepNestedLambdas -> unsupported
-    LargeOperatorTables -> unsupported
-    NestedBlocks -> unsupported
-    AmbiguousCaseArmPipes -> unsupported
-    LongTokenStream -> unsupported
-    IdentifierTokenStream -> unsupported
-    LiteralTokenStream -> unsupported
-  where
-    unsupported = Left "scenario has no direct Lowered IR validation artifact"
-
-typedLoweringProgramForScenario :: CompilerScaleScenario -> Int -> Either Text TypedProgram
-typedLoweringProgramForScenario scenario size =
-  case scenario of
-    TypedValidationHandoff -> Right (typedValidationBenchmarkProgram size)
-    TypedForwardSignedFunctions -> Right (typedForwardSignedFunctionsProgram size)
-    SequentialPolymorphicBindings -> unsupported
-    WideModuleFanout -> unsupported
-    SharedInterfaceFanout -> unsupported
-    NestedRuntimeApplications -> unsupported
-    RuntimeImportWidth -> unsupported
-    ResolverFactRich -> unsupported
-    LoweredTemporaryValidation -> unsupported
-    TypedRecursiveStatementGraph -> unsupported
-    TypedWideExportProviders -> unsupported
-    WideConstructorApplication -> unsupported
-    CapabilityCandidateWidth -> unsupported
-    HostFreeOpaqueEnvironment -> unsupported
-    AnalyzerDiagnosticChain -> unsupported
-    InterleavedRecursiveGroups -> unsupported
-    RecursivePreviewBursts -> unsupported
-    RecursiveRebindings -> unsupported
-    ConstrainedSignatures -> unsupported
-    DeferredConstraintBursts -> unsupported
-    DeepNestedLambdas -> unsupported
-    LargeOperatorTables -> unsupported
-    NestedBlocks -> unsupported
-    AmbiguousCaseArmPipes -> unsupported
-    LongTokenStream -> unsupported
-    IdentifierTokenStream -> unsupported
-    LiteralTokenStream -> unsupported
-  where
-    unsupported = Left "scenario has no direct Typed Core lowering artifact"
 
 prepareValidProgram :: ProgramCase -> IO (CoreProgram 'Resolved, CoreProgram 'Analyzed)
 prepareValidProgram programCase = do
@@ -583,361 +397,6 @@ runCompilerScaleCase programCase = do
       Right runtimeProgram ->
         pure (maybe "" renderRuntimeValue (runtimeProgramOutput runtimeProgram))
 
-typedValidationBenchmarkProgram :: Int -> TypedProgram
-typedValidationBenchmarkProgram expressionCount =
-  TypedProgram
-    Nothing
-    [ TypedModule
-        modulePath
-        (TypedSourcePath "compiler-scale/TypedValidation.jz")
-        []
-        []
-        (TypedModuleInterface [] [] [] [])
-        []
-        [TypedExpressionStatement (TypedSpan 1 1) expression]
-        intInfo
-    ]
-    modulePath
-  where
-    modulePath = ["TypedValidation"]
-    intInfo = TypedNodeInfo SemanticInt (TypedSignedIntegerRecipe 64) [] []
-    intExpression :: Int -> TypedExpr
-    intExpression value =
-      TypedLiteralExpr intInfo (TypedIntegerLiteral (Text.pack (show value)))
-    expression =
-      foldl'
-        (\left value -> TypedBinaryExpr intInfo (TypedBuiltinOperator "+") left (intExpression value))
-        (intExpression 0)
-        [1 .. expressionCount]
-
-loweredTemporaryValidationProgram :: Int -> LoweredProgram
-loweredTemporaryValidationProgram instructionCount
-  | instructionCount <= 0 = error "lowered temporary validation size must be positive"
-  | otherwise =
-      LoweredProgram
-        supportedLoweredIRVersion
-        []
-        []
-        [ LoweredFunction
-            functionId
-            Nothing
-            []
-            int64Representation
-            [LoweredBlock blockId [] instructions (Just (LoweredReturn finalOperand))]
-            blockId
-        ]
-        functionId
-  where
-    functionId = LoweredFunctionId "main"
-    blockId = LoweredBlockId "entry"
-    int64Representation = LoweredSignedIntegerRepresentation LoweredIntegerWidth64
-    temporaryId instructionIndex =
-      LoweredTemporaryId ("value" <> Text.justifyRight 5 '0' (Text.pack (show instructionIndex)))
-    immediate value =
-      LoweredImmediateOperand
-        (LoweredSignedIntegerImmediate LoweredIntegerWidth64 value)
-    temporary instructionIndex =
-      LoweredTemporaryOperand (temporaryId instructionIndex) int64Representation
-    operandFor instructionIndex
-      | instructionIndex == 0 = immediate 0
-      | otherwise = temporary (instructionIndex - 1)
-    instructions =
-      [ LoweredInstruction
-          (temporaryId instructionIndex)
-          int64Representation
-          ( LoweredPrimitiveOperation
-              (LoweredArithmeticPrimitive LoweredAdd)
-              [operandFor instructionIndex, immediate 1]
-          )
-      | instructionIndex <- [0 .. instructionCount - 1]
-      ]
-    finalOperand = temporary (instructionCount - 1)
-
-typedRecursiveStatementGraphProgram :: Int -> TypedProgram
-typedRecursiveStatementGraphProgram statementCount
-  | statementCount < graphGroupWidth || statementCount `rem` graphGroupWidth /= 0 =
-      error "typed recursive statement graph size must be a positive multiple of eight"
-  | otherwise =
-      TypedProgram
-        Nothing
-        [ TypedModule
-            modulePath
-            (TypedSourcePath "compiler-scale/TypedRecursiveStatementGraph.jz")
-            []
-            []
-            (TypedModuleInterface [] [] [] [])
-            recursiveGroups
-            (bindings <> [TypedExpressionStatement spanValue terminalExpression])
-            boolInfo
-        ]
-        modulePath
-  where
-    graphGroupWidth = 8
-    groupCount = statementCount `div` graphGroupWidth
-    recursiveGroups = map recursiveGroup [0 .. groupCount - 1]
-    bindings = concatMap graphGroup [0 .. groupCount - 1]
-    modulePath = ["TypedRecursiveStatementGraph"]
-    spanValue = TypedSpan 1 1
-    boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
-    trueExpression = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
-    historyName =
-      TypedResolvedName TypedCurrentModule TypedValueNamespace "history"
-    graphName prefix groupIndex =
-      TypedResolvedName
-        TypedCurrentModule
-        TypedValueNamespace
-        (prefix <> Text.justifyRight 4 '0' (Text.pack (show groupIndex)))
-    graphOwner statementIndex name =
-      TypedBinderId (modulePath, [statementIndex], name)
-    lambdaOwner statementIndex name =
-      TypedBinderId (modulePath, [statementIndex, 0], name)
-    variable info owner name = TypedVariableExpr info name (Just owner)
-    boundVariable = variable boolInfo
-    scalarBinding owner name expression =
-      TypedLetStatement
-        owner
-        name
-        spanValue
-        (TypedScheme owner [] [] [] SemanticBool TypedBoolRecipe Nothing)
-        expression
-    functionType = SemanticFunction SemanticBool SemanticBool
-    functionRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
-    functionInfo = TypedNodeInfo functionType functionRecipe [] []
-    functionBinding owner name argumentOwner argumentName body =
-      TypedLetStatement
-        owner
-        name
-        spanValue
-        (TypedScheme owner [] [] [] functionType functionRecipe (Just TypedDirectCallableShape))
-        (TypedLambdaExpr functionInfo argumentOwner argumentName body)
-    recursiveGroup groupIndex =
-      TypedRecursiveGroup [mutualLeftOwner groupIndex, mutualRightOwner groupIndex]
-    graphGroup groupIndex =
-      [ scalarBinding firstHistoryOwner historyName firstHistoryExpression,
-        scalarBinding chainOneOwner chainOneName (boundVariable firstHistoryOwner historyName),
-        scalarBinding secondHistoryOwner historyName (boundVariable chainOneOwner chainOneName),
-        scalarBinding chainTwoOwner chainTwoName (boundVariable secondHistoryOwner historyName),
-        functionBinding
-          leftOwner
-          leftName
-          leftArgumentOwner
-          leftArgumentName
-          ( TypedApplyExpr
-              boolInfo
-              (variable functionInfo rightOwner rightName)
-              (boundVariable leftArgumentOwner leftArgumentName)
-          ),
-        scalarBinding chainThreeOwner chainThreeName (boundVariable chainTwoOwner chainTwoName),
-        functionBinding
-          rightOwner
-          rightName
-          rightArgumentOwner
-          rightArgumentName
-          ( TypedApplyExpr
-              boolInfo
-              (variable functionInfo leftOwner leftName)
-              (boundVariable rightArgumentOwner rightArgumentName)
-          ),
-        scalarBinding
-          tailOwner
-          tailName
-          ( TypedIfExpr
-              boolInfo
-              (boundVariable chainThreeOwner chainThreeName)
-              (TypedApplyExpr boolInfo (variable functionInfo rightOwner rightName) trueExpression)
-              (boundVariable chainThreeOwner chainThreeName)
-          )
-      ]
-      where
-        baseIndex = groupIndex * graphGroupWidth
-        chainOneName = graphName "chainOne" groupIndex
-        chainTwoName = graphName "chainTwo" groupIndex
-        chainThreeName = graphName "chainThree" groupIndex
-        leftName = mutualLeftName groupIndex
-        rightName = mutualRightName groupIndex
-        leftArgumentName = graphName "leftArgument" groupIndex
-        rightArgumentName = graphName "rightArgument" groupIndex
-        tailName = graphName "tail" groupIndex
-        firstHistoryOwner = graphOwner baseIndex historyName
-        chainOneOwner = graphOwner (baseIndex + 1) chainOneName
-        secondHistoryOwner = graphOwner (baseIndex + 2) historyName
-        chainTwoOwner = graphOwner (baseIndex + 3) chainTwoName
-        leftOwner = mutualLeftOwner groupIndex
-        leftArgumentOwner = lambdaOwner (baseIndex + 4) leftArgumentName
-        chainThreeOwner = graphOwner (baseIndex + 5) chainThreeName
-        rightOwner = mutualRightOwner groupIndex
-        rightArgumentOwner = lambdaOwner (baseIndex + 6) rightArgumentName
-        tailOwner = graphOwner (baseIndex + 7) tailName
-        firstHistoryExpression
-          | groupIndex == 0 = trueExpression
-          | otherwise =
-              let previousTailName = graphName "tail" (groupIndex - 1)
-                  previousTailOwner = graphOwner (baseIndex - 1) previousTailName
-               in boundVariable previousTailOwner previousTailName
-    mutualLeftName = graphName "mutualLeft"
-    mutualRightName = graphName "mutualRight"
-    mutualLeftOwner groupIndex =
-      graphOwner (groupIndex * graphGroupWidth + 4) (mutualLeftName groupIndex)
-    mutualRightOwner groupIndex =
-      graphOwner (groupIndex * graphGroupWidth + 6) (mutualRightName groupIndex)
-    terminalName = graphName "tail" (groupCount - 1)
-    terminalOwner = graphOwner (statementCount - 1) terminalName
-    terminalExpression = boundVariable terminalOwner terminalName
-
-typedWideExportProvidersProgram :: Int -> TypedProgram
-typedWideExportProvidersProgram providerCount
-  | providerCount <= 0 = error "typed wide export provider count must be positive"
-  | otherwise =
-      TypedProgram
-        Nothing
-        [ TypedModule
-            modulePath
-            (TypedSourcePath "compiler-scale/TypedWideExportProviders.jz")
-            []
-            exports
-            (TypedModuleInterface interfaces [] [] [])
-            []
-            (bindings <> [TypedExpressionStatement spanValue trueExpression])
-            boolInfo
-        ]
-        modulePath
-  where
-    modulePath = ["TypedWideExportProviders"]
-    spanValue = TypedSpan 1 1
-    boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
-    trueExpression = TypedLiteralExpr boolInfo (TypedBooleanLiteral True)
-
-    providerIdentifier index =
-      "provided" <> Text.justifyRight 4 '0' (Text.pack (show index))
-    providerName index =
-      TypedResolvedName
-        TypedCurrentModule
-        TypedValueNamespace
-        (providerIdentifier index)
-    providerOwner index = TypedBinderId (modulePath, [index], providerName index)
-    providerScheme index =
-      TypedScheme
-        (providerOwner index)
-        []
-        []
-        []
-        SemanticBool
-        TypedBoolRecipe
-        Nothing
-
-    bindings =
-      [ TypedLetStatement
-          (providerOwner index)
-          (providerName index)
-          spanValue
-          (providerScheme index)
-          trueExpression
-      | index <- [0 .. providerCount - 1]
-      ]
-    interfaces =
-      [TypedValueInterface (providerName index) (providerScheme index) | index <- [0 .. providerCount - 1]]
-    exports =
-      [TypedModuleExport TypedValueNamespace (providerIdentifier index) | index <- [0 .. providerCount - 1]]
-
-typedForwardSignedFunctionsProgram :: Int -> TypedProgram
-typedForwardSignedFunctionsProgram functionCount
-  | functionCount <= 0 = error "typed forward signed function count must be positive"
-  | otherwise =
-      TypedProgram
-        Nothing
-        [ TypedModule
-            modulePath
-            source
-            []
-            []
-            (TypedModuleInterface [] [] [] [])
-            []
-            (concatMap functionPair [0 .. functionCount - 1] <> [terminalStatement])
-            boolInfo
-        ]
-        modulePath
-  where
-    modulePath = ["TypedForwardSignedFunctions"]
-    source = TypedSourcePath "compiler-scale/TypedForwardSignedFunctions.jz"
-    statementSpan = TypedSpan 1 1
-    boolInfo = TypedNodeInfo SemanticBool TypedBoolRecipe [] []
-    functionType = SemanticFunction SemanticBool SemanticBool
-    functionRecipe = TypedClosureRecipe [TypedBoolRecipe] TypedBoolRecipe
-    functionInfo = TypedNodeInfo functionType functionRecipe [] []
-
-    indexedName :: Text -> Int -> TypedCoreName
-    indexedName prefix index =
-      TypedResolvedName
-        TypedCurrentModule
-        TypedValueNamespace
-        (prefix <> Text.justifyRight 4 '0' (Text.pack (show index)))
-
-    functionName :: Int -> TypedCoreName
-    functionName index = indexedName "forward" index
-
-    argumentName :: Int -> TypedCoreName
-    argumentName index = indexedName "argument" index
-
-    signatureOwner index =
-      TypedBinderId (modulePath, [2 * index], functionName index)
-    bindingOwner index =
-      TypedBinderId (modulePath, [2 * index + 1], functionName index)
-    argumentOwner index =
-      TypedBinderId (modulePath, [2 * index + 1, 0], argumentName index)
-
-    functionScheme owner =
-      TypedScheme
-        owner
-        []
-        []
-        []
-        functionType
-        functionRecipe
-        (Just TypedDirectCallableShape)
-
-    variable info owner name = TypedVariableExpr info name (Just owner)
-
-    functionBody index
-      | index == functionCount - 1 =
-          variable boolInfo (argumentOwner index) (argumentName index)
-      | otherwise =
-          TypedApplyExpr
-            boolInfo
-            ( variable
-                functionInfo
-                (bindingOwner (index + 1))
-                (functionName (index + 1))
-            )
-            (variable boolInfo (argumentOwner index) (argumentName index))
-
-    functionPair index =
-      [ TypedSignatureStatement
-          (signatureOwner index)
-          (functionName index)
-          statementSpan
-          (functionScheme (signatureOwner index)),
-        TypedLetStatement
-          (bindingOwner index)
-          (functionName index)
-          statementSpan
-          (functionScheme (bindingOwner index))
-          ( TypedLambdaExpr
-              functionInfo
-              (argumentOwner index)
-              (argumentName index)
-              (functionBody index)
-          )
-      ]
-
-    terminalStatement =
-      TypedExpressionStatement
-        statementSpan
-        ( TypedApplyExpr
-            boolInfo
-            (variable functionInfo (bindingOwner 0) (functionName 0))
-            (TypedLiteralExpr boolInfo (TypedBooleanLiteral True))
-        )
-
 unsupportedCorpusGroup :: BenchmarkGroup -> ProgramCase -> IO value
 unsupportedCorpusGroup benchmarkGroup programCase =
   ioError
@@ -962,12 +421,6 @@ unsupportedCompilerScaleGroup benchmarkGroup programCase reason =
             <> ")"
         )
     )
-
-fromDirectArtifact :: BenchmarkGroup -> CompilerScaleCase -> Either Text value -> IO value
-fromDirectArtifact benchmarkGroup programCase result =
-  case result of
-    Left reason -> unsupportedCompilerScaleGroup benchmarkGroup programCase reason
-    Right value -> pure value
 
 prepareFully :: (NFData prepared) => prepared -> IO prepared
 prepareFully prepared = evaluate (rnf prepared) >> pure prepared

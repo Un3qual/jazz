@@ -4,6 +4,9 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Typed-core decisions dated 2026-07-22 and 2026-07-30.
 
+> This RFC is superseded by
+> [RFC 0016](0016-optional-backend-removal.md). The following text records the retired backend design.
+
 ## Decision
 
 Typed core is a separate, structurally aligned tree between semantic inference

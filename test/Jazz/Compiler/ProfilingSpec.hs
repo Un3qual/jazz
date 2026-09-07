@@ -3,7 +3,6 @@
 
 module Main (main) where
 
-import Control.DeepSeq (NFData, rnf)
 import Control.Exception (IOException, evaluate, throw, try)
 import Data.IORef
   ( IORef,
@@ -33,28 +32,8 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Force
   ( forceDiagnostic,
     forceInferenceResult,
-    forceLoweredProgram,
     forceRuntimeProgramOutputResult,
-    forceTypedProgram,
   )
-import Jazz.Compiler.LoweredIR
-  ( LoweredBlock (LoweredBlock),
-    LoweredBlockId (LoweredBlockId),
-    LoweredFunction (LoweredFunction),
-    LoweredFunctionId (LoweredFunctionId),
-    LoweredInstruction (LoweredInstruction),
-    LoweredLayout (LoweredLayout),
-    LoweredLayoutId (LoweredLayoutId),
-    LoweredLayoutShape (LoweredTextLayout),
-    LoweredOperand (LoweredTemporaryOperand),
-    LoweredOperation (LoweredConstructText),
-    LoweredProgram (LoweredProgram),
-    LoweredRepresentation (LoweredManagedReferenceRepresentation),
-    LoweredTemporaryId (LoweredTemporaryId),
-    LoweredTerminator (LoweredReturn),
-    supportedLoweredIRVersion,
-  )
-import Jazz.Compiler.LoweredIR.Validate (validateLoweredProgram)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (ModuleExport),
   )
@@ -96,7 +75,6 @@ import Jazz.Compiler.TypeRepresentation
   ( SignaturePayload (..),
     SignatureType (..),
   )
-import qualified Jazz.Compiler.TypedCore as Typed
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -115,32 +93,9 @@ tests =
     ("compiler stage markers pair around failed actions", testFailedStageMarkers),
     ("inference forcing evaluates nested module interface payloads", testDeepModuleInterfaceForcing),
     ("diagnostic forcing evaluates nested spans and labels", testDeepDiagnosticForcing),
-    ("lowered-program forcing evaluates payloads validation does not inspect", testDeepLoweredProgramForcing),
-    ("lowered programs expose a structural NFData contract", testLoweredProgramNFDataContract),
-    ("typed-program forcing evaluates nested artifact payloads", testDeepTypedProgramForcing),
-    ("typed programs expose a structural NFData contract", testTypedProgramNFDataContract),
     ("runtime-result forcing follows rendered-output semantics", testRuntimeResultForcingFollowsRendering),
     ("GHC profiling presets are checked in separately", testProfilingPresetsExist)
   ]
-
-requireNFData :: (NFData value) => value -> ()
-requireNFData = rnf
-
-testTypedProgramNFDataContract :: IO ()
-testTypedProgramNFDataContract =
-  assertEqual
-    "typed program NFData contract"
-    ()
-    (requireNFData (Typed.TypedProgram Nothing [] []))
-
-testLoweredProgramNFDataContract :: IO ()
-testLoweredProgramNFDataContract =
-  assertEqual
-    "lowered program NFData contract"
-    ()
-    ( requireNFData
-        (LoweredProgram supportedLoweredIRVersion [] [] [] (LoweredFunctionId "entry"))
-    )
 
 testBenchmarkGroupMetadata :: IO ()
 testBenchmarkGroupMetadata = do
@@ -151,9 +106,6 @@ testBenchmarkGroupMetadata = do
       "analysis",
       "diagnostic-analysis",
       "module-preparation",
-      "typed-validation",
-      "lowered-validation",
-      "typed-lowering",
       "runtime",
       "whole-program"
     ]
@@ -164,9 +116,6 @@ testBenchmarkGroupMetadata = do
       (AnalysisBenchmark, [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]),
       (DiagnosticAnalysisBenchmark, [StaticAnalysisStage]),
       (ModulePreparationBenchmark, [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]),
-      (TypedValidationBenchmark, [TypedCoreValidationStage]),
-      (LoweredValidationBenchmark, [LoweredIRValidationStage]),
-      (TypedLoweringBenchmark, [TypedCoreValidationStage, LoweringStage]),
       (RuntimeBenchmark, [EvaluationStage, HostOperationStage]),
       ( WholeProgramBenchmark,
         [ SourceLoadingStage,
@@ -305,83 +254,6 @@ testDeepDiagnosticForcing =
     ]
   where
     baseDiagnostic = mkErrorDiagnostic E1001 CompilationOrigin "diagnostic"
-
-testDeepLoweredProgramForcing :: IO ()
-testDeepLoweredProgramForcing = do
-  let marker = "lowered text payload was forced"
-      textLayoutId = LoweredLayoutId "text"
-      textRepresentation = LoweredManagedReferenceRepresentation textLayoutId
-      functionId = LoweredFunctionId "main"
-      blockId = LoweredBlockId "entry"
-      temporaryId = LoweredTemporaryId "text-value"
-      loweredProgram =
-        LoweredProgram
-          supportedLoweredIRVersion
-          [LoweredLayout textLayoutId LoweredTextLayout]
-          []
-          [ LoweredFunction
-              functionId
-              Nothing
-              []
-              textRepresentation
-              [ LoweredBlock
-                  blockId
-                  []
-                  [ LoweredInstruction
-                      temporaryId
-                      textRepresentation
-                      (LoweredConstructText textLayoutId (throw (userError marker)))
-                  ]
-                  (Just (LoweredReturn (LoweredTemporaryOperand temporaryId textRepresentation)))
-              ]
-              blockId
-          ]
-          functionId
-  assertEqual
-    "poisoned lowered program remains structurally valid"
-    []
-    (validateLoweredProgram loweredProgram)
-  assertForcesMarker "lowered text payload" marker (evaluate (forceLoweredProgram loweredProgram))
-
-testDeepTypedProgramForcing :: IO ()
-testDeepTypedProgramForcing =
-  mapM_ assertTypedPayloadForced typedPayloadCases
-  where
-    assertTypedPayloadForced (label, marker, typedProgram) =
-      assertForcesMarker label marker (evaluate (forceTypedProgram typedProgram))
-    typedPayloadCases =
-      [ ( "typed source path",
-          "typed source path was forced",
-          typedProgramWith
-            (throw (userError "typed source path was forced"))
-            baseExpression
-        ),
-        ( "typed literal payload",
-          "typed literal payload was forced",
-          typedProgramWith
-            (Typed.TypedSourcePath "Main.jz")
-            ( Typed.TypedLiteralExpr
-                boolInfo
-                (throw (userError "typed literal payload was forced"))
-            )
-        )
-      ]
-    typedProgramWith sourcePath expression =
-      Typed.TypedProgram
-        Nothing
-        [ Typed.TypedModule
-            ["Main"]
-            sourcePath
-            []
-            []
-            (Typed.TypedModuleInterface [] [] [] [])
-            []
-            [Typed.TypedExpressionStatement (Typed.TypedSpan 1 1) expression]
-            boolInfo
-        ]
-        ["Main"]
-    baseExpression = Typed.TypedLiteralExpr boolInfo (Typed.TypedBooleanLiteral True)
-    boolInfo = Typed.TypedNodeInfo SemanticBool Typed.TypedBoolRecipe [] []
 
 assertForcesMarker :: Text -> String -> IO () -> IO ()
 assertForcesMarker label marker action = do
