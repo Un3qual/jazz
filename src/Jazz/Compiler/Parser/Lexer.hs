@@ -290,16 +290,6 @@ symbolToken spanValue nextChar =
       operatorToken "<=" <|> operatorRunKind
     '>' ->
       operatorToken ">=" <|> operatorRunKind
-    '+' -> operatorRunKind
-    '-' -> operatorOrArrowRunKind
-    '*' -> operatorRunKind
-    '/' -> operatorRunKind
-    '|' -> operatorRunKind
-    '%' -> operatorRunKind
-    '&' -> operatorRunKind
-    '?' -> operatorRunKind
-    '^' -> operatorRunKind
-    '~' -> operatorRunKind
     '$' -> operatorToken "$"
     '\\' -> fixedToken TLambda "\\"
     '.' -> fixedToken TDot "."
@@ -310,7 +300,9 @@ symbolToken spanValue nextChar =
     '[' -> fixedToken TLBracket "["
     ']' -> fixedToken TRBracket "]"
     ',' -> fixedToken TComma ","
-    _ -> MP.anySingle *> unexpectedCharacter spanValue nextChar
+    _
+      | isStage2OperatorSymbolChar nextChar -> operatorRunKind
+      | otherwise -> MP.anySingle *> unexpectedCharacter spanValue nextChar
 
 fixedToken :: TokenKind -> Text -> LexerParser TokenKind
 fixedToken kind lexeme = kind <$ MP.chunk lexeme
@@ -319,10 +311,7 @@ operatorToken :: Text -> LexerParser TokenKind
 operatorToken symbol = fixedToken (TOperator symbol) symbol
 
 operatorRunKind :: LexerParser TokenKind
-operatorRunKind = TOperator <$> MP.takeWhile1P (Just "operator") isStage2OperatorSymbolChar
-
-operatorOrArrowRunKind :: LexerParser TokenKind
-operatorOrArrowRunKind = do
+operatorRunKind = do
   symbol <- MP.takeWhile1P (Just "operator") isStage2OperatorSymbolChar
   pure $ case symbol of
     "->" -> TArrow
