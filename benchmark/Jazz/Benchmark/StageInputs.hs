@@ -2,16 +2,15 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.StageInputs
   ( PreparedBenchmark,
-    PreparedCompilerScaleBenchmark,
     prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runCompilerScaleCase,
     runPreparedBenchmark,
-    runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
 where
@@ -23,13 +22,11 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 import Jazz.Benchmark.Force
-  ( forceAnalyzedProgram,
-    forceAnalyzedProgramResult,
+  ( forceAnalyzedProgramResult,
     forceDiagnostic,
     forceListWith,
     forceLoweredExpr,
     forceProgramCaseResult,
-    forceResolvedExpr,
     forceRuntimeProgramOutputResult,
     forceSurfaceExpr,
     forceTokens,
@@ -95,20 +92,19 @@ import Jazz.ProgramCorpus.Types
     ProgramTermination (..),
   )
 
-data PreparedBenchmark
-  = PreparedParseLower Text
-  | PreparedAnalysis CompileInputs (CoreProgram 'Resolved)
-  | PreparedModulePreparation ProgramCase
-  | PreparedRuntime ExpectedProgramBehavior (CoreProgram 'Analyzed)
-  | PreparedWholeProgram ProgramCase
+-- | A prepared input travels with its matching runner and forcing dictionary.
+-- Keeping the input separate prevents setup from executing the timed action.
+data PreparedBenchmark = forall input. (NFData input) => PreparedBenchmark input (input -> IO ())
 
-data PreparedCompilerScaleBenchmark
-  = PreparedCompilerScaleParseLower Text
-  | PreparedCompilerScaleAnalysis CompileInputs (CoreProgram 'Resolved)
-  | PreparedCompilerScaleModulePreparation CompilerScaleCase
-  | PreparedCompilerScaleRuntime ExpectedCompilerScaleOutput (CoreProgram 'Analyzed)
-  | PreparedCompilerScaleDiagnosticAnalysis (Expr 'Resolved) Int
-  | PreparedCompilerScaleWholeProgram CompilerScaleCase
+instance NFData PreparedBenchmark where
+  rnf (PreparedBenchmark input run) = rnf input `seq` run `seq` ()
+
+-- CompileInputs contains deliberately lazy environments. Force only its outer
+-- constructor while fully preparing the resolved program.
+data AnalysisInput = AnalysisInput CompileInputs (CoreProgram 'Resolved)
+
+instance NFData AnalysisInput where
+  rnf (AnalysisInput inputs program) = inputs `seq` rnf program
 
 data ExpectedProgramBehavior = ExpectedProgramBehavior Text ProgramTermination Text
   deriving stock (Generic)
@@ -117,32 +113,6 @@ data ExpectedProgramBehavior = ExpectedProgramBehavior Text ProgramTermination T
 data ExpectedCompilerScaleOutput = ExpectedCompilerScaleOutput Text Text
   deriving stock (Generic)
   deriving anyclass (NFData)
-
-instance NFData PreparedBenchmark where
-  rnf preparedBenchmark =
-    case preparedBenchmark of
-      PreparedParseLower source -> Text.length source `seq` ()
-      PreparedAnalysis inputs resolvedProgram ->
-        inputs `seq`
-          rnf resolvedProgram
-      PreparedModulePreparation programCase -> rnf programCase
-      PreparedRuntime expectedBehavior analyzedProgram ->
-        rnf expectedBehavior `seq` forceAnalyzedProgram analyzedProgram
-      PreparedWholeProgram programCase -> rnf programCase
-
-instance NFData PreparedCompilerScaleBenchmark where
-  rnf preparedBenchmark =
-    case preparedBenchmark of
-      PreparedCompilerScaleParseLower source -> Text.length source `seq` ()
-      PreparedCompilerScaleAnalysis inputs resolvedProgram ->
-        inputs `seq`
-          rnf resolvedProgram
-      PreparedCompilerScaleModulePreparation programCase -> rnf programCase
-      PreparedCompilerScaleRuntime expectedOutput analyzedProgram ->
-        rnf expectedOutput `seq` forceAnalyzedProgram analyzedProgram
-      PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
-        forceResolvedExpr expression `seq` rnf expectedDiagnosticCount
-      PreparedCompilerScaleWholeProgram programCase -> rnf programCase
 
 prepareBenchmark :: BenchmarkGroup -> ProgramCase -> IO PreparedBenchmark
 prepareBenchmark benchmarkGroup programCase =
@@ -156,27 +126,21 @@ prepareBenchmark benchmarkGroup programCase =
             Right loadedSource -> do
               _ <- evaluate (Text.length loadedSource)
               pure loadedSource
-      prepareFully (PreparedParseLower source)
+      prepareFully (PreparedBenchmark source runParseLower)
     AnalysisBenchmark -> do
       (resolvedProgram, _) <- prepareValidProgram programCase
-      let inputs = compileInputs defaultWarningSettings Set.empty
-      prepareFully
-        ( PreparedAnalysis
-            inputs
-            resolvedProgram
-        )
-    ModulePreparationBenchmark -> prepareFully (PreparedModulePreparation programCase)
+      let input = AnalysisInput (compileInputs defaultWarningSettings Set.empty) resolvedProgram
+      prepareFully (PreparedBenchmark input runAnalysis)
+    ModulePreparationBenchmark ->
+      prepareFully (PreparedBenchmark programCase (runPreparedProgram . withCompilerStage RuntimePreparationStage . prepareProgramCase))
     DiagnosticAnalysisBenchmark -> unsupportedCorpusGroup benchmarkGroup programCase
     RuntimeBenchmark -> do
       (_, analyzedProgram) <- prepareValidProgram programCase
       prepareFully
-        ( PreparedRuntime
-            (expectedProgramBehavior programCase)
-            analyzedProgram
-        )
-    WholeProgramBenchmark -> prepareFully (PreparedWholeProgram programCase)
+        (PreparedBenchmark (expectedProgramBehavior programCase, analyzedProgram) (runRuntime requireExpectedRuntimeResult))
+    WholeProgramBenchmark -> prepareFully (PreparedBenchmark programCase runWholeProgram)
 
-prepareCompilerScaleBenchmark :: BenchmarkGroup -> CompilerScaleCase -> IO PreparedCompilerScaleBenchmark
+prepareCompilerScaleBenchmark :: BenchmarkGroup -> CompilerScaleCase -> IO PreparedBenchmark
 prepareCompilerScaleBenchmark benchmarkGroup programCase =
   case benchmarkGroup of
     ParseLowerBenchmark -> do
@@ -190,108 +154,86 @@ prepareCompilerScaleBenchmark benchmarkGroup programCase =
                   )
               )
           Just value -> evaluate (Text.length value) >> pure value
-      prepareFully (PreparedCompilerScaleParseLower source)
+      prepareFully (PreparedBenchmark source runParseLower)
     AnalysisBenchmark -> do
       (resolvedProgram, _) <- prepareValidCompilerScaleProgram programCase
-      let inputs = compileInputs defaultWarningSettings Set.empty
-      prepareFully
-        ( PreparedCompilerScaleAnalysis
-            inputs
-            resolvedProgram
-        )
+      let input = AnalysisInput (compileInputs defaultWarningSettings Set.empty) resolvedProgram
+      prepareFully (PreparedBenchmark input runAnalysis)
     DiagnosticAnalysisBenchmark ->
       case diagnosticAnalysisInput (compilerScaleCaseScenario programCase) (compilerScaleCaseSize programCase) of
         Left message -> unsupportedCompilerScaleGroup benchmarkGroup programCase message
-        Right (expression, expectedDiagnosticCount) ->
-          prepareFully
-            (PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount)
-    ModulePreparationBenchmark -> prepareFully (PreparedCompilerScaleModulePreparation programCase)
-    WholeProgramBenchmark -> prepareFully (PreparedCompilerScaleWholeProgram programCase)
+        Right input -> prepareFully (PreparedBenchmark input runDiagnosticAnalysis)
+    ModulePreparationBenchmark ->
+      prepareFully (PreparedBenchmark programCase (runPreparedProgram . buildCompilerScaleProgram))
+    WholeProgramBenchmark -> prepareFully (PreparedBenchmark programCase runCompilerScaleWholeProgram)
     RuntimeBenchmark -> do
       (_, analyzedProgram) <- prepareValidCompilerScaleProgram programCase
       prepareFully
-        ( PreparedCompilerScaleRuntime
-            (expectedCompilerScaleOutput programCase)
-            analyzedProgram
-        )
+        (PreparedBenchmark (expectedCompilerScaleOutput programCase, analyzedProgram) (runRuntime requireExpectedCompilerScaleRuntimeResult))
 
 runPreparedBenchmark :: PreparedBenchmark -> IO ()
-runPreparedBenchmark preparedBenchmark =
-  case preparedBenchmark of
-    PreparedParseLower source -> runParseLower source
-    PreparedAnalysis inputs resolvedProgram -> do
-      analysisResult <-
-        withCompilerStage TypeInferenceStage $ do
-          value <- ModuleCompiler.analyzeProgram inputs resolvedProgram
-          evaluate (forceAnalyzedProgramResult value)
-          pure value
-      requireSuccessfulAnalysis analysisResult
-    PreparedModulePreparation programCase -> do
-      analyzedResult <-
-        withCompilerStage RuntimePreparationStage (prepareProgramCase programCase)
-      evaluate (forcePreparedProgramResult analyzedResult)
-      case analyzedResult of
-        Left diagnostic -> failBenchmarkDiagnostic diagnostic
-        Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
-    PreparedRuntime expectedBehavior analyzedProgram ->
-      withCompilerStage EvaluationStage $ do
-        let runtimeResult = evaluateAnalyzedProgram analyzedProgram
-        evaluate (forceRuntimeProgramOutputResult runtimeResult)
-        requireExpectedRuntimeResult expectedBehavior runtimeResult
-    PreparedWholeProgram programCase -> do
-      result <- runProgramCase programCase
-      evaluate (forceProgramCaseResult result)
-      requireExpectedProgramResult programCase result
+runPreparedBenchmark (PreparedBenchmark input run) = run input
 
-runPreparedCompilerScaleBenchmark :: PreparedCompilerScaleBenchmark -> IO ()
-runPreparedCompilerScaleBenchmark preparedBenchmark =
-  case preparedBenchmark of
-    PreparedCompilerScaleParseLower source -> runParseLower source
-    PreparedCompilerScaleAnalysis inputs resolvedProgram -> do
-      analysisResult <-
-        withCompilerStage TypeInferenceStage $ do
-          value <- ModuleCompiler.analyzeProgram inputs resolvedProgram
-          evaluate (forceAnalyzedProgramResult value)
-          pure value
-      requireSuccessfulAnalysis analysisResult
-    PreparedCompilerScaleModulePreparation programCase -> do
-      analyzedResult <- buildCompilerScaleProgram programCase
-      evaluate (forcePreparedProgramResult analyzedResult)
-      case analyzedResult of
-        Left diagnostic -> failBenchmarkDiagnostic diagnostic
-        Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
-    PreparedCompilerScaleRuntime expectedOutput analyzedProgram ->
-      withCompilerStage EvaluationStage $ do
-        let runtimeResult = evaluateAnalyzedProgram analyzedProgram
-        evaluate (forceRuntimeProgramOutputResult runtimeResult)
-        requireExpectedCompilerScaleRuntimeResult expectedOutput runtimeResult
-    PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
-      withCompilerStage StaticAnalysisStage $ do
-        analysisResult <- analyzeProgram defaultWarningSettings expression
-        evaluate (forceListWith forceDiagnostic (analysisDiagnostics analysisResult))
-        let actualDiagnosticCount = length (filter isErrorDiagnostic (analysisDiagnostics analysisResult))
-        if actualDiagnosticCount == expectedDiagnosticCount
-          then pure ()
-          else
-            ioError
-              ( userError
-                  ( "analyzer diagnostic benchmark produced "
-                      <> show actualDiagnosticCount
-                      <> " errors; expected "
-                      <> show expectedDiagnosticCount
-                  )
+runAnalysis :: AnalysisInput -> IO ()
+runAnalysis (AnalysisInput inputs resolvedProgram) = do
+  analysisResult <-
+    withCompilerStage TypeInferenceStage $ do
+      value <- ModuleCompiler.analyzeProgram inputs resolvedProgram
+      evaluate (forceAnalyzedProgramResult value)
+      pure value
+  requireSuccessfulAnalysis analysisResult
+
+runPreparedProgram :: IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed))) -> IO ()
+runPreparedProgram prepare = do
+  analyzedResult <- prepare
+  evaluate (forcePreparedProgramResult analyzedResult)
+  case analyzedResult of
+    Left diagnostic -> failBenchmarkDiagnostic diagnostic
+    Right (_, diagnostics, maybeAnalyzedProgram) -> requireSuccessfulAnalysis (diagnostics, maybeAnalyzedProgram)
+
+runRuntime :: (expected -> Either Diagnostic RuntimeProgram -> IO ()) -> (expected, CoreProgram 'Analyzed) -> IO ()
+runRuntime requireExpected (expected, analyzedProgram) =
+  withCompilerStage EvaluationStage $ do
+    let runtimeResult = evaluateAnalyzedProgram analyzedProgram
+    evaluate (forceRuntimeProgramOutputResult runtimeResult)
+    requireExpected expected runtimeResult
+
+runWholeProgram :: ProgramCase -> IO ()
+runWholeProgram programCase = do
+  result <- runProgramCase programCase
+  evaluate (forceProgramCaseResult result)
+  requireExpectedProgramResult programCase result
+
+runDiagnosticAnalysis :: (Expr 'Resolved, Int) -> IO ()
+runDiagnosticAnalysis (expression, expectedDiagnosticCount) =
+  withCompilerStage StaticAnalysisStage $ do
+    analysisResult <- analyzeProgram defaultWarningSettings expression
+    evaluate (forceListWith forceDiagnostic (analysisDiagnostics analysisResult))
+    let actualDiagnosticCount = length (filter isErrorDiagnostic (analysisDiagnostics analysisResult))
+    if actualDiagnosticCount == expectedDiagnosticCount
+      then pure ()
+      else
+        ioError
+          ( userError
+              ( "analyzer diagnostic benchmark produced "
+                  <> show actualDiagnosticCount
+                  <> " errors; expected "
+                  <> show expectedDiagnosticCount
               )
-    PreparedCompilerScaleWholeProgram programCase -> do
-      actualOutput <- runCompilerScaleCase programCase
-      if actualOutput == compilerScaleCaseExpectedOutput programCase
-        then pure ()
-        else
-          ioError
-            ( userError
-                ( "compiler scale benchmark did not preserve expected output: "
-                    <> Text.unpack (compilerScaleCaseIdentifier programCase)
-                )
+          )
+
+runCompilerScaleWholeProgram :: CompilerScaleCase -> IO ()
+runCompilerScaleWholeProgram programCase = do
+  actualOutput <- runCompilerScaleCase programCase
+  if actualOutput == compilerScaleCaseExpectedOutput programCase
+    then pure ()
+    else
+      ioError
+        ( userError
+            ( "compiler scale benchmark did not preserve expected output: "
+                <> Text.unpack (compilerScaleCaseIdentifier programCase)
             )
+        )
 
 runParseLower :: Text -> IO ()
 runParseLower source = do

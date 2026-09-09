@@ -23,7 +23,8 @@ where
 
 import Control.DeepSeq (NFData)
 import Control.Monad (foldM)
-import Data.Bifunctor (bimap)
+import Control.Monad.Trans.Except (ExceptT (..), except, runExceptT, throwE)
+import Data.Bifunctor (bimap, first)
 import Data.Foldable (toList)
 import Data.List (find, sortOn)
 import Data.List.NonEmpty (NonEmpty)
@@ -260,7 +261,7 @@ resolveStateWithLookupAndVisibleSymbols ::
   ModulePath ->
   m (Either Diagnostic ResolvedState)
 resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryModulePath =
-  visitModule [] initialState entryModulePath
+  runExceptT (visitModule [] initialState entryModulePath)
   where
     initialState =
       ResolvedState
@@ -270,67 +271,45 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
         }
 
     visitModule callStack state modulePath
-      | modulePath `Set.member` resolvedSetState state =
-          pure (Right state)
-      | modulePath `elem` callStack =
-          pure (Left (mkCycleError modulePath callStack))
+      | modulePath `Set.member` resolvedSetState state = pure state
+      | modulePath `elem` callStack = throwE (mkCycleError modulePath callStack)
       | otherwise = do
-          sourceResult <- loadModuleSource callStack modulePath
-          case sourceResult of
-            Left err -> pure (Left err)
-            Right (sourcePath, sourceText) ->
-              case parseModuleDetails sourcePath modulePath sourceText of
-                Left err -> pure (Left err)
-                Right discovery -> do
-                  let nextStack = modulePath : callStack
-                      coreModule = discoveryCoreModule discovery
-                      imports = ModuleGraph.coreModuleImports coreModule
-                      references = discoveryReferences discovery
-                      sortedImports = sortModulePaths (collectImportPaths imports)
-                  resolvedDepsResult <-
-                    foldM
-                      (visitDependency nextStack)
-                      (Right state)
-                      sortedImports
-                  case resolvedDepsResult of
-                    Left err -> pure (Left err)
-                    Right stateAfterDeps ->
-                      case validateImportBindings
-                        sourcePath
-                        modulePath
-                        imports
-                        (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
-                        (referenceFactUnqualified references)
-                        (referenceFactQualifiedValues references)
-                        (referenceFactQualifiedTypes references)
-                        ambientVisibleSymbols
-                        ambientVisibleClassNames
-                        (resolvedExportInventoriesState stateAfterDeps) of
-                        Left err -> pure (Left err)
-                        Right () ->
-                          case resolveCoreModuleNames
-                            ambientExports
-                            (discoveryLocalInventory discovery)
-                            (discoveryPublicInventory discovery)
-                            (resolvedExportInventoriesState stateAfterDeps)
-                            imports
-                            coreModule of
-                            Left resolutionFailures -> pure (Left (NonEmpty.head resolutionFailures))
-                            Right resolvedModule ->
-                              pure
-                                ( Right
-                                    stateAfterDeps
-                                      { resolvedSetState =
-                                          Set.insert modulePath (resolvedSetState stateAfterDeps),
-                                        resolvedModulesState =
-                                          resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
-                                        resolvedExportInventoriesState =
-                                          Map.insert
-                                            modulePath
-                                            (discoveryPublicInventory discovery)
-                                            (resolvedExportInventoriesState stateAfterDeps)
-                                      }
-                                )
+          (sourcePath, sourceText) <- ExceptT (loadModuleSource callStack modulePath)
+          discovery <- except (parseModuleDetails sourcePath modulePath sourceText)
+          let nextStack = modulePath : callStack
+              coreModule = discoveryCoreModule discovery
+              imports = ModuleGraph.coreModuleImports coreModule
+              references = discoveryReferences discovery
+              sortedImports = sortModulePaths (collectImportPaths imports)
+          stateAfterDeps <- foldM (visitModule nextStack) state sortedImports
+          except $
+            validateImportBindings
+              sourcePath
+              modulePath
+              imports
+              (exportNamesInNamespace CapabilityNamespace (discoveryLocalInventory discovery))
+              (referenceFactUnqualified references)
+              (referenceFactQualifiedValues references)
+              (referenceFactQualifiedTypes references)
+              ambientVisibleSymbols
+              ambientVisibleClassNames
+              (resolvedExportInventoriesState stateAfterDeps)
+          resolvedModule <-
+            except $
+              first NonEmpty.head $
+                resolveCoreModuleNames
+                  ambientExports
+                  (discoveryLocalInventory discovery)
+                  (discoveryPublicInventory discovery)
+                  (resolvedExportInventoriesState stateAfterDeps)
+                  imports
+                  coreModule
+          pure
+            stateAfterDeps
+              { resolvedSetState = Set.insert modulePath (resolvedSetState stateAfterDeps),
+                resolvedModulesState = resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
+                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps)
+              }
 
     ambientVisibleSymbols =
       exportNamesInNamespaces
@@ -339,12 +318,6 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
 
     ambientVisibleClassNames =
       exportNamesInNamespace CapabilityNamespace ambientExports
-
-    visitDependency nextStack accumulator importPath =
-      case accumulator of
-        Left err -> pure (Left err)
-        Right currentState ->
-          visitModule nextStack currentState importPath
 
     loadModuleSource callStack modulePath = do
       let relativePath = modulePathRelativeFile (moduleExtension config) modulePath

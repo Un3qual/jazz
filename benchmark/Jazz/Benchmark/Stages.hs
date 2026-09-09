@@ -40,7 +40,6 @@ import Jazz.Benchmark.StageInputs
   ( prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runPreparedBenchmark,
-    runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
 import Jazz.Compiler.Profiling
@@ -201,7 +200,7 @@ compilerScaleBenchmarkTree programCases =
               ( \preparedBenchmark ->
                   bench
                     (Text.unpack (compilerScaleCaseIdentifier programCase))
-                    (nfIO (runPreparedCompilerScaleBenchmark preparedBenchmark))
+                    (nfIO (runPreparedBenchmark preparedBenchmark))
               )
           | programCase <- programCases,
             benchmarkGroup `elem` compilerScaleCaseBenchmarks programCase
@@ -240,7 +239,7 @@ runSmoke programCases =
                       <> compilerScaleCaseIdentifier programCase
                   )
                 prepareCompilerScaleBenchmark benchmarkGroup programCase
-                  >>= runPreparedCompilerScaleBenchmark
+                  >>= runPreparedBenchmark
       Just programCase -> do
         TextIO.putStrLn
           ( "SMOKE "

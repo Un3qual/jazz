@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- | Lowers parser-surface nodes into the smaller core AST consumed by later
 -- compiler phases.
@@ -16,6 +17,7 @@ where
 import Control.Monad.Trans.State.Strict (State, evalState, state)
 import Data.Bifunctor (bimap)
 import Data.Either (partitionEithers)
+import Data.Functor.Identity (Identity (..))
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (catMaybes)
@@ -263,73 +265,18 @@ moduleLoweringFailureDiagnostic failure =
   where
     renderModulePath = Text.intercalate "::"
 
-qualifyExprSourceSpans :: FilePath -> Expr 'Lowered -> Expr 'Lowered
-qualifyExprSourceSpans sourcePath expr =
-  case expr of
-    ELit node literal -> ELit (qualifyLoweredNode sourcePath node) literal
-    EVar node name -> EVar (qualifyLoweredNode sourcePath node) name
-    ELambda node parameter body -> ELambda (qualifyLoweredNode sourcePath node) parameter (go body)
-    EOperatorValue node symbol -> EOperatorValue (qualifyLoweredNode sourcePath node) symbol
-    EList node items -> EList (qualifyLoweredNode sourcePath node) (map go items)
-    ETuple node items -> ETuple (qualifyLoweredNode sourcePath node) (map go items)
-    EApply node function argument -> EApply (qualifyLoweredNode sourcePath node) (go function) (go argument)
-    ETypeApplication node function spanValue signatureType ->
-      ETypeApplication (qualifyLoweredNode sourcePath node) (go function) (qualifySpan spanValue) signatureType
-    EIf node condition trueBranch falseBranch ->
-      EIf (qualifyLoweredNode sourcePath node) (go condition) (go trueBranch) (go falseBranch)
-    EPatternCase node scrutinee arms ->
-      EPatternCase (qualifyLoweredNode sourcePath node) (go scrutinee) (map qualifyCaseArm arms)
-    EBinary node symbol left right -> EBinary (qualifyLoweredNode sourcePath node) symbol (go left) (go right)
-    ESectionLeft node left symbol -> ESectionLeft (qualifyLoweredNode sourcePath node) (go left) symbol
-    ESectionRight node symbol right -> ESectionRight (qualifyLoweredNode sourcePath node) symbol (go right)
-    EBlock node statements -> EBlock (qualifyLoweredNode sourcePath node) (map (qualifyStatementSourceSpans sourcePath) statements)
-  where
-    go = qualifyExprSourceSpans sourcePath
-    qualifySpan = qualifySourceSpan sourcePath
-
-    qualifyCaseArm (CaseArm node patternValue guardExpr bodyExpr) =
-      CaseArm (qualifyLoweredNode sourcePath node) (qualifyPattern patternValue) (fmap go guardExpr) (go bodyExpr)
-
-    qualifyPattern patternValue =
-      case patternValue of
-        PWildcard node -> PWildcard (qualifyLoweredNode sourcePath node)
-        PVariable node name -> PVariable (qualifyLoweredNode sourcePath node) name
-        PLiteral node literal -> PLiteral (qualifyLoweredNode sourcePath node) literal
-        PConstructor node name patterns -> PConstructor (qualifyLoweredNode sourcePath node) name (map qualifyPattern patterns)
-        PList node patterns -> PList (qualifyLoweredNode sourcePath node) (map qualifyPattern patterns)
-        PConsList node headPattern tailPattern ->
-          PConsList (qualifyLoweredNode sourcePath node) (qualifyPattern headPattern) (qualifyPattern tailPattern)
-        PTuple node patterns -> PTuple (qualifyLoweredNode sourcePath node) (map qualifyPattern patterns)
-        PAs node name nestedPattern -> PAs (qualifyLoweredNode sourcePath node) name (qualifyPattern nestedPattern)
-        POr node alternatives -> POr (qualifyLoweredNode sourcePath node) (map qualifyPattern alternatives)
-
 qualifyLoweredNode :: FilePath -> CoreNode 'Lowered sort -> CoreNode 'Lowered sort
 qualifyLoweredNode sourcePath (CoreNode nodeId spanValue facts) =
   CoreNode nodeId (qualifySourceSpan sourcePath spanValue) facts
 
 qualifyStatementSourceSpans :: FilePath -> Statement 'Lowered -> Statement 'Lowered
-qualifyStatementSourceSpans sourcePath statement =
-  case statement of
-    SLet node name valueExpr -> SLet (qualifyNode node) name (go valueExpr)
-    SSignature node name payload -> SSignature (qualifyNode node) name payload
-    SData node name parameters constructors ->
-      SData (qualifyNode node) name parameters (map qualifyDataConstructor constructors)
-    SClass node name parameters methods ->
-      SClass (qualifyNode node) name parameters (map qualifyClassMethod methods)
-    SImpl node name arguments methods ->
-      SImpl (qualifyNode node) name arguments (map qualifyImplMethod methods)
-    SModule node path -> SModule (qualifyNode node) path
-    SImport node path alias symbols -> SImport (qualifyNode node) path alias symbols
-    SExpr node valueExpr -> SExpr (qualifyNode node) (go valueExpr)
+qualifyStatementSourceSpans sourcePath =
+  runIdentity . traverseStatement locations
   where
-    qualifyNode = qualifyLoweredNode sourcePath
-    go = qualifyExprSourceSpans sourcePath
-    qualifyDataConstructor (DataConstructor node name fieldTypes) =
-      DataConstructor (qualifyNode node) name fieldTypes
-    qualifyClassMethod (ClassMethodSignature node name payload) =
-      ClassMethodSignature (qualifyNode node) name payload
-    qualifyImplMethod (ImplMethod node name bodyExpr) =
-      ImplMethod (qualifyNode node) name (go bodyExpr)
+    locations =
+      LoweredLocations
+        (Identity . qualifyLoweredNode sourcePath)
+        (Identity . qualifySourceSpan sourcePath)
 
 -- | Convert parser-surface nodes into located lowered core. Node identities are
 -- allocated in strict source pre-order and every core node retains its source
@@ -353,117 +300,124 @@ freshNode spanValue =
 -- trees are composed. IDs are allocated before descendants, matching ordinary
 -- lowering's strict source pre-order while preserving every span and payload.
 reindexLoweredExpr :: Expr 'Lowered -> Expr 'Lowered
-reindexLoweredExpr = runLowering . reindexExpr
-
-reindexExpr :: Expr 'Lowered -> Lowering (Expr 'Lowered)
-reindexExpr expression =
-  case expression of
-    ELit node literal -> ELit <$> reindexNode node <*> pure literal
-    EVar node name -> EVar <$> reindexNode node <*> pure name
-    ELambda node parameter body ->
-      ELambda <$> reindexNode node <*> pure parameter <*> reindexExpr body
-    EOperatorValue node operatorSymbol ->
-      EOperatorValue <$> reindexNode node <*> pure operatorSymbol
-    EList node elements ->
-      EList <$> reindexNode node <*> traverse reindexExpr elements
-    ETuple node elements ->
-      ETuple <$> reindexNode node <*> traverse reindexExpr elements
-    EApply node functionExpr argumentExpr ->
-      EApply <$> reindexNode node <*> reindexExpr functionExpr <*> reindexExpr argumentExpr
-    ETypeApplication node functionExpr typeArgumentSpan signatureType ->
-      ETypeApplication
-        <$> reindexNode node
-        <*> reindexExpr functionExpr
-        <*> pure typeArgumentSpan
-        <*> pure signatureType
-    EIf node condition trueBranch falseBranch ->
-      EIf
-        <$> reindexNode node
-        <*> reindexExpr condition
-        <*> reindexExpr trueBranch
-        <*> reindexExpr falseBranch
-    EPatternCase node scrutinee arms ->
-      EPatternCase <$> reindexNode node <*> reindexExpr scrutinee <*> traverse reindexCaseArm arms
-    EBinary node operatorSymbol left right ->
-      EBinary <$> reindexNode node <*> pure operatorSymbol <*> reindexExpr left <*> reindexExpr right
-    ESectionLeft node left operatorSymbol ->
-      ESectionLeft <$> reindexNode node <*> reindexExpr left <*> pure operatorSymbol
-    ESectionRight node operatorSymbol right ->
-      ESectionRight <$> reindexNode node <*> pure operatorSymbol <*> reindexExpr right
-    EBlock node statements ->
-      EBlock <$> reindexNode node <*> traverse reindexStatement statements
+reindexLoweredExpr = runLowering . traverseExpr (LoweredLocations reindexNode pure)
 
 reindexNode :: CoreNode 'Lowered sort -> Lowering (CoreNode 'Lowered sort)
 reindexNode (CoreNode _ spanValue ()) = freshNode spanValue
 
-reindexCaseArm :: CaseArm 'Lowered -> Lowering (CaseArm 'Lowered)
-reindexCaseArm (CaseArm node patternValue guardExpr bodyExpr) =
+-- | Location-only operations shared by span qualification and ID allocation.
+-- The node operation must work at every core sort; binding payloads stay intact.
+data LoweredLocations f = LoweredLocations
+  { visitLoweredNode :: forall sort. CoreNode 'Lowered sort -> f (CoreNode 'Lowered sort),
+    visitLoweredSpan :: SourceSpan -> f SourceSpan
+  }
+
+traverseExpr :: (Applicative f) => LoweredLocations f -> Expr 'Lowered -> f (Expr 'Lowered)
+traverseExpr locations expression =
+  case expression of
+    ELit node literal -> ELit <$> visitLoweredNode locations node <*> pure literal
+    EVar node name -> EVar <$> visitLoweredNode locations node <*> pure name
+    ELambda node parameter body ->
+      ELambda <$> visitLoweredNode locations node <*> pure parameter <*> traverseExpr locations body
+    EOperatorValue node operatorSymbol ->
+      EOperatorValue <$> visitLoweredNode locations node <*> pure operatorSymbol
+    EList node elements ->
+      EList <$> visitLoweredNode locations node <*> traverse (traverseExpr locations) elements
+    ETuple node elements ->
+      ETuple <$> visitLoweredNode locations node <*> traverse (traverseExpr locations) elements
+    EApply node functionExpr argumentExpr ->
+      EApply <$> visitLoweredNode locations node <*> traverseExpr locations functionExpr <*> traverseExpr locations argumentExpr
+    ETypeApplication node functionExpr typeArgumentSpan signatureType ->
+      ETypeApplication
+        <$> visitLoweredNode locations node
+        <*> traverseExpr locations functionExpr
+        <*> visitLoweredSpan locations typeArgumentSpan
+        <*> pure signatureType
+    EIf node condition trueBranch falseBranch ->
+      EIf
+        <$> visitLoweredNode locations node
+        <*> traverseExpr locations condition
+        <*> traverseExpr locations trueBranch
+        <*> traverseExpr locations falseBranch
+    EPatternCase node scrutinee arms ->
+      EPatternCase <$> visitLoweredNode locations node <*> traverseExpr locations scrutinee <*> traverse (traverseCaseArm locations) arms
+    EBinary node operatorSymbol left right ->
+      EBinary <$> visitLoweredNode locations node <*> pure operatorSymbol <*> traverseExpr locations left <*> traverseExpr locations right
+    ESectionLeft node left operatorSymbol ->
+      ESectionLeft <$> visitLoweredNode locations node <*> traverseExpr locations left <*> pure operatorSymbol
+    ESectionRight node operatorSymbol right ->
+      ESectionRight <$> visitLoweredNode locations node <*> pure operatorSymbol <*> traverseExpr locations right
+    EBlock node statements ->
+      EBlock <$> visitLoweredNode locations node <*> traverse (traverseStatement locations) statements
+
+traverseCaseArm :: (Applicative f) => LoweredLocations f -> CaseArm 'Lowered -> f (CaseArm 'Lowered)
+traverseCaseArm locations (CaseArm node patternValue guardExpr bodyExpr) =
   CaseArm
-    <$> reindexNode node
-    <*> reindexPattern patternValue
-    <*> traverse reindexExpr guardExpr
-    <*> reindexExpr bodyExpr
+    <$> visitLoweredNode locations node
+    <*> traversePattern locations patternValue
+    <*> traverse (traverseExpr locations) guardExpr
+    <*> traverseExpr locations bodyExpr
 
-reindexPattern :: Pattern 'Lowered -> Lowering (Pattern 'Lowered)
-reindexPattern patternValue =
+traversePattern :: (Applicative f) => LoweredLocations f -> Pattern 'Lowered -> f (Pattern 'Lowered)
+traversePattern locations patternValue =
   case patternValue of
-    PWildcard node -> PWildcard <$> reindexNode node
-    PVariable node name -> PVariable <$> reindexNode node <*> pure name
-    PLiteral node literal -> PLiteral <$> reindexNode node <*> pure literal
+    PWildcard node -> PWildcard <$> visitLoweredNode locations node
+    PVariable node name -> PVariable <$> visitLoweredNode locations node <*> pure name
+    PLiteral node literal -> PLiteral <$> visitLoweredNode locations node <*> pure literal
     PConstructor node name patterns ->
-      PConstructor <$> reindexNode node <*> pure name <*> traverse reindexPattern patterns
+      PConstructor <$> visitLoweredNode locations node <*> pure name <*> traverse (traversePattern locations) patterns
     PList node patterns ->
-      PList <$> reindexNode node <*> traverse reindexPattern patterns
+      PList <$> visitLoweredNode locations node <*> traverse (traversePattern locations) patterns
     PConsList node headPattern tailPattern ->
-      PConsList <$> reindexNode node <*> reindexPattern headPattern <*> reindexPattern tailPattern
+      PConsList <$> visitLoweredNode locations node <*> traversePattern locations headPattern <*> traversePattern locations tailPattern
     PTuple node patterns ->
-      PTuple <$> reindexNode node <*> traverse reindexPattern patterns
+      PTuple <$> visitLoweredNode locations node <*> traverse (traversePattern locations) patterns
     PAs node name nestedPattern ->
-      PAs <$> reindexNode node <*> pure name <*> reindexPattern nestedPattern
+      PAs <$> visitLoweredNode locations node <*> pure name <*> traversePattern locations nestedPattern
     POr node alternatives ->
-      POr <$> reindexNode node <*> traverse reindexPattern alternatives
+      POr <$> visitLoweredNode locations node <*> traverse (traversePattern locations) alternatives
 
-reindexStatement :: Statement 'Lowered -> Lowering (Statement 'Lowered)
-reindexStatement statement =
+traverseStatement :: (Applicative f) => LoweredLocations f -> Statement 'Lowered -> f (Statement 'Lowered)
+traverseStatement locations statement =
   case statement of
     SLet node name valueExpr ->
-      SLet <$> reindexNode node <*> pure name <*> reindexExpr valueExpr
+      SLet <$> visitLoweredNode locations node <*> pure name <*> traverseExpr locations valueExpr
     SSignature node name signaturePayload ->
-      SSignature <$> reindexNode node <*> pure name <*> pure signaturePayload
+      SSignature <$> visitLoweredNode locations node <*> pure name <*> pure signaturePayload
     SData node name parameters constructors ->
       SData
-        <$> reindexNode node
+        <$> visitLoweredNode locations node
         <*> pure name
         <*> pure parameters
-        <*> traverse reindexDataConstructor constructors
+        <*> traverse (traverseDataConstructor locations) constructors
     SClass node name parameters methods ->
       SClass
-        <$> reindexNode node
+        <$> visitLoweredNode locations node
         <*> pure name
         <*> pure parameters
-        <*> traverse reindexClassMethod methods
+        <*> traverse (traverseClassMethod locations) methods
     SImpl node name arguments methods ->
       SImpl
-        <$> reindexNode node
+        <$> visitLoweredNode locations node
         <*> pure name
         <*> pure arguments
-        <*> traverse reindexImplMethod methods
-    SModule node modulePath -> SModule <$> reindexNode node <*> pure modulePath
+        <*> traverse (traverseImplMethod locations) methods
+    SModule node modulePath -> SModule <$> visitLoweredNode locations node <*> pure modulePath
     SImport node modulePath alias symbols ->
-      SImport <$> reindexNode node <*> pure modulePath <*> pure alias <*> pure symbols
-    SExpr node valueExpr -> SExpr <$> reindexNode node <*> reindexExpr valueExpr
+      SImport <$> visitLoweredNode locations node <*> pure modulePath <*> pure alias <*> pure symbols
+    SExpr node valueExpr -> SExpr <$> visitLoweredNode locations node <*> traverseExpr locations valueExpr
 
-reindexDataConstructor :: DataConstructor 'Lowered -> Lowering (DataConstructor 'Lowered)
-reindexDataConstructor (DataConstructor node name fieldTypes) =
-  DataConstructor <$> reindexNode node <*> pure name <*> pure fieldTypes
+traverseDataConstructor :: (Applicative f) => LoweredLocations f -> DataConstructor 'Lowered -> f (DataConstructor 'Lowered)
+traverseDataConstructor locations (DataConstructor node name fieldTypes) =
+  DataConstructor <$> visitLoweredNode locations node <*> pure name <*> pure fieldTypes
 
-reindexClassMethod :: ClassMethodSignature 'Lowered -> Lowering (ClassMethodSignature 'Lowered)
-reindexClassMethod (ClassMethodSignature node name signaturePayload) =
-  ClassMethodSignature <$> reindexNode node <*> pure name <*> pure signaturePayload
+traverseClassMethod :: (Applicative f) => LoweredLocations f -> ClassMethodSignature 'Lowered -> f (ClassMethodSignature 'Lowered)
+traverseClassMethod locations (ClassMethodSignature node name signaturePayload) =
+  ClassMethodSignature <$> visitLoweredNode locations node <*> pure name <*> pure signaturePayload
 
-reindexImplMethod :: ImplMethod 'Lowered -> Lowering (ImplMethod 'Lowered)
-reindexImplMethod (ImplMethod node name bodyExpr) =
-  ImplMethod <$> reindexNode node <*> pure name <*> reindexExpr bodyExpr
+traverseImplMethod :: (Applicative f) => LoweredLocations f -> ImplMethod 'Lowered -> f (ImplMethod 'Lowered)
+traverseImplMethod locations (ImplMethod node name bodyExpr) =
+  ImplMethod <$> visitLoweredNode locations node <*> pure name <*> traverseExpr locations bodyExpr
 
 lowerSurfaceExprWithoutCostCentre :: SurfaceExpr -> Lowering (Expr 'Lowered)
 lowerSurfaceExprWithoutCostCentre surfaceExpr = do

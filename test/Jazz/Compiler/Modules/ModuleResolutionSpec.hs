@@ -3,6 +3,7 @@
 
 module Main (main) where
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
@@ -212,6 +213,7 @@ tests =
     ("accepts omitted module declaration from resolved source path", testAcceptsOmittedModuleDeclaration),
     ("accepts matching module declaration in resolved file", testAcceptsMatchingModuleDeclaration),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
+    ("source loading stops at the first dependency failure", testSourceLoadingStopsAtDependencyFailure),
     ("retains checked import exposure in declaration order", testRetainsCheckedImportExposureInDeclarationOrder),
     ("resolves imports in lexical rendered-path order", testResolveImportsInLexicalRenderedPathOrder),
     ("collapses duplicate imports to one dependency edge", testCollapsesDuplicateImports),
@@ -963,6 +965,22 @@ testAcceptsOmittedModuleDeclaration =
             summaryImports = []
           }
       ]
+
+testSourceLoadingStopsAtDependencyFailure :: IO ()
+testSourceLoadingStopsAtDependencyFailure = do
+  loadedPaths <- newIORef []
+  let sources =
+        Map.fromList
+          [ ("src/App/Main.jz", "import Z::Last. import A::First. 1."),
+            ("src/Z/Last.jz", "1.")
+          ]
+      loadSource path = do
+        modifyIORef' loadedPaths (<> [path])
+        pure (Map.lookup path sources)
+  result <- resolveTestProgram testResolverConfig loadSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains "first lexical dependency failure" "E4001" "A::First" result
+  paths <- readIORef loadedPaths
+  assertEqual "later dependencies are not loaded after failure" ["src/App/Main.jz", "src/A/First.jz"] paths
 
 testResolveDependencyGraph :: IO ()
 testResolveDependencyGraph =
