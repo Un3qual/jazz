@@ -3,6 +3,7 @@
 -- | Megaparsec adapter for parsing the lexer token stream.
 module Jazz.Compiler.Parser.TokenParser
   ( Parser,
+    withConsumedSpan,
     failParserFailure,
     failTokenParser,
     failTokenParserAt,
@@ -56,9 +57,12 @@ import Jazz.Compiler.Parser.Lexer
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
+    tokenStreamAt,
     tokenStreamFromList,
+    tokenStreamLength,
     tokenStreamToList,
   )
+import Jazz.Compiler.SourceSpan (spanThrough)
 import Text.Megaparsec
   ( Parsec,
   )
@@ -78,6 +82,18 @@ instance ShowErrorComponent ParserError where
     Text.unpack (diagnosticSummary (parserFailureDiagnostic failure))
 
 type Parser = Parsec ParserError TokenStream
+
+-- | Measure a parser's consumed tokens with constant-time slice indexing.
+-- This excludes trailing whitespace and includes consumed closing delimiters.
+withConsumedSpan :: (SourceSpan -> a -> a) -> Parser a -> Parser a
+withConsumedSpan locate parser = do
+  before <- MP.getInput
+  value <- parser
+  after <- MP.getInput
+  let consumed = tokenStreamLength before - tokenStreamLength after
+  pure $ case (tokenStreamAt 0 before, tokenStreamAt (consumed - 1) before) of
+    (Just firstToken, Just lastToken) | consumed > 0 -> locate (spanThrough (tokenSpan firstToken) (tokenSpan lastToken)) value
+    _ -> value
 
 runTokenParser :: Text -> Parser a -> [Token] -> Either Diagnostic a
 runTokenParser label parser tokens =

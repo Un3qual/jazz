@@ -27,7 +27,6 @@ import Jazz.Compiler.DiagnosticCatalog
 import Jazz.Compiler.Diagnostics
   ( Diagnostic (..),
     DiagnosticLabel (..),
-    SourceSpan (..),
     prependDiagnosticSummary,
     setDiagnosticErrorCode,
   )
@@ -54,6 +53,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.Lower (lowerSurfaceModule)
 import Jazz.Compiler.PreludeContract (validatePreludeKernelBridges)
+import Jazz.Compiler.SourceSpan (unqualifySourceSpan)
 
 data ResolvedPrelude
   = PreludeAbsent
@@ -139,8 +139,7 @@ unqualifyDiagnosticSpans diagnostic =
       diagnosticSecondaryLabels = map unqualifyLabel (diagnosticSecondaryLabels diagnostic)
     }
   where
-    unqualifyLabel label = label {labelSpan = unqualifySpan (labelSpan label)}
-    unqualifySpan spanValue = SourceSpan (spanLine spanValue) (spanColumn spanValue)
+    unqualifyLabel label = label {labelSpan = unqualifySourceSpan (labelSpan label)}
 
 collectPreludeExports :: CoreModule 'Lowered -> ModuleExportInventory
 collectPreludeExports coreModule =

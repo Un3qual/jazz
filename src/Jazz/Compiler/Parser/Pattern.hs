@@ -16,7 +16,7 @@ import Control.Monad (void)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan, spanColumn, spanLine)
 import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
@@ -44,6 +44,7 @@ import Jazz.Compiler.Parser.TokenParser
     peekToken,
     runTokenParserPrefix,
     runTokenStreamParserPrefix,
+    withConsumedSpan,
   )
 import Jazz.Compiler.Parser.TokenStream (TokenStream)
 import qualified Text.Megaparsec as MP
@@ -65,7 +66,7 @@ parseLambdaParameterTokens =
   runTokenParserPrefix "lambda parameter" parseLambdaParameterParser
 
 parseCaseArmPatternParser :: Parser SurfacePattern
-parseCaseArmPatternParser = do
+parseCaseArmPatternParser = withConsumedSpan locatePatternRange $ do
   maybeStartToken <- peekToken
   firstPattern <- parseCasePatternParser
   collectCasePatternAlternatives
@@ -92,7 +93,7 @@ collectCasePatternAlternatives patternSpan reversedPatterns = do
         [] -> failTokenParser (ExpectedSyntax "case pattern" ParserEndOfInput)
 
 parseCasePatternParser :: Parser SurfacePattern
-parseCasePatternParser = do
+parseCasePatternParser = withConsumedSpan locatePatternRange $ do
   maybeToken <- peekToken
   case maybeToken of
     Just token@Token {tokenKind = TInt value} -> do
@@ -195,7 +196,7 @@ parseConstructorPattern constructorToken constructorName =
         )
 
 parseConstructorArgumentPattern :: Parser SurfacePattern
-parseConstructorArgumentPattern = do
+parseConstructorArgumentPattern = withConsumedSpan locatePatternRange $ do
   maybeToken <- peekToken
   case maybeToken of
     Just token@Token {tokenKind = TInt value} -> do
@@ -323,7 +324,7 @@ parseListPattern leftBracketToken = do
             (ExpectedSyntax "',' or ']'" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
 parseLambdaParameterParser :: Parser SurfaceLambdaParameter
-parseLambdaParameterParser = do
+parseLambdaParameterParser = withConsumedSpan locateLambdaParameter $ do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TInt _} ->
@@ -375,3 +376,18 @@ isReservedLiteralName name = name == "True" || name == "False"
 
 locatedPattern :: Token -> SurfacePatternForm -> SurfacePattern
 locatedPattern token = SurfacePattern (tokenSpan token)
+
+-- Grouping parentheses have no pattern node of their own.
+locatePatternRange :: SourceSpan -> SurfacePattern -> SurfacePattern
+locatePatternRange spanValue patternValue
+  | (spanLine spanValue, spanColumn spanValue)
+      == (spanLine original, spanColumn original) =
+      patternValue {surfacePatternSpan = spanValue}
+  | otherwise = patternValue
+  where
+    original = surfacePatternSpan patternValue
+
+locateLambdaParameter :: SourceSpan -> SurfaceLambdaParameter -> SurfaceLambdaParameter
+locateLambdaParameter spanValue parameter = case parameter of
+  SurfaceLambdaPattern patternValue -> SurfaceLambdaPattern (locatePatternRange spanValue patternValue)
+  SurfaceLambdaIdentifier _ name -> SurfaceLambdaIdentifier spanValue name

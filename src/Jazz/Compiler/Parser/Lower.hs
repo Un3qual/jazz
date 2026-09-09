@@ -4,6 +4,13 @@
 
 -- | Lowers parser-surface nodes into the smaller core AST consumed by later
 -- compiler phases.
+--
+-- Normalization preserves semantic evidence: guards remain attached to case
+-- arms until coverage analysis, since guarded arms cannot establish coverage.
+-- Operator syntax keeps its declared identity until resolution, and recursive
+-- groups keep their binding boundaries until dependency analysis. Lowering
+-- removes only surface forms with an established core equivalent; it never
+-- erases source ranges when allocating/reindexing nodes or qualifying modules.
 module Jazz.Compiler.Parser.Lower
   ( ModuleDeclaration (..),
     ModuleLoweringFailure (..),

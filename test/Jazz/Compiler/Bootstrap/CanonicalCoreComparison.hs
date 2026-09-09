@@ -68,6 +68,7 @@ import Jazz.Compiler.Parser.Lower
     ModuleLoweringFailure (..),
   )
 import Jazz.Compiler.Runtime (RuntimeValue (..))
+import Jazz.Compiler.SourceSpan (sourceSpanStart)
 import Jazz.Compiler.TypeRepresentation
   ( pattern ConstrainedSignature,
     pattern NumericFloat16,
@@ -441,8 +442,9 @@ coreGeneratedNameKindRuntimeValue generated =
     OperatorSectionRight -> Left "post-lowering generated section name cannot enter canonical lowering comparison"
 
 coreSpanRuntimeValue :: SourceSpan -> Either Text RuntimeValue
+-- The hosted CoreSpan schema deliberately stores only the start position.
 coreSpanRuntimeValue spanValue =
-  case spanValue of
+  case sourceSpanStart spanValue of
     SourceSpan line column ->
       pure
         ( canonicalConstructor
@@ -462,6 +464,7 @@ coreSpanRuntimeValue spanValue =
               runtimeIntValue column
             ]
         )
+    _ -> Left "point projection unexpectedly retained a range"
 
 coreDeclaredModuleExportsRuntimeValue :: DeclaredModuleExports -> Either Text RuntimeValue
 coreDeclaredModuleExportsRuntimeValue declaredExports =

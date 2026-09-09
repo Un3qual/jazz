@@ -55,6 +55,12 @@ import Jazz.Compiler.Driver
     runRuntimeErrors,
     runRuntimeValue,
   )
+import Jazz.Compiler.ModuleAnalysis
+  ( analyzeModule,
+    dependencyImportInterface,
+    moduleBinderInventory,
+    moduleEvidenceCandidates,
+  )
 import Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
     analyzedProgramErrors,
@@ -152,6 +158,7 @@ import Jazz.Compiler.SemanticFacts
     StatementFacts (..),
   )
 import Jazz.Compiler.TypeInference.Analyzed (attachAnalyzedExpression, projectAnalyzedMethodSignature)
+import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Solver (freshIntegerLiteralType)
 import Jazz.Compiler.TypeInference.State
   ( ExplicitInstantiationSeed (..),
@@ -196,7 +203,8 @@ main = runTestSuite "ModulePipelineContract" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
+  [ ("single-module analysis consumes complete imported interfaces", testSingleModuleAnalysis),
+    ("runtime consumes analyzed declarations after source types are erased", testRuntimeUsesAnalyzedDeclarations),
     ("operation facts retain the numeric rule decision across equivalent aliases", testBinaryOperandAliasSelection),
     ("analyzed operations retain operand typing and alias selection", testAnalyzedBinaryOperations),
     ("analyzed expressions preserve literal-range constraints for backend specialization", testAnalyzedLiteralRangeFacts),
@@ -229,6 +237,40 @@ tests =
     ("builtin aliases retain complete statement schemes", testBuiltinAliasStatementScheme),
     ("signed builtin aliases retain their authored schemes", testSignedBuiltinAliasStatementScheme)
   ]
+
+-- Resolve real modules once, then check the entry from the public dependency
+-- interface alone. This covers nominal data, explicit binder instantiation and
+-- selected implementation evidence without giving the operation a program graph.
+testSingleModuleAnalysis :: IO ()
+testSingleModuleAnalysis = do
+  (resolved, analyzed) <- analyzeFixtureProgram factCompletenessSources
+  let inputs = emptyCompileInputs defaultWarningSettings
+      entryPath = nominalModulePath ("App" :| ["Main"])
+  entry <- maybe (fail "missing resolved entry") pure (lookupCoreModule entryPath resolved)
+  expected <- maybe (fail "missing analyzed entry") pure (lookupCoreModule entryPath analyzed)
+  imports <- traverse (dependencyInterface resolved analyzed) (coreModuleImports entry)
+  (inference, actual) <- analyzeModule inputs NamedSourceUnit Set.empty (mconcat imports) entry
+  assertEqual "single-module diagnostics" [] (inferredDiagnostics inference)
+  assertEqual "single-module facts, binders and evidence match program analysis" (Just expected) actual
+  failing <- resolveFixtureProgram (Map.singleton "src/App/Main.jz" "module App::Main { 1 True. }")
+  let failingEntry = NonEmpty.head (coreProgramModules failing)
+  (programDiagnostics, _) <- analyzeProgram inputs failing
+  (failedInference, failedModule) <- analyzeModule inputs NamedSourceUnit Set.empty mempty failingEntry
+  assertEqual "failed module has no analyzed artifact" Nothing failedModule
+  assertEqual "single-module diagnostic order matches program analysis" programDiagnostics (inferredDiagnostics failedInference)
+  where
+    dependencyInterface resolved analyzed importDecl = do
+      let path = importedModule importDecl
+      dependency <- maybe (fail "missing resolved dependency") pure (lookupCoreModule path resolved)
+      checked <- maybe (fail "missing analyzed dependency") pure (lookupCoreModule path analyzed)
+      pure $
+        dependencyImportInterface
+          importDecl
+          ( resolvedModuleExports (coreModuleFacts dependency),
+            analyzedModuleInterface (coreModuleFacts checked),
+            moduleBinderInventory checked,
+            moduleEvidenceCandidates NamedSourceUnit dependency
+          )
 
 testBinaryOperandAliasSelection :: IO ()
 testBinaryOperandAliasSelection = do

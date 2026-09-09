@@ -11,7 +11,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     applyTypeSchemePrimitiveConstraints,
     builtinDollarOperatorExpr,
     capabilityFactsFromState,
-    checkImplMethodBodies,
     classMethodPayloadToExpressionType,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
@@ -30,6 +29,7 @@ module Jazz.Compiler.TypeInference.Capabilities
     insertTypeEnvFreeVariables,
     newInferredClassConstraints,
     qualifiedMethodClassIsVisible,
+    qualifiedMethodSignatureType,
     resolveTypeEnvFreeVariables,
     resolveTypeSchemeConstraint,
     restoreCapabilityFacts,
@@ -68,7 +68,6 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
-    CoreNode (coreNodeSpan),
     CoreNodeId,
     CorePhase (..),
     Expr (..),
@@ -99,7 +98,8 @@ import Jazz.Compiler.CapabilityFacts
     substituteClassMethodSignature,
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan,
+  ( DiagnosticContext (SatisfyingConstraint),
+    SourceSpan,
     setDiagnosticPrimarySpan,
   )
 import Jazz.Compiler.Name
@@ -107,7 +107,6 @@ import Jazz.Compiler.Name
     ResolvedName,
     identifierText,
     mkIdentifier,
-    qualifiedMemberName,
     resolvedLocalName,
   )
 import Jazz.Compiler.SemanticFacts
@@ -119,14 +118,13 @@ import Jazz.Compiler.SignatureRendering
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
+    annotateNewErrorsWithContext,
     annotateNewErrorsWithPrimarySpan,
     mkAmbiguousDeferredConstraintError,
     mkAmbiguousQualifiedMethodBodyError,
     mkAmbiguousQualifiedMethodBodyForArgumentsError,
     mkApplyTypeError,
     mkExplicitConstraintArityError,
-    mkImplMethodMissingClassMethodError,
-    mkImplMethodTypeMismatchError,
     mkInvalidQualifiedMethodSignatureError,
     mkMissingClassMethodError,
     mkMissingExplicitConstraintClassError,
@@ -545,98 +543,6 @@ inferQualifiedMethodApplicationWithResults inferExpression mode env state nodeId
             inferExpression mode env stateAcc argumentExpr
        in (result : resultsAcc, stateAfterArgument)
 
-checkImplMethodBodies ::
-  ( TypeEnv ->
-    InferState ->
-    ExpressionType ->
-    Expr 'Resolved ->
-    (result, InferState)
-  ) ->
-  (result -> Maybe ExpressionType) ->
-  TypeEnv ->
-  InferState ->
-  ResolvedName ->
-  [SignatureType 'Resolved] ->
-  [ImplMethod 'Resolved] ->
-  (InferState, [(Int, result)])
-checkImplMethodBodies inferExpected resultType env state capabilityName arguments methods =
-  case arguments of
-    [implTarget]
-      | concreteConstraintArgument implTarget,
-        not (implMethodNamesHaveDuplicates methods) ->
-          let implMethodEnv stateForBindings =
-                Map.union env (currentImplMethodBindings implTarget stateForBindings)
-              checkMethod (stateAcc, resultsAcc) (methodIndex, ImplMethod methodNode methodName methodExpr) =
-                let methodSpan = coreNodeSpan methodNode
-                    methodKey = qualifiedMethodKey capabilityName methodName
-                 in case Map.lookup methodKey (inferClassMethodSignatures stateAcc) of
-                      Nothing ->
-                        ( addTypeError
-                            stateAcc
-                            (mkImplMethodMissingClassMethodError methodKey methodSpan),
-                          resultsAcc
-                        )
-                      Just classMethodType ->
-                        let (maybeExpectedType, stateAfterExpectedType) =
-                              qualifiedMethodSignatureType
-                                methodKey
-                                classMethodType
-                                (ImplMethodType implTarget)
-                                stateAcc
-                         in case maybeExpectedType of
-                              Nothing ->
-                                (stateAfterExpectedType, resultsAcc)
-                              Just expectedType ->
-                                let (methodResult, rawStateAfterMethod) =
-                                      inferExpected
-                                        (implMethodEnv stateAcc)
-                                        stateAfterExpectedType
-                                        expectedType
-                                        methodExpr
-                                    stateAfterMethod =
-                                      annotateNewErrorsWithPrimarySpan methodSpan stateAfterExpectedType rawStateAfterMethod
-                                    stateAfterMethodCheck =
-                                      case resultType methodResult of
-                                        Just methodType ->
-                                          case unifyTypes expectedType methodType stateAfterMethod of
-                                            Just unifiedState -> unifiedState
-                                            Nothing ->
-                                              addTypeError
-                                                stateAfterMethod
-                                                ( mkImplMethodTypeMismatchError
-                                                    methodKey
-                                                    methodSpan
-                                                    (defaultLiteralTypes stateAfterMethod (resolveType stateAfterMethod expectedType))
-                                                    (defaultLiteralTypes stateAfterMethod (resolveType stateAfterMethod methodType))
-                                                )
-                                        Nothing ->
-                                          stateAfterMethod
-                                    finalMethodState =
-                                      finalizeDeferredExplicitConstraintsAt
-                                        methodSpan
-                                        stateAfterExpectedType
-                                        stateAfterMethodCheck
-                                 in (finalMethodState, (methodIndex, methodResult) : resultsAcc)
-              (finalState, reversedResults) =
-                foldl' checkMethod (state, []) (zip [0 ..] methods)
-           in (finalState, reverse reversedResults)
-    _ -> (state, [])
-  where
-    implMethodNamesHaveDuplicates :: [ImplMethod 'Resolved] -> Bool
-    implMethodNamesHaveDuplicates implMethods =
-      let methodNames = map (\(ImplMethod _ methodName _) -> identifierText methodName) implMethods
-       in length methodNames /= Set.size (Set.fromList methodNames)
-
-    currentImplMethodBindings :: SignatureType 'Resolved -> InferState -> TypeEnv
-    currentImplMethodBindings implTarget stateForBindings =
-      Map.fromList
-        [ (qualifiedMemberName capabilityName methodName, PlainTypeBinding methodType)
-        | ImplMethod _ methodName _ <- methods,
-          let methodKey = qualifiedMethodKey capabilityName methodName,
-          Just (ClassMethodType classParameter methodSignature) <- [Map.lookup methodKey (inferClassMethodSignatures stateForBindings)],
-          Just methodType <- [classMethodPayloadToExpressionType stateForBindings classParameter implTarget methodSignature]
-        ]
-
 addUnpreservedInferredMethodConstraintErrors ::
   SourceSpan ->
   TypeEnv ->
@@ -871,12 +777,18 @@ finalizeDeferredExplicitConstraintsAtWithEntailments spanValue entailingConstrai
   annotateNewErrorsWithPrimarySpan
     spanValue
     state
-    (resolveStatementDeferredExplicitConstraints entailingConstraints statementStartState state)
+    (resolveStatementDeferredExplicitConstraints spanValue entailingConstraints statementStartState state)
 
-resolveStatementDeferredExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState -> InferState
-resolveStatementDeferredExplicitConstraints entailingConstraints statementStartState state =
-  foldl' resolveDeferredExplicitConstraint stateWithoutStatementConstraints statementConstraints
+resolveStatementDeferredExplicitConstraints :: SourceSpan -> [TypeSchemeConstraint] -> InferState -> InferState -> InferState
+resolveStatementDeferredExplicitConstraints spanValue entailingConstraints statementStartState state =
+  foldl' resolveWithContext stateWithoutStatementConstraints statementConstraints
   where
+    resolveWithContext before constraint =
+      annotateNewErrorsWithContext
+        (SatisfyingConstraint (deferredConstraintName constraint))
+        spanValue
+        before
+        (resolveDeferredExplicitConstraint before constraint)
     priorConstraintCount = inferDeferredExplicitConstraintCount statementStartState
     currentConstraints = outputDeferredConstraints (inferOutput state)
     priorConstraints = Seq.take priorConstraintCount currentConstraints

@@ -54,7 +54,8 @@
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
-        "nixpkgs-tools": "nixpkgs-tools"
+        "nixpkgs-tools": "nixpkgs-tools",
+        "weeder-src": "weeder-src"
       }
     },
     "systems": {
@@ -69,6 +70,23 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "weeder-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1782221764,
+        "narHash": "sha256-kxboE0JnzG9qBevYQGWsk1g+CKQde8DMX9f8hfNNL6U=",
+        "owner": "ocharles",
+        "repo": "weeder",
+        "rev": "9f2280826b0a9a7114198e262e95c568e595b35c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ocharles",
+        "repo": "weeder",
+        "rev": "9f2280826b0a9a7114198e262e95c568e595b35c",
         "type": "github"
       }
     }

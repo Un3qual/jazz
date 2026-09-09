@@ -63,7 +63,7 @@ testDollarLowersToApplication =
   assertRight "parse dollar" (parseSurfaceProgram "f $ x.") $ \surface ->
     case lowerSurfaceExpr surface of
       EBlock _ [SExpr statementNode (EApply _ (EVar _ "f") (EVar _ "x"))]
-        | coreNodeSpan statementNode == SourceSpan 1 1 -> pure ()
+        | coreNodeSpan statementNode == SourceRange 1 1 1 2 -> pure ()
       lowered -> assertEqual "canonical dollar shape" "application block" (show lowered)
 
 testDeterministicNodeIdentities :: IO ()
@@ -103,6 +103,13 @@ completeSpan spanValue =
   case spanValue of
     SourceSpan line column -> line > 0 && column > 0
     SourceSpanIn sourcePath line column -> not (null sourcePath) && line > 0 && column > 0
+    SourceRange line column endLine endColumn -> validRange line column endLine endColumn
+    SourceRangeIn sourcePath line column endLine endColumn ->
+      not (null sourcePath) && validRange line column endLine endColumn
+  where
+    validRange line column endLine endColumn =
+      all (> 0) [line, column, endLine, endColumn]
+        && (line, column) < (endLine, endColumn)
 
 canonicalNodeIds :: Expr 'Lowered -> [CoreNodeId]
 canonicalNodeIds = map fst . canonicalNodeFacts

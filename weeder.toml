@@ -1,0 +1,106 @@
+# Reviewed GHC 9.14 baseline; keep new unreachable declarations visible.
+roots = [
+  '^Main\.main$',
+  # Cabal-generated package metadata is not maintained Haskell source.
+  '^Paths_jazz\.',
+  # Shared benchmark driver compiled into both the benchmark and its tests.
+  '^Jazz\.Benchmark\.Stages\.runBenchmarkMain$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # benchmark/Jazz/Benchmark/Metadata.hs
+  '^Jazz\.Benchmark\.Metadata\.(BenchmarkArtifactPaths|BenchmarkBuildMode|BenchmarkEnvironment|BenchmarkEnvironmentCapture|BenchmarkTimeMode|CompatibilityDecision|CompatibilityField|CompatibilityMismatch|CompatibilityPolicy|EnvironmentFact|benchmarkArtifactPaths|benchmarkBuildModeForProfiling|benchmarkEnvironmentJson|benchmarkRunIdentity|benchmarkTimeModeFromArguments|captureBenchmarkEnvironment|checkBenchmarkCompatibility|classifyProcessFact|createBenchmarkArtifactDirectory|writeBenchmarkEnvironment)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # benchmark/Jazz/Benchmark/Stages.hs
+  '^Jazz\.Benchmark\.Stages\.(runBenchmarkMain|runBenchmarkMainWithArguments|runBenchmarkMainWithEnvironmentCapture)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # program-support/Jazz/ProgramCorpus/Manifest.hs
+  '^Jazz\.ProgramCorpus\.Manifest\.(loadProgramCorpusAt|loadProgramCorpusAtWithManifestReader)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # program-support/Jazz/ProgramCorpus/Runner.hs
+  '^Jazz\.ProgramCorpus\.Runner\.(loadProgramCaseEntrySource|prepareProgramCase|programCaseBudgetViolations|runProgramCaseObserved)$',
+  # Shared benchmark/corpus API; each Cabal component uses only a subset.
+  # program-support/Jazz/ProgramCorpus/Types.hs
+  '^Jazz\.ProgramCorpus\.Types\.(ProgramBudgetViolation)$',
+  # Benchmark forcing and profiling tooling API.
+  # src/Jazz/Compiler/Force.hs
+  '^Jazz\.Compiler\.Force\.(forceAnalyzedModule|forceAnalyzedModules|forceAnalyzedProgram|forceResolvedExpr|forceResolvedModule)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Parser/Expression.hs
+  '^Jazz\.Compiler\.Parser\.Expression\.(parseExpressionTokens)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Parser/Signature.hs
+  '^Jazz\.Compiler\.Parser\.Signature\.(parseSignatureTypePrefixDetailed)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Parser/TokenStream.hs
+  '^Jazz\.Compiler\.Parser\.TokenStream\.(tokenStreamDrop)$',
+  # Benchmark forcing and profiling tooling API.
+  # src/Jazz/Compiler/Profiling.hs
+  '^Jazz\.Compiler\.Profiling\.(compilerProfilingEnabled)$',
+  # Retained legacy compiler adapter/inspection API; review before deletion.
+  # src/Jazz/Compiler/Runtime.hs
+  '^Jazz\.Compiler\.Runtime\.(evaluateRuntimeExprWithSourceUnitStatements)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalCoreComparison.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalCoreComparison\.(canonicalCoreModuleResultRuntimeValue|canonicalCoreModuleRuntimeValue|canonicalCoreSourceResultRuntimeValue)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalLexerComparison\.(CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind|canonicalLexErrorRuntimeValue|canonicalLexResultRuntimeValue|canonicalTokenKindRuntimeValue|canonicalTokenRuntimeValue|canonicalizeFailure|canonicalizeLexResult|canonicalizeTokenKind|renderCanonicalLexResult)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalParserComparison.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalParserComparison\.(CanonicalParserResult|CanonicalSourceResult|canonicalParserResultRuntimeValue|canonicalSourceResultRuntimeValue|canonicalizeParserResult|canonicalizeSourceResult|parserFailureRuntimeValue|renderCanonicalParserResult|renderCanonicalSourceResult|surfaceExprRuntimeValue)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/CanonicalValue.hs
+  '^Jazz\.Compiler\.Bootstrap\.CanonicalValue\.(CanonicalSpan|canonicalList|canonicalMaybe|canonicalSpanRuntimeValue|canonicalizeSpan|decodeInt|decodeInteger|decodeList|decodeText|expectArity|expectConstructor|expectNamedConstructor|expectNullary|runtimeValueCategory)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/JazzCoreParity.hs
+  '^Jazz\.Compiler\.Bootstrap\.JazzCoreParity\.(expectedCanonicalExpressionBatchRendering|expectedControlFlowPatternsBatchRendering|expectedControlFlowPatternsSourceBatchRendering|expectedCoreCorpusRendering|expectedCoreSourceBatchRendering|expectedFoundationBatchRendering|expectedFoundationSourceBatchRendering|expectedModuleBatchRendering|expectedParserSourceBatchRendering|expectedSignaturesDeclarationsOperatorsBatchRendering|expectedSignaturesDeclarationsOperatorsSourceBatchRendering|runJazzCanonicalExpressionBatch|runJazzControlFlowPatternsBatch|runJazzControlFlowPatternsSourceBatch|runJazzCoreCorpus|runJazzCoreSourceBatch|runJazzFoundationBatch|runJazzFoundationSourceBatch|runJazzModuleBatch|runJazzParserSourceBatch|runJazzSignaturesDeclarationsOperatorsBatch|runJazzSignaturesDeclarationsOperatorsSourceBatch)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Bootstrap/JazzParserScaleAssertions.hs
+  '^Jazz\.Compiler\.Bootstrap\.JazzParserScaleAssertions\.(fullControlFlowLimits|fullDeclarationsLimits|fullExpressionLimits|fullOperatorLimits|fullScaleWorkload)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Parser/FixtureCorpus.hs
+  '^Jazz\.Compiler\.Parser\.FixtureCorpus\.(ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation|lookupParserFixtureFamily|parserFixtureCorpus|parserFixtureFamilyNames|validateParserFixtureManifest)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Parser/TestSupport.hs
+  '^Jazz\.Compiler\.Parser\.TestSupport\.(surfaceExprAt|surfacePatternAt)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Semantics/Runtime/Fixtures.hs
+  '^Jazz\.Compiler\.Semantics\.Runtime\.Fixtures\.(caseArm|classMethodSignature|dataConstructor|expressionBinary|expressionConstrainedAs|expressionConstructor|expressionIf|expressionLambda|expressionOperatorValue|expressionPatternCase|expressionQualifiedMethod|expressionSectionLeft|expressionSectionRight|expressionTuple|expressionTypeApplication|fixtureAmbientTypeVariable|fixtureResolvedTypeName|fixtureTypeName|fixtureTypeVariable|fixtureValueName|implMethod|patternConstructor|patternLiteral|patternTuple|patternVariable|patternWildcard|statementClass|statementData|statementImpl|statementLet|statementSignature)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Compiler/Semantics/Runtime/Shared.hs
+  '^Jazz\.Compiler\.Semantics\.Runtime\.Shared\.(runtimePickStatements|runtimeTypedCallableArgumentHintExpr|runtimeTypedCallableArgumentHintThroughPrefixDollarExpr)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/Repository/SourceLayout.hs
+  '^Jazz\.Repository\.SourceLayout\.(JazzSourceModule|SourceLayoutViolation|renderSourceLayoutViolation|sourceModuleFromSurface|validateSourceLayering)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/TestCore.hs
+  '^Jazz\.TestCore\.(assertLoweredCoreEqual|loweredApply|loweredAsPattern|loweredBinary|loweredBlock|loweredCaseArm|loweredClass|loweredClassMethodSignature|loweredConsListPattern|loweredConstructor|loweredConstructorAt|loweredConstructorPattern|loweredData|loweredExpression|loweredIf|loweredImpl|loweredImplMethod|loweredImport|loweredLambda|loweredLet|loweredList|loweredListPattern|loweredLiteral|loweredLiteralPattern|loweredModule|loweredOperatorValue|loweredOrPattern|loweredPatternCase|loweredSectionLeft|loweredSectionRight|loweredSignature|loweredTuple|loweredTuplePattern|loweredTypeApplication|loweredVariable|loweredVariablePattern|loweredWildcardPattern|parseSurfaceProgramPoints)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/TestHarness.hs
+  '^Jazz\.TestHarness\.(assertContains|assertDiagnosticContains|assertEqual|assertJust|assertLeftContains|assertLeftDiagnosticCodeAndContains|assertLeftDiagnosticContains|assertRight|assertSingleDiagnosticCode|assertSingleDiagnosticContains|assertSingleDiagnosticPrimaryStart|assertSingleDiagnosticRelatedStart|assertSingleDiagnosticSubject|assertSingleErrorContains)$',
+  # Shared test-support API; each Cabal component uses only a subset.
+  # test/Jazz/TestSource.hs
+  '^Jazz\.TestSource\.(readCheckedInJazzModuleSource|readCheckedInJazzProjectModuleSource|readCheckedInJazzSource|readCheckedInJazzTestFixture)$',
+]
+
+type-class-roots = false
+unused-types = true
+root-modules = []
+
+# Structural data contracts survive even when one executable does not exercise
+# every instance: comparisons/debugging, generic deep evaluation, catalog
+# enumeration and lawful typed traversals are intentionally supported APIs.
+# This also roots these instances on otherwise-unused types; it does not root
+# arbitrary classes, functions or whole compiler modules.
+root-instances = [
+  # Persisted benchmark metadata readers are part of the artifact format API.
+  { instance = '^FromJSON (BenchmarkBuildMode|BenchmarkTimeMode|BenchmarkEnvironment)$' },
+  { instance = '^FromJSON value => FromJSON \(EnvironmentFact value\)$' },
+  { class = '\.(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable)$' },
+  # Literal construction interfaces used by test/tooling clients.
+  { instance = '^IsString (Identifier|UnresolvedName)$' },
+  # Megaparsec stream/error interfaces, including its optional default renderer.
+  { instance = '^ShowErrorComponent (LexerError|ParserError)$' },
+  { instance = '^(VisualStream|TraversableStream) TokenStream$' },
+  # RuntimePlan's composition contract is retained and covered by law tests.
+  { instance = '^(Semigroup|Monoid) RuntimePlan$' },
+]

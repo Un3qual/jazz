@@ -8,9 +8,6 @@ import Jazz.Compiler.AST
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
@@ -28,6 +25,7 @@ import Jazz.TestCore
     loweredOperatorValue,
     loweredSectionLeft,
     loweredSectionRight,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -66,7 +64,7 @@ testParsesBareOperatorValue =
             )
         )
     )
-    (parseSurfaceProgram "f = (+).")
+    (parseSurfaceProgramPoints "f = (+).")
 
 testParsesBareOperatorValueApplication :: IO ()
 testParsesBareOperatorValueApplication =
@@ -92,7 +90,7 @@ testParsesBareOperatorValueApplication =
             )
         )
     )
-    (parseSurfaceProgram "f = (+) 1 2.")
+    (parseSurfaceProgramPoints "f = (+) 1 2.")
 
 testParsesLeftSection :: IO ()
 testParsesLeftSection =
@@ -105,7 +103,7 @@ testParsesLeftSection =
             (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionLeft (e 1 6 (SELit (SLInt 10))) "+"))])
         )
     )
-    (parseSurfaceProgram "f = (10 +).")
+    (parseSurfaceProgramPoints "f = (10 +).")
 
 testParsesRightSection :: IO ()
 testParsesRightSection =
@@ -118,7 +116,7 @@ testParsesRightSection =
             (SEBlock [SSLet "f" (SourceSpan 1 1) (e 1 5 (SESectionRight "+" (e 1 8 (SELit (SLInt 10)))))])
         )
     )
-    (parseSurfaceProgram "f = (+ 10).")
+    (parseSurfaceProgramPoints "f = (+ 10).")
 
 testGroupedExpressionIsNotSection :: IO ()
 testGroupedExpressionIsNotSection =
@@ -131,7 +129,7 @@ testGroupedExpressionIsNotSection =
             (SEBlock [SSLet "x" (SourceSpan 1 1) (e 1 6 (SEBinary "+" (e 1 6 (SELit (SLInt 1))) (e 1 10 (SELit (SLInt 2)))))])
         )
     )
-    (parseSurfaceProgram "x = (1 + 2).")
+    (parseSurfaceProgramPoints "x = (1 + 2).")
 
 testSectionApplicationBeforeInfix :: IO ()
 testSectionApplicationBeforeInfix =
@@ -158,13 +156,13 @@ testSectionApplicationBeforeInfix =
             )
         )
     )
-    (parseSurfaceProgram "x = (+ 1) 2 * 3.")
+    (parseSurfaceProgramPoints "x = (+ 1) 2 * 3.")
 
 testLowerPreservesLeftSectionNodes :: IO ()
 testLowerPreservesLeftSectionNodes =
   assertRight
     "parse + lower left section"
-    (parseSurfaceProgram "f = (10 +).")
+    (parseSurfaceProgramPoints "f = (10 +).")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -176,7 +174,7 @@ testLowerPreservesSectionNodes :: IO ()
 testLowerPreservesSectionNodes =
   assertRight
     "parse + lower section"
-    (parseSurfaceProgram "f = (+ 10).")
+    (parseSurfaceProgramPoints "f = (+ 10).")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -188,7 +186,7 @@ testLowerPreservesBareOperatorValue :: IO ()
 testLowerPreservesBareOperatorValue =
   assertRight
     "parse + lower bare operator value"
-    (parseSurfaceProgram "f = (+).")
+    (parseSurfaceProgramPoints "f = (+).")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -200,7 +198,7 @@ testLoweredBareOperatorValueIsCanonical :: IO ()
 testLoweredBareOperatorValueIsCanonical =
   assertRight
     "parse + canonical lower bare operator value"
-    (parseSurfaceProgram "f = (+).")
+    (parseSurfaceProgramPoints "f = (+).")
     (\surfaceProgram -> assertLoweredCoreEqual "canonical lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =

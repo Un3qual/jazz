@@ -23,6 +23,7 @@ import Control.Monad (void)
 import Data.Char (chr, isDigit, isHexDigit, isSpace, ord)
 import Data.Foldable (asum)
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -45,6 +46,7 @@ import Jazz.Compiler.Name
 import Jazz.Compiler.Parser.Operator
   ( isStage2OperatorSymbolChar,
   )
+import Jazz.Compiler.SourceSpan (sourceSpanEnd)
 import Text.Megaparsec
   ( Parsec,
   )
@@ -131,9 +133,10 @@ data LexicalFailure = LexicalFailure
 
 isImmediatelyAfter :: Token -> Token -> Bool
 isImmediatelyAfter leftToken rightToken =
-  spanLine (tokenSpan leftToken) == spanLine (tokenSpan rightToken)
-    && spanColumn (tokenSpan rightToken)
-      == spanColumn (tokenSpan leftToken) + Text.length (tokenLexeme leftToken)
+  let leftSpan = tokenSpan leftToken
+      rightSpan = tokenSpan rightToken
+      end = fromMaybe (spanLine leftSpan, spanColumn leftSpan + Text.length (tokenLexeme leftToken)) (sourceSpanEnd leftSpan)
+   in end == (spanLine rightSpan, spanColumn rightSpan)
 
 newtype LexerError = LexerError LexicalFailure
   deriving (Eq, Ord, Show)
@@ -176,13 +179,17 @@ tokenParser = do
   position <- MP.getSourcePos
   nextChar <- MP.lookAhead MP.anySingle
   let spanValue = sourcePosSpan position
-  case nextChar of
-    '\'' -> charToken spanValue
-    '"' -> textToken spanValue
-    _
-      | isDigit nextChar -> intToken spanValue
-      | isIdentifierStartCharacter nextChar -> identifierToken spanValue
-      | otherwise -> symbolToken spanValue nextChar
+  token <-
+    case nextChar of
+      '\'' -> charToken spanValue
+      '"' -> textToken spanValue
+      _
+        | isDigit nextChar -> intToken spanValue
+        | isIdentifierStartCharacter nextChar -> identifierToken spanValue
+        | otherwise -> symbolToken spanValue nextChar
+  end <- MP.getSourcePos
+  let endPoint = sourcePosSpan end
+  pure token {tokenSpan = SourceRange (spanLine spanValue) (spanColumn spanValue) (spanLine endPoint) (spanColumn endPoint)}
 
 charToken :: SourceSpan -> LexerParser Token
 charToken spanValue = do

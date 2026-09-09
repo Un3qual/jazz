@@ -5,21 +5,24 @@
 -- them into text here.
 module Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
-    renderSourceSpan
-  ) where
+    renderSourceSpan,
+  )
+where
 
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.DiagnosticCatalog
   ( DiagnosticSeverity (..),
     diagnosticCodeText,
-    warningToken
+    warningToken,
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticContext (..),
     DiagnosticLabel,
     SourceSpan (..),
     diagnosticCode,
+    diagnosticContexts,
     diagnosticHelp,
     diagnosticNotes,
     diagnosticPrimaryLabel,
@@ -28,7 +31,7 @@ import Jazz.Compiler.Diagnostics
     diagnosticSummary,
     diagnosticWarningCategory,
     labelMessage,
-    labelSpan
+    labelSpan,
   )
 
 renderDiagnostic :: Diagnostic -> Text
@@ -53,6 +56,8 @@ renderSourceSpan spanValue =
     renderSourcePath sourceSpan =
       case sourceSpan of
         SourceSpan {} -> ""
+        SourceRange {} -> ""
+        SourceRangeIn sourcePath _ _ _ _ -> Text.pack sourcePath <> ":"
         SourceSpanIn sourcePath _ _ -> Text.pack sourcePath <> ":"
 
 renderSeverity :: DiagnosticSeverity -> Text
@@ -82,6 +87,7 @@ renderDetails diagnostic =
     details =
       renderPrimaryMessage (diagnosticPrimaryLabel diagnostic)
         <> map renderSecondaryLabel (diagnosticSecondaryLabels diagnostic)
+        <> map renderContext (diagnosticContexts diagnostic)
         <> map ("note: " <>) (diagnosticNotes diagnostic)
         <> maybe [] (\helpText -> ["help: " <> helpText]) (diagnosticHelp diagnostic)
 
@@ -98,3 +104,9 @@ renderSecondaryLabel diagnosticLabel =
    in (if Text.null message then "related" else message)
         <> " "
         <> renderSourceSpan (labelSpan diagnosticLabel)
+
+renderContext :: DiagnosticContext -> Text
+renderContext context = case context of
+  CheckingBinding binding -> "while checking binding '" <> binding <> "'"
+  CheckingImplMethod method -> "while checking impl method '" <> method <> "'"
+  SatisfyingConstraint constraint -> "while satisfying constraint '" <> constraint <> "'"

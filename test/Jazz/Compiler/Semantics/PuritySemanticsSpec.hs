@@ -4,36 +4,36 @@ module Main (main) where
 
 import Data.Text (Text)
 import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( bundledPreludeSource,
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
   ( CompileResult,
     compileErrors,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
   )
 import Jazz.Compiler.Name
   ( identifierPurity,
     identifierText,
-    mkIdentifier
+    mkIdentifier,
   )
 import Jazz.Compiler.Purity
-  ( Purity (..)
+  ( Purity (..),
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertSingleErrorContains,
-    assertSingleDiagnosticPrimarySpan,
-    assertSingleDiagnosticRelatedSpan,
+    assertSingleDiagnosticPrimaryStart,
+    assertSingleDiagnosticRelatedStart,
     assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleErrorContains,
+    runTestSuite,
   )
 
 main :: IO ()
@@ -63,10 +63,12 @@ tests =
 
 testPureBindingCannotCallImpureBuiltin :: IO ()
 testPureBindingCannotCallImpureBuiltin = do
-  result <- compileWithBundledPrelude """
-  x = print! 1.
-  x.
-  """
+  result <-
+    compileWithBundledPrelude
+      """
+      x = print! 1.
+      x.
+      """
   assertSingleErrorContains
     "pure binding calling impure builtin"
     "E1010"
@@ -74,10 +76,13 @@ testPureBindingCannotCallImpureBuiltin = do
 
 testPureBindingCannotCallImpureBuiltinThroughDollarApplication :: IO ()
 testPureBindingCannotCallImpureBuiltinThroughDollarApplication = do
-  result <- compileSource defaultWarningSettings """
-  x = print! $ 1.
-  x.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      x = print! $ 1.
+      x.
+      """
   assertSingleErrorContains
     "pure binding calling impure builtin through dollar application"
     "E1010"
@@ -168,28 +173,33 @@ testImpureImplMethodCanCallImpureCallee = do
 
 testImpureBindingCanCallImpureBuiltin :: IO ()
 testImpureBindingCanCallImpureBuiltin = do
-  result <- compileWithBundledPrelude """
-  x! = print! 1.
-  x!.
-  """
+  result <-
+    compileWithBundledPrelude
+      """
+      x! = print! 1.
+      x!.
+      """
   assertEqual "compile errors" [] (compileErrors result)
 
 testPureBindingCannotCallImpureCallee :: IO ()
 testPureBindingCannotCallImpureCallee = do
-  result <- compileSource defaultWarningSettings """
-  inc! = (+ 1).
-  x = inc! 1.
-  x.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      inc! = (+ 1).
+      x = inc! 1.
+      x.
+      """
   assertSingleErrorContains
     "pure binding calling impure callee"
     "E1010"
     (compileErrors result)
-  assertSingleDiagnosticPrimarySpan
+  assertSingleDiagnosticPrimaryStart
     "pure binding diagnostic primary span"
     (SourceSpan 2 1)
     (compileErrors result)
-  assertSingleDiagnosticRelatedSpan
+  assertSingleDiagnosticRelatedStart
     "pure binding diagnostic related span"
     (SourceSpan 1 1)
     (compileErrors result)
@@ -200,20 +210,26 @@ testPureBindingCannotCallImpureCallee = do
 
 testImpureBindingCanCallImpureCallee :: IO ()
 testImpureBindingCanCallImpureCallee = do
-  result <- compileSource defaultWarningSettings """
-  inc! = (+ 1).
-  x! = inc! 1.
-  x!.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      inc! = (+ 1).
+      x! = inc! 1.
+      x!.
+      """
   assertEqual "compile errors" [] (compileErrors result)
 
 testPureBindingCanCallPureCallee :: IO ()
 testPureBindingCanCallPureCallee = do
-  result <- compileSource defaultWarningSettings """
-  inc = (+ 1).
-  x = inc 1.
-  x.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      inc = (+ 1).
+      x = inc 1.
+      x.
+      """
   assertEqual "compile errors" [] (compileErrors result)
 
 testMkIdentifierKeepsSourceText :: IO ()
@@ -233,10 +249,13 @@ testMkIdentifierMarksPlainNamesPure = do
 
 testTopLevelExpressionCanCallImpureCallee :: IO ()
 testTopLevelExpressionCanCallImpureCallee = do
-  result <- compileSource defaultWarningSettings """
-  inc! = (+ 1).
-  inc! 1.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      inc! = (+ 1).
+      inc! 1.
+      """
   assertEqual "compile errors" [] (compileErrors result)
 
 testTopLevelExpressionCanCallImpureBuiltin :: IO ()

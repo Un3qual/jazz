@@ -13,9 +13,6 @@ import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
     generatedName,
   )
-import Jazz.Compiler.Parser
-  ( parseSurfaceProgram,
-  )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
     SurfaceExprForm (..),
@@ -45,6 +42,7 @@ import Jazz.TestCore
     loweredVariable,
     loweredVariablePattern,
     loweredWildcardPattern,
+    parseSurfaceProgramPoints,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -111,7 +109,7 @@ testParsesSingleArgumentLambda =
             )
         )
     )
-    (parseSurfaceProgram "id = \\(x) -> x.")
+    (parseSurfaceProgramPoints "id = \\(x) -> x.")
 
 testParsesMultiArgumentLambda :: IO ()
 testParsesMultiArgumentLambda =
@@ -137,7 +135,7 @@ testParsesMultiArgumentLambda =
             )
         )
     )
-    (parseSurfaceProgram "const = \\(x, y) -> x.")
+    (parseSurfaceProgramPoints "const = \\(x, y) -> x.")
 
 testParsesLambdaBodyApplication :: IO ()
 testParsesLambdaBodyApplication =
@@ -163,7 +161,7 @@ testParsesLambdaBodyApplication =
             )
         )
     )
-    (parseSurfaceProgram "apply = \\(f, x) -> f x.")
+    (parseSurfaceProgramPoints "apply = \\(f, x) -> f x.")
 
 testParsesParenthesizedLambdaApplication :: IO ()
 testParsesParenthesizedLambdaApplication =
@@ -189,13 +187,13 @@ testParsesParenthesizedLambdaApplication =
             )
         )
     )
-    (parseSurfaceProgram "run = (\\(x) -> x) 1.")
+    (parseSurfaceProgramPoints "run = (\\(x) -> x) 1.")
 
 testLowerNestsMultiArgumentLambda :: IO ()
 testLowerNestsMultiArgumentLambda =
   assertRight
     "parse + lower multi-argument lambda"
-    (parseSurfaceProgram "const = \\(x, y) -> x.")
+    (parseSurfaceProgramPoints "const = \\(x, y) -> x.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -210,7 +208,7 @@ testLowerDesugarsPatternParametersThroughCase :: IO ()
 testLowerDesugarsPatternParametersThroughCase =
   assertRight
     "parse + lower tuple-pattern lambda"
-    (parseSurfaceProgram "sumPair = \\((left, right)) -> left + right.")
+    (parseSurfaceProgramPoints "sumPair = \\((left, right)) -> left + right.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
@@ -236,7 +234,7 @@ testLowerPreservesDuplicateParameterShadowing :: IO ()
 testLowerPreservesDuplicateParameterShadowing =
   assertRight
     "parse + lower duplicate-parameter lambda"
-    (parseSurfaceProgram "shadow = \\(x, x) -> x.")
+    (parseSurfaceProgramPoints "shadow = \\(x, x) -> x.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
@@ -271,7 +269,7 @@ testParsesUnitLambdaShorthand =
             )
         )
     )
-    (parseSurfaceProgram "thunk = \\() -> 42.")
+    (parseSurfaceProgramPoints "thunk = \\() -> 42.")
 
 testParsesExplicitUnitLambdaParameter :: IO ()
 testParsesExplicitUnitLambdaParameter =
@@ -297,13 +295,13 @@ testParsesExplicitUnitLambdaParameter =
             )
         )
     )
-    (parseSurfaceProgram "thunk = \\(()) -> 42.")
+    (parseSurfaceProgramPoints "thunk = \\(()) -> 42.")
 
 testLowersUnitLambdaShorthand :: IO ()
 testLowersUnitLambdaShorthand =
   assertRight
     "parse + lower Unit lambda"
-    (parseSurfaceProgram "thunk = \\() -> 42.")
+    (parseSurfaceProgramPoints "thunk = \\() -> 42.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
@@ -326,62 +324,62 @@ testRejectsTrailingCommaAfterUnitParameter =
   assertLeftDiagnosticContains
     "Unit lambda trailing comma"
     "expected"
-    (parseSurfaceProgram "thunk = \\((),) -> 42.")
+    (parseSurfaceProgramPoints "thunk = \\((),) -> 42.")
 
 testRejectsUnparenthesizedLambda :: IO ()
 testRejectsUnparenthesizedLambda =
   assertLeftDiagnosticContains
     "lambda without parameter parens"
     "expected '('"
-    (parseSurfaceProgram "f = \\x -> x.")
+    (parseSurfaceProgramPoints "f = \\x -> x.")
 
 testRejectsTrailingCommaParameterList :: IO ()
 testRejectsTrailingCommaParameterList =
   assertLeftDiagnosticContains
     "lambda trailing comma"
     "expected identifier"
-    (parseSurfaceProgram "f = \\(x,) -> x.")
+    (parseSurfaceProgramPoints "f = \\(x,) -> x.")
 
 testParsesWildcardLambdaParameterPattern :: IO ()
 testParsesWildcardLambdaParameterPattern =
   assertRight
     "wildcard lambda parameter pattern"
-    (parseSurfaceProgram "f = \\(_) -> 1.")
+    (parseSurfaceProgramPoints "f = \\(_) -> 1.")
     (\_ -> pure ())
 
 testParsesTupleLambdaParameterPattern :: IO ()
 testParsesTupleLambdaParameterPattern =
   assertRight
     "tuple lambda parameter pattern"
-    (parseSurfaceProgram "f = \\((left, right)) -> left.")
+    (parseSurfaceProgramPoints "f = \\((left, right)) -> left.")
     (\_ -> pure ())
 
 testParsesListLambdaParameterPattern :: IO ()
 testParsesListLambdaParameterPattern =
   assertRight
     "list lambda parameter pattern"
-    (parseSurfaceProgram "f = \\([head, tail]) -> head.")
+    (parseSurfaceProgramPoints "f = \\([head, tail]) -> head.")
     (\_ -> pure ())
 
 testParsesConsLikeListLambdaParameterPattern :: IO ()
 testParsesConsLikeListLambdaParameterPattern =
   assertRight
     "cons-like list lambda parameter pattern"
-    (parseSurfaceProgram "f = \\([head | tail]) -> head.")
+    (parseSurfaceProgramPoints "f = \\([head | tail]) -> head.")
     (\_ -> pure ())
 
 testParsesBooleanLiteralLambdaParameterPattern :: IO ()
 testParsesBooleanLiteralLambdaParameterPattern =
   assertRight
     "boolean literal lambda parameter pattern"
-    (parseSurfaceProgram "f = \\(True) -> 1.")
+    (parseSurfaceProgramPoints "f = \\(True) -> 1.")
     (\_ -> pure ())
 
 testParsesConstructorLikeLambdaParameterPattern :: IO ()
 testParsesConstructorLikeLambdaParameterPattern =
   assertRight
     "constructor-like lambda parameter pattern"
-    (parseSurfaceProgram "f = \\(Just item) -> item.")
+    (parseSurfaceProgramPoints "f = \\(Just item) -> item.")
     (\_ -> pure ())
 
 testParsesOrPatternLambdaParameter :: IO ()
@@ -419,7 +417,7 @@ testParsesOrPatternLambdaParameter =
             )
         )
     )
-    (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
+    (parseSurfaceProgramPoints "choose = \\(Just item | Also item) -> item.")
 
 testParsesCommaAfterOrPatternLambdaParameter :: IO ()
 testParsesCommaAfterOrPatternLambdaParameter =
@@ -456,13 +454,13 @@ testParsesCommaAfterOrPatternLambdaParameter =
             )
         )
     )
-    (parseSurfaceProgram "choose = \\(Just item | Also item, extra) -> item.")
+    (parseSurfaceProgramPoints "choose = \\(Just item | Also item, extra) -> item.")
 
 testLowerDesugarsOrPatternParameterThroughCase :: IO ()
 testLowerDesugarsOrPatternParameterThroughCase =
   assertRight
     "parse + lower or-pattern lambda"
-    (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
+    (parseSurfaceProgramPoints "choose = \\(Just item | Also item) -> item.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
@@ -493,27 +491,27 @@ testRejectsGroupedOrPatternLambdaParameter =
   assertLeftDiagnosticContains
     "grouped lambda or-pattern"
     "expected ',' or ')', found '|'"
-    (parseSurfaceProgram "f = \\((Just item | Also item)) -> item.")
+    (parseSurfaceProgramPoints "f = \\((Just item | Also item)) -> item.")
 
 testRejectsLambdaOrPatternParameterGuard :: IO ()
 testRejectsLambdaOrPatternParameterGuard =
   assertLeftDiagnosticContains
     "lambda or-pattern guard"
     "expected ',' or ')'"
-    (parseSurfaceProgram "f = \\(Just item | Also item if item > 0) -> item.")
+    (parseSurfaceProgramPoints "f = \\(Just item | Also item if item > 0) -> item.")
 
 testRejectsKeywordLambdaParameter :: IO ()
 testRejectsKeywordLambdaParameter =
   assertLeftDiagnosticContains
     "lambda keyword parameter"
     "expected identifier"
-    (parseSurfaceProgram "f = \\(if) -> if.")
+    (parseSurfaceProgramPoints "f = \\(if) -> if.")
 
 testAcceptsPatternLambdaClauses :: IO ()
 testAcceptsPatternLambdaClauses =
   assertRight
     "multi-body pattern lambda"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item."
     )
     (\_ -> pure ())
@@ -550,13 +548,13 @@ testParsesPatternLambdaClausesStructurally =
             )
         )
     )
-    (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
+    (parseSurfaceProgramPoints "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
 
 testLowersPatternLambdaClausesToOneCase :: IO ()
 testLowersPatternLambdaClausesToOneCase =
   assertRight
     "parse + lower pattern-lambda clauses"
-    (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
+    (parseSurfaceProgramPoints "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
     (\surfaceProgram -> assertLoweredCoreEqual "lowered pattern-lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     firstArgument = generatedName (LambdaPatternArgument 1)
@@ -591,13 +589,13 @@ testRejectsPatternLambdaClauseArityMismatch =
   assertLeftDiagnosticContains
     "pattern lambda clause arity"
     "pattern-lambda clauses must all have 1 parameter(s), found 2"
-    (parseSurfaceProgram "choose = \\|([]) -> 0 |([item | rest], fallback) -> item.")
+    (parseSurfaceProgramPoints "choose = \\|([]) -> 0 |([item | rest], fallback) -> item.")
 
 testKeepsPipeOperatorInPatternLambdaBody :: IO ()
 testKeepsPipeOperatorInPatternLambdaBody =
   assertRight
     "pipe operator before next lambda clause"
-    ( parseSurfaceProgram
+    ( parseSurfaceProgramPoints
         "operator (|) tier 4 precedence 20 left. choose = \\|(0) -> 1 | 2 |(_) -> 3."
     )
     (\_ -> pure ())
@@ -607,21 +605,21 @@ testRejectsPatternLambdaWithoutHead =
   assertLeftDiagnosticContains
     "pattern lambda without head"
     "expected '('"
-    (parseSurfaceProgram "choose = \\|.")
+    (parseSurfaceProgramPoints "choose = \\|.")
 
 testRejectsPatternLambdaHeadWithoutArrow :: IO ()
 testRejectsPatternLambdaHeadWithoutArrow =
   assertLeftDiagnosticContains
     "pattern lambda head without arrow"
     "expected '->'"
-    (parseSurfaceProgram "choose = \\|(item) item.")
+    (parseSurfaceProgramPoints "choose = \\|(item) item.")
 
 testRejectsPatternLambdaWithoutBody :: IO ()
 testRejectsPatternLambdaWithoutBody =
   assertLeftDiagnosticContains
     "pattern lambda without body"
     "expected expression"
-    (parseSurfaceProgram "choose = \\|(item) ->.")
+    (parseSurfaceProgramPoints "choose = \\|(item) ->.")
 
 e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
 e line column = SurfaceExpr (SourceSpan line column)

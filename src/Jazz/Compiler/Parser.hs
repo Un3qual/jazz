@@ -54,6 +54,7 @@ import Jazz.Compiler.Parser.TokenParser
     parseAnyToken,
     peekToken,
     runTokenParserDetailed,
+    withConsumedSpan,
   )
 import qualified Text.Megaparsec as MP
 
@@ -78,7 +79,7 @@ parseSurfaceProgramTokensDetailed tokens =
     expressionParser = parseExpressionParser blockParser
     statementParser = parseStatementParser expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
-    programParser = do
+    programParser = withConsumedSpan (\spanValue expression -> expression {surfaceExprSpan = spanValue}) $ do
       maybeFirstToken <- peekToken
       statements <- parseProgramStatements statementParser initialParserContext
       pure

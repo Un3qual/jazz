@@ -16,7 +16,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Read as TextRead
-import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan, spanColumn, spanLine)
 import Jazz.Compiler.FractionalLiteral
   ( fractionalLiteralExceedsMagnitude,
     mkFractionalLiteralSource,
@@ -72,12 +72,14 @@ import Jazz.Compiler.Parser.TokenParser
     parseToken,
     peekToken,
     runTokenParserPrefix,
+    withConsumedSpan,
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
     pattern (:<),
   )
+import Jazz.Compiler.SourceSpan (spanThrough)
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
 import qualified Text.Megaparsec as MP
 
@@ -141,22 +143,22 @@ parseApplicationTailUntil parseBlock context stop applicationSpan functionExpr =
     else case tokens of
       typeApplicationToken@Token {tokenKind = TAt} :< _ -> do
         void parseAnyToken
-        typeArgument <- parseTypeApplicationArgument typeApplicationToken
+        (argumentSpan, typeArgument) <- withConsumedSpan (\spanValue (_, argument) -> (spanValue, argument)) ((,) (tokenSpan typeApplicationToken) <$> parseTypeApplicationArgument typeApplicationToken)
         parseApplicationTailUntil
           parseBlock
           context
           stop
           applicationSpan
-          (SurfaceExpr applicationSpan (SETypeApplication functionExpr (tokenSpan typeApplicationToken) typeArgument))
+          (SurfaceExpr (spanThrough applicationSpan argumentSpan) (SETypeApplication functionExpr (spanThrough (tokenSpan typeApplicationToken) argumentSpan) typeArgument))
       firstToken :< _
         | startsPrimaryExpr firstToken -> do
-            argumentExpr <- parsePrimaryExpr parseBlock context stop
+            (argumentSpan, argumentExpr) <- parseRangedExpr (parsePrimaryExpr parseBlock context stop)
             parseApplicationTailUntil
               parseBlock
               context
               stop
               applicationSpan
-              (SurfaceExpr applicationSpan (SEApply functionExpr argumentExpr))
+              (SurfaceExpr (spanThrough applicationSpan argumentSpan) (SEApply functionExpr argumentExpr))
       _ -> pure functionExpr
 
 parseTypeApplicationArgument :: Token -> Parser SurfaceSignatureType
@@ -224,7 +226,7 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence expressionSpan leftE
                             (parserDeclaredOperators context)
                             operatorInfo
                             stop
-                    rightExpr <- parseRhs rhsStop (operatorNextMinPrecedence operatorInfo)
+                    (rightSpan, rightExpr) <- parseRangedExpr (parseRhs rhsStop (operatorNextMinPrecedence operatorInfo))
                     rejectNonAssociativeContinuation context operatorInfo operatorToken
                     parseInfixTailWithUntil
                       context
@@ -232,7 +234,7 @@ parseInfixTailWithUntil context stop parseRhs minPrecedence expressionSpan leftE
                       parseRhs
                       minPrecedence
                       expressionSpan
-                      (SurfaceExpr expressionSpan (SEBinary symbol leftExpr rightExpr))
+                      (SurfaceExpr (spanThrough expressionSpan rightSpan) (SEBinary symbol leftExpr rightExpr))
       _ -> pure leftExpr
 
 operatorNextMinPrecedence :: OperatorInfo -> Int
@@ -285,7 +287,7 @@ parsePrimaryExpr ::
   ParserContext ->
   Stop ->
   Parser SurfaceExpr
-parsePrimaryExpr parseBlock context stop = do
+parsePrimaryExpr parseBlock context stop = withConsumedSpan locateExprRange $ do
   maybeToken <- peekToken
   case maybeToken of
     Nothing ->
@@ -741,13 +743,14 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
                             (parserDeclaredOperators context)
                             operatorInfo
                             rhsStop
-                    rightExpr <-
-                      parseCaseArmBodyExpr
-                        parseBlock
-                        context
-                        nextStop
-                        (Just symbol)
-                        (operatorNextMinPrecedence operatorInfo)
+                    (rightSpan, rightExpr) <-
+                      parseRangedExpr $
+                        parseCaseArmBodyExpr
+                          parseBlock
+                          context
+                          nextStop
+                          (Just symbol)
+                          (operatorNextMinPrecedence operatorInfo)
                     rejectNonAssociativeContinuation context operatorInfo operatorToken
                     parseCaseArmBodyInfixTail
                       parseBlock
@@ -756,7 +759,7 @@ parseCaseArmBodyInfixTail parseBlock context rhsStop parentOperator minPrecedenc
                       parentOperator
                       minPrecedence
                       expressionSpan
-                      (SurfaceExpr expressionSpan (SEBinary symbol leftExpr rightExpr))
+                      (SurfaceExpr (spanThrough expressionSpan rightSpan) (SEBinary symbol leftExpr rightExpr))
       _ -> pure leftExpr
 
 parseCaseGuardInfixTail ::
@@ -790,13 +793,14 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
                             (parserDeclaredOperators context)
                             operatorInfo
                             rhsStop
-                    rightExpr <-
-                      parseCaseArmGuard
-                        parseBlock
-                        context
-                        nextStop
-                        (Just symbol)
-                        (operatorNextMinPrecedence operatorInfo)
+                    (rightSpan, rightExpr) <-
+                      parseRangedExpr $
+                        parseCaseArmGuard
+                          parseBlock
+                          context
+                          nextStop
+                          (Just symbol)
+                          (operatorNextMinPrecedence operatorInfo)
                     rejectNonAssociativeContinuation context operatorInfo operatorToken
                     parseCaseGuardInfixTail
                       parseBlock
@@ -805,7 +809,7 @@ parseCaseGuardInfixTail parseBlock context rhsStop parentOperator minPrecedence 
                       parentOperator
                       minPrecedence
                       expressionSpan
-                      (SurfaceExpr expressionSpan (SEBinary symbol leftExpr rightExpr))
+                      (SurfaceExpr (spanThrough expressionSpan rightSpan) (SEBinary symbol leftExpr rightExpr))
       _ -> pure leftExpr
 
 stopsBeforeCaseArmTerminator :: Stop
@@ -1126,7 +1130,7 @@ parsePatternLambdaClause ::
   Stop ->
   Token ->
   Parser SurfacePatternLambdaClause
-parsePatternLambdaClause parseBlock context stop lambdaToken = do
+parsePatternLambdaClause parseBlock context stop lambdaToken = withConsumedSpan locateClause $ do
   clauseToken <- parsePatternLambdaClausePipe lambdaToken
   tokens <- MP.getInput
   leftParenToken <-
@@ -1211,11 +1215,11 @@ parseLambdaParameters :: Token -> Parser (NonEmpty SurfaceLambdaParameter)
 parseLambdaParameters leftParenToken = do
   maybeToken <- peekToken
   case maybeToken of
-    Just Token {tokenKind = TRParen} -> do
+    Just rightParenToken@Token {tokenKind = TRParen} -> do
       void parseAnyToken
       pure
         ( SurfaceLambdaPattern
-            (SurfacePattern (tokenSpan leftParenToken) (SPTuple []))
+            (SurfacePattern (spanThrough (tokenSpan leftParenToken) (tokenSpan rightParenToken)) (SPTuple []))
             :| []
         )
     _ -> do
@@ -1314,3 +1318,24 @@ hasTopLevelTokenBefore isTarget isTerminator = go 0 0 0
             atTopLevel = parenDepth == 0 && braceDepth == 0 && bracketDepth == 0
 
     decrement depth = max 0 (depth - 1)
+
+-- Grouping is erased from the surface AST; retain the enclosed node's range.
+-- Its parent still measures all consumed tokens, including the parentheses.
+locateExprRange :: SourceSpan -> SurfaceExpr -> SurfaceExpr
+locateExprRange spanValue expression
+  | (spanLine spanValue, spanColumn spanValue)
+      == (spanLine original, spanColumn original) =
+      expression {surfaceExprSpan = spanValue}
+  | otherwise = expression
+  where
+    original = surfaceExprSpan expression
+
+parseRangedExpr :: Parser SurfaceExpr -> Parser (SourceSpan, SurfaceExpr)
+parseRangedExpr parser =
+  withConsumedSpan
+    (\spanValue (_, expression) -> (spanValue, expression))
+    ((\expression -> (surfaceExprSpan expression, expression)) <$> parser)
+
+locateClause :: SourceSpan -> SurfacePatternLambdaClause -> SurfacePatternLambdaClause
+locateClause spanValue (SurfacePatternLambdaClause _ parameters body) =
+  SurfacePatternLambdaClause spanValue parameters body

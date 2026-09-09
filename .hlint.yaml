@@ -1,0 +1,115 @@
+# HLint 3.10 enables PatternSynonyms implicitly. Jazz enables it per module;
+# disabling the implicit extension keeps ordinary `pattern` identifiers legal.
+- arguments: [-XNoPatternSynonyms]
+
+# Ormolu owns parentheses; named arguments and lambdas document compiler roles.
+# These four presentation preferences are intentionally not repository rules.
+- ignore: {name: "Avoid lambda"}
+- ignore: {name: "Avoid lambda using `infix`"}
+- ignore: {name: "Eta reduce"}
+- ignore: {name: "Redundant bracket"}
+
+# Reviewed migration baseline for existing declarations, not whole directories.
+# Explicit case/if branches are retained here to avoid unrelated solver/runtime
+# rewrites. New declarations still receive all other standard HLint hints.
+# Monoid/bimap identity expressions in law tests deliberately exercise the law.
+# Unused extension suggestions are scoped because GHC, not HLint, checks
+# extension needs (notably explicit pattern imports and derived traversals).
+- ignore:
+    name: "Fuse foldr/map"
+    within: ["Jazz.Compiler.Semantics.Runtime.Fixtures.statementData", "Jazz.Compiler.TypeInference.inferExprTypeDetailedRaw"]
+- ignore:
+    name: "Fuse traverse/map"
+    within: ["Jazz.Repository.HaskellSourcePolicy.listHaskellSources"]
+- ignore:
+    name: "Hoist not"
+    within: ["Main.assertAnalyzedProgramFacts", "Main.testCompilerStageNames"]
+- ignore:
+    name: "Monoid law, left identity"
+    within: ["Main.assertMonoidLaws"]
+- ignore:
+    name: "Monoid law, right identity"
+    within: ["Main.assertMonoidLaws"]
+- ignore:
+    name: "Redundant bimap"
+    within: ["Main.testSemanticTypeBitraversal", "Main.traversalIdentity"]
+- ignore:
+    name: "Redundant if"
+    within: ["Jazz.Compiler.TypeInference.Capabilities.inferQualifiedMethodRequirementWithoutCostCentre", "Jazz.Compiler.TypeInference.Solver.dataTypeSupportsRuntimeEqualityWith"]
+- ignore:
+    name: "Redundant pure"
+    within: ["Jazz.Compiler.Parser.Signature.signatureTypeHeadParser"]
+- ignore:
+    name: "Replace case with fromMaybe"
+    within: ["Jazz.Compiler.Parser.CapabilityDeclaration.parseCapabilityDeclaration", "Jazz.Compiler.Runtime.Engine.evaluateRuntimeScopePureRequest", "Jazz.Compiler.Semantics.BindingSignature.InferenceOwnershipTests.testRecursivePreviewRefreshesAfterSolverChange", "Jazz.Compiler.TypeInference.inferExprTypeDetailedRaw", "Jazz.Compiler.TypeInference.inferExpressionWork"]
+- ignore:
+    name: "Replace case with maybe"
+    within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Prelude.resolvedExplicitPrelude", "Jazz.Compiler.Runtime.Engine.stepEvaluationMachine", "Jazz.Compiler.Runtime.Primitives.renderFloatOperandTarget", "Jazz.Compiler.Runtime.Primitives.renderIntegerOperandTarget", "Jazz.Compiler.Runtime.Primitives.runtimeIntMetadataIsIntegral", "Jazz.Compiler.Runtime.Semantics.renderRuntimeType", "Jazz.Compiler.TypeInference.literalExpressionType"]
+- ignore:
+    name: "Unused LANGUAGE pragma"
+    within: ["Jazz.Compiler.AST", "Jazz.Compiler.ModuleExports", "Jazz.Compiler.ModuleGraph", "Jazz.Compiler.Name", "Jazz.Compiler.Parser.AdtPattern.Shared", "Jazz.Compiler.Parser.Foundation.Shared", "Jazz.Compiler.RecursiveBindings", "Jazz.Compiler.Runtime", "Jazz.Compiler.Runtime.Primitives", "Jazz.Compiler.Runtime.ScopePlan", "Jazz.Compiler.Semantics.BindingSignature.BasicsTests", "Jazz.Compiler.Semantics.BindingSignature.ConstraintsTests", "Jazz.Compiler.SourceProgram", "Jazz.Compiler.Stdlib.OrderedCollectionsTests", "Jazz.Compiler.TypeInference.Solver", "Jazz.Compiler.TypeRepresentation"]
+- ignore:
+    name: "Use $>"
+    within: ["Jazz.Compiler.Parser.Lexer.quotedScalars", "Jazz.Compiler.Parser.Signature.constraintBlockParser", "Jazz.Compiler.Parser.Signature.parenthesizedSignatureTypeParser"]
+- ignore:
+    name: "Use <$>"
+    within: ["Jazz.Compiler.ModuleResolver.resolveProgramWithAmbientExports", "Main.resolveTestModuleGraph"]
+- ignore:
+    name: "Use bimap"
+    within: ["Jazz.Compiler.Analyzer.analysisVisibleForwardBindings"]
+- ignore:
+    name: "Use elem"
+    within: ["Jazz.Compiler.Bootstrap.CanonicalValue.normalizeCanonicalSourcePath"]
+- ignore:
+    name: "Use first"
+    within: ["Jazz.Compiler.Runtime.Semantics.qualifyRuntimeType", "Main.testSemanticTypeBitraversal", "Main.traversalIdentity"]
+- ignore:
+    name: "Use for_"
+    within: ["Jazz.Compiler.Runtime.Engine.stepEvaluationMachine"]
+- ignore:
+    name: "Use fromMaybe"
+    within: ["Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.PatternCoverage.instantiateArgument", "Jazz.Compiler.SourceUnitOwnership.statementOwners", "Jazz.Compiler.Stdlib.OrderedCollectionsTests.mapSummary", "Jazz.Compiler.TypeInference.Scope.inferExprTypeWithExpectedModeRaw"]
+- ignore:
+    name: "Use head"
+    within: ["Main.testExplicitInstantiationBinderShadowing"]
+# Published diagnostic codes require ASCII digits, not Unicode isDigit.
+- ignore:
+    name: "Use isDigit"
+    within: ["Main.isPublishedCode"]
+- ignore:
+    name: "Use isJust"
+    within: ["Jazz.Compiler.Runtime.Primitives.runtimeValueHasTargetedNumericMetadata", "Jazz.Compiler.TypeInference.Capabilities.scalarApplicationRuntimeHint"]
+- ignore:
+    name: "Use isNothing"
+    within: ["Jazz.CLI.Main.parseCliOptions", "Jazz.Compiler.Analyzer.analysisBindingToVisibleBinding", "Jazz.Compiler.ModuleResolver.Names.resolveExprNames", "Jazz.Compiler.Parser.Lexer.unicodeScalarEscape", "Jazz.Compiler.Runtime.Semantics.attachDefaultBindingIntegerTarget", "Jazz.Compiler.Runtime.Semantics.runtimeValueExactlyMatchesConstraint", "Jazz.Compiler.TypeInference.Capabilities.inferredEqualityConstraintCanUseStructuralRuntimeEquality"]
+- ignore:
+    name: "Use lambda-case"
+    within: ["Jazz.Compiler.Driver.runExprWithSourceUnitStatementsAndHostObserved"]
+- ignore:
+    name: "Use list literal pattern"
+    within: ["Jazz.CLI.Main.parseCliOptions", "Main.testMinusAdjacency"]
+# Retain data constructor strictness/evaluation behavior during this migration.
+- ignore:
+    name: "Use newtype instead of data"
+    within: ["Jazz.Compiler.ModuleGraph.DeclaredModuleFacts", "Main.SyntheticBenchmark"]
+- ignore:
+    name: "Use record patterns"
+    within: ["Jazz.Compiler.TypeInference.Scope.inferScopeTypeInternal", "Jazz.Repository.SourceLayout.sourceModuleFromSurface"]
+- ignore:
+    name: "Use second"
+    within: ["Main.testSemanticTypeBitraversal", "Main.traversalIdentity"]
+- ignore:
+    name: "Use sequenceA"
+    within: ["Jazz.Compiler.ModuleCompiler.analyzeProgram"]
+- ignore:
+    name: "Use tuple-section"
+    within: ["Jazz.Compiler.Runtime.Engine.evaluateRuntimeScopePureRequest"]
+- ignore:
+    name: "Use uncurry"
+    within: ["Jazz.Compiler.Runtime.Engine.evalScopeWithHostInstance"]
+- ignore:
+    name: "Use void"
+    within: ["Jazz.Compiler.Driver.buildAnalyzedProgram", "Jazz.Compiler.Parser.Declaration.consumeParsedPrefix"]
+- ignore:
+    name: "Use when"
+    within: ["Jazz.Benchmark.Stages.parseBenchmarkCommand", "Jazz.Compiler.Runtime.Engine.endHostOperation", "Jazz.Compiler.Runtime.Engine.runEvaluationControl", "Jazz.Compiler.Runtime.Engine.stepEvaluationMachine", "Jazz.Compiler.Runtime.HostEvaluation.recordRuntimeProfileOpenWhen", "Jazz.Compiler.Runtime.HostEvaluation.recordRuntimeStatisticWhen", "Jazz.Compiler.Semantics.PrimitiveSemantics.EqualityOperator.testSourcePipelineKeepsBuiltinPipeOffDeclaredOperatorBindingPath", "Jazz.TestHarness.runNamed", "Main.assertLeftDiagnosticNotContains"]

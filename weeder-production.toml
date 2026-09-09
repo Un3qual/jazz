@@ -1,0 +1,119 @@
+# Reviewed GHC 9.14 baseline; keep new unreachable declarations visible.
+roots = [
+  '^Main\.main$',
+  # VQualifiedMethod pattern builder support; CLI only matches the pattern.
+  '^Jazz\.Compiler\.Runtime\.Types\.runtimeMethodCandidatesFromList$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/CLI/Main.hs
+  '^Jazz\.CLI\.Main\.(runCliWith)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Analyzer.hs
+  '^Jazz\.Compiler\.Analyzer\.(analyzeProgram|analyzeProgramWithHiddenStatements|analyzeRebindingWarnings)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/BuiltinCatalog.hs
+  '^Jazz\.Compiler\.BuiltinCatalog\.(lookupBuiltinSymbol)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/DiagnosticCatalog.hs
+  '^Jazz\.Compiler\.DiagnosticCatalog\.(allDiagnosticMetadata|warningHasAnalyzerEmitter)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Diagnostics.hs
+  '^Jazz\.Compiler\.Diagnostics\.(appendDiagnosticNote|diagnosticRelatedSpan|diagnosticTypeError|isWarningDiagnostic)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Driver.hs
+  '^Jazz\.Compiler\.Driver\.(compileExpr|compileModuleGraph|compileModuleGraphWithPrelude|compileSource|compileSourceWithPrelude|compileWarnings|runModuleGraph|runModuleGraphObserved|runModuleGraphWithPrelude|runModuleGraphWithPreludeAndHost|runModuleGraphWithResolvedPrelude|runSource|runSourceObserved|runSourceWithPrelude|runSourceWithPreludeAndHost|runWarnings)$',
+  # Benchmark forcing and profiling tooling API.
+  # src/Jazz/Compiler/Force.hs
+  '^Jazz\.Compiler\.Force\.(forceAnalyzedModule|forceAnalyzedModules|forceAnalyzedProgram|forceListWith|forceLoweredExpr|forceResolvedExpr|forceResolvedModule|forceRuntimeProgramOutputResult|forceSurfaceExpr|forceTokens)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/ModuleExports.hs
+  '^Jazz\.Compiler\.ModuleExports\.(exportedConstructorOwners)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/ModuleInterface.hs
+  '^Jazz\.Compiler\.ModuleInterface\.(emptyCompileInputs)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/ModuleRuntime.hs
+  '^Jazz\.Compiler\.ModuleRuntime\.(evaluateAnalyzedProgram|evaluateAnalyzedProgramObserved|lookupRuntimeModule)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Name.hs
+  '^Jazz\.Compiler\.Name\.(resolvedImportedName)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/Declaration.hs
+  '^Jazz\.Compiler\.Parser\.Declaration\.(parseDataStatementParser)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/Expression.hs
+  '^Jazz\.Compiler\.Parser\.Expression\.(parseExpressionTokens)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/Operator.hs
+  '^Jazz\.Compiler\.Parser\.Operator\.(operatorTableFromDeclarations)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/Pattern.hs
+  '^Jazz\.Compiler\.Parser\.Pattern\.(parseCaseArmPatternTokens|parseLambdaParameterTokens)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/Signature.hs
+  '^Jazz\.Compiler\.Parser\.Signature\.(parseSignatureTypePrefixDetailed)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/TokenParser.hs
+  '^Jazz\.Compiler\.Parser\.TokenParser\.(parseIdentifier|runTokenParserPrefix|runTokenParserPrefixDetailed)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Parser/TokenStream.hs
+  '^Jazz\.Compiler\.Parser\.TokenStream\.(tokenStreamDrop)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/PatternCoverage.hs
+  '^Jazz\.Compiler\.PatternCoverage\.(constructorInventoryFromBindings|emptyConstructorInventory)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Prelude.hs
+  '^Jazz\.Compiler\.Prelude\.(resolvedExplicitPrelude)$',
+  # Benchmark forcing and profiling tooling API.
+  # src/Jazz/Compiler/Profiling.hs
+  '^Jazz\.Compiler\.Profiling\.(benchmarkGroupName|benchmarkGroupStages|compilerProfilingEnabled|compilerStageMarkerName|compilerStageName|withCompilerStageMarkers)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/RecursiveBindings.hs
+  '^Jazz\.Compiler\.RecursiveBindings\.(freeVarsScopeWithBound|lookupLambdaCapturedNamesOrdered|preparedRecursiveScopeBindingNames|preparedRecursiveScopeGroups|preparedRecursiveScopeOuterBindingNames)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Runtime.hs
+  '^Jazz\.Compiler\.Runtime\.(evaluateModuleScopeWithHost|evaluateModuleScopeWithRequiredEvaluationHost|evaluateModuleScopeWithRequiredHost|evaluateRuntimeExpr|evaluateRuntimeExprObserved|evaluateRuntimeExprWithHost|evaluateRuntimeExprWithSourceUnitStatements)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Runtime/Observation/Render.hs
+  '^Jazz\.Compiler\.Runtime\.Observation\.Render\.(decodeRuntimeObservationJson)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Runtime/Outcome.hs
+  '^Jazz\.Compiler\.Runtime\.Outcome\.(runtimeOutcomeAsDiagnosticResult)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/Runtime/Types.hs
+  '^Jazz\.Compiler\.Runtime\.Types\.(runtimeExplicitResultHintsInOrder|runtimeExplicitResultHintsView)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/SourceSpan.hs
+  '^Jazz\.Compiler\.SourceSpan\.(sourceSpanStart)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/TypeInference.hs
+  '^Jazz\.Compiler\.TypeInference\.(inferExpressionDefault|inferExpressionWithInputs)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/TypeInference/Diagnostics.hs
+  '^Jazz\.Compiler\.TypeInference\.Diagnostics\.(renderType)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/TypeInference/Scope.hs
+  '^Jazz\.Compiler\.TypeInference\.Scope\.(inferScopeType)$',
+  # Explicit compiler inspection/testing API; retained migration baseline.
+  # src/Jazz/Compiler/TypeInference/State.hs
+  '^Jazz\.Compiler\.TypeInference\.State\.(inferDeferredExplicitConstraints)$',
+]
+
+type-class-roots = false
+unused-types = true
+root-modules = []
+
+# Structural data contracts survive even when one executable does not exercise
+# every instance: comparisons/debugging, generic deep evaluation, catalog
+# enumeration and lawful typed traversals are intentionally supported APIs.
+# This also roots these instances on otherwise-unused types; it does not root
+# arbitrary classes, functions or whole compiler modules.
+root-instances = [
+  { class = '\.(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable)$' },
+  # Literal construction interfaces used by test/tooling clients.
+  { instance = '^IsString (Identifier|UnresolvedName)$' },
+  # Megaparsec stream/error interfaces, including its optional default renderer.
+  { instance = '^ShowErrorComponent (LexerError|ParserError)$' },
+  { instance = '^(VisualStream|TraversableStream) TokenStream$' },
+  # RuntimePlan's composition contract is retained and covered by law tests.
+  { instance = '^(Semigroup|Monoid) RuntimePlan$' },
+]

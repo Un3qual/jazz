@@ -58,6 +58,7 @@ import Jazz.Compiler.CapabilityFacts
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
+    DiagnosticContext (CheckingBinding),
     SourceSpan,
     setDiagnosticPrimarySpan,
   )
@@ -91,7 +92,6 @@ import Jazz.Compiler.TypeInference.Capabilities
     addUnpreservedInferredMethodConstraintErrors,
     builtinDollarOperatorExpr,
     capabilityFactsFromState,
-    checkImplMethodBodies,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
     deleteTypeEnvFreeVariables,
@@ -114,6 +114,7 @@ import Jazz.Compiler.TypeInference.Capabilities
   )
 import Jazz.Compiler.TypeInference.Diagnostics
   ( addTypeError,
+    annotateNewErrorsWithContext,
     annotateNewErrorsWithPrimarySpan,
     mkBindingTypeMismatchError,
     mkDuplicateDataTypeDeclarationError,
@@ -127,6 +128,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkUnknownConstructorPayloadTypeError,
     targetedFloatLiteralDiagnostic,
   )
+import Jazz.Compiler.TypeInference.ImplChecking (checkImplMethodBodies)
 import Jazz.Compiler.TypeInference.Instantiation
   ( inferExplicitTypeApplication,
     instantiateNonBuiltinTypeBinding,
@@ -1066,7 +1068,8 @@ inferScopeTypeInternal
                                 scopeWalkPendingSignaturesByStatement = nextPendingSignaturesByStatement,
                                 scopeWalkRecursiveGroupStartStates = recursiveGroupStartStatesForStatement,
                                 scopeWalkRecursiveGroupPreviewCache = recursiveGroupPreviewCacheAfterStatement,
-                                scopeWalkInferState = stateAfterCommittedFacts
+                                scopeWalkInferState =
+                                  annotateNewErrorsWithContext (CheckingBinding nameText) bindingSpan stateForStatement stateAfterCommittedFacts
                               }
                             rest
                      in (scopeResultType, resultState)
