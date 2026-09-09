@@ -7,7 +7,6 @@ module Jazz.Compiler.SourceUnitOwnership
   ( SourceUnitOwner (..),
     sourceUnitOwnerOrigin,
     sourceUnitOwnerModulePath,
-    sourceUnitOwnerRuntimePath,
     sourceUnitStatementRuntimePaths,
     sourceUnitStatementOwners,
   )
@@ -40,12 +39,6 @@ sourceUnitOwnerOrigin owner =
     StandaloneSourceUnit _ -> CurrentModule
     NamedSourceUnit path -> ImportedModule path
     PreludeSourceUnit _ -> AmbientPrelude
-
-sourceUnitOwnerRuntimePath :: SourceUnitOwner -> Maybe SourceUnitOwner
-sourceUnitOwnerRuntimePath owner =
-  case owner of
-    StandaloneSourceUnit _ -> Nothing
-    _ -> Just owner
 
 sourceUnitStatementOwners ::
   ModulePath ->

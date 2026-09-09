@@ -4,23 +4,18 @@
 
 -- | Signature grammar helpers for the surface parser.
 module Jazz.Compiler.Parser.Signature
-  ( parseConstrainedSignatureType,
-    parseConstrainedSignatureTypeDetailed,
+  ( parseConstrainedSignatureTypeDetailed,
     parseSignatureTypeParser,
-    parseSignatureTypePrefix,
     parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
-    splitTopLevelCommaTokens,
     splitTopLevelCommaTokensDetailed,
   )
 where
 
 import Control.Applicative ((<|>))
-import Data.Bifunctor (first)
 import Data.Char (isLower)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.Name
   ( Identifier,
     identifierText,
@@ -36,7 +31,6 @@ import Jazz.Compiler.Parser.AST
   )
 import Jazz.Compiler.Parser.Failure
   ( ParserFailure,
-    parserFailureDiagnostic,
   )
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
@@ -91,25 +85,13 @@ parseSupportedSignaturePayload tokens =
     Right signaturePayload -> Just signaturePayload
     Left _ -> Nothing
 
-parseConstrainedSignatureType :: [Token] -> Either Diagnostic SurfaceSignatureType
-parseConstrainedSignatureType =
-  first parserFailureDiagnostic . parseConstrainedSignatureTypeDetailed
-
 parseConstrainedSignatureTypeDetailed :: [Token] -> Either ParserFailure SurfaceSignatureType
 parseConstrainedSignatureTypeDetailed =
   TokenParser.runTokenParserDetailed "constrained signature type" signatureTypeParser
 
-parseSignatureTypePrefix :: [Token] -> Either Diagnostic (SurfaceSignatureType, [Token])
-parseSignatureTypePrefix =
-  first parserFailureDiagnostic . parseSignatureTypePrefixDetailed
-
 parseSignatureTypePrefixDetailed :: [Token] -> Either ParserFailure (SurfaceSignatureType, [Token])
 parseSignatureTypePrefixDetailed =
   TokenParser.runTokenParserPrefixDetailed "signature type" signatureTypeParser
-
-splitTopLevelCommaTokens :: [Token] -> Either Diagnostic [[Token]]
-splitTopLevelCommaTokens =
-  first parserFailureDiagnostic . splitTopLevelCommaTokensDetailed
 
 splitTopLevelCommaTokensDetailed :: [Token] -> Either ParserFailure [[Token]]
 splitTopLevelCommaTokensDetailed =

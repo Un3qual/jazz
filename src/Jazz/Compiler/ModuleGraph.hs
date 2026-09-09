@@ -30,7 +30,6 @@ module Jazz.Compiler.ModuleGraph
     coreProgramEntry,
     coreProgramModules,
     coreProgramPrelude,
-    foldCoreModules,
     lookupCoreModule,
     mkCoreProgram,
   )
@@ -243,9 +242,6 @@ duplicatePaths = third . foldl collect (Set.empty, Set.empty, Seq.empty)
 
 lookupCoreModule :: ModulePath -> CoreProgram phase -> Maybe (CoreModule phase)
 lookupCoreModule modulePath = Map.lookup modulePath . storedCoreProgramModuleIndex
-
-foldCoreModules :: (Monoid result) => (CoreModule phase -> result) -> CoreProgram phase -> result
-foldCoreModules project = foldMap project . coreProgramModules
 
 type CoreEq phase =
   ( Eq (CoreNameAt phase),

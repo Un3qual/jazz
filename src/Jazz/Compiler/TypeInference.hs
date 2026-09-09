@@ -8,9 +8,7 @@ module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
     analyzeSourceUnitExpressionWithBuiltins,
-    inferExpressionWithBuiltins,
     inferExpressionWithInputs,
-    inferExpressionWithInputsAndHiddenStatements,
     analyzeExpressionWithInputs,
     inferExpressionDefault,
   )
@@ -196,17 +194,6 @@ data InferenceRequest = InferenceRequest
     requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
 
-inferExpressionWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithBuiltins builtinMode settings =
-  inferExpressionWithRequest
-    InferenceRequest
-      { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
-        requestedHiddenStatementIndices = Set.empty,
-        requestedPreludeStatementIndices = Set.empty,
-        requestedModuleStatementFacts = [],
-        requestedImplementationEvidenceCandidates = Map.empty
-      }
-
 analyzeSourceUnitExpressionWithBuiltins ::
   BuiltinResolutionMode ->
   ModulePath ->
@@ -257,17 +244,6 @@ inferExpressionWithInputs inputs =
       { requestedInferenceInputs = inputs,
         requestedHiddenStatementIndices = Set.empty,
         requestedPreludeStatementIndices = Set.empty,
-        requestedModuleStatementFacts = [],
-        requestedImplementationEvidenceCandidates = Map.empty
-      }
-
-inferExpressionWithInputsAndHiddenStatements :: InferenceInputs -> Set Int -> Expr 'Resolved -> IO InferenceResult
-inferExpressionWithInputsAndHiddenStatements inputs hiddenStatementIndices =
-  inferExpressionWithRequest
-    InferenceRequest
-      { requestedInferenceInputs = inputs,
-        requestedHiddenStatementIndices = hiddenStatementIndices,
-        requestedPreludeStatementIndices = hiddenStatementIndices,
         requestedModuleStatementFacts = [],
         requestedImplementationEvidenceCandidates = Map.empty
       }

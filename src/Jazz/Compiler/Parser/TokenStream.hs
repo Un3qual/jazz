@@ -9,7 +9,6 @@ module Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
     pattern EmptyTokens,
     pattern (:<),
-    tokenStreamBreak,
     tokenStreamDrop,
     tokenStreamFromList,
     tokenStreamLength,
@@ -67,9 +66,6 @@ tokenStreamSpan :: (Lexer.Token -> Bool) -> TokenStream -> (TokenStream, TokenSt
 tokenStreamSpan predicate (TokenStream tokens) =
   let (prefix, suffix) = Vector.span predicate tokens
    in (TokenStream prefix, TokenStream suffix)
-
-tokenStreamBreak :: (Lexer.Token -> Bool) -> TokenStream -> (TokenStream, TokenStream)
-tokenStreamBreak predicate = tokenStreamSpan (not . predicate)
 
 tokenStreamUncons :: TokenStream -> Maybe (Lexer.Token, TokenStream)
 tokenStreamUncons (TokenStream tokens) =

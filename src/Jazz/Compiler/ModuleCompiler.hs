@@ -7,7 +7,6 @@ module Jazz.Compiler.ModuleCompiler
   ( analyzeProgram,
     analyzedProgramDiagnostics,
     analyzedProgramErrors,
-    analyzedProgramWarnings,
   )
 where
 
@@ -38,7 +37,7 @@ import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
   )
-import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic, isWarningDiagnostic)
+import Jazz.Compiler.Diagnostics (Diagnostic, isErrorDiagnostic)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
     ModuleImportMode (..),
@@ -120,9 +119,6 @@ analyzedProgramDiagnostics program =
   where
     preludeDiagnostics = maybe [] moduleDiagnostics (ModuleGraph.preludeModule (coreProgramPrelude program))
     moduleDiagnostics = ModuleGraph.analyzedModuleDiagnostics . coreModuleFacts
-
-analyzedProgramWarnings :: CoreProgram 'Analyzed -> [Diagnostic]
-analyzedProgramWarnings = filter isWarningDiagnostic . analyzedProgramDiagnostics
 
 analyzedProgramErrors :: CoreProgram 'Analyzed -> [Diagnostic]
 analyzedProgramErrors = filter isErrorDiagnostic . analyzedProgramDiagnostics

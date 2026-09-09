@@ -5,7 +5,6 @@
 -- together and threads scope-local parser context.
 module Jazz.Compiler.Parser
   ( parseStatementsUntilBrace,
-    parseSurfaceExpressionTokens,
     parseSurfaceProgram,
     parseSurfaceProgramTokens,
     parseSurfaceProgramTokensDetailed,
@@ -13,7 +12,6 @@ module Jazz.Compiler.Parser
 where
 
 import Data.Bifunctor (first)
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics
@@ -49,10 +47,6 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     tokenize,
   )
-import Jazz.Compiler.Parser.Operator
-  ( OperatorInfo,
-    operatorTableFromDeclarations,
-  )
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
@@ -60,7 +54,6 @@ import Jazz.Compiler.Parser.TokenParser
     parseAnyToken,
     peekToken,
     runTokenParserDetailed,
-    runTokenParserPrefix,
   )
 import qualified Text.Megaparsec as MP
 
@@ -96,24 +89,6 @@ parseSurfaceProgramTokensDetailed tokens =
 
 -- | Stable prefix parser retained for callers that parse an expression from an
 -- already-tokenized stream.
-parseSurfaceExpressionTokens ::
-  Set Text ->
-  [OperatorInfo] ->
-  [Token] ->
-  Either Diagnostic (SurfaceExpr, [Token])
-parseSurfaceExpressionTokens knownAliases declaredOperators =
-  runTokenParserPrefix "expression" (expressionParser expressionContext)
-  where
-    expressionParser = parseExpressionParser blockParser
-    statementParser = parseStatementParser expressionParser blockParser
-    blockParser = parseStatementsUntilBrace statementParser
-    expressionContext =
-      ParserContext
-        { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
-          parserStatementContext = NestedBlockContext
-        }
-
 parseProgramStatements :: StatementParser -> ParserContext -> Parser [SurfaceStatement]
 parseProgramStatements parseStatement context = do
   tokens <- MP.lookAhead MP.getInput

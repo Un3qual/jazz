@@ -28,7 +28,6 @@ module Jazz.Compiler.BuiltinCatalog
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
     isBuiltinSymbolNameInMode,
-    isBuiltinSymbolName,
     isKernelBuiltinSymbolName,
     lookupBuiltinSymbolInMode,
     lookupBuiltinSymbol,
@@ -429,13 +428,6 @@ lookupBuiltinSymbolInMode ResolveKernelOnly =
 isBuiltinSymbolNameInMode :: BuiltinResolutionMode -> Text -> Bool
 isBuiltinSymbolNameInMode mode name =
   case lookupBuiltinSymbolInMode mode name of
-    Just _ -> True
-    Nothing -> False
-
--- | Test whether a name is a public compatibility/prelude builtin spelling.
-isBuiltinSymbolName :: Text -> Bool
-isBuiltinSymbolName name =
-  case lookupBuiltinSymbol name of
     Just _ -> True
     Nothing -> False
 

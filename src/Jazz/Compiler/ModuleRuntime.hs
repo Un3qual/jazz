@@ -9,7 +9,6 @@ module Jazz.Compiler.ModuleRuntime
     interpretAnalyzedProgram,
     evaluateAnalyzedProgram,
     evaluateAnalyzedProgramObserved,
-    evaluateAnalyzedProgramWithHost,
     evaluateAnalyzedProgramWithHostObserved,
     lookupRuntimeModule,
   )
@@ -201,15 +200,6 @@ evaluatePrelude analyzedPrelude =
             (coreModuleInterface analyzedModule)
             (scopeResultEnvironment scopeResult)
         )
-
-evaluateAnalyzedProgramWithHost ::
-  (Monad m) =>
-  RuntimeHost m ->
-  CoreProgram 'Analyzed ->
-  m (Either Diagnostic RuntimeProgram)
-evaluateAnalyzedProgramWithHost host analyzedProgram =
-  runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
-    <$> interpretAnalyzedProgram RuntimeObservationDisabled host analyzedProgram
 
 evaluateAnalyzedProgramWithHostObserved ::
   (Monad m) =>

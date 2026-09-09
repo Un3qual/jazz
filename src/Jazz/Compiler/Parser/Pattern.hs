@@ -7,7 +7,6 @@ module Jazz.Compiler.Parser.Pattern
     parseCaseArmPatternTokens,
     parseCasePatternParser,
     parseCasePatternTokenStream,
-    parseCasePatternTokens,
     parseLambdaParameterParser,
     parseLambdaParameterTokens,
   )
@@ -52,10 +51,6 @@ import qualified Text.Megaparsec as MP
 parseCaseArmPatternTokens :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCaseArmPatternTokens =
   runTokenParserPrefix "case arm pattern" parseCaseArmPatternParser
-
-parseCasePatternTokens :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
-parseCasePatternTokens =
-  runTokenParserPrefix "case pattern" parseCasePatternParser
 
 parseCaseArmPatternTokenStream :: TokenStream -> Either Diagnostic (SurfacePattern, TokenStream)
 parseCaseArmPatternTokenStream =

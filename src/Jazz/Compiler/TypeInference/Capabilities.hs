@@ -15,7 +15,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     classMethodPayloadToExpressionType,
     defaultBindingLiteralTypes,
     defaultLiteralTypes,
-    deferExplicitConstraints,
     deferExplicitConstraintsWithFacts,
     enterModuleCapabilityScope,
     finalizeDeferredExplicitConstraintsAt,
@@ -909,10 +908,6 @@ applyTypeSchemePrimitiveConstraints primitiveConstraints state =
                   stateAcc
               | otherwise ->
                   addTypeError stateAcc (mkTypeSchemeStrictEqualityConstraintError resolvedType)
-
-deferExplicitConstraints :: [TypeSchemeConstraint] -> InferState -> InferState
-deferExplicitConstraints explicitConstraints state =
-  deferExplicitConstraintsWithFacts (capabilityFactsFromState state) (capabilityFactsFromState state) explicitConstraints state
 
 deferExplicitConstraintsWithFacts :: ScopeCapabilityFacts -> ScopeCapabilityFacts -> [TypeSchemeConstraint] -> InferState -> InferState
 deferExplicitConstraintsWithFacts facts structuralFacts explicitConstraints state

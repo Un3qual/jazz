@@ -25,10 +25,8 @@ module Jazz.Compiler.Diagnostics
     diagnosticSubject,
     diagnosticSummary,
     diagnosticWarningCategory,
-    isCompilationDiagnostic,
     isErrorDiagnostic,
     isRuntimeDiagnostic,
-    isToolingDiagnostic,
     isWarningDiagnostic,
     labelMessage,
     labelSpan,
@@ -153,14 +151,8 @@ isWarningDiagnostic diagnostic = diagnosticSeverity diagnostic == SeverityWarnin
 isErrorDiagnostic :: Diagnostic -> Bool
 isErrorDiagnostic diagnostic = diagnosticSeverity diagnostic == SeverityError
 
-isCompilationDiagnostic :: Diagnostic -> Bool
-isCompilationDiagnostic diagnostic = diagnosticOrigin diagnostic == CompilationOrigin
-
 isRuntimeDiagnostic :: Diagnostic -> Bool
 isRuntimeDiagnostic diagnostic = diagnosticOrigin diagnostic == RuntimeOrigin
-
-isToolingDiagnostic :: Diagnostic -> Bool
-isToolingDiagnostic diagnostic = diagnosticOrigin diagnostic == ToolingOrigin
 
 -- | Recode a native error after wrapping lower-level compilation context.
 -- Warning identity cannot be replaced through this helper.

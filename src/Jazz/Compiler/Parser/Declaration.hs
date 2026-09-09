@@ -8,7 +8,6 @@ module Jazz.Compiler.Parser.Declaration
     collectImportAliasesUntilEnd,
     parseCapabilityDeclarationTokensDetailed,
     parseDataStatementParser,
-    parseImportStatementParser,
     parseStatementParser,
   )
 where
@@ -179,10 +178,6 @@ liftCapabilityParserResult = first CapabilityParserFailure
 
 liftCapabilityExpressionResult :: Either failure value -> Either (CapabilityFailure failure) value
 liftCapabilityExpressionResult = first CapabilityExpressionFailure
-
-parseImportStatementParser :: Parser SurfaceStatement
-parseImportStatementParser =
-  parseOwnedPrefix parseImportStatementFromTokens
 
 parseDataStatementParser :: Parser SurfaceStatement
 parseDataStatementParser =

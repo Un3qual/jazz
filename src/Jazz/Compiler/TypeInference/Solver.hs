@@ -18,7 +18,6 @@ module Jazz.Compiler.TypeInference.Solver
     resolveType,
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
-    unifyTypeLists,
     unifyTypes,
   )
 where
@@ -180,11 +179,6 @@ dereferenceType state expressionType =
         Just replacementType ->
           (replacementType, state)
     _ -> (expressionType, state)
-
-unifyTypeLists :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
-unifyTypeLists leftTypes rightTypes state =
-  {-# SCC "jazz-stage:constraint-solving" #-}
-  unifyTypeListsWithoutCostCentre leftTypes rightTypes state
 
 unifyTypeListsWithoutCostCentre :: [ExpressionType] -> [ExpressionType] -> InferState -> Maybe InferState
 unifyTypeListsWithoutCostCentre leftTypes rightTypes state

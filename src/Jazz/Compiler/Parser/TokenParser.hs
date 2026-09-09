@@ -8,7 +8,6 @@ module Jazz.Compiler.Parser.TokenParser
     failTokenParserAt,
     parseAnyToken,
     parseIdentifier,
-    parseOperator,
     parseToken,
     parseTokenKind,
     parseTokenWhere,
@@ -17,7 +16,6 @@ module Jazz.Compiler.Parser.TokenParser
     runTokenParserDetailed,
     runTokenParserPrefix,
     runTokenParserPrefixDetailed,
-    runTokenStreamParser,
     runTokenStreamParserDetailed,
     runTokenStreamParserPrefix,
     runTokenStreamParserPrefixDetailed,
@@ -89,10 +87,6 @@ runTokenParserDetailed :: Text -> Parser a -> [Token] -> Either ParserFailure a
 runTokenParserDetailed label parser tokens =
   runTokenStreamParserDetailed label parser (tokenStreamFromList tokens)
 
-runTokenStreamParser :: Text -> Parser a -> TokenStream -> Either Diagnostic a
-runTokenStreamParser label parser tokens =
-  first parserFailureDiagnostic (runTokenStreamParserDetailed label parser tokens)
-
 runTokenStreamParserDetailed :: Text -> Parser a -> TokenStream -> Either ParserFailure a
 runTokenStreamParserDetailed label parser tokens =
   case MP.runParser (parser <* requireEndOfInput) (Text.unpack label) tokens of
@@ -158,17 +152,6 @@ parseIdentifier =
             _ -> False
       )
       "identifier"
-
-parseOperator :: Parser Text
-parseOperator =
-  tokenLexeme
-    <$> parseTokenWhere
-      ( \token ->
-          case tokenKind token of
-            TOperator {} -> True
-            _ -> False
-      )
-      "operator"
 
 parseTokenWhere :: (Token -> Bool) -> Text -> Parser Token
 parseTokenWhere matches expectedDescription = do
