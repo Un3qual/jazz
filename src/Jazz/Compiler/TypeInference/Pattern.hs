@@ -38,6 +38,7 @@ import Jazz.Compiler.TypeInference.Diagnostics
 import Jazz.Compiler.TypeInference.Solver
   ( freshIntegerLiteralType,
     freshTypeVar,
+    freshTypeVars,
     resolveType,
     unifyTypes,
   )
@@ -643,15 +644,6 @@ inferTuplePatternType env scrutineeType patterns state =
                 (map (resolveType stateAfterTupleCheck) elementTypes)
                 patterns
                 stateAfterTupleCheck
-  where
-    freshTypeVars count initialState =
-      go [] initialState count
-
-    go reversedTypes stateAcc remainingCount
-      | remainingCount <= 0 = (reverse reversedTypes, stateAcc)
-      | otherwise =
-          let (nextType, nextState) = freshTypeVar stateAcc
-           in go (nextType : reversedTypes) nextState (remainingCount - 1)
 
 rollbackSkippedPatternState :: InferState -> InferState -> InferState
 rollbackSkippedPatternState stableState failedState =

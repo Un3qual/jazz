@@ -48,6 +48,7 @@ import Jazz.Compiler.TypeInference.Solver
     applySubstitution,
     bindTypeVar,
     freshTypeVar,
+    freshTypeVars,
     resolveType,
     unifyTypes,
   )
@@ -90,11 +91,11 @@ import Jazz.Compiler.TypeInference.TypeOps
 import Jazz.Compiler.TypeInference.Types
   ( ExpressionType,
     NumericConstraint (..),
+    SchemeConstraint (..),
+    SchemePrimitiveConstraint (..),
     ScopeCapabilityFacts,
     SemanticType (..),
     TypeBinding (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
     schemeResultType,
   )
@@ -121,6 +122,7 @@ inferenceOwnershipTests =
     ("duplicate constraints report the first repeated name", testDuplicateConstraintsReportFirstRepeatedName),
     ("state record modifiers update only their owned partitions", testStateRecordModifiers),
     ("inference output preserves constraint order and explicit cursors", testInferenceOutputConstraintCursors),
+    ("bulk variable allocation preserves order and solver constraints", testFreshTypeVarsPreservesSolverState),
     ("solver resolves long substitution chains and compound types", testSolverResolvesLongSubstitutionChains),
     ("unification path-compresses traversed substitution chains", testUnificationPathCompressesSubstitutionChains),
     ("solver preserves occurs, rigid, and numeric constraints", testSolverPreservesBindingConstraints),
@@ -256,6 +258,23 @@ testTypeOpsCollectRecursiveFreeVariables =
     ( freeTypeVariables
         (SemanticFunction (SemanticList (SemanticVariable 1)) (SemanticTuple [SemanticVariable 2, SemanticList (SemanticVariable 3)]))
     )
+
+testFreshTypeVarsPreservesSolverState :: IO ()
+testFreshTypeVarsPreservesSolverState = do
+  let initialState = addStrictEqualityTypeVarConstraint 0 initialInferState
+      (_, seededState) = freshTypeVar initialState
+      (variables, allocatedState) = freshTypeVars 3 seededState
+  assertEqual "allocated identities" (map SemanticVariable [1, 2, 3]) variables
+  assertEqual "next unused identity" 4 (inferNextTypeVar allocatedState)
+  assertEqual "retained equality constraint" (Set.singleton 0) (inferStrictEqualityVars allocatedState)
+  mapM_
+    ( \count -> do
+        let (emptyVariables, unchangedState) = freshTypeVars count allocatedState
+        assertEqual "nonpositive allocation" [] emptyVariables
+        assertEqual "nonpositive allocation retains next identity" 4 (inferNextTypeVar unchangedState)
+        assertEqual "nonpositive allocation retains constraints" (Set.singleton 0) (inferStrictEqualityVars unchangedState)
+    )
+    [0, -1]
 
 testSolverResolvesLongSubstitutionChains :: IO ()
 testSolverResolvesLongSubstitutionChains =

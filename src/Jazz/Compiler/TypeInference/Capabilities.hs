@@ -21,7 +21,6 @@ module Jazz.Compiler.TypeInference.Capabilities
     finalizeDeferredExplicitConstraintsAtWithEntailments,
     flushCurrentModuleCapabilityFacts,
     freeTypeVariablesInEnv,
-    freshTypeVars,
     importModuleCapabilityFacts,
     inferQualifiedMethodApplicationWithResults,
     instantiateQualifiedMethodType,
@@ -175,13 +174,15 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType,
     ImplMethodType (..),
     InferenceVariable,
+    SchemeConstraint (..),
+    SchemePrimitiveConstraint (..),
     ScopeCapabilityFacts (..),
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
+    TypeSchemeConstraint,
+    TypeSchemePrimitiveConstraint,
     emptyScopeCapabilityFacts,
     quantifiedVariablesMembershipSet,
   )
@@ -770,14 +771,7 @@ uniqueExactRuntimeCandidateHint state argumentType candidateHints =
     _ -> False
 
 resolveTypeSchemeConstraint :: InferState -> TypeSchemeConstraint -> TypeSchemeConstraint
-resolveTypeSchemeConstraint state constraint =
-  case constraint of
-    TypeSchemeConstraint constraintName argumentType ->
-      TypeSchemeConstraint constraintName (resolveType state argumentType)
-    TypeSchemeInferredConstraint constraintName argumentType ->
-      TypeSchemeInferredConstraint constraintName (resolveType state argumentType)
-    TypeSchemeMethodConstraint constraintName methodKey argumentType ->
-      TypeSchemeMethodConstraint constraintName methodKey (resolveType state argumentType)
+resolveTypeSchemeConstraint state = fmap (resolveType state)
 
 freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set InferenceVariable
 freeTypeVariablesInEnv state =
@@ -1934,16 +1928,6 @@ classMethodPayloadToGenericExpressionType state classParameter classTarget metho
     >>= Signature.constraintSignatureTypeToExpressionTypeWithState
       state
       (Map.singleton classParameter classTarget)
-
-freshTypeVars :: Int -> InferState -> ([ExpressionType], InferState)
-freshTypeVars count initialState =
-  go count [] initialState
-  where
-    go remaining acc state
-      | remaining <= 0 = (reverse acc, state)
-      | otherwise =
-          let (typeVar, nextState) = freshTypeVar state
-           in go (remaining - 1) (typeVar : acc) nextState
 
 defaultLiteralTypes :: InferState -> ExpressionType -> ExpressionType
 defaultLiteralTypes state =

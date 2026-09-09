@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Semantic analysis for the current compiler slice. This pass keeps the core
@@ -22,6 +24,7 @@ where
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
+import Data.Monoid (Endo (..))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -256,23 +259,12 @@ analysisBindingToVisibleBinding binding =
 
 -- | Append-efficient diagnostic streams. Builders compose in source order and
 -- are materialized only at the public analyzer boundary.
-data CollectedDiagnostics = CollectedDiagnostics
-  { collectedWarningsBuilder :: [Diagnostic] -> [Diagnostic],
-    collectedErrorsBuilder :: [Diagnostic] -> [Diagnostic]
-  }
-
-instance Semigroup CollectedDiagnostics where
-  CollectedDiagnostics leftWarnings leftErrors <> CollectedDiagnostics rightWarnings rightErrors =
-    CollectedDiagnostics
-      (leftWarnings . rightWarnings)
-      (leftErrors . rightErrors)
-
-instance Monoid CollectedDiagnostics where
-  mempty = CollectedDiagnostics id id
+newtype CollectedDiagnostics = CollectedDiagnostics (Endo [Diagnostic], Endo [Diagnostic])
+  deriving newtype (Semigroup, Monoid)
 
 diagnosticsFromLists :: [Diagnostic] -> [Diagnostic] -> CollectedDiagnostics
 diagnosticsFromLists warnings errors =
-  CollectedDiagnostics (warnings ++) (errors ++)
+  CollectedDiagnostics (Endo (warnings ++), Endo (errors ++))
 
 warningDiagnostics :: [Diagnostic] -> CollectedDiagnostics
 warningDiagnostics warnings = diagnosticsFromLists warnings []
@@ -281,10 +273,8 @@ errorDiagnostics :: [Diagnostic] -> CollectedDiagnostics
 errorDiagnostics errors = diagnosticsFromLists [] errors
 
 materializeDiagnostics :: CollectedDiagnostics -> ([Diagnostic], [Diagnostic])
-materializeDiagnostics diagnostics =
-  ( collectedWarningsBuilder diagnostics [],
-    collectedErrorsBuilder diagnostics []
-  )
+materializeDiagnostics (CollectedDiagnostics (warnings, errors)) =
+  (appEndo warnings [], appEndo errors [])
 
 analyzeRebindingWarnings :: WarningSettings -> Expr 'Resolved -> IO [Diagnostic]
 analyzeRebindingWarnings settings expr =

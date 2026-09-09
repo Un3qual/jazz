@@ -102,13 +102,12 @@ import Jazz.Compiler.TypeInference.Types
     DataTypeBinding (..),
     ExpressionType,
     ImplMethodType (..),
+    SchemeConstraint (..),
     ScopeCapabilityFacts (..),
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
   )
 import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
@@ -304,7 +303,6 @@ analyzedImport factsByNode importDecl =
             ModuleGraph.ModuleImport
               { ModuleGraph.moduleImportNode = CoreNode nodeId spanValue facts,
                 ModuleGraph.importedModule = ModuleGraph.importedModule importDecl,
-                ModuleGraph.importAlias = ModuleGraph.importAlias importDecl,
                 ModuleGraph.importExposure = ModuleGraph.importExposure importDecl
               }
 
@@ -356,10 +354,10 @@ dependencyImportInterface importDecl (publicInventory, moduleInterface, binderId
         binderIds
         evidenceCandidates
         moduleInterface
-    ImportQualifiedOnly ->
+    ImportQualifiedOnly qualifier ->
       importSelectedInterface
         (moduleOrigin (ModuleGraph.importedModule importDecl))
-        (fmap (identifierText . moduleQualifierIdentifier) (ModuleGraph.importAlias importDecl))
+        (Just (identifierText (moduleQualifierIdentifier qualifier)))
         Nothing
         publicInventory
         binderIds
@@ -604,12 +602,7 @@ rebaseTypeScheme origin dataTypeNames classNames typeScheme =
             (rebaseKnownText origin classNames capabilityName)
             (rebaseMethodKey origin classNames methodKey)
             (rebaseExpressionType origin dataTypeNames argumentType)
-    rebasePrimitiveConstraint primitiveConstraint =
-      case primitiveConstraint of
-        TypeSchemeNumericConstraint numericConstraint argumentType ->
-          TypeSchemeNumericConstraint numericConstraint (rebaseExpressionType origin dataTypeNames argumentType)
-        TypeSchemeStrictEqualityConstraint argumentType ->
-          TypeSchemeStrictEqualityConstraint (rebaseExpressionType origin dataTypeNames argumentType)
+    rebasePrimitiveConstraint = fmap (rebaseExpressionType origin dataTypeNames)
 
 rebaseCapabilityFacts :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> ScopeCapabilityFacts -> ScopeCapabilityFacts
 rebaseCapabilityFacts origin dataTypeNames classNames facts =

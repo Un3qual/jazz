@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE KindSignatures #-}
 
 -- | The single checked Resolved-to-Analyzed reconstruction. Inference records
@@ -13,6 +14,7 @@ module Jazz.Compiler.TypeInference.Analyzed
 where
 
 import Data.Bifunctor (first)
+import Data.Foldable (toList)
 import Data.List (mapAccumL)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -34,7 +36,6 @@ import Jazz.Compiler.AST
     Literal (..),
     Pattern (..),
     Statement (..),
-    expressionNode,
   )
 import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (ResolvedName, identifierText, operatorBindingName)
@@ -87,31 +88,43 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType,
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    SchemeConstraint (..),
+    SchemePrimitiveConstraint (..),
     SemanticType (..),
     TypeBinding (..),
     TypeScheme (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
+    TypeSchemeConstraint,
+    TypeSchemePrimitiveConstraint,
     quantifiedVariablesOrderedList,
   )
 import Jazz.Compiler.TypeRepresentation (SignaturePayload (..))
 
-data Attachment value = Attachment !(Seq SemanticFactInvariantFailure) (Maybe value)
+data Attachment value
+  = Attached value
+  | AttachmentFailed SemanticFactInvariantFailure !(Seq SemanticFactInvariantFailure)
+  deriving (Functor)
 
 data AttachedExplicitInstantiation = AttachedExplicitInstantiation
   { attachedSemanticInstantiations :: [SemanticInstantiation],
     attachedRuntimeArguments :: [NonEmpty ExpressionType]
   }
 
-instance Functor Attachment where
-  fmap project (Attachment failures value) = Attachment failures (fmap project value)
-
 instance Applicative Attachment where
-  pure = Attachment Seq.empty . Just
-  Attachment leftFailures maybeFunction <*> Attachment rightFailures maybeValue =
-    Attachment
-      (leftFailures <> rightFailures)
-      (maybeFunction <*> maybeValue)
+  pure = Attached
+  Attached project <*> Attached value = Attached (project value)
+  AttachmentFailed failure failures <*> AttachmentFailed next rest =
+    AttachmentFailed failure (failures Seq.>< (next Seq.<| rest))
+  AttachmentFailed failure failures <*> Attached _ = AttachmentFailed failure failures
+  Attached _ <*> AttachmentFailed failure failures = AttachmentFailed failure failures
+
+attachmentResult :: Attachment value -> Either (NonEmpty SemanticFactInvariantFailure) value
+attachmentResult (Attached value) = Right value
+attachmentResult (AttachmentFailed failure failures) = Left (failure NonEmpty.:| toList failures)
+
+recordedFailures :: InferState -> Attachment ()
+recordedFailures state = case inferFactInvariantFailures state of
+  [] -> pure ()
+  failure : failures -> AttachmentFailed failure (Seq.fromList failures)
 
 attachAnalyzedExpression ::
   ModulePath ->
@@ -120,20 +133,7 @@ attachAnalyzedExpression ::
   Expr 'Resolved ->
   Either (NonEmpty SemanticFactInvariantFailure) (Expr 'Analyzed)
 attachAnalyzedExpression modulePath importedBinders state expression =
-  case NonEmpty.nonEmpty (inferFactInvariantFailures state <> foldFailures) of
-    Just failures -> Left failures
-    Nothing ->
-      case maybeAnalyzed of
-        Just analyzed -> Right analyzed
-        Nothing ->
-          Left
-            ( NonEmpty.singleton
-                (MissingExpressionFacts (coreNodeId (expressionNode expression)))
-            )
-  where
-    Attachment attachmentFailures maybeAnalyzed =
-      attachExpr modulePath state importedBinders expression
-    foldFailures = foldr (:) [] attachmentFailures
+  attachmentResult (recordedFailures state *> attachExpr modulePath state importedBinders expression)
 
 attachAnalyzedSourceUnitExpression ::
   ModulePath ->
@@ -143,18 +143,9 @@ attachAnalyzedSourceUnitExpression ::
   Expr 'Resolved ->
   Either (NonEmpty SemanticFactInvariantFailure) (Expr 'Analyzed)
 attachAnalyzedSourceUnitExpression sourcePath preludePath preludeStatementIndices state expression =
-  case NonEmpty.nonEmpty (inferFactInvariantFailures state <> foldFailures) of
-    Just failures -> Left failures
-    Nothing ->
-      case maybeAnalyzed of
-        Just analyzed -> Right analyzed
-        Nothing ->
-          Left
-            ( NonEmpty.singleton
-                (MissingExpressionFacts (coreNodeId (expressionNode expression)))
-            )
+  attachmentResult (recordedFailures state *> attachedExpression)
   where
-    Attachment attachmentFailures maybeAnalyzed =
+    attachedExpression =
       case expression of
         EBlock node statements ->
           EBlock
@@ -180,10 +171,9 @@ attachAnalyzedSourceUnitExpression sourcePath preludePath preludeStatementIndice
       case expression of
         EBlock _ statements -> statements
         _ -> []
-    foldFailures = foldr (:) [] attachmentFailures
 
 missing :: SemanticFactInvariantFailure -> Attachment value
-missing failure = Attachment (Seq.singleton failure) Nothing
+missing failure = AttachmentFailed failure Seq.empty
 
 attachExpr :: ModulePath -> InferState -> Map ResolvedName CoreBinderId -> Expr 'Resolved -> Attachment (Expr 'Analyzed)
 attachExpr modulePath state binders expression =
@@ -493,14 +483,8 @@ attachAnalyzedStatementFacts ::
   [CoreNodeId] ->
   Either (NonEmpty SemanticFactInvariantFailure) (Map CoreNodeId StatementFacts)
 attachAnalyzedStatementFacts modulePath state nodeIds =
-  case traverse (\nodeId -> (,) nodeId <$> projectStatementFacts modulePath state nodeId) nodeIds of
-    Attachment failures maybeFacts ->
-      case NonEmpty.nonEmpty (foldr (:) [] failures) of
-        Just invariantFailures -> Left invariantFailures
-        Nothing ->
-          case maybeFacts of
-            Just facts -> Right (Map.fromList facts)
-            Nothing -> Right Map.empty
+  attachmentResult $
+    Map.fromList <$> traverse (\nodeId -> (,) nodeId <$> projectStatementFacts modulePath state nodeId) nodeIds
 
 projectStatementFacts :: ModulePath -> InferState -> CoreNodeId -> Attachment StatementFacts
 projectStatementFacts modulePath state nodeId =

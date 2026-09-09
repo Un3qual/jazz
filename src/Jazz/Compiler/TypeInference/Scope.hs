@@ -127,13 +127,15 @@ import Jazz.Compiler.TypeInference.Types
     ExpressionType,
     InferenceVariable (..),
     NumericConstraint,
+    SchemeConstraint (..),
+    SchemePrimitiveConstraint (..),
     ScopeCapabilityFacts,
     SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
+    TypeSchemeConstraint,
+    TypeSchemePrimitiveConstraint,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
     quantifiedVariablesOrderedList,
@@ -2129,14 +2131,7 @@ typeSchemeInferredClassConstraints state schemeVariables =
         Just resolvedConstraint <- [constraintForScheme constraint]
       ]
 
-    constraintForScheme constraint =
-      case constraint of
-        TypeSchemeConstraint constraintName argumentType ->
-          TypeSchemeConstraint constraintName <$> targetTypeFor argumentType
-        TypeSchemeInferredConstraint constraintName argumentType ->
-          TypeSchemeInferredConstraint constraintName <$> targetTypeFor argumentType
-        TypeSchemeMethodConstraint constraintName methodKey argumentType ->
-          TypeSchemeMethodConstraint constraintName methodKey <$> targetTypeFor argumentType
+    constraintForScheme = traverse targetTypeFor
 
     targetTypeFor argumentType =
       let targetType = resolveType state argumentType

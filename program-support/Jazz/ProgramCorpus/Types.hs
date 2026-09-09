@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.ProgramCorpus.Types
@@ -26,9 +29,11 @@ module Jazz.ProgramCorpus.Types
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import Data.Text (Text)
 import Data.Word (Word64)
+import GHC.Generics (Generic)
 import Jazz.Compiler.Profiling
   ( BenchmarkGroup (..),
     benchmarkGroupName,
@@ -47,18 +52,21 @@ data FeatureTag
   | OrderedCollectionsFeature
   | QueuesFeature
   | DeterministicRuntimeFeature
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Generic, Bounded, Enum, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data WorkloadClass
   = FastWorkload
   | FullWorkload
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Generic, Bounded, Enum, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data ProgramTermination
   = SuccessfulProgram
   | CompileFailedProgram
   | RuntimeFailedProgram
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Generic, Bounded, Enum, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data ProgramBudgets = ProgramBudgets
   { programBudgetSteps :: Word64,
@@ -66,7 +74,8 @@ data ProgramBudgets = ProgramBudgets
     programBudgetMaxContinuationDepth :: Word64,
     programBudgetOptionalLimits :: Map ProgramBudgetMetric Word64
   }
-  deriving (Eq, Ord, Show)
+  deriving stock (Generic, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data ProgramBudgetMetric
   = EvaluatorTransitionsBudget
@@ -92,7 +101,8 @@ data ProgramBudgetMetric
   | DeferredCacheHitsBudget
   | DeferredCacheMissesBudget
   | DeferredCacheRecursiveEvaluationsBudget
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Generic, Bounded, Enum, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data ProgramBudgetViolation = ProgramBudgetViolation
   { programBudgetViolationCase :: Text,
@@ -145,7 +155,8 @@ data ProgramCase = ProgramCase
     programCaseBenchmarks :: [BenchmarkGroup],
     programCaseBudgets :: ProgramBudgets
   }
-  deriving (Eq, Show)
+  deriving stock (Generic, Eq, Show)
+  deriving anyclass (NFData)
 
 data ProgramPathField
   = CaseDirectoryPath

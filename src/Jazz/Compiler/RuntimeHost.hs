@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- | Typed host capabilities used by effectful runtime evaluation. The record
 -- keeps stage-0 Haskell operations outside Jazz values and can be replaced by
@@ -8,29 +9,31 @@ module Jazz.Compiler.RuntimeHost
     HostIOFailure (..),
     RuntimeHostExit (..),
     RuntimeHost (..),
+    mapRuntimeHost,
     disabledRuntimeHost,
     productionRuntimeHost,
     hostIOCategoryToken,
-    hostIOFailureMessage
-  ) where
+    hostIOFailureMessage,
+  )
+where
 
 import qualified Data.ByteString as ByteString
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEncoding
 import GHC.IO.Exception
-  ( IOErrorType (Interrupted, UnsupportedOperation)
+  ( IOErrorType (Interrupted, UnsupportedOperation),
   )
 import Jazz.Compiler.Profiling
   ( CompilerStage (HostOperationStage),
-    withCompilerStage
+    withCompilerStage,
   )
 import System.Environment (getArgs)
 import System.IO
   ( Handle,
     stderr,
     stdin,
-    stdout
+    stdout,
   )
 import System.IO.Error
   ( ioeGetErrorType,
@@ -39,7 +42,7 @@ import System.IO.Error
     isFullError,
     isIllegalOperation,
     isPermissionError,
-    tryIOError
+    tryIOError,
   )
 
 data HostIOCategory
@@ -77,7 +80,19 @@ data RuntimeHost m = RuntimeHost
     runtimeHostExit :: Integer -> m (Either HostIOFailure RuntimeHostExit)
   }
 
-disabledRuntimeHost :: Applicative m => RuntimeHost m
+mapRuntimeHost :: (forall value. m value -> n value) -> RuntimeHost m -> RuntimeHost n
+mapRuntimeHost transform host =
+  RuntimeHost
+    { runtimeHostReadText = transform . runtimeHostReadText host,
+      runtimeHostWriteText = \path contents -> transform (runtimeHostWriteText host path contents),
+      runtimeHostReadStdin = transform (runtimeHostReadStdin host),
+      runtimeHostWriteStdout = transform . runtimeHostWriteStdout host,
+      runtimeHostWriteStderr = transform . runtimeHostWriteStderr host,
+      runtimeHostArguments = transform (runtimeHostArguments host),
+      runtimeHostExit = transform . runtimeHostExit host
+    }
+
+disabledRuntimeHost :: (Applicative m) => RuntimeHost m
 disabledRuntimeHost =
   RuntimeHost
     { runtimeHostReadText = \_ -> pure unsupported,
@@ -93,16 +108,17 @@ disabledRuntimeHost =
 
 productionRuntimeHost :: RuntimeHost IO
 productionRuntimeHost =
-  RuntimeHost
-    { runtimeHostReadText = profileHostOperation . readUtf8File,
-      runtimeHostWriteText = \path contents -> profileHostOperation (writeUtf8File path contents),
-      runtimeHostReadStdin = profileHostOperation (readUtf8Handle stdin),
-      runtimeHostWriteStdout = profileHostOperation . writeUtf8Handle stdout,
-      runtimeHostWriteStderr = profileHostOperation . writeUtf8Handle stderr,
-      runtimeHostArguments = profileHostOperation (map Text.pack <$> getArgs),
-      runtimeHostExit = \_ ->
-        profileHostOperation (pure (Right RuntimeHostExitRequested))
-    }
+  mapRuntimeHost
+    profileHostOperation
+    RuntimeHost
+      { runtimeHostReadText = readUtf8File,
+        runtimeHostWriteText = writeUtf8File,
+        runtimeHostReadStdin = readUtf8Handle stdin,
+        runtimeHostWriteStdout = writeUtf8Handle stdout,
+        runtimeHostWriteStderr = writeUtf8Handle stderr,
+        runtimeHostArguments = map Text.pack <$> getArgs,
+        runtimeHostExit = \_ -> pure (Right RuntimeHostExitRequested)
+      }
 
 profileHostOperation :: IO value -> IO value
 profileHostOperation action =

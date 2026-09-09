@@ -34,7 +34,7 @@ import Jazz.Compiler.Runtime.Types
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
   )
-import Jazz.Compiler.RuntimeHost (RuntimeHost (..))
+import Jazz.Compiler.RuntimeHost (RuntimeHost, mapRuntimeHost)
 
 runRuntimeHostEvaluation ::
   (Monad m) =>
@@ -53,7 +53,7 @@ runRuntimeHostEvaluationWithObservation ::
 runRuntimeHostEvaluationWithObservation observationRequest host action = do
   (value, finalState) <-
     runStateT
-      (action (liftRuntimeHost host))
+      (action (mapRuntimeHost lift host))
       RuntimeHostEvaluationState
         { runtimeHostEvaluationBindingCache = Map.empty,
           runtimeHostEvaluationNextScopeId = 0,
@@ -118,15 +118,3 @@ recordRuntimeProfileOpenWhen enabled callableIdentity =
   if enabled
     then lift (modifyRuntimeObservation (recordRuntimeProfileOpen callableIdentity))
     else pure ()
-
-liftRuntimeHost :: (Monad m) => RuntimeHost m -> RuntimeHost (RuntimeHostEvaluationT m)
-liftRuntimeHost host =
-  RuntimeHost
-    { runtimeHostReadText = lift . runtimeHostReadText host,
-      runtimeHostWriteText = \path contents -> lift (runtimeHostWriteText host path contents),
-      runtimeHostReadStdin = lift (runtimeHostReadStdin host),
-      runtimeHostWriteStdout = lift . runtimeHostWriteStdout host,
-      runtimeHostWriteStderr = lift . runtimeHostWriteStderr host,
-      runtimeHostArguments = lift (runtimeHostArguments host),
-      runtimeHostExit = lift . runtimeHostExit host
-    }

@@ -47,6 +47,7 @@ import Jazz.Compiler.ModuleGraph
     DeclaredModuleFacts (..),
     ModuleImport (..),
     coreModuleExpr,
+    importAlias,
   )
 import Jazz.Compiler.ModuleIdentity
   ( modulePathTextSegments,
@@ -487,8 +488,8 @@ coreResolvedImportRuntimeValue resolvedImport =
           ( maybeRuntimeValuePure
               (listRuntimeValuePure (VText . identifierText) . NonEmpty.toList)
               ( case importExposure resolvedImport of
-                  DeclaredImportAll -> Nothing
-                  DeclaredImportOnly identifiers -> Just identifiers
+                  DeclaredImportAll _ -> Nothing
+                  DeclaredImportOnly _ identifiers -> Just identifiers
               )
           )
       ]

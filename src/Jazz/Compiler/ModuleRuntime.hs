@@ -456,7 +456,7 @@ runtimeExportSelected importDecl publicInventory runtimeExport =
   case ModuleGraph.importExposure importDecl of
     ImportAllUnqualified -> selectedBy UnqualifiedImport Nothing True
     ImportOnlyUnqualified symbolNames -> selectedBy UnqualifiedImport (Just (map identifierText (NonEmpty.toList symbolNames))) True
-    ImportQualifiedOnly -> selectedBy QualifiedAliasImport Nothing False
+    ImportQualifiedOnly _ -> selectedBy QualifiedAliasImport Nothing False
   where
     selectedBy importMode symbolNames includeCapabilityMethods =
       case runtimeExport of

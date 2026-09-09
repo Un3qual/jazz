@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -18,6 +21,7 @@ module Jazz.Compiler.ModuleResolver
   )
 where
 
+import Control.DeepSeq (NFData)
 import Control.Monad (foldM)
 import Data.Bifunctor (bimap)
 import Data.Foldable (toList)
@@ -33,6 +37,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
@@ -154,7 +159,8 @@ data ModuleResolutionConfig = ModuleResolutionConfig
   { moduleRoots :: [FilePath],
     moduleExtension :: String
   }
-  deriving (Eq, Show)
+  deriving stock (Generic, Eq, Show)
+  deriving anyclass (NFData)
 
 data ModuleDiscoveryFacts = ModuleDiscoveryFacts
   { discoveryLocalInventory :: ModuleExportInventory,
@@ -193,14 +199,14 @@ declaredImportSpan importDecl =
   let spanValue = coreNodeSpan (ModuleGraph.moduleImportNode importDecl)
    in SourceSpan (spanLine spanValue) (spanColumn spanValue)
 
-declaredImportAliasText :: ModuleGraph.ModuleImport phase -> Maybe Text
+declaredImportAliasText :: ModuleGraph.ModuleImport 'Lowered -> Maybe Text
 declaredImportAliasText = fmap (identifierText . moduleQualifierIdentifier) . ModuleGraph.importAlias
 
 declaredImportSymbols :: ModuleGraph.ModuleImport 'Lowered -> Maybe [Text]
 declaredImportSymbols importDecl =
   case ModuleGraph.importExposure importDecl of
-    ModuleGraph.DeclaredImportAll -> Nothing
-    ModuleGraph.DeclaredImportOnly names -> Just (map identifierText (NonEmpty.toList names))
+    ModuleGraph.DeclaredImportAll _ -> Nothing
+    ModuleGraph.DeclaredImportOnly _ names -> Just (map identifierText (NonEmpty.toList names))
 
 type ResolverImport = ModuleGraph.ModuleImport 'Lowered
 
@@ -394,16 +400,15 @@ resolveImportExposure importerPath coreImport = do
     ModuleGraph.ModuleImport
       { ModuleGraph.moduleImportNode = resolveNode (ModuleGraph.moduleImportNode coreImport),
         ModuleGraph.importedModule = ModuleGraph.importedModule coreImport,
-        ModuleGraph.importAlias = ModuleGraph.importAlias coreImport,
         ModuleGraph.importExposure = resolvedExposure
       }
   where
     exposure =
-      case (ModuleGraph.importAlias coreImport, ModuleGraph.importExposure coreImport) of
-        (Nothing, ModuleGraph.DeclaredImportAll) -> Right ModuleGraph.ImportAllUnqualified
-        (Nothing, ModuleGraph.DeclaredImportOnly symbolNames) -> Right (ModuleGraph.ImportOnlyUnqualified symbolNames)
-        (Just _, ModuleGraph.DeclaredImportAll) -> Right ModuleGraph.ImportQualifiedOnly
-        (Just _, ModuleGraph.DeclaredImportOnly _) -> Left (mkImportExposureInvariantError importerPath coreImport)
+      case ModuleGraph.importExposure coreImport of
+        ModuleGraph.DeclaredImportAll Nothing -> Right ModuleGraph.ImportAllUnqualified
+        ModuleGraph.DeclaredImportOnly Nothing symbolNames -> Right (ModuleGraph.ImportOnlyUnqualified symbolNames)
+        ModuleGraph.DeclaredImportAll (Just alias) -> Right (ModuleGraph.ImportQualifiedOnly alias)
+        ModuleGraph.DeclaredImportOnly (Just _) _ -> Left (mkImportExposureInvariantError importerPath coreImport)
 
 mkImportExposureInvariantError :: ModulePath -> ResolverImport -> Diagnostic
 mkImportExposureInvariantError importerPath coreImport =

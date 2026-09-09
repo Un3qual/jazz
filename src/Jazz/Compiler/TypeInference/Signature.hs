@@ -53,8 +53,9 @@ import Jazz.Compiler.TypeInference.State
 import Jazz.Compiler.TypeInference.Types
   ( DataTypeBinding (..),
     ExpressionType,
+    SchemeConstraint (..),
     SemanticType (..),
-    TypeSchemeConstraint (..),
+    TypeSchemeConstraint,
   )
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable (..),

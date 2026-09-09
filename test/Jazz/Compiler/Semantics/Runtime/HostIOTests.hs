@@ -7,10 +7,13 @@ module Jazz.Compiler.Semantics.Runtime.HostIOTests
 where
 
 import Control.Exception (finally)
+import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict
   ( State,
     modify,
+    modify',
     runState,
+    runStateT,
   )
 import qualified Data.ByteString as ByteString
 import Data.Either (isRight)
@@ -66,6 +69,7 @@ import Jazz.Compiler.RuntimeHost
     RuntimeHostExit (..),
     hostIOCategoryToken,
     hostIOFailureMessage,
+    mapRuntimeHost,
     productionRuntimeHost,
   )
 import Jazz.Compiler.Semantics.Runtime.Fixtures
@@ -217,7 +221,10 @@ testHostIntrinsicsReturnRawValues = do
           hostCall "__kernel_arguments!" [expressionTuple []],
           hostCall "__kernel_exit!" [expressionLiteral (LInt 7)]
         ]
-      (results, calls) = runState (traverse (evaluateRuntimeExprWithHost statefulHost) expressions) []
+      countedHost = mapRuntimeHost (\action -> modify' (+ 1) >> lift action) statefulHost
+      ((results, operationCount), calls) =
+        runState (runStateT (traverse (evaluateRuntimeExprWithHost countedHost) expressions) (0 :: Int)) []
+  assertEqual "host mapper wraps every operation exactly once" 7 operationCount
   assertEqual
     "host intrinsic raw values"
     [ Right (Just "(True, \"file text\", \"\", \"\")"),

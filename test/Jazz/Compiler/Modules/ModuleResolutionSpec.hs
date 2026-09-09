@@ -94,13 +94,15 @@ resolvedImportSummary importDecl =
     { summaryImportSpan = coreNodeSpan (ModuleGraph.moduleImportNode importDecl),
       summaryImportPath = modulePathSegments (ModuleGraph.importedModule importDecl),
       summaryImportAlias =
-        identifierText . moduleQualifierIdentifier <$> ModuleGraph.importAlias importDecl,
+        case ModuleGraph.importExposure importDecl of
+          ModuleGraph.ImportQualifiedOnly qualifier -> Just (identifierText (moduleQualifierIdentifier qualifier))
+          _ -> Nothing,
       summaryImportExposure =
         case ModuleGraph.importExposure importDecl of
           ModuleGraph.ImportAllUnqualified -> AllUnqualifiedSummary
           ModuleGraph.ImportOnlyUnqualified names ->
             OnlyUnqualifiedSummary (map identifierText (NonEmpty.toList names))
-          ModuleGraph.ImportQualifiedOnly -> QualifiedOnlySummary
+          ModuleGraph.ImportQualifiedOnly _ -> QualifiedOnlySummary
     }
 
 resolvedModuleSummary :: ModuleGraph.CoreModule 'Resolved -> ResolvedModuleSummary

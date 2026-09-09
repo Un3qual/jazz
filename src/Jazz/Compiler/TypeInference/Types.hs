@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -22,8 +23,10 @@ module Jazz.Compiler.TypeInference.Types
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
+    TypeSchemeConstraint,
+    SchemeConstraint (..),
+    TypeSchemePrimitiveConstraint,
+    SchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
     instantiateConstructorFieldType,
     quantifiedVariablesFromPreferred,
@@ -173,17 +176,21 @@ data TypeScheme = TypeScheme
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data TypeSchemePrimitiveConstraint
-  = TypeSchemeNumericConstraint NumericConstraint ExpressionType
-  | TypeSchemeStrictEqualityConstraint ExpressionType
-  deriving stock (Eq, Generic, Show)
+type TypeSchemePrimitiveConstraint = SchemePrimitiveConstraint ExpressionType
+
+data SchemePrimitiveConstraint typeValue
+  = TypeSchemeNumericConstraint NumericConstraint typeValue
+  | TypeSchemeStrictEqualityConstraint typeValue
+  deriving stock (Eq, Foldable, Functor, Generic, Show, Traversable)
   deriving anyclass (NFData)
 
-data TypeSchemeConstraint
-  = TypeSchemeConstraint Text ExpressionType
-  | TypeSchemeInferredConstraint Text ExpressionType
-  | TypeSchemeMethodConstraint Text Text ExpressionType
-  deriving stock (Eq, Generic, Ord, Show)
+type TypeSchemeConstraint = SchemeConstraint ExpressionType
+
+data SchemeConstraint typeValue
+  = TypeSchemeConstraint Text typeValue
+  | TypeSchemeInferredConstraint Text typeValue
+  | TypeSchemeMethodConstraint Text Text typeValue
+  deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
   deriving anyclass (NFData)
 
 type TypeEnv = Map ResolvedName TypeBinding

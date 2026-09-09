@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.ScaleCases
@@ -19,11 +22,12 @@ module Jazz.Benchmark.ScaleCases
   )
 where
 
-import Control.DeepSeq (NFData (rnf))
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Profiling (BenchmarkGroup (..))
 import System.FilePath (joinPath, (<.>), (</>))
@@ -51,10 +55,8 @@ data CompilerScaleScenario
   | LongTokenStream
   | IdentifierTokenStream
   | LiteralTokenStream
-  deriving (Eq, Ord, Show)
-
-instance NFData CompilerScaleScenario where
-  rnf scenario = scenario `seq` ()
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data CompilerScaleCase = CompilerScaleCase
   { compilerScaleCaseIdentifier :: Text,
@@ -67,23 +69,8 @@ data CompilerScaleCase = CompilerScaleCase
     compilerScaleCaseSources :: Map FilePath Text,
     compilerScaleCaseExpectedOutput :: Text
   }
-  deriving (Eq, Show)
-
-instance NFData CompilerScaleCase where
-  rnf programCase =
-    rnf (compilerScaleCaseIdentifier programCase) `seq`
-      rnf (compilerScaleCaseScenario programCase) `seq`
-        rnf (compilerScaleCaseSize programCase) `seq`
-          rnf (compilerScaleCaseInterfaceWidth programCase) `seq`
-            forceBenchmarkGroups (compilerScaleCaseBenchmarks programCase) `seq`
-              rnf (compilerScaleCaseEntryModulePath programCase) `seq`
-                rnf (moduleRoots (compilerScaleCaseResolutionConfig programCase)) `seq`
-                  rnf (moduleExtension (compilerScaleCaseResolutionConfig programCase)) `seq`
-                    rnf (compilerScaleCaseSources programCase) `seq`
-                      rnf (compilerScaleCaseExpectedOutput programCase)
-
-forceBenchmarkGroups :: [BenchmarkGroup] -> ()
-forceBenchmarkGroups = foldr (\benchmarkGroup forced -> benchmarkGroup `seq` forced) ()
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 compilerScaleCases :: [CompilerScaleCase]
 compilerScaleCases =

@@ -184,6 +184,7 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
         SSModule {} -> pure (Right (Right Nothing))
         SSImport spanValue modulePath alias importedSymbols -> do
           node <- freshNode spanValue
+          let qualifier = mkModuleQualifier . mkIdentifier <$> alias
           pure $ do
             importedPath <-
               maybe
@@ -192,18 +193,17 @@ lowerSurfaceModuleDetailed identity surfaceExpr =
                 (NonEmpty.nonEmpty modulePath)
             exposure <-
               case importedSymbols of
-                Nothing -> Right DeclaredImportAll
+                Nothing -> Right (DeclaredImportAll qualifier)
                 Just symbols ->
                   maybe
                     (Left (EmptyImportSymbolList sourcePath spanValue modulePath))
-                    (Right . DeclaredImportOnly . fmap mkIdentifier)
+                    (Right . DeclaredImportOnly qualifier . fmap mkIdentifier)
                     (NonEmpty.nonEmpty symbols)
             Right
               ( Left
                   ModuleImport
                     { moduleImportNode = node,
                       importedModule = importedPath,
-                      importAlias = mkModuleQualifier . mkIdentifier <$> alias,
                       importExposure = exposure
                     }
               )

@@ -39,7 +39,7 @@ module Jazz.Compiler.AST
 where
 
 import Control.DeepSeq (NFData (..))
-import Data.Kind (Type)
+import Data.Kind (Constraint, Type)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics (SourceSpan)
@@ -236,65 +236,51 @@ statementNode statement =
     SImport node _ _ _ -> node
     SExpr node _ -> node
 
-type CoreEq phase =
-  ( Eq (CoreNameAt phase),
-    Eq (FactsAt phase 'ExpressionSort),
-    Eq (FactsAt phase 'PatternSort),
-    Eq (FactsAt phase 'StatementSort)
+type CoreConstraints (c :: Type -> Constraint) phase =
+  ( c (CoreNameAt phase),
+    c (FactsAt phase 'ExpressionSort),
+    c (FactsAt phase 'PatternSort),
+    c (FactsAt phase 'StatementSort)
   )
 
-type CoreShow phase =
-  ( Show (CoreNameAt phase),
-    Show (FactsAt phase 'ExpressionSort),
-    Show (FactsAt phase 'PatternSort),
-    Show (FactsAt phase 'StatementSort)
-  )
+deriving stock instance (CoreConstraints Eq phase) => Eq (Pattern phase)
 
-type CoreNFData phase =
-  ( NFData (CoreNameAt phase),
-    NFData (FactsAt phase 'ExpressionSort),
-    NFData (FactsAt phase 'PatternSort),
-    NFData (FactsAt phase 'StatementSort)
-  )
+deriving stock instance (CoreConstraints Show phase) => Show (Pattern phase)
 
-deriving stock instance (CoreEq phase) => Eq (Pattern phase)
+instance (CoreConstraints NFData phase) => NFData (Pattern phase)
 
-deriving stock instance (CoreShow phase) => Show (Pattern phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (CaseArm phase)
 
-instance (CoreNFData phase) => NFData (Pattern phase)
+deriving stock instance (CoreConstraints Show phase) => Show (CaseArm phase)
 
-deriving stock instance (CoreEq phase) => Eq (CaseArm phase)
+instance (CoreConstraints NFData phase) => NFData (CaseArm phase)
 
-deriving stock instance (CoreShow phase) => Show (CaseArm phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (DataConstructor phase)
 
-instance (CoreNFData phase) => NFData (CaseArm phase)
+deriving stock instance (CoreConstraints Show phase) => Show (DataConstructor phase)
 
-deriving stock instance (CoreEq phase) => Eq (DataConstructor phase)
+instance (CoreConstraints NFData phase) => NFData (DataConstructor phase)
 
-deriving stock instance (CoreShow phase) => Show (DataConstructor phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (Expr phase)
 
-instance (CoreNFData phase) => NFData (DataConstructor phase)
+deriving stock instance (CoreConstraints Show phase) => Show (Expr phase)
 
-deriving stock instance (CoreEq phase) => Eq (Expr phase)
+instance (CoreConstraints NFData phase) => NFData (Expr phase)
 
-deriving stock instance (CoreShow phase) => Show (Expr phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (ClassMethodSignature phase)
 
-instance (CoreNFData phase) => NFData (Expr phase)
+deriving stock instance (CoreConstraints Show phase) => Show (ClassMethodSignature phase)
 
-deriving stock instance (CoreEq phase) => Eq (ClassMethodSignature phase)
+instance (CoreConstraints NFData phase) => NFData (ClassMethodSignature phase)
 
-deriving stock instance (CoreShow phase) => Show (ClassMethodSignature phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (ImplMethod phase)
 
-instance (CoreNFData phase) => NFData (ClassMethodSignature phase)
+deriving stock instance (CoreConstraints Show phase) => Show (ImplMethod phase)
 
-deriving stock instance (CoreEq phase) => Eq (ImplMethod phase)
+instance (CoreConstraints NFData phase) => NFData (ImplMethod phase)
 
-deriving stock instance (CoreShow phase) => Show (ImplMethod phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (Statement phase)
 
-instance (CoreNFData phase) => NFData (ImplMethod phase)
+deriving stock instance (CoreConstraints Show phase) => Show (Statement phase)
 
-deriving stock instance (CoreEq phase) => Eq (Statement phase)
-
-deriving stock instance (CoreShow phase) => Show (Statement phase)
-
-instance (CoreNFData phase) => NFData (Statement phase)
+instance (CoreConstraints NFData phase) => NFData (Statement phase)

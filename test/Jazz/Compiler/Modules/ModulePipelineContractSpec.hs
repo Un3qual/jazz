@@ -169,10 +169,10 @@ import Jazz.Compiler.TypeInference.Types
     InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    SchemePrimitiveConstraint (..),
     SemanticType (..),
     TypeBinding (..),
     TypeScheme (..),
-    TypeSchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
     quantifiedVariablesFromPreferred,
   )
@@ -460,6 +460,19 @@ testAnalyzedFactInvariantFailures = do
     "duplicate expression fact"
     (Left (DuplicateExpressionFacts expressionId :| []))
     (attachAnalyzedExpression modulePath Map.empty expressionTwice expression)
+
+  let leftId = CoreNodeId 42
+      rightId = CoreNodeId 43
+      pair =
+        ETuple
+          (CoreNode expressionId (SourceSpan 1 1) ())
+          [ ELit (CoreNode leftId (SourceSpan 1 2) ()) (LInt 1),
+            ELit (CoreNode rightId (SourceSpan 1 3) ()) (LInt 2)
+          ]
+  assertEqual
+    "recorded failures precede independent missing child facts in source order"
+    (Left (DuplicateExpressionFacts expressionId :| [MissingExpressionFacts leftId, MissingExpressionFacts rightId]))
+    (attachAnalyzedExpression modulePath Map.empty expressionTwice pair)
 
   let implementationId = ImplId (modulePath, CoreNodeId 100)
       evidenceSeed =

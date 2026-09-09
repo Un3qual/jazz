@@ -1,4 +1,7 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Stable compiler-stage names shared by benchmarks and profiling tools.
@@ -17,8 +20,10 @@ module Jazz.Compiler.Profiling
   )
 where
 
+import Control.DeepSeq (NFData)
 import Control.Exception (bracket_)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 #ifdef JAZZ_GHC_PROFILING
 import qualified Data.Text as Text
 import Debug.Trace (traceMarkerIO)
@@ -31,7 +36,8 @@ data BenchmarkGroup
   | ModulePreparationBenchmark
   | RuntimeBenchmark
   | WholeProgramBenchmark
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Generic, Bounded, Enum, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data CompilerStage
   = SourceLoadingStage

@@ -1,4 +1,7 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.StageInputs
@@ -15,10 +18,10 @@ where
 
 import Control.DeepSeq (NFData (rnf))
 import Control.Exception (evaluate)
-import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Benchmark.Force
   ( forceAnalyzedProgram,
     forceAnalyzedProgramResult,
@@ -88,8 +91,7 @@ import Jazz.ProgramCorpus.Runner
     runProgramCase,
   )
 import Jazz.ProgramCorpus.Types
-  ( ProgramBudgets (..),
-    ProgramCase (..),
+  ( ProgramCase (..),
     ProgramTermination (..),
   )
 
@@ -109,8 +111,12 @@ data PreparedCompilerScaleBenchmark
   | PreparedCompilerScaleWholeProgram CompilerScaleCase
 
 data ExpectedProgramBehavior = ExpectedProgramBehavior Text ProgramTermination Text
+  deriving stock (Generic)
+  deriving anyclass (NFData)
 
 data ExpectedCompilerScaleOutput = ExpectedCompilerScaleOutput Text Text
+  deriving stock (Generic)
+  deriving anyclass (NFData)
 
 instance NFData PreparedBenchmark where
   rnf preparedBenchmark =
@@ -119,10 +125,10 @@ instance NFData PreparedBenchmark where
       PreparedAnalysis inputs resolvedProgram ->
         inputs `seq`
           rnf resolvedProgram
-      PreparedModulePreparation programCase -> forceProgramCase programCase
+      PreparedModulePreparation programCase -> rnf programCase
       PreparedRuntime expectedBehavior analyzedProgram ->
-        forceExpectedProgramBehavior expectedBehavior `seq` forceAnalyzedProgram analyzedProgram
-      PreparedWholeProgram programCase -> forceProgramCase programCase
+        rnf expectedBehavior `seq` forceAnalyzedProgram analyzedProgram
+      PreparedWholeProgram programCase -> rnf programCase
 
 instance NFData PreparedCompilerScaleBenchmark where
   rnf preparedBenchmark =
@@ -133,7 +139,7 @@ instance NFData PreparedCompilerScaleBenchmark where
           rnf resolvedProgram
       PreparedCompilerScaleModulePreparation programCase -> rnf programCase
       PreparedCompilerScaleRuntime expectedOutput analyzedProgram ->
-        forceExpectedCompilerScaleOutput expectedOutput `seq` forceAnalyzedProgram analyzedProgram
+        rnf expectedOutput `seq` forceAnalyzedProgram analyzedProgram
       PreparedCompilerScaleDiagnosticAnalysis expression expectedDiagnosticCount ->
         forceResolvedExpr expression `seq` rnf expectedDiagnosticCount
       PreparedCompilerScaleWholeProgram programCase -> rnf programCase
@@ -432,47 +438,11 @@ expectedProgramBehavior programCase =
     (programCaseExpectedTermination programCase)
     (programCaseExpectedStdout programCase)
 
-forceExpectedProgramBehavior :: ExpectedProgramBehavior -> ()
-forceExpectedProgramBehavior (ExpectedProgramBehavior identifier termination stdout) =
-  identifier `seq` termination `seq` stdout `seq` ()
-
 expectedCompilerScaleOutput :: CompilerScaleCase -> ExpectedCompilerScaleOutput
 expectedCompilerScaleOutput programCase =
   ExpectedCompilerScaleOutput
     (compilerScaleCaseIdentifier programCase)
     (compilerScaleCaseExpectedOutput programCase)
-
-forceExpectedCompilerScaleOutput :: ExpectedCompilerScaleOutput -> ()
-forceExpectedCompilerScaleOutput (ExpectedCompilerScaleOutput identifier output) =
-  identifier `seq` output `seq` ()
-
-forceProgramCase :: ProgramCase -> ()
-forceProgramCase programCase =
-  programCaseIdentifier programCase `seq`
-    forceString (programCasePackageRoot programCase) `seq`
-      forceString (programCaseDirectory programCase) `seq`
-        forceString (programCaseEntrySource programCase) `seq`
-          forceString (programCaseModuleRoot programCase) `seq`
-            forceListWith (`seq` ()) (programCaseEntryModulePath programCase) `seq`
-              programCaseExpectedTermination programCase `seq`
-                forceString (programCaseExpectedStdoutPath programCase) `seq`
-                  programCaseExpectedStdout programCase `seq`
-                    programCaseWorkload programCase `seq`
-                      forceListWith (`seq` ()) (programCaseFeatures programCase) `seq`
-                        forceListWith (`seq` ()) (programCaseBenchmarks programCase) `seq`
-                          forceProgramBudgets (programCaseBudgets programCase)
-
-forceProgramBudgets :: ProgramBudgets -> ()
-forceProgramBudgets budgets =
-  programBudgetSteps budgets `seq`
-    programBudgetApplications budgets `seq`
-      programBudgetMaxContinuationDepth budgets `seq`
-        forceListWith forceBudgetLimit (Map.toList (programBudgetOptionalLimits budgets))
-  where
-    forceBudgetLimit (metric, limit) = metric `seq` limit `seq` ()
-
-forceString :: String -> ()
-forceString = forceListWith (`seq` ())
 
 forcePreparedProgramResult :: Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)) -> ()
 forcePreparedProgramResult result =

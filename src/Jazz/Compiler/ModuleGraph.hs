@@ -30,6 +30,7 @@ module Jazz.Compiler.ModuleGraph
     coreProgramEntry,
     coreProgramModules,
     coreProgramPrelude,
+    importAlias,
     lookupCoreModule,
     mkCoreProgram,
   )
@@ -37,7 +38,7 @@ where
 
 import Control.DeepSeq (NFData (..))
 import Data.Foldable (toList)
-import Data.Kind (Type)
+import Data.Kind (Constraint, Type)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
@@ -77,15 +78,15 @@ data DeclaredModuleExports = DeclaredModuleExports
   deriving anyclass (NFData)
 
 data DeclaredImportExposure
-  = DeclaredImportAll
-  | DeclaredImportOnly (NonEmpty Identifier)
+  = DeclaredImportAll (Maybe ModuleQualifier)
+  | DeclaredImportOnly (Maybe ModuleQualifier) (NonEmpty Identifier)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 data ImportExposure
   = ImportAllUnqualified
   | ImportOnlyUnqualified (NonEmpty Identifier)
-  | ImportQualifiedOnly
+  | ImportQualifiedOnly ModuleQualifier
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
@@ -97,12 +98,17 @@ type family ImportExposureAt (phase :: CorePhase) :: Type where
 data ModuleImport (phase :: CorePhase) = ModuleImport
   { moduleImportNode :: CoreNode phase 'StatementSort,
     importedModule :: ModulePath,
-    importAlias :: Maybe ModuleQualifier,
     importExposure :: ImportExposureAt phase
   }
   deriving stock (Generic)
 
 type role ModuleImport nominal
+
+-- | Raw imports retain invalid alias/selection combinations for diagnostics.
+importAlias :: ModuleImport 'Lowered -> Maybe ModuleQualifier
+importAlias declaration = case importExposure declaration of
+  DeclaredImportAll alias -> alias
+  DeclaredImportOnly alias _ -> alias
 
 data DeclaredModuleFacts = DeclaredModuleFacts
   { declaredModuleExports :: Maybe DeclaredModuleExports
@@ -241,58 +247,40 @@ duplicatePaths = third . foldl collect (Set.empty, Set.empty, Seq.empty)
 lookupCoreModule :: ModulePath -> CoreProgram phase -> Maybe (CoreModule phase)
 lookupCoreModule modulePath = Map.lookup modulePath . storedCoreProgramModuleIndex
 
-type CoreEq phase =
-  ( Eq (CoreNameAt phase),
-    Eq (FactsAt phase 'ExpressionSort),
-    Eq (FactsAt phase 'PatternSort),
-    Eq (FactsAt phase 'StatementSort),
-    Eq (ImportExposureAt phase),
-    Eq (ModuleFactsAt phase)
+type CoreConstraints (c :: Type -> Constraint) phase =
+  ( c (CoreNameAt phase),
+    c (FactsAt phase 'ExpressionSort),
+    c (FactsAt phase 'PatternSort),
+    c (FactsAt phase 'StatementSort),
+    c (ImportExposureAt phase),
+    c (ModuleFactsAt phase)
   )
 
-type CoreShow phase =
-  ( Show (CoreNameAt phase),
-    Show (FactsAt phase 'ExpressionSort),
-    Show (FactsAt phase 'PatternSort),
-    Show (FactsAt phase 'StatementSort),
-    Show (ImportExposureAt phase),
-    Show (ModuleFactsAt phase)
-  )
+deriving stock instance (CoreConstraints Eq phase) => Eq (ModuleImport phase)
 
-type CoreNFData phase =
-  ( NFData (CoreNameAt phase),
-    NFData (FactsAt phase 'ExpressionSort),
-    NFData (FactsAt phase 'PatternSort),
-    NFData (FactsAt phase 'StatementSort),
-    NFData (ImportExposureAt phase),
-    NFData (ModuleFactsAt phase)
-  )
+deriving stock instance (CoreConstraints Show phase) => Show (ModuleImport phase)
 
-deriving stock instance (CoreEq phase) => Eq (ModuleImport phase)
+instance (CoreConstraints NFData phase) => NFData (ModuleImport phase)
 
-deriving stock instance (CoreShow phase) => Show (ModuleImport phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (CoreModule phase)
 
-instance (CoreNFData phase) => NFData (ModuleImport phase)
+deriving stock instance (CoreConstraints Show phase) => Show (CoreModule phase)
 
-deriving stock instance (CoreEq phase) => Eq (CoreModule phase)
+instance (CoreConstraints NFData phase) => NFData (CoreModule phase)
 
-deriving stock instance (CoreShow phase) => Show (CoreModule phase)
+deriving stock instance (CoreConstraints Eq phase) => Eq (PreludeArtifact phase)
 
-instance (CoreNFData phase) => NFData (CoreModule phase)
+deriving stock instance (CoreConstraints Show phase) => Show (PreludeArtifact phase)
 
-deriving stock instance (CoreEq phase) => Eq (PreludeArtifact phase)
+instance (CoreConstraints NFData phase) => NFData (PreludeArtifact phase)
 
-deriving stock instance (CoreShow phase) => Show (PreludeArtifact phase)
-
-instance (CoreNFData phase) => NFData (PreludeArtifact phase)
-
-instance (CoreEq phase) => Eq (CoreProgram phase) where
+instance (CoreConstraints Eq phase) => Eq (CoreProgram phase) where
   left == right =
     coreProgramPrelude left == coreProgramPrelude right
       && coreProgramEntry left == coreProgramEntry right
       && coreProgramModules left == coreProgramModules right
 
-instance (CoreShow phase) => Show (CoreProgram phase) where
+instance (CoreConstraints Show phase) => Show (CoreProgram phase) where
   showsPrec precedence program =
     showParen (precedence > 10) $
       showString "CoreProgram "
@@ -302,6 +290,6 @@ instance (CoreShow phase) => Show (CoreProgram phase) where
         . showChar ' '
         . shows (coreProgramModules program)
 
-instance (CoreNFData phase) => NFData (CoreProgram phase) where
+instance (CoreConstraints NFData phase) => NFData (CoreProgram phase) where
   rnf (CoreProgram prelude entry modules moduleIndex) =
     rnf prelude `seq` rnf entry `seq` rnf modules `seq` rnf moduleIndex
