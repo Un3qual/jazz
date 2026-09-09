@@ -20,16 +20,64 @@ The commands below assume the repository root and its Nix development shell:
 nix --extra-experimental-features 'nix-command flakes' develop
 ```
 
+## Cache the development toolchain
+
+Nix already reuses dependencies in `/nix/store`, downloading substitutes from
+`https://cache.nixos.org` when available. Keep a development profile in this
+checkout to protect its toolchain from garbage collection:
+
+```bash
+mkdir -p .nix-develop
+nix --extra-experimental-features 'nix-command flakes' develop \
+  --profile .nix-develop/default
+```
+
+For subsequent shells or commands, reuse that profile. `--inputs-from .` also
+keeps Nix's shell lookup on this repository's pinned inputs:
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' develop \
+  --inputs-from . ./.nix-develop/default
+```
+
+Recreate the profile with the first command after changing `flake.lock`,
+`flake.nix`, or Cabal dependencies. Source-only edits need no refresh. The
+ignored `.nix-develop/` directory contains local profile links, not another
+copy of the store. Removing it releases these roots for the next garbage
+collection. Reusing one open development shell also avoids repeated Nix setup.
+
+GitHub Actions uses SHA-pinned
+[`cache-nix-action`](https://github.com/nix-community/cache-nix-action) to restore
+the Nix store and its database. Compiler jobs save the prepared toolchain before
+running tests, so later test failures do not discard dependency builds. Keys
+separate operating systems, architectures, documentation tools, and compiler
+inputs; unchanged toolchains reuse one snapshot. These caches accelerate setup
+but do not skip verification or cache source-dependent `nix flake check` results.
+
+Cabal caches separately retain `~/.cabal/store` and `dist-newstyle`. Their keys
+include the commit, and their restore prefix matches the platform and dependency
+inputs, so successful runs can save updated incremental build output. Profiling
+build directories remain separate. Cache misses and eviction simply rebuild;
+no external cache account, signing key, or additional write permission is needed.
+
 ## Bounded local verification
 
 Run only one Cabal, Jazz, profiling, or Nix command at a time. The verification
 scripts default Cabal jobs, Nix build jobs, and Nix cores to `1`; override the
-defaults only when the machine has measured capacity:
+defaults only when the machine has measured capacity. All three Cabal project
+files enable the built-in semaphore, so GHC can share the selected `--jobs`
+budget across modules and components:
 
 ```bash
-JAZZ_CABAL_JOBS=2 JAZZ_NIX_JOBS=2 JAZZ_NIX_CORES=2 \
-  bash scripts/ci/main-functional.sh
+JAZZ_CABAL_JOBS=4 bash scripts/ci/main-functional.sh
 ```
+
+Test executables accept RTS options for measurement, for example
+`cabal test stdlib-spec --test-options="+RTS -s"`. Choose test concurrency from
+peak memory as well as CPU count: the 50,000-element queue workload in
+`stdlib-spec` currently pushes the suite into tens of gigabytes. A 4 GiB heap
+limit exhausts the heap; it does not make that workload safe to run alongside
+several other suites on a small runner. CI therefore retains one test worker.
 
 With no phase selection, `main-functional.sh` remains the authoritative main
 gate: repository preflight, the ordinary Cabal build and complete test suite,

@@ -58,6 +58,11 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
 
+      - name: Cache Nix documentation tools
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-v1-${{ runner.os }}-${{ runner.arch }}-docs-${{ hashFiles('flake.lock', 'flake.nix') }}
+
       - name: Set up pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
@@ -103,15 +108,31 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
 
+      - name: Restore Nix toolchain
+        id: nix-cache
+        uses: nix-community/cache-nix-action/restore@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-v1-${{ runner.os }}-${{ runner.arch }}-compiler-${{ hashFiles('flake.lock', 'flake.nix', 'jazz.cabal') }}
+
+      - name: Prepare Nix toolchain
+        run: nix develop --command true
+
+      # Save before compiler checks so a test failure does not discard the toolchain.
+      - name: Save Nix toolchain
+        if: steps.nix-cache.outputs.hit-primary-key != 'true'
+        uses: nix-community/cache-nix-action/save@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: ${{ steps.nix-cache.outputs.primary-key }}
+
       - name: Cache Cabal dependencies and build output
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cabal/store
             dist-newstyle
-          key: ${{ runner.os }}-cabal-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-cabal-v2-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-cabal-
+            ${{ runner.os }}-${{ runner.arch }}-cabal-v2-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-
 
       - name: Run the fast compiler tier
         env:

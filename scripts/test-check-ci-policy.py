@@ -1237,12 +1237,12 @@ class CiPolicyCheckerTests(unittest.TestCase):
                 "extended cache key must include runner.os",
             ),
             (
-                "hashFiles('flake.lock', 'jazz.cabal', 'cabal.project')",
-                "extended cache key must include flake.lock, jazz.cabal, and cabal.project",
+                "hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix')",
+                "extended cache key must include flake.lock, jazz.cabal, cabal.project, and flake.nix",
             ),
             (
-                "restore-keys: |\n            ${{ runner.os }}-cabal-",
-                "extended cache must restore only the operating-system Cabal prefix",
+                "restore-keys: |\n            ${{ runner.os }}-${{ runner.arch }}-cabal-v2-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-",
+                "extended cache must restore only the matching platform and dependency prefix",
             ),
             (
                 "JAZZ_ARTIFACT_ROOT: artifacts/extended",
@@ -1260,7 +1260,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(old=old):
                 self.write(
                     ".github/workflows/ci-extended.yml",
-                    VALID_EXTENDED_WORKFLOW.replace(old, "removed", 1),
+                    VALID_EXTENDED_WORKFLOW.replace(old, "removed"),
                 )
                 self.assert_violation(expected)
 
@@ -1540,12 +1540,12 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ("dist-newstyle", "main ordinary cache must include dist-newstyle"),
             ("runner.os", "main ordinary cache key must include runner.os"),
             (
-                "hashFiles('flake.lock', 'jazz.cabal', 'cabal.project')",
-                "main ordinary cache key must include flake.lock, jazz.cabal, and cabal.project",
+                "hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix')",
+                "main ordinary cache key must include flake.lock, jazz.cabal, cabal.project, and flake.nix",
             ),
             (
-                "restore-keys: |\n            ${{ runner.os }}-cabal-",
-                "main ordinary cache must restore only the operating-system Cabal prefix",
+                "restore-keys: |\n            ${{ runner.os }}-${{ runner.arch }}-cabal-v2-${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-",
+                "main ordinary cache must restore only the matching platform and dependency prefix",
             ),
             (
                 "nix develop --command bash scripts/ci/main-functional.sh",
@@ -1555,7 +1555,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             with self.subTest(old=old):
                 self.write(
                     ".github/workflows/ci-main.yml",
-                    VALID_MAIN_WORKFLOW.replace(old, "removed", 1),
+                    VALID_MAIN_WORKFLOW.replace(old, "removed"),
                 )
                 self.assert_violation(expected)
 
@@ -1882,7 +1882,7 @@ class CiPolicyCheckerTests(unittest.TestCase):
             ("~/.cabal/store", "compiler-fast cache must include ~/.cabal/store"),
             ("dist-newstyle", "compiler-fast cache must include dist-newstyle"),
             ("runner.os", "compiler-fast cache key must include runner.os"),
-            ("hashFiles('flake.lock', 'jazz.cabal', 'cabal.project')", "compiler-fast cache key must include flake.lock, jazz.cabal, and cabal.project"),
+            ("hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix')", "compiler-fast cache key must include flake.lock, jazz.cabal, cabal.project, and flake.nix"),
             ("nix develop --command bash scripts/ci/fast-compiler.sh", "compiler-fast job must invoke the fast compiler script"),
         ):
             with self.subTest(old=old):

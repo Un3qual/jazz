@@ -71,10 +71,18 @@ MAIN_WORKFLOW_PATH = ".github/workflows/ci-main.yml"
 EXTENDED_WORKFLOW_PATH = ".github/workflows/ci-extended.yml"
 RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml"
 
+CABAL_CACHE_PREFIX = (
+    "${{ runner.os }}-${{ runner.arch }}-cabal-v2-"
+    "${{ hashFiles('flake.lock', 'jazz.cabal', 'cabal.project', 'flake.nix') }}-"
+)
+
 APPROVED_ACTIONS = (
     "actions/checkout",
     "cachix/install-nix-action",
     "actions/cache",
+    "nix-community/cache-nix-action",
+    "nix-community/cache-nix-action/restore",
+    "nix-community/cache-nix-action/save",
     "actions/upload-artifact",
     "dorny/paths-filter",
     "pnpm/action-setup",
@@ -942,8 +950,8 @@ def check_pr_compiler_job(contents: str, violations: list[str]) -> None:
             "compiler-fast cache key must include runner.os",
         ),
         (
-            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*\)",
-            "compiler-fast cache key must include flake.lock, jazz.cabal, and cabal.project",
+            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*,\s*'flake\.nix'\s*\)",
+            "compiler-fast cache key must include flake.lock, jazz.cabal, cabal.project, and flake.nix",
         ),
         (
             r"(?m)^\s*(?:-\s+)?run:\s*nix\s+develop\s+--command\s+bash\s+scripts/ci/fast-compiler\.sh\s*$",
@@ -1147,12 +1155,12 @@ def check_main_workflow(root: Path, violations: list[str]) -> None:
             "main ordinary cache key must include runner.os",
         ),
         (
-            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*\)",
-            "main ordinary cache key must include flake.lock, jazz.cabal, and cabal.project",
+            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*,\s*'flake\.nix'\s*\)",
+            "main ordinary cache key must include flake.lock, jazz.cabal, cabal.project, and flake.nix",
         ),
         (
-            r"(?m)^\s*restore-keys:\s*\|\s*\n\s*\$\{\{\s*runner\.os\s*\}\}-cabal-\s*$",
-            "main ordinary cache must restore only the operating-system Cabal prefix",
+            rf"(?m)^\s*restore-keys:\s*\|\s*\n\s*{re.escape(CABAL_CACHE_PREFIX)}\s*$",
+            "main ordinary cache must restore only the matching platform and dependency prefix",
         ),
         (
             r"(?m)^\s*(?:-\s+)?run:\s*nix\s+develop\s+--command\s+bash\s+scripts/ci/main-functional\.sh\s*$",
@@ -1305,12 +1313,12 @@ def check_extended_workflow(root: Path, violations: list[str]) -> None:
             "extended cache key must include runner.os",
         ),
         (
-            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*\)",
-            "extended cache key must include flake.lock, jazz.cabal, and cabal.project",
+            r"hashFiles\(\s*'flake\.lock'\s*,\s*'jazz\.cabal'\s*,\s*'cabal\.project'\s*,\s*'flake\.nix'\s*\)",
+            "extended cache key must include flake.lock, jazz.cabal, cabal.project, and flake.nix",
         ),
         (
-            r"(?m)^\s*restore-keys:\s*\|\s*\n\s*\$\{\{\s*runner\.os\s*\}\}-cabal-\s*$",
-            "extended cache must restore only the operating-system Cabal prefix",
+            rf"(?m)^\s*restore-keys:\s*\|\s*\n\s*{re.escape(CABAL_CACHE_PREFIX)}\s*$",
+            "extended cache must restore only the matching platform and dependency prefix",
         ),
     )
     for pattern, message in cache_requirements:
