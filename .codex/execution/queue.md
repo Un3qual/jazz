@@ -13,12 +13,11 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-07`, terminal):
-Ready Now is empty. The approved optional backend removal is complete at
-`6a646a18`, with all 60 retained suites, executable examples, repository checks,
-and the isolated Nix gate passing. There is no source-backed next curation target
-and no named candidate currently; further hosted or native work needs a concrete
-goal and fresh design.
+Current executor status (`2026-09-09`, terminal):
+`JN-HASKELL-FEATURE-SIMPLIFICATION-001` completed and verified in `7255aef7`.
+`Ready Now` is empty. There is no source-backed next curation target and no named
+candidate currently. Further implementation needs a concrete goal and an
+accepted plan.
 
 ## Next Curation Target
 
