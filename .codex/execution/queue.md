@@ -12,12 +12,10 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-PURESCRIPT-COMPILER-QUALITY-001` | Apply approved PureScript compiler quality lessons | P2 | L | impl | yes | - | [plan](../plans/2026-09-09-purescript-compiler-quality.md) | Implementation | `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/Diagnostics.hs`, `jazz.cabal` | Module boundaries, diagnostics, ranges, generated tests and quality gates | `cabal test all --jobs=4 --test-show-details=failures` | `2026-09-09` |
 
-Current executor status (`2026-09-09`, terminal):
-`JN-HASKELL-POLYMORPHISM-EFFECTS-001` completed and verified in `339183f4`.
-`Ready Now` is empty. There is no source-backed next curation target and no named
-candidate currently. Further implementation needs a concrete goal and an
-accepted plan.
+Current executor status (`2026-09-09`, active):
+`JN-PURESCRIPT-COMPILER-QUALITY-001` is authorized and in progress.
 
 ## Next Curation Target
 
