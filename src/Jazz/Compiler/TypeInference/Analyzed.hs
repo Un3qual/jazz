@@ -15,6 +15,7 @@ where
 
 import Data.Bifunctor (first)
 import Data.Foldable (toList)
+import qualified Data.Foldable as Foldable
 import Data.List (mapAccumL)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NonEmpty
@@ -52,7 +53,6 @@ import Jazz.Compiler.SemanticFacts
     CoreNodeId,
     EvidenceReference (..),
     ExpressionFacts (..),
-    NumericTarget (..),
     PatternFacts (..),
     RuntimeObligation (..),
     RuntimePlan (..),
@@ -259,8 +259,8 @@ attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
                   RuntimePlan
                     ( foldMap (Seq.singleton . InstantiateTypes) (attachedRuntimeArguments explicitFacts)
                         <> evidenceObligations
-                        <> foldMap (\value -> numericLiteralObligations state value semanticType) expression
-                        <> Seq.singleton (ConstrainResult semanticType)
+                        <> foldMap (`numericLiteralObligations` semanticType) expression
+                        <> runtimeResultObligations semanticType
                     )
               }
 
@@ -326,22 +326,19 @@ expressionEvidenceFacts state nodeId =
           }
       ]
 
-numericLiteralObligations :: InferState -> Expr 'Resolved -> ExpressionType -> Seq RuntimeObligation
-numericLiteralObligations state expression expressionType =
-  case expression of
-    ELit _ (LInt _) ->
-      case expressionType of
-        SemanticInt -> Seq.singleton (SpecializeNumericLiteral DefaultIntegerTarget)
-        SemanticNumeric numericType -> Seq.singleton (SpecializeNumericLiteral (ConcreteNumericTarget numericType))
-        SemanticVariable typeVar
-          | Just IntegralLiteralNumericConstraint {} <- Map.lookup typeVar (inferNumericVars state) ->
-              Seq.singleton (SpecializeNumericLiteral DefaultIntegerTarget)
-        _ -> Seq.empty
-    ELit _ (LFloat _ _ _) ->
-      case expressionType of
-        SemanticNumeric numericType -> Seq.singleton (SpecializeNumericLiteral (ConcreteNumericTarget numericType))
-        _ -> Seq.empty
+numericLiteralObligations :: Expr 'Resolved -> ExpressionType -> Seq RuntimeObligation
+numericLiteralObligations expression expressionType =
+  case (expression, expressionType) of
+    (ELit _ LInt {}, SemanticNumeric numericType) -> Seq.singleton (SpecializeNumericLiteral numericType)
+    (ELit _ LFloat {}, SemanticNumeric numericType) -> Seq.singleton (SpecializeNumericLiteral numericType)
     _ -> Seq.empty
+
+-- Polymorphic constraints do no runtime work. Ordinary Int defaulting and
+-- concrete representation hints remain result obligations.
+runtimeResultObligations :: ExpressionType -> Seq RuntimeObligation
+runtimeResultObligations semanticType
+  | Foldable.null semanticType = Seq.singleton (ConstrainResult semanticType)
+  | otherwise = Seq.empty
 
 referencedBinder :: Map ResolvedName CoreBinderId -> Expr 'Resolved -> Maybe CoreBinderId
 referencedBinder binders expression =
@@ -445,13 +442,13 @@ replaceRuntimeResult runtimeType facts =
   facts
     { expressionRuntimePlan =
         RuntimePlan
-          ( case Seq.viewr obligations of
-              prefix Seq.:> ConstrainResult _ -> prefix Seq.|> ConstrainResult runtimeType
-              _ -> obligations Seq.|> ConstrainResult runtimeType
-          )
+          (prefix <> runtimeResultObligations runtimeType)
     }
   where
     RuntimePlan obligations = expressionRuntimePlan facts
+    prefix = case Seq.viewr obligations of
+      rest Seq.:> ConstrainResult _ -> rest
+      _ -> obligations
 
 mapExpressionFacts :: (ExpressionFacts -> ExpressionFacts) -> Expr 'Analyzed -> Expr 'Analyzed
 mapExpressionFacts update expression =

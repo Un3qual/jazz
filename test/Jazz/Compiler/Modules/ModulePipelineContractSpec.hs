@@ -4,6 +4,7 @@
 module Main (main) where
 
 import Data.Foldable (toList)
+import qualified Data.Foldable as Foldable
 import Data.Functor.Identity (runIdentity)
 import Data.IORef
   ( IORef,
@@ -736,12 +737,13 @@ assertExprFacts :: Expr 'Analyzed -> IO ()
 assertExprFacts expression = do
   assertExpressionNodeFacts (exprNode expression)
   case expression of
-    ELit (CoreNode _ _ facts) (LInt _) ->
-      let RuntimePlan obligations = expressionRuntimePlan facts
-       in assertEqual
-            "integer literal runtime plan specializes its representation"
-            True
-            (any isNumericSpecialization obligations)
+    ELit (CoreNode _ _ facts) (LInt _)
+      | SemanticNumeric target <- expressionSemanticType facts ->
+          let RuntimePlan obligations = expressionRuntimePlan facts
+           in assertEqual
+                "integer literal runtime plan specializes its representation"
+                True
+                (SpecializeNumericLiteral target `elem` obligations)
     _ -> pure ()
   case expression of
     ELambda _ _ body -> assertExprFacts body
@@ -759,21 +761,16 @@ assertExprFacts expression = do
     ESectionRight _ _ right -> assertExprFacts right
     EBlock _ statements -> mapM_ assertStatementFacts statements
     _ -> pure ()
-  where
-    isNumericSpecialization obligation =
-      case obligation of
-        SpecializeNumericLiteral _ -> True
-        _ -> False
 
 assertExpressionNodeFacts :: CoreNode 'Analyzed 'ExpressionSort -> IO ()
-assertExpressionNodeFacts (CoreNode _ _ facts) =
+assertExpressionNodeFacts (CoreNode _ _ facts) = do
   case reverse (toList obligations) of
-    ConstrainResult _ : _ ->
-      do
-        case NonEmpty.nonEmpty (expressionEvidence facts) of
-          Nothing -> pure ()
-          Just evidence -> assertEqual "runtime plan supplies selected evidence" True (SupplyEvidence evidence `elem` obligations)
-    _ -> fail "analyzed expression runtime plan has no final-type obligation"
+    ConstrainResult resultType : _ ->
+      assertEqual "runtime result constraint is concrete" True (Foldable.null resultType)
+    _ -> pure ()
+  case NonEmpty.nonEmpty (expressionEvidence facts) of
+    Nothing -> pure ()
+    Just evidence -> assertEqual "runtime plan supplies selected evidence" True (SupplyEvidence evidence `elem` obligations)
   where
     RuntimePlan obligations = expressionRuntimePlan facts
 

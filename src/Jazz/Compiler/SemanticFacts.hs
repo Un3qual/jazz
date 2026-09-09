@@ -22,7 +22,6 @@ module Jazz.Compiler.SemanticFacts
     ExpressionFacts (..),
     ImplId (..),
     MethodId (..),
-    NumericTarget (..),
     PatternConstructorFact (..),
     PatternFacts (..),
     PatternRefutability (..),
@@ -88,12 +87,6 @@ data EvidenceReference = EvidenceReference
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-data NumericTarget
-  = DefaultIntegerTarget
-  | ConcreteNumericTarget NumericType
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
 newtype RuntimePlan = RuntimePlan (Seq RuntimeObligation)
   deriving stock (Eq, Generic, Show)
   deriving newtype (Semigroup, Monoid)
@@ -102,7 +95,7 @@ newtype RuntimePlan = RuntimePlan (Seq RuntimeObligation)
 data RuntimeObligation
   = InstantiateTypes (NonEmpty AnalyzedType)
   | SupplyEvidence (NonEmpty EvidenceReference)
-  | SpecializeNumericLiteral NumericTarget
+  | SpecializeNumericLiteral NumericType
   | ConstrainResult AnalyzedType
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)

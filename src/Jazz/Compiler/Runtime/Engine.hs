@@ -238,7 +238,6 @@ import Jazz.Compiler.SemanticFacts
     ExpressionFacts (expressionRuntimePlan),
     ImplId (..),
     MethodId (..),
-    NumericTarget (..),
     RuntimeObligation (..),
     RuntimePlan (..),
     StatementDeclarationFact (..),
@@ -2104,8 +2103,8 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
           foldM applyInstantiation runtimeValue instantiatedTypes
         SupplyEvidence evidenceReferences ->
           Right (selectRuntimeEvidence evidenceReferences runtimeValue)
-        SpecializeNumericLiteral numericTarget ->
-          specializeNumericLiteral numericTarget runtimeValue
+        SpecializeNumericLiteral targetType ->
+          evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
         ConstrainResult semanticType ->
           constrainRuntimeResult semanticType runtimeValue
 
@@ -2113,15 +2112,6 @@ applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
       | not (Foldable.null semanticType) = Right runtimeValue
       | otherwise =
           applyRuntimeInstantiation (qualifyRuntimeType modulePath semanticType) runtimeValue
-
-    specializeNumericLiteral numericTarget runtimeValue =
-      case numericTarget of
-        -- Defaultable integral literals stay untyped until their enclosing
-        -- analyzed result constraint decides whether contextual typing won or
-        -- the ordinary Int64 binding default applies.
-        DefaultIntegerTarget -> Right runtimeValue
-        ConcreteNumericTarget targetType ->
-          evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
 
     constrainRuntimeResult semanticType runtimeValue = case semanticType of
       SemanticInt -> attachDefaultBindingIntegerTarget runtimeValue
