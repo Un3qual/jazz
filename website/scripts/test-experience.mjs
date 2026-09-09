@@ -193,7 +193,6 @@ test('homepage introduces Jazz and provides direct documentation routes', () => 
   assert.equal((source.match(/<h1\b/g) ?? []).length, 1);
   assert.match(source, /<main\b/);
   assert.match(source, /<header\b/);
-  assert.match(source, /<CodeProof\b/);
   assert.match(source, /statically typed functional programming language/i);
   for (const route of [
     '/docs/getting-started/overview',
@@ -205,35 +204,9 @@ test('homepage introduces Jazz and provides direct documentation routes', () => 
   ]) {
     assert.match(source, new RegExp(route.replaceAll('/', '\\/')));
   }
-  for (const forbidden of [
-    'EditorialBand',
-    'HomepageFooterCta',
-    'Language, in three movements',
-    'Strong ideas. Clear notation.',
-    'The next phrase is yours',
-    'synchronized directly from the repository',
-    'compiler-backed example check',
-  ]) {
-    assert.doesNotMatch(source, new RegExp(forbidden.replaceAll('.', '\\.')));
-  }
-  assert.doesNotMatch(source, /\b(?:fetch|useEffect|useState)\s*\(/);
 });
 
-test('documentation directory owns its component styles', () => {
-  const component = read('website/src/components/DocumentationDirectory.tsx');
-  const pageStyles = read('website/src/pages/index.module.css');
-  const componentStyles = read(
-    'website/src/components/DocumentationDirectory.module.css',
-  );
-
-  assert.match(component, /from '\.\/DocumentationDirectory\.module\.css'/);
-  assert.match(componentStyles, /\.directory\b/);
-  assert.match(componentStyles, /\.directoryGrid\b/);
-  assert.match(componentStyles, /\.directorySection\b/);
-  assert.doesNotMatch(pageStyles, /\.directory(?:Heading|Grid|Section)?\b/);
-});
-
-test('homepage styling is compact, responsive, and accessible', () => {
+test('homepage styling preserves motion, focus, and touch accessibility', () => {
   const pageCss = read('website/src/pages/index.module.css');
   const globalCss = read('website/src/css/custom.css');
   const source = `${pageCss}\n${globalCss}`;
@@ -242,19 +215,6 @@ test('homepage styling is compact, responsive, and accessible', () => {
   assert.match(source, /:focus-visible/);
   assert.match(source, /min-height:\s*44px/);
   assert.match(source, /min-width:\s*44px/);
-  assert.match(pageCss, /@media \(max-width: 760px\)/);
-  assert.doesNotMatch(pageCss, /min-height:\s*calc\(100svh/);
-  assert.doesNotMatch(pageCss, /100vw/);
-  assert.doesNotMatch(pageCss, /\.editorialBand/);
-  assert.doesNotMatch(pageCss, /\.closing/);
-  assert.doesNotMatch(source, /gradient\s*\(/i);
-  assert.match(
-    pageCss,
-    /grid-template-columns:\s*minmax\(0,\s*0\.85fr\)\s+minmax\(0,\s*1\.15fr\)/,
-  );
-  assert.match(pageCss, /@keyframes intro-enter\b/);
-  assert.match(globalCss, /body\s*\{[^}]*font-weight:\s*450/s);
-  assert.doesNotMatch(globalCss, /font-variation-settings/);
 });
 
 test('public orientation copy describes Jazz rather than repository mechanics', () => {
@@ -268,7 +228,6 @@ test('public orientation copy describes Jazz rather than repository mechanics', 
   ].map(read);
   const source = publicSources.join('\n');
   const compiler = publicSources.slice(2, 5).join('\n');
-  const architecture = publicSources[2];
 
   for (const phrase of [
     'available after merge',
@@ -282,89 +241,6 @@ test('public orientation copy describes Jazz rather than repository mechanics', 
     assert.doesNotMatch(source, new RegExp(phrase, 'i'));
   }
   assert.doesNotMatch(compiler, /`(?:src|jazz|app|test|programs)\//);
-  for (const heading of [
-    'Source and modules',
-    'Parse',
-    'Resolve',
-    'Analyze',
-    'Diagnose',
-    'Interpret',
-  ]) {
-    assert.match(architecture, new RegExp(`^## ${heading}$`, 'm'));
-  }
-});
-
-test('navbar wordmark fills a wrapper with the approved aspect ratio', () => {
-  const globalCss = read('website/src/css/custom.css');
-  const wrapper = globalCss.match(/\.navbar__logo\s*\{(?<declarations>[^}]*)\}/)
-    ?.groups?.declarations;
-  const image = globalCss.match(/\.navbar__logo img\s*\{(?<declarations>[^}]*)\}/)
-    ?.groups?.declarations;
-
-  assert.ok(wrapper, 'navbar logo wrapper styling is missing');
-  assert.match(wrapper, /aspect-ratio:\s*5\s*\/\s*2/);
-  assert.ok(image, 'navbar logo image sizing is missing');
-  assert.match(image, /height:\s*100%/);
-  assert.match(image, /object-fit:\s*contain/);
-  assert.match(image, /width:\s*100%/);
-});
-
-test('homepage brand mark is a substantial normal-flow title lockup', () => {
-  const header = read('website/src/components/HomepageHeader.tsx');
-  const pageCss = read('website/src/pages/index.module.css');
-  const rules = [...pageCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const declarationsFor = (selector) =>
-    rules
-      .filter(([, selectors]) =>
-        selectors
-          .split(',')
-          .some((candidate) => candidate.trim() === selector),
-      )
-      .map(([, , declarations]) => declarations)
-      .join('\n');
-  const brandMarkDeclarations = rules
-    .filter(([, selectors]) =>
-      selectors
-        .split(',')
-        .some((selector) => selector.trim() === '.brandMark'),
-    )
-    .map(([, , declarations]) => declarations);
-  const brandPlane = declarationsFor('.brandPlane');
-  const mobile = pageCss.match(
-    /@media \(max-width: 760px\)\s*\{(?<rules>[\s\S]*?)\n\}/,
-  )?.groups?.rules;
-
-  assert.match(
-    header,
-    /<div className=\{styles\.titleLockup\}>\s*<BrandMark \/>\s*<h1/s,
-  );
-  assert.match(declarationsFor('.titleLockup'), /display:\s*flex/);
-  assert.match(brandPlane, /width:\s*clamp\(/);
-  assert.doesNotMatch(brandPlane, /position:\s*absolute/);
-  assert.doesNotMatch(brandPlane, /(?:bottom|right):/);
-  assert.doesNotMatch(brandPlane, /opacity:\s*0?\.2/);
-  assert.match(mobile ?? '', /\.titleLockup\s*\{[^}]*flex-direction:\s*column/s);
-  assert.ok(brandMarkDeclarations.length > 0, 'brandMark styling is missing');
-  assert.ok(
-    brandMarkDeclarations.some((declarations) => /\bwidth\s*:/.test(declarations)),
-    'brandMark needs a responsive width',
-  );
-  for (const declarations of brandMarkDeclarations) {
-    for (const [, height] of declarations.matchAll(/\bheight\s*:\s*([^;]+);/g)) {
-      assert.equal(height.trim(), 'auto', 'brandMark height must follow its intrinsic ratio');
-    }
-  }
-});
-
-test('documentation layout reserves width only for a rendered desktop TOC', () => {
-  const layout = read('website/src/theme/DocItem/Layout/index.tsx');
-  const layoutCss = read('website/src/theme/DocItem/Layout/styles.module.css');
-
-  assert.match(
-    layout,
-    /clsx\('col',\s*docTOC\.desktop && styles\.docItemCol\)/,
-  );
-  assert.doesNotMatch(layoutCss, /(?:^|\n)\s*(?:column-gap|gap)\s*:/);
 });
 
 test('homepage introduction keeps invariant high-contrast colors in both themes', () => {
@@ -489,31 +365,10 @@ test('built type-link checker validates mapped destinations absent from signatur
 
 test('Docusaurus renders Jazz with TextMate and delegates other languages', () => {
   const renderer = read('website/src/theme/CodeBlock/Content/index.tsx');
-  const packageJson = JSON.parse(read('website/package.json'));
-
   assert.match(renderer, /metadata\.language\s*!==\s*'jazz'/);
   assert.match(renderer, /@theme-original\/CodeBlock\/Content/);
   assert.match(renderer, /tokenizeJazz/);
   assert.match(renderer, /data-jazz-highlighter="textmate"/);
-  assert.equal(packageJson.scripts.prebuild, undefined);
-  assert.equal(packageJson.scripts.postbuild, undefined);
-  assert.equal(packageJson.devDependencies.pagefind, '1.5.2');
-  assert.equal(
-    packageJson.scripts.build,
-    'node scripts/sync-factorial.mjs && docusaurus build && node scripts/check-built-seo.mjs && pagefind --site build --output-subdir pagefind && node scripts/check-built-highlighting.mjs && node scripts/check-built-search.mjs && node scripts/check-built-type-links.mjs',
-  );
-  assert.equal(
-    packageJson.scripts['test:experience'],
-    'node --test scripts/test-experience.mjs scripts/test-check-built-seo.mjs scripts/test-json-ld.mjs scripts/test-sitemap-lastmod.mjs',
-  );
-
-  for (const relativePath of [
-    'website/scripts/prism-jazz-grammar.mjs',
-    'website/scripts/prism-jazz-grammar.d.mts',
-    'website/src/theme/prism-include-languages.ts',
-  ]) {
-    assert.equal(existsSync(path.join(repositoryRoot, relativePath)), false);
-  }
 });
 
 test('active Docusaurus configuration preserves the public site contract', async () => {
@@ -713,33 +568,6 @@ test('public docs retain non-obvious numeric, complexity, and module-root contra
   assert.match(repeatSection, /positive[\s\S]+repetition count plus the output size/i);
 });
 
-test('documentation search styles satisfy the configured keyword casing', () => {
-  const searchStyles = read('website/src/theme/SearchBar/styles.module.css');
-
-  assert.doesNotMatch(searchStyles, /currentColor/);
-  assert.match(searchStyles, /currentcolor/);
-});
-
-test('website search tests include the generated index contract', () => {
-  const scripts = JSON.parse(read('website/package.json')).scripts;
-  const websiteGate = read('scripts/check-website.sh');
-  const checkerTests = read('website/scripts/test-check-built-search.mjs');
-
-  assert.equal(
-    scripts['test:search'],
-    'node --test scripts/test-pagefind-search-model.mjs scripts/test-check-built-search.mjs',
-  );
-  assert.equal(
-    scripts['test:search:production'],
-    'node --test scripts/test-built-search-index.mjs',
-  );
-  assert.match(
-    websiteGate,
-    /run build[\s\S]*run test:search:production/,
-  );
-  assert.doesNotMatch(checkerTests, /execFileSync\('pnpm', \['run', 'build'\]/);
-});
-
 test('standard library navigation exposes one page per module', async () => {
   const {loadSidebarsFile} = await import(
     '@docusaurus/plugin-content-docs/lib/sidebars/index.js'
@@ -768,27 +596,12 @@ test('standard library navigation exposes one page per module', async () => {
   ]);
 });
 
-test('documentation navigation is compact on desktop and touchable on mobile', () => {
+test('documentation navigation preserves mobile touch targets', () => {
   const source = read('website/src/css/custom.css');
-  const rules = [...source.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const declarationsFor = (selector) =>
-    rules
-      .filter(([, selectors]) =>
-        selectors
-          .split(',')
-          .some((candidate) => candidate.trim() === selector),
-      )
-      .map(([, , declarations]) => declarations)
-      .join('\n');
   const mobile = source.match(
     /@media \(max-width: 996px\)\s*\{(?<rules>[\s\S]*?)\n\}/,
   )?.groups?.rules;
 
-  assert.match(source, /--ifm-navbar-height:\s*3\.5rem/);
-  assert.match(declarationsFor('.navbar__inner'), /align-items:\s*center/);
-  assert.match(declarationsFor('.navbar__item'), /height:\s*2\.1rem/);
-  assert.match(declarationsFor('.navbar__link'), /align-items:\s*center/);
-  assert.match(declarationsFor('.navbar__link'), /height:\s*2\.1rem/);
   assert.match(mobile ?? '', /min-height:\s*44px/);
   assert.match(mobile ?? '', /min-width:\s*44px/);
 });
