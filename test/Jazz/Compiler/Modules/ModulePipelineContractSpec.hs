@@ -82,6 +82,7 @@ import Jazz.Compiler.ModuleGraph
   )
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
+    SourceUnitOwner (..),
     mkModulePath,
     mkSourceFile,
     moduleIdentity,
@@ -474,7 +475,7 @@ testAnalyzedFactInvariantFailures = do
     (Left (DuplicateExpressionFacts expressionId :| [MissingExpressionFacts leftId, MissingExpressionFacts rightId]))
     (attachAnalyzedExpression modulePath Map.empty expressionTwice pair)
 
-  let implementationId = ImplId (modulePath, CoreNodeId 100)
+  let implementationId = ImplId (NamedSourceUnit modulePath, CoreNodeId 100)
       evidenceSeed =
         ExpressionEvidenceSeed
           { evidenceSeedCapability = CapabilityId (BuiltinName (mkIdentifier "Eq")),
@@ -891,7 +892,7 @@ expectedEvidenceIdentities program =
   | coreModule <- NonEmpty.toList (coreProgramModules program),
     statement <- moduleStatements coreModule,
     SImpl implementationNode capabilityName [_] methods <- [statement],
-    let implementationId = ImplId (coreModulePath coreModule, coreNodeId implementationNode),
+    let implementationId = ImplId (NamedSourceUnit (coreModulePath coreModule), coreNodeId implementationNode),
     ImplMethod _ methodName _ <- methods,
     identifierText methodName == "equals"
   ]

@@ -17,21 +17,8 @@ import qualified Data.List.NonEmpty as NonEmpty
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Jazz.Compiler.AST (Statement (..))
-import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner (..), mkModulePath, sourceUnitOwnerModulePath)
 import Jazz.Compiler.Name (ResolvedNameOrigin (..), mkIdentifier)
-
-data SourceUnitOwner
-  = StandaloneSourceUnit ModulePath
-  | NamedSourceUnit ModulePath
-  | PreludeSourceUnit ModulePath
-  deriving (Eq, Show)
-
-sourceUnitOwnerModulePath :: SourceUnitOwner -> ModulePath
-sourceUnitOwnerModulePath owner =
-  case owner of
-    StandaloneSourceUnit path -> path
-    NamedSourceUnit path -> path
-    PreludeSourceUnit path -> path
 
 sourceUnitOwnerOrigin :: SourceUnitOwner -> ResolvedNameOrigin
 sourceUnitOwnerOrigin owner =

@@ -39,7 +39,7 @@ import Jazz.Compiler.Driver
     runSourceWithPrelude,
   )
 import Jazz.Compiler.ModuleExports (exportInventory)
-import Jazz.Compiler.ModuleIdentity (mkModulePath, preludeModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, preludeModulePath, standaloneModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
@@ -529,7 +529,7 @@ testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
       failTest ("expected three nullary implementation identities, got " <> Text.pack (show implementations))
   where
     implementationIdentities expression =
-      [ (capabilityName, ImplId (standaloneModulePath, coreNodeId implementationNode))
+      [ (capabilityName, ImplId (StandaloneSourceUnit standaloneModulePath, coreNodeId implementationNode))
       | SImpl implementationNode capabilityName [_] _ <- sourceUnitStatements expression
       ]
     evidenceReference capabilityName implementationId targetType =
@@ -1949,7 +1949,7 @@ testAuthoredModuleTransitionOwnsPlansAndEvidence = do
   assertEqual "authored-module inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
   let authoredPath = mkModulePath (mkIdentifier "App" NonEmpty.:| [mkIdentifier "Main"])
       implementationIds =
-        [ ImplId (authoredPath, coreNodeId node)
+        [ ImplId (NamedSourceUnit authoredPath, coreNodeId node)
         | SImpl node _ _ _ <- sourceUnitStatements analyzedExpression
         ]
       selectedEvidence = expressionEvidenceInventory analyzedExpression

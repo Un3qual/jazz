@@ -5,7 +5,9 @@
 
 -- | Nominal identities shared by module discovery and name resolution.
 module Jazz.Compiler.ModuleIdentity
-  ( ModulePath,
+  ( SourceUnitOwner (..),
+    sourceUnitOwnerModulePath,
+    ModulePath,
     SourceFile,
     ModuleQualifier,
     ModuleIdentity,
@@ -51,6 +53,21 @@ import System.FilePath (joinPath)
 newtype ModulePath = ModulePath (NonEmpty Identifier)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
+
+-- | Distinguish the ambient prelude from an ordinary module with the same path.
+data SourceUnitOwner
+  = StandaloneSourceUnit ModulePath
+  | NamedSourceUnit ModulePath
+  | PreludeSourceUnit ModulePath
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
+
+sourceUnitOwnerModulePath :: SourceUnitOwner -> ModulePath
+sourceUnitOwnerModulePath owner =
+  case owner of
+    StandaloneSourceUnit path -> path
+    NamedSourceUnit path -> path
+    PreludeSourceUnit path -> path
 
 newtype SourceFile = SourceFile FilePath
   deriving stock (Eq, Generic, Ord, Show)

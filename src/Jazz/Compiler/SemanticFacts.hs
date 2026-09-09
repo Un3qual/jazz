@@ -41,7 +41,7 @@ import Data.Map.Strict (Map)
 import Data.Sequence (Seq)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.ModuleIdentity (ModulePath)
+import Jazz.Compiler.ModuleIdentity (ModulePath, SourceUnitOwner)
 import Jazz.Compiler.Name (Identifier, ResolvedName)
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
@@ -64,7 +64,7 @@ newtype CapabilityId = CapabilityId ResolvedName
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
-newtype ImplId = ImplId (ModulePath, CoreNodeId)
+newtype ImplId = ImplId (SourceUnitOwner, CoreNodeId)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 

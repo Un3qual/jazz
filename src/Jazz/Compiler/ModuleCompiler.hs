@@ -63,6 +63,7 @@ import Jazz.Compiler.ModuleGraph
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
   ( ModulePath,
+    SourceUnitOwner (..),
     modulePathTextSegments,
     moduleQualifierIdentifier,
     renderModulePath,
@@ -156,7 +157,7 @@ analyzeProgram inputs resolvedProgram =
           modulePath
           (moduleStatementFactSeeds resolvedModule)
           (importedBinderIds importedInterface)
-          (Map.unionWith (<>) (moduleEvidenceCandidates resolvedModule) (importedEvidenceCandidates importedInterface))
+          (Map.unionWith (<>) (moduleEvidenceCandidates NamedSourceUnit resolvedModule) (importedEvidenceCandidates importedInterface))
           (moduleInferenceInputs inputs modulePath importedInterface)
           Set.empty
           (coreModuleExpr resolvedModule)
@@ -173,7 +174,7 @@ analyzeProgram inputs resolvedProgram =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
               inferredModuleInterface inference,
               maybe Map.empty moduleBinderInventory maybeAnalyzedModule,
-              moduleEvidenceCandidates resolvedModule
+              moduleEvidenceCandidates NamedSourceUnit resolvedModule
             )
       pure
         ( modules Seq.|> maybeAnalyzedModule,
@@ -197,7 +198,7 @@ analyzePrelude inputs prelude =
           preludePath
           (moduleStatementFactSeeds resolvedPreludeModule)
           Map.empty
-          (moduleEvidenceCandidates resolvedPreludeModule)
+          (moduleEvidenceCandidates PreludeSourceUnit resolvedPreludeModule)
           (moduleInferenceInputs inputs preludePath mempty)
           (compileInputPreludeHiddenStatementIndices inputs)
           (coreModuleExpr resolvedPreludeModule)
@@ -218,7 +219,7 @@ analyzePrelude inputs prelude =
             importWholeInterface
               AmbientPrelude
               (maybe Map.empty moduleBinderInventory maybeAnalyzedModule)
-              (moduleEvidenceCandidates resolvedPreludeModule)
+              (moduleEvidenceCandidates PreludeSourceUnit resolvedPreludeModule)
               (inferredModuleInterface inference)
       pure
         ( diagnostics,
@@ -327,10 +328,10 @@ moduleBinderInventory coreModule =
         [binderId] -> [(ModuleExport namespace (identifierText name), binderId)]
         _ -> []
 
-moduleEvidenceCandidates :: CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
-moduleEvidenceCandidates coreModule =
+moduleEvidenceCandidates :: (ModulePath -> SourceUnitOwner) -> CoreModule 'Resolved -> Map Text [ImplementationEvidenceCandidate]
+moduleEvidenceCandidates owner coreModule =
   implementationEvidenceCandidatesInModule
-    (coreModulePath coreModule)
+    (owner (coreModulePath coreModule))
     (coreModuleExpr coreModule)
 
 dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map ModuleExport CoreBinderId, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface

@@ -23,14 +23,14 @@ import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (identifierText, mkIdentifier)
 import Jazz.Compiler.SemanticFacts (ImplId (..), MethodId (..))
 import Jazz.Compiler.SourceUnitOwnership
-  ( sourceUnitOwnerModulePath,
+  ( SourceUnitOwner (..),
     sourceUnitStatementOwners,
   )
 import Jazz.Compiler.TypeInference.State (ImplementationEvidenceCandidate (..))
 
-implementationEvidenceCandidatesInModule :: ModulePath -> Expr 'Resolved -> Map Text [ImplementationEvidenceCandidate]
-implementationEvidenceCandidatesInModule modulePath =
-  candidatesFromEntries . expressionEntries modulePath
+implementationEvidenceCandidatesInModule :: SourceUnitOwner -> Expr 'Resolved -> Map Text [ImplementationEvidenceCandidate]
+implementationEvidenceCandidatesInModule owner =
+  candidatesFromEntries . expressionEntries owner
 
 implementationEvidenceCandidatesInSourceUnit :: ModulePath -> ModulePath -> Set Int -> Expr 'Resolved -> Map Text [ImplementationEvidenceCandidate]
 implementationEvidenceCandidatesInSourceUnit sourcePath preludePath preludeStatementIndices expression =
@@ -39,22 +39,22 @@ implementationEvidenceCandidatesInSourceUnit sourcePath preludePath preludeState
         EBlock _ statements ->
           concat
             [ statementEntries
-                (sourceUnitOwnerModulePath owner)
+                owner
                 statement
             | (owner, statement) <-
                 zip
                   (sourceUnitStatementOwners sourcePath preludePath preludeStatementIndices statements)
                   statements
             ]
-        _ -> expressionEntries sourcePath expression
+        _ -> expressionEntries (StandaloneSourceUnit sourcePath) expression
     )
 
 candidatesFromEntries :: [(Text, ImplementationEvidenceCandidate)] -> Map Text [ImplementationEvidenceCandidate]
 candidatesFromEntries =
   Map.fromListWith (flip (<>)) . map (\(key, candidate) -> (key, [candidate]))
 
-expressionEntries :: ModulePath -> Expr 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
-expressionEntries modulePath expression =
+expressionEntries :: SourceUnitOwner -> Expr 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
+expressionEntries owner expression =
   case expression of
     ELambda _ _ body -> recur body
     EList _ elements -> foldMap recur elements
@@ -66,20 +66,20 @@ expressionEntries modulePath expression =
     EBinary _ _ left right -> recur left <> recur right
     ESectionLeft _ left _ -> recur left
     ESectionRight _ _ right -> recur right
-    EBlock _ statements -> foldMap (statementEntries modulePath) statements
+    EBlock _ statements -> foldMap (statementEntries owner) statements
     _ -> []
   where
-    recur = expressionEntries modulePath
+    recur = expressionEntries owner
     armEntries (CaseArm _ _ guard body) = foldMap recur guard <> recur body
 
-statementEntries :: ModulePath -> Statement 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
-statementEntries modulePath statement =
+statementEntries :: SourceUnitOwner -> Statement 'Resolved -> [(Text, ImplementationEvidenceCandidate)]
+statementEntries owner statement =
   case statement of
-    SLet _ _ value -> expressionEntries modulePath value
+    SLet _ _ value -> expressionEntries owner value
     SImpl implementationNode capabilityName [target] methods ->
       foldMap methodEntry methods <> foldMap methodBodyEntries methods
       where
-        implementationId = ImplId (modulePath, coreNodeId implementationNode)
+        implementationId = ImplId (owner, coreNodeId implementationNode)
         methodEntry (ImplMethod _ methodName _) =
           [ ( qualifiedMethodKey capabilityName methodName,
               ImplementationEvidenceCandidate
@@ -90,9 +90,9 @@ statementEntries modulePath statement =
                 }
             )
           ]
-        methodBodyEntries (ImplMethod _ _ body) = expressionEntries modulePath body
+        methodBodyEntries (ImplMethod _ _ body) = expressionEntries owner body
     SImpl _ _ _ methods -> foldMap methodBodyEntries methods
       where
-        methodBodyEntries (ImplMethod _ _ body) = expressionEntries modulePath body
-    SExpr _ value -> expressionEntries modulePath value
+        methodBodyEntries (ImplMethod _ _ body) = expressionEntries owner body
+    SExpr _ value -> expressionEntries owner value
     _ -> []

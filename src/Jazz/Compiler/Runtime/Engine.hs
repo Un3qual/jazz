@@ -244,7 +244,7 @@ import Jazz.Compiler.SemanticFacts
     StatementDeclarationFact (..),
     StatementFacts (..),
   )
-import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..), sourceUnitOwnerModulePath)
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 import Jazz.Compiler.TypeRepresentation
   ( InferenceVariable,
     SemanticType (..),
@@ -2141,9 +2141,9 @@ runtimeEvidenceMatches candidate reference =
 -- the reference. This also gives standalone references the same qualification
 -- as their runtime candidates.
 canonicalCapability :: ImplId -> CapabilityId -> CapabilityId
-canonicalCapability (ImplId (modulePath, _)) (CapabilityId capabilityName) =
+canonicalCapability (ImplId (owner, _)) (CapabilityId capabilityName) =
   CapabilityId
-    (runtimeDefinitionNameIn CapabilityNamespace (Just (NamedSourceUnit modulePath)) capabilityName)
+    (runtimeDefinitionNameIn CapabilityNamespace (Just owner) capabilityName)
 
 runtimeEvidence ::
   Maybe SourceUnitOwner ->
@@ -2159,10 +2159,7 @@ runtimeEvidence modulePath implementationNodeId capabilityName methodName target
     (Just (MethodId (implementationId, mkIdentifier (identifierText methodName))))
     targetType
   where
-    implementationId = ImplId (runtimeModulePath modulePath, implementationNodeId)
-
-runtimeModulePath :: Maybe SourceUnitOwner -> ModulePath
-runtimeModulePath = maybe standaloneModulePath sourceUnitOwnerModulePath
+    implementationId = ImplId (fromMaybe (StandaloneSourceUnit standaloneModulePath) modulePath, implementationNodeId)
 
 lookupDeclaredOperatorCell :: Text -> RuntimeEnv -> Either Diagnostic RuntimeValue
 lookupDeclaredOperatorCell operatorSymbol env =

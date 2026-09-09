@@ -37,7 +37,8 @@ import Jazz.TestHarness
 
 visibilityTests :: [NamedTest]
 visibilityTests =
-  [ ("ordinary Prelude modules retain nominal constructor identity", testOrdinaryPreludeIdentity),
+  [ ("ordinary Prelude implementations retain separate evidence ownership", testOrdinaryPreludeImplementationIdentity),
+    ("ordinary Prelude modules retain nominal constructor identity", testOrdinaryPreludeIdentity),
     ("local constructors remain visible before value rebinding", testLocalConstructorRebinding),
     ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
     ("run module graph transports Char/Text values", testRunModuleGraphTransportsCharTextValues),
@@ -1710,3 +1711,23 @@ testLocalConstructorRebinding = do
   assertEqual "constructor rebinding compile errors" [] (runCompileErrors result)
   assertEqual "constructor rebinding runtime errors" [] (runRuntimeErrors result)
   assertEqual "constructor rebinding preserves earlier value" (Just "(Just, 1)") (runOutput result)
+
+testOrdinaryPreludeImplementationIdentity :: IO ()
+testOrdinaryPreludeImplementationIdentity = do
+  -- Each module starts with a one-method class, so the implementation node IDs
+  -- coincide. Nullary dispatch must still select only the requested owner.
+  let sources =
+        Map.fromList
+          [ ("src/Prelude.jz", "module Prelude { class Spare(a) { spare :: a. }. impl Default(Bool) { defaultValue = True. }. token = Default::defaultValue @Bool. }"),
+            ("src/App/Main.jz", "module App::Main { import Prelude. (token, Default::defaultValue @Int). }")
+          ]
+  result <-
+    runModuleGraphWithResolvedPrelude
+      defaultWarningSettings
+      (PreludeExplicit "class Default(a) { defaultValue :: a. }. impl Default(Int) { defaultValue = 0. }.")
+      resolverConfig
+      ["App", "Main"]
+      (lookupSourceIn sources)
+  assertEqual "ordinary Prelude implementation compile errors" [] (runCompileErrors result)
+  assertEqual "ordinary Prelude implementation runtime errors" [] (runRuntimeErrors result)
+  assertEqual "ordinary and ambient Prelude method results" (Just "(True, 0)") (runOutput result)
