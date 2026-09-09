@@ -1,63 +1,78 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( DataConstructor (..),
-    Expr (..),
-    ImplMethod (..),
+  ( CorePhase (Lowered, Resolved),
+    Expr,
     Literal (..),
-    SignatureType (TypeInt),
-    Statement (..)
   )
 import Jazz.Compiler.Analyzer
   ( AnalysisResult (..),
-    analyzeProgram,
-    analyzeRebindingWarnings,
   )
+import qualified Jazz.Compiler.Analyzer as Analyzer
 import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( bundledPreludeSource,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( DiagnosticSeverity (..),
+    WarningCategory (..),
+    diagnosticCodeText,
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..),
+  ( Diagnostic,
+    SourceSpan (..),
     diagnosticCode,
     diagnosticPrimarySpan,
     diagnosticRelatedSpan,
     diagnosticSeverity,
     diagnosticSubject,
-    diagnosticWarningCategory
+    diagnosticWarningCategory,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
   ( CompileResult (..),
-    RunResult (..),
     compileErrors,
     compileExpr,
     compileSource,
     compileSourceWithPrelude,
     compileWarnings,
     runCompileErrors,
+    runDiagnostics,
     runRuntimeErrors,
     runSource,
-    runWarnings
+    runWarnings,
   )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig
   ( WarningSettings,
     defaultWarningSettings,
-    resolveWarningSettings
+    resolveWarningSettings,
   )
-import Jazz.Compiler.DiagnosticCatalog
-  ( DiagnosticSeverity (..),
-    WarningCategory (..),
-    diagnosticCodeText
+import Jazz.TestCore
+  ( loweredApply,
+    loweredBlock,
+    loweredConstructorAt,
+    loweredData,
+    loweredExpression,
+    loweredImpl,
+    loweredImplMethod,
+    loweredLambda,
+    loweredLet,
+    loweredLiteral,
+    loweredVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -132,7 +147,7 @@ testApplicationDiagnosticOrder = do
   result <-
     analyzeProgram
       defaultWarningSettings
-      (foldl1 EApply [EVar "missing0", EVar "missing1", EVar "missing2", EVar "missing3"])
+      (foldl1 loweredApply [loweredVariable "missing0", loweredVariable "missing1", loweredVariable "missing2", loweredVariable "missing3"])
   assertEqual
     "application diagnostic subjects"
     [Just "missing0", Just "missing1", Just "missing2", Just "missing3"]
@@ -413,104 +428,120 @@ rebindingAndUnusedEnabledSettings =
     Left err -> failTest ("failed to resolve rebinding plus unused-binding settings: " <> renderDiagnostic err)
     Right settings -> pure settings
 
-sampleProgram :: Expr
+analyzeProgram :: WarningSettings -> Expr 'Lowered -> IO AnalysisResult
+analyzeProgram settings expression = do
+  resolved <- resolveForAnalyzer expression
+  Analyzer.analyzeProgram settings resolved
+
+analyzeRebindingWarnings :: WarningSettings -> Expr 'Lowered -> IO [Diagnostic]
+analyzeRebindingWarnings settings expression = do
+  resolved <- resolveForAnalyzer expression
+  Analyzer.analyzeRebindingWarnings settings resolved
+
+resolveForAnalyzer :: Expr 'Lowered -> IO (Expr 'Resolved)
+resolveForAnalyzer expression =
+  case resolveStandaloneExprNames (exportInventory []) expression of
+    Left diagnostics -> failTest ("fixture resolution failed: " <> Text.pack (show diagnostics))
+    Right resolved -> pure resolved
+
+sampleProgram :: Expr 'Lowered
 sampleProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SLet "x" (SourceSpan 2 1) (ELit (LInt 2))
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredLet "x" (SourceSpan 2 1) (loweredLiteral (LInt 2))
     ]
 
-repeatedProgram :: Expr
+repeatedProgram :: Expr 'Lowered
 repeatedProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SLet "x" (SourceSpan 2 1) (ELit (LInt 2)),
-      SLet "x" (SourceSpan 3 1) (ELit (LInt 3))
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredLet "x" (SourceSpan 2 1) (loweredLiteral (LInt 2)),
+      loweredLet "x" (SourceSpan 3 1) (loweredLiteral (LInt 3))
     ]
 
-constructorRebindingProgram :: Expr
+constructorRebindingProgram :: Expr 'Lowered
 constructorRebindingProgram =
-  EBlock
-    [ SLet "Nothing" (SourceSpan 1 1) (ELit (LInt 1)),
-      SData (SourceSpan 2 1) "Maybe" [] [DataConstructor "Nothing" []]
+  loweredBlock
+    [ loweredLet "Nothing" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredData (SourceSpan 2 1) "Maybe" [] [loweredConstructorAt (SourceSpan 2 1) "Nothing" []]
     ]
 
-nestedScopeProgram :: Expr
+nestedScopeProgram :: Expr 'Lowered
 nestedScopeProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SExpr
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredExpression
         (SourceSpan 2 1)
-        ( EBlock
-            [ SLet "x" (SourceSpan 2 3) (ELit (LInt 2))
+        ( loweredBlock
+            [ loweredLet "x" (SourceSpan 2 3) (loweredLiteral (LInt 2))
             ]
         ),
-      SExpr (SourceSpan 4 1) (EVar "x")
+      loweredExpression (SourceSpan 4 1) (loweredVariable "x")
     ]
 
-lambdaShadowingProgram :: Expr
+lambdaShadowingProgram :: Expr 'Lowered
 lambdaShadowingProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SLet "f" (SourceSpan 2 1) (ELambda "x" (EVar "x"))
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredLet "f" (SourceSpan 2 1) (loweredLambda "x" (loweredVariable "x"))
     ]
 
-lambdaExpressionShadowingProgram :: Expr
+lambdaExpressionShadowingProgram :: Expr 'Lowered
 lambdaExpressionShadowingProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SExpr (SourceSpan 2 1) (ELambda "x" (EVar "x"))
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredExpression (SourceSpan 2 1) (loweredLambda "x" (loweredVariable "x"))
     ]
 
-unusedBindingProgram :: Expr
+unusedBindingProgram :: Expr 'Lowered
 unusedBindingProgram =
-  EBlock
-    [ SLet "unused" (SourceSpan 1 1) (ELit (LInt 1))
+  loweredBlock
+    [ loweredLet "unused" (SourceSpan 1 1) (loweredLiteral (LInt 1))
     ]
 
-usedOrdinaryLetProgram :: Expr
+usedOrdinaryLetProgram :: Expr 'Lowered
 usedOrdinaryLetProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SLet "y" (SourceSpan 2 1) (EVar "x"),
-      SExpr (SourceSpan 3 1) (EVar "y")
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredLet "y" (SourceSpan 2 1) (loweredVariable "x"),
+      loweredExpression (SourceSpan 3 1) (loweredVariable "y")
     ]
 
-implMethodUsesBindingProgram :: Expr
+implMethodUsesBindingProgram :: Expr 'Lowered
 implMethodUsesBindingProgram =
-  EBlock
-    [ SLet "helper" (SourceSpan 1 1) (ELit (LInt 1)),
-      SImpl
+  loweredBlock
+    [ loweredLet "helper" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredImpl
         (SourceSpan 2 1)
         "Eq"
         []
-        [ImplMethod "equals" (SourceSpan 2 10) (EVar "helper")]
+        [loweredImplMethod "equals" (SourceSpan 2 10) (loweredVariable "helper")]
     ]
 
-preDeclarationReferenceProgram :: Expr
+preDeclarationReferenceProgram :: Expr 'Lowered
 preDeclarationReferenceProgram =
-  EBlock
-    [ SExpr (SourceSpan 1 1) (EVar "x"),
-      SLet "x" (SourceSpan 2 1) (ELit (LInt 1))
+  loweredBlock
+    [ loweredExpression (SourceSpan 1 1) (loweredVariable "x"),
+      loweredLet "x" (SourceSpan 2 1) (loweredLiteral (LInt 1))
     ]
 
-sameNameRebindingUsedProgram :: Expr
+sameNameRebindingUsedProgram :: Expr 'Lowered
 sameNameRebindingUsedProgram =
-  EBlock
-    [ SLet "x" (SourceSpan 1 1) (ELit (LInt 1)),
-      SLet "x" (SourceSpan 2 1) (ELit (LInt 2)),
-      SExpr (SourceSpan 3 1) (EVar "x")
+  loweredBlock
+    [ loweredLet "x" (SourceSpan 1 1) (loweredLiteral (LInt 1)),
+      loweredLet "x" (SourceSpan 2 1) (loweredLiteral (LInt 2)),
+      loweredExpression (SourceSpan 3 1) (loweredVariable "x")
     ]
 
-selfReferentialUnusedProgram :: Expr
+selfReferentialUnusedProgram :: Expr 'Lowered
 selfReferentialUnusedProgram =
-  EBlock
-    [ SLet "loop" (SourceSpan 1 1) (EVar "loop")
+  loweredBlock
+    [ loweredLet "loop" (SourceSpan 1 1) (loweredVariable "loop")
     ]
 
-letRebindsConstructorProgram :: Expr
+letRebindsConstructorProgram :: Expr 'Lowered
 letRebindsConstructorProgram =
-  EBlock
-    [ SData (SourceSpan 1 1) "Maybe" [] [DataConstructor "Just" [TypeInt]],
-      SLet "Just" (SourceSpan 2 1) (ELit (LInt 1))
+  loweredBlock
+    [ loweredData (SourceSpan 1 1) "Maybe" [] [loweredConstructorAt (SourceSpan 1 1) "Just" [TypeInt]],
+      loweredLet "Just" (SourceSpan 2 1) (loweredLiteral (LInt 1))
     ]

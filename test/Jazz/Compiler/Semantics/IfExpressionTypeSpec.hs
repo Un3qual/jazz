@@ -1,22 +1,30 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (Lowered),
+    Expr,
     Literal (..),
-    Statement (..)
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileExpr,
-    compileSource
+    compileSource,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredBinary,
+    loweredBlock,
+    loweredExpression,
+    loweredIf,
+    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -24,7 +32,7 @@ import Jazz.TestHarness
     assertSingleDiagnosticCode,
     assertSingleDiagnosticContains,
     assertSingleDiagnosticPrimarySpan,
-    runTestSuite
+    runTestSuite,
   )
 
 main :: IO ()
@@ -84,33 +92,33 @@ testAcceptsWellTypedIf = do
   result <- compileExpr defaultWarningSettings validIfProgram
   assertEqual "compile errors" [] (compileErrors result)
 
-mkProgram :: Expr -> Expr
+mkProgram :: Expr 'Lowered -> Expr 'Lowered
 mkProgram expr =
-  EBlock
-    [ SExpr
+  loweredBlock
+    [ loweredExpression
         (SourceSpan 1 1)
         expr
     ]
 
-nonBoolConditionProgram :: Expr
+nonBoolConditionProgram :: Expr 'Lowered
 nonBoolConditionProgram =
-  mkProgram (EIf (ELit (LInt 1)) (ELit (LInt 2)) (ELit (LInt 3)))
+  mkProgram (loweredIf (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3)))
 
-equalityConditionProgram :: Expr
+equalityConditionProgram :: Expr 'Lowered
 equalityConditionProgram =
-  mkProgram (EIf (EBinary "==" (ELit (LInt 1)) (ELit (LInt 2))) (ELit (LInt 2)) (ELit (LInt 3)))
+  mkProgram (loweredIf (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2))) (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3)))
 
-invalidEqualityConditionProgram :: Expr
+invalidEqualityConditionProgram :: Expr 'Lowered
 invalidEqualityConditionProgram =
-  mkProgram (EIf (EBinary "==" (ELit (LInt 1)) (ELit (LBool True))) (ELit (LInt 2)) (ELit (LInt 3)))
+  mkProgram (loweredIf (loweredBinary "==" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True))) (loweredLiteral (LInt 2)) (loweredLiteral (LInt 3)))
 
-mismatchedBranchProgram :: Expr
+mismatchedBranchProgram :: Expr 'Lowered
 mismatchedBranchProgram =
-  mkProgram (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LBool False)))
+  mkProgram (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LBool False)))
 
-validIfProgram :: Expr
+validIfProgram :: Expr 'Lowered
 validIfProgram =
-  mkProgram (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2)))
+  mkProgram (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)))
 
 testRejectsBinaryTypeMismatch :: IO ()
 testRejectsBinaryTypeMismatch = do
@@ -120,9 +128,9 @@ testRejectsBinaryTypeMismatch = do
     "cannot apply operator '+'"
     (compileErrors result)
 
-binaryTypeMismatchProgram :: Expr
+binaryTypeMismatchProgram :: Expr 'Lowered
 binaryTypeMismatchProgram =
-  mkProgram (EBinary "+" (ELit (LInt 1)) (ELit (LBool True)))
+  mkProgram (loweredBinary "+" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True)))
 
 testSourcePipelineAcceptsWellTypedIf :: IO ()
 testSourcePipelineAcceptsWellTypedIf = do

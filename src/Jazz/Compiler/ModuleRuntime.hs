@@ -1,14 +1,15 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Evaluate a successful compiled program once in dependency order.
+-- | Evaluate a successfully analyzed program once in dependency order.
 module Jazz.Compiler.ModuleRuntime
   ( RuntimeExport (..),
     RuntimeModule (..),
     RuntimeProgram (..),
-    evaluateCompiledProgram,
-    evaluateCompiledProgramObserved,
-    evaluateCompiledProgramWithHost,
-    evaluateCompiledProgramWithHostObserved,
+    interpretAnalyzedProgram,
+    evaluateAnalyzedProgram,
+    evaluateAnalyzedProgramObserved,
+    evaluateAnalyzedProgramWithHostObserved,
     lookupRuntimeModule,
   )
 where
@@ -17,17 +18,25 @@ import Control.Monad.Trans.Except
   ( ExceptT (..),
     runExceptT,
   )
+import Data.Foldable (toList)
 import Data.Functor.Identity (runIdentity)
+import Data.List (find)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (EBlock),
+  ( CorePhase (..),
+    Expr (..),
     Statement,
   )
 import Jazz.Compiler.CapabilityFacts (splitQualifiedMethodKey)
-import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Diagnostics
+  ( Diagnostic,
+  )
+import Jazz.Compiler.ModuleCompiler (analyzedProgramErrors)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
@@ -37,23 +46,35 @@ import Jazz.Compiler.ModuleExports
     inventoryHasExport,
     visibleImportInventory,
   )
-import Jazz.Compiler.ModuleGraph (ResolvedImport (..))
+import Jazz.Compiler.ModuleGraph
+  ( AnalyzedModuleFacts (..),
+    CoreModule (..),
+    CoreProgram,
+    ImportExposure (..),
+    ModuleImport,
+    PreludeArtifact (..),
+    coreModuleExpr,
+    coreModuleFacts,
+    coreModuleImports,
+    coreModulePath,
+    coreProgramEntry,
+    coreProgramModules,
+    coreProgramPrelude,
+    lookupCoreModule,
+  )
+import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity (ModulePath, modulePathTextSegments)
 import Jazz.Compiler.ModuleInterface
-  ( CompiledModule (..),
-    CompiledPrelude (..),
-    CompiledProgram (..),
-    ModuleInterface (..),
-    firstCompiledProgramError,
-    moduleInterfaceExportInventory,
+  ( ModuleInterface (..),
   )
 import Jazz.Compiler.Name
-  ( Name (ResolvedName),
+  ( Name (..),
     NameNamespace (..),
     ResolvedNameOrigin (..),
+    ResolvedUserName (..),
     identifierText,
     mkIdentifier,
-    renderName,
-    sourceName,
+    resolvedLocalName,
   )
 import Jazz.Compiler.Runtime
   ( ModuleEvaluationMode (..),
@@ -74,7 +95,7 @@ import Jazz.Compiler.Runtime.Observation
     finishRuntimeObservationResult,
   )
 import Jazz.Compiler.Runtime.Outcome
-  ( RuntimeControl,
+  ( RuntimeControl (..),
     RuntimeOutcome (..),
     diagnosticResultOutcome,
     runtimeControlOutcome,
@@ -84,6 +105,7 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost,
     disabledRuntimeHost,
   )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
 
 -- | Runtime-facing exports keep capability methods structurally distinct from
 -- ordinary values instead of encoding their owner in a value-name string.
@@ -106,243 +128,243 @@ data RuntimeProgram = RuntimeProgram
   }
 
 data RuntimeModuleAccumulator = RuntimeModuleAccumulator
-  { accumulatedRuntimeModulesReversed :: ![RuntimeModule],
-    accumulatedRuntimeModulesByPath :: !(Map [Text] RuntimeModule)
+  { accumulatedRuntimeModules :: !(Seq.Seq RuntimeModule),
+    accumulatedRuntimeModulesByPath :: !(Map ModulePath RuntimeModule)
+  }
+
+data PreparedModuleEvaluation = PreparedModuleEvaluation
+  { preparedModulePath :: ModulePath,
+    preparedModuleEvaluationMode :: ModuleEvaluationMode,
+    preparedModuleImportedEnvironment :: RuntimeEnv
   }
 
 lookupRuntimeModule :: [Text] -> RuntimeProgram -> Maybe RuntimeModule
 lookupRuntimeModule modulePath =
-  go . runtimeProgramModules
-  where
-    go modules =
-      case modules of
-        [] -> Nothing
-        runtimeModule : rest
-          | runtimeModulePath runtimeModule == modulePath -> Just runtimeModule
-          | otherwise -> go rest
+  find ((== modulePath) . runtimeModulePath) . runtimeProgramModules
 
-evaluateCompiledProgram :: CompiledProgram -> Either Diagnostic RuntimeProgram
-evaluateCompiledProgram =
+evaluateAnalyzedProgram :: CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
+evaluateAnalyzedProgram =
   runtimeOutcomeAsDiagnosticResult
     . runtimeObservationOutcome
-    . evaluateCompiledProgramObserved RuntimeObservationDisabled
+    . evaluateAnalyzedProgramObserved RuntimeObservationDisabled
 
-evaluateCompiledProgramObserved :: RuntimeObservationRequest -> CompiledProgram -> RuntimeObservationResult RuntimeProgram
-evaluateCompiledProgramObserved observationRequest compiledProgram =
+evaluateAnalyzedProgramObserved :: RuntimeObservationRequest -> CoreProgram 'Analyzed -> RuntimeObservationResult RuntimeProgram
+evaluateAnalyzedProgramObserved observationRequest analyzedProgram =
   runIdentity
-    (evaluateCompiledProgramWithHostObserved observationRequest disabledRuntimeHost compiledProgram)
+    (interpretAnalyzedProgram observationRequest disabledRuntimeHost analyzedProgram)
 
-evaluateCompiledProgramPureUnchecked :: CompiledProgram -> Either Diagnostic RuntimeProgram
-evaluateCompiledProgramPureUnchecked compiledProgram = do
-  ambientEnv <- evaluatePrelude (compiledProgramPrelude compiledProgram)
-  evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+evaluateAnalyzedProgramPureUnchecked :: CoreProgram 'Analyzed -> Either Diagnostic RuntimeProgram
+evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
+  ambientEnv <- evaluatePrelude (coreProgramPrelude analyzedProgram)
+  evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
-    entryPath = compiledProgramEntryPath compiledProgram
-    compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
+    entryPath = coreProgramEntry analyzedProgram
 
-    evaluateModules compiledModules ambientEnv runtimeModules output remainingModules =
+    evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           Right
             (finishRuntimeProgram runtimeModules output)
-        compiledModule : rest -> do
-          let modulePath = compiledModulePath compiledModule
-              evaluationMode =
-                if modulePath == entryPath
-                  then EvaluateEntryModule
-                  else EvaluateDependencyModule
-              importedEnv =
-                foldr
-                  (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
-                  ambientEnv
-                  (compiledModuleImports compiledModule)
+        analyzedModule : rest -> do
+          let preparedModule =
+                prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             evaluateModuleScope
-              (Just modulePath)
-              evaluationMode
-              (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
-              (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-              importedEnv
-              (scopeStatements (compiledModuleExpr compiledModule))
-          let runtimeModule =
-                RuntimeModule
-                  { runtimeModulePath = modulePath,
-                    runtimeModuleExports =
-                      publishExports
-                        CurrentModule
-                        (compiledModuleExportInventory compiledModule)
-                        (compiledModuleInterface compiledModule)
-                        (scopeResultEnvironment scopeResult)
-                  }
-              nextOutput =
-                if modulePath == entryPath
-                  then scopeResultValue scopeResult
-                  else output
-          evaluateModules compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
+              (Just (NamedSourceUnit (preparedModulePath preparedModule)))
+              (preparedModuleEvaluationMode preparedModule)
+              (preparedModuleImportedEnvironment preparedModule)
+              (scopeStatements (coreModuleExpr analyzedModule))
+          let (nextRuntimeModules, nextOutput) =
+                completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
+          evaluateModules ambientEnv nextRuntimeModules nextOutput rest
 
-evaluatePrelude :: CompiledPrelude -> Either Diagnostic RuntimeEnv
-evaluatePrelude compiledPrelude =
-  case compiledPreludeExpr compiledPrelude of
+evaluatePrelude :: PreludeArtifact 'Analyzed -> Either Diagnostic RuntimeEnv
+evaluatePrelude analyzedPrelude =
+  case preludeModule analyzedPrelude of
     Nothing -> Right Map.empty
-    Just expression -> do
+    Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScope
-          (Just [])
+          (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
-          (compiledPreludeBuiltinMode compiledPrelude)
-          (compiledPreludeRuntimeHints compiledPrelude)
           Map.empty
-          (scopeStatements expression)
+          (scopeStatements (coreModuleExpr analyzedModule))
       pure
         ( publishEnvironment
             AmbientPrelude
-            (moduleInterfaceExportInventory (compiledPreludeInterface compiledPrelude))
-            (compiledPreludeInterface compiledPrelude)
+            (moduleExportInventory analyzedModule)
+            (coreModuleInterface analyzedModule)
             (scopeResultEnvironment scopeResult)
         )
 
-evaluateCompiledProgramWithHost ::
-  (Monad m) =>
-  RuntimeHost m ->
-  CompiledProgram ->
-  m (Either Diagnostic RuntimeProgram)
-evaluateCompiledProgramWithHost host compiledProgram =
-  runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome
-    <$> evaluateCompiledProgramWithHostObserved RuntimeObservationDisabled host compiledProgram
-
-evaluateCompiledProgramWithHostObserved ::
+evaluateAnalyzedProgramWithHostObserved ::
   (Monad m) =>
   RuntimeObservationRequest ->
   RuntimeHost m ->
-  CompiledProgram ->
+  CoreProgram 'Analyzed ->
   m (RuntimeObservationResult RuntimeProgram)
-evaluateCompiledProgramWithHostObserved observationRequest host compiledProgram =
+evaluateAnalyzedProgramWithHostObserved = interpretAnalyzedProgram
+
+interpretAnalyzedProgram ::
+  (Monad m) =>
+  RuntimeObservationRequest ->
+  RuntimeHost m ->
+  CoreProgram 'Analyzed ->
+  m (RuntimeObservationResult RuntimeProgram)
+interpretAnalyzedProgram observationRequest host analyzedProgram =
   {-# SCC "jazz-stage:evaluation" #-}
-  case firstCompiledProgramError compiledProgram of
-    Just firstError -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
-    Nothing ->
+  case analyzedProgramErrors analyzedProgram of
+    firstError : _ -> pure (RuntimeObservationResult (RuntimeOutcomeFailed firstError) Nothing)
+    [] ->
       case observationRequest of
         RuntimeObservationDisabled -> do
-          outcome <- evaluateCompiledProgramWithHostUnobserved host compiledProgram
+          outcome <- evaluateAnalyzedProgramWithHostUnobserved host analyzedProgram
           pure (RuntimeObservationResult outcome Nothing)
         _ -> do
           (outcome, observationState) <-
             runRuntimeHostEvaluationWithObservation observationRequest host $ \evaluationHost ->
-              evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram
+              evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram
           pure (finishRuntimeObservationResult (runtimeControlOutcome outcome) observationState)
 
-evaluateCompiledProgramWithHostUnobserved ::
+evaluateAnalyzedProgramWithHostUnobserved ::
   (Monad m) =>
   RuntimeHost m ->
-  CompiledProgram ->
+  CoreProgram 'Analyzed ->
   m (RuntimeOutcome RuntimeProgram)
-evaluateCompiledProgramWithHostUnobserved host compiledProgram =
-  if compiledProgramRequiresHost compiledProgram
+evaluateAnalyzedProgramWithHostUnobserved host analyzedProgram =
+  if analyzedProgramRequiresHost analyzedProgram
     then
       runtimeControlOutcome
         <$> runRuntimeHostEvaluation
           host
           ( \evaluationHost ->
-              evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram
+              evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram
           )
-    else pure (diagnosticResultOutcome (evaluateCompiledProgramPureUnchecked compiledProgram))
+    else pure (diagnosticResultOutcome (evaluateAnalyzedProgramPureUnchecked analyzedProgram))
 
-evaluateCompiledProgramWithEvaluationHostUnchecked ::
+evaluateAnalyzedProgramWithEvaluationHostUnchecked ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  CompiledProgram ->
+  CoreProgram 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeProgram)
-evaluateCompiledProgramWithEvaluationHostUnchecked evaluationHost compiledProgram =
+evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgram =
   runExceptT $ do
-    ambientEnv <- ExceptT (evaluatePreludeWithEvaluationHost evaluationHost (compiledProgramPrelude compiledProgram))
-    evaluateModules compiledModulesByPath ambientEnv emptyRuntimeModuleAccumulator Nothing (compiledProgramModules compiledProgram)
+    ambientEnv <-
+      ExceptT
+        ( evaluatePreludeWithEvaluationHost
+            evaluationHost
+            (coreProgramPrelude analyzedProgram)
+        )
+    evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
-    entryPath = compiledProgramEntryPath compiledProgram
-    compiledModulesByPath = buildCompiledModulePathIndex compiledProgram
+    entryPath = coreProgramEntry analyzedProgram
 
-    evaluateModules compiledModules ambientEnv runtimeModules output remainingModules =
+    evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
         [] ->
           pure
             (finishRuntimeProgram runtimeModules output)
-        compiledModule : rest -> do
-          let modulePath = compiledModulePath compiledModule
-              evaluationMode =
-                if modulePath == entryPath
-                  then EvaluateEntryModule
-                  else EvaluateDependencyModule
-              importedEnv =
-                foldr
-                  (importRuntimeModule compiledModules (accumulatedRuntimeModulesByPath runtimeModules))
-                  ambientEnv
-                  (compiledModuleImports compiledModule)
+        analyzedModule : rest -> do
+          let preparedModule =
+                prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule
           scopeResult <-
             ExceptT
               ( evaluateModuleScopeWithRequiredEvaluationHostControl
                   evaluationHost
-                  (Just modulePath)
-                  evaluationMode
-                  (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
-                  (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-                  importedEnv
-                  (scopeStatements (compiledModuleExpr compiledModule))
+                  (Just (NamedSourceUnit (preparedModulePath preparedModule)))
+                  (preparedModuleEvaluationMode preparedModule)
+                  (preparedModuleImportedEnvironment preparedModule)
+                  (scopeStatements (coreModuleExpr analyzedModule))
               )
-          let runtimeModule =
-                RuntimeModule
-                  { runtimeModulePath = modulePath,
-                    runtimeModuleExports =
-                      publishExports
-                        CurrentModule
-                        (compiledModuleExportInventory compiledModule)
-                        (compiledModuleInterface compiledModule)
-                        (scopeResultEnvironment scopeResult)
-                  }
-              nextOutput =
-                if modulePath == entryPath
-                  then scopeResultValue scopeResult
-                  else output
-          evaluateModules compiledModules ambientEnv (accumulateRuntimeModule runtimeModule runtimeModules) nextOutput rest
+          let (nextRuntimeModules, nextOutput) =
+                completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output
+          evaluateModules ambientEnv nextRuntimeModules nextOutput rest
 
-compiledProgramRequiresHost :: CompiledProgram -> Bool
-compiledProgramRequiresHost compiledProgram =
-  maybe False runtimeExprRequiresHost (compiledPreludeExpr (compiledProgramPrelude compiledProgram))
-    || any (runtimeExprRequiresHost . compiledModuleExpr) (compiledProgramModules compiledProgram)
+prepareModuleEvaluation ::
+  ModulePath ->
+  CoreProgram 'Analyzed ->
+  RuntimeEnv ->
+  RuntimeModuleAccumulator ->
+  CoreModule 'Analyzed ->
+  PreparedModuleEvaluation
+prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules analyzedModule =
+  PreparedModuleEvaluation
+    { preparedModulePath = modulePath,
+      preparedModuleEvaluationMode =
+        if modulePath == entryPath
+          then EvaluateEntryModule
+          else EvaluateDependencyModule,
+      preparedModuleImportedEnvironment =
+        foldr
+          (importRuntimeModule analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules))
+          ambientEnv
+          (coreModuleImports analyzedModule)
+    }
+  where
+    modulePath = coreModulePath analyzedModule
+
+completeModuleEvaluation ::
+  PreparedModuleEvaluation ->
+  CoreModule 'Analyzed ->
+  ScopeResult ->
+  RuntimeModuleAccumulator ->
+  Maybe RuntimeValue ->
+  (RuntimeModuleAccumulator, Maybe RuntimeValue)
+completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModules output =
+  ( accumulateRuntimeModule (preparedModulePath preparedModule) runtimeModule runtimeModules,
+    case preparedModuleEvaluationMode preparedModule of
+      EvaluateEntryModule -> scopeResultValue scopeResult
+      EvaluateDependencyModule -> output
+  )
+  where
+    runtimeModule =
+      RuntimeModule
+        { runtimeModulePath = modulePathTexts (preparedModulePath preparedModule),
+          runtimeModuleExports =
+            publishExports
+              (moduleExportInventory analyzedModule)
+              (coreModuleInterface analyzedModule)
+              (scopeResultEnvironment scopeResult)
+        }
+
+analyzedProgramRequiresHost :: CoreProgram 'Analyzed -> Bool
+analyzedProgramRequiresHost analyzedProgram =
+  maybe False (runtimeExprRequiresHost . coreModuleExpr) (preludeModule (coreProgramPrelude analyzedProgram))
+    || any (runtimeExprRequiresHost . coreModuleExpr) (coreProgramModules analyzedProgram)
 
 evaluatePreludeWithEvaluationHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  CompiledPrelude ->
+  PreludeArtifact 'Analyzed ->
   RuntimeHostEvaluationT m (Either RuntimeControl RuntimeEnv)
-evaluatePreludeWithEvaluationHost host compiledPrelude =
-  case compiledPreludeExpr compiledPrelude of
+evaluatePreludeWithEvaluationHost host analyzedPrelude =
+  case preludeModule analyzedPrelude of
     Nothing -> pure (Right Map.empty)
-    Just expression -> do
+    Just analyzedModule -> do
       scopeResult <-
         evaluateModuleScopeWithRequiredEvaluationHostControl
           host
-          (Just [])
+          (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
-          (compiledPreludeBuiltinMode compiledPrelude)
-          (compiledPreludeRuntimeHints compiledPrelude)
           Map.empty
-          (scopeStatements expression)
+          (scopeStatements (coreModuleExpr analyzedModule))
       pure $
         fmap
           ( \result ->
               publishEnvironment
                 AmbientPrelude
-                (moduleInterfaceExportInventory (compiledPreludeInterface compiledPrelude))
-                (compiledPreludeInterface compiledPrelude)
+                (moduleExportInventory analyzedModule)
+                (coreModuleInterface analyzedModule)
                 (scopeResultEnvironment result)
           )
           scopeResult
 
-importRuntimeModule :: Map [Text] CompiledModule -> Map [Text] RuntimeModule -> ResolvedImport -> RuntimeEnv -> RuntimeEnv
-importRuntimeModule compiledModules runtimeModules importDecl env =
-  case (Map.lookup dependencyPath compiledModules, Map.lookup dependencyPath runtimeModules) of
-    (Just compiledDependency, Just runtimeDependency) ->
+importRuntimeModule :: CoreProgram 'Analyzed -> Map ModulePath RuntimeModule -> ModuleImport 'Analyzed -> RuntimeEnv -> RuntimeEnv
+importRuntimeModule analyzedProgram runtimeModules importDecl env =
+  case (lookupCoreModule dependencyPath analyzedProgram, Map.lookup dependencyPath runtimeModules) of
+    (Just analyzedDependency, Just runtimeDependency) ->
       let publicInventory =
-            compiledModuleExportInventory compiledDependency
+            moduleExportInventory analyzedDependency
           selectedExports =
             [ (runtimeExport, cell)
             | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
@@ -350,28 +372,31 @@ importRuntimeModule compiledModules runtimeModules importDecl env =
             ]
           insertExport (runtimeExport, cell) =
             Map.insert
-              ( ResolvedName
-                  (ImportedModule dependencyPath)
-                  (runtimeExportNamespace runtimeExport)
-                  (mkIdentifier (runtimeExportName runtimeExport))
+              ( UserName
+                  ( ResolvedUserName
+                      dependencyOrigin
+                      (runtimeExportNamespace runtimeExport)
+                      (mkIdentifier (runtimeExportName runtimeExport))
+                  )
               )
               cell
        in foldr insertExport env selectedExports
     _ -> env
   where
-    dependencyPath = resolvedImportPath importDecl
+    dependencyPath = ModuleGraph.importedModule importDecl
+    dependencyOrigin = ImportedModule dependencyPath
 
 emptyRuntimeModuleAccumulator :: RuntimeModuleAccumulator
-emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator [] Map.empty
+emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator Seq.empty Map.empty
 
-accumulateRuntimeModule :: RuntimeModule -> RuntimeModuleAccumulator -> RuntimeModuleAccumulator
-accumulateRuntimeModule runtimeModule runtimeModules =
+accumulateRuntimeModule :: ModulePath -> RuntimeModule -> RuntimeModuleAccumulator -> RuntimeModuleAccumulator
+accumulateRuntimeModule modulePath runtimeModule runtimeModules =
   RuntimeModuleAccumulator
-    { accumulatedRuntimeModulesReversed = runtimeModule : accumulatedRuntimeModulesReversed runtimeModules,
+    { accumulatedRuntimeModules = accumulatedRuntimeModules runtimeModules Seq.|> runtimeModule,
       accumulatedRuntimeModulesByPath =
         Map.insertWith
           (\_ firstRuntimeModule -> firstRuntimeModule)
-          (runtimeModulePath runtimeModule)
+          modulePath
           runtimeModule
           (accumulatedRuntimeModulesByPath runtimeModules)
     }
@@ -379,34 +404,34 @@ accumulateRuntimeModule runtimeModule runtimeModules =
 finishRuntimeProgram :: RuntimeModuleAccumulator -> Maybe RuntimeValue -> RuntimeProgram
 finishRuntimeProgram runtimeModules output =
   RuntimeProgram
-    { runtimeProgramModules = reverse (accumulatedRuntimeModulesReversed runtimeModules),
+    { runtimeProgramModules = toList (accumulatedRuntimeModules runtimeModules),
       runtimeProgramOutput = output
     }
 
-buildCompiledModulePathIndex :: CompiledProgram -> Map [Text] CompiledModule
-buildCompiledModulePathIndex =
-  Map.fromListWith (\_ firstCompiledModule -> firstCompiledModule)
-    . map
-      (\compiledModule -> (compiledModulePath compiledModule, compiledModule))
-    . compiledProgramModules
+coreModuleInterface :: CoreModule 'Analyzed -> ModuleInterface
+coreModuleInterface = analyzedModuleInterface . coreModuleFacts
+
+moduleExportInventory :: CoreModule 'Analyzed -> ModuleExportInventory
+moduleExportInventory = analyzedModuleExports . coreModuleFacts
+
+modulePathTexts :: ModulePath -> [Text]
+modulePathTexts = NonEmpty.toList . modulePathTextSegments
 
 publishEnvironment :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> RuntimeEnv
 publishEnvironment origin publicInventory moduleInterface env =
-  let renderedLookupIndex = buildRenderedLookupIndex env
-   in Map.fromList
-        [ (ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)), cell)
-        | runtimeExport <- interfaceExports publicInventory moduleInterface,
-          Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
-        ]
+  Map.fromList
+    [ (UserName (ResolvedUserName origin (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport))), cell)
+    | runtimeExport <- interfaceExports publicInventory moduleInterface,
+      Just cell <- [lookupExportCell runtimeExport env]
+    ]
 
-publishExports :: ResolvedNameOrigin -> ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
-publishExports origin publicInventory moduleInterface env =
-  let renderedLookupIndex = buildRenderedLookupIndex env
-   in Map.fromList
-        [ (runtimeExport, cell)
-        | runtimeExport <- interfaceExports publicInventory moduleInterface,
-          Just cell <- [lookupExportCell origin runtimeExport env renderedLookupIndex]
-        ]
+publishExports :: ModuleExportInventory -> ModuleInterface -> RuntimeEnv -> Map RuntimeExport RuntimeCell
+publishExports publicInventory moduleInterface env =
+  Map.fromList
+    [ (runtimeExport, cell)
+    | runtimeExport <- interfaceExports publicInventory moduleInterface,
+      Just cell <- [lookupExportCell runtimeExport env]
+    ]
 
 interfaceExports :: ModuleExportInventory -> ModuleInterface -> [RuntimeExport]
 interfaceExports publicInventory moduleInterface =
@@ -422,26 +447,28 @@ interfaceExports publicInventory moduleInterface =
   where
     publicClassNames = exportNamesInNamespace CapabilityNamespace publicInventory
 
-runtimeExportSelected :: ResolvedImport -> ModuleExportInventory -> RuntimeExport -> Bool
+runtimeExportSelected :: ModuleImport 'Analyzed -> ModuleExportInventory -> RuntimeExport -> Bool
 runtimeExportSelected importDecl publicInventory runtimeExport =
-  case runtimeExport of
-    RuntimeCapabilityMethodExport className _ ->
-      resolvedImportAlias importDecl == Nothing
-        && Set.member className selectedClassNames
-    RuntimeBindingExport moduleExport ->
-      inventoryHasExport moduleExport selectedInventory
+  case ModuleGraph.importExposure importDecl of
+    ImportAllUnqualified -> selectedBy UnqualifiedImport Nothing True
+    ImportOnlyUnqualified symbolNames -> selectedBy UnqualifiedImport (Just (map identifierText (NonEmpty.toList symbolNames))) True
+    ImportQualifiedOnly _ -> selectedBy QualifiedAliasImport Nothing False
   where
-    importMode =
-      case resolvedImportAlias importDecl of
-        Nothing -> UnqualifiedImport
-        Just _ -> QualifiedAliasImport
-    selectedInventory =
-      visibleImportInventory
-        importMode
-        (resolvedImportSymbols importDecl)
-        publicInventory
-    selectedClassNames =
-      exportNamesInNamespace CapabilityNamespace selectedInventory
+    selectedBy importMode symbolNames includeCapabilityMethods =
+      case runtimeExport of
+        RuntimeCapabilityMethodExport className _ ->
+          includeCapabilityMethods
+            && Set.member className selectedClassNames
+        RuntimeBindingExport moduleExport ->
+          inventoryHasExport moduleExport selectedInventory
+      where
+        selectedInventory =
+          visibleImportInventory
+            importMode
+            symbolNames
+            publicInventory
+        selectedClassNames =
+          exportNamesInNamespace CapabilityNamespace selectedInventory
 
 runtimeExportName :: RuntimeExport -> Text
 runtimeExportName runtimeExport =
@@ -455,45 +482,15 @@ runtimeExportNamespace runtimeExport =
     RuntimeBindingExport moduleExport -> moduleExportNamespace moduleExport
     RuntimeCapabilityMethodExport {} -> ValueNamespace
 
-type RenderedLookupIndex = Map (NameNamespace, Text) RuntimeCell
-
-lookupExportCell :: ResolvedNameOrigin -> RuntimeExport -> RuntimeEnv -> RenderedLookupIndex -> Maybe RuntimeCell
-lookupExportCell origin runtimeExport env renderedLookupIndex =
-  case Map.lookup expectedName env of
-    Just cell -> Just cell
-    Nothing -> lookupRendered runtimeExport renderedLookupIndex
-  where
-    exportName = runtimeExportName runtimeExport
-    expectedName =
-      case origin of
-        AmbientPrelude -> sourceName (mkIdentifier exportName)
-        _ -> ResolvedName origin (runtimeExportNamespace runtimeExport) (mkIdentifier exportName)
-
-buildRenderedLookupIndex :: RuntimeEnv -> RenderedLookupIndex
-buildRenderedLookupIndex =
-  foldr indexName Map.empty . Map.toList
-  where
-    indexName (name, cell) index =
-      foldr
-        (\key -> Map.insert key cell)
-        index
-        [ (namespace, renderedName)
-        | namespace <- matchingNamespaces name,
-          renderedName <- Set.toList (Set.fromList [renderName name, identifierText name])
-        ]
-    matchingNamespaces name =
-      case name of
-        ResolvedName _ namespace _ -> [namespace]
-        _ -> [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
-
-lookupRendered :: RuntimeExport -> RenderedLookupIndex -> Maybe RuntimeCell
-lookupRendered runtimeExport renderedLookupIndex =
+-- Declarations are local even in the prelude; publication assigns their
+-- externally visible origin only after looking up the declaration's cell.
+lookupExportCell :: RuntimeExport -> RuntimeEnv -> Maybe RuntimeCell
+lookupExportCell runtimeExport =
   Map.lookup
-    (runtimeExportNamespace runtimeExport, runtimeExportName runtimeExport)
-    renderedLookupIndex
+    (resolvedLocalName (runtimeExportNamespace runtimeExport) (mkIdentifier (runtimeExportName runtimeExport)))
 
-scopeStatements :: Expr -> [Statement]
+scopeStatements :: Expr 'Analyzed -> [Statement 'Analyzed]
 scopeStatements expression =
   case expression of
-    EBlock statements -> statements
+    EBlock _ statements -> statements
     _ -> []

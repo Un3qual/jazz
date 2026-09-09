@@ -1,3 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Benchmark.ScaleCases
@@ -19,11 +22,12 @@ module Jazz.Benchmark.ScaleCases
   )
 where
 
-import Control.DeepSeq (NFData (rnf))
+import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
+import GHC.Generics (Generic)
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Profiling (BenchmarkGroup (..))
 import System.FilePath (joinPath, (<.>), (</>))
@@ -35,11 +39,6 @@ data CompilerScaleScenario
   | NestedRuntimeApplications
   | RuntimeImportWidth
   | ResolverFactRich
-  | TypedValidationHandoff
-  | LoweredTemporaryValidation
-  | TypedRecursiveStatementGraph
-  | TypedForwardSignedFunctions
-  | TypedWideExportProviders
   | WideConstructorApplication
   | CapabilityCandidateWidth
   | HostFreeOpaqueEnvironment
@@ -56,10 +55,8 @@ data CompilerScaleScenario
   | LongTokenStream
   | IdentifierTokenStream
   | LiteralTokenStream
-  deriving (Eq, Ord, Show)
-
-instance NFData CompilerScaleScenario where
-  rnf scenario = scenario `seq` ()
+  deriving stock (Eq, Generic, Ord, Show)
+  deriving anyclass (NFData)
 
 data CompilerScaleCase = CompilerScaleCase
   { compilerScaleCaseIdentifier :: Text,
@@ -72,23 +69,8 @@ data CompilerScaleCase = CompilerScaleCase
     compilerScaleCaseSources :: Map FilePath Text,
     compilerScaleCaseExpectedOutput :: Text
   }
-  deriving (Eq, Show)
-
-instance NFData CompilerScaleCase where
-  rnf programCase =
-    rnf (compilerScaleCaseIdentifier programCase) `seq`
-      rnf (compilerScaleCaseScenario programCase) `seq`
-        rnf (compilerScaleCaseSize programCase) `seq`
-          rnf (compilerScaleCaseInterfaceWidth programCase) `seq`
-            forceBenchmarkGroups (compilerScaleCaseBenchmarks programCase) `seq`
-              rnf (compilerScaleCaseEntryModulePath programCase) `seq`
-                rnf (moduleRoots (compilerScaleCaseResolutionConfig programCase)) `seq`
-                  rnf (moduleExtension (compilerScaleCaseResolutionConfig programCase)) `seq`
-                    rnf (compilerScaleCaseSources programCase) `seq`
-                      rnf (compilerScaleCaseExpectedOutput programCase)
-
-forceBenchmarkGroups :: [BenchmarkGroup] -> ()
-forceBenchmarkGroups = foldr (\benchmarkGroup forced -> benchmarkGroup `seq` forced) ()
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
 
 compilerScaleCases :: [CompilerScaleCase]
 compilerScaleCases =
@@ -101,11 +83,6 @@ baseCompilerScaleCases =
     <> map (`wideModuleFanoutCase` 1) [64, 128, 256, 512]
     <> map (`sharedInterfaceFanoutCase` 16) [16, 32, 64, 128]
     <> map resolverFactRichCase [16, 32, 64, 128]
-    <> map typedValidationHandoffCase [64, 128, 256, 512]
-    <> map loweredTemporaryValidationCase [64, 256, 1024, 4096]
-    <> map typedRecursiveStatementGraphCase [128, 512, 1024, 2048]
-    <> map typedForwardSignedFunctionsCase [128, 512, 1024, 2048]
-    <> map typedWideExportProvidersCase [128, 512, 1024, 2048]
     <> map wideConstructorApplicationCase [32, 64, 128, 256]
     <> map capabilityCandidateWidthCase [16, 32, 64, 128]
     <> map hostFreeOpaqueEnvironmentCase [64, 256, 1024, 4096]
@@ -305,65 +282,6 @@ resolverFactRichValuesSource :: Text
 resolverFactRichValuesSource =
   "module Support::Values (identity, seed) { identity = \\(item) -> item. seed = 1. }"
 
-typedValidationHandoffCase :: Int -> CompilerScaleCase
-typedValidationHandoffCase expressionCount =
-  CompilerScaleCase
-    { compilerScaleCaseIdentifier = "typed-validation-handoff-" <> paddedDecimal 4 expressionCount,
-      compilerScaleCaseScenario = TypedValidationHandoff,
-      compilerScaleCaseSize = expressionCount,
-      compilerScaleCaseInterfaceWidth = Nothing,
-      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
-      compilerScaleCaseEntryModulePath = ["Main"],
-      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
-      compilerScaleCaseSources = Map.empty,
-      compilerScaleCaseExpectedOutput = ""
-    }
-
-loweredTemporaryValidationCase :: Int -> CompilerScaleCase
-loweredTemporaryValidationCase instructionCount =
-  CompilerScaleCase
-    { compilerScaleCaseIdentifier =
-        "lowered-temporary-validation-" <> paddedDecimal 4 instructionCount,
-      compilerScaleCaseScenario = LoweredTemporaryValidation,
-      compilerScaleCaseSize = instructionCount,
-      compilerScaleCaseInterfaceWidth = Nothing,
-      compilerScaleCaseBenchmarks = [LoweredValidationBenchmark],
-      compilerScaleCaseEntryModulePath = ["LoweredTemporaryValidation"],
-      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
-      compilerScaleCaseSources = Map.empty,
-      compilerScaleCaseExpectedOutput = ""
-    }
-
-typedRecursiveStatementGraphCase :: Int -> CompilerScaleCase
-typedRecursiveStatementGraphCase statementCount =
-  CompilerScaleCase
-    { compilerScaleCaseIdentifier =
-        "typed-recursive-statement-graph-" <> paddedDecimal 4 statementCount,
-      compilerScaleCaseScenario = TypedRecursiveStatementGraph,
-      compilerScaleCaseSize = statementCount,
-      compilerScaleCaseInterfaceWidth = Nothing,
-      compilerScaleCaseBenchmarks = [TypedValidationBenchmark],
-      compilerScaleCaseEntryModulePath = ["TypedRecursiveStatementGraph"],
-      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
-      compilerScaleCaseSources = Map.empty,
-      compilerScaleCaseExpectedOutput = ""
-    }
-
-typedWideExportProvidersCase :: Int -> CompilerScaleCase
-typedWideExportProvidersCase providerCount =
-  CompilerScaleCase
-    { compilerScaleCaseIdentifier =
-        "typed-wide-export-providers-" <> paddedDecimal 4 providerCount,
-      compilerScaleCaseScenario = TypedWideExportProviders,
-      compilerScaleCaseSize = providerCount,
-      compilerScaleCaseInterfaceWidth = Nothing,
-      compilerScaleCaseBenchmarks = [TypedValidationBenchmark],
-      compilerScaleCaseEntryModulePath = ["TypedWideExportProviders"],
-      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
-      compilerScaleCaseSources = Map.empty,
-      compilerScaleCaseExpectedOutput = ""
-    }
-
 wideConstructorApplicationCase :: Int -> CompilerScaleCase
 wideConstructorApplicationCase fieldCount =
   CompilerScaleCase
@@ -482,21 +400,6 @@ hostFreeOpaqueEnvironmentSource bindingCount =
            ]
         <> ["  seed.", "}"]
     )
-
-typedForwardSignedFunctionsCase :: Int -> CompilerScaleCase
-typedForwardSignedFunctionsCase size =
-  CompilerScaleCase
-    { compilerScaleCaseIdentifier =
-        "typed-forward-signed-functions-" <> paddedDecimal 4 size,
-      compilerScaleCaseScenario = TypedForwardSignedFunctions,
-      compilerScaleCaseSize = size,
-      compilerScaleCaseInterfaceWidth = Nothing,
-      compilerScaleCaseBenchmarks = [TypedLoweringBenchmark],
-      compilerScaleCaseEntryModulePath = ["TypedForwardSignedFunctions"],
-      compilerScaleCaseResolutionConfig = scaleResolutionConfig,
-      compilerScaleCaseSources = Map.empty,
-      compilerScaleCaseExpectedOutput = ""
-    }
 
 analyzerDiagnosticChainCase :: Int -> CompilerScaleCase
 analyzerDiagnosticChainCase expressionCount =

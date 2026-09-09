@@ -4,10 +4,9 @@ description: Follow the stages that turn Jazz source into diagnostics or an eval
 sidebar_position: 1
 ---
 
-The Jazz toolchain is a compiler front end and interpreter. Ordinary compile
-and run mode use canonical core as their executable representation. A separate,
-bounded path produces typed core and backend-neutral lowered IR for future
-native compilation.
+The Jazz toolchain is a compiler front end and interpreter. Its canonical core
+is indexed by compiler phase: lowering constructs syntax, resolution attaches
+unambiguous names, and analysis attaches the semantic facts used by execution.
 
 ## Source and modules
 
@@ -46,7 +45,8 @@ types, capability requirements, and the current purity rules. Type inference
 adds types where no signature is written and validates explicit signatures
 where they are present.
 
-Analysis retains one semantic program and accumulates structured diagnostics;
+Analysis attaches types and runtime plans to the resolved program and accumulates
+structured diagnostics;
 it does not print messages or execute user expressions.
 
 ## Diagnose
@@ -60,7 +60,7 @@ Any error-severity compile diagnostic prevents evaluation.
 
 ## Interpret
 
-Run mode evaluates canonical core after successful analysis. Module
+Run mode evaluates analyzed core after successful analysis. Module
 dependencies publish their selected runtime exports without executing their
 top-level expression statements; the entry module then evaluates its own
 expressions. Host operations for files, streams, arguments, and exit pass
@@ -68,13 +68,3 @@ through the runtime host boundary.
 
 The interpreter produces a value or a stable runtime diagnostic. Optional
 statistics and profiles observe evaluation without changing the result.
-
-## Prepare a backend
-
-An opt-in path retains typed information from analysis, validates it, lowers it
-to backend-neutral control-flow IR, and validates the lowered result. Programs
-outside the supported subset continue through ordinary compilation unchanged.
-
-This stage does not participate in ordinary compile or run mode. See
-[Project status](../project/status.md) for its current language coverage and
-[Bootstrapping](bootstrapping.md) for how a compiler stage becomes canonical.

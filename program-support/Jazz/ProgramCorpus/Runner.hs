@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.ProgramCorpus.Runner
@@ -19,6 +20,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Data.Word (Word64)
+import Jazz.Compiler.AST (CorePhase (..))
 import Jazz.Compiler.BundledPrelude (bundledPreludeSource)
 import Jazz.Compiler.DiagnosticCatalog (ErrorCode (E5004))
 import Jazz.Compiler.Diagnostics
@@ -28,15 +30,17 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeBundled),
-    RunResult (..),
-    buildCompiledProgram,
+    RunResult,
+    buildAnalyzedProgram,
     runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runOutput,
     runRuntimeErrors,
+    runRuntimeObservation,
     runWarnings,
   )
-import Jazz.Compiler.ModuleInterface (CompiledProgram)
+import Jazz.Compiler.ModuleGraph (CoreProgram)
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationReport (..),
@@ -122,9 +126,9 @@ loadProgramCaseEntrySource programCase = do
             )
     )
 
-prepareProgramCase :: ProgramCase -> IO (Either Diagnostic CompiledProgram)
+prepareProgramCase :: ProgramCase -> IO (Either Diagnostic (CoreProgram 'Resolved, [Diagnostic], Maybe (CoreProgram 'Analyzed)))
 prepareProgramCase programCase =
-  buildCompiledProgram
+  buildAnalyzedProgram
     defaultWarningSettings
     (PreludeBundled bundledPreludeSource)
     (programCaseResolutionConfig programCase)

@@ -4,6 +4,10 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Hosted lexer, parser, and core decisions dated 2026-07-11, 2026-07-12, 2026-07-16, 2026-07-17, 2026-07-20, and 2026-07-21.
 
+> The backend requirements of this RFC are superseded by
+> [RFC 0016](0016-optional-backend-removal.md). Its stage-0, hosted-frontend, and conformance
+> decisions remain in force.
+
 ## Decision
 
 Jazz-authored lexing, parsing, and canonical-core lowering are compiler-private

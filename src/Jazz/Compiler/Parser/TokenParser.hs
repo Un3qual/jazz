@@ -8,7 +8,6 @@ module Jazz.Compiler.Parser.TokenParser
     failTokenParserAt,
     parseAnyToken,
     parseIdentifier,
-    parseOperator,
     parseToken,
     parseTokenKind,
     parseTokenWhere,
@@ -17,7 +16,6 @@ module Jazz.Compiler.Parser.TokenParser
     runTokenParserDetailed,
     runTokenParserPrefix,
     runTokenParserPrefixDetailed,
-    runTokenStreamParser,
     runTokenStreamParserDetailed,
     runTokenStreamParserPrefix,
     runTokenStreamParserPrefixDetailed,
@@ -27,6 +25,8 @@ where
 import Control.Applicative
   ( optional,
   )
+import Data.Bifunctor (first)
+import Data.Foldable (asum)
 import Data.List.NonEmpty
   ( NonEmpty,
   )
@@ -81,17 +81,11 @@ type Parser = Parsec ParserError TokenStream
 
 runTokenParser :: Text -> Parser a -> [Token] -> Either Diagnostic a
 runTokenParser label parser tokens =
-  parserFailureDiagnostic
-    `mapLeft` runTokenParserDetailed label parser tokens
+  first parserFailureDiagnostic (runTokenParserDetailed label parser tokens)
 
 runTokenParserDetailed :: Text -> Parser a -> [Token] -> Either ParserFailure a
 runTokenParserDetailed label parser tokens =
   runTokenStreamParserDetailed label parser (tokenStreamFromList tokens)
-
-runTokenStreamParser :: Text -> Parser a -> TokenStream -> Either Diagnostic a
-runTokenStreamParser label parser tokens =
-  parserFailureDiagnostic
-    `mapLeft` runTokenStreamParserDetailed label parser tokens
 
 runTokenStreamParserDetailed :: Text -> Parser a -> TokenStream -> Either ParserFailure a
 runTokenStreamParserDetailed label parser tokens =
@@ -101,8 +95,7 @@ runTokenStreamParserDetailed label parser tokens =
 
 runTokenParserPrefix :: Text -> Parser a -> [Token] -> Either Diagnostic (a, [Token])
 runTokenParserPrefix label parser tokens =
-  parserFailureDiagnostic
-    `mapLeft` runTokenParserPrefixDetailed label parser tokens
+  first parserFailureDiagnostic (runTokenParserPrefixDetailed label parser tokens)
 
 runTokenParserPrefixDetailed :: Text -> Parser a -> [Token] -> Either ParserFailure (a, [Token])
 runTokenParserPrefixDetailed label parser tokens =
@@ -110,8 +103,7 @@ runTokenParserPrefixDetailed label parser tokens =
 
 runTokenStreamParserPrefix :: Text -> Parser a -> TokenStream -> Either Diagnostic (a, TokenStream)
 runTokenStreamParserPrefix label parser tokens =
-  parserFailureDiagnostic
-    `mapLeft` runTokenStreamParserPrefixDetailed label parser tokens
+  first parserFailureDiagnostic (runTokenStreamParserPrefixDetailed label parser tokens)
 
 runTokenStreamParserPrefixDetailed :: Text -> Parser a -> TokenStream -> Either ParserFailure (a, TokenStream)
 runTokenStreamParserPrefixDetailed label parser tokens =
@@ -161,17 +153,6 @@ parseIdentifier =
       )
       "identifier"
 
-parseOperator :: Parser Text
-parseOperator =
-  tokenLexeme
-    <$> parseTokenWhere
-      ( \token ->
-          case tokenKind token of
-            TOperator {} -> True
-            _ -> False
-      )
-      "operator"
-
 parseTokenWhere :: (Token -> Bool) -> Text -> Parser Token
 parseTokenWhere matches expectedDescription = do
   maybeToken <- peekToken
@@ -208,22 +189,16 @@ tokenParserFailure bundle =
 
 firstCustomParserError :: NonEmpty (ParseError TokenStream ParserError) -> Maybe ParserError
 firstCustomParserError errors =
-  firstJust (map customErrorMessage (NonEmpty.toList errors))
+  asum (map customErrorMessage (NonEmpty.toList errors))
   where
     customErrorMessage parseError =
       case parseError of
         FancyError _ fancyErrors ->
-          firstJust
+          asum
             [ Just parserError
             | ErrorCustom parserError <- Set.toList fancyErrors
             ]
         TrivialError {} -> Nothing
-
-    firstJust values =
-      case values of
-        [] -> Nothing
-        Just value : _ -> Just value
-        Nothing : rest -> firstJust rest
 
 renderExpectedTokenKind :: TokenKind -> Text
 renderExpectedTokenKind expectedKind =
@@ -256,9 +231,3 @@ renderExpectedTokenKind expectedKind =
     TLBracket -> "'['"
     TRBracket -> "']'"
     TComma -> "','"
-
-mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
-mapLeft transform result =
-  case result of
-    Left failure -> Left (transform failure)
-    Right value -> Right value

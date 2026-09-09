@@ -1,46 +1,62 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- | Shared helpers for parsing surface source into lowered compiler programs.
 module Jazz.Compiler.SourceProgram
   ( parseAndLowerStandaloneSource,
     parseSurfaceWithErrorCode,
-    scopeStatements
-  ) where
+    prependLoweredStatements,
+    scopeStatements,
+  )
+where
 
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Statement (..)
+  ( CorePhase (..),
+    Expr (..),
+    Statement (..),
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan (..),
     prependDiagnosticSummary,
-    setDiagnosticErrorCode
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
+    setDiagnosticErrorCode,
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceExpr
+  ( SurfaceExpr,
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
+    reindexLoweredExpr,
   )
 
-parseAndLowerStandaloneSource :: Text -> Either Diagnostic Expr
+parseAndLowerStandaloneSource :: Text -> Either Diagnostic (Expr 'Lowered)
 parseAndLowerStandaloneSource source = do
   surfaceProgram <- parseSurfaceWithErrorCode source
   pure (lowerSurfaceExpr surfaceProgram)
 
-scopeStatements :: Expr -> [Statement]
+-- | Prepend already-lowered declarations and then allocate one identity space
+-- for the composed source unit. Parsed programs are blocks; retaining the
+-- non-block case makes the helper total without manufacturing a synthetic
+-- statement that would duplicate the expression's node identity.
+prependLoweredStatements :: [Statement 'Lowered] -> Expr 'Lowered -> Expr 'Lowered
+prependLoweredStatements prefix expression =
+  reindexLoweredExpr $
+    case expression of
+      EBlock node statements -> EBlock node (prefix <> statements)
+      _ -> expression
+
+scopeStatements :: Expr phase -> [Statement phase]
 scopeStatements expr =
   case expr of
-    EBlock statements -> statements
-    _ -> [SExpr (SourceSpan 1 1) expr]
+    EBlock _ statements -> statements
+    _ -> []
 
 parseSurfaceWithErrorCode :: Text -> Either Diagnostic SurfaceExpr
 parseSurfaceWithErrorCode source =

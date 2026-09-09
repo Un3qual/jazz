@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.ScalarCollection
@@ -5,32 +6,37 @@ module Jazz.Compiler.Semantics.PrimitiveSemantics.ScalarCollection
     scalarPrimitiveTests,
     arithmeticMismatchTests,
     collectionTests,
-    mixedCollectionTests
+    mixedCollectionTests,
   )
 where
 
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Literal (..)
+  ( CorePhase (Lowered),
+    Expr,
+    Literal (..),
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
-    compileExpr
+    compileExpr,
   )
 import Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
   ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
-    mkProgram
+    mkProgram,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredBinary,
+    loweredLiteral,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertSingleDiagnosticContains
+    assertSingleDiagnosticContains,
   )
 
 arithmeticPrimitiveTests :: [NamedTest]
@@ -102,27 +108,27 @@ testSourcePipelineTypesBootstrapCollectionScalarPrimitives :: IO ()
 testSourcePipelineTypesBootstrapCollectionScalarPrimitives =
   assertCompiles
     ( """
-    items :: [Text].
-    items = __kernel_listPrependRaw \"first\" [\"second\"].
-    reversed :: [Text].
-    reversed = __kernel_listReverseRaw items.
-    scalar :: UInt32.
-    scalar = __kernel_charToUInt32 '\\u{1F642}'.
-    decoded :: [Char].
-    decoded = __kernel_charFromUInt32Raw scalar.
-    classes :: (Bool, Bool, Bool, Bool, Bool, Bool, Bool).
-    classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F', __kernel_charIsLower 'é', __kernel_charIsUpper 'É').
-    lower :: Char.
-    lower = __kernel_charToLower 'É'.
-    upper :: Char.
-    upper = __kernel_charToUpper 'é'.
-    built :: Text.
-    built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.
-    fromChars :: Text.
-    fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z'].
-    concatenated :: Text.
-    concatenated = __kernel_textConcat ["Ja", "zz"].
-    """
+      items :: [Text].
+      items = __kernel_listPrependRaw \"first\" [\"second\"].
+      reversed :: [Text].
+      reversed = __kernel_listReverseRaw items.
+      scalar :: UInt32.
+      scalar = __kernel_charToUInt32 '\\u{1F642}'.
+      decoded :: [Char].
+      decoded = __kernel_charFromUInt32Raw scalar.
+      classes :: (Bool, Bool, Bool, Bool, Bool, Bool, Bool).
+      classes = (__kernel_charIsAlpha 'é', __kernel_charIsAlphaNum '9', __kernel_charIsDigit '9', __kernel_charIsSpace '\\t', __kernel_charIsHexDigit 'F', __kernel_charIsLower 'é', __kernel_charIsUpper 'É').
+      lower :: Char.
+      lower = __kernel_charToLower 'É'.
+      upper :: Char.
+      upper = __kernel_charToUpper 'é'.
+      built :: Text.
+      built = __kernel_textAppendChar (__kernel_textAppend \"Ja\" \"z\") 'z'.
+      fromChars :: Text.
+      fromChars = __kernel_textFromChars ['J', 'a', 'z', 'z'].
+      concatenated :: Text.
+      concatenated = __kernel_textConcat ["Ja", "zz"].
+      """
     )
 
 testSourcePipelineRejectsInvalidBootstrapScalarArguments :: IO ()
@@ -152,21 +158,21 @@ testSourcePipelineTypesPrivateHostIOPrimitives :: IO ()
 testSourcePipelineTypesPrivateHostIOPrimitives =
   assertCompiles
     ( """
-    read! :: (Bool, Text, Text, Text).
-    read! = __kernel_readTextRaw! \"source.jz\".
-    write! :: (Bool, Text, Text, Text).
-    write! = __kernel_writeTextRaw! \"output.txt\" \"Jazz\".
-    stdin! :: (Bool, Text, Text, Text).
-    stdin! = __kernel_readStdinRaw! ().
-    stdout! :: (Bool, Text, Text, Text).
-    stdout! = __kernel_writeStdoutRaw! \"out\".
-    stderr! :: (Bool, Text, Text, Text).
-    stderr! = __kernel_writeStderrRaw! \"err\".
-    args! :: [Text].
-    args! = __kernel_arguments! ().
-    terminated! :: ().
-    terminated! = __kernel_exit! 0.
-    """
+      read! :: (Bool, Text, Text, Text).
+      read! = __kernel_readTextRaw! \"source.jz\".
+      write! :: (Bool, Text, Text, Text).
+      write! = __kernel_writeTextRaw! \"output.txt\" \"Jazz\".
+      stdin! :: (Bool, Text, Text, Text).
+      stdin! = __kernel_readStdinRaw! ().
+      stdout! :: (Bool, Text, Text, Text).
+      stdout! = __kernel_writeStdoutRaw! \"out\".
+      stderr! :: (Bool, Text, Text, Text).
+      stderr! = __kernel_writeStderrRaw! \"err\".
+      args! :: [Text].
+      args! = __kernel_arguments! ().
+      terminated! :: ().
+      terminated! = __kernel_exit! 0.
+      """
     )
 
 testSourcePipelineRejectsInvalidHostIOArguments :: IO ()
@@ -265,15 +271,15 @@ testSourcePipelineRejectsMixedTypeListLiteral =
     "list literal element mismatch"
     "E2007"
 
-arithmeticProgram :: Expr
+arithmeticProgram :: Expr 'Lowered
 arithmeticProgram =
   mkProgram
-    ( EBinary
+    ( loweredBinary
         "+"
-        (EBinary "*" (ELit (LInt 7)) (ELit (LInt 6)))
-        (EBinary "/" (ELit (LInt 8)) (ELit (LInt 2)))
+        (loweredBinary "*" (loweredLiteral (LInt 7)) (loweredLiteral (LInt 6)))
+        (loweredBinary "/" (loweredLiteral (LInt 8)) (loweredLiteral (LInt 2)))
     )
 
-arithmeticTypeMismatchProgram :: Expr
+arithmeticTypeMismatchProgram :: Expr 'Lowered
 arithmeticTypeMismatchProgram =
-  mkProgram (EBinary "+" (ELit (LInt 1)) (ELit (LBool True)))
+  mkProgram (loweredBinary "+" (loweredLiteral (LInt 1)) (loweredLiteral (LBool True)))

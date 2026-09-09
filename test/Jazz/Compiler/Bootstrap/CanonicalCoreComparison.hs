@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Compiler.Bootstrap.CanonicalCoreComparison
   ( canonicalCoreExprRuntimeValue,
@@ -39,85 +42,140 @@ import Jazz.Compiler.ModuleExports
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule (..),
+    DeclaredImportExposure (..),
     DeclaredModuleExports (..),
-    ResolvedImport (..),
+    DeclaredModuleFacts (..),
+    ModuleImport (..),
+    coreModuleExpr,
+    importAlias,
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( modulePathTextSegments,
+    moduleQualifierIdentifier,
   )
 import Jazz.Compiler.Name
   ( GeneratedNameKind (..),
     IdentifierLike (identifierText),
     Name (..),
     NameNamespace (..),
+    SourceName (..),
+    UnresolvedName,
   )
+import Jazz.Compiler.Parser.Failure (ParserFailure)
+import Jazz.Compiler.Parser.Lexer (LexicalFailure)
 import Jazz.Compiler.Parser.Lower
   ( ModuleDeclaration (..),
     ModuleLoweringFailure (..),
   )
-import Jazz.Compiler.Parser.Failure (ParserFailure)
-import Jazz.Compiler.Parser.Lexer (LexicalFailure)
 import Jazz.Compiler.Runtime (RuntimeValue (..))
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern NumericFloat16,
+    pattern NumericFloat32,
+    pattern NumericFloat64,
+    pattern NumericInt16,
+    pattern NumericInt32,
+    pattern NumericInt64,
+    pattern NumericInt8,
+    pattern NumericUInt16,
+    pattern NumericUInt32,
+    pattern NumericUInt64,
+    pattern NumericUInt8,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureConstraint,
+    pattern SignatureIntToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureOperatorToken,
+    pattern SignatureOtherToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
+  )
 
-canonicalCoreExprRuntimeValue :: Expr -> Either Text RuntimeValue
+canonicalCoreExprRuntimeValue :: Expr 'Lowered -> Either Text RuntimeValue
 canonicalCoreExprRuntimeValue expression =
   case expression of
-    ELit literalValue -> constructor1 "CoreLiteralExpression" <$> coreLiteralRuntimeValue literalValue
-    EVar name -> constructor1 "CoreVariableExpression" <$> coreNameRuntimeValue name
-    ELambda parameter body ->
+    ELit _ literalValue -> constructor1 "CoreLiteralExpression" <$> coreLiteralRuntimeValue literalValue
+    EVar _ name -> constructor1 "CoreVariableExpression" <$> coreNameRuntimeValue name
+    ELambda _ parameter body ->
       constructor2 "CoreLambdaExpression"
         <$> coreNameRuntimeValue parameter
         <*> canonicalCoreExprRuntimeValue body
-    EOperatorValue symbol -> pure (constructor1 "CoreOperatorValueExpression" (VText symbol))
-    EList elements -> constructor1 "CoreListExpression" <$> listRuntimeValue canonicalCoreExprRuntimeValue elements
-    ETuple elements -> constructor1 "CoreTupleExpression" <$> listRuntimeValue canonicalCoreExprRuntimeValue elements
-    EApply function argument ->
+    EOperatorValue _ symbol -> pure (constructor1 "CoreOperatorValueExpression" (VText symbol))
+    EList _ elements -> constructor1 "CoreListExpression" <$> listRuntimeValue canonicalCoreExprRuntimeValue elements
+    ETuple _ elements -> constructor1 "CoreTupleExpression" <$> listRuntimeValue canonicalCoreExprRuntimeValue elements
+    EApply _ function argument ->
       constructor2 "CoreApplyExpression"
         <$> canonicalCoreExprRuntimeValue function
         <*> canonicalCoreExprRuntimeValue argument
-    ETypeApplication function spanValue signatureType ->
+    ETypeApplication _ function spanValue signatureType ->
       constructor3 "CoreTypeApplicationExpression"
         <$> canonicalCoreExprRuntimeValue function
         <*> coreSpanRuntimeValue spanValue
         <*> coreSignatureTypeRuntimeValue signatureType
-    EIf condition trueBranch falseBranch ->
+    EIf _ condition trueBranch falseBranch ->
       constructor3 "CoreIfExpression"
         <$> canonicalCoreExprRuntimeValue condition
         <*> canonicalCoreExprRuntimeValue trueBranch
         <*> canonicalCoreExprRuntimeValue falseBranch
-    EPatternCase scrutinee arms ->
+    EPatternCase _ scrutinee arms ->
       constructor2 "CorePatternCaseExpression"
         <$> canonicalCoreExprRuntimeValue scrutinee
         <*> listRuntimeValue coreCaseArmRuntimeValue arms
-    EBinary symbol left right ->
+    EBinary _ symbol left right ->
       constructor3 "CoreBinaryExpression" (VText symbol)
         <$> canonicalCoreExprRuntimeValue left
         <*> canonicalCoreExprRuntimeValue right
-    ESectionLeft left symbol ->
+    ESectionLeft _ left symbol ->
       constructor2 "CoreLeftSectionExpression"
         <$> canonicalCoreExprRuntimeValue left
         <*> pure (VText symbol)
-    ESectionRight symbol right ->
+    ESectionRight _ symbol right ->
       constructor2 "CoreRightSectionExpression" (VText symbol)
         <$> canonicalCoreExprRuntimeValue right
-    EBlock statements -> constructor1 "CoreBlockExpression" <$> listRuntimeValue coreStatementRuntimeValue statements
+    EBlock _ statements -> constructor1 "CoreBlockExpression" <$> listRuntimeValue coreStatementRuntimeValue statements
 
-canonicalCoreModuleRuntimeValue :: CoreModule -> Either Text RuntimeValue
-canonicalCoreModuleRuntimeValue coreModule =
+canonicalCoreModuleRuntimeValue :: Maybe [Text] -> CoreModule 'Lowered -> Either Text RuntimeValue
+canonicalCoreModuleRuntimeValue declaredPath coreModule =
   canonicalConstructor "CoreModule"
     <$> sequence
-      [ pure (maybeRuntimeValuePure (listRuntimeValuePure VText) (coreModuleDeclaredPath coreModule)),
-        maybeRuntimeValue coreDeclaredModuleExportsRuntimeValue (coreModuleDeclaredExports coreModule),
+      [ pure (maybeRuntimeValuePure (listRuntimeValuePure VText) declaredPath),
+        maybeRuntimeValue
+          coreDeclaredModuleExportsRuntimeValue
+          (declaredModuleExports (coreModuleFacts coreModule)),
         listRuntimeValue coreResolvedImportRuntimeValue (coreModuleImports coreModule),
         canonicalCoreExprRuntimeValue (coreModuleExpr coreModule)
       ]
 
-canonicalCoreModuleResultRuntimeValue :: Either ModuleLoweringFailure CoreModule -> Either Text RuntimeValue
-canonicalCoreModuleResultRuntimeValue result =
+canonicalCoreModuleResultRuntimeValue :: Maybe [Text] -> Either ModuleLoweringFailure (CoreModule 'Lowered) -> Either Text RuntimeValue
+canonicalCoreModuleResultRuntimeValue declaredPath result =
   case result of
-    Right coreModule -> constructor1 "CoreModuleLowered" <$> canonicalCoreModuleRuntimeValue coreModule
+    Right coreModule -> constructor1 "CoreModuleLowered" <$> canonicalCoreModuleRuntimeValue declaredPath coreModule
     Left failure -> constructor1 "CoreModuleLoweringFailed" <$> coreModuleLoweringFailureRuntimeValue failure
 
 canonicalCoreSourceResultRuntimeValue ::
   CanonicalSourcePath ->
-  Either LexicalFailure (Either ParserFailure (Either ModuleLoweringFailure CoreModule)) ->
+  Either LexicalFailure (Either ParserFailure (Maybe [Text], Either ModuleLoweringFailure (CoreModule 'Lowered))) ->
   Either Text RuntimeValue
 canonicalCoreSourceResultRuntimeValue sourcePath result =
   case result of
@@ -135,9 +193,9 @@ canonicalCoreSourceResultRuntimeValue sourcePath result =
             "CanonicalCoreSourceParserFailure"
             [canonicalSourcePathRuntimeValue sourcePath, parserFailureRuntimeValue parserFailure]
         )
-    Right (Right moduleResult) ->
+    Right (Right (declaredPath, moduleResult)) ->
       constructor1 "CanonicalCoreSourceModuleResult"
-        <$> canonicalCoreModuleResultRuntimeValue moduleResult
+        <$> canonicalCoreModuleResultRuntimeValue declaredPath moduleResult
 
 coreModuleLoweringFailureRuntimeValue :: ModuleLoweringFailure -> Either Text RuntimeValue
 coreModuleLoweringFailureRuntimeValue failure =
@@ -151,6 +209,13 @@ coreModuleLoweringFailureRuntimeValue failure =
         <$> coreSourcePathRuntimeValue sourcePath
         <*> pure (listRuntimeValuePure VText expectedPath)
         <*> coreModuleDeclarationRuntimeValue sourcePath declaration
+    EmptyImportSymbolList sourcePath _ modulePath ->
+      Left
+        ( "canonical core comparison cannot encode an empty import list in "
+            <> Text.pack sourcePath
+            <> " for "
+            <> Text.intercalate "::" modulePath
+        )
 
 coreModuleDeclarationRuntimeValue :: FilePath -> ModuleDeclaration -> Either Text RuntimeValue
 coreModuleDeclarationRuntimeValue sourcePath declaration =
@@ -180,104 +245,104 @@ coreLiteralRuntimeValue literalValue =
     LChar value -> pure (constructor1 "CoreCharacterLiteral" (VChar value))
     LText value -> pure (constructor1 "CoreTextLiteral" (VText value))
 
-corePatternRuntimeValue :: Pattern -> Either Text RuntimeValue
+corePatternRuntimeValue :: Pattern 'Lowered -> Either Text RuntimeValue
 corePatternRuntimeValue patternValue =
   case patternValue of
-    PWildcard -> pure (canonicalNullaryConstructor "CoreWildcardPattern")
-    PVariable name -> constructor1 "CoreVariablePattern" <$> coreNameRuntimeValue name
-    PLiteral literalValue -> constructor1 "CoreLiteralPattern" <$> coreLiteralRuntimeValue literalValue
-    PConstructor name patterns ->
+    PWildcard _ -> pure (canonicalNullaryConstructor "CoreWildcardPattern")
+    PVariable _ name -> constructor1 "CoreVariablePattern" <$> coreNameRuntimeValue name
+    PLiteral _ literalValue -> constructor1 "CoreLiteralPattern" <$> coreLiteralRuntimeValue literalValue
+    PConstructor _ name patterns ->
       constructor2 "CoreConstructorPattern"
         <$> coreNameRuntimeValue name
         <*> listRuntimeValue corePatternRuntimeValue patterns
-    PList patterns -> constructor1 "CoreListPattern" <$> listRuntimeValue corePatternRuntimeValue patterns
-    PConsList headPattern tailPattern ->
+    PList _ patterns -> constructor1 "CoreListPattern" <$> listRuntimeValue corePatternRuntimeValue patterns
+    PConsList _ headPattern tailPattern ->
       constructor2 "CoreConsListPattern"
         <$> corePatternRuntimeValue headPattern
         <*> corePatternRuntimeValue tailPattern
-    PTuple patterns -> constructor1 "CoreTuplePattern" <$> listRuntimeValue corePatternRuntimeValue patterns
-    PAs name pattern ->
+    PTuple _ patterns -> constructor1 "CoreTuplePattern" <$> listRuntimeValue corePatternRuntimeValue patterns
+    PAs _ name nestedPattern ->
       constructor2 "CoreAsPattern"
         <$> coreNameRuntimeValue name
-        <*> corePatternRuntimeValue pattern
-    POr patterns -> constructor1 "CoreOrPattern" <$> listRuntimeValue corePatternRuntimeValue patterns
+        <*> corePatternRuntimeValue nestedPattern
+    POr _ patterns -> constructor1 "CoreOrPattern" <$> listRuntimeValue corePatternRuntimeValue patterns
 
-coreCaseArmRuntimeValue :: CaseArm -> Either Text RuntimeValue
-coreCaseArmRuntimeValue (CaseArm patternValue maybeGuard body) =
+coreCaseArmRuntimeValue :: CaseArm 'Lowered -> Either Text RuntimeValue
+coreCaseArmRuntimeValue (CaseArm _ patternValue maybeGuard body) =
   constructor3 "CoreCaseArm"
     <$> corePatternRuntimeValue patternValue
     <*> maybeRuntimeValue canonicalCoreExprRuntimeValue maybeGuard
     <*> canonicalCoreExprRuntimeValue body
 
-coreStatementRuntimeValue :: Statement -> Either Text RuntimeValue
+coreStatementRuntimeValue :: Statement 'Lowered -> Either Text RuntimeValue
 coreStatementRuntimeValue statement =
   case statement of
-    SLet name spanValue expression ->
+    SLet node name expression ->
       constructor3 "CoreLetStatement"
         <$> coreNameRuntimeValue name
-        <*> coreSpanRuntimeValue spanValue
+        <*> coreSpanRuntimeValue (coreNodeSpan node)
         <*> canonicalCoreExprRuntimeValue expression
-    SSignature name spanValue payload ->
+    SSignature node name payload ->
       constructor3 "CoreSignatureStatement"
         <$> coreNameRuntimeValue name
-        <*> coreSpanRuntimeValue spanValue
+        <*> coreSpanRuntimeValue (coreNodeSpan node)
         <*> coreSignaturePayloadRuntimeValue payload
-    SData spanValue name parameters constructors ->
+    SData node name parameters constructors ->
       constructor4 "CoreDataStatement"
-        <$> coreSpanRuntimeValue spanValue
+        <$> coreSpanRuntimeValue (coreNodeSpan node)
         <*> coreNameRuntimeValue name
         <*> listRuntimeValue coreNameRuntimeValue parameters
         <*> listRuntimeValue coreDataConstructorRuntimeValue constructors
-    SClass spanValue name parameters methods ->
+    SClass node name parameters methods ->
       constructor4 "CoreClassStatement"
-        <$> coreSpanRuntimeValue spanValue
+        <$> coreSpanRuntimeValue (coreNodeSpan node)
         <*> coreNameRuntimeValue name
         <*> listRuntimeValue coreNameRuntimeValue parameters
         <*> listRuntimeValue coreClassMethodRuntimeValue methods
-    SImpl spanValue name arguments methods ->
+    SImpl node name arguments methods ->
       constructor4 "CoreImplStatement"
-        <$> coreSpanRuntimeValue spanValue
+        <$> coreSpanRuntimeValue (coreNodeSpan node)
         <*> coreNameRuntimeValue name
         <*> listRuntimeValue coreSignatureTypeRuntimeValue arguments
         <*> listRuntimeValue coreImplMethodRuntimeValue methods
-    SModule spanValue path ->
+    SModule node path ->
       constructor2 "CoreModuleStatement"
-        <$> coreSpanRuntimeValue spanValue
+        <$> coreSpanRuntimeValue (coreNodeSpan node)
         <*> pure (listRuntimeValuePure VText path)
-    SImport spanValue path maybeAlias maybeSymbols ->
+    SImport node path maybeAlias maybeSymbols ->
       canonicalConstructor "CoreImportStatement"
         <$> sequence
-          [ coreSpanRuntimeValue spanValue,
+          [ coreSpanRuntimeValue (coreNodeSpan node),
             pure (listRuntimeValuePure VText path),
             pure (maybeRuntimeValuePure VText maybeAlias),
             pure (maybeRuntimeValuePure (listRuntimeValuePure VText) maybeSymbols)
           ]
-    SExpr spanValue expression ->
+    SExpr node expression ->
       constructor2 "CoreExpressionStatement"
-        <$> coreSpanRuntimeValue spanValue
+        <$> coreSpanRuntimeValue (coreNodeSpan node)
         <*> canonicalCoreExprRuntimeValue expression
 
-coreDataConstructorRuntimeValue :: DataConstructor -> Either Text RuntimeValue
-coreDataConstructorRuntimeValue (DataConstructor name arguments) =
+coreDataConstructorRuntimeValue :: DataConstructor 'Lowered -> Either Text RuntimeValue
+coreDataConstructorRuntimeValue (DataConstructor _ name arguments) =
   constructor2 "CoreDataConstructor"
     <$> coreNameRuntimeValue name
     <*> listRuntimeValue coreSignatureTypeRuntimeValue arguments
 
-coreClassMethodRuntimeValue :: ClassMethodSignature -> Either Text RuntimeValue
-coreClassMethodRuntimeValue (ClassMethodSignature name spanValue payload) =
+coreClassMethodRuntimeValue :: ClassMethodSignature 'Lowered -> Either Text RuntimeValue
+coreClassMethodRuntimeValue (ClassMethodSignature node name payload) =
   constructor3 "CoreClassMethodSignature"
     <$> coreNameRuntimeValue name
-    <*> coreSpanRuntimeValue spanValue
+    <*> coreSpanRuntimeValue (coreNodeSpan node)
     <*> coreSignaturePayloadRuntimeValue payload
 
-coreImplMethodRuntimeValue :: ImplMethod -> Either Text RuntimeValue
-coreImplMethodRuntimeValue (ImplMethod name spanValue body) =
+coreImplMethodRuntimeValue :: ImplMethod 'Lowered -> Either Text RuntimeValue
+coreImplMethodRuntimeValue (ImplMethod node name body) =
   constructor3 "CoreImplMethod"
     <$> coreNameRuntimeValue name
-    <*> coreSpanRuntimeValue spanValue
+    <*> coreSpanRuntimeValue (coreNodeSpan node)
     <*> canonicalCoreExprRuntimeValue body
 
-coreSignaturePayloadRuntimeValue :: SignaturePayload -> Either Text RuntimeValue
+coreSignaturePayloadRuntimeValue :: SignaturePayload 'Lowered -> Either Text RuntimeValue
 coreSignaturePayloadRuntimeValue payload =
   case payload of
     SignatureType signatureType -> constructor1 "CoreTypeSignature" <$> coreSignatureTypeRuntimeValue signatureType
@@ -288,13 +353,13 @@ coreSignaturePayloadRuntimeValue payload =
     UnsupportedSignature tokens ->
       constructor1 "CoreUnsupportedSignature" <$> listRuntimeValue coreSignatureTokenRuntimeValue tokens
 
-coreSignatureConstraintRuntimeValue :: SignatureConstraint -> Either Text RuntimeValue
+coreSignatureConstraintRuntimeValue :: SignatureConstraint 'Lowered -> Either Text RuntimeValue
 coreSignatureConstraintRuntimeValue (SignatureConstraint name arguments) =
   constructor2 "CoreSignatureConstraint"
     <$> coreNameRuntimeValue name
     <*> listRuntimeValue coreSignatureTypeRuntimeValue arguments
 
-coreSignatureTypeRuntimeValue :: SignatureType -> Either Text RuntimeValue
+coreSignatureTypeRuntimeValue :: SignatureType 'Lowered -> Either Text RuntimeValue
 coreSignatureTypeRuntimeValue signatureType =
   case signatureType of
     TypeInt -> pure (canonicalNullaryConstructor "CoreIntType")
@@ -316,7 +381,7 @@ coreSignatureTypeRuntimeValue signatureType =
         <$> coreSignatureTypeRuntimeValue argumentType
         <*> coreSignatureTypeRuntimeValue resultType
 
-coreSignatureTokenRuntimeValue :: SignatureToken -> Either Text RuntimeValue
+coreSignatureTokenRuntimeValue :: SignatureToken 'Lowered -> Either Text RuntimeValue
 coreSignatureTokenRuntimeValue token =
   case token of
     SignatureNameToken name -> constructor1 "CoreSignatureNameToken" <$> coreNameRuntimeValue name
@@ -351,18 +416,18 @@ coreNumericTypeRuntimeValue numericType =
         NumericFloat64 -> "CoreFloat64Type"
     )
 
-coreNameRuntimeValue :: Name -> Either Text RuntimeValue
+coreNameRuntimeValue :: UnresolvedName -> Either Text RuntimeValue
 coreNameRuntimeValue name =
   case name of
-    SourceName identifier -> pure (constructor1 "CoreSourceName" (VText (identifierText identifier)))
-    QualifiedName qualifier member ->
+    UserName (UnqualifiedSourceName identifier) ->
+      pure (constructor1 "CoreSourceName" (VText (identifierText identifier)))
+    UserName (QualifiedSourceName qualifier member) ->
       pure
         ( canonicalConstructor
             "CoreQualifiedName"
             [VText (identifierText qualifier), VText (identifierText member)]
         )
     GeneratedName generated -> constructor1 "CoreGeneratedName" <$> coreGeneratedNameKindRuntimeValue generated
-    ResolvedName {} -> Left "post-lowering name cannot enter canonical lowering comparison"
     BuiltinName {} -> Left "post-lowering name cannot enter canonical lowering comparison"
 
 coreGeneratedNameKindRuntimeValue :: GeneratedNameKind -> Either Text RuntimeValue
@@ -381,7 +446,7 @@ coreSpanRuntimeValue spanValue =
     SourceSpan line column ->
       pure
         ( canonicalConstructor
-              "CoreSpan"
+            "CoreSpan"
             [ canonicalNullaryConstructor "Nothing",
               runtimeIntValue line,
               runtimeIntValue column
@@ -404,14 +469,29 @@ coreDeclaredModuleExportsRuntimeValue declaredExports =
     <$> coreSpanRuntimeValue (declaredModuleExportsSpan declaredExports)
     <*> listRuntimeValue coreModuleExportSelectorRuntimeValue (declaredModuleExportSelectors declaredExports)
 
-coreResolvedImportRuntimeValue :: ResolvedImport -> Either Text RuntimeValue
+coreResolvedImportRuntimeValue :: ModuleImport 'Lowered -> Either Text RuntimeValue
 coreResolvedImportRuntimeValue resolvedImport =
   canonicalConstructor "CoreResolvedImport"
     <$> sequence
-      [ coreSpanRuntimeValue (resolvedImportSpan resolvedImport),
-        pure (listRuntimeValuePure VText (resolvedImportPath resolvedImport)),
-        pure (maybeRuntimeValuePure VText (resolvedImportAlias resolvedImport)),
-        pure (maybeRuntimeValuePure (listRuntimeValuePure VText) (resolvedImportSymbols resolvedImport))
+      [ coreSpanRuntimeValue (coreNodeSpan (moduleImportNode resolvedImport)),
+        pure
+          ( listRuntimeValuePure
+              VText
+              (NonEmpty.toList (modulePathTextSegments (importedModule resolvedImport)))
+          ),
+        pure
+          ( maybeRuntimeValuePure
+              (VText . identifierText . moduleQualifierIdentifier)
+              (importAlias resolvedImport)
+          ),
+        pure
+          ( maybeRuntimeValuePure
+              (listRuntimeValuePure (VText . identifierText) . NonEmpty.toList)
+              ( case importExposure resolvedImport of
+                  DeclaredImportAll _ -> Nothing
+                  DeclaredImportOnly _ identifiers -> Just identifiers
+              )
+          )
       ]
 
 coreModuleExportSelectorRuntimeValue :: ModuleExportSelector -> Either Text RuntimeValue

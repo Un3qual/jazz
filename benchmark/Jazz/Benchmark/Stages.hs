@@ -40,7 +40,6 @@ import Jazz.Benchmark.StageInputs
   ( prepareBenchmark,
     prepareCompilerScaleBenchmark,
     runPreparedBenchmark,
-    runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
 import Jazz.Compiler.Profiling
@@ -201,7 +200,7 @@ compilerScaleBenchmarkTree programCases =
               ( \preparedBenchmark ->
                   bench
                     (Text.unpack (compilerScaleCaseIdentifier programCase))
-                    (nfIO (runPreparedCompilerScaleBenchmark preparedBenchmark))
+                    (nfIO (runPreparedBenchmark preparedBenchmark))
               )
           | programCase <- programCases,
             benchmarkGroup `elem` compilerScaleCaseBenchmarks programCase
@@ -240,7 +239,7 @@ runSmoke programCases =
                       <> compilerScaleCaseIdentifier programCase
                   )
                 prepareCompilerScaleBenchmark benchmarkGroup programCase
-                  >>= runPreparedCompilerScaleBenchmark
+                  >>= runPreparedBenchmark
       Just programCase -> do
         TextIO.putStrLn
           ( "SMOKE "
@@ -254,9 +253,6 @@ compilerScaleSmokeCaseIdentifier :: BenchmarkGroup -> Maybe Text
 compilerScaleSmokeCaseIdentifier benchmarkGroup =
   case benchmarkGroup of
     DiagnosticAnalysisBenchmark -> Just "analyzer-diagnostic-chain-0064"
-    TypedValidationBenchmark -> Just "typed-recursive-statement-graph-0128"
-    LoweredValidationBenchmark -> Just "lowered-temporary-validation-0064"
-    TypedLoweringBenchmark -> Just "typed-validation-handoff-0064"
     _ -> Nothing
 
 isFastParticipant :: BenchmarkGroup -> ProgramCase -> Bool

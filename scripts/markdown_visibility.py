@@ -29,9 +29,6 @@ HTML_OPEN_TAG_RE = re.compile(
 HTML_CLOSING_TAG_RE = re.compile(
     r"^</[A-Za-z][A-Za-z0-9-]*[ \t]*>[ \t]*$"
 )
-_EXAMPLE_METADATA_COMMENT_RE = re.compile(
-    r"<!--[ \t]*(?:jazz-example|jazz-example-output):[^\r\n]*-->"
-)
 
 
 @dataclass(frozen=True)
@@ -634,61 +631,6 @@ def rendered_markdown_with_code(text: str) -> str:
     """Blank comments while preserving rendered prose and code content."""
     return markdown_visibility(
         text, mask_fenced_code=False, mask_inline_code=False
-    )
-
-
-def _example_metadata_source_markdown(text: str) -> str:
-    """Mask comments except standalone example metadata outside code fences."""
-    characters = list(text)
-    fence_ends = {fence.start: fence.end for fence in markdown_fences(text)}
-    position = 0
-    while position < len(text):
-        fence_end = fence_ends.get(position)
-        if fence_end is not None:
-            position = fence_end
-            continue
-        if not text.startswith("<!--", position):
-            position += 1
-            continue
-
-        comment_start = position
-        cursor = position + 4
-        depth = 1
-        maximum_depth = 1
-        while depth:
-            nested_start = text.find("<!--", cursor)
-            closer = text.find("-->", cursor)
-            if closer < 0:
-                cursor = len(text)
-                break
-            if 0 <= nested_start < closer:
-                depth += 1
-                maximum_depth = max(maximum_depth, depth)
-                cursor = nested_start + 4
-                continue
-            depth -= 1
-            cursor = closer + 3
-
-        comment = text[comment_start:cursor]
-        is_standalone_metadata = (
-            maximum_depth == 1
-            and _EXAMPLE_METADATA_COMMENT_RE.fullmatch(comment) is not None
-        )
-        if not is_standalone_metadata:
-            blank_range(characters, comment_start, cursor)
-        position = cursor
-    return "".join(characters)
-
-
-def renderable_source_markdown(text: str) -> str:
-    """Mask raw HTML blocks while preserving rendered fences and metadata comments."""
-    return _example_metadata_source_markdown(
-        markdown_visibility(
-            text,
-            mask_fenced_code=False,
-            mask_html_comments=False,
-            mask_inline_code=False,
-        )
     )
 
 

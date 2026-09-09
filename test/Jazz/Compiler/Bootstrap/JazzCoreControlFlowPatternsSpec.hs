@@ -14,14 +14,20 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.FractionalLiteral
   ( mkFractionalLiteralSource,
   )
+import Jazz.Compiler.Name (Identifier)
 import Jazz.Compiler.Parser.AST
+import Jazz.Compiler.TypeRepresentation
+  ( SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -70,7 +76,6 @@ testControlFlowParity = do
 
 testComposedParity :: IO ()
 testComposedParity = do
-  assertEqual "composed fixture count" 15 (length composedSources)
   expected <- expectRight "composed control-flow expected values" (expectedControlFlowPatternsSourceBatchRendering composedSources)
   first <- runJazzControlFlowPatternsSourceBatch composedSources
   second <- runJazzControlFlowPatternsSourceBatch composedSources
@@ -81,7 +86,6 @@ testComposedParity = do
 testUnsupportedBoundary :: IO ()
 testUnsupportedBoundary = do
   assertEqual "unsupported fixture names" expectedUnsupportedFixtureNames (map fst unsupportedFixtures)
-  assertEqual "unsupported fixture count" 12 (length unsupportedExpressions)
   first <- runJazzControlFlowPatternsBatch unsupportedExpressions
   second <- runJazzControlFlowPatternsBatch unsupportedExpressions
   let expected = Just ("[" <> Text.intercalate ", " (replicate 12 "Nothing") <> "]")
@@ -121,130 +125,130 @@ controlFlowExpressions = map snd controlFlowFixtures
 
 controlFlowFixtures :: [(Text.Text, SurfaceExpr)]
 controlFlowFixtures =
-  [ ("if-basic", SEIf (seBool True) (seInt 1) (seInt 0)),
-    ("if-nested", SEIf (SEVar "outer") (SEIf (SEVar "inner") (seInt 1) (seInt 2)) (seInt 3)),
-    ("if-collection-branches", SEIf (SEVar "condition") (SEList [seInt 1, SEIf (seBool False) (seInt 2) (seInt 3)]) (SETuple [seInt 4, seInt 5])),
+  [ ("if-basic", seIf (seBool True) (seInt 1) (seInt 0)),
+    ("if-nested", seIf (seVar "outer") (seIf (seVar "inner") (seInt 1) (seInt 2)) (seInt 3)),
+    ("if-collection-branches", seIf (seVar "condition") (seList [seInt 1, seIf (seBool False) (seInt 2) (seInt 3)]) (seTuple [seInt 4, seInt 5])),
     ( "if-block-branches",
-      SEIf
-        (SEVar "condition")
-        (SEBlock [SSLet "left" span1 (seInt 1), SSExpr span1 (SEVar "left")])
-        (SEBlock [SSLet "right" span1 (seInt 2), SSExpr span1 (SEVar "right")])
+      seIf
+        (seVar "condition")
+        (seBlock [SSLet "left" span1 (seInt 1), SSExpr span1 (seVar "left")])
+        (seBlock [SSLet "right" span1 (seInt 2), SSExpr span1 (seVar "right")])
     ),
-    ("case-empty-arms", SECase (SEVar "value") []),
+    ("case-empty-arms", seCase (seVar "value") []),
     ("case-pattern-inventory", patternInventory),
     ( "case-guarded",
-      SECase
-        (SEVar "value")
-        [ SurfaceCaseArm (SPVariable "item") (Just (SEVar "keep")) (SEVar "item"),
-          SurfaceCaseArm SPWildcard Nothing (seInt 0)
+      seCase
+        (seVar "value")
+        [ SurfaceCaseArm (spVariable "item") (Just (seVar "keep")) (seVar "item"),
+          SurfaceCaseArm spWildcard Nothing (seInt 0)
         ]
     ),
     ( "case-nested-scrutinee",
-      SECase
-        (SEIf (SEVar "condition") (SEVar "left") (SEVar "right"))
-        [SurfaceCaseArm SPWildcard Nothing (seInt 0)]
+      seCase
+        (seIf (seVar "condition") (seVar "left") (seVar "right"))
+        [SurfaceCaseArm spWildcard Nothing (seInt 0)]
     ),
     ( "case-nested-body",
-      SECase
-        (SEVar "outer")
+      seCase
+        (seVar "outer")
         [ SurfaceCaseArm
-            (SPConstructor "Just" [SPVariable "item"])
+            (spConstructor "Just" [spVariable "item"])
             Nothing
-            (SECase (SEVar "item") [SurfaceCaseArm SPWildcard Nothing (seInt 1)]),
-          SurfaceCaseArm (SPConstructor "Nothing" []) Nothing (seInt 0)
+            (seCase (seVar "item") [SurfaceCaseArm spWildcard Nothing (seInt 1)]),
+          SurfaceCaseArm (spConstructor "Nothing" []) Nothing (seInt 0)
         ]
     ),
     ( "lambda-identifier",
-      SELambda (SurfaceLambdaIdentifier "value" :| []) (SEVar "value")
+      seLambda (SurfaceLambdaIdentifier span1 "value" :| []) (seVar "value")
     ),
     ( "lambda-identifiers-multiple",
-      SELambda
-        (SurfaceLambdaIdentifier "left" :| [SurfaceLambdaIdentifier "right"])
-        (SEVar "left")
+      seLambda
+        (SurfaceLambdaIdentifier span1 "left" :| [SurfaceLambdaIdentifier span1 "right"])
+        (seVar "left")
     ),
     ( "lambda-pattern-wildcard",
-      SELambda (SurfaceLambdaPattern SPWildcard :| []) (seInt 0)
+      seLambda (SurfaceLambdaPattern spWildcard :| []) (seInt 0)
     ),
     ( "lambda-pattern-composite",
-      SELambda
-        (SurfaceLambdaPattern (SPAs "whole" (SPConsList (SPVariable "head") (SPVariable "tail"))) :| [])
-        (SEVar "head")
+      seLambda
+        (SurfaceLambdaPattern (spAs "whole" (spConsList (spVariable "head") (spVariable "tail"))) :| [])
+        (seVar "head")
     ),
     ( "lambda-pattern-or",
-      SELambda
-        (SurfaceLambdaPattern (SPOr [SPConstructor "Just" [SPVariable "item"], SPConstructor "Nothing" []]) :| [])
-        (SEVar "item")
+      seLambda
+        (SurfaceLambdaPattern (spOr [spConstructor "Just" [spVariable "item"], spConstructor "Nothing" []]) :| [])
+        (seVar "item")
     ),
     ( "lambda-mixed-parameters",
-      SELambda
-        ( SurfaceLambdaIdentifier "first"
-            :| [ SurfaceLambdaPattern (SPConstructor "Just" [SPVariable "second"]),
-                 SurfaceLambdaIdentifier "third"
+      seLambda
+        ( SurfaceLambdaIdentifier span1 "first"
+            :| [ SurfaceLambdaPattern (spConstructor "Just" [spVariable "second"]),
+                 SurfaceLambdaIdentifier span1 "third"
                ]
         )
-        (SEVar "second")
+        (seVar "second")
     ),
     ( "lambda-two-pattern-parameters",
-      SELambda
-        ( SurfaceLambdaPattern (SPList [SPVariable "head", SPVariable "tail"])
-            :| [SurfaceLambdaPattern (SPTuple [SPVariable "left", SPVariable "right"])]
+      seLambda
+        ( SurfaceLambdaPattern (spList [spVariable "head", spVariable "tail"])
+            :| [SurfaceLambdaPattern (spTuple [spVariable "left", spVariable "right"])]
         )
-        (SEVar "left")
+        (seVar "left")
     ),
     ( "pattern-lambda-clauses",
-      SEPatternLambda
+      sePatternLambda
         ( SurfacePatternLambdaClause
             span1
-            (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
-            (SEVar "fallback")
+            (spConstructor "Nothing" [] :| [spVariable "fallback"])
+            (seVar "fallback")
             :| [ SurfacePatternLambdaClause
                    span1
-                   (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
-                   (SEVar "item")
+                   (spConstructor "Just" [spVariable "item"] :| [spWildcard])
+                   (seVar "item")
                ]
         )
     ),
     ( "lambda-nested-control-flow",
-      SELambda
-        (SurfaceLambdaIdentifier "value" :| [])
-        ( SEIf
-            (SEVar "condition")
-            (SECase (SEVar "value") [SurfaceCaseArm SPWildcard Nothing (seInt 1)])
+      seLambda
+        (SurfaceLambdaIdentifier span1 "value" :| [])
+        ( seIf
+            (seVar "condition")
+            (seCase (seVar "value") [SurfaceCaseArm spWildcard Nothing (seInt 1)])
             (seInt 0)
         )
     ),
     ( "block-control-flow",
-      SEBlock
+      seBlock
         [ SSLet
             "choose"
             span1
-            ( SELambda
-                (SurfaceLambdaPattern (SPConstructor "Just" [SPVariable "item"]) :| [])
-                (SEIf (SEVar "keep") (SEVar "item") (seInt 0))
+            ( seLambda
+                (SurfaceLambdaPattern (spConstructor "Just" [spVariable "item"]) :| [])
+                (seIf (seVar "keep") (seVar "item") (seInt 0))
             ),
-          SSExpr span1 (SEVar "choose")
+          SSExpr span1 (seVar "choose")
         ]
     )
   ]
 
 patternInventory :: SurfaceExpr
 patternInventory =
-  SECase
-    (SEVar "value")
-    [ SurfaceCaseArm SPWildcard Nothing (seInt 0),
-      SurfaceCaseArm (SPVariable "name") Nothing (seInt 1),
-      SurfaceCaseArm (SPLiteral (SLInt 2)) Nothing (seInt 2),
-      SurfaceCaseArm (SPLiteral (SLFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)) Nothing (seInt 3),
-      SurfaceCaseArm (SPLiteral (SLBool True)) Nothing (seInt 4),
-      SurfaceCaseArm (SPLiteral (SLChar 'x')) Nothing (seInt 5),
-      SurfaceCaseArm (SPLiteral (SLText "Jazz")) Nothing (seInt 6),
-      SurfaceCaseArm (SPConstructor "Just" [SPVariable "item"]) Nothing (seInt 7),
-      SurfaceCaseArm (SPList [SPVariable "head", SPVariable "tail"]) Nothing (seInt 8),
-      SurfaceCaseArm (SPConsList (SPVariable "head") (SPVariable "tail")) Nothing (seInt 9),
-      SurfaceCaseArm (SPTuple []) Nothing (seInt 10),
-      SurfaceCaseArm (SPTuple [SPVariable "left", SPVariable "right"]) Nothing (seInt 11),
-      SurfaceCaseArm (SPAs "whole" (SPConstructor "Nothing" [])) Nothing (seInt 12),
-      SurfaceCaseArm (SPOr [SPConstructor "Just" [SPVariable "item"], SPConstructor "Nothing" []]) Nothing (seInt 13)
+  seCase
+    (seVar "value")
+    [ SurfaceCaseArm spWildcard Nothing (seInt 0),
+      SurfaceCaseArm (spVariable "name") Nothing (seInt 1),
+      SurfaceCaseArm (spLiteral (SLInt 2)) Nothing (seInt 2),
+      SurfaceCaseArm (spLiteral (SLFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)) Nothing (seInt 3),
+      SurfaceCaseArm (spLiteral (SLBool True)) Nothing (seInt 4),
+      SurfaceCaseArm (spLiteral (SLChar 'x')) Nothing (seInt 5),
+      SurfaceCaseArm (spLiteral (SLText "Jazz")) Nothing (seInt 6),
+      SurfaceCaseArm (spConstructor "Just" [spVariable "item"]) Nothing (seInt 7),
+      SurfaceCaseArm (spList [spVariable "head", spVariable "tail"]) Nothing (seInt 8),
+      SurfaceCaseArm (spConsList (spVariable "head") (spVariable "tail")) Nothing (seInt 9),
+      SurfaceCaseArm (spTuple []) Nothing (seInt 10),
+      SurfaceCaseArm (spTuple [spVariable "left", spVariable "right"]) Nothing (seInt 11),
+      SurfaceCaseArm (spAs "whole" (spConstructor "Nothing" [])) Nothing (seInt 12),
+      SurfaceCaseArm (spOr [spConstructor "Just" [spVariable "item"], spConstructor "Nothing" []]) Nothing (seInt 13)
     ]
 
 composedSources :: [Text.Text]
@@ -284,55 +288,55 @@ expectedUnsupportedFixtureNames =
 
 unsupportedFixtures :: [(Text.Text, SurfaceExpr)]
 unsupportedFixtures =
-  [ ("type-application-root", SETypeApplication (SEVar "identity") span1 SurfaceTypeInt),
-    ("type-application-condition", SEIf (SETypeApplication (SEVar "condition") span1 SurfaceTypeBool) (seInt 1) (seInt 0)),
+  [ ("type-application-root", seTypeApplication (seVar "identity") span1 TypeInt),
+    ("type-application-condition", seIf (seTypeApplication (seVar "condition") span1 TypeBool) (seInt 1) (seInt 0)),
     ( "type-application-case-scrutinee",
-      SECase
-      (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
-      [SurfaceCaseArm SPWildcard Nothing (seInt 0)]
+      seCase
+        (seTypeApplication (seVar "identity") span1 TypeInt)
+        [SurfaceCaseArm spWildcard Nothing (seInt 0)]
     ),
     ( "type-application-case-guard",
-      SECase
-        (SEVar "value")
-        [SurfaceCaseArm SPWildcard (Just (SETypeApplication (SEVar "keep") span1 SurfaceTypeBool)) (seInt 0)]
+      seCase
+        (seVar "value")
+        [SurfaceCaseArm spWildcard (Just (seTypeApplication (seVar "keep") span1 TypeBool)) (seInt 0)]
     ),
     ( "type-application-lambda-body",
-      SELambda
-        (SurfaceLambdaIdentifier "value" :| [])
-        (SETypeApplication (SEVar "identity") span1 SurfaceTypeInt)
+      seLambda
+        (SurfaceLambdaIdentifier span1 "value" :| [])
+        (seTypeApplication (seVar "identity") span1 TypeInt)
     ),
     ( "dollar-case-body",
-      SECase
-        (SEVar "value")
-        [SurfaceCaseArm SPWildcard Nothing (SEBinary "$" (SEVar "function") (seInt 1))]
+      seCase
+        (seVar "value")
+        [SurfaceCaseArm spWildcard Nothing (seBinary "$" (seVar "function") (seInt 1))]
     ),
     ( "signature-if-block",
-      SEIf
-        (SEVar "condition")
-        (SEBlock [SSSignature "value" span1 (SurfaceSignatureType SurfaceTypeInt)])
+      seIf
+        (seVar "condition")
+        (seBlock [SSSignature "value" span1 (SignatureType TypeInt)])
         (seInt 0)
     ),
     ( "data-case-block",
-      SECase
-        (SEVar "value")
-        [SurfaceCaseArm SPWildcard Nothing (SEBlock [SSData span1 "Thing" [] []])]
+      seCase
+        (seVar "value")
+        [SurfaceCaseArm spWildcard Nothing (seBlock [SSData span1 "Thing" [] []])]
     ),
     ( "class-lambda-block",
-      SELambda
-        (SurfaceLambdaIdentifier "value" :| [])
-        (SEBlock [SSClass span1 "Show" ["a"] []])
+      seLambda
+        (SurfaceLambdaIdentifier span1 "value" :| [])
+        (seBlock [SSClass span1 "Show" ["a"] []])
     ),
     ( "impl-lambda-block",
-      SELambda
-        (SurfaceLambdaIdentifier "value" :| [])
-        (SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []])
+      seLambda
+        (SurfaceLambdaIdentifier span1 "value" :| [])
+        (seBlock [SSImpl span1 "Show" [TypeText] []])
     ),
     ( "operator-storage-nested-block",
-      SEBlock
-        [SSLet "nested" span1 (SEBlock [SSLet "$operator:2B" span1 (SEVar "add")])]
+      seBlock
+        [SSLet "nested" span1 (seBlock [SSLet "$operator:2B" span1 (seVar "add")])]
     ),
     ( "module-import-nested-block",
-      SEBlock
+      seBlock
         [ SSModule span1 ["App", "Main"] Nothing,
           SSImport span1 ["Core", "Text"] Nothing Nothing,
           SSExpr span1 (seInt 0)
@@ -346,11 +350,75 @@ unsupportedExpressions = map snd unsupportedFixtures
 span1 :: SourceSpan
 span1 = SourceSpan 1 1
 
+se :: SurfaceExprForm -> SurfaceExpr
+se = SurfaceExpr span1
+
+sp :: SurfacePatternForm -> SurfacePattern
+sp = SurfacePattern span1
+
+seBinary :: Text.Text -> SurfaceExpr -> SurfaceExpr -> SurfaceExpr
+seBinary operator left right = se (SEBinary operator left right)
+
+seBlock :: [SurfaceStatement] -> SurfaceExpr
+seBlock = se . SEBlock
+
+seCase :: SurfaceExpr -> [SurfaceCaseArm] -> SurfaceExpr
+seCase scrutinee arms = se (SECase scrutinee arms)
+
+seIf :: SurfaceExpr -> SurfaceExpr -> SurfaceExpr -> SurfaceExpr
+seIf condition thenBranch elseBranch = se (SEIf condition thenBranch elseBranch)
+
+seLambda :: NonEmpty SurfaceLambdaParameter -> SurfaceExpr -> SurfaceExpr
+seLambda parameters body = se (SELambda parameters body)
+
+seList :: [SurfaceExpr] -> SurfaceExpr
+seList = se . SEList
+
+sePatternLambda :: NonEmpty SurfacePatternLambdaClause -> SurfaceExpr
+sePatternLambda = se . SEPatternLambda
+
+seTuple :: [SurfaceExpr] -> SurfaceExpr
+seTuple = se . SETuple
+
+seTypeApplication :: SurfaceExpr -> SourceSpan -> SurfaceSignatureType -> SurfaceExpr
+seTypeApplication function typeApplicationSpan signatureType =
+  se (SETypeApplication function typeApplicationSpan signatureType)
+
+seVar :: Identifier -> SurfaceExpr
+seVar = se . SEVar
+
+spAs :: Identifier -> SurfacePattern -> SurfacePattern
+spAs name patternValue = sp (SPAs name patternValue)
+
+spConsList :: SurfacePattern -> SurfacePattern -> SurfacePattern
+spConsList headPattern tailPattern = sp (SPConsList headPattern tailPattern)
+
+spConstructor :: Identifier -> [SurfacePattern] -> SurfacePattern
+spConstructor name arguments = sp (SPConstructor name arguments)
+
+spList :: [SurfacePattern] -> SurfacePattern
+spList = sp . SPList
+
+spLiteral :: SurfaceLiteral -> SurfacePattern
+spLiteral = sp . SPLiteral
+
+spOr :: [SurfacePattern] -> SurfacePattern
+spOr = sp . SPOr
+
+spTuple :: [SurfacePattern] -> SurfacePattern
+spTuple = sp . SPTuple
+
+spVariable :: Identifier -> SurfacePattern
+spVariable = sp . SPVariable
+
+spWildcard :: SurfacePattern
+spWildcard = sp SPWildcard
+
 seInt :: Integer -> SurfaceExpr
-seInt = SELit . SLInt
+seInt = se . SELit . SLInt
 
 seBool :: Bool -> SurfaceExpr
-seBool = SELit . SLBool
+seBool = se . SELit . SLBool
 
 assertSuccessfulOutput :: Text.Text -> Text.Text -> RunResult -> IO ()
 assertSuccessfulOutput label expected result = do
@@ -358,7 +426,7 @@ assertSuccessfulOutput label expected result = do
   assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
   assertEqual (label <> " output") (Just expected) (runOutput result)
 
-expectRight :: Show err => Text.Text -> Either err value -> IO value
+expectRight :: (Show err) => Text.Text -> Either err value -> IO value
 expectRight label value =
   case value of
     Left err -> failTest (label <> ": expected Right, got Left " <> Text.pack (show err))

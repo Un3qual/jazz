@@ -17,6 +17,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceStatement (..),
   )
 
@@ -45,12 +46,12 @@ sourceModuleFromSurface role path surfaceProgram =
       jazzModulePath = findModulePath statements,
       jazzImportedModulePaths =
         [ modulePath
-          | SSImport _ modulePath _ _ <- statements
+        | SSImport _ modulePath _ _ <- statements
         ]
     }
   where
     statements =
-      case surfaceProgram of
+      case surfaceExprForm surfaceProgram of
         SEBlock values -> values
         _ -> []
 
@@ -67,19 +68,19 @@ sourceModuleFromSurface role path surfaceProgram =
 validateSourceLayering :: [JazzSourceModule] -> [SourceLayoutViolation]
 validateSourceLayering modules =
   [ StandardLibraryImportsCompiler (jazzSourcePath sourceModule) importedPath
-    | sourceModule <- modules,
-      jazzSourceRole sourceModule == StandardLibrarySource,
-      importedPath <- jazzImportedModulePaths sourceModule,
-      importedPath `Set.member` compilerModules
+  | sourceModule <- modules,
+    jazzSourceRole sourceModule == StandardLibrarySource,
+    importedPath <- jazzImportedModulePaths sourceModule,
+    importedPath `Set.member` compilerModules
   ]
   where
     compilerModules :: Set [Text]
     compilerModules =
       Set.fromList
         [ modulePath
-          | sourceModule <- modules,
-            jazzSourceRole sourceModule == CompilerSource,
-            Just modulePath <- [jazzModulePath sourceModule]
+        | sourceModule <- modules,
+          jazzSourceRole sourceModule == CompilerSource,
+          Just modulePath <- [jazzModulePath sourceModule]
         ]
 
 renderSourceLayoutViolation :: SourceLayoutViolation -> Text

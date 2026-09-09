@@ -4,6 +4,9 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Lowered-IR decisions dated 2026-07-21 and representation correction dated 2026-07-30.
 
+> This RFC is superseded by
+> [RFC 0016](0016-optional-backend-removal.md). The following text records the retired backend design.
+
 ## Decision
 
 Jazz uses a permanent backend-neutral lowered IR between validated typed core

@@ -4,11 +4,7 @@ module Main (main) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    Expr (..),
-    Literal (..),
-    Pattern (..),
-    Statement (..),
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -22,14 +18,33 @@ import Jazz.Compiler.Parser
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfacePatternLambdaClause (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
   ( lowerSurfaceExpr,
+  )
+import Jazz.TestCore
+  ( assertLoweredCoreEqual,
+    loweredBinary,
+    loweredBlock,
+    loweredCaseArm,
+    loweredConstructorPattern,
+    loweredLambda,
+    loweredLet,
+    loweredLiteral,
+    loweredOrPattern,
+    loweredPatternCase,
+    loweredTuple,
+    loweredTuplePattern,
+    loweredVariable,
+    loweredVariablePattern,
+    loweredWildcardPattern,
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -84,9 +99,16 @@ testParsesSingleArgumentLambda =
   assertEqual
     "single-argument lambda AST"
     ( Right
-        ( SEBlock
-            [ SSLet "id" (SourceSpan 1 1) (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x"))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "id"
+                    (SourceSpan 1 1)
+                    (e 1 6 (SELambda (SurfaceLambdaIdentifier (SourceSpan 1 8) "x" :| []) (e 1 14 (SEVar "x"))))
+                ]
+            )
         )
     )
     (parseSurfaceProgram "id = \\(x) -> x.")
@@ -96,9 +118,23 @@ testParsesMultiArgumentLambda =
   assertEqual
     "multi-argument lambda AST"
     ( Right
-        ( SEBlock
-            [ SSLet "const" (SourceSpan 1 1) (SELambda (SurfaceLambdaIdentifier "x" :| [SurfaceLambdaIdentifier "y"]) (SEVar "x"))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "const"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaIdentifier (SourceSpan 1 11) "x" :| [SurfaceLambdaIdentifier (SourceSpan 1 14) "y"])
+                            (e 1 20 (SEVar "x"))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "const = \\(x, y) -> x.")
@@ -108,15 +144,23 @@ testParsesLambdaBodyApplication =
   assertEqual
     "lambda application body AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "apply"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaIdentifier "f" :| [SurfaceLambdaIdentifier "x"])
-                    (SEApply (SEVar "f") (SEVar "x"))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "apply"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaIdentifier (SourceSpan 1 11) "f" :| [SurfaceLambdaIdentifier (SourceSpan 1 14) "x"])
+                            (e 1 20 (SEApply (e 1 20 (SEVar "f")) (e 1 22 (SEVar "x"))))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "apply = \\(f, x) -> f x.")
@@ -126,12 +170,23 @@ testParsesParenthesizedLambdaApplication =
   assertEqual
     "parenthesized lambda application AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "run"
-                (SourceSpan 1 1)
-                (SEApply (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x")) (SELit (SLInt 1)))
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "run"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        7
+                        ( SEApply
+                            (e 1 8 (SELambda (SurfaceLambdaIdentifier (SourceSpan 1 10) "x" :| []) (e 1 16 (SEVar "x"))))
+                            (e 1 19 (SELit (SLInt 1)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "run = (\\(x) -> x) 1.")
@@ -141,14 +196,14 @@ testLowerNestsMultiArgumentLambda =
   assertRight
     "parse + lower multi-argument lambda"
     (parseSurfaceProgram "const = \\(x, y) -> x.")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "const"
             (SourceSpan 1 1)
-            (ELambda "x" (ELambda "y" (EVar "x")))
+            (loweredLambda "x" (loweredLambda "y" (loweredVariable "x")))
         ]
 
 testLowerDesugarsPatternParametersThroughCase :: IO ()
@@ -156,22 +211,22 @@ testLowerDesugarsPatternParametersThroughCase =
   assertRight
     "parse + lower tuple-pattern lambda"
     (parseSurfaceProgram "sumPair = \\((left, right)) -> left + right.")
-    (\surfaceProgram -> assertEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "sumPair"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 generatedParameter
-                ( EPatternCase
-                    (EVar generatedParameter)
-                    [ CaseArm
-                        (PTuple [PVariable "left", PVariable "right"])
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [ loweredCaseArm
+                        (loweredTuplePattern [loweredVariablePattern "left", loweredVariablePattern "right"])
                         Nothing
-                        (EBinary "+" (EVar "left") (EVar "right"))
+                        (loweredBinary "+" (loweredVariable "left") (loweredVariable "right"))
                     ]
                 )
             )
@@ -182,14 +237,14 @@ testLowerPreservesDuplicateParameterShadowing =
   assertRight
     "parse + lower duplicate-parameter lambda"
     (parseSurfaceProgram "shadow = \\(x, x) -> x.")
-    (\surfaceProgram -> assertEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "shadow"
             (SourceSpan 1 1)
-            (ELambda "x" (ELambda "x" (EVar "x")))
+            (loweredLambda "x" (loweredLambda "x" (loweredVariable "x")))
         ]
 
 testParsesUnitLambdaShorthand :: IO ()
@@ -197,15 +252,23 @@ testParsesUnitLambdaShorthand =
   assertEqual
     "Unit lambda shorthand AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "thunk"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaPattern (SPTuple []) :| [])
-                    (SELit (SLInt 42))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "thunk"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaPattern (p 1 10 (SPTuple [])) :| [])
+                            (e 1 16 (SELit (SLInt 42)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "thunk = \\() -> 42.")
@@ -215,15 +278,23 @@ testParsesExplicitUnitLambdaParameter =
   assertEqual
     "explicit Unit lambda AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "thunk"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaPattern (SPTuple []) :| [])
-                    (SELit (SLInt 42))
-                )
-            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "thunk"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        9
+                        ( SELambda
+                            (SurfaceLambdaPattern (p 1 11 (SPTuple [])) :| [])
+                            (e 1 18 (SELit (SLInt 42)))
+                        )
+                    )
+                ]
+            )
         )
     )
     (parseSurfaceProgram "thunk = \\(()) -> 42.")
@@ -233,19 +304,19 @@ testLowersUnitLambdaShorthand =
   assertRight
     "parse + lower Unit lambda"
     (parseSurfaceProgram "thunk = \\() -> 42.")
-    (\surfaceProgram -> assertEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered Unit lambda" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "thunk"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 generatedParameter
-                ( EPatternCase
-                    (EVar generatedParameter)
-                    [CaseArm (PTuple []) Nothing (ELit (LInt 42))]
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [loweredCaseArm (loweredTuplePattern []) Nothing (loweredLiteral (LInt 42))]
                 )
             )
         ]
@@ -318,22 +389,34 @@ testParsesOrPatternLambdaParameter =
   assertEqual
     "or-pattern lambda parameter AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "choose"
-                (SourceSpan 1 1)
-                ( SELambda
-                    ( SurfaceLambdaPattern
-                        ( SPOr
-                            [ SPConstructor "Just" [SPVariable "item"],
-                              SPConstructor "Also" [SPVariable "item"]
-                            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "choose"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        10
+                        ( SELambda
+                            ( SurfaceLambdaPattern
+                                ( p
+                                    1
+                                    12
+                                    ( SPOr
+                                        [ p 1 12 (SPConstructor "Just" [p 1 17 (SPVariable "item")]),
+                                          p 1 24 (SPConstructor "Also" [p 1 29 (SPVariable "item")])
+                                        ]
+                                    )
+                                )
+                                :| []
+                            )
+                            (e 1 38 (SEVar "item"))
                         )
-                        :| []
                     )
-                    (SEVar "item")
-                )
-            ]
+                ]
+            )
         )
     )
     (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
@@ -343,22 +426,34 @@ testParsesCommaAfterOrPatternLambdaParameter =
   assertEqual
     "comma after or-pattern lambda parameter AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "choose"
-                (SourceSpan 1 1)
-                ( SELambda
-                    ( SurfaceLambdaPattern
-                        ( SPOr
-                            [ SPConstructor "Just" [SPVariable "item"],
-                              SPConstructor "Also" [SPVariable "item"]
-                            ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "choose"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        10
+                        ( SELambda
+                            ( SurfaceLambdaPattern
+                                ( p
+                                    1
+                                    12
+                                    ( SPOr
+                                        [ p 1 12 (SPConstructor "Just" [p 1 17 (SPVariable "item")]),
+                                          p 1 24 (SPConstructor "Also" [p 1 29 (SPVariable "item")])
+                                        ]
+                                    )
+                                )
+                                :| [SurfaceLambdaIdentifier (SourceSpan 1 35) "extra"]
+                            )
+                            (e 1 45 (SEVar "item"))
                         )
-                        :| [SurfaceLambdaIdentifier "extra"]
                     )
-                    (SEVar "item")
-                )
-            ]
+                ]
+            )
         )
     )
     (parseSurfaceProgram "choose = \\(Just item | Also item, extra) -> item.")
@@ -368,26 +463,26 @@ testLowerDesugarsOrPatternParameterThroughCase =
   assertRight
     "parse + lower or-pattern lambda"
     (parseSurfaceProgram "choose = \\(Just item | Also item) -> item.")
-    (\surfaceProgram -> assertEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered or-pattern lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     generatedParameter = generatedName (LambdaPatternArgument 1)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "choose"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 generatedParameter
-                ( EPatternCase
-                    (EVar generatedParameter)
-                    [ CaseArm
-                        ( POr
-                            [ PConstructor "Just" [PVariable "item"],
-                              PConstructor "Also" [PVariable "item"]
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [ loweredCaseArm
+                        ( loweredOrPattern
+                            [ loweredConstructorPattern "Just" [loweredVariablePattern "item"],
+                              loweredConstructorPattern "Also" [loweredVariablePattern "item"]
                             ]
                         )
                         Nothing
-                        (EVar "item")
+                        (loweredVariable "item")
                     ]
                 )
             )
@@ -428,23 +523,31 @@ testParsesPatternLambdaClausesStructurally =
   assertEqual
     "pattern-lambda surface AST"
     ( Right
-        ( SEBlock
-            [ SSLet
-                "choose"
-                (SourceSpan 1 1)
-                ( SEPatternLambda
-                    ( SurfacePatternLambdaClause
-                        (SourceSpan 1 11)
-                        (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
-                        (SEVar "fallback")
-                        :| [ SurfacePatternLambdaClause
-                               (SourceSpan 1 44)
-                               (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
-                               (SEVar "item")
-                           ]
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSLet
+                    "choose"
+                    (SourceSpan 1 1)
+                    ( e
+                        1
+                        10
+                        ( SEPatternLambda
+                            ( SurfacePatternLambdaClause
+                                (SourceSpan 1 11)
+                                (p 1 13 (SPConstructor "Nothing" []) :| [p 1 22 (SPVariable "fallback")])
+                                (e 1 35 (SEVar "fallback"))
+                                :| [ SurfacePatternLambdaClause
+                                       (SourceSpan 1 44)
+                                       (p 1 46 (SPConstructor "Just" [p 1 51 (SPVariable "item")]) :| [p 1 57 SPWildcard])
+                                       (e 1 63 (SEVar "item"))
+                                   ]
+                            )
+                        )
                     )
-                )
-            ]
+                ]
+            )
         )
     )
     (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
@@ -454,29 +557,29 @@ testLowersPatternLambdaClausesToOneCase =
   assertRight
     "parse + lower pattern-lambda clauses"
     (parseSurfaceProgram "choose = \\|(Nothing, fallback) -> fallback |(Just item, _) -> item.")
-    (\surfaceProgram -> assertEqual "lowered pattern-lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered pattern-lambda AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     firstArgument = generatedName (LambdaPatternArgument 1)
     secondArgument = generatedName (LambdaPatternArgument 2)
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "choose"
             (SourceSpan 1 1)
-            ( ELambda
+            ( loweredLambda
                 firstArgument
-                ( ELambda
+                ( loweredLambda
                     secondArgument
-                    ( EPatternCase
-                        (ETuple [EVar firstArgument, EVar secondArgument])
-                        [ CaseArm
-                            (PTuple [PConstructor "Nothing" [], PVariable "fallback"])
+                    ( loweredPatternCase
+                        (loweredTuple [loweredVariable firstArgument, loweredVariable secondArgument])
+                        [ loweredCaseArm
+                            (loweredTuplePattern [loweredConstructorPattern "Nothing" [], loweredVariablePattern "fallback"])
                             Nothing
-                            (EVar "fallback"),
-                          CaseArm
-                            (PTuple [PConstructor "Just" [PVariable "item"], PWildcard])
+                            (loweredVariable "fallback"),
+                          loweredCaseArm
+                            (loweredTuplePattern [loweredConstructorPattern "Just" [loweredVariablePattern "item"], loweredWildcardPattern])
                             Nothing
-                            (EVar "item")
+                            (loweredVariable "item")
                         ]
                     )
                 )
@@ -519,3 +622,9 @@ testRejectsPatternLambdaWithoutBody =
     "pattern lambda without body"
     "expected expression"
     (parseSurfaceProgram "choose = \\|(item) ->.")
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e line column = SurfaceExpr (SourceSpan line column)
+
+p :: Int -> Int -> SurfacePatternForm -> SurfacePattern
+p line column = SurfacePattern (SourceSpan line column)

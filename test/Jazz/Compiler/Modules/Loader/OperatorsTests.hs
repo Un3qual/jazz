@@ -1,38 +1,39 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Modules.Loader.OperatorsTests
-  ( operatorTests
-  ) where
+  ( operatorTests,
+  )
+where
 
 import qualified Data.Map.Strict as Map
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraphWithPrelude,
-    runRuntimeErrors
+    runOutput,
+    runRuntimeErrors,
   )
+import Jazz.Compiler.Modules.Loader.Shared
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    failTest
+    failTest,
   )
-import Jazz.Compiler.Modules.Loader.Shared
 
 operatorTests :: [NamedTest]
 operatorTests =
-  [ ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding)
-    , ("run module graph retains local operator signature needed by exported binding", testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding)
-    , ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport)
-    , ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter)
-    , ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand)
-    , ("run module graph ignores hidden operator binding collisions", testRunModuleGraphIgnoresHiddenOperatorBindingCollisions)
+  [ ("run module graph retains local operator binding needed by exported binding", testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding),
+    ("run module graph retains local operator signature needed by exported binding", testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding),
+    ("run module graph retains local operator binding needed by explicit imported export", testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport),
+    ("run module graph does not leak retained operator binding into importer", testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter),
+    ("run module graph imported right operator section captures right operand", testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand),
+    ("run module graph ignores hidden operator binding collisions", testRunModuleGraphIgnoresHiddenOperatorBindingCollisions)
   ]
 
 testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding :: IO ()
@@ -50,19 +51,23 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExportedBinding = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Ops.
-        plus.
-        }
-        """),
-          ("src/Lib/Ops.jz", """
-          module Lib::Ops {
-          operator %% tier 2.
-          (%%) = \\(left, right) -> left + right.
-          plus = 1 %% 2.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Ops.
+            plus.
+            }
+            """
+          ),
+          ( "src/Lib/Ops.jz",
+            """
+            module Lib::Ops {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left + right.
+            plus = 1 %% 2.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -81,20 +86,24 @@ testRunModuleGraphRetainsLocalOperatorSignatureNeededByExportedBinding = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Ops.
-        plus.
-        }
-        """),
-          ("src/Lib/Ops.jz", """
-          module Lib::Ops {
-          operator %% tier 2.
-          (%%) :: Int -> Int -> Int.
-          (%%) = \\(left, right) -> left + right.
-          plus = 1 %% 2.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Ops.
+            plus.
+            }
+            """
+          ),
+          ( "src/Lib/Ops.jz",
+            """
+            module Lib::Ops {
+            operator %% tier 2.
+            (%%) :: Int -> Int -> Int.
+            (%%) = \\(left, right) -> left + right.
+            plus = 1 %% 2.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -113,19 +122,23 @@ testRunModuleGraphRetainsLocalOperatorBindingNeededByExplicitImportedExport = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Ops (plus).
-        plus.
-        }
-        """),
-          ("src/Lib/Ops.jz", """
-          module Lib::Ops {
-          operator %% tier 2.
-          (%%) = \\(left, right) -> left + right.
-          plus = 1 %% 2.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Ops (plus).
+            plus.
+            }
+            """
+          ),
+          ( "src/Lib/Ops.jz",
+            """
+            module Lib::Ops {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left + right.
+            plus = 1 %% 2.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -149,21 +162,25 @@ testRunModuleGraphDoesNotLeakRetainedOperatorBindingIntoImporter = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Ops (plus).
-        operator %% tier 2.
-        result = (10 %% 3) + plus.
-        result.
-        }
-        """),
-          ("src/Lib/Ops.jz", """
-          module Lib::Ops {
-          operator %% tier 2.
-          (%%) = \\(left, right) -> left + right.
-          plus = 1 %% 2.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Ops (plus).
+            operator %% tier 2.
+            result = (10 %% 3) + plus.
+            result.
+            }
+            """
+          ),
+          ( "src/Lib/Ops.jz",
+            """
+            module Lib::Ops {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left + right.
+            plus = 1 %% 2.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -187,19 +204,23 @@ testRunModuleGraphImportedRightOperatorSectionCapturesRightOperand = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::Ops (section).
-        section.
-        }
-        """),
-          ("src/Lib/Ops.jz", """
-          module Lib::Ops {
-          operator %% tier 2.
-          (%%) = \\(left, right) -> left - right.
-          section = (%% (1 / 0)).
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::Ops (section).
+            section.
+            }
+            """
+          ),
+          ( "src/Lib/Ops.jz",
+            """
+            module Lib::Ops {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left - right.
+            section = (%% (1 / 0)).
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)
 
@@ -218,26 +239,32 @@ testRunModuleGraphIgnoresHiddenOperatorBindingCollisions = do
   where
     sourceMap =
       Map.fromList
-        [ ("src/App/Main.jz", """
-        module App::Main {
-        import Lib::A.
-        import Lib::B.
-        (a, b).
-        }
-        """),
-          ("src/Lib/A.jz", """
-          module Lib::A {
-          operator %% tier 2.
-          (%%) = \\(left, right) -> left + right.
-          a = 1 %% 2.
-          }
-          """),
-          ("src/Lib/B.jz", """
-          module Lib::B {
-          operator %% tier 2.
-          (%%) = \\(left, right) -> left * right.
-          b = 1 %% 7.
-          }
-          """)
+        [ ( "src/App/Main.jz",
+            """
+            module App::Main {
+            import Lib::A.
+            import Lib::B.
+            (a, b).
+            }
+            """
+          ),
+          ( "src/Lib/A.jz",
+            """
+            module Lib::A {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left + right.
+            a = 1 %% 2.
+            }
+            """
+          ),
+          ( "src/Lib/B.jz",
+            """
+            module Lib::B {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left * right.
+            b = 1 %% 7.
+            }
+            """
+          )
         ]
     lookupSource path = pure (Map.lookup path sourceMap)

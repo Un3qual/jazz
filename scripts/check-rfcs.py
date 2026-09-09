@@ -86,7 +86,7 @@ def visible_link_targets(text: str) -> set[str]:
     targets.update(used_reference_targets(visible))
     targets.update(
         html_reference_targets(
-            rendered_html_source_markdown(text), include_images=False
+            rendered_html_source_markdown(text)
         )
     )
     return targets

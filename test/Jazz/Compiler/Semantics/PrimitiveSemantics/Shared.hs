@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
@@ -5,32 +6,36 @@ module Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
-    mkProgram
+    mkProgram,
   )
 where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
-    Statement (..)
+  ( CorePhase (Lowered),
+    Expr,
   )
 import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( bundledPreludeSource,
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredBlock,
+    loweredExpression,
   )
 import Jazz.TestHarness
   ( assertEqual,
-    assertSingleDiagnosticContains
+    assertSingleDiagnosticContains,
   )
 
 assertCompiles :: String -> IO ()
@@ -59,10 +64,10 @@ assertCompileErrorWithBundledPrelude source failureLabel errorCode = do
     (Text.pack errorCode)
     (compileErrors result)
 
-mkProgram :: Expr -> Expr
+mkProgram :: Expr 'Lowered -> Expr 'Lowered
 mkProgram expr =
-  EBlock
-    [ SExpr
+  loweredBlock
+    [ loweredExpression
         (SourceSpan 1 1)
         expr
     ]

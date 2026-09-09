@@ -1,13 +1,17 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (sortOn)
+import Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
+import Jazz.Compiler.AST (CorePhase (Lowered, Resolved), coreNodeSpan)
 import Jazz.Compiler.DiagnosticCatalog
   ( diagnosticCodeText,
   )
@@ -24,19 +28,36 @@ import Jazz.Compiler.Diagnostics.Render
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
+    ModuleExportInventory,
+    ModuleExportSelector (..),
+    exportInventory,
     exportInventoryEntries,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
+import Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
+    moduleIdentitySource,
+    modulePathRelativeFile,
+    modulePathTextSegments,
+    moduleQualifierIdentifier,
+    renderModulePath,
+    sourceFilePath,
+  )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
-    modulePathToRelativeFile,
     parseModulePathText,
-    resolveModuleGraph,
-    resolveProgram,
+    resolveProgramWithAmbientExports,
   )
 import Jazz.Compiler.Name
   ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    identifierText,
+    mkIdentifier,
   )
+import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceModule)
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -54,29 +75,121 @@ data ResolvedModuleSummary = ResolvedModuleSummary
   }
   deriving (Eq, Show)
 
-resolvedModuleSummary :: ModuleGraph.ResolvedModule -> ResolvedModuleSummary
+data ImportExposureSummary
+  = AllUnqualifiedSummary
+  | OnlyUnqualifiedSummary [Text]
+  | QualifiedOnlySummary
+  deriving (Eq, Show)
+
+data ResolvedImportSummary = ResolvedImportSummary
+  { summaryImportSpan :: SourceSpan,
+    summaryImportPath :: [Text],
+    summaryImportAlias :: Maybe Text,
+    summaryImportExposure :: ImportExposureSummary
+  }
+  deriving (Eq, Show)
+
+resolvedImportSummary :: ModuleGraph.ModuleImport 'Resolved -> ResolvedImportSummary
+resolvedImportSummary importDecl =
+  ResolvedImportSummary
+    { summaryImportSpan = coreNodeSpan (ModuleGraph.moduleImportNode importDecl),
+      summaryImportPath = modulePathSegments (ModuleGraph.importedModule importDecl),
+      summaryImportAlias =
+        case ModuleGraph.importExposure importDecl of
+          ModuleGraph.ImportQualifiedOnly qualifier -> Just (identifierText (moduleQualifierIdentifier qualifier))
+          _ -> Nothing,
+      summaryImportExposure =
+        case ModuleGraph.importExposure importDecl of
+          ModuleGraph.ImportAllUnqualified -> AllUnqualifiedSummary
+          ModuleGraph.ImportOnlyUnqualified names ->
+            OnlyUnqualifiedSummary (map identifierText (NonEmpty.toList names))
+          ModuleGraph.ImportQualifiedOnly _ -> QualifiedOnlySummary
+    }
+
+resolvedModuleSummary :: ModuleGraph.CoreModule 'Resolved -> ResolvedModuleSummary
 resolvedModuleSummary resolvedModule =
   ResolvedModuleSummary
-    { summaryModulePath = ModuleGraph.resolvedModulePath resolvedModule,
-      summarySourcePath = ModuleGraph.resolvedSourcePath resolvedModule,
-      summaryImports = normalizedImportPaths (ModuleGraph.resolvedModuleImports resolvedModule)
+    { summaryModulePath = resolvedModulePathSegments resolvedModule,
+      summarySourcePath = sourceFilePath (moduleIdentitySource (ModuleGraph.coreModuleIdentity resolvedModule)),
+      summaryImports = normalizedImportPaths (ModuleGraph.coreModuleImports resolvedModule)
     }
   where
     normalizedImportPaths imports =
       map snd . sortOn fst $
         [ (Text.intercalate "::" modulePath, modulePath)
-        | modulePath <- Set.toList (Set.fromList (map ModuleGraph.resolvedImportPath imports))
+        | modulePath <- Set.toList (Set.fromList (map (modulePathSegments . ModuleGraph.importedModule) imports))
         ]
+
+resolvedModulePathSegments :: ModuleGraph.CoreModule phase -> [Text]
+resolvedModulePathSegments = modulePathSegments . ModuleGraph.coreModulePath
+
+modulePathSegments :: ModulePath -> [Text]
+modulePathSegments = NonEmpty.toList . modulePathTextSegments
+
+programModules :: ModuleGraph.CoreProgram phase -> [ModuleGraph.CoreModule phase]
+programModules = NonEmpty.toList . ModuleGraph.coreProgramModules
+
+resolvedModuleExportInventory :: ModuleGraph.CoreModule 'Resolved -> ModuleExportInventory
+resolvedModuleExportInventory =
+  ModuleGraph.resolvedModuleExports . ModuleGraph.coreModuleFacts
+
+resolvedModuleExportSelectors :: ModuleGraph.CoreModule 'Resolved -> Maybe [ModuleExportSelector]
+resolvedModuleExportSelectors =
+  ModuleGraph.resolvedModuleExportSelectors . ModuleGraph.coreModuleFacts
+
+resolveTestProgram ::
+  ModuleResolutionConfig ->
+  (FilePath -> IO (Maybe Text)) ->
+  [Text] ->
+  IO (Either Diagnostic (ModuleGraph.CoreProgram 'Resolved))
+resolveTestProgram config =
+  resolveProgramWithAmbientExports config testPrelude (exportInventory [])
+
+resolveTestModuleGraph ::
+  ModuleResolutionConfig ->
+  Map.Map FilePath Text ->
+  [Text] ->
+  IO (Either Diagnostic [ModuleGraph.CoreModule 'Resolved])
+resolveTestModuleGraph config sources entryModulePath =
+  fmap (fmap programModules) $
+    resolveProgramWithAmbientExports
+      config
+      testPrelude
+      (exportInventory [])
+      (\path -> pure (Map.lookup path sources))
+      entryModulePath
+
+assertTestModulesRight ::
+  Text ->
+  IO (Either Diagnostic [ModuleGraph.CoreModule 'Resolved]) ->
+  ([ModuleGraph.CoreModule 'Resolved] -> IO ()) ->
+  IO ()
+assertTestModulesRight label resolution check =
+  resolution >>= \result -> assertRight label result check
+
+assertTestModulesLeftDiagnostic ::
+  Text ->
+  Text ->
+  Text ->
+  IO (Either Diagnostic [ModuleGraph.CoreModule 'Resolved]) ->
+  IO ()
+assertTestModulesLeftDiagnostic label expectedCode needle resolution =
+  resolution >>= assertLeftDiagnosticCodeAndContains label expectedCode needle
 
 main :: IO ()
 main = runTestSuite "ModuleResolution" tests
 
 tests :: [NamedTest]
 tests =
-  [ ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
+  [ ("core programs reject a missing entry module", testCoreProgramRejectsMissingEntry),
+    ("core programs reject duplicate module paths", testCoreProgramRejectsDuplicatePath),
+    ("core programs reject dependencies ordered after dependents", testCoreProgramRejectsDependencyAfterDependent),
+    ("core programs reject imports outside the program", testCoreProgramRejectsUnknownImport),
+    ("core programs preserve dependency-first module order", testCoreProgramPreservesDependencyOrder),
+    ("rejects empty entry module path before traversal", testRejectsEmptyEntryModulePath),
     ("resolved program retains lowered modules", testResolvedProgramRetainsLoweredModules),
-    ("resolved module audit ignores generic type variables", testResolvedModuleAuditIgnoresGenericTypeVariables),
     ("resolved module carries explicit public inventory", testResolvedModuleCarriesExplicitPublicInventory),
+    ("resolved module preserves authored explicit export selector order", testResolvedModulePreservesExplicitExportSelectorOrder),
     ("resolves mixed module facts without changing inventories", testResolvesMixedModuleFacts),
     ("empty export list produces empty inventory", testEmptyExportListProducesEmptyInventory),
     ("namespace-aware exports select exact public entries", testNamespaceAwareExportsSelectExactEntries),
@@ -91,6 +204,8 @@ tests =
     ("rejects unknown module export names", testRejectsUnknownModuleExport),
     ("rejects imported-only module export names", testRejectsImportedOnlyModuleExport),
     ("explicit imports reject private module bindings", testExplicitImportRejectsPrivateModuleBinding),
+    ("module paths parse into a non-empty nominal identity", testParseNominalModulePath),
+    ("invalid module path text retains E4016", testRejectsInvalidModulePathText),
     ("accepts lexer-compatible continuation characters in CLI module paths", testParseModulePathContinuations),
     ("preserves exact module path segments while resolving", testPreservesExactModulePathSegments),
     ("maps module path to relative .jz file", testModulePathMapping),
@@ -98,6 +213,8 @@ tests =
     ("accepts omitted module declaration from resolved source path", testAcceptsOmittedModuleDeclaration),
     ("accepts matching module declaration in resolved file", testAcceptsMatchingModuleDeclaration),
     ("resolves dependency graph in deterministic order", testResolveDependencyGraph),
+    ("source loading stops at the first dependency failure", testSourceLoadingStopsAtDependencyFailure),
+    ("retains checked import exposure in declaration order", testRetainsCheckedImportExposureInDeclarationOrder),
     ("resolves imports in lexical rendered-path order", testResolveImportsInLexicalRenderedPathOrder),
     ("collapses duplicate imports to one dependency edge", testCollapsesDuplicateImports),
     ("reuses already-resolved modules across branches", testReusesAlreadyResolvedModuleAcrossBranches),
@@ -141,27 +258,106 @@ tests =
     ("module lexer failures retain source-qualified structured detail", testModuleLexerFailureRetainsStructuredDetail)
   ]
 
+testCoreProgramRejectsMissingEntry :: IO ()
+testCoreProgramRejectsMissingEntry = do
+  dependency <- lowerInvariantModule ["Lib", "Value"] "answer = 1."
+  assertEqual
+    "missing entry failure"
+    (Left (ModuleGraph.MissingEntryModule entryPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (dependency :| []))
+
+testCoreProgramRejectsDuplicatePath :: IO ()
+testCoreProgramRejectsDuplicatePath = do
+  entry <- lowerInvariantModule ["App", "Main"] "0."
+  duplicate <- lowerInvariantModule ["App", "Main"] "1."
+  assertEqual
+    "duplicate module path failure"
+    (Left (ModuleGraph.DuplicateModulePath entryPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (entry :| [duplicate]))
+
+testCoreProgramRejectsDependencyAfterDependent :: IO ()
+testCoreProgramRejectsDependencyAfterDependent = do
+  entry <- lowerInvariantModule ["App", "Main"] "import Lib::Value. answer."
+  dependency <- lowerInvariantModule ["Lib", "Value"] "answer = 1."
+  assertEqual
+    "dependency order failure"
+    (Left (ModuleGraph.DependencyAfterDependent entryPath dependencyPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (entry :| [dependency]))
+
+testCoreProgramRejectsUnknownImport :: IO ()
+testCoreProgramRejectsUnknownImport = do
+  entry <- lowerInvariantModule ["App", "Main"] "import Lib::Value. answer."
+  assertEqual
+    "unknown import failure"
+    (Left (ModuleGraph.UnknownImportedModule entryPath dependencyPath :| []))
+    (ModuleGraph.mkCoreProgram absentPrelude entryPath (entry :| []))
+
+testCoreProgramPreservesDependencyOrder :: IO ()
+testCoreProgramPreservesDependencyOrder = do
+  dependency <- lowerInvariantModule ["Lib", "Value"] "answer = 1."
+  entry <- lowerInvariantModule ["App", "Main"] "import Lib::Value. answer."
+  case ModuleGraph.mkCoreProgram absentPrelude entryPath (dependency :| [entry]) of
+    Left failures -> failTest ("expected valid core program, got " <> Text.pack (show failures))
+    Right program ->
+      assertEqual
+        "dependency-first order"
+        [dependencyPath, entryPath]
+        (map ModuleGraph.coreModulePath (NonEmpty.toList (ModuleGraph.coreProgramModules program)))
+
+lowerInvariantModule :: [Text] -> Text -> IO (ModuleGraph.CoreModule 'Lowered)
+lowerInvariantModule path source =
+  case parseSurfaceProgram source of
+    Left diagnostic -> failTest ("invariant fixture parse failed: " <> renderDiagnostic diagnostic)
+    Right surface ->
+      case NonEmpty.nonEmpty (map mkIdentifier path) of
+        Nothing -> failTest "invariant fixture module path must be nonempty"
+        Just pathSegments ->
+          case lowerSurfaceModule
+            ( moduleIdentity
+                (mkModulePath pathSegments)
+                (mkSourceFile (Text.unpack (Text.intercalate "/" path) <> ".jz"))
+            )
+            surface of
+            Left diagnostic -> failTest ("invariant fixture lowering failed: " <> renderDiagnostic diagnostic)
+            Right coreModule -> pure coreModule
+
+absentPrelude :: ModuleGraph.PreludeArtifact 'Lowered
+absentPrelude =
+  ModuleGraph.PreludeArtifact
+    { ModuleGraph.preludeIdentity =
+        moduleIdentity
+          (mkModulePath (mkIdentifier "Jazz" :| [mkIdentifier "Prelude"]))
+          (mkSourceFile "<absent-prelude>"),
+      ModuleGraph.preludeModule = Nothing
+    }
+
+testPrelude :: ModuleGraph.PreludeArtifact phase
+testPrelude =
+  ModuleGraph.PreludeArtifact
+    { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity absentPrelude,
+      ModuleGraph.preludeModule = Nothing
+    }
+
+entryPath :: ModulePath
+entryPath = mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"])
+
+dependencyPath :: ModulePath
+dependencyPath = mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Value"])
+
 testResolvedProgramRetainsLoweredModules :: IO ()
 testResolvedProgramRetainsLoweredModules = do
   result <-
-    resolveProgram
+    resolveTestProgram
       resolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["App", "Main"]
   assertRight "resolved program" result $ \program -> do
     assertEqual
       "module order"
       [["Lib", "Value"], ["App", "Main"]]
-      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
-    assertEqual "entry path" ["App", "Main"] (ModuleGraph.resolvedProgramEntryPath program)
-    assertEqual "module count" 2 (length (ModuleGraph.resolvedProgramModules program))
-    assertEqual
-      "unresolved core names"
-      []
-      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
+      (map resolvedModulePathSegments (programModules program))
+    assertEqual "entry path" ["App", "Main"] (modulePathSegments (ModuleGraph.coreProgramEntry program))
+    assertEqual "module count" 2 (length (programModules program))
   where
     resolverConfig = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sources =
@@ -171,50 +367,24 @@ testResolvedProgramRetainsLoweredModules = do
         ]
     lookupSource path = pure (Map.lookup path sources)
 
-testResolvedModuleAuditIgnoresGenericTypeVariables :: IO ()
-testResolvedModuleAuditIgnoresGenericTypeVariables = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
-  assertRight "resolved generic module" result $ \program ->
-    assertEqual
-      "unresolved generic module names"
-      []
-      (concatMap ModuleGraph.unresolvedResolvedModuleNames (ModuleGraph.resolvedProgramModules program))
-  where
-    sources =
-      Map.fromList
-        [ ( "src/App/Main.jz",
-            """
-            module App::Main {
-            id :: a -> a.
-            id = \\(item) -> item.
-            id 1.
-            }
-            """
-          )
-        ]
-    lookupSource path = pure (Map.lookup path sources)
-
 testResolvedModuleCarriesExplicitPublicInventory :: IO ()
 testResolvedModuleCarriesExplicitPublicInventory = do
   result <-
-    resolveProgram
+    resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["App", "Main"]
   assertRight "resolved explicit public inventory" result $ \program ->
     case [ resolvedModule
-         | resolvedModule <- ModuleGraph.resolvedProgramModules program,
-           ModuleGraph.resolvedModulePath resolvedModule == ["Lib", "Value"]
+         | resolvedModule <- programModules program,
+           resolvedModulePathSegments resolvedModule == ["Lib", "Value"]
          ] of
       [resolvedModule] ->
         assertEqual
           "public inventory contains only answer"
           (Set.singleton (ModuleExport ValueNamespace "answer"))
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+              (resolvedModuleExportInventory resolvedModule)
           )
       modules -> failTest ("expected one resolved Lib::Value module, got " <> Text.pack (show (length modules)))
   where
@@ -239,24 +409,52 @@ testResolvedModuleCarriesExplicitPublicInventory = do
         ]
     lookupSource path = pure (Map.lookup path sources)
 
+testResolvedModulePreservesExplicitExportSelectorOrder :: IO ()
+testResolvedModulePreservesExplicitExportSelectorOrder = do
+  result <-
+    resolveTestProgram
+      testResolverConfig
+      lookupSource
+      ["App", "Main"]
+  assertRight "resolved explicit export selector order" result $ \program ->
+    case programModules program of
+      [resolvedModule] ->
+        assertEqual
+          "authored selector order"
+          ( Just
+              [ ModuleExportSelector (Just ValueNamespace) "zeta",
+                ModuleExportSelector (Just ValueNamespace) "alpha"
+              ]
+          )
+          (resolvedModuleExportSelectors resolvedModule)
+      modules -> failTest ("expected one resolved App::Main module, got " <> Text.pack (show (length modules)))
+  where
+    sources =
+      Map.singleton
+        "src/App/Main.jz"
+        """
+        module App::Main (value zeta, value alpha) {
+        alpha = 1.
+        zeta = 2.
+        }
+        """
+    lookupSource path = pure (Map.lookup path sources)
+
 testResolvesMixedModuleFacts :: IO ()
 testResolvesMixedModuleFacts = do
   result <-
-    resolveProgram
+    resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["App", "Main"]
   assertRight "resolved mixed module facts" result $ \program -> do
     assertEqual
       "dependency order"
       [["Lib", "Types"], ["Lib", "Values"], ["App", "Main"]]
-      (map ModuleGraph.resolvedModulePath (ModuleGraph.resolvedProgramModules program))
+      (map resolvedModulePathSegments (programModules program))
     case [ resolvedModule
-         | resolvedModule <- ModuleGraph.resolvedProgramModules program,
-           ModuleGraph.resolvedModulePath resolvedModule == ["App", "Main"]
+         | resolvedModule <- programModules program,
+           resolvedModulePathSegments resolvedModule == ["App", "Main"]
          ] of
       [resolvedModule] ->
         assertEqual
@@ -267,7 +465,7 @@ testResolvesMixedModuleFacts = do
                 ModuleExport ValueNamespace "main"
               ]
           )
-          (exportInventoryEntries (ModuleGraph.resolvedModuleExportInventory resolvedModule))
+          (exportInventoryEntries (resolvedModuleExportInventory resolvedModule))
       modules -> failTest ("expected one resolved App::Main module, got " <> Text.pack (show (length modules)))
   where
     sources =
@@ -292,24 +490,21 @@ testResolvesMixedModuleFacts = do
 testEmptyExportListProducesEmptyInventory :: IO ()
 testEmptyExportListProducesEmptyInventory = do
   result <-
-    resolveProgram
+    resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["App", "Main"]
   assertRight "resolved empty public inventory" result $ \program ->
     case [ resolvedModule
-         | resolvedModule <- ModuleGraph.resolvedProgramModules program,
-           ModuleGraph.resolvedModulePath resolvedModule == ["Lib", "Value"]
+         | resolvedModule <- programModules program,
+           resolvedModulePathSegments resolvedModule == ["Lib", "Value"]
          ] of
       [resolvedModule] ->
         assertEqual
           "public inventory is empty"
           Set.empty
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+              (resolvedModuleExportInventory resolvedModule)
           )
       modules -> failTest ("expected one resolved Lib::Value module, got " <> Text.pack (show (length modules)))
   where
@@ -336,15 +531,12 @@ testEmptyExportListProducesEmptyInventory = do
 testNamespaceAwareExportsSelectExactEntries :: IO ()
 testNamespaceAwareExportsSelectExactEntries = do
   result <-
-    resolveProgram
+    resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["Lib", "Box"]
   assertRight "resolved namespace-aware public inventory" result $ \program ->
-    case ModuleGraph.resolvedProgramModules program of
+    case programModules program of
       [resolvedModule] ->
         assertEqual
           "public inventory contains exact type and value exports"
@@ -354,7 +546,7 @@ testNamespaceAwareExportsSelectExactEntries = do
               ]
           )
           ( exportInventoryEntries
-              (ModuleGraph.resolvedModuleExportInventory resolvedModule)
+              (resolvedModuleExportInventory resolvedModule)
           )
       modules -> failTest ("expected one resolved Lib::Box module, got " <> Text.pack (show (length modules)))
   where
@@ -372,11 +564,8 @@ testNamespaceAwareExportsSelectExactEntries = do
 testNamespaceAwareExportsRejectWrongNamespace :: IO ()
 testNamespaceAwareExportsRejectWrongNamespace = do
   result <-
-    resolveProgram
+    resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["Lib", "Token"]
   assertLeftDiagnosticCodeAndContains
@@ -398,11 +587,8 @@ testNamespaceAwareExportsRejectWrongNamespace = do
 testNamespaceAwareExportDiagnosticRendersEmptyInventory :: IO ()
 testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
   result <-
-    resolveProgram
+    resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
-      Set.empty
-      Set.empty
       lookupSource
       ["Lib", "Empty"]
   assertLeftDiagnosticCodeAndContains
@@ -423,9 +609,9 @@ testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
 
 testGroupedTypeExportsExpandFlatInventory :: IO ()
 testGroupedTypeExportsExpandFlatInventory = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertRight "resolved grouped public inventory" result $ \program ->
-    case ModuleGraph.resolvedProgramModules program of
+    case programModules program of
       [resolvedModule] ->
         assertEqual
           "grouped selectors expand and deduplicate"
@@ -439,7 +625,7 @@ testGroupedTypeExportsExpandFlatInventory = do
                 ModuleExport ConstructorNamespace "Unit"
               ]
           )
-          (exportInventoryEntries (ModuleGraph.resolvedModuleExportInventory resolvedModule))
+          (exportInventoryEntries (resolvedModuleExportInventory resolvedModule))
       modules -> failTest ("expected one resolved Lib::Types module, got " <> Text.pack (show (length modules)))
   where
     sources =
@@ -456,7 +642,7 @@ testGroupedTypeExportsExpandFlatInventory = do
 
 testGroupedTypeExportsRejectUnknownType :: IO ()
 testGroupedTypeExportsRejectUnknownType = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertLeftDiagnosticCodeAndContains
     "unknown grouped type"
     "E4015"
@@ -474,7 +660,7 @@ testGroupedTypeExportsRejectUnknownType = do
 
 testGroupedTypeExportsRejectUnknownConstructor :: IO ()
 testGroupedTypeExportsRejectUnknownConstructor = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertLeftDiagnosticCodeAndContains
     "unknown grouped constructor"
     "E4015"
@@ -492,7 +678,7 @@ testGroupedTypeExportsRejectUnknownConstructor = do
 
 testGroupedTypeExportsRejectWrongOwner :: IO ()
 testGroupedTypeExportsRejectWrongOwner = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertLeftDiagnosticCodeAndContains
     "wrong-owner grouped constructor"
     "E4015"
@@ -510,7 +696,7 @@ testGroupedTypeExportsRejectWrongOwner = do
 
 testGroupedTypeExportsRejectImportedConstructor :: IO ()
 testGroupedTypeExportsRejectImportedConstructor = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Wrapper"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Wrapper"]
   assertLeftDiagnosticCodeAndContains
     "imported grouped constructor"
     "E4015"
@@ -532,7 +718,7 @@ testGroupedTypeExportsRejectImportedConstructor = do
 
 testExplicitExportsKeepPrivateLocalsUsable :: IO ()
 testExplicitExportsKeepPrivateLocalsUsable = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertRight "private local remains resolvable" result (const (pure ()))
   where
     sources =
@@ -558,7 +744,7 @@ testExplicitExportsKeepPrivateLocalsUsable = do
 
 testRejectsUnknownModuleExport :: IO ()
 testRejectsUnknownModuleExport = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Value"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Value"]
   assertLeftDiagnosticCodeAndContains
     "unknown module export"
     "E4015"
@@ -583,7 +769,7 @@ testRejectsUnknownModuleExport = do
 
 testRejectsImportedOnlyModuleExport :: IO ()
 testRejectsImportedOnlyModuleExport = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["Lib", "Wrapper"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Wrapper"]
   assertLeftDiagnosticCodeAndContains
     "imported-only module export"
     "E4015"
@@ -612,7 +798,7 @@ testRejectsImportedOnlyModuleExport = do
 
 testExplicitImportRejectsPrivateModuleBinding :: IO ()
 testExplicitImportRejectsPrivateModuleBinding = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "private explicit import"
     "E4007"
@@ -659,11 +845,11 @@ sharedCycleSourceFiles =
 
 testRejectsEmptyEntryModulePath :: IO ()
 testRejectsEmptyEntryModulePath =
-  assertLeftDiagnosticCodeAndContains
+  assertTestModulesLeftDiagnostic
     "empty entry path"
     "E4016"
     "empty entry module path"
-    (resolveModuleGraph config sourceFiles [])
+    (resolveTestModuleGraph config sourceFiles [])
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
     sourceFiles =
@@ -682,31 +868,52 @@ testModulePathMapping =
   assertEqual
     "relative file path"
     "App/Core.jz"
-    (modulePathToRelativeFile ["App", "Core"])
+    (modulePathRelativeFile ".jz" (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Core"])))
 
 testNestedModulePathMapping :: IO ()
 testNestedModulePathMapping = do
   assertEqual
     "nested relative file path"
     "App/Core/Parser.jz"
-    (modulePathToRelativeFile ["App", "Core", "Parser"])
+    (modulePathRelativeFile ".jz" (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Core", mkIdentifier "Parser"])))
   assertEqual
     "punctuated relative file path"
     "Lib/Build!.jz"
-    (modulePathToRelativeFile ["Lib", "Build!"])
+    (modulePathRelativeFile ".jz" (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Build!"])))
+
+testParseNominalModulePath :: IO ()
+testParseNominalModulePath =
+  assertEqual
+    "parsed path segments and rendering"
+    (Right ("Foo" :| ["Bar"], "Foo::Bar"))
+    (fmap (\modulePath -> (modulePathTextSegments modulePath, renderModulePath modulePath)) (parseModulePathText "Foo::Bar"))
+
+testRejectsInvalidModulePathText :: IO ()
+testRejectsInvalidModulePathText =
+  mapM_
+    ( \modulePath ->
+        case parseModulePathText modulePath of
+          Left diagnostic ->
+            assertEqual
+              ("invalid path " <> modulePath)
+              "E4016"
+              (diagnosticCodeText (diagnosticCode diagnostic))
+          Right _ -> failTest ("expected invalid module path: " <> modulePath)
+    )
+    ["", "::Foo", "Foo::", "Foo::not-valid"]
 
 testParseModulePathContinuations :: IO ()
 testParseModulePathContinuations =
   assertEqual
     "continuation chars"
-    (Right ["App", "Main'", "Build!"])
-    (parseModulePathText "App::Main'::Build!")
+    (Right ("App" :| ["Main'", "Build!"]))
+    (modulePathTextSegments <$> parseModulePathText "App::Main'::Build!")
 
 testPreservesExactModulePathSegments :: IO ()
 testPreservesExactModulePathSegments =
-  assertRight
+  assertTestModulesRight
     "case-distinct module paths resolve independently"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -742,9 +949,9 @@ testPreservesExactModulePathSegments =
 
 testAcceptsOmittedModuleDeclaration :: IO ()
 testAcceptsOmittedModuleDeclaration =
-  assertRight
+  assertTestModulesRight
     "omitted declaration uses resolved source path"
-    (resolveModuleGraph config sourceFiles ["App", "Nested", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Nested", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -759,11 +966,27 @@ testAcceptsOmittedModuleDeclaration =
           }
       ]
 
+testSourceLoadingStopsAtDependencyFailure :: IO ()
+testSourceLoadingStopsAtDependencyFailure = do
+  loadedPaths <- newIORef []
+  let sources =
+        Map.fromList
+          [ ("src/App/Main.jz", "import Z::Last. import A::First. 1."),
+            ("src/Z/Last.jz", "1.")
+          ]
+      loadSource path = do
+        modifyIORef' loadedPaths (<> [path])
+        pure (Map.lookup path sources)
+  result <- resolveTestProgram testResolverConfig loadSource ["App", "Main"]
+  assertLeftDiagnosticCodeAndContains "first lexical dependency failure" "E4001" "A::First" result
+  paths <- readIORef loadedPaths
+  assertEqual "later dependencies are not loaded after failure" ["src/App/Main.jz", "src/A/First.jz"] paths
+
 testResolveDependencyGraph :: IO ()
 testResolveDependencyGraph =
-  assertRight
+  assertTestModulesRight
     "resolve graph"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -790,11 +1013,72 @@ testResolveDependencyGraph =
           }
       ]
 
+testRetainsCheckedImportExposureInDeclarationOrder :: IO ()
+testRetainsCheckedImportExposureInDeclarationOrder =
+  assertTestModulesRight
+    "checked import exposure resolves"
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
+    ( \modules ->
+        case [ resolvedModule
+             | resolvedModule <- modules,
+               resolvedModulePathSegments resolvedModule == ["App", "Main"]
+             ] of
+          [resolvedModule] ->
+            assertEqual
+              "checked imports preserve declaration, duplicate, and selector order"
+              expectedImports
+              (map resolvedImportSummary (ModuleGraph.coreModuleImports resolvedModule))
+          _ -> failTest "expected exactly one resolved App::Main module"
+    )
+  where
+    config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
+    sourceFiles =
+      Map.fromList
+        [ ( "src/App/Main.jz",
+            """
+            import Lib::Zulu as Zed.
+            import Lib::Alpha (second, first).
+            import Lib::Middle.
+            import Lib::Alpha (second, first).
+            main = middle.
+            """
+          ),
+          ("src/Lib/Alpha.jz", "first = 1. second = 2."),
+          ("src/Lib/Middle.jz", "middle = 3."),
+          ("src/Lib/Zulu.jz", "zulu = 4.")
+        ]
+    expectedImports =
+      [ ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 1 1,
+            summaryImportPath = ["Lib", "Zulu"],
+            summaryImportAlias = Just "Zed",
+            summaryImportExposure = QualifiedOnlySummary
+          },
+        ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 2 1,
+            summaryImportPath = ["Lib", "Alpha"],
+            summaryImportAlias = Nothing,
+            summaryImportExposure = OnlyUnqualifiedSummary ["second", "first"]
+          },
+        ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 3 1,
+            summaryImportPath = ["Lib", "Middle"],
+            summaryImportAlias = Nothing,
+            summaryImportExposure = AllUnqualifiedSummary
+          },
+        ResolvedImportSummary
+          { summaryImportSpan = SourceSpanIn "src/App/Main.jz" 4 1,
+            summaryImportPath = ["Lib", "Alpha"],
+            summaryImportAlias = Nothing,
+            summaryImportExposure = OnlyUnqualifiedSummary ["second", "first"]
+          }
+      ]
+
 testResolveImportsInLexicalRenderedPathOrder :: IO ()
 testResolveImportsInLexicalRenderedPathOrder =
-  assertRight
+  assertTestModulesRight
     "reverse source imports resolve lexically"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -830,9 +1114,9 @@ testResolveImportsInLexicalRenderedPathOrder =
 
 testCollapsesDuplicateImports :: IO ()
 testCollapsesDuplicateImports =
-  assertRight
+  assertTestModulesRight
     "duplicate imports collapse"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -862,9 +1146,9 @@ testCollapsesDuplicateImports =
 
 testReusesAlreadyResolvedModuleAcrossBranches :: IO ()
 testReusesAlreadyResolvedModuleAcrossBranches =
-  assertRight
+  assertTestModulesRight
     "shared dependency is reused"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -916,9 +1200,9 @@ testReusesAlreadyResolvedModuleAcrossBranches =
 
 testAcceptsMatchingModuleDeclaration :: IO ()
 testAcceptsMatchingModuleDeclaration =
-  assertRight
+  assertTestModulesRight
     "matching declaration is accepted"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -955,9 +1239,9 @@ testAcceptsMatchingModuleDeclaration =
 
 testDeduplicatesDuplicateRoots :: IO ()
 testDeduplicatesDuplicateRoots =
-  assertRight
+  assertTestModulesRight
     "duplicate roots are not treated as ambiguity"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config =
@@ -990,9 +1274,9 @@ testDeduplicatesDuplicateRoots =
 
 testDeduplicatesEquivalentRoots :: IO ()
 testDeduplicatesEquivalentRoots =
-  assertRight
+  assertTestModulesRight
     "equivalent roots are not treated as ambiguity"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config =
@@ -1024,7 +1308,7 @@ testDeduplicatesEquivalentRoots =
 
 testReportsUnresolvedImport :: IO ()
 testReportsUnresolvedImport = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "unresolved code" "E4001" result
   assertLeftContains "unresolved module" "Missing::Thing" result
   assertLeftContains "importer context" "App::Main" result
@@ -1042,7 +1326,7 @@ testReportsUnresolvedImport = do
 
 testReportsAmbiguousImport :: IO ()
 testReportsAmbiguousImport = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "ambiguous code" "E4002" result
   assertLeftContains "ambiguous first candidate" "rootA/Lib/Util.jz" result
   assertLeftContains "ambiguous second candidate" "rootB/Lib/Util.jz" result
@@ -1063,7 +1347,7 @@ testReportsAmbiguousImport = do
 
 testReportsCycle :: IO ()
 testReportsCycle = do
-  let result = resolveModuleGraph config sourceFiles ["A", "One"]
+  result <- resolveTestModuleGraph config sourceFiles ["A", "One"]
   assertLeftContains "cycle code" "E4003" result
   assertLeftContains "cycle trace" "A::One -> B::Two -> A::One" result
   where
@@ -1072,7 +1356,7 @@ testReportsCycle = do
 
 testReportsNestedCycleMinimalTrace :: IO ()
 testReportsNestedCycleMinimalTrace = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "nested cycle code" "E4003" result
   assertLeftContains "nested cycle trace" "A::One -> B::Two -> A::One" result
   assertLeftDiagnosticNotContains "nested cycle excludes entry" "App::Main" result
@@ -1089,7 +1373,7 @@ testReportsNestedCycleMinimalTrace = do
 
 testReportsImportedModuleParseFailure :: IO ()
 testReportsImportedModuleParseFailure = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "parse failure code" "E4004" result
   assertLeftContains "parse failure path" "src/Lib/Util.jz" result
   where
@@ -1107,7 +1391,7 @@ testReportsImportedModuleParseFailure = do
 
 testModuleLexerFailureRetainsStructuredDetail :: IO ()
 testModuleLexerFailureRetainsStructuredDetail = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   case result of
     Left diagnostic -> do
       assertEqual "module lexer failure code" "E4004" (diagnosticCodeText (diagnosticCode diagnostic))
@@ -1132,7 +1416,7 @@ testModuleLexerFailureRetainsStructuredDetail = do
 
 testImplMethodRejectsHiddenUnqualifiedReference :: IO ()
 testImplMethodRejectsHiddenUnqualifiedReference = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "implementation method hidden unqualified reference"
     "E4011"
@@ -1155,7 +1439,7 @@ testImplMethodRejectsHiddenUnqualifiedReference = do
 
 testImplMethodRejectsHiddenQualifiedReference :: IO ()
 testImplMethodRejectsHiddenQualifiedReference = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "implementation method hidden qualified reference"
     "E4014"
@@ -1178,7 +1462,7 @@ testImplMethodRejectsHiddenQualifiedReference = do
 
 testReportsModuleDeclarationMismatch :: IO ()
 testReportsModuleDeclarationMismatch = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "mismatch code" "E4006" result
   assertLeftContains "declared module name" "Wrong::Name" result
   assertLeftContains "expected module name" "App::Main" result
@@ -1197,7 +1481,7 @@ testReportsModuleDeclarationMismatch = do
 
 testReportsNestedModuleDeclarationParseFailure :: IO ()
 testReportsNestedModuleDeclarationParseFailure = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "nested module parse failure code" "E4004" result
   assertLeftContains "nested module parse failure path" "src/App/Main.jz" result
   assertLeftContains "nested module parse failure text" "top-level" result
@@ -1218,9 +1502,9 @@ testReportsNestedModuleDeclarationParseFailure = do
 
 testAcceptsValidImportSymbolList :: IO ()
 testAcceptsValidImportSymbolList =
-  assertRight
+  assertTestModulesRight
     "valid import symbol list resolves"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1254,9 +1538,9 @@ testAcceptsValidImportSymbolList =
 
 testAcceptsDataConstructorImportSymbolList :: IO ()
 testAcceptsDataConstructorImportSymbolList =
-  assertRight
+  assertTestModulesRight
     "data constructor import symbol list resolves"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1285,9 +1569,9 @@ testAcceptsDataConstructorImportSymbolList =
 
 testAcceptsTypeApplicationsWhileCollectingModuleReferences :: IO ()
 testAcceptsTypeApplicationsWhileCollectingModuleReferences =
-  assertRight
+  assertTestModulesRight
     "type applications in module reference collection"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1321,9 +1605,9 @@ testAcceptsTypeApplicationsWhileCollectingModuleReferences =
 
 testAcceptsBareImportUnqualifiedExport :: IO ()
 testAcceptsBareImportUnqualifiedExport =
-  assertRight
+  assertTestModulesRight
     "bare import makes exports visible"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1357,9 +1641,9 @@ testAcceptsBareImportUnqualifiedExport =
 
 testAcceptsLocalBindingOverHiddenExplicitImport :: IO ()
 testAcceptsLocalBindingOverHiddenExplicitImport =
-  assertRight
+  assertTestModulesRight
     "local binding shadows hidden import export"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1394,7 +1678,7 @@ testAcceptsLocalBindingOverHiddenExplicitImport =
 
 testReportsMissingImportSymbol :: IO ()
 testReportsMissingImportSymbol = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "missing symbol code" "E4007" result
   assertLeftContains "missing symbol text" "subtract" result
   assertLeftContains "imported module context" "Lib::Math" result
@@ -1420,7 +1704,7 @@ testReportsMissingImportSymbol = do
 
 testReportsHiddenExplicitImportValueReference :: IO ()
 testReportsHiddenExplicitImportValueReference = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "explicit hidden value code" "E4011" result
   assertLeftContains "hidden value text" "subtract" result
   assertLeftContains "imported module context" "Lib::Math" result
@@ -1451,7 +1735,7 @@ testReportsHiddenExplicitImportValueReference = do
 
 testReportsImportSymbolCollision :: IO ()
 testReportsImportSymbolCollision = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "symbol collision code" "E4008" result
   assertLeftContains "symbol collision text" "symbol 'map'" result
   assertLeftContains "first module context" "A::Ops" result
@@ -1496,7 +1780,7 @@ testReportsBareImportSymbolCollision = do
     """
   where
     assertCollision label importerSource = do
-      let result = resolveModuleGraph config (sourceFiles importerSource) ["App", "Main"]
+      result <- resolveTestModuleGraph config (sourceFiles importerSource) ["App", "Main"]
       assertLeftContains (label <> " collision code") "E4008" result
       assertLeftContains (label <> " collision symbol") "symbol 'map'" result
       assertLeftDiagnosticMetadata
@@ -1516,7 +1800,7 @@ testReportsBareImportSymbolCollision = do
 
 testReportsMixedImportSymbolCollision :: IO ()
 testReportsMixedImportSymbolCollision = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "mixed collision code" "E4008" result
   assertLeftContains "mixed collision symbol" "symbol 'map'" result
   assertLeftDiagnosticMetadata
@@ -1542,7 +1826,7 @@ testReportsMixedImportSymbolCollision = do
 
 testReportsImportAliasCollision :: IO ()
 testReportsImportAliasCollision = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "alias collision code" "E4009" result
   assertLeftContains "alias collision text" "alias collision" result
   assertLeftContains "first module context" "A::Ops" result
@@ -1571,7 +1855,7 @@ testReportsImportAliasCollision = do
 
 testReportsHiddenExplicitImportConstructorPatternReference :: IO ()
 testReportsHiddenExplicitImportConstructorPatternReference = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "explicit hidden constructor code" "E4011" result
   assertLeftContains "hidden constructor text" "Just" result
   assertLeftContains "imported module context" "Lib::Maybe" result
@@ -1597,7 +1881,7 @@ testReportsHiddenExplicitImportConstructorPatternReference = do
 
 testReportsUnqualifiedAliasImportReference :: IO ()
 testReportsUnqualifiedAliasImportReference = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "alias visibility code" "E4012" result
   assertLeftContains "hidden symbol text" "subtract" result
   assertLeftContains "imported module context" "Lib::Math" result
@@ -1629,7 +1913,7 @@ testReportsUnqualifiedAliasImportReference = do
 
 testReportsHiddenAliasImportConstructorPatternReference :: IO ()
 testReportsHiddenAliasImportConstructorPatternReference = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "alias hidden constructor code" "E4012" result
   assertLeftContains "hidden constructor text" "Just" result
   assertLeftContains "imported module context" "Lib::Maybe" result
@@ -1656,9 +1940,9 @@ testReportsHiddenAliasImportConstructorPatternReference = do
 
 testAcceptsQualifiedAliasReferenceBeforeImport :: IO ()
 testAcceptsQualifiedAliasReferenceBeforeImport =
-  assertRight
+  assertTestModulesRight
     "qualified alias reference before import resolves"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1692,9 +1976,9 @@ testAcceptsQualifiedAliasReferenceBeforeImport =
 
 testAcceptsLocalBindingSharingAliasName :: IO ()
 testAcceptsLocalBindingSharingAliasName =
-  assertRight
+  assertTestModulesRight
     "local binding does not shadow qualified alias"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1729,9 +2013,9 @@ testAcceptsLocalBindingSharingAliasName =
 
 testAcceptsQualifiedAliasImportReference :: IO ()
 testAcceptsQualifiedAliasImportReference =
-  assertRight
+  assertTestModulesRight
     "qualified alias import reference resolves"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1765,9 +2049,9 @@ testAcceptsQualifiedAliasImportReference =
 
 testAcceptsQualifiedAliasDataConstructorReference :: IO ()
 testAcceptsQualifiedAliasDataConstructorReference =
-  assertRight
+  assertTestModulesRight
     "qualified alias data constructor reference resolves"
-    (resolveModuleGraph config sourceFiles ["App", "Main"])
+    (resolveTestModuleGraph config sourceFiles ["App", "Main"])
     (\modules -> assertEqual "resolved modules" expectedModules (map resolvedModuleSummary modules))
   where
     config = ModuleResolutionConfig {moduleRoots = ["src"], moduleExtension = ".jz"}
@@ -1796,7 +2080,7 @@ testAcceptsQualifiedAliasDataConstructorReference =
 
 testReportsUnknownQualifiedAliasReference :: IO ()
 testReportsUnknownQualifiedAliasReference = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "unknown alias code" "E4013" result
   assertLeftContains "unknown alias text" "Math" result
   assertLeftContains "referenced symbol text" "subtract" result
@@ -1815,7 +2099,7 @@ testReportsUnknownQualifiedAliasReference = do
 
 testReportsStandaloneUnknownQualifiedAliasReference :: IO ()
 testReportsStandaloneUnknownQualifiedAliasReference = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "standalone unknown alias code" "E4013" result
   assertLeftContains "standalone unknown alias text" "Math" result
   assertLeftContains "standalone referenced symbol text" "subtract" result
@@ -1834,7 +2118,7 @@ testReportsStandaloneUnknownQualifiedAliasReference = do
 
 testReportsMissingQualifiedAliasExport :: IO ()
 testReportsMissingQualifiedAliasExport = do
-  let result = resolveModuleGraph config sourceFiles ["App", "Main"]
+  result <- resolveTestModuleGraph config sourceFiles ["App", "Main"]
   assertLeftContains "missing qualified alias code" "E4014" result
   assertLeftContains "missing symbol text" "subtract" result
   assertLeftContains "imported module context" "Lib::Math" result
@@ -1868,7 +2152,7 @@ testResolverConfig =
 
 testAcceptsExplicitClassImportSymbol :: IO ()
 testAcceptsExplicitClassImportSymbol = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertRight "explicit class import" result (const (pure ()))
   where
     sources =
@@ -1891,7 +2175,7 @@ testAcceptsExplicitClassImportSymbol = do
 
 testRejectsTypeOnlyImportSymbol :: IO ()
 testRejectsTypeOnlyImportSymbol = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "type-only import"
     "E4007"
@@ -1912,7 +2196,7 @@ testRejectsTypeOnlyImportSymbol = do
 
 testReportsClassImportCollision :: IO ()
 testReportsClassImportCollision = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "class import collision"
     "E4008"
@@ -1935,7 +2219,7 @@ testReportsClassImportCollision = do
 
 testReportsTypeImportCollision :: IO ()
 testReportsTypeImportCollision = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "type import collision"
     "E4008"
@@ -1959,7 +2243,7 @@ testReportsTypeImportCollision = do
 
 testKeepsRepeatedClassImportsIdempotent :: IO ()
 testKeepsRepeatedClassImportsIdempotent = do
-  result <- resolveProgram testResolverConfig ResolveKernelOnly Set.empty Set.empty lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertRight "repeated class import" result (const (pure ()))
   where
     sources =

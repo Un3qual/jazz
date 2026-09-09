@@ -106,32 +106,28 @@ library jazz-internal
       Jazz.Compiler.Driver
       Jazz.Compiler.Force
       Jazz.Compiler.FractionalLiteral
-      Jazz.Compiler.LoweredIR
-      Jazz.Compiler.LoweredIR.Lower
-      Jazz.Compiler.LoweredIR.Lower.Emit
-      Jazz.Compiler.LoweredIR.Lower.ManagedLayouts
-      Jazz.Compiler.LoweredIR.Lower.Requirements
-      Jazz.Compiler.LoweredIR.Lower.Shapes
-      Jazz.Compiler.LoweredIR.Lower.Types
-      Jazz.Compiler.LoweredIR.RuntimeServiceCatalog
-      Jazz.Compiler.LoweredIR.Validate
-      Jazz.Compiler.TypedCore
-      Jazz.Compiler.TypedCore.Validate
+      Jazz.Compiler.Identifier
       Jazz.Compiler.ModuleGraph
+      Jazz.Compiler.ModuleIdentity
       Jazz.Compiler.ModuleExports
       Jazz.Compiler.ModuleInterface
       Jazz.Compiler.ModuleCompiler
       Jazz.Compiler.ModuleResolver
+      Jazz.Compiler.ModuleResolver.Imports
+      Jazz.Compiler.ModuleResolver.Names
       Jazz.Compiler.ModuleRuntime
       Jazz.Compiler.Name
       Jazz.Compiler.Parser
       Jazz.Compiler.Parser.AST
       Jazz.Compiler.Parser.Context
+      Jazz.Compiler.Parser.CapabilityDeclaration
       Jazz.Compiler.Parser.Declaration
+      Jazz.Compiler.Parser.DeclarationTokens
       Jazz.Compiler.Parser.Expression
       Jazz.Compiler.Parser.Failure
       Jazz.Compiler.Parser.Lexer
       Jazz.Compiler.Parser.Lower
+      Jazz.Compiler.Parser.ModuleDeclaration
       Jazz.Compiler.Parser.Operator
       Jazz.Compiler.Parser.Pattern
       Jazz.Compiler.Parser.Signature
@@ -157,18 +153,18 @@ library jazz-internal
       Jazz.Compiler.Runtime.Semantics
       Jazz.Compiler.Runtime.Types
       Jazz.Compiler.RuntimeHost
-      Jazz.Compiler.RuntimeHints
+      Jazz.Compiler.SemanticFacts
       Jazz.Compiler.SignatureRendering
       Jazz.Compiler.SourceProgram
+      Jazz.Compiler.SourceUnitOwnership
+      Jazz.Compiler.StableSet
       Jazz.Compiler.TypeInference
+      Jazz.Compiler.TypeInference.Analyzed
       Jazz.Compiler.TypeInference.Capabilities
       Jazz.Compiler.TypeInference.Diagnostics
-      Jazz.Compiler.TypeInference.Elaboration
-      Jazz.Compiler.TypeInference.Elaboration.Finalize
-      Jazz.Compiler.TypeInference.Elaboration.Profiles
-      Jazz.Compiler.TypeInference.Elaboration.Specialize
-      Jazz.Compiler.TypeInference.Elaboration.StructuredValues
-      Jazz.Compiler.TypeInference.Elaboration.Types
+      Jazz.Compiler.TypeInference.Environment
+      Jazz.Compiler.TypeInference.Evidence
+      Jazz.Compiler.TypeInference.Instantiation
       Jazz.Compiler.TypeInference.Operator
       Jazz.Compiler.TypeInference.Pattern
       Jazz.Compiler.TypeInference.Result
@@ -179,15 +175,9 @@ library jazz-internal
       Jazz.Compiler.TypeInference.Traversal
       Jazz.Compiler.TypeInference.TypeOps
       Jazz.Compiler.TypeInference.Types
+      Jazz.Compiler.TypeRepresentation
       Jazz.Compiler.WarningConfig
   other-modules:
-      Jazz.Compiler.TypedCore.Validate.Declarations
-      Jazz.Compiler.TypedCore.Validate.Evidence
-      Jazz.Compiler.TypedCore.Validate.Expressions
-      Jazz.Compiler.TypedCore.Validate.Internal
-      Jazz.Compiler.TypedCore.Validate.Patterns
-      Jazz.Compiler.TypedCore.Validate.Program
-      Jazz.Compiler.TypedCore.Validate.TypeRecipes
   build-depends:
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
@@ -216,9 +206,11 @@ executable jazz
 
 common test-common
   import: warning-settings
+  ghc-options: -rtsopts
   hs-source-dirs: test
   default-extensions: MultilineStrings
   other-modules:
+      Jazz.TestCore
       Jazz.TestHarness
   default-language: Haskell2010
   build-depends:
@@ -241,6 +233,7 @@ common program-support
       aeson >= 2.2 && < 2.3,
       base >= 4.22 && < 4.23,
       bytestring >= 0.12 && < 0.13,
+      deepseq >= 1.5 && < 1.6,
       directory >= 1.3 && < 1.4,
       filepath >= 1.5 && < 1.6,
       jazz:jazz-internal,
@@ -328,6 +321,7 @@ test-suite runtime-observation-spec
       Jazz.Compiler.Runtime.OutcomeTests
       Jazz.Compiler.Runtime.Observation.ProfileTests
       Jazz.Compiler.Runtime.Observation.StatisticsTests
+      Jazz.Compiler.Semantics.Runtime.Fixtures
   build-depends:
       aeson >= 2.2 && < 2.3
 
@@ -513,69 +507,6 @@ test-suite jazz-core-modules-corpus-closure-spec
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
-
-test-suite jazz-lowered-ir-contract-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzLoweredIRContractSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalLoweredIRComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-typed-core-contract-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/JazzTypedCoreContractSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.CanonicalTypedCoreComparison
-      Jazz.Compiler.Bootstrap.CanonicalValue
-      Jazz.Compiler.Bootstrap.TypedCoreContract.Fixtures
-      Jazz.Compiler.Bootstrap.TypedCoreContract.FixedFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreContract.ManifestTests
-      Jazz.Compiler.Bootstrap.TypedCoreContract.ParityTests
-      Jazz.Compiler.Bootstrap.TypedCoreContract.RegressionTests
-      Jazz.Compiler.Bootstrap.TypedCoreContract.ReviewFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreContract.Tests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
-      Jazz.Repository.Root
-      Jazz.Repository.SourceLayout
-      Jazz.TestSource
-
-test-suite jazz-typed-core-expression-direct-call-spec
-  import: test-common
-  type: exitcode-stdio-1.0
-  main-is: Jazz/Compiler/Bootstrap/TypedCoreExpressionDirectCallSpec.hs
-  other-modules:
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.CallsCaptures
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.LowererBoundary
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedText
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.ManagedProductsVariants
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Scalar
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallFixtures.Source
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.BoundaryTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CallTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.CaptureRecursionTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManifestTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ManagedProductsVariantsTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.ScalarTextTests
-      Jazz.Compiler.Bootstrap.TypedCoreExpressionDirectCallSpec.Support
 
 test-suite parser-core-spec
   import: test-common
@@ -829,6 +760,7 @@ test-suite builtin-catalog-spec
   type: exitcode-stdio-1.0
   main-is: Jazz/Compiler/Semantics/BuiltinCatalogSpec.hs
   other-modules:
+      Jazz.Compiler.Semantics.Runtime.Fixtures
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout
       Jazz.TestSource
@@ -895,6 +827,7 @@ test-suite runtime-semantics-spec
   other-modules:
       Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
       Jazz.Compiler.Semantics.Runtime.ControlFlowTests
+      Jazz.Compiler.Semantics.Runtime.Fixtures
       Jazz.Compiler.Semantics.Runtime.HostIOTests
       Jazz.Compiler.Semantics.Runtime.NumericTests
       Jazz.Compiler.Semantics.Runtime.RecursionTests
@@ -914,6 +847,7 @@ test-suite repository-audit-spec
       Jazz.Repository.FeatureInventory
       Jazz.Repository.HaskellSourcePolicy
       Jazz.Repository.JazzSourceFormat
+      Jazz.Repository.OpaqueCarrierContracts
       Jazz.Repository.PackagePolicy
       Jazz.Repository.Root
       Jazz.Repository.SourceLayout

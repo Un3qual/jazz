@@ -8,9 +8,11 @@ module Jazz.Compiler.Parser.FixtureCorpus
     lookupParserFixtureFamily,
     parserFixtureCorpus,
     parserFixtureFamilyNames,
-    validateParserFixtureManifest
-  ) where
+    validateParserFixtureManifest,
+  )
+where
 
+import Data.List (find, nub)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -93,16 +95,16 @@ validateParserFixtureManifest fixtures families =
     duplicateFamilyAssignments =
       filter
         (\name -> length [family | (family, names) <- families, name `elem` names] > 1)
-        (uniqueValues familyMemberNames)
+        (nub familyMemberNames)
     unassignedFixtureNames =
-      filter (`notElem` familyMemberNames) (uniqueValues fixtureNames)
+      filter (`notElem` familyMemberNames) (nub fixtureNames)
 
     validateFamily (family, memberNames) =
       map (DuplicateParserFixtureFamilyMember family) (duplicateValues memberNames)
         <> map (MissingParserFixtureFamilyMember family) (missingValues memberNames)
 
     missingValues =
-      uniqueValues . filter (not . (`elem` fixtureNames))
+      nub . filter (not . (`elem` fixtureNames))
 
 parserFixtureFamilies :: [(ParserFixtureFamily, [Text])]
 parserFixtureFamilies =
@@ -125,23 +127,9 @@ duplicateValues = go [] []
               go seen (value : duplicates) remaining
           | otherwise -> go (value : seen) duplicates remaining
 
-uniqueValues :: (Eq value) => [value] -> [value]
-uniqueValues = go []
-  where
-    go seen values =
-      case values of
-        [] -> reverse seen
-        value : remaining
-          | value `elem` seen -> go seen remaining
-          | otherwise -> go (value : seen) remaining
-
 lookupFixture :: Text -> [ParserFixture] -> Maybe ParserFixture
 lookupFixture name fixtures =
-  case fixtures of
-    [] -> Nothing
-    fixture : remaining
-      | parserFixtureName fixture == name -> Just fixture
-      | otherwise -> lookupFixture name remaining
+  find ((== name) . parserFixtureName) fixtures
 
 expressionFoundationFixtureNames :: [Text]
 expressionFoundationFixtureNames =
@@ -790,10 +778,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0021",
         parserFixturePath = "fixtures/parser/parser-corpus-0021.jz",
-        parserFixtureSource = Text.pack """
-        (%%) :: Int -> Int -> Int.
-        (%%) = \\(left, right) -> left + right.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            (%%) :: Int -> Int -> Int.
+            (%%) = \\(left, right) -> left + right.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -823,10 +813,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0026",
         parserFixturePath = "fixtures/parser/parser-corpus-0026.jz",
-        parserFixtureSource = Text.pack """
-        (+) :: Int -> Int -> Int.
-        operator %% tier 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            (+) :: Int -> Int -> Int.
+            operator %% tier 2.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -898,28 +890,34 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0038",
         parserFixturePath = "fixtures/parser/parser-corpus-0038.jz",
-        parserFixtureSource = Text.pack """
-        Result :: Int.
-        Result = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            Result :: Int.
+            Result = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0039",
         parserFixturePath = "fixtures/parser/parser-corpus-0039.jz",
-        parserFixtureSource = Text.pack """
-        Result :: a.
-        Result = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            Result :: a.
+            Result = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0040",
         parserFixturePath = "fixtures/parser/parser-corpus-0040.jz",
-        parserFixtureSource = Text.pack """
-        Result::a.
-        other = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            Result::a.
+            other = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -961,11 +959,13 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0047",
         parserFixturePath = "fixtures/parser/parser-corpus-0047.jz",
-        parserFixtureSource = Text.pack """
-        character :: Char.
-        message :: Text.
-        render :: Char -> Text.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            character :: Char.
+            message :: Text.
+            render :: Char -> Text.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -983,24 +983,28 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0050",
         parserFixturePath = "fixtures/parser/parser-corpus-0050.jz",
-        parserFixtureSource = Text.pack """
-        class :: Int.
-        class = 1.
-        impl :: Bool.
-        impl = True.
-        trait :: Int.
-        trait = 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            class :: Int.
+            class = 1.
+            impl :: Bool.
+            impl = True.
+            trait :: Int.
+            trait = 2.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0051",
         parserFixturePath = "fixtures/parser/parser-corpus-0051.jz",
-        parserFixtureSource = Text.pack """
-        class = 1.
-        impl = class.
-        trait = impl.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            class = 1.
+            impl = class.
+            trait = impl.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1018,12 +1022,14 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0054",
         parserFixturePath = "fixtures/parser/parser-corpus-0054.jz",
-        parserFixtureSource = Text.pack """
-        class Eq(a) {
-        equals :: a -> a -> Bool.
-        notEquals :: a -> a -> Bool.
-        }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            notEquals :: a -> a -> Bool.
+            }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1053,10 +1059,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0059",
         parserFixturePath = "fixtures/parser/parser-corpus-0059.jz",
-        parserFixtureSource = Text.pack """
-        class Eq(a) { }.
-        impl Eq(Int) { }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            class Eq(a) { }.
+            impl Eq(Int) { }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1146,73 +1154,89 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0074",
         parserFixturePath = "fixtures/parser/parser-corpus-0074.jz",
-        parserFixtureSource = Text.pack """
-        f :: (Int -> Int) -> Int.
-        f = applyToOne.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: (Int -> Int) -> Int.
+            f = applyToOne.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0075",
         parserFixturePath = "fixtures/parser/parser-corpus-0075.jz",
-        parserFixtureSource = Text.pack """
-        f :: ([Int]) -> ([Int]).
-        f = (+).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: ([Int]) -> ([Int]).
+            f = (+).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0076",
         parserFixturePath = "fixtures/parser/parser-corpus-0076.jz",
-        parserFixtureSource = Text.pack """
-        f :: @{Eq(a), Ord(b)}: a -> b -> c.
-        f = combine.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: @{Eq(a), Ord(b)}: a -> b -> c.
+            f = combine.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0077",
         parserFixturePath = "fixtures/parser/parser-corpus-0077.jz",
-        parserFixtureSource = Text.pack """
-        f :: @{Eq(a)}: a -> a.
-        f = identity.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: @{Eq(a)}: a -> a.
+            f = identity.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0078",
         parserFixturePath = "fixtures/parser/parser-corpus-0078.jz",
-        parserFixtureSource = Text.pack """
-        f :: @{}: Int.
-        f = item.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: @{}: Int.
+            f = item.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0079",
         parserFixturePath = "fixtures/parser/parser-corpus-0079.jz",
-        parserFixtureSource = Text.pack """
-        f :: Float -> Float64.
-        f = (+).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: Float -> Float64.
+            f = (+).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0080",
         parserFixturePath = "fixtures/parser/parser-corpus-0080.jz",
-        parserFixtureSource = Text.pack """
-        f :: Int -> Int -> Int.
-        f = (+).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: Int -> Int -> Int.
+            f = (+).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0081",
         parserFixturePath = "fixtures/parser/parser-corpus-0081.jz",
-        parserFixtureSource = Text.pack """
-        f :: UInt8 -> Int64 -> Float.
-        f = (+).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            f :: UInt8 -> Int64 -> Float.
+            f = (+).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1320,10 +1344,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0099",
         parserFixturePath = "fixtures/parser/parser-corpus-0099.jz",
-        parserFixtureSource = Text.pack """
-        fns :: [(Int -> Int)].
-        fns = [(+ 1)].
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            fns :: [(Int -> Int)].
+            fns = [(+ 1)].
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1347,11 +1373,13 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0103",
         parserFixturePath = "fixtures/parser/parser-corpus-0103.jz",
-        parserFixtureSource = Text.pack """
-        impl Eq(Int) {
-        equals = \\(left, right) -> left == right.
-        }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            impl Eq(Int) {
+            equals = \\(left, right) -> left == right.
+            }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1411,95 +1439,115 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0113",
         parserFixturePath = "fixtures/parser/parser-corpus-0113.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as Math.
-        Math::1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as Math.
+            Math::1.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0114",
         parserFixturePath = "fixtures/parser/parser-corpus-0114.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as Math.
-        Math::Result.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as Math.
+            Math::Result.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0115",
         parserFixturePath = "fixtures/parser/parser-corpus-0115.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as Math.
-        Math::subtract.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as Math.
+            Math::subtract.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0116",
         parserFixturePath = "fixtures/parser/parser-corpus-0116.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as Math.
-        main = Math :: subtract.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as Math.
+            main = Math :: subtract.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0117",
         parserFixturePath = "fixtures/parser/parser-corpus-0117.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as class.
-        class::subtract.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as class.
+            class::subtract.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0118",
         parserFixturePath = "fixtures/parser/parser-corpus-0118.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as math.
-        math :: Int.
-        math = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as math.
+            math :: Int.
+            math = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0119",
         parserFixturePath = "fixtures/parser/parser-corpus-0119.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as math.
-        math :: a.
-        math = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as math.
+            math :: a.
+            math = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0120",
         parserFixturePath = "fixtures/parser/parser-corpus-0120.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as math.
-        math::subtract.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as math.
+            math::subtract.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0121",
         parserFixturePath = "fixtures/parser/parser-corpus-0121.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as math.
-        result = {
-          math::subtract.
-        }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as math.
+            result = {
+              math::subtract.
+            }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0122",
         parserFixturePath = "fixtures/parser/parser-corpus-0122.jz",
-        parserFixtureSource = Text.pack """
-        import Lib::Math as trait.
-        trait::subtract.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Lib::Math as trait.
+            trait::subtract.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1517,10 +1565,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0125",
         parserFixturePath = "fixtures/parser/parser-corpus-0125.jz",
-        parserFixtureSource = Text.pack """
-        import Std::List (map, filter).
-        map.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Std::List (map, filter).
+            map.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1538,10 +1588,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0128",
         parserFixturePath = "fixtures/parser/parser-corpus-0128.jz",
-        parserFixtureSource = Text.pack """
-        import Std::List as List.
-        List.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            import Std::List as List.
+            List.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1559,10 +1611,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0131",
         parserFixturePath = "fixtures/parser/parser-corpus-0131.jz",
-        parserFixtureSource = Text.pack """
-        left :: List(a).
-        right :: [a].
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            left :: List(a).
+            right :: [a].
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1574,10 +1628,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0133",
         parserFixturePath = "fixtures/parser/parser-corpus-0133.jz",
-        parserFixtureSource = Text.pack """
-        math::subtract.
-        import Lib::Math as math.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            math::subtract.
+            import Lib::Math as math.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1595,10 +1651,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0136",
         parserFixturePath = "fixtures/parser/parser-corpus-0136.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core
-        x = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core
+            x = 1.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1610,77 +1668,91 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0138",
         parserFixturePath = "fixtures/parser/parser-corpus-0138.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        class Eq(a) { }.
-        impl Eq(Int) { }.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            class Eq(a) { }.
+            impl Eq(Int) { }.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0139",
         parserFixturePath = "fixtures/parser/parser-corpus-0139.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        import Std::List (map).
-        map.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            import Std::List (map).
+            map.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0140",
         parserFixturePath = "fixtures/parser/parser-corpus-0140.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        module Inner::Thing {
-        y = 1.
-        }
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            module Inner::Thing {
+            y = 1.
+            }
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0141",
         parserFixturePath = "fixtures/parser/parser-corpus-0141.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        operator = 1.
-        item = operator.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            operator = 1.
+            item = operator.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0142",
         parserFixturePath = "fixtures/parser/parser-corpus-0142.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        trait Eq { }.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            trait Eq { }.
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0143",
         parserFixturePath = "fixtures/parser/parser-corpus-0143.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        x = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            x = 1.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0144",
         parserFixturePath = "fixtures/parser/parser-corpus-0144.jz",
-        parserFixtureSource = Text.pack """
-        module App::Core {
-        x = 1.
-        }
-        y = 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Core {
+            x = 1.
+            }
+            y = 2.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1692,116 +1764,138 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0146",
         parserFixturePath = "fixtures/parser/parser-corpus-0146.jz",
-        parserFixtureSource = Text.pack """
-        module App::Internal () {
-        helper = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Internal () {
+            helper = 1.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0147",
         parserFixturePath = "fixtures/parser/parser-corpus-0147.jz",
-        parserFixtureSource = Text.pack """
-        module App::Main {
-        # keep comment line out of spans
-          import Lib::Math as Math.
-          import Std::List (map).
-          result = Math::answer.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Main {
+            # keep comment line out of spans
+              import Lib::Math as Math.
+              import Std::List (map).
+              result = Math::answer.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0148",
         parserFixturePath = "fixtures/parser/parser-corpus-0148.jz",
-        parserFixtureSource = Text.pack """
-        module App::Main {
-        import Lib::Math as Math.
-        result = Math::answer.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module App::Main {
+            import Lib::Math as Math.
+            result = Math::answer.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0149",
         parserFixturePath = "fixtures/parser/parser-corpus-0149.jz",
-        parserFixtureSource = Text.pack """
-        module Demo {
-        operator %% tier 2.
-        (%%) = \\(left, right) -> left + right.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Demo {
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left + right.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0150",
         parserFixturePath = "fixtures/parser/parser-corpus-0150.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Box (type Box, constructor Box) {
-        data Box = Box Int.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Box (type Box, constructor Box) {
+            data Box = Box Int.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0151",
         parserFixturePath = "fixtures/parser/parser-corpus-0151.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Box (type Box, constructor Box, value Box, class Printable, legacy) {
-        legacy = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Box (type Box, constructor Box, value Box, class Printable, legacy) {
+            legacy = 1.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0152",
         parserFixturePath = "fixtures/parser/parser-corpus-0152.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Box (type Box, type Box) {
-        data Box = Box Int.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Box (type Box, type Box) {
+            data Box = Box Int.
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0153",
         parserFixturePath = "fixtures/parser/parser-corpus-0153.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Keywords (value answer, constructor Box, type Box, class Printable) {
-        answer = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Keywords (value answer, constructor Box, type Box, class Printable) {
+            answer = 1.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0154",
         parserFixturePath = "fixtures/parser/parser-corpus-0154.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Maybe (Maybe, Just, Nothing, mapMaybe) {
-        mapMaybe = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Maybe (Maybe, Just, Nothing, mapMaybe) {
+            mapMaybe = 1.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0155",
         parserFixturePath = "fixtures/parser/parser-corpus-0155.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Value (answer {
-        answer = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Value (answer {
+            answer = 1.
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0156",
         parserFixturePath = "fixtures/parser/parser-corpus-0156.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Value (answer) {
-        answer = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Value (answer) {
+            answer = 1.
+            }
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1813,21 +1907,25 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0158",
         parserFixturePath = "fixtures/parser/parser-corpus-0158.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Value (answer, answer) {
-        answer = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Value (answer, answer) {
+            answer = 1.
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0159",
         parserFixturePath = "fixtures/parser/parser-corpus-0159.jz",
-        parserFixtureSource = Text.pack """
-        module Lib::Value (answer,) {
-        answer = 1.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            module Lib::Value (answer,) {
+            answer = 1.
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1851,28 +1949,34 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0163",
         parserFixturePath = "fixtures/parser/parser-corpus-0163.jz",
-        parserFixtureSource = Text.pack """
-        operator %% precedence 25.
-        x = 10 %% 3 %% 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% precedence 25.
+            x = 10 %% 3 %% 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0164",
         parserFixturePath = "fixtures/parser/parser-corpus-0164.jz",
-        parserFixtureSource = Text.pack """
-        operator %% precedence 99.
-        x = 1 + 2 %% 3 * 4.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% precedence 99.
+            x = 1 + 2 %% 3 * 4.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0165",
         parserFixturePath = "fixtures/parser/parser-corpus-0165.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2 left.
-        x = 10 %% 3 %% 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2 left.
+            x = 10 %% 3 %% 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -1884,78 +1988,94 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0167",
         parserFixturePath = "fixtures/parser/parser-corpus-0167.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        (%%) :: Int -> Int -> Int.
-        (%%) = \\(left, right) -> left + right.
-        result = 1 %% 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            (%%) :: Int -> Int -> Int.
+            (%%) = \\(left, right) -> left + right.
+            result = 1 %% 2.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0168",
         parserFixturePath = "fixtures/parser/parser-corpus-0168.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        (%%) = \\(left, right) -> left + right.
-        result = 1 %% 2 * 3.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            (%%) = \\(left, right) -> left + right.
+            result = 1 %% 2 * 3.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0169",
         parserFixturePath = "fixtures/parser/parser-corpus-0169.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        module Foo { x = 1. }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            module Foo { x = 1. }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0170",
         parserFixturePath = "fixtures/parser/parser-corpus-0170.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        op = (%%).
-        left = (10 %%).
-        right = (%% 10).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            op = (%%).
+            left = (10 %%).
+            right = (%% 10).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0171",
         parserFixturePath = "fixtures/parser/parser-corpus-0171.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        operator %% tier 3.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            operator %% tier 3.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0172",
         parserFixturePath = "fixtures/parser/parser-corpus-0172.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        x = 1 + 2 %% 3 * 4.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            x = 1 + 2 %% 3 * 4.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0173",
         parserFixturePath = "fixtures/parser/parser-corpus-0173.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        x = { (%%) :: Int -> Int -> Int. 0. }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            x = { (%%) :: Int -> Int -> Int. 0. }.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0174",
         parserFixturePath = "fixtures/parser/parser-corpus-0174.jz",
-        parserFixtureSource = Text.pack """
-        operator %% tier 2.
-        x = { (%%) = \\(left, right) -> left + right. 0. }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator %% tier 2.
+            x = { (%%) = \\(left, right) -> left + right. 0. }.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -1985,82 +2105,100 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0179",
         parserFixturePath = "fixtures/parser/parser-corpus-0179.jz",
-        parserFixtureSource = Text.pack """
-        operator ->? tier 4.
-        x = 1 ->? 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ->? tier 4.
+            x = 1 ->? 2.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0180",
         parserFixturePath = "fixtures/parser/parser-corpus-0180.jz",
-        parserFixtureSource = Text.pack """
-        operator :: Int.
-        operator = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator :: Int.
+            operator = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0181",
         parserFixturePath = "fixtures/parser/parser-corpus-0181.jz",
-        parserFixtureSource = Text.pack """
-        operator <| precedence 10 right.
-        x = a <| b <| c.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator <| precedence 10 right.
+            x = a <| b <| c.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0182",
         parserFixturePath = "fixtures/parser/parser-corpus-0182.jz",
-        parserFixtureSource = Text.pack """
-        operator = 1.
-        item = operator.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator = 1.
+            item = operator.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0183",
         parserFixturePath = "fixtures/parser/parser-corpus-0183.jz",
-        parserFixtureSource = Text.pack """
-        operator ?> precedence 1 nonassoc.
-        x = 1 $ 2 ?> 3.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ?> precedence 1 nonassoc.
+            x = 1 $ 2 ?> 3.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0184",
         parserFixturePath = "fixtures/parser/parser-corpus-0184.jz",
-        parserFixtureSource = Text.pack """
-        operator ?> precedence 1 nonassoc.
-        x = case item { | _ -> 1 $ 2 ?> 3 }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ?> precedence 1 nonassoc.
+            x = case item { | _ -> 1 $ 2 ?> 3 }.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0185",
         parserFixturePath = "fixtures/parser/parser-corpus-0185.jz",
-        parserFixtureSource = Text.pack """
-        operator ?> precedence 1 nonassoc.
-        x = case item { | _ if 1 $ 2 ?> 3 -> 1 }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ?> precedence 1 nonassoc.
+            x = case item { | _ if 1 $ 2 ?> 3 -> 1 }.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0186",
         parserFixturePath = "fixtures/parser/parser-corpus-0186.jz",
-        parserFixtureSource = Text.pack """
-        operator ?> precedence 10 nonassoc.
-        x = 1 ?> 2 ?> 3.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ?> precedence 10 nonassoc.
+            x = 1 ?> 2 ?> 3.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0187",
         parserFixturePath = "fixtures/parser/parser-corpus-0187.jz",
-        parserFixtureSource = Text.pack """
-        operator ?> precedence 4 nonassoc.
-        x = 1 + 2 ?> 3.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ?> precedence 4 nonassoc.
+            x = 1 + 2 ?> 3.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -2072,10 +2210,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0189",
         parserFixturePath = "fixtures/parser/parser-corpus-0189.jz",
-        parserFixtureSource = Text.pack """
-        operator ~~ tier 5.
-        x = f ~~ g ~~ z.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            operator ~~ tier 5.
+            x = f ~~ g ~~ z.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2087,39 +2227,47 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0191",
         parserFixturePath = "fixtures/parser/parser-corpus-0191.jz",
-        parserFixtureSource = Text.pack """
-        pair :: (Int, Bool).
-        pair = (1, True).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            pair :: (Int, Bool).
+            pair = (1, True).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0192",
         parserFixturePath = "fixtures/parser/parser-corpus-0192.jz",
-        parserFixtureSource = Text.pack """
-        pair :: @{}: (Int, Bool).
-        pair = (1, True).
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            pair :: @{}: (Int, Bool).
+            pair = (1, True).
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0193",
         parserFixturePath = "fixtures/parser/parser-corpus-0193.jz",
-        parserFixtureSource = Text.pack """
-        result = Eq::equals 1 1.
-        result.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            result = Eq::equals 1 1.
+            result.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0194",
         parserFixturePath = "fixtures/parser/parser-corpus-0194.jz",
-        parserFixtureSource = Text.pack """
-        result = f {
-          x = 1.
-          x.
-        }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            result = f {
+              x = 1.
+              x.
+            }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2131,12 +2279,14 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0196",
         parserFixturePath = "fixtures/parser/parser-corpus-0196.jz",
-        parserFixtureSource = Text.pack """
-        scope = {
-          operator = 1.
-          operator.
-        }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            scope = {
+              operator = 1.
+              operator.
+            }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2184,19 +2334,23 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0204",
         parserFixturePath = "fixtures/parser/parser-corpus-0204.jz",
-        parserFixtureSource = Text.pack """
-        unit :: ().
-        unit = ().
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            unit :: ().
+            unit = ().
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0205",
         parserFixturePath = "fixtures/parser/parser-corpus-0205.jz",
-        parserFixtureSource = Text.pack """
-        unit :: @{}: ().
-        unit = ().
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            unit :: @{}: ().
+            unit = ().
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2208,19 +2362,23 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0207",
         parserFixturePath = "fixtures/parser/parser-corpus-0207.jz",
-        parserFixtureSource = Text.pack """
-        item :: Maybe(Char).
-        map :: (a -> b) -> List(a) -> [b].
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item :: Maybe(Char).
+            map :: (a -> b) -> List(a) -> [b].
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0208",
         parserFixturePath = "fixtures/parser/parser-corpus-0208.jz",
-        parserFixtureSource = Text.pack """
-        item :: a.
-        item = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item :: a.
+            item = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2232,28 +2390,34 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0210",
         parserFixturePath = "fixtures/parser/parser-corpus-0210.jz",
-        parserFixtureSource = Text.pack """
-        item = id @ 1.
-        item.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item = id @ 1.
+            item.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0211",
         parserFixturePath = "fixtures/parser/parser-corpus-0211.jz",
-        parserFixtureSource = Text.pack """
-        item = id @Int 1.
-        item.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item = id @Int 1.
+            item.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0212",
         parserFixturePath = "fixtures/parser/parser-corpus-0212.jz",
-        parserFixtureSource = Text.pack """
-        item = id @Maybe().
-        item.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item = id @Maybe().
+            item.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -2271,19 +2435,23 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0215",
         parserFixturePath = "fixtures/parser/parser-corpus-0215.jz",
-        parserFixtureSource = Text.pack """
-        item::Int.
-        other = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item::Int.
+            other = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0216",
         parserFixturePath = "fixtures/parser/parser-corpus-0216.jz",
-        parserFixtureSource = Text.pack """
-        item::Int.
-        item = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            item::Int.
+            item = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2295,55 +2463,67 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0218",
         parserFixturePath = "fixtures/parser/parser-corpus-0218.jz",
-        parserFixtureSource = Text.pack """
-        x :: Int
-        class Eq { }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x :: Int
+            class Eq { }.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0219",
         parserFixturePath = "fixtures/parser/parser-corpus-0219.jz",
-        parserFixtureSource = Text.pack """
-        x :: Int
-        x = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x :: Int
+            x = 1.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0220",
         parserFixturePath = "fixtures/parser/parser-corpus-0220.jz",
-        parserFixtureSource = Text.pack """
-        x :: Int.
-        x = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x :: Int.
+            x = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0221",
         parserFixturePath = "fixtures/parser/parser-corpus-0221.jz",
-        parserFixtureSource = Text.pack """
-        x :: Int8.
-        x = 1.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x :: Int8.
+            x = 1.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0222",
         parserFixturePath = "fixtures/parser/parser-corpus-0222.jz",
-        parserFixtureSource = Text.pack """
-        x :: [[Bool]].
-        x = [[True], [False]].
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x :: [[Bool]].
+            x = [[True], [False]].
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0223",
         parserFixturePath = "fixtures/parser/parser-corpus-0223.jz",
-        parserFixtureSource = Text.pack """
-        x = (%%).
-        operator %% tier 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = (%%).
+            operator %% tier 2.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -2379,10 +2559,12 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0229",
         parserFixturePath = "fixtures/parser/parser-corpus-0229.jz",
-        parserFixtureSource = Text.pack """
-        x = 1 %% 2.
-        operator %% tier 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = 1 %% 2.
+            operator %% tier 2.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -2412,49 +2594,59 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0234",
         parserFixturePath = "fixtures/parser/parser-corpus-0234.jz",
-        parserFixtureSource = Text.pack """
-        x = 1.
-        # parser should ignore this line comment
-        x.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = 1.
+            # parser should ignore this line comment
+            x.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0235",
         parserFixturePath = "fixtures/parser/parser-corpus-0235.jz",
-        parserFixtureSource = Text.pack """
-        x = 1.
-        module App::Core {
-        y = 2.
-        }
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = 1.
+            module App::Core {
+            y = 2.
+            }
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0236",
         parserFixturePath = "fixtures/parser/parser-corpus-0236.jz",
-        parserFixtureSource = Text.pack """
-        x = 1.
-        x.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = 1.
+            x.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0237",
         parserFixturePath = "fixtures/parser/parser-corpus-0237.jz",
-        parserFixtureSource = Text.pack """
-        x = 1.
-        { x. }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = 1.
+            { x. }.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
       { parserFixtureName = "parser-corpus-0238",
         parserFixturePath = "fixtures/parser/parser-corpus-0238.jz",
-        parserFixtureSource = Text.pack """
-        x = 1.5.
-        y = 2.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = 1.5.
+            y = 2.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture
@@ -2862,11 +3054,13 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0306",
         parserFixturePath = "fixtures/parser/parser-corpus-0306.jz",
-        parserFixtureSource = Text.pack """
-        x = { module App::Core {
-        y = 1.
-        } y. }.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x = { module App::Core {
+            y = 1.
+            } y. }.
+            """,
         parserFixtureExpectation = ParserRejected
       },
     ParserFixture
@@ -2884,11 +3078,13 @@ observedParserFixtures =
     ParserFixture
       { parserFixtureName = "parser-corpus-0309",
         parserFixturePath = "fixtures/parser/parser-corpus-0309.jz",
-        parserFixtureSource = Text.pack """
-        x16 = 1.5f16.
-        x32 = 2.5f32.
-        x64 = 3.5f64.
-        """,
+        parserFixtureSource =
+          Text.pack
+            """
+            x16 = 1.5f16.
+            x32 = 2.5f32.
+            x64 = 3.5f64.
+            """,
         parserFixtureExpectation = ParserAccepted
       },
     ParserFixture

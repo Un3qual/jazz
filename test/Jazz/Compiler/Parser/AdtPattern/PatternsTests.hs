@@ -1,117 +1,172 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.AdtPattern.PatternsTests
-  ( patternTests
-  ) where
+  ( patternTests,
+  )
+where
 
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.Text (Text)
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    DataConstructor (..),
-    Expr (..),
-    Literal (..),
-    Pattern (..),
-    SignatureType (..),
-    Statement (..)
+  ( Literal (..),
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
+  )
+import Jazz.Compiler.Name
+  ( GeneratedNameKind (..),
+    IdentifierLike (..),
+    generatedName,
   )
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceDataConstructor (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
-    SurfaceSignatureType (..),
-    SurfaceStatement (..)
+    SurfacePatternForm (..),
+    SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceExpr
+  ( lowerSurfaceExpr,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
+import Jazz.TestCore
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
-    assertRight
+    assertRight,
+    failTest,
   )
 
 patternTests :: [NamedTest]
 patternTests =
-  [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression)
-    , ("parses variable pattern case arm", testParsesVariablePatternCaseArm)
-    , ("parses as-pattern case arms", testParsesAsPatternCaseArm)
-    , ("parses guarded case arms", testParsesGuardedCaseArm)
-    , ("parses case-arm or-patterns and lowers them", testParsesCaseArmOrPatterns)
-    , ("keeps all-literal pipe body before literal arm boundary", testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary)
-    , ("parses wildcard-led later or-pattern arm after body", testParsesWildcardLedLaterOrPatternArmAfterBody)
-    , ("parses variable-led later or-pattern arm after body", testParsesVariableLedLaterOrPatternArmAfterBody)
-    , ("parses variable-led mixed later or-pattern arm after body", testParsesVariableLedMixedLaterOrPatternArmAfterBody)
-    , ("keeps pipe operator in or-pattern arm body", testKeepsPipeOperatorInOrPatternArmBody)
-    , ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm)
-    , ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards)
-    , ("keeps constructor if-expression pipe RHS before arm arrow", testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow)
-    , ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic)
-    , ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter)
-    , ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms)
-    , ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns)
-    , ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns)
-    , ("parses list pattern case arms", testParsesListPatternCaseArms)
-    , ("parses canonical data declaration and lowers constructor arities", testParsesCanonicalDataDeclarationAndLowersConstructorArities)
-    , ("parses nested case expression", testParsesNestedCaseExpression)
-    , ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody)
-    , ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody)
-    , ("parses mixed literal-wildcard later or-pattern arm after body", testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody)
-    , ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary)
-    , ("keeps pipe operator inside body before literal arm boundary", testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary)
-    , ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator)
-    , ("keeps bare constructor subject after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator)
-    , ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator)
-    , ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator)
-    , ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument)
-    , ("parses tuple pattern case arms", testParsesTuplePatternCaseArms)
-    , ("parses cons-like list patterns", testParsesConsLikeListPattern)
-    , ("parses cons-like list patterns inside constructor patterns", testParsesConsLikeListPatternInsideConstructorPattern)
-    , ("lowers parsed case nodes into core AST", testLowerCaseExpression)
+  [ ("parses basic case expression with literal and wildcard arms", testParsesBasicCaseExpression),
+    ("parses variable pattern case arm", testParsesVariablePatternCaseArm),
+    ("parses as-pattern case arms", testParsesAsPatternCaseArm),
+    ("parses guarded case arms", testParsesGuardedCaseArm),
+    ("parses case-arm or-patterns and lowers them", testParsesCaseArmOrPatterns),
+    ("keeps all-literal pipe body before literal arm boundary", testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary),
+    ("parses wildcard-led later or-pattern arm after body", testParsesWildcardLedLaterOrPatternArmAfterBody),
+    ("parses variable-led later or-pattern arm after body", testParsesVariableLedLaterOrPatternArmAfterBody),
+    ("parses variable-led mixed later or-pattern arm after body", testParsesVariableLedMixedLaterOrPatternArmAfterBody),
+    ("keeps pipe operator in or-pattern arm body", testKeepsPipeOperatorInOrPatternArmBody),
+    ("parses guarded case arm with pipe expression guard after previous arm", testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm),
+    ("parses guarded case arms with definite pipe RHS guards", testParsesGuardedCaseArmWithDefinitePipeRhsGuards),
+    ("keeps constructor if-expression pipe RHS before arm arrow", testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow),
+    ("keeps as-pattern constructor arguments atomic", testKeepsAsPatternConstructorArgumentsAtomic),
+    ("parses as-pattern lambda parameters", testParsesAsPatternLambdaParameter),
+    ("parses constructor pattern case arms", testParsesConstructorPatternCaseArms),
+    ("parses multi-argument constructor patterns with nullary subpatterns", testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns),
+    ("parses nullary constructor subpatterns without losing the outer argument", testParsesNullaryConstructorSubpatterns),
+    ("parses list pattern case arms", testParsesListPatternCaseArms),
+    ("parses canonical data declaration and lowers constructor arities", testParsesCanonicalDataDeclarationAndLowersConstructorArities),
+    ("parses nested case expression", testParsesNestedCaseExpression),
+    ("parses unparenthesized if expression inside case arm body", testParsesIfExpressionInsideCaseArmBody),
+    ("parses unparenthesized lambda expression inside case arm body", testParsesLambdaExpressionInsideCaseArmBody),
+    ("parses mixed literal-wildcard later or-pattern arm after body", testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody),
+    ("keeps pipe operator inside body before constructor arm boundary", testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary),
+    ("keeps pipe operator inside body before literal arm boundary", testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary),
+    ("keeps bare list literal after pipe operator inside body", testKeepsBareListLiteralAfterPipeOperator),
+    ("keeps bare constructor subject after pipe operator inside body", testKeepsBareConstructorValueAfterPipeOperator),
+    ("keeps list application after pipe operator inside body", testKeepsListApplicationAfterPipeOperator),
+    ("keeps constructor application after pipe operator inside body", testKeepsConstructorApplicationAfterPipeOperator),
+    ("parses case scrutinee with block argument", testParsesCaseScrutineeWithBlockArgument),
+    ("parses tuple pattern case arms", testParsesTuplePatternCaseArms),
+    ("parses cons-like list patterns", testParsesConsLikeListPattern),
+    ("parses cons-like list patterns inside constructor patterns", testParsesConsLikeListPatternInsideConstructorPattern),
+    ("lowers parsed case nodes into core AST", testLowerCaseExpression)
   ]
+
+assertSurfaceCasePatterns :: Text -> [SurfacePattern] -> SurfaceExpr -> IO ()
+assertSurfaceCasePatterns label expected surfaceProgram =
+  case surfaceExprForm surfaceProgram of
+    SEBlock [SSLet _ _ caseExpression] ->
+      case surfaceExprForm caseExpression of
+        SECase _ arms ->
+          assertEqual label expected [pattern' | SurfaceCaseArm pattern' _ _ <- arms]
+        _ -> unexpected
+    _ -> unexpected
+  where
+    unexpected = failTest (label <> ": expected a single top-level case binding, got " <> Text.pack (show surfaceProgram))
+
+assertSurfaceLambdaPattern :: Text -> SurfacePattern -> SurfaceExpr -> IO ()
+assertSurfaceLambdaPattern label expected surfaceProgram =
+  case surfaceExprForm surfaceProgram of
+    SEBlock [SSLet _ _ lambdaExpression] ->
+      case surfaceExprForm lambdaExpression of
+        SELambda (SurfaceLambdaPattern pattern' :| []) _ -> assertEqual label expected pattern'
+        _ -> unexpected
+    _ -> unexpected
+  where
+    unexpected = failTest (label <> ": expected a single-pattern lambda binding, got " <> Text.pack (show surfaceProgram))
+
+assertSurfaceDataShape :: Text -> (Text, [Text], [(Text, Int)]) -> SurfaceExpr -> IO ()
+assertSurfaceDataShape label expected surfaceProgram =
+  case surfaceExprForm surfaceProgram of
+    SEBlock [SSData _ name parameters constructors] ->
+      assertEqual label expected (identifierText name, map identifierText parameters, map constructorShape constructors)
+    _ -> failTest (label <> ": expected a single data declaration, got " <> Text.pack (show surfaceProgram))
+  where
+    constructorShape (SurfaceDataConstructor name fields) = (identifierText name, length fields)
+
+p :: Int -> Int -> SurfacePatternForm -> SurfacePattern
+p line column = SurfacePattern (SourceSpan line column)
 
 testParsesBasicCaseExpression :: IO ()
 testParsesBasicCaseExpression =
-  assertEqual
+  assertRight
     "surface case AST"
-    ( Right
-        ( SEBlock
-            [ SSLet
-                "x"
-                (SourceSpan 1 1)
-                ( SECase
-                    (SEVar "n")
-                    [ SurfaceCaseArm (SPLiteral (SLInt 0)) Nothing (SELit (SLBool True)),
-                      SurfaceCaseArm SPWildcard Nothing (SELit (SLBool False))
-                    ]
-                )
-            ]
-        )
-    )
     (parseSurfaceProgram "x = case n { | 0 -> True | _ -> False }.")
+    ( \surfaceProgram -> do
+        assertSurfaceCasePatterns
+          "surface case patterns"
+          [p 1 16 (SPLiteral (SLInt 0)), p 1 28 SPWildcard]
+          surfaceProgram
+        assertLoweredCoreEqual
+          "lowered case AST"
+          ( loweredBlock
+              [ loweredLet
+                  "x"
+                  (SourceSpan 1 1)
+                  ( loweredPatternCase
+                      (loweredVariable "n")
+                      [ loweredCaseArm (loweredLiteralPattern (LInt 0)) Nothing (loweredLiteral (LBool True)),
+                        loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LBool False))
+                      ]
+                  )
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
 
 testParsesVariablePatternCaseArm :: IO ()
 testParsesVariablePatternCaseArm =
-  assertEqual
+  assertRight
     "variable pattern case arm"
-    ( Right
-        ( SEBlock
-            [ SSLet
-                "x"
-                (SourceSpan 1 1)
-                (SECase (SEVar "subject") [SurfaceCaseArm (SPVariable "item") Nothing (SEVar "item")])
-            ]
-        )
-    )
     (parseSurfaceProgram "x = case subject { | item -> item }.")
+    ( \surfaceProgram -> do
+        assertSurfaceCasePatterns
+          "variable surface pattern"
+          [p 1 22 (SPVariable "item")]
+          surfaceProgram
+        assertLoweredCoreEqual
+          "lowered variable pattern case arm"
+          ( loweredBlock
+              [ loweredLet
+                  "x"
+                  (SourceSpan 1 1)
+                  (loweredPatternCase (loweredVariable "subject") [loweredCaseArm (loweredVariablePattern "item") Nothing (loweredVariable "item")])
+              ]
+          )
+          (lowerSurfaceExpr surfaceProgram)
+    )
 
 testParsesAsPatternCaseArm :: IO ()
 testParsesAsPatternCaseArm =
@@ -119,37 +174,27 @@ testParsesAsPatternCaseArm =
     "as-pattern case arm parse + lower"
     (parseSurfaceProgram "x = case subject { | whole @ Just item -> whole | _ -> subject }.")
     ( \surfaceProgram -> do
-        assertEqual "as-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "as-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "as-pattern surface AST"
+          [ p 1 22 (SPAs "whole" (p 1 30 (SPConstructor "Just" [p 1 35 (SPVariable "item")]))),
+            p 1 51 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "as-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPAs "whole" (SPConstructor "Just" [SPVariable "item"]))
-                    Nothing
-                    (SEVar "whole"),
-                  SurfaceCaseArm SPWildcard Nothing (SEVar "subject")
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PAs "whole" (PConstructor "Just" [PVariable "item"]))
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredAsPattern "whole" (loweredConstructorPattern "Just" [loweredVariablePattern "item"]))
                     Nothing
-                    (EVar "whole"),
-                  CaseArm PWildcard Nothing (EVar "subject")
+                    (loweredVariable "whole"),
+                  loweredCaseArm loweredWildcardPattern Nothing (loweredVariable "subject")
                 ]
             )
         ]
@@ -160,43 +205,30 @@ testParsesGuardedCaseArm =
     "guarded case arm parse + lower"
     (parseSurfaceProgram "x = case subject { | Just item if item > 0 -> item | _ -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "guarded case arm surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "guarded case arm lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "guarded case arm surface AST"
+          [ p 1 22 (SPConstructor "Just" [p 1 27 (SPVariable "item")]),
+            p 1 54 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "guarded case arm lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPConstructor "Just" [SPVariable "item"])
-                    (Just (SEBinary ">" (SEVar "item") (SELit (SLInt 0))))
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Just" [PVariable "item"])
-                    (Just (EBinary ">" (EVar "item") (ELit (LInt 0))))
-                    (EVar "item"),
-                  CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Just" [loweredVariablePattern "item"])
+                    (Just (loweredBinary ">" (loweredVariable "item") (loweredLiteral (LInt 0))))
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -207,51 +239,41 @@ testParsesCaseArmOrPatterns =
     "or-pattern case arm parse + lower"
     (parseSurfaceProgram "x = case subject { | Just item | Also item if item > 0 -> item | Nothing -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "or-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "or-pattern surface AST"
+          [ p
+              1
+              22
+              ( SPOr
+                  [ p 1 22 (SPConstructor "Just" [p 1 27 (SPVariable "item")]),
+                    p 1 34 (SPConstructor "Also" [p 1 39 (SPVariable "item")])
+                  ]
+              ),
+            p 1 66 (SPConstructor "Nothing" [])
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    ( SPOr
-                        [ SPConstructor "Just" [SPVariable "item"],
-                          SPConstructor "Also" [SPVariable "item"]
-                        ]
-                    )
-                    (Just (SEBinary ">" (SEVar "item") (SELit (SLInt 0))))
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    (SPConstructor "Nothing" [])
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    ( POr
-                        [ PConstructor "Just" [PVariable "item"],
-                          PConstructor "Also" [PVariable "item"]
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    ( loweredOrPattern
+                        [ loweredConstructorPattern "Just" [loweredVariablePattern "item"],
+                          loweredConstructorPattern "Also" [loweredVariablePattern "item"]
                         ]
                     )
-                    (Just (EBinary ">" (EVar "item") (ELit (LInt 0))))
-                    (EVar "item"),
-                  CaseArm
-                    (PConstructor "Nothing" [])
+                    (Just (loweredBinary ">" (loweredVariable "item") (loweredLiteral (LInt 0))))
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    (loweredConstructorPattern "Nothing" [])
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -262,43 +284,28 @@ testKeepsAllLiteralPipeBodyBeforeLiteralArmBoundary =
     "all-literal pipe body before literal arm boundary parse + lower"
     (parseSurfaceProgram "x = case n { | _ -> 0 | 1 | 2 -> 1 }.")
     ( \surfaceProgram -> do
-        assertEqual "all-literal pipe body surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "all-literal pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "all-literal pipe body surface AST"
+          [p 1 16 SPWildcard, p 1 29 (SPLiteral (SLInt 2))]
+          surfaceProgram
+        assertLoweredCoreEqual "all-literal pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "n")
-                [ SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SEBinary "|" (SELit (SLInt 0)) (SELit (SLInt 1))),
-                  SurfaceCaseArm
-                    (SPLiteral (SLInt 2))
-                    Nothing
-                    (SELit (SLInt 1))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EBinary "|" (ELit (LInt 0)) (ELit (LInt 1))),
-                  CaseArm
-                    (PLiteral (LInt 2))
+                    (loweredBinary "|" (loweredLiteral (LInt 0)) (loweredLiteral (LInt 1))),
+                  loweredCaseArm
+                    (loweredLiteralPattern (LInt 2))
                     Nothing
-                    (ELit (LInt 1))
+                    (loweredLiteral (LInt 1))
                 ]
             )
         ]
@@ -309,43 +316,30 @@ testParsesWildcardLedLaterOrPatternArmAfterBody =
     "wildcard-led later or-pattern case arm parse + lower"
     (parseSurfaceProgram "x = case n { | 0 -> 0 | _ | 2 -> 1 }.")
     ( \surfaceProgram -> do
-        assertEqual "wildcard-led later or-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "wildcard-led later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "wildcard-led later or-pattern surface AST"
+          [ p 1 16 (SPLiteral (SLInt 0)),
+            p 1 25 (SPOr [p 1 25 SPWildcard, p 1 29 (SPLiteral (SLInt 2))])
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "wildcard-led later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "n")
-                [ SurfaceCaseArm
-                    (SPLiteral (SLInt 0))
-                    Nothing
-                    (SELit (SLInt 0)),
-                  SurfaceCaseArm
-                    (SPOr [SPWildcard, SPLiteral (SLInt 2)])
-                    Nothing
-                    (SELit (SLInt 1))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (ELit (LInt 0)),
-                  CaseArm
-                    (POr [PWildcard, PLiteral (LInt 2)])
+                    (loweredLiteral (LInt 0)),
+                  loweredCaseArm
+                    (loweredOrPattern [loweredWildcardPattern, loweredLiteralPattern (LInt 2)])
                     Nothing
-                    (ELit (LInt 1))
+                    (loweredLiteral (LInt 1))
                 ]
             )
         ]
@@ -356,43 +350,30 @@ testParsesVariableLedLaterOrPatternArmAfterBody =
     "variable-led later or-pattern case arm parse + lower"
     (parseSurfaceProgram "x = case n { | 0 -> 0 | item | other -> item }.")
     ( \surfaceProgram -> do
-        assertEqual "variable-led later or-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "variable-led later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "variable-led later or-pattern surface AST"
+          [ p 1 16 (SPLiteral (SLInt 0)),
+            p 1 25 (SPOr [p 1 25 (SPVariable "item"), p 1 32 (SPVariable "other")])
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "variable-led later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "n")
-                [ SurfaceCaseArm
-                    (SPLiteral (SLInt 0))
-                    Nothing
-                    (SELit (SLInt 0)),
-                  SurfaceCaseArm
-                    (SPOr [SPVariable "item", SPVariable "other"])
-                    Nothing
-                    (SEVar "item")
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (ELit (LInt 0)),
-                  CaseArm
-                    (POr [PVariable "item", PVariable "other"])
+                    (loweredLiteral (LInt 0)),
+                  loweredCaseArm
+                    (loweredOrPattern [loweredVariablePattern "item", loweredVariablePattern "other"])
                     Nothing
-                    (EVar "item")
+                    (loweredVariable "item")
                 ]
             )
         ]
@@ -403,43 +384,37 @@ testParsesVariableLedMixedLaterOrPatternArmAfterBody =
     "variable-led mixed later or-pattern case arm parse + lower"
     (parseSurfaceProgram "x = case n { | 0 -> 0 | item | item @ _ -> item }.")
     ( \surfaceProgram -> do
-        assertEqual "variable-led mixed later or-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "variable-led mixed later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "variable-led mixed later or-pattern surface AST"
+          [ p 1 16 (SPLiteral (SLInt 0)),
+            p
+              1
+              25
+              ( SPOr
+                  [ p 1 25 (SPVariable "item"),
+                    p 1 32 (SPAs "item" (p 1 39 SPWildcard))
+                  ]
+              )
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "variable-led mixed later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "n")
-                [ SurfaceCaseArm
-                    (SPLiteral (SLInt 0))
-                    Nothing
-                    (SELit (SLInt 0)),
-                  SurfaceCaseArm
-                    (SPOr [SPVariable "item", SPAs "item" SPWildcard])
-                    Nothing
-                    (SEVar "item")
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (ELit (LInt 0)),
-                  CaseArm
-                    (POr [PVariable "item", PAs "item" PWildcard])
+                    (loweredLiteral (LInt 0)),
+                  loweredCaseArm
+                    (loweredOrPattern [loweredVariablePattern "item", loweredAsPattern "item" loweredWildcardPattern])
                     Nothing
-                    (EVar "item")
+                    (loweredVariable "item")
                 ]
             )
         ]
@@ -449,27 +424,27 @@ testKeepsPipeOperatorInOrPatternArmBody =
   assertRight
     "or-pattern arm body keeps infix pipe operator"
     (parseSurfaceProgram "x = case subject { | Just item | Also item -> item | f | Nothing -> 0 }.")
-    (\surfaceProgram -> assertEqual "or-pattern pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "or-pattern pipe body lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    ( POr
-                        [ PConstructor "Just" [PVariable "item"],
-                          PConstructor "Also" [PVariable "item"]
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    ( loweredOrPattern
+                        [ loweredConstructorPattern "Just" [loweredVariablePattern "item"],
+                          loweredConstructorPattern "Also" [loweredVariablePattern "item"]
                         ]
                     )
                     Nothing
-                    (EBinary "|" (EVar "item") (EVar "f")),
-                  CaseArm
-                    (PConstructor "Nothing" [])
+                    (loweredBinary "|" (loweredVariable "item") (loweredVariable "f")),
+                  loweredCaseArm
+                    (loweredConstructorPattern "Nothing" [])
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -479,23 +454,29 @@ testParsesGuardedCaseArmWithPipeExpressionAfterPreviousArm =
   assertRight
     "guarded pipe expression after previous arm"
     (parseSurfaceProgram "x = case subject { | 0 -> 0 | item if left | right -> 1 }.")
-    (\surfaceProgram -> assertEqual "guarded pipe expression surface AST" expectedSurfaceProgram surfaceProgram)
+    ( \surfaceProgram -> do
+        assertSurfaceCasePatterns
+          "guarded pipe expression surface AST"
+          [p 1 22 (SPLiteral (SLInt 0)), p 1 31 (SPVariable "item")]
+          surfaceProgram
+        assertLoweredCoreEqual "guarded pipe expression lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
+    expectedLoweredProgram =
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPLiteral (SLInt 0))
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (SELit (SLInt 0)),
-                  SurfaceCaseArm
-                    (SPVariable "item")
-                    (Just (SEBinary "|" (SEVar "left") (SEVar "right")))
-                    (SELit (SLInt 1))
+                    (loweredLiteral (LInt 0)),
+                  loweredCaseArm
+                    (loweredVariablePattern "item")
+                    (Just (loweredBinary "|" (loweredVariable "left") (loweredVariable "right")))
+                    (loweredLiteral (LInt 1))
                 ]
             )
         ]
@@ -505,23 +486,29 @@ testParsesGuardedCaseArmWithDefinitePipeRhsGuards =
   assertRight
     "guarded pipe expression with literal and constructor-shaped RHS"
     (parseSurfaceProgram "x = case subject { | item if left | True -> 1 | other if left | Nothing -> 2 }.")
-    (\surfaceProgram -> assertEqual "guarded definite pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+    ( \surfaceProgram -> do
+        assertSurfaceCasePatterns
+          "guarded definite pipe RHS surface AST"
+          [p 1 22 (SPVariable "item"), p 1 49 (SPVariable "other")]
+          surfaceProgram
+        assertLoweredCoreEqual "guarded definite pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
+    expectedLoweredProgram =
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPVariable "item")
-                    (Just (SEBinary "|" (SEVar "left") (SELit (SLBool True))))
-                    (SELit (SLInt 1)),
-                  SurfaceCaseArm
-                    (SPVariable "other")
-                    (Just (SEBinary "|" (SEVar "left") (SEVar "Nothing")))
-                    (SELit (SLInt 2))
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredVariablePattern "item")
+                    (Just (loweredBinary "|" (loweredVariable "left") (loweredLiteral (LBool True))))
+                    (loweredLiteral (LInt 1)),
+                  loweredCaseArm
+                    (loweredVariablePattern "other")
+                    (Just (loweredBinary "|" (loweredVariable "left") (loweredVariable "Nothing")))
+                    (loweredLiteral (LInt 2))
                 ]
             )
         ]
@@ -531,33 +518,39 @@ testKeepsConstructorIfExpressionPipeRhsBeforeArmArrow =
   assertRight
     "constructor if-expression pipe RHS before arm arrow"
     (parseSurfaceProgram "x = case m { | item if item == 0 | Just if ok then 1 else 2 -> item | _ -> m }.")
-    (\surfaceProgram -> assertEqual "constructor if-expression pipe RHS surface AST" expectedSurfaceProgram surfaceProgram)
+    ( \surfaceProgram -> do
+        assertSurfaceCasePatterns
+          "constructor if-expression pipe RHS surface AST"
+          [p 1 16 (SPVariable "item"), p 1 71 SPWildcard]
+          surfaceProgram
+        assertLoweredCoreEqual "constructor if-expression pipe RHS lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+    )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
+    expectedLoweredProgram =
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( SECase
-                (SEVar "m")
-                [ SurfaceCaseArm
-                    (SPVariable "item")
+            ( loweredPatternCase
+                (loweredVariable "m")
+                [ loweredCaseArm
+                    (loweredVariablePattern "item")
                     ( Just
-                        ( SEBinary
+                        ( loweredBinary
                             "=="
-                            (SEVar "item")
-                            ( SEBinary
+                            (loweredVariable "item")
+                            ( loweredBinary
                                 "|"
-                                (SELit (SLInt 0))
-                                (SEApply (SEVar "Just") (SEIf (SEVar "ok") (SELit (SLInt 1)) (SELit (SLInt 2))))
+                                (loweredLiteral (LInt 0))
+                                (loweredApply (loweredVariable "Just") (loweredIf (loweredVariable "ok") (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2))))
                             )
                         )
                     )
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (SEVar "m")
+                    (loweredVariable "m")
                 ]
             )
         ]
@@ -568,64 +561,80 @@ testKeepsAsPatternConstructorArgumentsAtomic =
     "as-pattern constructor argument parse + lower"
     (parseSurfaceProgram "x = case subject { | Pair whole @ Nothing item -> item | _ -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "as-pattern constructor argument surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "as-pattern constructor argument lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "as-pattern constructor argument surface AST"
+          [ p
+              1
+              22
+              ( SPConstructor
+                  "Pair"
+                  [ p 1 27 (SPAs "whole" (p 1 35 (SPConstructor "Nothing" []))),
+                    p 1 43 (SPVariable "item")
+                  ]
+              ),
+            p 1 58 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "as-pattern constructor argument lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPConstructor "Pair" [SPAs "whole" (SPConstructor "Nothing" []), SPVariable "item"])
-                    Nothing
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Pair" [PAs "whole" (PConstructor "Nothing" []), PVariable "item"])
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Pair" [loweredAsPattern "whole" (loweredConstructorPattern "Nothing" []), loweredVariablePattern "item"])
                     Nothing
-                    (EVar "item"),
-                  CaseArm
-                    PWildcard
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
 
 testParsesAsPatternLambdaParameter :: IO ()
 testParsesAsPatternLambdaParameter =
-  assertEqual
+  assertRight
     "as-pattern lambda parameter"
-    ( Right
-        ( SEBlock
-            [ SSLet
-                "f"
-                (SourceSpan 1 1)
-                ( SELambda
-                    (SurfaceLambdaPattern (SPAs "whole" (SPConsList (SPVariable "head") (SPVariable "tail"))) :| [])
-                    (SEVar "head")
-                )
-            ]
-        )
-    )
     (parseSurfaceProgram "f = \\(whole @ [head | tail]) -> head.")
+    ( \surfaceProgram -> do
+        assertSurfaceLambdaPattern
+          "as-pattern lambda surface AST"
+          ( p
+              1
+              7
+              ( SPAs
+                  "whole"
+                  (p 1 15 (SPConsList (p 1 16 (SPVariable "head")) (p 1 23 (SPVariable "tail"))))
+              )
+          )
+          surfaceProgram
+        assertLoweredCoreEqual "lowered as-pattern lambda" expectedProgram (lowerSurfaceExpr surfaceProgram)
+    )
+  where
+    generatedParameter = generatedName (LambdaPatternArgument 1)
+    expectedProgram =
+      loweredBlock
+        [ loweredLet
+            "f"
+            (SourceSpan 1 1)
+            ( loweredLambda
+                generatedParameter
+                ( loweredPatternCase
+                    (loweredVariable generatedParameter)
+                    [ loweredCaseArm
+                        (loweredAsPattern "whole" (loweredConsListPattern (loweredVariablePattern "head") (loweredVariablePattern "tail")))
+                        Nothing
+                        (loweredVariable "head")
+                    ]
+                )
+            )
+        ]
 
 testParsesConstructorPatternCaseArms :: IO ()
 testParsesConstructorPatternCaseArms =
@@ -633,43 +642,30 @@ testParsesConstructorPatternCaseArms =
     "constructor pattern parse + lower"
     (parseSurfaceProgram "x = case subject { | Just item -> item | Nothing -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "constructor pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "constructor pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "constructor pattern surface AST"
+          [ p 1 22 (SPConstructor "Just" [p 1 27 (SPVariable "item")]),
+            p 1 42 (SPConstructor "Nothing" [])
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "constructor pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPConstructor "Just" [SPVariable "item"])
-                    Nothing
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    (SPConstructor "Nothing" [])
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Just" [PVariable "item"])
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Just" [loweredVariablePattern "item"])
                     Nothing
-                    (EVar "item"),
-                  CaseArm
-                    (PConstructor "Nothing" [])
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    (loweredConstructorPattern "Nothing" [])
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -680,43 +676,36 @@ testParsesMultiArgumentConstructorPatternsWithNullarySubpatterns =
     "multi-argument constructor pattern parse + lower"
     (parseSurfaceProgram "x = case subject { | Pair Nothing item -> item | _ -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "multi-argument constructor pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "multi-argument constructor pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "multi-argument constructor pattern surface AST"
+          [ p
+              1
+              22
+              ( SPConstructor
+                  "Pair"
+                  [p 1 27 (SPConstructor "Nothing" []), p 1 35 (SPVariable "item")]
+              ),
+            p 1 50 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "multi-argument constructor pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPConstructor "Pair" [SPConstructor "Nothing" [], SPVariable "item"])
-                    Nothing
-                    (SEVar "item"),
-                  SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Pair" [PConstructor "Nothing" [], PVariable "item"])
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Pair" [loweredConstructorPattern "Nothing" [], loweredVariablePattern "item"])
                     Nothing
-                    (EVar "item"),
-                  CaseArm
-                    PWildcard
+                    (loweredVariable "item"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -727,43 +716,30 @@ testParsesNullaryConstructorSubpatterns =
     "nullary constructor subpattern parse + lower"
     (parseSurfaceProgram "x = case subject { | Just Nothing -> 1 | _ -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "nullary constructor subpattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "nullary constructor subpattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "nullary constructor subpattern surface AST"
+          [ p 1 22 (SPConstructor "Just" [p 1 27 (SPConstructor "Nothing" [])]),
+            p 1 42 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "nullary constructor subpattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPConstructor "Just" [SPConstructor "Nothing" []])
-                    Nothing
-                    (SELit (SLInt 1)),
-                  SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Just" [PConstructor "Nothing" []])
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Just" [loweredConstructorPattern "Nothing" []])
                     Nothing
-                    (ELit (LInt 1)),
-                  CaseArm
-                    PWildcard
+                    (loweredLiteral (LInt 1)),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -774,43 +750,30 @@ testParsesListPatternCaseArms =
     "list pattern parse + lower"
     (parseSurfaceProgram "x = case values { | [head, _] -> head | [] -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "list pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "list pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "list pattern surface AST"
+          [ p 1 21 (SPList [p 1 22 (SPVariable "head"), p 1 28 SPWildcard]),
+            p 1 41 (SPList [])
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "list pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "values")
-                [ SurfaceCaseArm
-                    (SPList [SPVariable "head", SPWildcard])
-                    Nothing
-                    (SEVar "head"),
-                  SurfaceCaseArm
-                    (SPList [])
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "values")
-                [ CaseArm
-                    (PList [PVariable "head", PWildcard])
+            ( loweredPatternCase
+                (loweredVariable "values")
+                [ loweredCaseArm
+                    (loweredListPattern [loweredVariablePattern "head", loweredWildcardPattern])
                     Nothing
-                    (EVar "head"),
-                  CaseArm
-                    (PList [])
+                    (loweredVariable "head"),
+                  loweredCaseArm
+                    (loweredListPattern [])
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -821,28 +784,18 @@ testParsesCanonicalDataDeclarationAndLowersConstructorArities =
     "data declaration parse + lower"
     (parseSurfaceProgram "data Maybe a = Just a | Nothing.")
     ( \surfaceProgram -> do
-        assertEqual "data declaration surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceDataShape "data declaration surface AST" ("Maybe", ["a"], [("Just", 1), ("Nothing", 0)]) surfaceProgram
+        assertLoweredCoreEqual "data declaration lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSData
-            (SourceSpan 1 1)
-            "Maybe"
-            ["a"]
-            [ SurfaceDataConstructor "Just" [SurfaceTypeVariable "a"],
-              SurfaceDataConstructor "Nothing" []
-            ]
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SData
+      loweredBlock
+        [ loweredData
             (SourceSpan 1 1)
             "Maybe"
             ["a"]
-            [ DataConstructor "Just" [TypeVariable "a"],
-              DataConstructor "Nothing" []
+            [ loweredConstructor "Just" [TypeVariable "a"],
+              loweredConstructor "Nothing" []
             ]
         ]
 
@@ -851,25 +804,25 @@ testParsesNestedCaseExpression =
   assertRight
     "nested case parse + lower"
     (parseSurfaceProgram "x = case n { | 0 -> case y { | 1 -> True | _ -> False } | _ -> False }.")
-    (\surfaceProgram -> assertEqual "nested lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "nested lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    ( EPatternCase
-                        (EVar "y")
-                        [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool True)),
-                          CaseArm PWildcard Nothing (ELit (LBool False))
+                    ( loweredPatternCase
+                        (loweredVariable "y")
+                        [ loweredCaseArm (loweredLiteralPattern (LInt 1)) Nothing (loweredLiteral (LBool True)),
+                          loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LBool False))
                         ]
                     ),
-                  CaseArm PWildcard Nothing (ELit (LBool False))
+                  loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LBool False))
                 ]
             )
         ]
@@ -879,20 +832,20 @@ testParsesIfExpressionInsideCaseArmBody =
   assertRight
     "if expression remains within first case arm"
     (parseSurfaceProgram "x = case n { | 0 -> if True then 1 else 2 | _ -> 3 }.")
-    (\surfaceProgram -> assertEqual "if-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "if-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 2))),
-                  CaseArm PWildcard Nothing (ELit (LInt 3))
+                    (loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2))),
+                  loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LInt 3))
                 ]
             )
         ]
@@ -902,20 +855,20 @@ testParsesLambdaExpressionInsideCaseArmBody =
   assertRight
     "lambda expression remains within first case arm"
     (parseSurfaceProgram "x = case n { | 0 -> \\(y) -> y | _ -> 3 }.")
-    (\surfaceProgram -> assertEqual "lambda-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lambda-in-arm lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (ELambda "y" (EVar "y")),
-                  CaseArm PWildcard Nothing (ELit (LInt 3))
+                    (loweredLambda "y" (loweredVariable "y")),
+                  loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LInt 3))
                 ]
             )
         ]
@@ -926,43 +879,30 @@ testParsesMixedLiteralWildcardLaterOrPatternArmAfterBody =
     "mixed literal-wildcard later or-pattern case arm parse + lower"
     (parseSurfaceProgram "x = case n { | 0 -> 1 | 2 | _ -> 3 }.")
     ( \surfaceProgram -> do
-        assertEqual "mixed literal-wildcard later or-pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "mixed literal-wildcard later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "mixed literal-wildcard later or-pattern surface AST"
+          [ p 1 16 (SPLiteral (SLInt 0)),
+            p 1 25 (SPOr [p 1 25 (SPLiteral (SLInt 2)), p 1 29 SPWildcard])
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "mixed literal-wildcard later or-pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "n")
-                [ SurfaceCaseArm
-                    (SPLiteral (SLInt 0))
-                    Nothing
-                    (SELit (SLInt 1)),
-                  SurfaceCaseArm
-                    (SPOr [SPLiteral (SLInt 2), SPWildcard])
-                    Nothing
-                    (SELit (SLInt 3))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm
-                    (PLiteral (LInt 0))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm
+                    (loweredLiteralPattern (LInt 0))
                     Nothing
-                    (ELit (LInt 1)),
-                  CaseArm
-                    (POr [PLiteral (LInt 2), PWildcard])
+                    (loweredLiteral (LInt 1)),
+                  loweredCaseArm
+                    (loweredOrPattern [loweredLiteralPattern (LInt 2), loweredWildcardPattern])
                     Nothing
-                    (ELit (LInt 3))
+                    (loweredLiteral (LInt 3))
                 ]
             )
         ]
@@ -972,23 +912,23 @@ testKeepsPipeOperatorInsideBodyBeforeConstructorArmBoundary =
   assertRight
     "pipe operator stays in constructor arm body"
     (parseSurfaceProgram "x = case subject { | Just item -> 1 | 2 | Nothing -> 3 }.")
-    (\surfaceProgram -> assertEqual "constructor arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "constructor arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Just" [PVariable "item"])
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Just" [loweredVariablePattern "item"])
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
-                  CaseArm
-                    (PConstructor "Nothing" [])
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2))),
+                  loweredCaseArm
+                    (loweredConstructorPattern "Nothing" [])
                     Nothing
-                    (ELit (LInt 3))
+                    (loweredLiteral (LInt 3))
                 ]
             )
         ]
@@ -998,23 +938,23 @@ testKeepsPipeOperatorInsideBodyBeforeLiteralArmBoundary =
   assertRight
     "pipe operator stays in body before literal arm boundary"
     (parseSurfaceProgram "x = case subject { | _ -> 1 | 2 | 3 -> 4 }.")
-    (\surfaceProgram -> assertEqual "literal arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "literal arm boundary lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (ELit (LInt 2))),
-                  CaseArm
-                    (PLiteral (LInt 3))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2))),
+                  loweredCaseArm
+                    (loweredLiteralPattern (LInt 3))
                     Nothing
-                    (ELit (LInt 4))
+                    (loweredLiteral (LInt 4))
                 ]
             )
         ]
@@ -1024,19 +964,19 @@ testKeepsBareListLiteralAfterPipeOperator =
   assertRight
     "bare list literal stays in case arm body"
     (parseSurfaceProgram "x = case subject { | _ -> 1 | [2] }.")
-    (\surfaceProgram -> assertEqual "list literal in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "list literal in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (EList [ELit (LInt 2)]))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredList [loweredLiteral (LInt 2)]))
                 ]
             )
         ]
@@ -1046,19 +986,19 @@ testKeepsBareConstructorValueAfterPipeOperator =
   assertRight
     "bare constructor subject stays in case arm body"
     (parseSurfaceProgram "x = case subject { | _ -> 1 | Nothing }.")
-    (\surfaceProgram -> assertEqual "constructor subject in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "constructor subject in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (EVar "Nothing"))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredVariable "Nothing"))
                 ]
             )
         ]
@@ -1068,19 +1008,19 @@ testKeepsListApplicationAfterPipeOperator =
   assertRight
     "list application stays in case arm body"
     (parseSurfaceProgram "x = case values { | _ -> 1 | [head] 2 }.")
-    (\surfaceProgram -> assertEqual "list application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "list application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "values")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "values")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (EApply (EList [EVar "head"]) (ELit (LInt 2))))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredApply (loweredList [loweredVariable "head"]) (loweredLiteral (LInt 2))))
                 ]
             )
         ]
@@ -1090,19 +1030,19 @@ testKeepsConstructorApplicationAfterPipeOperator =
   assertRight
     "constructor application stays in case arm body"
     (parseSurfaceProgram "x = case subject { | _ -> 1 | Just a b }.")
-    (\surfaceProgram -> assertEqual "constructor application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "constructor application in arm body lowered AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    PWildcard
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (EBinary "|" (ELit (LInt 1)) (EApply (EApply (EVar "Just") (EVar "a")) (EVar "b")))
+                    (loweredBinary "|" (loweredLiteral (LInt 1)) (loweredApply (loweredApply (loweredVariable "Just") (loweredVariable "a")) (loweredVariable "b")))
                 ]
             )
         ]
@@ -1112,24 +1052,24 @@ testParsesCaseScrutineeWithBlockArgument =
   assertRight
     "case scrutinee keeps block argument"
     (parseSurfaceProgram "x = case f { y = 1. y. } { | 1 -> True | _ -> False }.")
-    (\surfaceProgram -> assertEqual "block-argument scrutinee lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "block-argument scrutinee lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                ( EApply
-                    (EVar "f")
-                    ( EBlock
-                        [ SLet "y" (SourceSpan 1 14) (ELit (LInt 1)),
-                          SExpr (SourceSpan 1 21) (EVar "y")
+            ( loweredPatternCase
+                ( loweredApply
+                    (loweredVariable "f")
+                    ( loweredBlock
+                        [ loweredLet "y" (SourceSpan 1 14) (loweredLiteral (LInt 1)),
+                          loweredExpression (SourceSpan 1 21) (loweredVariable "y")
                         ]
                     )
                 )
-                [ CaseArm (PLiteral (LInt 1)) Nothing (ELit (LBool True)),
-                  CaseArm PWildcard Nothing (ELit (LBool False))
+                [ loweredCaseArm (loweredLiteralPattern (LInt 1)) Nothing (loweredLiteral (LBool True)),
+                  loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LBool False))
                 ]
             )
         ]
@@ -1147,43 +1087,30 @@ testParsesConsLikeListPattern =
     "cons-like list pattern parse + lower"
     (parseSurfaceProgram "x = case values { | [head | tail] -> head | _ -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "cons-like list pattern surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "cons-like list pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "cons-like list pattern surface AST"
+          [ p 1 21 (SPConsList (p 1 22 (SPVariable "head")) (p 1 29 (SPVariable "tail"))),
+            p 1 45 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "cons-like list pattern lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "values")
-                [ SurfaceCaseArm
-                    (SPConsList (SPVariable "head") (SPVariable "tail"))
-                    Nothing
-                    (SEVar "head"),
-                  SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "values")
-                [ CaseArm
-                    (PConsList (PVariable "head") (PVariable "tail"))
+            ( loweredPatternCase
+                (loweredVariable "values")
+                [ loweredCaseArm
+                    (loweredConsListPattern (loweredVariablePattern "head") (loweredVariablePattern "tail"))
                     Nothing
-                    (EVar "head"),
-                  CaseArm
-                    PWildcard
+                    (loweredVariable "head"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -1194,43 +1121,36 @@ testParsesConsLikeListPatternInsideConstructorPattern =
     "cons-like list pattern inside constructor pattern parse + lower"
     (parseSurfaceProgram "x = case subject { | Just [head | tail] -> head | _ -> 0 }.")
     ( \surfaceProgram -> do
-        assertEqual "cons-like list constructor surface AST" expectedSurfaceProgram surfaceProgram
-        assertEqual "cons-like list constructor lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
+        assertSurfaceCasePatterns
+          "cons-like list constructor surface AST"
+          [ p
+              1
+              22
+              ( SPConstructor
+                  "Just"
+                  [p 1 27 (SPConsList (p 1 28 (SPVariable "head")) (p 1 35 (SPVariable "tail")))]
+              ),
+            p 1 51 SPWildcard
+          ]
+          surfaceProgram
+        assertLoweredCoreEqual "cons-like list constructor lowered AST" expectedLoweredProgram (lowerSurfaceExpr surfaceProgram)
     )
   where
-    expectedSurfaceProgram =
-      SEBlock
-        [ SSLet
-            "x"
-            (SourceSpan 1 1)
-            ( SECase
-                (SEVar "subject")
-                [ SurfaceCaseArm
-                    (SPConstructor "Just" [SPConsList (SPVariable "head") (SPVariable "tail")])
-                    Nothing
-                    (SEVar "head"),
-                  SurfaceCaseArm
-                    SPWildcard
-                    Nothing
-                    (SELit (SLInt 0))
-                ]
-            )
-        ]
     expectedLoweredProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "subject")
-                [ CaseArm
-                    (PConstructor "Just" [PConsList (PVariable "head") (PVariable "tail")])
+            ( loweredPatternCase
+                (loweredVariable "subject")
+                [ loweredCaseArm
+                    (loweredConstructorPattern "Just" [loweredConsListPattern (loweredVariablePattern "head") (loweredVariablePattern "tail")])
                     Nothing
-                    (EVar "head"),
-                  CaseArm
-                    PWildcard
+                    (loweredVariable "head"),
+                  loweredCaseArm
+                    loweredWildcardPattern
                     Nothing
-                    (ELit (LInt 0))
+                    (loweredLiteral (LInt 0))
                 ]
             )
         ]
@@ -1240,17 +1160,17 @@ testLowerCaseExpression =
   assertRight
     "parse + lower case"
     (parseSurfaceProgram "x = case n { | 0 -> True | _ -> False }.")
-    (\surfaceProgram -> assertEqual "lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
+    (\surfaceProgram -> assertLoweredCoreEqual "lowered case AST" expectedProgram (lowerSurfaceExpr surfaceProgram))
   where
     expectedProgram =
-      EBlock
-        [ SLet
+      loweredBlock
+        [ loweredLet
             "x"
             (SourceSpan 1 1)
-            ( EPatternCase
-                (EVar "n")
-                [ CaseArm (PLiteral (LInt 0)) Nothing (ELit (LBool True)),
-                  CaseArm PWildcard Nothing (ELit (LBool False))
+            ( loweredPatternCase
+                (loweredVariable "n")
+                [ loweredCaseArm (loweredLiteralPattern (LInt 0)) Nothing (loweredLiteral (LBool True)),
+                  loweredCaseArm loweredWildcardPattern Nothing (loweredLiteral (LBool False))
                 ]
             )
         ]

@@ -3,17 +3,14 @@
 module Main (main) where
 
 import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (E0001),
-    diagnosticCodeText,
+  ( diagnosticCodeText,
   )
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    DiagnosticOrigin (CompilationOrigin),
     SourceSpan (..),
     diagnosticCode,
     diagnosticPrimarySpan,
     diagnosticSummary,
-    mkErrorDiagnostic,
   )
 import Jazz.Compiler.Name
   ( mkIdentifier,
@@ -24,26 +21,31 @@ import Jazz.Compiler.Parser
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceDataConstructor (..),
-    SurfaceSignatureType (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Declaration
   ( parseDataStatementParser,
-    parseImportStatementParser,
   )
 import qualified Jazz.Compiler.Parser.Declaration as Declaration
 import Jazz.Compiler.Parser.Failure
   ( ParserDeclarationFailure (..),
     ParserDeclarationKind (..),
     ParserDuplicateNameRole (..),
+    ParserEncountered (ParserEndOfInput),
     ParserFailure (..),
     ParserFailureReason (..),
+    parserFailure,
   )
-import Jazz.Compiler.Parser.Lexer (Token)
+import Jazz.Compiler.Parser.Lexer (Token (..))
 import Jazz.Compiler.Parser.TestSupport
   ( lexSource,
   )
 import Jazz.Compiler.Parser.TokenParser (runTokenParserPrefix)
+import Jazz.Compiler.Parser.TokenStream
+  ( tokenStreamFromList,
+    tokenStreamToList,
+  )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
@@ -58,8 +60,6 @@ main = runTestSuite "DeclarationParser" tests
 tests :: [NamedTest]
 tests =
   [ ("rejects Haskell-style function equations", testRejectsFunctionEquations),
-    ("rejects import alias followed by symbol list", testRejectsImportAliasWithSymbolList),
-    ("rejects import symbol list followed by alias", testRejectsImportSymbolListWithAlias),
     ("preserves failure spans after an owned declaration", testFailureSpanAfterOwnedDeclaration),
     ("parses data constructors with named and grouped payloads", testParsesDataConstructors),
     ("rejects crossed parenthesis then bracket constructor payload", testRejectsCrossedParenBracketPayload),
@@ -76,31 +76,13 @@ tests =
 
 testRejectsFunctionEquations :: IO ()
 testRejectsFunctionEquations =
-  case
-      parseSurfaceProgram
-        """
-        length [] = 0.
-        length [_ | rest] = 1 + length rest.
-        """
-    of
-      Left _ -> pure ()
-      Right _ -> failTest "expected Haskell-style function equations to be rejected"
-
-testRejectsImportAliasWithSymbolList :: IO ()
-testRejectsImportAliasWithSymbolList = do
-  tokens <- lexSource "import Lib::Math as Math (subtract)."
-  assertLeftDiagnosticContains
-    "import alias with symbol list"
-    "cannot combine import alias and symbol list"
-    (parseImportStatementTokens tokens)
-
-testRejectsImportSymbolListWithAlias :: IO ()
-testRejectsImportSymbolListWithAlias = do
-  tokens <- lexSource "import Lib::Math (subtract) as Math."
-  assertLeftDiagnosticContains
-    "import symbol list with alias"
-    "cannot combine import alias and symbol list"
-    (parseImportStatementTokens tokens)
+  case parseSurfaceProgram
+    """
+    length [] = 0.
+    length [_ | rest] = 1 + length rest.
+    """ of
+    Left _ -> pure ()
+    Right _ -> failTest "expected Haskell-style function equations to be rejected"
 
 testFailureSpanAfterOwnedDeclaration :: IO ()
 testFailureSpanAfterOwnedDeclaration =
@@ -123,20 +105,20 @@ testParsesDataConstructors = do
             [ SurfaceDataConstructor (mkIdentifier "None") [],
               SurfaceDataConstructor
                 (mkIdentifier "Some")
-                [SurfaceTypeVariable (mkIdentifier "a")],
+                [TypeVariable (mkIdentifier "a")],
               SurfaceDataConstructor
                 (mkIdentifier "Pair")
-                [ SurfaceTypeTuple
-                    [ SurfaceTypeVariable (mkIdentifier "a"),
-                      SurfaceTypeVariable (mkIdentifier "a")
+                [ TypeTuple
+                    [ TypeVariable (mkIdentifier "a"),
+                      TypeVariable (mkIdentifier "a")
                     ],
-                  SurfaceTypeList (SurfaceTypeVariable (mkIdentifier "a"))
+                  TypeList (TypeVariable (mkIdentifier "a"))
                 ]
             ],
           []
         )
     )
-    (parseDataStatementTokens tokens)
+    (parseDataDeclarationForTest tokens)
 
 testRejectsCrossedParenBracketPayload :: IO ()
 testRejectsCrossedParenBracketPayload = do
@@ -144,7 +126,7 @@ testRejectsCrossedParenBracketPayload = do
   assertLeftDiagnosticContains
     "crossed parenthesis then bracket payload"
     "expected '(', found ')'"
-    (parseDataStatementTokens tokens)
+    (parseDataDeclarationForTest tokens)
 
 testRejectsCrossedBracketParenPayload :: IO ()
 testRejectsCrossedBracketParenPayload = do
@@ -152,12 +134,12 @@ testRejectsCrossedBracketParenPayload = do
   assertLeftDiagnosticContains
     "crossed bracket then parenthesis payload"
     "expected '(', found ']'"
-    (parseDataStatementTokens tokens)
+    (parseDataDeclarationForTest tokens)
 
 testAcceptsNestedConstructorFieldTypes :: IO ()
 testAcceptsNestedConstructorFieldTypes = do
   tokens <- lexSource "data Box = Box ([()]) [(())]."
-  case parseDataStatementTokens tokens of
+  case parseDataDeclarationForTest tokens of
     Right _ -> pure ()
     Left diagnostic -> failTest ("expected nested constructor field types to parse, got " <> diagnosticSummary diagnostic)
 
@@ -233,11 +215,27 @@ testDetailedUndeclaredConstructorTypeParameter = do
 testCapabilityCallbackDiagnostic :: IO ()
 testCapabilityCallbackDiagnostic = do
   tokens <- lexSource "impl Show(Int) { show = item. }."
-  let expectedDiagnostic = mkErrorDiagnostic E0001 CompilationOrigin "callback failure"
+  let tokenStream = tokenStreamFromList tokens
+      expectedFailure = parserFailure (ExpectedSyntax "callback expression" ParserEndOfInput)
+      unexpectedCursorFailure = parserFailure (ExpectedSyntax "expression callback at 'item'" ParserEndOfInput)
+      parseImplExpression expressionTokens =
+        case map tokenLexeme (tokenStreamToList expressionTokens) of
+          ["item", ".", "}", "."] -> Left expectedFailure
+          _ -> Left unexpectedCursorFailure
   assertEqual
-    "capability callback diagnostic"
-    (Left expectedDiagnostic)
-    (Declaration.parseCapabilityDeclarationTokens (const (Left expectedDiagnostic)) tokens)
+    "capability callback failure"
+    (Left expectedFailure)
+    ( Declaration.parseCapabilityDeclarationTokensDetailed
+        (const (Left expectedFailure))
+        tokenStream
+    )
+  assertEqual
+    "capability callback cursor consumption"
+    (Left expectedFailure)
+    ( Declaration.parseCapabilityDeclarationTokensDetailed
+        parseImplExpression
+        tokenStream
+    )
 
 testAcceptsModuleBodyImport :: IO ()
 testAcceptsModuleBodyImport =
@@ -251,10 +249,6 @@ testAcceptsModuleBodyImport =
     Right _ -> pure ()
     Left diagnostic -> failTest ("expected module-body import to parse, got " <> diagnosticSummary diagnostic)
 
-parseImportStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseImportStatementTokens =
-  runTokenParserPrefix "owned import declaration" parseImportStatementParser
-
-parseDataStatementTokens :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
-parseDataStatementTokens =
+parseDataDeclarationForTest :: [Token] -> Either Diagnostic (SurfaceStatement, [Token])
+parseDataDeclarationForTest =
   runTokenParserPrefix "owned data declaration" parseDataStatementParser

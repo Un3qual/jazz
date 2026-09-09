@@ -1,4 +1,6 @@
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Jazz.Repository.FeatureInventory
   ( SurfaceFeature (..),
@@ -22,11 +24,22 @@ import Jazz.Compiler.Name
   ( Identifier,
     IdentifierLike (identifierPurity),
     NameNamespace (..),
-    isOperatorBindingIdentifierText,
     identifierText,
+    isOperatorBindingIdentifierText,
   )
 import Jazz.Compiler.Parser.AST
 import Jazz.Compiler.Purity (Purity (..))
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern SignatureConstraint,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeFunction,
+    pattern TypeList,
+    pattern TypeNumeric,
+    pattern TypeTuple,
+    pattern UnsupportedSignature,
+  )
 
 data SurfaceFeature
   = LiteralFeature
@@ -115,7 +128,7 @@ erasedSourceFeatures source =
 
 inventoryExpr :: SurfaceExpr -> Set SurfaceFeature
 inventoryExpr expression =
-  case expression of
+  case surfaceExprForm expression of
     SELit literal -> Set.singleton LiteralFeature <> inventoryLiteral literal
     SEVar _ -> Set.empty
     SEQualifiedVar _ _ -> Set.singleton QualifiedMethodFeature
@@ -154,10 +167,12 @@ inventoryExpr expression =
         <> inventoryExpr function
         <> inventoryExpr argument
     SETypeApplication function _ signatureType ->
-      Set.insert ExplicitTypeApplicationFeature
+      Set.insert
+        ExplicitTypeApplicationFeature
         (inventoryExpr function <> inventorySignatureType signatureType)
     SEIf condition thenBranch elseBranch ->
-      Set.insert ConditionalFeature
+      Set.insert
+        ConditionalFeature
         (Set.unions (map inventoryExpr [condition, thenBranch, elseBranch]))
     SECase scrutinee arms ->
       Set.fromList
@@ -182,25 +197,28 @@ inventoryExpr expression =
 
     lambdaParameterIsPattern parameter =
       case parameter of
-        SurfaceLambdaIdentifier _ -> False
+        SurfaceLambdaIdentifier _ _ -> False
         SurfaceLambdaPattern _ -> True
 
     lambdaParameterIsOrPattern parameter =
       case parameter of
-        SurfaceLambdaPattern (SPOr _) -> True
+        SurfaceLambdaPattern patternValue ->
+          case surfacePatternForm patternValue of
+            SPOr _ -> True
+            _ -> False
         _ -> False
 
     clausePatterns (SurfacePatternLambdaClause _ patterns _) =
       NonEmpty.toList patterns
 
     patternIsOrPattern patternValue =
-      case patternValue of
+      case surfacePatternForm patternValue of
         SPOr _ -> True
         _ -> False
 
 containsPartialApplication :: Map Text Int -> SurfaceExpr -> Bool
 containsPartialApplication arities expression =
-  case expression of
+  case surfaceExprForm expression of
     SELit _ -> False
     SEVar _ -> False
     SEQualifiedVar _ _ -> False
@@ -248,14 +266,14 @@ applicationSpine :: SurfaceExpr -> (SurfaceExpr, [SurfaceExpr])
 applicationSpine = go []
   where
     go arguments candidate =
-      case candidate of
+      case surfaceExprForm candidate of
         SEApply function argument ->
           go (argument : arguments) function
         _ -> (candidate, arguments)
 
 callableArity :: Map Text Int -> SurfaceExpr -> Maybe Int
 callableArity arities expression =
-  case expression of
+  case surfaceExprForm expression of
     SEVar name -> Map.lookup (identifierText name) arities
     SELambda parameters _ -> Just (NonEmpty.length parameters)
     SEPatternLambda clauses ->
@@ -315,12 +333,12 @@ patternLambdaClauseContainsPartialApplication arities (SurfacePatternLambdaClaus
 lambdaParameterBindings :: SurfaceLambdaParameter -> Set Text
 lambdaParameterBindings parameter =
   case parameter of
-    SurfaceLambdaIdentifier name -> Set.singleton (identifierText name)
+    SurfaceLambdaIdentifier _ name -> Set.singleton (identifierText name)
     SurfaceLambdaPattern patternValue -> patternBindings patternValue
 
 patternBindings :: SurfacePattern -> Set Text
 patternBindings patternValue =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPVariable name -> Set.singleton (identifierText name)
     SPConstructor _ arguments -> Set.unions (map patternBindings arguments)
     SPList items -> Set.unions (map patternBindings items)
@@ -339,10 +357,12 @@ inventoryStatement :: SurfaceStatement -> Set SurfaceFeature
 inventoryStatement statement =
   case statement of
     SSLet name _ expression ->
-      Set.insert OrdinaryBindingFeature
+      Set.insert
+        OrdinaryBindingFeature
         (inventoryIdentifier name <> inventoryExpr expression <> operatorBindingFeature name)
     SSSignature name _ payload ->
-      Set.insert SignatureFeature
+      Set.insert
+        SignatureFeature
         (inventoryIdentifier name <> inventorySignaturePayload payload)
     SSData _ _ typeParameters constructors ->
       Set.fromList
@@ -353,17 +373,20 @@ inventoryStatement statement =
         )
         <> Set.unions (map inventoryDataConstructor constructors)
     SSClass _ _ _ methods ->
-      Set.insert ClassFeature
+      Set.insert
+        ClassFeature
         (Set.unions (map inventoryClassMethod methods))
     SSImpl _ _ arguments methods ->
-      Set.insert ImplFeature
+      Set.insert
+        ImplFeature
         ( Set.unions
             ( map inventorySignatureType arguments
                 <> map inventoryImplMethod methods
             )
         )
     SSModule _ _ exports ->
-      Set.insert ModuleFeature
+      Set.insert
+        ModuleFeature
         (maybe Set.empty (Set.unions . map inventoryExport) exports)
     SSImport _ _ alias importedNames ->
       Set.fromList
@@ -382,7 +405,7 @@ inventoryStatement statement =
 inventoryLambdaParameter :: SurfaceLambdaParameter -> Set SurfaceFeature
 inventoryLambdaParameter parameter =
   case parameter of
-    SurfaceLambdaIdentifier _ -> Set.singleton VariablePatternFeature
+    SurfaceLambdaIdentifier _ _ -> Set.singleton VariablePatternFeature
     SurfaceLambdaPattern patternValue -> inventoryPattern patternValue
 
 inventoryCaseArm :: SurfaceCaseArm -> Set SurfaceFeature
@@ -397,20 +420,23 @@ inventoryPatternLambdaClause (SurfacePatternLambdaClause _ patterns body) =
 
 inventoryPattern :: SurfacePattern -> Set SurfaceFeature
 inventoryPattern patternValue =
-  case patternValue of
+  case surfacePatternForm patternValue of
     SPWildcard -> Set.singleton WildcardPatternFeature
     SPVariable _ -> Set.singleton VariablePatternFeature
     SPLiteral literal ->
       Set.fromList [LiteralFeature, LiteralPatternFeature]
         <> inventoryLiteral literal
     SPConstructor _ arguments ->
-      Set.insert ConstructorPatternFeature
+      Set.insert
+        ConstructorPatternFeature
         (Set.unions (map inventoryPattern arguments))
     SPList items ->
-      Set.insert ListPatternFeature
+      Set.insert
+        ListPatternFeature
         (Set.unions (map inventoryPattern items))
     SPConsList headPattern tailPattern ->
-      Set.insert ConsPatternFeature
+      Set.insert
+        ConsPatternFeature
         (inventoryPattern headPattern <> inventoryPattern tailPattern)
     SPTuple items ->
       Set.fromList
@@ -419,7 +445,8 @@ inventoryPattern patternValue =
     SPAs _ nested ->
       Set.insert AsPatternFeature (inventoryPattern nested)
     SPOr alternatives ->
-      Set.insert OrPatternFeature
+      Set.insert
+        OrPatternFeature
         (Set.unions (map inventoryPattern alternatives))
 
 inventoryDataConstructor :: SurfaceDataConstructor -> Set SurfaceFeature
@@ -457,33 +484,34 @@ inventoryLiteral literal =
 inventorySignaturePayload :: SurfaceSignaturePayload -> Set SurfaceFeature
 inventorySignaturePayload payload =
   case payload of
-    SurfaceSignatureType signatureType ->
+    SignatureType signatureType ->
       inventorySignatureType signatureType
-    SurfaceConstrainedSignature constraints signatureType ->
-      Set.insert ConstrainedSignatureFeature
+    ConstrainedSignature constraints signatureType ->
+      Set.insert
+        ConstrainedSignatureFeature
         ( Set.unions
             ( inventorySignatureType signatureType
                 : map inventorySignatureConstraint constraints
             )
         )
-    SurfaceUnsupportedSignature _ -> Set.empty
+    UnsupportedSignature _ -> Set.empty
 
 inventorySignatureConstraint :: SurfaceSignatureConstraint -> Set SurfaceFeature
-inventorySignatureConstraint (SurfaceSignatureConstraint _ arguments) =
+inventorySignatureConstraint (SignatureConstraint _ arguments) =
   Set.unions (map inventorySignatureType arguments)
 
 inventorySignatureType :: SurfaceSignatureType -> Set SurfaceFeature
 inventorySignatureType signatureType =
   case signatureType of
-    SurfaceTypeNumeric _ -> Set.singleton NumericWidthFeature
-    SurfaceTypeApplication _ arguments ->
+    TypeNumeric _ -> Set.singleton NumericWidthFeature
+    TypeApplication _ arguments ->
       Set.unions (map inventorySignatureType arguments)
-    SurfaceTypeList itemType ->
+    TypeList itemType ->
       Set.insert ListFeature (inventorySignatureType itemType)
-    SurfaceTypeTuple itemTypes ->
+    TypeTuple itemTypes ->
       Set.fromList ([TupleFeature] <> [UnitFeature | null itemTypes])
         <> Set.unions (map inventorySignatureType itemTypes)
-    SurfaceTypeFunction argument result ->
+    TypeFunction argument result ->
       inventorySignatureType argument <> inventorySignatureType result
     _ -> Set.empty
 
@@ -498,7 +526,8 @@ inventoryExport selector =
         Just CapabilityNamespace -> Set.singleton ClassExportFeature
         Nothing -> Set.singleton ValueExportFeature
     ModuleTypeExportSelector _ _ constructorSelector ->
-      Set.insert TypeExportFeature
+      Set.insert
+        TypeExportFeature
         ( case constructorSelector of
             AbstractType -> Set.empty
             AllTypeConstructors _ -> Set.singleton ConstructorExportFeature

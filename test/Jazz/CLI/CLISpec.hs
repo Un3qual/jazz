@@ -10,7 +10,7 @@ import Data.IORef
     modifyIORef',
     newIORef,
     readIORef,
-    writeIORef
+    writeIORef,
   )
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -18,39 +18,47 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as TextEncoding
 import qualified Data.Text.IO as TextIO
 import Jazz.CLI.Main
-  ( CliOptions (..),
+  ( CliExecutionMode (..),
+    CliInput (..),
+    CliOptions,
     CliOutput (..),
+    CliPreludeSelection (..),
     RuntimeProfileWriter,
     RuntimeStatisticsFormat (..),
+    cliExecutionMode,
+    cliInput,
+    cliPreludeSelection,
+    cliWarningFlags,
+    cliWarningsConfigPath,
     parseCliOptions,
     runCliWith,
     runCliWithHost,
-    runCliWithHostAndProfileWriter
+    runCliWithHostAndProfileWriter,
+  )
+import Jazz.Compiler.BundledPrelude
+  ( bundledPreludeSource,
+  )
+import Jazz.Compiler.DiagnosticCatalog
+  ( ErrorCode (..),
   )
 import Jazz.Compiler.Diagnostics
   ( DiagnosticOrigin (..),
-    mkErrorDiagnostic
+    mkErrorDiagnostic,
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
-  )
-import Jazz.Compiler.DiagnosticCatalog
-  ( ErrorCode (..)
-  )
-import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
     disabledRuntimeHost,
-    productionRuntimeHost
+    productionRuntimeHost,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     failTest,
-    runTestSuite
+    runTestSuite,
   )
 import System.Directory
   ( createDirectory,
@@ -59,14 +67,14 @@ import System.Directory
     getTemporaryDirectory,
     listDirectory,
     removeDirectoryRecursive,
-    removeFile
+    removeFile,
   )
+import System.Exit (ExitCode)
 import System.FilePath ((</>))
 import System.IO
   ( hClose,
-    openTempFile
+    openTempFile,
   )
-import System.Exit (ExitCode)
 
 main :: IO ()
 main = runTestSuite "CLISpec" tests
@@ -157,9 +165,9 @@ testParseOptions = do
       Right parsed -> pure parsed
   assertEqual "warning flags" ["-Wsame-scope-rebinding"] (cliWarningFlags options)
   assertEqual "config path" (Just "config/warnings.txt") (cliWarningsConfigPath options)
-  assertEqual "run mode" False (cliRunMode options)
-  assertEqual "prelude path" Nothing (cliPreludePath options)
-  assertEqual "prelude disabled" False (cliDisablePrelude options)
+  assertEqual "implicit stdin input" CliStdin (cliInput options)
+  assertEqual "compile mode" CliCompile (cliExecutionMode options)
+  assertEqual "default prelude selection" CliDefaultPrelude (cliPreludeSelection options)
 
 testParseRunMode :: IO ()
 testParseRunMode = do
@@ -167,10 +175,10 @@ testParseRunMode = do
     case parseCliOptions ["--run"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
   assertEqual "warning flags" [] (cliWarningFlags options)
-  assertEqual "prelude path" Nothing (cliPreludePath options)
-  assertEqual "prelude disabled" False (cliDisablePrelude options)
+  assertEqual "implicit stdin input" CliStdin (cliInput options)
+  assertEqual "default prelude selection" CliDefaultPrelude (cliPreludeSelection options)
 
 testParseRuntimeStatistics :: IO ()
 testParseRuntimeStatistics = do
@@ -179,16 +187,16 @@ testParseRuntimeStatistics = do
   jsonOptions <- requireParsedOptions ["--run", "--runtime-stats=json", "--runtime-stats=json"]
   assertEqual
     "default runtime statistics format"
-    (Just RuntimeStatisticsHuman)
-    (cliRuntimeStatisticsFormat defaultOptions)
+    (CliRunWithStatistics RuntimeStatisticsHuman)
+    (cliExecutionMode defaultOptions)
   assertEqual
     "explicit human runtime statistics format"
-    (Just RuntimeStatisticsHuman)
-    (cliRuntimeStatisticsFormat humanOptions)
+    (CliRunWithStatistics RuntimeStatisticsHuman)
+    (cliExecutionMode humanOptions)
   assertEqual
     "JSON runtime statistics format"
-    (Just RuntimeStatisticsJson)
-    (cliRuntimeStatisticsFormat jsonOptions)
+    (CliRunWithStatistics RuntimeStatisticsJson)
+    (cliExecutionMode jsonOptions)
 
 testParseRuntimeProfile :: IO ()
 testParseRuntimeProfile = do
@@ -200,12 +208,22 @@ testParseRuntimeProfile = do
       ["--run", "--runtime-profile", "profiles/program.speedscope.json"]
   assertEqual
     "equals runtime profile path"
-    (Just "profiles/program.speedscope.json")
-    (cliRuntimeProfilePath equalsOptions)
+    (CliRunWithProfile "profiles/program.speedscope.json")
+    (cliExecutionMode equalsOptions)
   assertEqual
     "space-separated runtime profile path"
-    (Just "profiles/program.speedscope.json")
-    (cliRuntimeProfilePath spacedOptions)
+    (CliRunWithProfile "profiles/program.speedscope.json")
+    (cliExecutionMode spacedOptions)
+  combinedOptions <-
+    requireParsedOptions
+      [ "--run",
+        "--runtime-stats=json",
+        "--runtime-profile=profiles/program.speedscope.json"
+      ]
+  assertEqual
+    "combined runtime observation mode"
+    (CliRunWithStatisticsAndProfile RuntimeStatisticsJson "profiles/program.speedscope.json")
+    (cliExecutionMode combinedOptions)
 
 testParseInvalidRuntimeObservation :: IO ()
 testParseInvalidRuntimeObservation = do
@@ -251,8 +269,8 @@ testParseSourcePath = do
     case parseCliOptions ["--run", "first.jz"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
-  assertEqual "source path" (Just "first.jz") (cliSourcePath options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
+  assertEqual "source input" (CliSourceFile "first.jz") (cliInput options)
 
 testParseMultipleSourcePaths :: IO ()
 testParseMultipleSourcePaths =
@@ -268,8 +286,8 @@ testParseExplicitStdinSentinel = do
     case parseCliOptions ["--run", "-"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
-  assertEqual "stdin sentinel source selector" (Just "-") (cliSourcePath options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
+  assertEqual "explicit stdin input" CliStdin (cliInput options)
 
 testParseExplicitStdinWithSourcePath :: IO ()
 testParseExplicitStdinWithSourcePath = do
@@ -311,18 +329,33 @@ testParseModuleGraphOptions = do
     case parseCliOptions ["--run", "--entry-module", "App::Main", "--module-root", "src", "--module-root", "stdlib"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "run mode" True (cliRunMode options)
-  assertEqual "entry module" (Just ["App", "Main"]) (cliEntryModule options)
-  assertEqual "module roots" ["src", "stdlib"] (cliModuleRoots options)
+  assertEqual "run mode" CliRun (cliExecutionMode options)
+  assertEqual
+    "module graph input"
+    (CliModuleGraph ["App", "Main"] ["src", "stdlib"])
+    (cliInput options)
+  defaultRootOptions <- requireParsedOptions ["--entry-module", "App::Main"]
+  assertEqual
+    "module graph default root"
+    (CliModuleGraph ["App", "Main"] ["."])
+    (cliInput defaultRootOptions)
 
 testParsePreludePath :: IO ()
 testParsePreludePath = do
+  mapM_
+    ( \flag -> case parseCliOptions ["--prelude", flag] of
+        Left err -> assertContains "missing prelude path" "missing path after --prelude" (renderDiagnostic err)
+        Right _ -> failTest "an option must not be consumed as a prelude path"
+    )
+    ["--run", "--no-prelude"]
   options <-
     case parseCliOptions ["--prelude", "stdlib/Prelude.jz"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "prelude path" (Just "stdlib/Prelude.jz") (cliPreludePath options)
-  assertEqual "prelude disabled" False (cliDisablePrelude options)
+  assertEqual
+    "explicit prelude selection"
+    (CliExplicitPrelude "stdlib/Prelude.jz")
+    (cliPreludeSelection options)
 
 testParseNoPrelude :: IO ()
 testParseNoPrelude = do
@@ -330,8 +363,7 @@ testParseNoPrelude = do
     case parseCliOptions ["--no-prelude"] of
       Left err -> failTest ("parseCliOptions failed: " <> renderDiagnostic err)
       Right parsed -> pure parsed
-  assertEqual "prelude path" Nothing (cliPreludePath options)
-  assertEqual "prelude disabled" True (cliDisablePrelude options)
+  assertEqual "disabled prelude selection" CliPreludeDisabled (cliPreludeSelection options)
 
 testParsePreludeConflict :: IO ()
 testParsePreludeConflict =
@@ -628,17 +660,21 @@ testCliRunModeModuleGraphSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", """
-                module App::Main {
-                import Lib::Util.
-                util.
-                }
-                """),
-                  ("src/Lib/Util.jz", """
-                  module Lib::Util {
-                  util = 1.
-                  }
-                  """)
+                [ ( "src/App/Main.jz",
+                    """
+                    module App::Main {
+                    import Lib::Util.
+                    util.
+                    }
+                    """
+                  ),
+                  ( "src/Lib/Util.jz",
+                    """
+                    module Lib::Util {
+                    util = 1.
+                    }
+                    """
+                  )
                 ]
             )
         )
@@ -664,17 +700,21 @@ testCliModuleGraphDefaultRootSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("App/Main.jz", """
-                module App::Main {
-                import Lib::Util.
-                util.
-                }
-                """),
-                  ("Lib/Util.jz", """
-                  module Lib::Util {
-                  util = 1.
-                  }
-                  """)
+                [ ( "App/Main.jz",
+                    """
+                    module App::Main {
+                    import Lib::Util.
+                    util.
+                    }
+                    """
+                  ),
+                  ( "Lib/Util.jz",
+                    """
+                    module Lib::Util {
+                    util = 1.
+                    }
+                    """
+                  )
                 ]
             )
         )
@@ -697,17 +737,21 @@ testCliModuleGraphCompileSuccess = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", """
-                module App::Main {
-                import Lib::Util.
-                util.
-                }
-                """),
-                  ("src/Lib/Util.jz", """
-                  module Lib::Util {
-                  util = 1.
-                  }
-                  """)
+                [ ( "src/App/Main.jz",
+                    """
+                    module App::Main {
+                    import Lib::Util.
+                    util.
+                    }
+                    """
+                  ),
+                  ( "src/Lib/Util.jz",
+                    """
+                    module Lib::Util {
+                    util = 1.
+                    }
+                    """
+                  )
                 ]
             )
         )
@@ -725,10 +769,20 @@ testCliModuleGraphCompileError = do
   assertEqual "stdout is suppressed" "" (cliStdout output)
   where
     envLookup _ = pure Nothing
-    fileLookup key = pure (Map.lookup key (Map.fromList [("src/App/Main.jz", """
-    import Missing::Thing.
-    1.
-    """)]))
+    fileLookup key =
+      pure
+        ( Map.lookup
+            key
+            ( Map.fromList
+                [ ( "src/App/Main.jz",
+                    """
+                    import Missing::Thing.
+                    1.
+                    """
+                  )
+                ]
+            )
+        )
 
 testCliModuleGraphMissingImportSymbol :: IO ()
 testCliModuleGraphMissingImportSymbol = do
@@ -750,10 +804,12 @@ testCliModuleGraphMissingImportSymbol = do
         ( Map.lookup
             key
             ( Map.fromList
-                [ ("src/App/Main.jz", """
-                import Lib::Math (subtract).
-                1.
-                """),
+                [ ( "src/App/Main.jz",
+                    """
+                    import Lib::Math (subtract).
+                    1.
+                    """
+                  ),
                   ("src/Lib/Math.jz", "add = 1.")
                 ]
             )
@@ -778,11 +834,16 @@ testCliModuleGraphDeclarationMismatch = do
       pure
         ( Map.lookup
             key
-            (Map.fromList [("src/App/Main.jz", """
-            module Wrong::Name {
-            1.
-            }
-            """)])
+            ( Map.fromList
+                [ ( "src/App/Main.jz",
+                    """
+                    module Wrong::Name {
+                    1.
+                    }
+                    """
+                  )
+                ]
+            )
         )
 
 testCliModuleGraphParseFailure :: IO ()
@@ -1067,7 +1128,8 @@ testCliObservedExitFinalizesArtifacts = do
           noEnvironment
           (const (pure Nothing))
           (pure source)
-      ) :: IO (Either ExitCode CliOutput)
+      ) ::
+      IO (Either ExitCode CliOutput)
   output <-
     case outputResult of
       Left exitCode ->
@@ -1461,43 +1523,49 @@ runtimeFailureFixture :: FilePath
 runtimeFailureFixture = "test/fixtures/runtime-observation/runtime-failure.jz"
 
 firstProgramSource :: Text
-firstProgramSource = """
-answer = 40 + 2.
-answer.
-"""
+firstProgramSource =
+  """
+  answer = 40 + 2.
+  answer.
+  """
 
 nestedModuleInModuleBodySource :: Text
-nestedModuleInModuleBodySource = """
-module App::Main {
-module Inner::Thing {
-x = 1.
-}
-}
-"""
+nestedModuleInModuleBodySource =
+  """
+  module App::Main {
+  module Inner::Thing {
+  x = 1.
+  }
+  }
+  """
 
 concreteListSignatureSource :: Text
-concreteListSignatureSource = """
-xs :: [Int].
-xs = [1, 2].
-"""
+concreteListSignatureSource =
+  """
+  xs :: [Int].
+  xs = [1, 2].
+  """
 
 simpleFunctionSignatureSource :: Text
-simpleFunctionSignatureSource = """
-inc :: Int -> Int.
-inc = (+ 1).
-"""
+simpleFunctionSignatureSource =
+  """
+  inc :: Int -> Int.
+  inc = (+ 1).
+  """
 
 signatureMismatchSource :: Text
-signatureMismatchSource = """
-x :: Int.
-x = True.
-"""
+signatureMismatchSource =
+  """
+  x :: Int.
+  x = True.
+  """
 
 signatureNameMismatchSource :: Text
-signatureNameMismatchSource = """
-x :: Int.
-y = 1.
-"""
+signatureNameMismatchSource =
+  """
+  x :: Int.
+  y = 1.
+  """
 
 runtimeSuccessSource :: Text
 runtimeSuccessSource = "if True then 1 else 2."

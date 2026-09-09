@@ -1,22 +1,28 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
 import Control.Exception (evaluate)
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
+    CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (..),
+    CoreSort (..),
     Expr (..),
     Literal (..),
     Pattern (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
+    SourceSpan (..),
     diagnosticCode,
     diagnosticSummary,
     isErrorDiagnostic,
@@ -26,17 +32,24 @@ import Jazz.Compiler.Driver
     compileSource,
     compileWarnings,
   )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (mkModulePath)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
 import Jazz.Compiler.Name
-  ( NameNamespace (ConstructorNamespace),
+  ( NameNamespace (ConstructorNamespace, TypeNamespace, ValueNamespace),
+    ResolvedName,
     mkIdentifier,
     resolvedImportedName,
+    resolvedLocalName,
     sourceName,
   )
 import Jazz.Compiler.PatternCoverage
   ( ConstructorInventory,
+    CoveragePattern,
     PatternCoverageFailure (..),
     analyzePatternCoverage,
     constructorInventoryFromBindings,
+    constructorInventoryFromBindingsWithWitnessNames,
     emptyConstructorInventory,
     renderCoveragePattern,
   )
@@ -48,7 +61,8 @@ import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
+    SemanticType (..),
     TypeBinding (..),
     emptyScopeCapabilityFacts,
   )
@@ -73,6 +87,7 @@ tests =
     ("both Bool constructors are exhaustive", testCompleteBoolMatch),
     ("duplicate Bool arm is unreachable", testDuplicateBoolArm),
     ("open integer literals require a fallback", testOpenIntegerDomain),
+    ("large repeated integer arms preserve diagnostic order", testLargeRepeatedIntegerArmOrder),
     ("unguarded wildcard makes a later arm unreachable", testWildcardShadowing),
     ("guarded arms do not contribute coverage", testGuardedArmDoesNotCover),
     ("guarded arms do not shadow later arms", testGuardedArmDoesNotShadow),
@@ -116,58 +131,66 @@ testEmptyBoolMatch :: IO ()
 testEmptyBoolMatch =
   assertCoverage
     "empty Bool"
-    TBoolType
+    SemanticBool
     []
-    [NonExhaustivePattern (PLiteral (LBool False))]
+    [missing "False"]
 
 testCompleteBoolMatch :: IO ()
 testCompleteBoolMatch =
   assertCoverage
     "complete Bool"
-    TBoolType
-    [arm (PLiteral (LBool False)), arm (PLiteral (LBool True))]
+    SemanticBool
+    [arm (literalPattern (LBool False)), arm (literalPattern (LBool True))]
     []
 
 testDuplicateBoolArm :: IO ()
 testDuplicateBoolArm =
   assertCoverage
     "duplicate Bool"
-    TBoolType
-    [arm (PLiteral (LBool False)), arm (PLiteral (LBool False)), arm PWildcard]
-    [UnreachablePatternArm 2]
+    SemanticBool
+    [arm (literalPattern (LBool False)), arm (literalPattern (LBool False)), arm wildcardPattern]
+    [unreachable 2]
 
 testOpenIntegerDomain :: IO ()
 testOpenIntegerDomain =
   assertCoverage
     "open integer"
-    TIntType
-    [arm (PLiteral (LInt 0))]
-    [NonExhaustivePattern PWildcard]
+    SemanticInt
+    [arm (literalPattern (LInt 0))]
+    [missing "_"]
+
+testLargeRepeatedIntegerArmOrder :: IO ()
+testLargeRepeatedIntegerArmOrder =
+  assertCoverage
+    "large repeated integer arms"
+    SemanticInt
+    (map (arm . literalPattern . LInt) ([0 .. 63] <> replicate 1024 0))
+    (map unreachable [65 .. 1088] <> [missing "_"])
 
 testWildcardShadowing :: IO ()
 testWildcardShadowing =
   assertCoverage
     "wildcard shadowing"
-    TIntType
-    [arm PWildcard, arm (PLiteral (LInt 1))]
-    [UnreachablePatternArm 2]
+    SemanticInt
+    [arm wildcardPattern, arm (literalPattern (LInt 1))]
+    [unreachable 2]
 
 testGuardedArmDoesNotCover :: IO ()
 testGuardedArmDoesNotCover =
   assertCoverage
     "guarded coverage"
-    TBoolType
-    [guardedArm (PLiteral (LBool False)), arm (PLiteral (LBool True))]
-    [NonExhaustivePattern (PLiteral (LBool False))]
+    SemanticBool
+    [guardedArm (literalPattern (LBool False)), arm (literalPattern (LBool True))]
+    [missing "False"]
 
 testGuardedArmDoesNotShadow :: IO ()
 testGuardedArmDoesNotShadow =
   assertCoverage
     "guarded shadowing"
-    TBoolType
-    [ guardedArm (PLiteral (LBool False)),
-      arm (PLiteral (LBool False)),
-      arm (PLiteral (LBool True))
+    SemanticBool
+    [ guardedArm (literalPattern (LBool False)),
+      arm (literalPattern (LBool False)),
+      arm (literalPattern (LBool True))
     ]
     []
 
@@ -176,8 +199,8 @@ testUnitCoverage =
   assertCoverageWith
     emptyConstructorInventory
     "unit"
-    (TTupleType [])
-    [arm (PTuple [])]
+    (SemanticTuple [])
+    [arm (tuplePattern [])]
     []
 
 testTupleCoverage :: IO ()
@@ -185,9 +208,9 @@ testTupleCoverage =
   assertCoverageWith
     emptyConstructorInventory
     "tuple"
-    (TTupleType [TBoolType, TBoolType])
-    [ arm (PTuple [PLiteral (LBool False), PWildcard]),
-      arm (PTuple [PLiteral (LBool True), PWildcard])
+    (SemanticTuple [SemanticBool, SemanticBool])
+    [ arm (tuplePattern [literalPattern (LBool False), wildcardPattern]),
+      arm (tuplePattern [literalPattern (LBool True), wildcardPattern])
     ]
     []
 
@@ -196,8 +219,8 @@ testListCoverage =
   assertCoverageWith
     emptyConstructorInventory
     "list"
-    (TListType TIntType)
-    [arm (PList []), arm (PConsList PWildcard PWildcard)]
+    (SemanticList SemanticInt)
+    [arm (listPattern []), arm (consListPattern wildcardPattern wildcardPattern)]
     []
 
 testMissingListCons :: IO ()
@@ -205,9 +228,9 @@ testMissingListCons =
   assertCoverageWith
     emptyConstructorInventory
     "missing list cons"
-    (TListType TIntType)
-    [arm (PList [])]
-    [NonExhaustivePattern (PConsList PWildcard PWildcard)]
+    (SemanticList SemanticInt)
+    [arm (listPattern [])]
+    [missing "[_ | _]"]
 
 testAdtCoverage :: IO ()
 testAdtCoverage =
@@ -215,8 +238,8 @@ testAdtCoverage =
     maybeInventory
     "ADT"
     maybeIntType
-    [ arm (PConstructor "Nothing" []),
-      arm (PConstructor "Just" [PWildcard])
+    [ arm (constructorPattern "Nothing" []),
+      arm (constructorPattern "Just" [wildcardPattern])
     ]
     []
 
@@ -226,19 +249,19 @@ testMissingAdtConstructor =
     maybeInventory
     "missing ADT constructor"
     maybeIntType
-    [arm (PConstructor "Nothing" [])]
-    [NonExhaustivePattern (PConstructor "Just" [PWildcard])]
+    [arm (constructorPattern "Nothing" [])]
+    [missing "Just _"]
 
 testNestedAdtCoverage :: IO ()
 testNestedAdtCoverage =
   assertCoverageWith
     maybeInventory
     "nested ADT"
-    (TDataType "Maybe" [TBoolType])
-    [ arm (PConstructor "Nothing" []),
-      arm (PConstructor "Just" [PLiteral (LBool False)])
+    (SemanticData (resolvedTypeName "Maybe") [SemanticBool])
+    [ arm (constructorPattern "Nothing" []),
+      arm (constructorPattern "Just" [literalPattern (LBool False)])
     ]
-    [NonExhaustivePattern (PConstructor "Just" [PLiteral (LBool True)])]
+    [missing "Just True"]
 
 testHiddenAdtConstructor :: IO ()
 testHiddenAdtConstructor =
@@ -246,29 +269,29 @@ testHiddenAdtConstructor =
     hiddenMaybeInventory
     "hidden ADT constructor"
     maybeIntType
-    [arm (PConstructor "Nothing" [])]
-    [NonExhaustivePattern PWildcard]
+    [arm (constructorPattern "Nothing" [])]
+    [missing "_"]
 
 testExactListShadowing :: IO ()
 testExactListShadowing =
   assertCoverageWith
     emptyConstructorInventory
     "exact list shadowing"
-    (TListType TBoolType)
-    [ arm (PList []),
-      arm (PConsList PWildcard PWildcard),
-      arm (PList [PLiteral (LBool True)])
+    (SemanticList SemanticBool)
+    [ arm (listPattern []),
+      arm (consListPattern wildcardPattern wildcardPattern),
+      arm (listPattern [literalPattern (LBool True)])
     ]
-    [UnreachablePatternArm 3]
+    [unreachable 3]
 
 testAsPatternCoverage :: IO ()
 testAsPatternCoverage =
   assertCoverageWith
     emptyConstructorInventory
     "as-pattern"
-    TBoolType
-    [ arm (PAs "whole" (PLiteral (LBool False))),
-      arm (PLiteral (LBool True))
+    SemanticBool
+    [ arm (asPattern "whole" (literalPattern (LBool False))),
+      arm (literalPattern (LBool True))
     ]
     []
 
@@ -277,8 +300,8 @@ testOrPatternCoverage =
   assertCoverageWith
     emptyConstructorInventory
     "or-pattern"
-    TBoolType
-    [arm (POr [PLiteral (LBool False), PLiteral (LBool True)])]
+    SemanticBool
+    [arm (orPattern [literalPattern (LBool False), literalPattern (LBool True)])]
     []
 
 testNestedOrPatternProductCoverage :: IO ()
@@ -289,7 +312,7 @@ testNestedOrPatternProductCoverage = do
         ( null
             ( analyzePatternCoverage
                 emptyConstructorInventory
-                (TTupleType (replicate fieldCount TBoolType))
+                (SemanticTuple (replicate fieldCount SemanticBool))
                 [arm productPattern]
             )
         )
@@ -297,8 +320,8 @@ testNestedOrPatternProductCoverage = do
   where
     fieldCount = 30
     booleanAlternative =
-      POr [PLiteral (LBool False), PLiteral (LBool True)]
-    productPattern = PTuple (replicate fieldCount booleanAlternative)
+      orPattern [literalPattern (LBool False), literalPattern (LBool True)]
+    productPattern = tuplePattern (replicate fieldCount booleanAlternative)
 
 testJointlyExhaustiveProductAlternatives :: IO ()
 testJointlyExhaustiveProductAlternatives = do
@@ -308,18 +331,18 @@ testJointlyExhaustiveProductAlternatives = do
         ( null
             ( analyzePatternCoverage
                 emptyConstructorInventory
-                (TTupleType (replicate fieldCount productType))
-                [arm (PTuple (replicate fieldCount productAlternative))]
+                (SemanticTuple (replicate fieldCount productType))
+                [arm (tuplePattern (replicate fieldCount productAlternative))]
             )
         )
   assertEqual "jointly exhaustive product alternatives" (Just True) completed
   where
     fieldCount = 30
-    productType = TTupleType [TBoolType, TBoolType]
+    productType = SemanticTuple [SemanticBool, SemanticBool]
     productAlternative =
-      POr
-        [ PTuple [PLiteral (LBool False), PWildcard],
-          PTuple [PLiteral (LBool True), PWildcard]
+      orPattern
+        [ tuplePattern [literalPattern (LBool False), wildcardPattern],
+          tuplePattern [literalPattern (LBool True), wildcardPattern]
         ]
 
 testDuplicateNonTotalAlternatives :: IO ()
@@ -330,15 +353,15 @@ testDuplicateNonTotalAlternatives = do
         ( UnreachablePatternArm 2
             `elem` analyzePatternCoverage
               emptyConstructorInventory
-              (TTupleType (replicate fieldCount TBoolType))
+              (SemanticTuple (replicate fieldCount SemanticBool))
               [arm repeatedPattern, arm repeatedPattern]
         )
   assertEqual "duplicate non-total alternatives" (Just True) completed
   where
     fieldCount = 30
     duplicateFalse =
-      POr [PLiteral (LBool False), PLiteral (LBool False)]
-    repeatedPattern = PTuple (replicate fieldCount duplicateFalse)
+      orPattern [literalPattern (LBool False), literalPattern (LBool False)]
+    repeatedPattern = tuplePattern (replicate fieldCount duplicateFalse)
 
 testRepeatedDistinctNonTotalAlternatives :: IO ()
 testRepeatedDistinctNonTotalAlternatives = do
@@ -348,15 +371,15 @@ testRepeatedDistinctNonTotalAlternatives = do
         ( UnreachablePatternArm 2
             `elem` analyzePatternCoverage
               emptyConstructorInventory
-              (TTupleType (replicate fieldCount TIntType))
+              (SemanticTuple (replicate fieldCount SemanticInt))
               [arm repeatedPattern, arm repeatedPattern]
         )
   assertEqual "repeated distinct non-total alternatives" (Just True) completed
   where
     fieldCount = 30
     zeroOrOne =
-      POr [PLiteral (LInt 0), PLiteral (LInt 1)]
-    repeatedPattern = PTuple (replicate fieldCount zeroOrOne)
+      orPattern [literalPattern (LInt 0), literalPattern (LInt 1)]
+    repeatedPattern = tuplePattern (replicate fieldCount zeroOrOne)
 
 testReorderedNonTotalAlternatives :: IO ()
 testReorderedNonTotalAlternatives = do
@@ -366,18 +389,18 @@ testReorderedNonTotalAlternatives = do
         ( UnreachablePatternArm 2
             `elem` analyzePatternCoverage
               emptyConstructorInventory
-              (TTupleType (replicate fieldCount TIntType))
+              (SemanticTuple (replicate fieldCount SemanticInt))
               [arm firstPattern, arm reorderedPattern]
         )
   assertEqual "reordered non-total alternatives" (Just True) completed
   where
     fieldCount = 30
     zeroOrOne =
-      POr [PLiteral (LInt 0), PLiteral (LInt 1)]
+      orPattern [literalPattern (LInt 0), literalPattern (LInt 1)]
     oneOrZero =
-      POr [PLiteral (LInt 1), PLiteral (LInt 0)]
-    firstPattern = PTuple (replicate fieldCount zeroOrOne)
-    reorderedPattern = PTuple (replicate fieldCount oneOrZero)
+      orPattern [literalPattern (LInt 1), literalPattern (LInt 0)]
+    firstPattern = tuplePattern (replicate fieldCount zeroOrOne)
+    reorderedPattern = tuplePattern (replicate fieldCount oneOrZero)
 
 testTypeScopedConstructorInventory :: IO ()
 testTypeScopedConstructorInventory = do
@@ -390,7 +413,7 @@ testTypeScopedConstructorInventory = do
                 ( analyzePatternCoverage
                     (constructorInventoryFromBindings dataTypes (environment siteIndex))
                     targetType
-                    [arm (PConstructor "Only" [])]
+                    [arm (constructorPattern "Only" [])]
                 )
             | siteIndex <- [1 .. siteCount]
             ]
@@ -402,7 +425,7 @@ testTypeScopedConstructorInventory = do
 
     dataTypeCount :: Int
     dataTypeCount = 100000
-    targetType = TDataType "Target" []
+    targetType = SemanticData (resolvedTypeName "Target") []
     dataTypes =
       Map.insert
         "Target"
@@ -414,18 +437,18 @@ testTypeScopedConstructorInventory = do
         )
     environment siteIndex =
       Map.insert
-        (sourceName (mkIdentifier ("value" <> Text.pack (show siteIndex))))
-        (PlainTypeBinding TIntType)
-        (Map.singleton "Only" (ConstructorTypeBinding "Target" [] []))
+        (resolvedLocalName ValueNamespace (mkIdentifier ("value" <> Text.pack (show siteIndex))))
+        (PlainTypeBinding SemanticInt)
+        (Map.singleton (resolvedLocalName ConstructorNamespace (mkIdentifier "Only")) (ConstructorTypeBinding (resolvedTypeName "Target") [] []))
 
 testPartlyUsefulOrPattern :: IO ()
 testPartlyUsefulOrPattern =
   assertCoverageWith
     emptyConstructorInventory
     "partly useful or-pattern"
-    TBoolType
-    [ arm (PLiteral (LBool False)),
-      arm (POr [PLiteral (LBool False), PLiteral (LBool True)])
+    SemanticBool
+    [ arm (literalPattern (LBool False)),
+      arm (orPattern [literalPattern (LBool False), literalPattern (LBool True)])
     ]
     []
 
@@ -434,12 +457,12 @@ testCoveredOrPattern =
   assertCoverageWith
     emptyConstructorInventory
     "covered or-pattern"
-    TBoolType
-    [ arm (PLiteral (LBool False)),
-      arm (PLiteral (LBool True)),
-      arm (POr [PLiteral (LBool False), PLiteral (LBool True)])
+    SemanticBool
+    [ arm (literalPattern (LBool False)),
+      arm (literalPattern (LBool True)),
+      arm (orPattern [literalPattern (LBool False), literalPattern (LBool True)])
     ]
-    [UnreachablePatternArm 3]
+    [unreachable 3]
 
 testCompleteSourceMatch :: IO ()
 testCompleteSourceMatch = do
@@ -557,12 +580,14 @@ testNestedWitnessRendering :: IO ()
 testNestedWitnessRendering =
   assertEqual
     "nested witness"
-    "Pair (Just _) [(_, _) | _]"
+    "[(True, True) | []]"
     ( renderCoveragePattern
-        ( PConstructor
-            "Pair"
-            [ PConstructor "Just" [PWildcard],
-              PConsList (PTuple [PWildcard, PWildcard]) PWildcard
+        ( firstMissing
+            emptyConstructorInventory
+            (SemanticList (SemanticTuple [SemanticBool, SemanticBool]))
+            [ arm (listPattern []),
+              arm (consListPattern (tuplePattern [literalPattern (LBool False), wildcardPattern]) wildcardPattern),
+              arm (consListPattern (tuplePattern [literalPattern (LBool True), literalPattern (LBool False)]) wildcardPattern)
             ]
         )
     )
@@ -571,13 +596,20 @@ testImportedWitnessRendering :: IO ()
 testImportedWitnessRendering =
   assertEqual
     "imported witness"
-    "Second _"
-    ( renderCoveragePattern
-        ( PConstructor
-            (resolvedImportedName ["Lib", "Choice"] ConstructorNamespace (mkIdentifier "Second"))
-            [PWildcard]
-        )
-    )
+    "Only"
+    (renderCoveragePattern (firstMissing importedWitnessInventory (SemanticData (resolvedTypeName "Choice") []) []))
+  where
+    importedName =
+      resolvedImportedName
+        (mkModulePath (mkIdentifier "Lib" :| [mkIdentifier "Choice"]))
+        ConstructorNamespace
+        (mkIdentifier "Only")
+    sourceWitness = sourceName (mkIdentifier "Only")
+    importedWitnessInventory =
+      constructorInventoryFromBindingsWithWitnessNames
+        (Map.singleton importedName sourceWitness)
+        (Map.singleton "Choice" (DataTypeBinding [] [[]]))
+        (Map.singleton importedName (ConstructorTypeBinding (resolvedTypeName "Choice") [] []))
 
 testStrictSourceReachability :: IO ()
 testStrictSourceReachability =
@@ -636,10 +668,7 @@ testHiddenImportedConstructorCoverage = do
   result <-
     inferExpressionWithInputs
       hiddenConstructorInputs
-      ( EPatternCase
-          (EVar "subject")
-          [arm (PConstructor "Nothing" [])]
-      )
+      (resolvedPatternCase (constructorPattern "Nothing" []))
   assertEqual
     "hidden constructor pipeline diagnostics"
     [("E2018", "non-exhaustive pattern match; missing pattern: _")]
@@ -648,18 +677,17 @@ testHiddenImportedConstructorCoverage = do
 hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
-    { inferenceBuiltinMode = ResolveKernelOnly,
-      inferenceWarningSettings = defaultWarningSettings,
+    { inferenceWarningSettings = defaultWarningSettings,
       inferenceImportedTypes =
         Map.fromList
-          [ ("subject", PlainTypeBinding maybeIntType),
-            ("Nothing", ConstructorTypeBinding "Maybe" ["a"] [])
+          [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding maybeIntType),
+            (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [resolvedLocalName TypeNamespace (mkIdentifier "a")] [])
           ],
       inferenceImportedDataTypes =
         Map.singleton
           "Maybe"
           ( DataTypeBinding
-              ["a"]
+              [resolvedLocalName TypeNamespace (mkIdentifier "a")]
               [ [],
                 [ConstructorArgumentParameter "a"]
               ]
@@ -670,23 +698,106 @@ hiddenConstructorInputs =
       inferenceCurrentModulePath = Nothing
     }
 
-assertCoverage :: Text -> ExpressionType -> [CaseArm] -> [PatternCoverageFailure] -> IO ()
+data ExpectedCoverageFailure
+  = ExpectedMissing Text
+  | ExpectedUnreachable Int
+  deriving (Eq, Show)
+
+missing :: Text -> ExpectedCoverageFailure
+missing = ExpectedMissing
+
+unreachable :: Int -> ExpectedCoverageFailure
+unreachable = ExpectedUnreachable
+
+coverageFailureView :: PatternCoverageFailure -> ExpectedCoverageFailure
+coverageFailureView failure =
+  case failure of
+    NonExhaustivePattern patternValue -> ExpectedMissing (renderCoveragePattern patternValue)
+    UnreachablePatternArm armIndex -> ExpectedUnreachable armIndex
+
+assertCoverage :: Text -> ExpressionType -> [CaseArm 'Resolved] -> [ExpectedCoverageFailure] -> IO ()
 assertCoverage label expressionType arms expected =
   assertCoverageWith emptyConstructorInventory label expressionType arms expected
 
-assertCoverageWith :: ConstructorInventory -> Text -> ExpressionType -> [CaseArm] -> [PatternCoverageFailure] -> IO ()
+assertCoverageWith :: ConstructorInventory -> Text -> ExpressionType -> [CaseArm 'Resolved] -> [ExpectedCoverageFailure] -> IO ()
 assertCoverageWith inventory label expressionType arms expected =
-  assertEqual label expected (analyzePatternCoverage inventory expressionType arms)
+  assertEqual label expected (map coverageFailureView (analyzePatternCoverage inventory expressionType arms))
 
-arm :: Pattern -> CaseArm
-arm patternValue = CaseArm patternValue Nothing (ELit (LInt 0))
+arm :: Pattern 'Lowered -> CaseArm 'Resolved
+arm patternValue = resolveCaseArm patternValue Nothing
 
-guardedArm :: Pattern -> CaseArm
+guardedArm :: Pattern 'Lowered -> CaseArm 'Resolved
 guardedArm patternValue =
-  CaseArm patternValue (Just (ELit (LBool True))) (ELit (LInt 0))
+  resolveCaseArm patternValue (Just (ELit loweredExpressionNode (LBool True)))
+
+resolveCaseArm :: Pattern 'Lowered -> Maybe (Expr 'Lowered) -> CaseArm 'Resolved
+resolveCaseArm patternValue maybeGuard =
+  case resolveExpression loweredCaseExpression of
+    EPatternCase _ _ [resolvedArm] -> resolvedArm
+    _ -> error "expected one resolved case arm"
+  where
+    loweredCaseExpression =
+      EPatternCase
+        loweredExpressionNode
+        (ELit loweredExpressionNode (LBool True))
+        [CaseArm loweredExpressionNode patternValue maybeGuard (ELit loweredExpressionNode (LInt 0))]
+
+resolvedPatternCase :: Pattern 'Lowered -> Expr 'Resolved
+resolvedPatternCase patternValue =
+  case resolveExpression loweredCaseExpression of
+    resolved@EPatternCase {} -> resolved
+    _ -> error "expected resolved pattern case"
+  where
+    loweredCaseExpression =
+      EPatternCase
+        loweredExpressionNode
+        (EVar loweredExpressionNode (sourceName (mkIdentifier "subject")))
+        [CaseArm loweredExpressionNode patternValue Nothing (ELit loweredExpressionNode (LInt 0))]
+
+resolveExpression :: Expr 'Lowered -> Expr 'Resolved
+resolveExpression expression =
+  case resolveStandaloneExprNames (exportInventory []) expression of
+    Right resolved -> resolved
+    Left diagnostics -> error (show diagnostics)
+
+wildcardPattern :: Pattern 'Lowered
+wildcardPattern = PWildcard loweredPatternNode
+
+literalPattern :: Literal -> Pattern 'Lowered
+literalPattern = PLiteral loweredPatternNode
+
+constructorPattern :: Text -> [Pattern 'Lowered] -> Pattern 'Lowered
+constructorPattern name = PConstructor loweredPatternNode (sourceName (mkIdentifier name))
+
+listPattern :: [Pattern 'Lowered] -> Pattern 'Lowered
+listPattern = PList loweredPatternNode
+
+consListPattern :: Pattern 'Lowered -> Pattern 'Lowered -> Pattern 'Lowered
+consListPattern = PConsList loweredPatternNode
+
+tuplePattern :: [Pattern 'Lowered] -> Pattern 'Lowered
+tuplePattern = PTuple loweredPatternNode
+
+asPattern :: Text -> Pattern 'Lowered -> Pattern 'Lowered
+asPattern name = PAs loweredPatternNode (sourceName (mkIdentifier name))
+
+orPattern :: [Pattern 'Lowered] -> Pattern 'Lowered
+orPattern = POr loweredPatternNode
+
+loweredPatternNode :: CoreNode 'Lowered 'PatternSort
+loweredPatternNode = CoreNode (CoreNodeId 0) (SourceSpan 1 1) ()
+
+loweredExpressionNode :: CoreNode 'Lowered 'ExpressionSort
+loweredExpressionNode = CoreNode (CoreNodeId 1) (SourceSpan 1 1) ()
+
+firstMissing :: ConstructorInventory -> ExpressionType -> [CaseArm 'Resolved] -> CoveragePattern
+firstMissing inventory expressionType arms =
+  case analyzePatternCoverage inventory expressionType arms of
+    NonExhaustivePattern patternValue : _ -> patternValue
+    failures -> error ("expected missing pattern, got " <> show failures)
 
 maybeIntType :: ExpressionType
-maybeIntType = TDataType "Maybe" [TIntType]
+maybeIntType = SemanticData (resolvedTypeName "Maybe") [SemanticInt]
 
 maybeInventory :: ConstructorInventory
 maybeInventory =
@@ -694,15 +805,15 @@ maybeInventory =
     ( Map.singleton
         "Maybe"
         ( DataTypeBinding
-            ["a"]
+            [maybeTypeParameter]
             [ [],
               [ConstructorArgumentParameter "a"]
             ]
         )
     )
     ( Map.fromList
-        [ ("Nothing", ConstructorTypeBinding "Maybe" ["a"] []),
-          ("Just", ConstructorTypeBinding "Maybe" ["a"] [ConstructorArgumentParameter "a"])
+        [ (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []),
+          (resolvedLocalName ConstructorNamespace (mkIdentifier "Just"), ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] [ConstructorArgumentParameter "a"])
         ]
     )
 
@@ -712,10 +823,16 @@ hiddenMaybeInventory =
     ( Map.singleton
         "Maybe"
         ( DataTypeBinding
-            ["a"]
+            [maybeTypeParameter]
             [ [],
               [ConstructorArgumentParameter "a"]
             ]
         )
     )
-    (Map.singleton "Nothing" (ConstructorTypeBinding "Maybe" ["a"] []))
+    (Map.singleton (resolvedLocalName ConstructorNamespace (mkIdentifier "Nothing")) (ConstructorTypeBinding (resolvedTypeName "Maybe") [maybeTypeParameter] []))
+
+maybeTypeParameter :: ResolvedName
+maybeTypeParameter = resolvedLocalName TypeNamespace (mkIdentifier "a")
+
+resolvedTypeName :: Text -> ResolvedName
+resolvedTypeName = resolvedLocalName TypeNamespace . mkIdentifier

@@ -13,24 +13,25 @@ module Jazz.Compiler.WarningConfig
     parseConfigDirectives,
     parseEnvErrorDirectives,
     parseEnvWarningDirectives,
-    resolveWarningSettings
-  ) where
+    resolveWarningSettings,
+  )
+where
 
-import qualified Data.Map.Strict as Map
-import Data.Map.Strict (Map)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    DiagnosticOrigin (..),
-    mkErrorDiagnostic
-  )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
     WarningCategory,
     allWarningCategories,
     lookupWarningCategory,
-    warningToken
+    warningToken,
+  )
+import Jazz.Compiler.Diagnostics
+  ( Diagnostic,
+    DiagnosticOrigin (..),
+    mkErrorDiagnostic,
   )
 
 -- | Normalized internal directives produced from CLI, env, and config inputs
@@ -46,8 +47,8 @@ data WarningDirective
 -- | Fully resolved warning policy after all configuration sources have been
 -- merged.
 data WarningSettings = WarningSettings
-  { enabledCategories :: Map WarningCategory Bool,
-    errorCategories :: Map WarningCategory Bool,
+  { enabledCategories :: Set WarningCategory,
+    errorCategories :: Set WarningCategory,
     allEnabledAreErrors :: Bool
   }
   deriving (Eq, Show)
@@ -56,20 +57,20 @@ data WarningSettings = WarningSettings
 defaultWarningSettings :: WarningSettings
 defaultWarningSettings =
   WarningSettings
-    { enabledCategories = boolMap False,
-      errorCategories = boolMap False,
+    { enabledCategories = Set.empty,
+      errorCategories = Set.empty,
       allEnabledAreErrors = False
     }
 
 isWarningEnabled :: WarningSettings -> WarningCategory -> Bool
 isWarningEnabled settings category =
-  Map.findWithDefault False category (enabledCategories settings)
+  Set.member category (enabledCategories settings)
 
 isWarningError :: WarningSettings -> WarningCategory -> Bool
 isWarningError settings category =
   isWarningEnabled settings category
     && ( allEnabledAreErrors settings
-           || Map.findWithDefault False category (errorCategories settings)
+           || Set.member category (errorCategories settings)
        )
 
 -- | Parse a warning category through the catalog while keeping configuration
@@ -80,7 +81,9 @@ parseWarningCategory rawToken =
     Just category -> Right category
     Nothing ->
       Left
-        ( mkErrorDiagnostic E5001 ToolingOrigin
+        ( mkErrorDiagnostic
+            E5001
+            ToolingOrigin
             ( "unknown warning category: "
                 <> normalizedToken
                 <> "; known categories: "
@@ -143,24 +146,24 @@ applyDirective settings directive =
   case directive of
     EnableCategory category ->
       settings
-        { enabledCategories = Map.insert category True (enabledCategories settings)
+        { enabledCategories = Set.insert category (enabledCategories settings)
         }
     DisableCategory category ->
       settings
-        { enabledCategories = Map.insert category False (enabledCategories settings),
-          errorCategories = Map.insert category False (errorCategories settings)
+        { enabledCategories = Set.delete category (enabledCategories settings),
+          errorCategories = Set.delete category (errorCategories settings)
         }
     PromoteCategoryToError category ->
       settings
-        { enabledCategories = Map.insert category True (enabledCategories settings),
-          errorCategories = Map.insert category True (errorCategories settings)
+        { enabledCategories = Set.insert category (enabledCategories settings),
+          errorCategories = Set.insert category (errorCategories settings)
         }
     PromoteAllEnabledToError ->
       settings {allEnabledAreErrors = True}
     DisableAllCategories ->
       settings
-        { enabledCategories = boolMap False,
-          errorCategories = boolMap False,
+        { enabledCategories = Set.empty,
+          errorCategories = Set.empty,
           allEnabledAreErrors = False
         }
 
@@ -201,18 +204,17 @@ parseCommaSeparatedTokens :: Text -> Either Diagnostic [Text]
 parseCommaSeparatedTokens rawValue =
   let rawTokens = splitCommas rawValue
       tokens = map trim rawTokens
-   in
-    -- Reject empty entries (for example trailing commas) so callers get a
-    -- deterministic configuration error instead of silently ignored tokens.
-    if all Text.null tokens
-      then
-        if length tokens > 1
-          then Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
-          else Left (mkErrorDiagnostic E5001 ToolingOrigin "expected at least one warning token")
-      else
-        if any Text.null tokens
-          then Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
-          else Right tokens
+   in -- Reject empty entries (for example trailing commas) so callers get a
+      -- deterministic configuration error instead of silently ignored tokens.
+      if all Text.null tokens
+        then
+          if length tokens > 1
+            then Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
+            else Left (mkErrorDiagnostic E5001 ToolingOrigin "expected at least one warning token")
+        else
+          if any Text.null tokens
+            then Left (mkErrorDiagnostic E5001 ToolingOrigin "empty warning token")
+            else Right tokens
 
 lineTokens :: Text -> [Text]
 lineTokens line =
@@ -226,6 +228,3 @@ splitCommas = Text.splitOn ","
 
 trim :: Text -> Text
 trim = Text.strip
-
-boolMap :: Bool -> Map WarningCategory Bool
-boolMap value = Map.fromList [(category, value) | category <- allWarningCategories]

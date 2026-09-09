@@ -2,11 +2,12 @@
 
 module Main (main) where
 
-import Control.Exception (IOException, try)
+import Control.Exception (IOException, bracket, try)
 import Control.Monad (void)
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Text (Text)
 import qualified Data.Text as Text
+import qualified Data.Text.IO as TextIO
 import Jazz.Benchmark.ScaleCases
   ( CompilerScaleCase,
     CompilerScaleScenario (..),
@@ -26,22 +27,23 @@ import Jazz.Benchmark.StageInputs
     prepareCompilerScaleBenchmark,
     runCompilerScaleCase,
     runPreparedBenchmark,
-    runPreparedCompilerScaleBenchmark,
     selectProgramCases,
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import Jazz.Benchmark.Stages
   ( BenchmarkCommand (benchmarkCommandSelectedCases, benchmarkCommandSelectedScaleCases),
     benchmarkIngredientsWithFinalizer,
     parseBenchmarkCommand,
   )
+import Jazz.Compiler.Diagnostics (SourceSpan (SourceSpan))
 import Jazz.Compiler.Name (identifierText)
 import Jazz.Compiler.Parser (parseSurfaceProgram)
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Lexer (tokenize)
@@ -49,6 +51,9 @@ import Jazz.Compiler.Profiling (BenchmarkGroup (..))
 import Jazz.ProgramCorpus.Manifest (loadProgramCorpus, programCaseById, renderProgramCorpusViolation)
 import Jazz.ProgramCorpus.Types (ProgramCase (..), ProgramCorpus (..))
 import Jazz.TestHarness (NamedTest, assertEqual, failTest, runTestSuite)
+import System.Directory (createDirectory, getTemporaryDirectory, removeFile, removePathForcibly)
+import System.FilePath ((</>))
+import System.IO (hClose, openTempFile)
 import Test.Tasty.Ingredients (tryIngredients)
 import Test.Tasty.Providers (IsTest (..), singleTest, testFailed, testPassed)
 
@@ -64,15 +69,6 @@ tests =
     ("sequential polymorphism preserves exact compiler semantics", testSequentialPolymorphismSemantics),
     ("wide module fanout preserves exact compiler semantics", testWideModuleFanoutSemantics),
     ("resolver fact-rich modules preserve exact compiler semantics", testResolverFactRichSemantics),
-    ("typed validation handoff lowers exact valid programs", testTypedValidationHandoffSemantics),
-    ("lowered temporary validation scale cases have exact metadata", testLoweredTemporaryValidationRegistry),
-    ("smallest lowered temporary validation executes prepared validation", testLoweredTemporaryValidationSmallestCase),
-    ("typed recursive statement graph scale cases have exact metadata", testTypedRecursiveStatementGraphRegistry),
-    ("smallest typed recursive statement graph executes prepared validation", testTypedRecursiveStatementGraphSmallestCase),
-    ("typed forward signed function scale cases have exact metadata", testTypedForwardSignedFunctionsRegistry),
-    ("smallest typed forward signed function case executes prepared lowering", testTypedForwardSignedFunctionsSmallestCase),
-    ("typed wide export provider scale cases have exact metadata", testTypedWideExportProvidersRegistry),
-    ("smallest typed wide export provider case executes prepared validation", testTypedWideExportProvidersSmallestCase),
     ("wide constructor scale cases preserve currying and field order", testWideConstructorApplicationSemantics),
     ("capability candidate width scale cases have exact metadata", testCapabilityCandidateWidthRegistry),
     ("smallest capability candidate width case preserves real and prepared semantics", testCapabilityCandidateWidthSemantics),
@@ -95,6 +91,7 @@ tests =
     ("parse-lower setup does not require module compilation", testParseLowerSetupBoundary),
     ("parse-lower setup reports entry-source read failures", testParseLowerSourceReadFailure),
     ("analysis uses module-aware imported interfaces", testModuleAwareAnalysis),
+    ("prepared module benchmarks defer work and rerun it on each invocation", testPreparedModuleBenchmarkReruns),
     ("runtime benchmarks reject unexpected results", testRuntimeResultValidation),
     ("failed benchmark runs do not finalize recorded artifacts", testFailedBenchmarkDoesNotFinalizeArtifacts),
     ("successful benchmark runs finalize recorded artifacts once", testSuccessfulBenchmarkFinalizesArtifactsOnce)
@@ -152,8 +149,8 @@ testRuntimeEvidenceScaleFamilies = do
         compilerScaleCaseBenchmarks programCase,
         compilerScaleCaseExpectedOutput programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == NestedRuntimeApplications
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == NestedRuntimeApplications
     ]
   assertEqual
     "runtime import width registry"
@@ -169,8 +166,8 @@ testRuntimeEvidenceScaleFamilies = do
         compilerScaleCaseBenchmarks programCase,
         compilerScaleCaseExpectedOutput programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == RuntimeImportWidth
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == RuntimeImportWidth
     ]
 
 testRuntimeEvidenceSmallestCases :: IO ()
@@ -186,7 +183,7 @@ testRuntimeEvidenceSmallestCases =
       mapM_
         ( \benchmarkGroup -> do
             prepared <- prepareCompilerScaleBenchmark benchmarkGroup programCase
-            runPreparedCompilerScaleBenchmark prepared
+            runPreparedBenchmark prepared
         )
         (compilerScaleCaseBenchmarks programCase)
       output <- runCompilerScaleCase programCase
@@ -219,26 +216,6 @@ testCompilerScaleRegistry =
       ("resolver-fact-rich-0032", ResolverFactRich, 32, Nothing),
       ("resolver-fact-rich-0064", ResolverFactRich, 64, Nothing),
       ("resolver-fact-rich-0128", ResolverFactRich, 128, Nothing),
-      ("typed-validation-handoff-0064", TypedValidationHandoff, 64, Nothing),
-      ("typed-validation-handoff-0128", TypedValidationHandoff, 128, Nothing),
-      ("typed-validation-handoff-0256", TypedValidationHandoff, 256, Nothing),
-      ("typed-validation-handoff-0512", TypedValidationHandoff, 512, Nothing),
-      ("lowered-temporary-validation-0064", LoweredTemporaryValidation, 64, Nothing),
-      ("lowered-temporary-validation-0256", LoweredTemporaryValidation, 256, Nothing),
-      ("lowered-temporary-validation-1024", LoweredTemporaryValidation, 1024, Nothing),
-      ("lowered-temporary-validation-4096", LoweredTemporaryValidation, 4096, Nothing),
-      ("typed-recursive-statement-graph-0128", TypedRecursiveStatementGraph, 128, Nothing),
-      ("typed-recursive-statement-graph-0512", TypedRecursiveStatementGraph, 512, Nothing),
-      ("typed-recursive-statement-graph-1024", TypedRecursiveStatementGraph, 1024, Nothing),
-      ("typed-recursive-statement-graph-2048", TypedRecursiveStatementGraph, 2048, Nothing),
-      ("typed-forward-signed-functions-0128", TypedForwardSignedFunctions, 128, Nothing),
-      ("typed-forward-signed-functions-0512", TypedForwardSignedFunctions, 512, Nothing),
-      ("typed-forward-signed-functions-1024", TypedForwardSignedFunctions, 1024, Nothing),
-      ("typed-forward-signed-functions-2048", TypedForwardSignedFunctions, 2048, Nothing),
-      ("typed-wide-export-providers-0128", TypedWideExportProviders, 128, Nothing),
-      ("typed-wide-export-providers-0512", TypedWideExportProviders, 512, Nothing),
-      ("typed-wide-export-providers-1024", TypedWideExportProviders, 1024, Nothing),
-      ("typed-wide-export-providers-2048", TypedWideExportProviders, 2048, Nothing),
       ("wide-constructor-application-0032", WideConstructorApplication, 32, Nothing),
       ("wide-constructor-application-0064", WideConstructorApplication, 64, Nothing),
       ("wide-constructor-application-0128", WideConstructorApplication, 128, Nothing),
@@ -389,7 +366,7 @@ testSequentialPolymorphismSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "sequential polymorphism output" "(42, True)" actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testWideModuleFanoutSemantics :: IO ()
 testWideModuleFanoutSemantics = do
@@ -398,19 +375,19 @@ testWideModuleFanoutSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "wide fanout output" "0" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
   lookupCase <- loadCompilerScaleCase "wide-module-fanout-0064x0001"
   assertEqual "lookup fanout virtual source count" 65 (compilerScaleCaseSourceCount lookupCase)
   lookupOutput <- runCompilerScaleCase lookupCase
   assertEqual "lookup fanout output" "0" lookupOutput
   lookupPrepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark lookupCase
-  runPreparedCompilerScaleBenchmark lookupPrepared
+  runPreparedBenchmark lookupPrepared
   sharedCase <- loadCompilerScaleCase "shared-interface-fanout-0016x0016"
   assertEqual "shared-interface fanout virtual source count" 18 (compilerScaleCaseSourceCount sharedCase)
   sharedOutput <- runCompilerScaleCase sharedCase
   assertEqual "shared-interface fanout output" "0" sharedOutput
   sharedPrepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark sharedCase
-  runPreparedCompilerScaleBenchmark sharedPrepared
+  runPreparedBenchmark sharedPrepared
 
 testResolverFactRichSemantics :: IO ()
 testResolverFactRichSemantics = do
@@ -419,98 +396,7 @@ testResolverFactRichSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "resolver fact-rich output" "Token" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedValidationHandoffSemantics :: IO ()
-testTypedValidationHandoffSemantics = do
-  programCase <- loadCompilerScaleCase "typed-validation-handoff-0064"
-  assertEqual
-    "typed validation handoff benchmark boundary"
-    [TypedLoweringBenchmark]
-    (compilerScaleCaseBenchmarks programCase)
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testLoweredTemporaryValidationRegistry :: IO ()
-testLoweredTemporaryValidationRegistry =
-  assertScenarioRegistry
-    "lowered temporary validation registry"
-    LoweredTemporaryValidation
-    [ ("lowered-temporary-validation-0064", 64, [LoweredValidationBenchmark]),
-      ("lowered-temporary-validation-0256", 256, [LoweredValidationBenchmark]),
-      ("lowered-temporary-validation-1024", 1024, [LoweredValidationBenchmark]),
-      ("lowered-temporary-validation-4096", 4096, [LoweredValidationBenchmark])
-    ]
-
-testLoweredTemporaryValidationSmallestCase :: IO ()
-testLoweredTemporaryValidationSmallestCase = do
-  programCase <- loadCompilerScaleCase "lowered-temporary-validation-0064"
-  prepared <- prepareCompilerScaleBenchmark LoweredValidationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedForwardSignedFunctionsRegistry :: IO ()
-testTypedForwardSignedFunctionsRegistry =
-  assertScenarioRegistry
-    "typed forward signed function registry"
-    TypedForwardSignedFunctions
-    [ ("typed-forward-signed-functions-0128", 128, [TypedLoweringBenchmark]),
-      ("typed-forward-signed-functions-0512", 512, [TypedLoweringBenchmark]),
-      ("typed-forward-signed-functions-1024", 1024, [TypedLoweringBenchmark]),
-      ("typed-forward-signed-functions-2048", 2048, [TypedLoweringBenchmark])
-    ]
-
-testTypedForwardSignedFunctionsSmallestCase :: IO ()
-testTypedForwardSignedFunctionsSmallestCase = do
-  programCase <- loadCompilerScaleCase "typed-forward-signed-functions-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedLoweringBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedWideExportProvidersRegistry :: IO ()
-testTypedWideExportProvidersRegistry =
-  assertScenarioRegistry
-    "typed wide export provider registry"
-    TypedWideExportProviders
-    [ ("typed-wide-export-providers-0128", 128, [TypedValidationBenchmark]),
-      ("typed-wide-export-providers-0512", 512, [TypedValidationBenchmark]),
-      ("typed-wide-export-providers-1024", 1024, [TypedValidationBenchmark]),
-      ("typed-wide-export-providers-2048", 2048, [TypedValidationBenchmark])
-    ]
-
-testTypedWideExportProvidersSmallestCase :: IO ()
-testTypedWideExportProvidersSmallestCase = do
-  programCase <- loadCompilerScaleCase "typed-wide-export-providers-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedValidationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
-
-testTypedRecursiveStatementGraphRegistry :: IO ()
-testTypedRecursiveStatementGraphRegistry =
-  assertScenarioRegistry
-    "typed recursive statement graph registry"
-    TypedRecursiveStatementGraph
-    [ ("typed-recursive-statement-graph-0128", 128, [TypedValidationBenchmark]),
-      ("typed-recursive-statement-graph-0512", 512, [TypedValidationBenchmark]),
-      ("typed-recursive-statement-graph-1024", 1024, [TypedValidationBenchmark]),
-      ("typed-recursive-statement-graph-2048", 2048, [TypedValidationBenchmark])
-    ]
-
-assertScenarioRegistry :: Text -> CompilerScaleScenario -> [(Text, Int, [BenchmarkGroup])] -> IO ()
-assertScenarioRegistry label scenario expected =
-  assertEqual
-    label
-    expected
-    [ ( compilerScaleCaseIdentifier programCase,
-        compilerScaleCaseSize programCase,
-        compilerScaleCaseBenchmarks programCase
-      )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == scenario
-    ]
-
-testTypedRecursiveStatementGraphSmallestCase :: IO ()
-testTypedRecursiveStatementGraphSmallestCase = do
-  programCase <- loadCompilerScaleCase "typed-recursive-statement-graph-0128"
-  prepared <- prepareCompilerScaleBenchmark TypedValidationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testWideConstructorApplicationSemantics :: IO ()
 testWideConstructorApplicationSemantics = do
@@ -522,7 +408,7 @@ testWideConstructorApplicationSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "wide constructor output" "(<function>, (0, 16, 31))" actualOutput
   runtimePrepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
-  runPreparedCompilerScaleBenchmark runtimePrepared
+  runPreparedBenchmark runtimePrepared
 
 testCapabilityCandidateWidthRegistry :: IO ()
 testCapabilityCandidateWidthRegistry =
@@ -539,8 +425,8 @@ testCapabilityCandidateWidthRegistry =
         compilerScaleCaseBenchmarks programCase,
         compilerScaleCaseExpectedOutput programCase
       )
-      | programCase <- compilerScaleCases,
-        compilerScaleCaseScenario programCase == CapabilityCandidateWidth
+    | programCase <- compilerScaleCases,
+      compilerScaleCaseScenario programCase == CapabilityCandidateWidth
     ]
 
 testCapabilityCandidateWidthSemantics :: IO ()
@@ -551,7 +437,7 @@ testCapabilityCandidateWidthSemantics = do
   mapM_
     ( \benchmarkGroup -> do
         prepared <- prepareCompilerScaleBenchmark benchmarkGroup programCase
-        runPreparedCompilerScaleBenchmark prepared
+        runPreparedBenchmark prepared
     )
     [AnalysisBenchmark, RuntimeBenchmark, WholeProgramBenchmark]
 
@@ -565,7 +451,7 @@ testHostFreeOpaqueEnvironmentSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "host-free opaque environment output" "1" actualOutput
   runtimePrepared <- prepareCompilerScaleBenchmark RuntimeBenchmark programCase
-  runPreparedCompilerScaleBenchmark runtimePrepared
+  runPreparedBenchmark runtimePrepared
 
 testAnalyzerDiagnosticChainSemantics :: IO ()
 testAnalyzerDiagnosticChainSemantics = do
@@ -575,7 +461,7 @@ testAnalyzerDiagnosticChainSemantics = do
     [DiagnosticAnalysisBenchmark]
     (compilerScaleCaseBenchmarks programCase)
   prepared <- prepareCompilerScaleBenchmark DiagnosticAnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testInterleavedRecursiveGroupSemantics :: IO ()
 testInterleavedRecursiveGroupSemantics = do
@@ -583,7 +469,7 @@ testInterleavedRecursiveGroupSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "interleaved recursive group output" "(1, True)" actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testRecursivePreviewBurstSemantics :: IO ()
 testRecursivePreviewBurstSemantics = do
@@ -591,7 +477,7 @@ testRecursivePreviewBurstSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "recursive preview burst output" "(1, True)" actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testRecursiveRebindingBurstSemantics :: IO ()
 testRecursiveRebindingBurstSemantics = do
@@ -599,7 +485,7 @@ testRecursiveRebindingBurstSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "same-name rebinding burst output" "127" actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testConstrainedSignatureSemantics :: IO ()
 testConstrainedSignatureSemantics = do
@@ -611,9 +497,9 @@ testConstrainedSignatureSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "constrained signature output" "(1, True)" actualOutput
   preparedParseLower <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-  runPreparedCompilerScaleBenchmark preparedParseLower
+  runPreparedBenchmark preparedParseLower
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testDeferredConstraintBurstSemantics :: IO ()
 testDeferredConstraintBurstSemantics = do
@@ -624,7 +510,7 @@ testDeferredConstraintBurstSemantics = do
     ("[" <> Text.intercalate ", " (replicate 128 "1") <> "]")
     actualOutput
   prepared <- prepareCompilerScaleBenchmark AnalysisBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testDeepNestedLambdaSemantics :: IO ()
 testDeepNestedLambdaSemantics = do
@@ -636,21 +522,21 @@ testDeepNestedLambdaSemantics = do
   actualOutput <- runCompilerScaleCase programCase
   assertEqual "deep nested lambda output" "(1, 16)" actualOutput
   prepared <- prepareCompilerScaleBenchmark ModulePreparationBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
   preparedWholeProgram <- prepareCompilerScaleBenchmark WholeProgramBenchmark programCase
-  runPreparedCompilerScaleBenchmark preparedWholeProgram
+  runPreparedBenchmark preparedWholeProgram
 
 testLargeOperatorTableParseLower :: IO ()
 testLargeOperatorTableParseLower = do
   programCase <- loadCompilerScaleCase "large-operator-tables-0016"
   prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testNestedBlocksParseLower :: IO ()
 testNestedBlocksParseLower = do
   programCase <- loadCompilerScaleCase "nested-blocks-0016"
   prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testAmbiguousCaseArmPipesParseLower :: IO ()
 testAmbiguousCaseArmPipesParseLower = do
@@ -672,33 +558,41 @@ testAmbiguousCaseArmPipesParseLower = do
       Left diagnostic -> failTest ("ambiguous case-arm pipe source did not parse: " <> Text.pack (show diagnostic))
       Right value -> pure value
   case surfaceProgram of
-    SEBlock
-      [ SSLet bindingName bindingSpan
-          ( SECase
-              (SELit (SLInt scrutinee))
-              [SurfaceCaseArm SPWildcard Nothing body]
-            )
-        ] -> do
-          assertEqual "ambiguous case-arm pipe binding" "ambiguousPipe" (identifierText bindingName)
-          assertEqual "ambiguous case-arm pipe binding span" (SourceSpan 1 1) bindingSpan
-          assertEqual "ambiguous case-arm pipe scrutinee" 0 scrutinee
-          case leftAssociatedPipeOperands body of
-            Nothing -> failTest ("ambiguous case-arm pipe body was not exactly left-associated: " <> Text.pack (show body))
-            Just operands -> assertEqual "ambiguous case-arm pipe operands" [0 .. 63] operands
+    SurfaceExpr
+      _
+      ( SEBlock
+          [ SSLet
+              bindingName
+              bindingSpan
+              ( SurfaceExpr
+                  _
+                  ( SECase
+                      (SurfaceExpr _ (SELit (SLInt scrutinee)))
+                      [SurfaceCaseArm (SurfacePattern _ SPWildcard) Nothing body]
+                    )
+                )
+            ]
+        ) -> do
+        assertEqual "ambiguous case-arm pipe binding" "ambiguousPipe" (identifierText bindingName)
+        assertEqual "ambiguous case-arm pipe binding span" (SourceSpan 1 1) bindingSpan
+        assertEqual "ambiguous case-arm pipe scrutinee" 0 scrutinee
+        case leftAssociatedPipeOperands body of
+          Nothing -> failTest ("ambiguous case-arm pipe body was not exactly left-associated: " <> Text.pack (show body))
+          Just operands -> assertEqual "ambiguous case-arm pipe operands" [0 .. 63] operands
     other ->
       failTest
         ( "ambiguous case-arm pipe source did not preserve exactly one wildcard arm: "
             <> Text.pack (show other)
         )
   prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 leftAssociatedPipeOperands :: SurfaceExpr -> Maybe [Integer]
 leftAssociatedPipeOperands = go []
   where
     go trailingOperands expression =
-      case expression of
-        SEBinary "|" left (SELit (SLInt rightOperand)) ->
+      case surfaceExprForm expression of
+        SEBinary "|" left (SurfaceExpr _ (SELit (SLInt rightOperand))) ->
           go (rightOperand : trailingOperands) left
         SELit (SLInt firstOperand) -> Just (firstOperand : trailingOperands)
         _ -> Nothing
@@ -726,7 +620,7 @@ assertExactTokenCount identifier = do
     (compilerScaleCaseSize programCase)
     (length tokens)
   prepared <- prepareCompilerScaleBenchmark ParseLowerBenchmark programCase
-  runPreparedCompilerScaleBenchmark prepared
+  runPreparedBenchmark prepared
 
 testCaseSelection :: IO ()
 testCaseSelection = do
@@ -776,6 +670,33 @@ testModuleAwareAnalysis = do
   programCase <- loadCase "mini-frontend"
   prepared <- prepareBenchmark AnalysisBenchmark programCase
   runPreparedBenchmark prepared
+
+testPreparedModuleBenchmarkReruns :: IO ()
+testPreparedModuleBenchmarkReruns =
+  bracket createWorkspace removePathForcibly $ \root -> do
+    programCase <- loadCase "identifier-classifier"
+    let sourcePath = root </> "Main.jz"
+    prepared <-
+      prepareBenchmark
+        ModulePreparationBenchmark
+        programCase {programCaseModuleRoot = root, programCaseEntryModulePath = ["Main"], programCaseEntrySource = sourcePath}
+    TextIO.writeFile sourcePath "module Main { 1. }"
+    runPreparedBenchmark prepared
+    removeFile sourcePath
+    result <- try (runPreparedBenchmark prepared) :: IO (Either IOException ())
+    case result of
+      Left exception
+        | "unresolved import 'Main'" `Text.isInfixOf` Text.pack (show exception) -> pure ()
+      Left exception -> failTest ("expected a fresh source-loading failure, got " <> Text.pack (show exception))
+      Right () -> failTest "prepared module benchmark reused the previous run after its source disappeared"
+  where
+    createWorkspace = do
+      temporaryRoot <- getTemporaryDirectory
+      (path, handle) <- openTempFile temporaryRoot "jazz-benchmark-rerun"
+      hClose handle
+      removeFile path
+      createDirectory path
+      pure path
 
 testRuntimeResultValidation :: IO ()
 testRuntimeResultValidation = do

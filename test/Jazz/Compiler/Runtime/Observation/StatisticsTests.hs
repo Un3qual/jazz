@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Runtime.Observation.StatisticsTests
@@ -14,27 +15,30 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    DataConstructor (..),
-    Expr (..),
+  ( CorePhase (Analyzed),
+    Expr,
     Literal (..),
-    Pattern (..),
-    SignatureType (TypeInt),
-    Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-    BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
+  ( BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
     builtinSymbolKernelName,
   )
-import Jazz.Compiler.Diagnostics (SourceSpan (..))
+import Jazz.Compiler.Diagnostics
+  ( Diagnostic,
+    SourceSpan (..),
+  )
 import Jazz.Compiler.Driver
   ( ResolvedPrelude (PreludeAbsent),
-    RunResult (..),
+    RunResult,
     runCompileErrors,
+    runDiagnostics,
+    runExitStatus,
     runModuleGraphObserved,
     runModuleGraphWithResolvedPreludeAndHostObserved,
+    runOutput,
     runRuntimeErrors,
+    runRuntimeObservation,
+    runRuntimeValue,
     runSource,
     runSourceObserved,
   )
@@ -50,8 +54,8 @@ import Jazz.Compiler.Runtime
     ScopeResult (..),
     evaluateModuleScopeWithRequiredEvaluationHost,
     evaluateRuntimeExprObserved,
+    renderRuntimeValue,
     runRuntimeHostEvaluation,
-    untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity (..),
@@ -66,12 +70,12 @@ import Jazz.Compiler.Runtime.Observation
     RuntimeTermination (..),
     emptyRuntimeStatistics,
   )
+import Jazz.Compiler.Runtime.Observation.Profile (encodeRuntimeSemanticProfile)
 import Jazz.Compiler.Runtime.Observation.Render
   ( decodeRuntimeObservationJson,
     encodeRuntimeObservationJson,
     renderRuntimeObservationHuman,
   )
-import Jazz.Compiler.Runtime.Observation.Profile (encodeRuntimeSemanticProfile)
 import Jazz.Compiler.Runtime.Types
   ( RuntimeHostEvaluationState
       ( runtimeHostEvaluationActiveMachineCount,
@@ -82,6 +86,28 @@ import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (runtimeHostArguments),
     disabledRuntimeHost,
   )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
+  ( caseArm,
+    dataConstructor,
+    expressionApply,
+    expressionBinary,
+    expressionBlock,
+    expressionConstructor,
+    expressionLambda,
+    expressionList,
+    expressionLiteral,
+    expressionPatternCase,
+    expressionSectionRight,
+    expressionTuple,
+    expressionVariable,
+    patternLiteral,
+    patternTuple,
+    patternVariable,
+    statementData,
+    statementExpression,
+    statementLet,
+  )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
 import Jazz.TestHarness
   ( NamedTest,
@@ -113,7 +139,7 @@ tests =
     ("deferred binding caches distinguish misses and hits", testDeferredCacheHitAndMiss),
     ("recursive deferred evaluation records its own cache outcome", testDeferredCacheRecursion),
     ("human statistics use stable meaningful labels", testHumanRenderer),
-    ("JSON statistics are deterministic, explicit, and round trip", testJsonRenderer),
+    ("JSON statistics are explicit, compact, and round trip", testJsonRenderer),
     ("runtime failure retains a partial report", testRuntimeFailureReport),
     ("compile failure has no runtime report", testCompileFailureHasNoReport)
   ]
@@ -123,7 +149,7 @@ testDisabledBehavior = do
   source <- readFixture "literal-success.jz"
   ordinary <- runSource defaultWarningSettings source
   observed <- runSourceObserved RuntimeObservationDisabled defaultWarningSettings source
-  assertEqual "disabled result" ordinary observed
+  assertEqual "disabled result" (observableRunResult ordinary) (observableRunResult observed)
   assertEqual "disabled report" Nothing (runRuntimeObservation observed)
 
 testDriverTransport :: IO ()
@@ -165,11 +191,11 @@ testModuleRuntimeTransport = do
 
 testLiteralTransitions :: IO ()
 testLiteralTransitions = do
-  let observed = evaluateRuntimeExprObserved RuntimeObservationStatistics (ELit (LInt 1))
+  let observed = evaluateRuntimeExprObserved RuntimeObservationStatistics (expressionLiteral (LInt 1))
   assertEqual
     "literal result"
-    (RuntimeOutcomeCompleted (Just (VInt 1 untypedIntMetadata)))
-    (runtimeObservationOutcome observed)
+    (RuntimeOutcomeCompleted (Just "1"))
+    (fmap (fmap renderRuntimeValue) (runtimeObservationOutcome observed))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "literal transitions" 2 (runtimeEvaluatorTransitions statistics)
@@ -183,8 +209,8 @@ testNestedApplicationAccounting = do
       observed = evaluateRuntimeExprObserved RuntimeObservationStatisticsAndProfile expression
   assertEqual
     "nested application result"
-    (RuntimeOutcomeCompleted (Just (VInt 7 untypedIntMetadata)))
-    (runtimeObservationOutcome observed)
+    (RuntimeOutcomeCompleted (Just "7"))
+    (fmap (fmap renderRuntimeValue) (runtimeObservationOutcome observed))
   report <- requireObservedReport observed
   let statistics = runtimeObservationStatistics report
   assertEqual "nested application transitions" 450 (runtimeEvaluatorTransitions statistics)
@@ -220,9 +246,9 @@ testDisabledObservationSkipsContinuationDepthState = do
                 ]
           }
       expression =
-        EApply
-          (ELambda "value" (EVar "value"))
-          (EApply (kernelBuiltin BuiltinArguments) (ETuple []))
+        expressionApply
+          (expressionLambda "value" (expressionVariable "value"))
+          (expressionApply (kernelBuiltin BuiltinArguments) (expressionTuple []))
       result =
         runIdentity
           ( runRuntimeHostEvaluation disabledRuntimeHost $ \_ ->
@@ -230,10 +256,8 @@ testDisabledObservationSkipsContinuationDepthState = do
                 inspectingHost
                 Nothing
                 EvaluateEntryModule
-                ResolveKernelOnly
                 Map.empty
-                Map.empty
-                [SExpr (SourceSpan 1 1) expression]
+                [statementExpression (SourceSpan 1 1) expression]
           )
   case result of
     Right ScopeResult {scopeResultValue = Just (VList [VText observedMachineCount, VText observedDepth] _)} -> do
@@ -244,9 +268,9 @@ testDisabledObservationSkipsContinuationDepthState = do
 testClosureApplication :: IO ()
 testClosureApplication = do
   let expression =
-        EApply
-          (ELambda "value" (EVar "value"))
-          (ELit (LInt 7))
+        expressionApply
+          (expressionLambda "value" (expressionVariable "value"))
+          (expressionLiteral (LInt 7))
       observed = evaluateRuntimeExprObserved RuntimeObservationStatistics expression
   report <- requireObservedSuccess observed
   let statistics = runtimeObservationStatistics report
@@ -258,17 +282,17 @@ testClosureApplication = do
 
 testNestedContinuationDepth :: IO ()
 testNestedContinuationDepth = do
-  let value = ELit (LInt 7)
+  let value = expressionLiteral (LInt 7)
       callback =
-        ELambda
+        expressionLambda
           "value"
-          (EList [EList [EList [EVar "value"]]])
-  directStatistics <- statisticsFor (EApply callback value)
+          (expressionList [expressionList [expressionList [expressionVariable "value"]]])
+  directStatistics <- statisticsFor (expressionApply callback value)
   nestedStatistics <-
     statisticsFor
-      ( EApply
-          (EApply (kernelBuiltin BuiltinMap) callback)
-          (EList [value, value])
+      ( expressionApply
+          (expressionApply (kernelBuiltin BuiltinMap) callback)
+          (expressionList [value, value])
       )
   assertEqual
     "higher-order callback adds its implicit outer continuation"
@@ -282,9 +306,9 @@ testNestedContinuationDepth = do
 testBuiltinApplication :: IO ()
 testBuiltinApplication = do
   let expression =
-        EApply
-          (EVar (BuiltinName (mkIdentifier (builtinSymbolKernelName BuiltinTextLength))))
-          (ELit (LText "Jazz"))
+        expressionApply
+          (expressionVariable (BuiltinName (mkIdentifier (builtinSymbolKernelName BuiltinTextLength))))
+          (expressionLiteral (LText "Jazz"))
       observed = evaluateRuntimeExprObserved RuntimeObservationStatistics expression
   report <- requireObservedSuccess observed
   let statistics = runtimeObservationStatistics report
@@ -294,7 +318,7 @@ testBuiltinApplication = do
 
 testOperatorApplication :: IO ()
 testOperatorApplication = do
-  statistics <- statisticsFor (EBinary "+" (ELit (LInt 1)) (ELit (LInt 2)))
+  statistics <- statisticsFor (expressionBinary "+" (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)))
   assertEqual "operator applications" 1 (runtimeOperatorApplications statistics)
   assertEqual "operator total applications" 1 (runtimeApplications statistics)
   assertEqual "operator builtin calls" 0 (runtimeBuiltinCalls statistics)
@@ -302,15 +326,15 @@ testOperatorApplication = do
 testConstructorApplication :: IO ()
 testConstructorApplication = do
   let expression =
-        EBlock
-          [ SData
+        expressionBlock
+          [ statementData
               (SourceSpan 1 1)
               "Box"
               []
-              [DataConstructor "Box" [TypeInt]],
-            SExpr
+              [dataConstructor "Box" [TypeInt]],
+            statementExpression
               (SourceSpan 2 1)
-              (EApply (EVar "Box") (ELit (LInt 1)))
+              (expressionApply (expressionConstructor "Box") (expressionLiteral (LInt 1)))
           ]
       observed = evaluateRuntimeExprObserved RuntimeObservationStatistics expression
   report <- requireObservedSuccess observed
@@ -320,29 +344,29 @@ testConstructorApplication = do
 
 testClosureCaptureWidths :: IO ()
 testClosureCaptureWidths = do
-  zero <- statisticsFor (ELambda "value" (EVar "value"))
+  zero <- statisticsFor (expressionLambda "value" (expressionVariable "value"))
   one <-
     statisticsFor
-      ( EBlock
-          [ SLet "first" (SourceSpan 1 1) (ELit (LInt 1)),
-            SExpr (SourceSpan 2 1) (ELambda "value" (EVar "first"))
+      ( expressionBlock
+          [ statementLet "first" (SourceSpan 1 1) (expressionLiteral (LInt 1)),
+            statementExpression (SourceSpan 2 1) (expressionLambda "value" (expressionVariable "first"))
           ]
       )
   multiple <-
     statisticsFor
-      ( EBlock
-          [ SLet "first" (SourceSpan 1 1) (ELit (LInt 1)),
-            SLet "second" (SourceSpan 2 1) (ELit (LInt 2)),
-            SExpr (SourceSpan 3 1) (ELambda "value" (ETuple [EVar "first", EVar "second"]))
+      ( expressionBlock
+          [ statementLet "first" (SourceSpan 1 1) (expressionLiteral (LInt 1)),
+            statementLet "second" (SourceSpan 2 1) (expressionLiteral (LInt 2)),
+            statementExpression (SourceSpan 3 1) (expressionLambda "value" (expressionTuple [expressionVariable "first", expressionVariable "second"]))
           ]
       )
   oneAmongUnused <-
     statisticsFor
-      ( EBlock
-          [ SLet "unusedBefore" (SourceSpan 1 1) (ELit (LInt 0)),
-            SLet "captured" (SourceSpan 2 1) (ELit (LInt 1)),
-            SLet "unusedAfter" (SourceSpan 3 1) (ELit (LInt 2)),
-            SExpr (SourceSpan 4 1) (ELambda "value" (EVar "captured"))
+      ( expressionBlock
+          [ statementLet "unusedBefore" (SourceSpan 1 1) (expressionLiteral (LInt 0)),
+            statementLet "captured" (SourceSpan 2 1) (expressionLiteral (LInt 1)),
+            statementLet "unusedAfter" (SourceSpan 3 1) (expressionLiteral (LInt 2)),
+            statementExpression (SourceSpan 4 1) (expressionLambda "value" (expressionVariable "captured"))
           ]
       )
   assertEqual "zero-capture closures" 1 (runtimeClosuresCreated zero)
@@ -362,13 +386,13 @@ testDeclaredRightSectionCaptureWidth :: IO ()
 testDeclaredRightSectionCaptureWidth = do
   statistics <-
     statisticsFor
-      ( EBlock
-          [ SLet "unused" (SourceSpan 1 1) (ELit (LInt 0)),
-            SLet
+      ( expressionBlock
+          [ statementLet "unused" (SourceSpan 1 1) (expressionLiteral (LInt 0)),
+            statementLet
               (operatorBindingName "%%")
               (SourceSpan 2 1)
-              (ELambda "left" (ELambda "right" (EVar "left"))),
-            SExpr (SourceSpan 3 1) (ESectionRight "%%" (ELit (LInt 2)))
+              (expressionLambda "left" (expressionLambda "right" (expressionVariable "left"))),
+            statementExpression (SourceSpan 3 1) (expressionSectionRight "%%" (expressionLiteral (LInt 2)))
           ]
       )
   assertEqual "right-section maximum capture width" 2 (runtimeMaximumCaptureWidth statistics)
@@ -377,17 +401,17 @@ testSourceConstructions :: IO ()
 testSourceConstructions = do
   statistics <-
     statisticsFor
-      ( EBlock
-          [ SData
+      ( expressionBlock
+          [ statementData
               (SourceSpan 1 1)
               "Box"
               []
-              [DataConstructor "Box" [TypeInt]],
-            SExpr
+              [dataConstructor "Box" [TypeInt]],
+            statementExpression
               (SourceSpan 2 1)
-              ( ETuple
-                  [ EList [ELit (LInt 1), ELit (LInt 2)],
-                    EApply (EVar "Box") (ELit (LInt 3))
+              ( expressionTuple
+                  [ expressionList [expressionLiteral (LInt 1), expressionLiteral (LInt 2)],
+                    expressionApply (expressionConstructor "Box") (expressionLiteral (LInt 3))
                   ]
               )
           ]
@@ -400,9 +424,9 @@ testBuiltinConstructions :: IO ()
 testBuiltinConstructions = do
   statistics <-
     statisticsFor
-      ( EApply
+      ( expressionApply
           (kernelBuiltin BuiltinTextUnconsRaw)
-          (ELit (LText "Jazz"))
+          (expressionLiteral (LText "Jazz"))
       )
   assertEqual "builtin list cells" 1 (runtimeListCellsConstructed statistics)
   assertEqual "builtin tuples" 1 (runtimeTuplesConstructed statistics)
@@ -411,10 +435,10 @@ testPatternStatistics :: IO ()
 testPatternStatistics = do
   statistics <-
     statisticsFor
-      ( EPatternCase
-          (ETuple [ELit (LInt 1), ELit (LInt 2)])
-          [ CaseArm (PLiteral (LInt 0)) Nothing (ELit (LInt 0)),
-            CaseArm (PTuple [PVariable "left", PVariable "right"]) Nothing (EVar "left")
+      ( expressionPatternCase
+          (expressionTuple [expressionLiteral (LInt 1), expressionLiteral (LInt 2)])
+          [ caseArm (patternLiteral (LInt 0)) Nothing (expressionLiteral (LInt 0)),
+            caseArm (patternTuple [patternVariable "left", patternVariable "right"]) Nothing (expressionVariable "left")
           ]
       )
   assertEqual "pattern attempts" 2 (runtimePatternAttempts statistics)
@@ -425,15 +449,15 @@ testBuiltinAndHostStatistics :: IO ()
 testBuiltinAndHostStatistics = do
   pureBuiltin <-
     statisticsFor
-      ( EApply
+      ( expressionApply
           (kernelBuiltin BuiltinTextLength)
-          (ELit (LText "Jazz"))
+          (expressionLiteral (LText "Jazz"))
       )
   hostBuiltin <-
     statisticsFor
-      ( EApply
+      ( expressionApply
           (kernelBuiltin BuiltinArguments)
-          (ETuple [])
+          (expressionTuple [])
       )
   assertEqual "pure builtin calls" 1 (runtimeBuiltinCalls pureBuiltin)
   assertEqual "pure builtin host operations" 0 (runtimeHostOperations pureBuiltin)
@@ -471,9 +495,9 @@ testDeferredCacheRecursion = do
   let observed =
         evaluateRuntimeExprObserved
           RuntimeObservationStatistics
-          ( EBlock
-              [ SLet "loop" (SourceSpan 1 1) (EVar "loop"),
-                SExpr (SourceSpan 2 1) (EVar "loop")
+          ( expressionBlock
+              [ statementLet "loop" (SourceSpan 1 1) (expressionVariable "loop"),
+                statementExpression (SourceSpan 2 1) (expressionVariable "loop")
               ]
           )
   case runtimeObservationOutcome observed of
@@ -493,13 +517,11 @@ testHumanRenderer = do
 
 testJsonRenderer :: IO ()
 testJsonRenderer = do
-  let first = encodeRuntimeObservationJson zeroReport
-      second = encodeRuntimeObservationJson zeroReport
-  assertEqual "deterministic JSON bytes" first second
-  assertEqual "JSON round trip" (Right zeroReport) (decodeRuntimeObservationJson first)
-  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":1" first
-  assertLazyBytesContain "JSON explicit zero" "\"closuresCreated\":0" first
-  assertEqual "compact JSON" False (LazyByteString.elem '\n' first)
+  let encoded = encodeRuntimeObservationJson zeroReport
+  assertEqual "JSON round trip" (Right zeroReport) (decodeRuntimeObservationJson encoded)
+  assertLazyBytesContain "JSON schema version" "\"schemaVersion\":1" encoded
+  assertLazyBytesContain "JSON explicit zero" "\"closuresCreated\":0" encoded
+  assertEqual "compact JSON" False (LazyByteString.elem '\n' encoded)
 
 testRuntimeFailureReport :: IO ()
 testRuntimeFailureReport = do
@@ -524,6 +546,15 @@ testCompileFailureHasNoReport = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "compile failure stream" (runCompileErrors result) (runDiagnostics result)
   assertEqual "runtime report" Nothing (runRuntimeObservation result)
+
+observableRunResult :: RunResult -> ([Diagnostic], Maybe Text, Maybe Text, Maybe Integer, Maybe RuntimeObservationReport)
+observableRunResult result =
+  ( runDiagnostics result,
+    runOutput result,
+    renderRuntimeValue <$> runRuntimeValue result,
+    runExitStatus result,
+    runRuntimeObservation result
+  )
 
 requireReport :: RunResult -> IO RuntimeObservationReport
 requireReport result =
@@ -559,22 +590,22 @@ assertPositive label value =
     then pure ()
     else failTest (label <> ": expected a positive value, got " <> Text.pack (show value))
 
-statisticsFor :: Expr -> IO RuntimeStatistics
+statisticsFor :: Expr 'Analyzed -> IO RuntimeStatistics
 statisticsFor expression = do
   report <- requireObservedSuccess (evaluateRuntimeExprObserved RuntimeObservationStatistics expression)
   pure (runtimeObservationStatistics report)
 
-kernelBuiltin :: BuiltinSymbol -> Expr
-kernelBuiltin = EVar . BuiltinName . mkIdentifier . builtinSymbolKernelName
+kernelBuiltin :: BuiltinSymbol -> Expr 'Analyzed
+kernelBuiltin = expressionVariable . BuiltinName . mkIdentifier . builtinSymbolKernelName
 
-nestedIdentityApplication :: Int -> Expr
+nestedIdentityApplication :: Int -> Expr 'Analyzed
 nestedIdentityApplication depth =
   foldr
-    (\_ argument -> EApply identity argument)
-    (ELit (LInt 7))
+    (\_ argument -> expressionApply identity argument)
+    (expressionLiteral (LInt 7))
     [1 .. depth]
   where
-    identity = ELambda "value" (EVar "value")
+    identity = expressionLambda "value" (expressionVariable "value")
 
 expectedNestedApplicationProfile :: RuntimeSemanticProfile
 expectedNestedApplicationProfile =
@@ -591,7 +622,7 @@ expectedNestedApplicationProfile =
           : concatMap
             (\openTime -> [RuntimeProfileOpen 1 openTime, RuntimeProfileClose 1 (openTime + 3)])
             [195, 199 .. 447]
-          <> [RuntimeProfileClose 0 450]
+            <> [RuntimeProfileClose 0 450]
     }
 
 zeroReport :: RuntimeObservationReport

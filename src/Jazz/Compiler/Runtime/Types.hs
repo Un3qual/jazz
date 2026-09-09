@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -7,8 +10,6 @@
 module Jazz.Compiler.Runtime.Types
   ( RuntimeFloatMetadata (..),
     RuntimeIntMetadata (..),
-    RuntimeEvidence (..),
-    runtimeEvidenceTarget,
     RuntimeMethodCandidate (..),
     DeferredHostScopeId (..),
     DeferredHostBindingKey (..),
@@ -18,6 +19,7 @@ module Jazz.Compiler.Runtime.Types
     RuntimeHostEvaluationT,
     RuntimeExplicitResultHints,
     RuntimeClosure (..),
+    RuntimeAnnotation (..),
     RuntimeValue
       ( VInt,
         VFloat,
@@ -31,25 +33,33 @@ module Jazz.Compiler.Runtime.Types
         VOperator,
         VSectionLeft,
         VSectionRight,
+        VDeclaredOperatorRightSection,
         VConstructor,
         VConstructorApplication,
         VQualifiedMethod,
-        VTyped,
-        VExplicitTypeApplication,
+        VAnnotated,
         VDeferredHostBinding
       ),
-    pattern VExplicitResultHints,
+    pattern VQualifiedMethodApplication,
     prependRuntimeExplicitResultHint,
     attachRuntimeExplicitResultHints,
     runtimeExplicitResultHintsView,
     runtimeExplicitResultHintsInOrder,
     foldRuntimeExplicitResultHints,
-    RuntimeConstructorArguments,
+    RuntimeAppliedArguments,
+    RuntimeMethodCandidates,
     RuntimeConstructorShape,
-    appendRuntimeConstructorArgument,
+    emptyRuntimeAppliedArguments,
+    appendRuntimeAppliedArgument,
+    runtimeAppliedArgumentsInOrder,
+    emptyRuntimeMethodCandidates,
+    appendRuntimeMethodCandidate,
+    filterRuntimeMethodCandidates,
+    runtimeMethodCandidatesInOrder,
+    foldrRuntimeMethodCandidates,
     constructorApplicationIsSaturated,
-    foldrRuntimeConstructorArguments,
-    runtimeConstructorArgumentCount,
+    foldrRuntimeAppliedArguments,
+    runtimeAppliedArgumentCount,
     runtimeConstructorArity,
     runtimeConstructorFieldTypes,
     runtimeConstructorName,
@@ -71,25 +81,23 @@ import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import Data.Word (Word64)
 import Jazz.Compiler.AST
-  ( Expr,
+  ( CorePhase (..),
+    Expr,
     NumericType,
-    SignaturePayload,
-    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog (BuiltinSymbol)
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan,
-  )
+import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.Name (ResolvedName)
 import Jazz.Compiler.RecursiveBindings (LambdaCaptureHints)
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeCallableIdentity,
     RuntimeObservationState,
   )
 import Jazz.Compiler.Runtime.Outcome (RuntimeControl (..))
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import Jazz.Compiler.SemanticFacts (AnalyzedType, CoreNodeId, EvidenceReference (..))
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
+import Jazz.Compiler.TypeRepresentation (InferenceVariable)
 
 data RuntimeFloatMetadata = RuntimeFloatMetadata
   { runtimeFloatLiteralSource :: Maybe FractionalLiteralSource,
@@ -97,33 +105,24 @@ data RuntimeFloatMetadata = RuntimeFloatMetadata
   }
   deriving (Eq, Show)
 
-data RuntimeIntMetadata = RuntimeIntMetadata
+newtype RuntimeIntMetadata = RuntimeIntMetadata
   { runtimeIntTargetType :: Maybe NumericType
   }
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
-data RuntimeEvidence = RuntimeEvidence Text SignatureType (Maybe Text)
-  deriving (Eq, Show)
-
-runtimeEvidenceTarget :: RuntimeEvidence -> SignatureType
-runtimeEvidenceTarget (RuntimeEvidence _ implTarget _) = implTarget
-
-data RuntimeMethodCandidate = RuntimeMethodCandidate RuntimeEvidence (Either Diagnostic RuntimeValue)
+data RuntimeMethodCandidate = RuntimeMethodCandidate EvidenceReference (Either Diagnostic RuntimeValue)
 
 -- | Ordered explicit result obligations attached to one runtime value. The
 -- constructor stays private so callers cannot reintroduce nested hint wrappers.
 -- Hints are stored outermost-to-innermost, matching source evaluation order.
-newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq SignatureType)
-  deriving (Eq, Show)
-
-instance Semigroup RuntimeExplicitResultHints where
-  RuntimeExplicitResultHints outerHints <> RuntimeExplicitResultHints innerHints =
-    RuntimeExplicitResultHints (outerHints Seq.>< innerHints)
+newtype RuntimeExplicitResultHints = RuntimeExplicitResultHints (Seq AnalyzedType)
+  deriving stock (Eq, Show)
+  deriving newtype (Semigroup)
 
 newtype DeferredHostScopeId = DeferredHostScopeId Int
   deriving (Eq, Ord, Show)
 
-data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId (Maybe [Text]) SourceSpan Name
+data DeferredHostBindingKey = DeferredHostBindingKey DeferredHostScopeId CoreNodeId ResolvedName
   deriving (Eq, Ord, Show)
 
 data DeferredHostBindingState
@@ -143,23 +142,34 @@ type RuntimeHostEvaluationT m = StateT RuntimeHostEvaluationState m
 data RuntimeClosure = RuntimeClosure
   { runtimeClosureEnvironment :: RuntimeEnv,
     runtimeClosureEnvironmentMayReachHostCells :: Bool,
-    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints,
-    runtimeClosureParameter :: Name,
-    runtimeClosureBody :: Expr,
-    runtimeClosureTypeHint :: Maybe SignatureType,
-    runtimeClosureModulePath :: Maybe [Text],
+    runtimeClosureLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
+    runtimeClosureParameter :: ResolvedName,
+    runtimeClosureBody :: Expr 'Analyzed,
+    runtimeClosureTypeHint :: Maybe AnalyzedType,
+    runtimeClosureModulePath :: Maybe SourceUnitOwner,
     runtimeClosureCallableIdentity :: RuntimeCallableIdentity
   }
 
 -- | Constructor metadata shared by every partial application. Its constructor
 -- stays private so the cached arity cannot disagree with the field types.
-data RuntimeConstructorShape = RuntimeConstructorShape Name [Name] Name !Int [SignatureType]
+data RuntimeConstructorShape = RuntimeConstructorShape ResolvedName [InferenceVariable] ResolvedName !Int [AnalyzedType]
   deriving (Eq)
 
--- | Append-efficient constructor arguments. 'Seq.length' is constant time, so
--- keeping a second cached count would only duplicate an invariant.
-newtype RuntimeConstructorArguments = RuntimeConstructorArguments (Seq RuntimeValue)
-  deriving (Eq)
+-- | Append-efficient arguments shared by curried runtime applications.
+-- 'Seq.length' is constant time, so a second cached count would only duplicate
+-- an invariant.
+newtype RuntimeAppliedArguments = RuntimeAppliedArguments (Seq RuntimeValue)
+
+-- | Source-ordered qualified-method candidates. Candidate precedence follows
+-- insertion order, so construction stays private and append-only.
+newtype RuntimeMethodCandidates = RuntimeMethodCandidates (Seq RuntimeMethodCandidate)
+
+-- | Value-associated typing information survives storing and partially applying
+-- a callable. Operations that only inspect the payload can ignore its kind.
+data RuntimeAnnotation
+  = RuntimeTypeHint AnalyzedType
+  | RuntimeTypeApplication AnalyzedType
+  | RuntimeResultHints RuntimeExplicitResultHints
 
 data RuntimeValue
   = VInt Integer RuntimeIntMetadata
@@ -167,56 +177,31 @@ data RuntimeValue
   | VBool Bool
   | VChar Char
   | VText Text
-  | VList [RuntimeValue] (Maybe SignatureType)
+  | VList [RuntimeValue] (Maybe AnalyzedType)
   | VTuple [RuntimeValue]
   | VClosure RuntimeClosure
   | VBuiltin BuiltinSymbol [RuntimeValue]
   | VOperator Text [RuntimeValue]
   | VSectionLeft Text RuntimeValue
   | VSectionRight Text RuntimeValue
-  | VConstructorState RuntimeConstructorShape RuntimeConstructorArguments
-  | VQualifiedMethod Text Text SignaturePayload [RuntimeMethodCandidate] [RuntimeValue]
-  | VTyped SignatureType RuntimeValue
-  | VExplicitTypeApplication SignatureType RuntimeValue
-  | VRuntimeExplicitResultHints RuntimeExplicitResultHints RuntimeValue
+  | VDeclaredOperatorRightSection Text RuntimeValue RuntimeValue
+  | VConstructorState RuntimeConstructorShape RuntimeAppliedArguments
+  | VQualifiedMethodState Text InferenceVariable AnalyzedType RuntimeMethodCandidates RuntimeAppliedArguments
+  | VAnnotatedState RuntimeAnnotation RuntimeValue
   | VDeferredHostBinding
       DeferredHostBindingKey
       Diagnostic
-      (Maybe [Text])
-      Expr
+      (Maybe SourceUnitOwner)
+      (Expr 'Analyzed)
       RuntimeEnv
-      (Map BindingRuntimeHintKey SignatureType)
-      (Maybe NumericType)
-      (Maybe SignatureType)
 
-instance Eq RuntimeValue where
-  leftValue == rightValue =
-    case (leftValue, rightValue) of
-      (VTyped _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VTyped _ rightInner) -> leftInner == rightInner
-      (VExplicitTypeApplication _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VExplicitTypeApplication _ rightInner) -> leftInner == rightInner
-      (VRuntimeExplicitResultHints _ leftInner, rightInner) -> leftInner == rightInner
-      (leftInner, VRuntimeExplicitResultHints _ rightInner) -> leftInner == rightInner
-      (VInt leftInt _, VInt rightInt _) -> leftInt == rightInt
-      (VFloat leftFloat _, VFloat rightFloat _) -> leftFloat == rightFloat
-      (VBool leftBool, VBool rightBool) -> leftBool == rightBool
-      (VChar leftChar, VChar rightChar) -> leftChar == rightChar
-      (VText leftText, VText rightText) -> leftText == rightText
-      (VList leftElements _, VList rightElements _) -> leftElements == rightElements
-      (VTuple leftElements, VTuple rightElements) -> leftElements == rightElements
-      ( VConstructorApplication leftShape leftArgs,
-        VConstructorApplication rightShape rightArgs
-        )
-          | constructorApplicationIsSaturated leftShape leftArgs,
-            constructorApplicationIsSaturated rightShape rightArgs ->
-              leftShape == rightShape
-                && leftArgs == rightArgs
-      _ -> False
-
-instance Eq RuntimeMethodCandidate where
-  RuntimeMethodCandidate leftEvidence leftCell == RuntimeMethodCandidate rightEvidence rightCell =
-    leftEvidence == rightEvidence && leftCell == rightCell
+-- | All annotation construction preserves flat, ordered pending result hints.
+pattern VAnnotated :: RuntimeAnnotation -> RuntimeValue -> RuntimeValue
+pattern VAnnotated annotation value <- VAnnotatedState annotation value
+  where
+    VAnnotated annotation value = case annotation of
+      RuntimeResultHints hints -> attachRuntimeExplicitResultHints hints value
+      _ -> VAnnotatedState annotation value
 
 instance Show RuntimeValue where
   show value =
@@ -245,6 +230,8 @@ instance Show RuntimeValue where
         "VSectionLeft " <> show operatorSymbol <> " " <> show operand
       VSectionRight operatorSymbol operand ->
         "VSectionRight " <> show operatorSymbol <> " " <> show operand
+      VDeclaredOperatorRightSection operatorSymbol _ rightOperand ->
+        "VDeclaredOperatorRightSection " <> show operatorSymbol <> " <operator> " <> show rightOperand
       VConstructorState shape capturedArgs ->
         "VConstructor "
           <> show (runtimeConstructorTypeName shape)
@@ -253,42 +240,65 @@ instance Show RuntimeValue where
           <> " "
           <> show (runtimeConstructorFieldTypes shape)
           <> " "
-          <> show (runtimeConstructorArgumentsInOrder capturedArgs)
-      VQualifiedMethod methodKey _ _ candidates capturedArgs ->
-        "VQualifiedMethod " <> show methodKey <> " " <> show candidates <> " " <> show capturedArgs
-      VTyped typeHint innerValue ->
+          <> show (runtimeAppliedArgumentsInOrder capturedArgs)
+      VQualifiedMethodState methodKey _ _ candidates capturedArgs ->
+        "VQualifiedMethod "
+          <> show methodKey
+          <> " "
+          <> show (runtimeMethodCandidatesInOrder candidates)
+          <> " "
+          <> show (runtimeAppliedArgumentsInOrder capturedArgs)
+      VAnnotatedState (RuntimeTypeHint typeHint) innerValue ->
         "VTyped " <> show typeHint <> " " <> show innerValue
-      VExplicitTypeApplication typeHint innerValue ->
+      VAnnotatedState (RuntimeTypeApplication typeHint) innerValue ->
         "VExplicitTypeApplication " <> show typeHint <> " " <> show innerValue
-      VRuntimeExplicitResultHints hints innerValue ->
+      VAnnotatedState (RuntimeResultHints hints) innerValue ->
         "VExplicitResultHints " <> show hints <> " " <> show innerValue
       VDeferredHostBinding {} -> "VDeferredHostBinding <thunk>"
 
--- | Match an explicit-result-hint wrapper without exposing a constructor that
--- could be used to build nested wrappers.
-pattern VExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
-pattern VExplicitResultHints hints innerValue <- VRuntimeExplicitResultHints hints innerValue
-
 -- | Historical ordered-list constructor view used by runtime semantics and
 -- tests. Construction establishes the shape and argument invariants once.
-pattern VConstructor :: Name -> [Name] -> Name -> [SignatureType] -> [RuntimeValue] -> RuntimeValue
+pattern VConstructor :: ResolvedName -> [InferenceVariable] -> ResolvedName -> [AnalyzedType] -> [RuntimeValue] -> RuntimeValue
 pattern VConstructor typeName typeParameters constructorName fieldTypes capturedArgs <-
   VConstructorState
     (RuntimeConstructorShape typeName typeParameters constructorName _ fieldTypes)
-    (runtimeConstructorArgumentsInOrder -> capturedArgs)
+    (runtimeAppliedArgumentsInOrder -> capturedArgs)
   where
     VConstructor typeName typeParameters constructorName fieldTypes capturedArgs =
       VConstructorState
         (runtimeConstructorShape typeName typeParameters constructorName fieldTypes)
-        (runtimeConstructorArgumentsFromList capturedArgs)
+        (runtimeAppliedArgumentsFromList capturedArgs)
 
 -- | Evaluator view that keeps the invariant-owning shape and append-efficient
 -- arguments intact between curried applications. Callers can reuse a shape,
 -- but cannot forge its cached arity.
-pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeConstructorArguments -> RuntimeValue
+pattern VConstructorApplication :: RuntimeConstructorShape -> RuntimeAppliedArguments -> RuntimeValue
 pattern VConstructorApplication shape capturedArgs =
   VConstructorState shape capturedArgs
 
+-- | Historical ordered-list view retained for public runtime consumers.
+pattern VQualifiedMethod :: Text -> InferenceVariable -> AnalyzedType -> [RuntimeMethodCandidate] -> [RuntimeValue] -> RuntimeValue
+pattern VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs <-
+  VQualifiedMethodState
+    methodKey
+    classParameter
+    methodSignature
+    (runtimeMethodCandidatesInOrder -> candidates)
+    (runtimeAppliedArgumentsInOrder -> capturedArgs)
+  where
+    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs =
+      VQualifiedMethodState
+        methodKey
+        classParameter
+        methodSignature
+        (runtimeMethodCandidatesFromList candidates)
+        (runtimeAppliedArgumentsFromList capturedArgs)
+
+-- | Internal evaluator view retaining append-efficient ordered collections.
+pattern VQualifiedMethodApplication :: Text -> InferenceVariable -> AnalyzedType -> RuntimeMethodCandidates -> RuntimeAppliedArguments -> RuntimeValue
+pattern VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs =
+  VQualifiedMethodState methodKey classParameter methodSignature candidates capturedArgs
+
 {-# COMPLETE
   VInt,
   VFloat,
@@ -302,11 +312,10 @@ pattern VConstructorApplication shape capturedArgs =
   VOperator,
   VSectionLeft,
   VSectionRight,
+  VDeclaredOperatorRightSection,
   VConstructor,
   VQualifiedMethod,
-  VTyped,
-  VExplicitTypeApplication,
-  VExplicitResultHints,
+  VAnnotated,
   VDeferredHostBinding
   #-}
 
@@ -323,52 +332,51 @@ pattern VConstructorApplication shape capturedArgs =
   VOperator,
   VSectionLeft,
   VSectionRight,
+  VDeclaredOperatorRightSection,
   VConstructorApplication,
-  VQualifiedMethod,
-  VTyped,
-  VExplicitTypeApplication,
-  VExplicitResultHints,
+  VQualifiedMethodApplication,
+  VAnnotated,
   VDeferredHostBinding
   #-}
 
-prependRuntimeExplicitResultHint :: SignatureType -> RuntimeValue -> RuntimeValue
+prependRuntimeExplicitResultHint :: AnalyzedType -> RuntimeValue -> RuntimeValue
 prependRuntimeExplicitResultHint typeHint runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints (RuntimeExplicitResultHints innerHints) innerValue ->
-      VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints (typeHint Seq.<| innerHints))
+    VAnnotatedState (RuntimeResultHints (RuntimeExplicitResultHints innerHints)) innerValue ->
+      VAnnotatedState
+        (RuntimeResultHints (RuntimeExplicitResultHints (typeHint Seq.<| innerHints)))
         innerValue
     _ ->
-      VRuntimeExplicitResultHints
-        (RuntimeExplicitResultHints (Seq.singleton typeHint))
+      VAnnotatedState
+        (RuntimeResultHints (RuntimeExplicitResultHints (Seq.singleton typeHint)))
         runtimeValue
 
 attachRuntimeExplicitResultHints :: RuntimeExplicitResultHints -> RuntimeValue -> RuntimeValue
 attachRuntimeExplicitResultHints outerHints runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints innerHints innerValue ->
-      VRuntimeExplicitResultHints
-        (outerHints <> innerHints)
+    VAnnotatedState (RuntimeResultHints innerHints) innerValue ->
+      VAnnotatedState
+        (RuntimeResultHints (outerHints <> innerHints))
         innerValue
     _ ->
-      VRuntimeExplicitResultHints
-        outerHints
+      VAnnotatedState
+        (RuntimeResultHints outerHints)
         runtimeValue
 
 runtimeExplicitResultHintsView :: RuntimeValue -> Maybe (RuntimeExplicitResultHints, RuntimeValue)
 runtimeExplicitResultHintsView runtimeValue =
   case runtimeValue of
-    VRuntimeExplicitResultHints hints innerValue -> Just (hints, innerValue)
+    VAnnotated (RuntimeResultHints hints) innerValue -> Just (hints, innerValue)
     _ -> Nothing
 
-runtimeExplicitResultHintsInOrder :: RuntimeValue -> [SignatureType]
+runtimeExplicitResultHintsInOrder :: RuntimeValue -> [AnalyzedType]
 runtimeExplicitResultHintsInOrder runtimeValue =
   case runtimeExplicitResultHintsView runtimeValue of
     Just (RuntimeExplicitResultHints hints, _) -> Foldable.toList hints
     Nothing -> []
 
 foldRuntimeExplicitResultHints ::
-  (accumulator -> SignatureType -> accumulator) ->
+  (accumulator -> AnalyzedType -> accumulator) ->
   accumulator ->
   RuntimeExplicitResultHints ->
   accumulator
@@ -381,7 +389,7 @@ instance Show RuntimeMethodCandidate where
 
 type RuntimeCell = Either Diagnostic RuntimeValue
 
-type RuntimeEnv = Map Name RuntimeCell
+type RuntimeEnv = Map ResolvedName RuntimeCell
 
 data ScopeResult = ScopeResult
   { scopeResultEnvironment :: RuntimeEnv,
@@ -394,53 +402,83 @@ data ModuleEvaluationMode
   | EvaluateEntryModule
   deriving (Eq, Show)
 
-constructorIsSaturated :: [SignatureType] -> [RuntimeValue] -> Bool
+constructorIsSaturated :: [AnalyzedType] -> [RuntimeValue] -> Bool
 constructorIsSaturated fieldTypes capturedArgs =
   length capturedArgs >= length fieldTypes
 
-runtimeConstructorArgumentsFromList :: [RuntimeValue] -> RuntimeConstructorArguments
-runtimeConstructorArgumentsFromList capturedArgs =
-  RuntimeConstructorArguments (Seq.fromList capturedArgs)
+runtimeAppliedArgumentsFromList :: [RuntimeValue] -> RuntimeAppliedArguments
+runtimeAppliedArgumentsFromList capturedArgs =
+  RuntimeAppliedArguments (Seq.fromList capturedArgs)
 
-runtimeConstructorArgumentsInOrder :: RuntimeConstructorArguments -> [RuntimeValue]
-runtimeConstructorArgumentsInOrder (RuntimeConstructorArguments capturedArgs) =
+emptyRuntimeAppliedArguments :: RuntimeAppliedArguments
+emptyRuntimeAppliedArguments = RuntimeAppliedArguments Seq.empty
+
+runtimeAppliedArgumentsInOrder :: RuntimeAppliedArguments -> [RuntimeValue]
+runtimeAppliedArgumentsInOrder (RuntimeAppliedArguments capturedArgs) =
   Foldable.toList capturedArgs
 
-runtimeConstructorArgumentCount :: RuntimeConstructorArguments -> Int
-runtimeConstructorArgumentCount (RuntimeConstructorArguments capturedArgs) =
+runtimeAppliedArgumentCount :: RuntimeAppliedArguments -> Int
+runtimeAppliedArgumentCount (RuntimeAppliedArguments capturedArgs) =
   Seq.length capturedArgs
 
-appendRuntimeConstructorArgument :: RuntimeValue -> RuntimeConstructorArguments -> RuntimeConstructorArguments
-appendRuntimeConstructorArgument argumentValue (RuntimeConstructorArguments capturedArgs) =
-  RuntimeConstructorArguments (capturedArgs Seq.|> argumentValue)
+appendRuntimeAppliedArgument :: RuntimeValue -> RuntimeAppliedArguments -> RuntimeAppliedArguments
+appendRuntimeAppliedArgument argumentValue (RuntimeAppliedArguments capturedArgs) =
+  RuntimeAppliedArguments (capturedArgs Seq.|> argumentValue)
 
-foldrRuntimeConstructorArguments ::
+foldrRuntimeAppliedArguments ::
   (RuntimeValue -> accumulator -> accumulator) ->
   accumulator ->
-  RuntimeConstructorArguments ->
+  RuntimeAppliedArguments ->
   accumulator
-foldrRuntimeConstructorArguments step initial (RuntimeConstructorArguments capturedArgs) =
+foldrRuntimeAppliedArguments step initial (RuntimeAppliedArguments capturedArgs) =
   Foldable.foldr step initial capturedArgs
 
-constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeConstructorArguments -> Bool
-constructorApplicationIsSaturated shape capturedArgs =
-  runtimeConstructorArgumentCount capturedArgs >= runtimeConstructorArity shape
+runtimeMethodCandidatesFromList :: [RuntimeMethodCandidate] -> RuntimeMethodCandidates
+runtimeMethodCandidatesFromList candidates =
+  RuntimeMethodCandidates (Seq.fromList candidates)
 
-runtimeConstructorShape :: Name -> [Name] -> Name -> [SignatureType] -> RuntimeConstructorShape
+emptyRuntimeMethodCandidates :: RuntimeMethodCandidates
+emptyRuntimeMethodCandidates = RuntimeMethodCandidates Seq.empty
+
+appendRuntimeMethodCandidate :: RuntimeMethodCandidate -> RuntimeMethodCandidates -> RuntimeMethodCandidates
+appendRuntimeMethodCandidate candidate (RuntimeMethodCandidates candidates) =
+  RuntimeMethodCandidates (candidates Seq.|> candidate)
+
+filterRuntimeMethodCandidates :: (RuntimeMethodCandidate -> Bool) -> RuntimeMethodCandidates -> RuntimeMethodCandidates
+filterRuntimeMethodCandidates predicate (RuntimeMethodCandidates candidates) =
+  RuntimeMethodCandidates (Seq.filter predicate candidates)
+
+runtimeMethodCandidatesInOrder :: RuntimeMethodCandidates -> [RuntimeMethodCandidate]
+runtimeMethodCandidatesInOrder (RuntimeMethodCandidates candidates) =
+  Foldable.toList candidates
+
+foldrRuntimeMethodCandidates ::
+  (RuntimeMethodCandidate -> accumulator -> accumulator) ->
+  accumulator ->
+  RuntimeMethodCandidates ->
+  accumulator
+foldrRuntimeMethodCandidates step initial (RuntimeMethodCandidates candidates) =
+  Foldable.foldr step initial candidates
+
+constructorApplicationIsSaturated :: RuntimeConstructorShape -> RuntimeAppliedArguments -> Bool
+constructorApplicationIsSaturated shape capturedArgs =
+  runtimeAppliedArgumentCount capturedArgs >= runtimeConstructorArity shape
+
+runtimeConstructorShape :: ResolvedName -> [InferenceVariable] -> ResolvedName -> [AnalyzedType] -> RuntimeConstructorShape
 runtimeConstructorShape typeName typeParameters constructorName fieldTypes =
   RuntimeConstructorShape typeName typeParameters constructorName (length fieldTypes) fieldTypes
 
-runtimeConstructorTypeName :: RuntimeConstructorShape -> Name
+runtimeConstructorTypeName :: RuntimeConstructorShape -> ResolvedName
 runtimeConstructorTypeName (RuntimeConstructorShape typeName _ _ _ _) = typeName
 
-runtimeConstructorTypeParameters :: RuntimeConstructorShape -> [Name]
+runtimeConstructorTypeParameters :: RuntimeConstructorShape -> [InferenceVariable]
 runtimeConstructorTypeParameters (RuntimeConstructorShape _ typeParameters _ _ _) = typeParameters
 
-runtimeConstructorName :: RuntimeConstructorShape -> Name
+runtimeConstructorName :: RuntimeConstructorShape -> ResolvedName
 runtimeConstructorName (RuntimeConstructorShape _ _ constructorName _ _) = constructorName
 
 runtimeConstructorArity :: RuntimeConstructorShape -> Int
 runtimeConstructorArity (RuntimeConstructorShape _ _ _ arity _) = arity
 
-runtimeConstructorFieldTypes :: RuntimeConstructorShape -> [SignatureType]
+runtimeConstructorFieldTypes :: RuntimeConstructorShape -> [AnalyzedType]
 runtimeConstructorFieldTypes (RuntimeConstructorShape _ _ _ _ fieldTypes) = fieldTypes

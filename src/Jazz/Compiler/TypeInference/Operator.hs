@@ -1,9 +1,9 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Builtin operator typing rules, isolated from expression orchestration.
 module Jazz.Compiler.TypeInference.Operator
   ( applyOperatorAliasSchemeConstraints,
-    binaryNumericPromotionType,
     builtinSectionOperatorSymbol,
     hasOperatorRule,
     inferBinaryType,
@@ -19,14 +19,15 @@ import Data.Maybe (isJust)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (..),
+    Expr (..),
     Literal (..),
-    NumericType (..),
   )
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFloatIntegerBounds,
     numericTypeIsIntegral,
   )
+import Jazz.Compiler.SemanticFacts (BinaryOperandTyping (..))
 import Jazz.Compiler.TypeInference.Capabilities
   ( addInferredEqualityClassConstraintIfVisible,
     applyTypeSchemePrimitiveConstraints,
@@ -53,7 +54,7 @@ import Jazz.Compiler.TypeInference.Solver
     freshTypeVar,
     freshTypeVariable,
     integerLiteralRangeBounds,
-    integerLiteralRangeFitsNumericType,
+    integerLiteralRangeFor,
     resolveType,
     supportsRuntimeEqualityType,
     typeSatisfiesNumericConstraint,
@@ -68,11 +69,14 @@ import Jazz.Compiler.TypeInference.TypeOps
     instantiateTypeSchemePrimitiveConstraint,
   )
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (..),
+  ( ExpressionType,
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    SemanticType (..),
     TypeScheme (..),
+    quantifiedVariablesMembershipSet,
   )
+import Jazz.Compiler.TypeRepresentation (NumericType (..))
 
 data OperatorRule
   = NumericRule NumericRuleResult
@@ -132,15 +136,15 @@ operatorAliasEqualityConstraintTarget state leftType rightType
       Just resolvedLeftType
   | otherwise = Nothing
   where
-    resolvedLeftType = defaultLiteralTypes (resolveType state leftType)
-    resolvedRightType = defaultLiteralTypes (resolveType state rightType)
+    resolvedLeftType = defaultLiteralTypes state (resolveType state leftType)
+    resolvedRightType = defaultLiteralTypes state (resolveType state rightType)
 
 instantiateOperatorAliasSchemeConstraints :: TypeScheme -> ExpressionType -> InferState -> InferState
 instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
   let replacements =
         Map.fromList
           [ (typeVar, targetType)
-          | typeVar <- Set.toList quantifiedVariables
+          | typeVar <- Set.toList (quantifiedVariablesMembershipSet quantifiedVariables)
           ]
       instantiatedConstraints =
         map (instantiateTypeSchemeConstraint replacements) explicitConstraints
@@ -161,12 +165,12 @@ instantiateOperatorAliasSchemeConstraints typeScheme targetType state =
 
 inferBinaryType ::
   Text ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
-  (Maybe ExpressionType, InferState)
+  (Maybe ExpressionType, Maybe BinaryOperandTyping, InferState)
 inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
   case lookupOperatorRule operatorSymbol of
     Just (NumericRule resultType) ->
@@ -174,99 +178,86 @@ inferBinaryType operatorSymbol leftExpr rightExpr leftType rightType state =
     Just StrictEqualityRule ->
       applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightType state
     Just ApplicationRule ->
-      applyApplicationBinaryRule leftType rightType state
+      let (resultType, finalState) = applyApplicationBinaryRule leftType rightType state
+       in (resultType, Nothing, finalState)
     Nothing ->
       ( Nothing,
+        Nothing,
         addTypeError
           state
           ( mkBinaryTypeError
               operatorSymbol
-              (resolveType state leftType)
-              (resolveType state rightType)
+              (diagnosticType state leftType)
+              (diagnosticType state rightType)
           )
       )
-
--- | Report the implicit Float64 operand promotion selected by the ordinary
--- operator rules. Consumers that cannot represent the conversion can reject
--- it explicitly instead of constructing a heterogeneous binary node.
-binaryNumericPromotionType ::
-  Text ->
-  Expr ->
-  Expr ->
-  ExpressionType ->
-  ExpressionType ->
-  InferState ->
-  Maybe ExpressionType
-binaryNumericPromotionType operatorSymbol leftExpr rightExpr leftType rightType state =
-  case lookupOperatorRule operatorSymbol of
-    Just (NumericRule _) -> promotedType
-    Just StrictEqualityRule -> promotedType
-    _ -> Nothing
-  where
-    promotedType =
-      fst
-        <$> directIntegerFloat64NumericOperand
-          NumericSameTypeResult
-          state
-          leftExpr
-          rightExpr
-          leftType
-          rightType
 
 applyNumericBinaryRule ::
   Text ->
   NumericRuleResult ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
-  (Maybe ExpressionType, InferState)
+  (Maybe ExpressionType, Maybe BinaryOperandTyping, InferState)
 applyNumericBinaryRule operatorSymbol resultRule leftExpr rightExpr leftType rightType state =
   case directIntegerFloat64NumericOperand resultRule state leftExpr rightExpr leftType rightType of
     Just (resolvedOperandType, stateAfterFloat64LiteralOperand) ->
-      constrainNumericOperand resolvedOperandType stateAfterFloat64LiteralOperand
+      constrainNumericOperand Float64PromotedOperands resolvedOperandType stateAfterFloat64LiteralOperand
     Nothing ->
       case rigidNumericOperand of
         Just rigidOperandType ->
-          constrainNumericOperand rigidOperandType state
+          constrainNumericOperand (UniformBinaryOperands rigidOperandType) rigidOperandType state
         Nothing ->
           case unifyTypes leftType rightType state of
             Just stateAfterUnify ->
-              let resolvedOperandType = numericBinaryOperandType operatorSymbol resultRule stateAfterUnify leftType rightType
-               in constrainNumericOperand resolvedOperandType stateAfterUnify
+              let (resolvedOperandType, stateAfterResultRange) =
+                    numericBinaryOperandType
+                      operatorSymbol
+                      resultRule
+                      leftLiteralRange
+                      rightLiteralRange
+                      stateAfterUnify
+                      leftType
+                      rightType
+               in constrainNumericOperand (UniformBinaryOperands resolvedOperandType) resolvedOperandType stateAfterResultRange
             Nothing -> numericOperandError state
   where
     rigidNumericOperand =
       case (resolveType state leftType, resolveType state rightType) of
-        (rigidType@(TVarType typeVar), concreteType)
+        (rigidType@(SemanticVariable typeVar), concreteType)
           | Set.member typeVar (inferRigidTypeVars state),
             typeSatisfiesNumericConstraint (numericRuleConstraint resultRule) concreteType ->
               Just rigidType
-        (concreteType, rigidType@(TVarType typeVar))
+        (concreteType, rigidType@(SemanticVariable typeVar))
           | Set.member typeVar (inferRigidTypeVars state),
             typeSatisfiesNumericConstraint (numericRuleConstraint resultRule) concreteType ->
               Just rigidType
         _ -> Nothing
 
-    constrainNumericOperand resolvedOperandType operandState =
+    leftLiteralRange = integerLiteralRangeFor state leftType
+    rightLiteralRange = integerLiteralRangeFor state rightType
+
+    constrainNumericOperand operandTyping resolvedOperandType operandState =
       case constrainNumericOperatorType (numericRuleConstraint resultRule) resolvedOperandType operandState of
         Just stateAfterNumericConstraint ->
-          (Just (numericRuleResultType resultRule resolvedOperandType), stateAfterNumericConstraint)
+          (Just (numericRuleResultType resultRule resolvedOperandType), Just operandTyping, stateAfterNumericConstraint)
         Nothing ->
           numericOperandError operandState
     numericOperandError errState =
       ( Nothing,
+        Nothing,
         addTypeError
           errState
           ( mkNumericBinaryTypeError
               operatorSymbol
-              (resolveType errState leftType)
-              (resolveType errState rightType)
+              (diagnosticType errState leftType)
+              (diagnosticType errState rightType)
           )
       )
 
-directIntegerFloat64NumericOperand :: NumericRuleResult -> InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+directIntegerFloat64NumericOperand :: NumericRuleResult -> InferState -> Expr 'Resolved -> Expr 'Resolved -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
 directIntegerFloat64NumericOperand _resultRule state leftExpr rightExpr leftType rightType =
   integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType
     <|> case typedIntegerFloat64PromotionOperand state leftType rightType of
@@ -277,7 +268,7 @@ numericRuleResultType :: NumericRuleResult -> ExpressionType -> ExpressionType
 numericRuleResultType resultRule operandType =
   case resultRule of
     NumericSameTypeResult -> operandType
-    NumericBoolResult -> TBoolType
+    NumericBoolResult -> SemanticBool
 
 numericRuleConstraint :: NumericRuleResult -> NumericConstraint
 numericRuleConstraint resultRule =
@@ -285,39 +276,39 @@ numericRuleConstraint resultRule =
     NumericSameTypeResult -> RuntimeArithmeticNumericConstraint
     NumericBoolResult -> RuntimeComparisonNumericConstraint
 
-integerLiteralFloat64PromotionOperand :: InferState -> Expr -> Expr -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
+integerLiteralFloat64PromotionOperand :: InferState -> Expr 'Resolved -> Expr 'Resolved -> ExpressionType -> ExpressionType -> Maybe (ExpressionType, InferState)
 integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType =
-  case (resolveType state leftType, resolveType state rightType) of
-    (TIntegerLiteralType literalRange, floatType)
+  case (integerLiteralRangeFor state leftType, integerLiteralRangeFor state rightType, resolveType state leftType, resolveType state rightType) of
+    (Just literalRange, _, _, floatType)
       | exprIsIntegerLiteral leftExpr,
         integerLiteralRangeFitsFloat64 literalRange,
         expressionTypeIsFloat64Domain floatType ->
           Just (floatType, state)
-    (floatType, TIntegerLiteralType literalRange)
+    (_, Just literalRange, floatType, _)
       | exprIsIntegerLiteral rightExpr,
         integerLiteralRangeFitsFloat64 literalRange,
         expressionTypeIsFloat64Domain floatType ->
           Just (floatType, state)
     _ -> Nothing
 
-exprIsIntegerLiteral :: Expr -> Bool
+exprIsIntegerLiteral :: Expr 'Resolved -> Bool
 exprIsIntegerLiteral expr =
   case expr of
-    ELit (LInt _) -> True
+    ELit _ (LInt _) -> True
     _ -> False
 
 expressionTypeIsFloat64Domain :: ExpressionType -> Bool
 expressionTypeIsFloat64Domain expressionType =
   case expressionType of
-    TFloatType -> True
-    TNumericType NumericFloat64 -> True
+    SemanticFloat -> True
+    SemanticNumeric NumericFloat64 -> True
     _ -> False
 
 expressionTypeIsConcreteIntegral :: ExpressionType -> Bool
 expressionTypeIsConcreteIntegral expressionType =
   case expressionType of
-    TIntType -> True
-    TNumericType numericType -> numericTypeIsIntegral numericType
+    SemanticInt -> True
+    SemanticNumeric numericType -> numericTypeIsIntegral numericType
     _ -> False
 
 typedIntegerFloat64PromotionOperand :: InferState -> ExpressionType -> ExpressionType -> Maybe ExpressionType
@@ -344,21 +335,30 @@ integerLiteralRangeFitsFloat64 literalRange =
 numericBinaryOperandType ::
   Text ->
   NumericRuleResult ->
+  Maybe IntegerLiteralRange ->
+  Maybe IntegerLiteralRange ->
   InferState ->
   ExpressionType ->
   ExpressionType ->
-  ExpressionType
-numericBinaryOperandType operatorSymbol resultRule state leftType rightType =
-  case (resolveType state leftType, resolveType state rightType) of
-    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange)
-    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (TIntegerLiteralType {}, TIntType) -> TIntType
-    (TIntType, TIntegerLiteralType {}) -> TIntType
-    (resolvedLeftType, _) -> resolvedLeftType
+  (ExpressionType, InferState)
+numericBinaryOperandType operatorSymbol resultRule leftLiteralRange rightLiteralRange state leftType rightType =
+  case (resultRule, leftLiteralRange, rightLiteralRange, resolvedOperandType) of
+    (NumericSameTypeResult, Just leftRange, Just rightRange, SemanticVariable resultVar) ->
+      ( resolvedOperandType,
+        addNumericTypeVarConstraint
+          resultVar
+          (IntegralLiteralNumericConstraint (numericLiteralBinaryRange operatorSymbol resultRule leftRange rightRange))
+          state
+      )
+    _ -> (resolvedOperandType, state)
+  where
+    resolvedLeftType = resolveType state leftType
+    resolvedRightType = resolveType state rightType
+    resolvedOperandType =
+      case (resolvedLeftType, resolvedRightType) of
+        (SemanticFloat, concreteFloat64@(SemanticNumeric NumericFloat64)) -> concreteFloat64
+        (concreteFloat64@(SemanticNumeric NumericFloat64), SemanticFloat) -> concreteFloat64
+        _ -> resolvedLeftType
 
 applyApplicationBinaryRule ::
   ExpressionType ->
@@ -367,7 +367,7 @@ applyApplicationBinaryRule ::
   (Maybe ExpressionType, InferState)
 applyApplicationBinaryRule functionType argumentType state =
   let (resultTypeVar, stateAfterResultVar) = freshTypeVar state
-   in case unifyTypes functionType (TFunctionType argumentType resultTypeVar) stateAfterResultVar of
+   in case unifyTypes functionType (SemanticFunction argumentType resultTypeVar) stateAfterResultVar of
         Just unifiedState ->
           (Just (resolveType unifiedState resultTypeVar), unifiedState)
         Nothing ->
@@ -375,27 +375,27 @@ applyApplicationBinaryRule functionType argumentType state =
             addTypeError
               stateAfterResultVar
               ( mkApplyTypeError
-                  (resolveType stateAfterResultVar functionType)
-                  (resolveType stateAfterResultVar argumentType)
+                  (diagnosticType stateAfterResultVar functionType)
+                  (diagnosticType stateAfterResultVar argumentType)
               )
           )
 
 applyStrictEqualityBinaryRule ::
   Text ->
-  Expr ->
-  Expr ->
+  Expr 'Resolved ->
+  Expr 'Resolved ->
   ExpressionType ->
   ExpressionType ->
   InferState ->
-  (Maybe ExpressionType, InferState)
+  (Maybe ExpressionType, Maybe BinaryOperandTyping, InferState)
 applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightType state =
   case integerLiteralFloat64PromotionOperand state leftExpr rightExpr leftType rightType of
     Just _ ->
-      (Just TBoolType, state)
+      (Just SemanticBool, Just Float64PromotedOperands, state)
     Nothing ->
       case typedIntegerFloat64PromotionOperand state leftType rightType of
         Just _ ->
-          (Just TBoolType, state)
+          (Just SemanticBool, Just Float64PromotedOperands, state)
         Nothing ->
           strictEqualityFallback
   where
@@ -404,29 +404,32 @@ applyStrictEqualityBinaryRule operatorSymbol leftExpr rightExpr leftType rightTy
         Just unifiedState ->
           let resolvedType = resolveType unifiedState leftType
            in case resolvedType of
-                TVarType typeVar ->
-                  ( Just TBoolType,
+                SemanticVariable typeVar ->
+                  ( Just SemanticBool,
+                    Just (UniformBinaryOperands resolvedType),
                     addInferredEqualityClassConstraintIfVisible
-                      (TVarType typeVar)
+                      (SemanticVariable typeVar)
                       (addStrictEqualityTypeVarConstraint typeVar unifiedState)
                   )
                 _
                   | supportsRuntimeEqualityType unifiedState resolvedType ->
-                      (Just TBoolType, unifiedState)
+                      (Just SemanticBool, Just (UniformBinaryOperands resolvedType), unifiedState)
                   | otherwise ->
                       ( Nothing,
+                        Nothing,
                         addTypeError
                           unifiedState
-                          (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedType)
+                          (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType unifiedState resolvedType))
                       )
         Nothing ->
           ( Nothing,
+            Nothing,
             addTypeError
               state
               ( mkStrictEqualityTypeError
                   operatorSymbol
-                  (resolveType state leftType)
-                  (resolveType state rightType)
+                  (diagnosticType state leftType)
+                  (diagnosticType state rightType)
               )
           )
 
@@ -461,7 +464,7 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
           let (rightType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedLeftType stateAfterNumericConstraint
            in ( Just
-                  ( TFunctionType
+                  ( SemanticFunction
                       rightType
                       (numericRuleResultType resultRule rightType)
                   ),
@@ -471,7 +474,7 @@ applyNumericSectionLeftRule operatorSymbol resultRule leftType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state leftType))
+              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state leftType))
           )
 
 applyStrictEqualitySectionLeftRule ::
@@ -482,20 +485,20 @@ applyStrictEqualitySectionLeftRule ::
 applyStrictEqualitySectionLeftRule operatorSymbol leftType state =
   let resolvedLeftType = resolveType state leftType
    in case resolvedLeftType of
-        TVarType typeVar ->
-          ( Just (TFunctionType resolvedLeftType TBoolType),
+        SemanticVariable typeVar ->
+          ( Just (SemanticFunction resolvedLeftType SemanticBool),
             addInferredEqualityClassConstraintIfVisible
               resolvedLeftType
               (addStrictEqualityTypeVarConstraint typeVar state)
           )
         _
           | supportsRuntimeEqualityType state resolvedLeftType ->
-              (Just (TFunctionType resolvedLeftType TBoolType), state)
+              (Just (SemanticFunction resolvedLeftType SemanticBool), state)
           | otherwise ->
               ( Nothing,
                 addTypeError
                   state
-                  (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedLeftType)
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedLeftType))
               )
 
 inferSectionRightType ::
@@ -529,7 +532,7 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
           let (leftType, stateAfterSectionType) =
                 numericSectionCounterpartType resolvedRightType stateAfterNumericConstraint
            in ( Just
-                  ( TFunctionType
+                  ( SemanticFunction
                       leftType
                       (numericRuleResultType resultRule leftType)
                   ),
@@ -539,7 +542,7 @@ applyNumericSectionRightRule operatorSymbol resultRule rightType state =
           ( Nothing,
             addTypeError
               state
-              (mkNumericSectionOperandTypeError operatorSymbol (resolveType state rightType))
+              (mkNumericSectionOperandTypeError operatorSymbol (diagnosticType state rightType))
           )
 
 applyStrictEqualitySectionRightRule ::
@@ -550,31 +553,31 @@ applyStrictEqualitySectionRightRule ::
 applyStrictEqualitySectionRightRule operatorSymbol rightType state =
   let resolvedRightType = resolveType state rightType
    in case resolvedRightType of
-        TVarType typeVar ->
-          ( Just (TFunctionType resolvedRightType TBoolType),
+        SemanticVariable typeVar ->
+          ( Just (SemanticFunction resolvedRightType SemanticBool),
             addInferredEqualityClassConstraintIfVisible
               resolvedRightType
               (addStrictEqualityTypeVarConstraint typeVar state)
           )
         _
           | supportsRuntimeEqualityType state resolvedRightType ->
-              (Just (TFunctionType resolvedRightType TBoolType), state)
+              (Just (SemanticFunction resolvedRightType SemanticBool), state)
           | otherwise ->
               ( Nothing,
                 addTypeError
                   state
-                  (mkStrictEqualityUnsupportedTypeError operatorSymbol resolvedRightType)
+                  (mkStrictEqualityUnsupportedTypeError operatorSymbol (diagnosticType state resolvedRightType))
               )
 
 numericSectionCounterpartType :: ExpressionType -> InferState -> (ExpressionType, InferState)
 numericSectionCounterpartType sectionOperandType state =
-  case sectionOperandType of
-    TIntegerLiteralType literalRange ->
+  case integerLiteralRangeFor state sectionOperandType of
+    Just literalRange ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
        in ( operandType,
             addNumericTypeVarConstraint typeVar (IntegralLiteralNumericConstraint literalRange) stateAfterOperandType
           )
-    _ -> (sectionOperandType, state)
+    Nothing -> (sectionOperandType, state)
 
 numericLiteralBinaryRange ::
   Text ->
@@ -618,6 +621,9 @@ integerLiteralArithmeticResultRange operatorSymbol (IntegerLiteralRange leftMin 
 rangeFromValues :: [Integer] -> IntegerLiteralRange
 rangeFromValues values = IntegerLiteralRange (minimum values) (maximum values)
 
+diagnosticType :: InferState -> ExpressionType -> ExpressionType
+diagnosticType state = defaultLiteralTypes state . resolveType state
+
 instantiateOperatorType :: Text -> InferState -> Maybe (ExpressionType, InferState)
 instantiateOperatorType operatorSymbol state =
   case lookupOperatorRule operatorSymbol of
@@ -626,15 +632,15 @@ instantiateOperatorType operatorSymbol state =
           stateAfterNumericConstraint =
             addNumericTypeVarConstraint typeVar (numericRuleConstraint resultRule) stateAfterOperandType
        in Just
-            ( TFunctionType
+            ( SemanticFunction
                 operandType
-                (TFunctionType operandType (numericRuleResultType resultRule operandType)),
+                (SemanticFunction operandType (numericRuleResultType resultRule operandType)),
               stateAfterNumericConstraint
             )
     Just StrictEqualityRule ->
       let (typeVar, operandType, stateAfterOperandType) = freshTypeVariable state
        in Just
-            ( TFunctionType operandType (TFunctionType operandType TBoolType),
+            ( SemanticFunction operandType (SemanticFunction operandType SemanticBool),
               addInferredEqualityClassConstraintIfVisible
                 operandType
                 (addStrictEqualityTypeVarConstraint typeVar stateAfterOperandType)
@@ -643,9 +649,9 @@ instantiateOperatorType operatorSymbol state =
       let (argumentType, stateAfterArgumentType) = freshTypeVar state
           (resultType, stateAfterResultType) = freshTypeVar stateAfterArgumentType
        in Just
-            ( TFunctionType
-                (TFunctionType argumentType resultType)
-                (TFunctionType argumentType resultType),
+            ( SemanticFunction
+                (SemanticFunction argumentType resultType)
+                (SemanticFunction argumentType resultType),
               stateAfterResultType
             )
     Nothing -> Nothing

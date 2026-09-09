@@ -2,41 +2,41 @@
 
 module Main (main) where
 
-import qualified Data.Text as Text
 import Data.Text (Text)
+import qualified Data.Text as Text
+import Jazz.Compiler.Diagnostics
+  ( SourceSpan (..),
+  )
+import Jazz.Compiler.Diagnostics.Render
+  ( renderDiagnostic,
+  )
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileSource,
-    RunResult (..),
     compileSourceWithPrelude,
     runCompileErrors,
-    runRuntimeErrors,
     runModuleGraph,
+    runOutput,
+    runRuntimeErrors,
     runSource,
-    runSourceWithPrelude
+    runSourceWithPrelude,
   )
 import Jazz.Compiler.ModuleResolver
-  ( ModuleResolutionConfig (..)
-  )
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
-  )
-import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( ModuleResolutionConfig (..),
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
-    assertSingleErrorContains,
     assertSingleDiagnosticCode,
     assertSingleDiagnosticPrimarySpan,
     assertSingleDiagnosticRelatedSpan,
     assertSingleDiagnosticSubject,
-    runTestSuite
+    assertSingleErrorContains,
+    runTestSuite,
   )
 
 main :: IO ()
@@ -102,22 +102,22 @@ testExplicitTypeApplicationHintsStaySourceUnitScoped = do
       defaultWarningSettings
       ( Just
           ( """
-          class RuntimeFlag(a) { flag :: [a] -> Bool. }.
-          impl RuntimeFlag(Int) { flag = \\(values) -> True. }.
-          impl RuntimeFlag(Bool) { flag = \\(values) -> False. }.
-          empty = [].
-          fromPrelude = RuntimeFlag::flag (empty @Int).
-          """
+            class RuntimeFlag(a) { flag :: [a] -> Bool. }.
+            impl RuntimeFlag(Int) { flag = \\(values) -> True. }.
+            impl RuntimeFlag(Bool) { flag = \\(values) -> False. }.
+            empty = [].
+            fromPrelude = RuntimeFlag::flag (empty @Int).
+            """
           )
       )
       ( """
-      # pad
-      # pad
-      # pad
-      # pad
-      fromProgram = RuntimeFlag::flag (empty @Bool).
-      (fromPrelude, fromProgram).
-      """
+        # pad
+        # pad
+        # pad
+        # pad
+        fromProgram = RuntimeFlag::flag (empty @Bool).
+        (fromPrelude, fromProgram).
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -187,10 +187,12 @@ testPreludeBridgeRebindingDiagnostic = do
   result <-
     compileSourceWithPrelude
       defaultWarningSettings
-      (Just """
-      __kernel_map = __kernel_map.
-      __kernel_map = __kernel_map.
-      """)
+      ( Just
+          """
+          __kernel_map = __kernel_map.
+          __kernel_map = __kernel_map.
+          """
+      )
       "1."
   let diagnostics = compileErrors result
   assertSingleDiagnosticCode
@@ -224,38 +226,38 @@ testBundledPreludeExposesCapabilityClassesAndDefaultImplFacts = do
     compileSource
       defaultWarningSettings
       ( """
-      eqInt :: @{Eq(Int)}: Int.
-      eqInt = 1.
-      eqFloat :: @{Eq(Float)}: Float.
-      eqFloat = toFloat64 1.
-      eqBool :: @{Eq(Bool)}: Bool.
-      eqBool = True.
-      ordInt :: @{Ord(Int)}: Int.
-      ordInt = 1.
-      ordFloat :: @{Ord(Float)}: Float.
-      ordFloat = toFloat64 1.
-      numInt :: @{Num(Int)}: Int.
-      numInt = 1.
-      numFloat :: @{Num(Float)}: Float.
-      numFloat = toFloat64 1.
-      integralInt :: @{Integral(Int)}: Int.
-      integralInt = 1.
-      fractionalFloat :: @{Fractional(Float)}: Float.
-      fractionalFloat = toFloat64 1.
-      defaultInt :: @{Default(Int)}: Int.
-      defaultInt = 1.
-      defaultFloat :: @{Default(Float)}: Float.
-      defaultFloat = toFloat64 1.
-      defaultBool :: @{Default(Bool)}: Bool.
-      defaultBool = False.
-      showableInt :: @{Showable(Int)}: Int.
-      showableInt = 1.
-      showableFloat :: @{Showable(Float)}: Float.
-      showableFloat = toFloat64 1.
-      showableBool :: @{Showable(Bool)}: Bool.
-      showableBool = True.
+        eqInt :: @{Eq(Int)}: Int.
+        eqInt = 1.
+        eqFloat :: @{Eq(Float)}: Float.
+        eqFloat = toFloat64 1.
+        eqBool :: @{Eq(Bool)}: Bool.
+        eqBool = True.
+        ordInt :: @{Ord(Int)}: Int.
+        ordInt = 1.
+        ordFloat :: @{Ord(Float)}: Float.
+        ordFloat = toFloat64 1.
+        numInt :: @{Num(Int)}: Int.
+        numInt = 1.
+        numFloat :: @{Num(Float)}: Float.
+        numFloat = toFloat64 1.
+        integralInt :: @{Integral(Int)}: Int.
+        integralInt = 1.
+        fractionalFloat :: @{Fractional(Float)}: Float.
+        fractionalFloat = toFloat64 1.
+        defaultInt :: @{Default(Int)}: Int.
+        defaultInt = 1.
+        defaultFloat :: @{Default(Float)}: Float.
+        defaultFloat = toFloat64 1.
+        defaultBool :: @{Default(Bool)}: Bool.
+        defaultBool = False.
+        showableInt :: @{Showable(Int)}: Int.
+        showableInt = 1.
+        showableFloat :: @{Showable(Float)}: Float.
+        showableFloat = toFloat64 1.
+        showableBool :: @{Showable(Bool)}: Bool.
+        showableBool = True.
 
-      """
+        """
       )
   assertEqual "bundled prelude default capability facts" [] (compileErrors result)
 
@@ -288,17 +290,19 @@ testBundledPreludeExposesWidthSpecificNumericImplFacts = do
     widthSpecificNumericImplFactCase targetType expression className =
       let bindingName =
             Text.toLower (className <> targetType)
-       in
-        [ bindingName <> " :: @{" <> className <> "(" <> targetType <> ")}: " <> targetType <> ".",
-          bindingName <> " = " <> expression <> "."
-        ]
+       in [ bindingName <> " :: @{" <> className <> "(" <> targetType <> ")}: " <> targetType <> ".",
+            bindingName <> " = " <> expression <> "."
+          ]
 
 testPreludeExposesNumericConversionAliases :: IO ()
 testPreludeExposesNumericConversionAliases = do
-  result <- compileSource defaultWarningSettings """
-  x :: UInt8.
-  x = toUInt8 1.
-  """
+  result <-
+    compileSource
+      defaultWarningSettings
+      """
+      x :: UInt8.
+      x = toUInt8 1.
+      """
   assertEqual "bundled prelude exposes toUInt8" [] (compileErrors result)
 
 testBundledPreludeExposesDefaultNumericConversionAliases :: IO ()
@@ -307,12 +311,12 @@ testBundledPreludeExposesDefaultNumericConversionAliases = do
     compileSource
       defaultWarningSettings
       ( """
-      integer :: Int64.
-      integer = toInt 9223372036854775807.0.
-      floating :: Float64.
-      floating = toFloat 1.
+        integer :: Int64.
+        integer = toInt 9223372036854775807.0.
+        floating :: Float64.
+        floating = toFloat 1.
 
-      """
+        """
       )
   assertEqual "bundled prelude exposes toInt/toFloat" [] (compileErrors result)
 
@@ -336,15 +340,15 @@ testBundledPreludeExposesEqFloat16EqualsMethodBody = do
     runSource
       defaultWarningSettings
       ( """
-      left :: Float16.
-      left = 1.5.
-      same :: Float16.
-      same = 1.5.
-      different :: Float16.
-      different = 2.25.
-      (Eq::equals left same, Eq::equals left different).
+        left :: Float16.
+        left = 1.5.
+        same :: Float16.
+        same = 1.5.
+        different :: Float16.
+        different = 2.25.
+        (Eq::equals left same, Eq::equals left different).
 
-      """
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -356,15 +360,15 @@ testBundledPreludeExposesEqFloat32EqualsMethodBody = do
     runSource
       defaultWarningSettings
       ( """
-      left :: Float32.
-      left = 1.5.
-      same :: Float32.
-      same = 1.5.
-      different :: Float32.
-      different = 2.25.
-      (Eq::equals left same, Eq::equals left different).
+        left :: Float32.
+        left = 1.5.
+        same :: Float32.
+        same = 1.5.
+        different :: Float32.
+        different = 2.25.
+        (Eq::equals left same, Eq::equals left different).
 
-      """
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -376,15 +380,15 @@ testBundledPreludeExposesEqFloat64EqualsMethodBody = do
     runSource
       defaultWarningSettings
       ( """
-      left :: Float64.
-      left = toFloat64 1.
-      same :: Float64.
-      same = toFloat64 1.
-      different :: Float64.
-      different = toFloat64 2.
-      (Eq::equals left same, Eq::equals left different).
+        left :: Float64.
+        left = toFloat64 1.
+        same :: Float64.
+        same = toFloat64 1.
+        different :: Float64.
+        different = toFloat64 2.
+        (Eq::equals left same, Eq::equals left different).
 
-      """
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -399,32 +403,35 @@ testBundledPreludeExposesEqBoolEqualsMethodBody = do
 
 testBundledPreludeEqualsEveryIntegerWidth :: IO ()
 testBundledPreludeEqualsEveryIntegerWidth = do
-  result <- runSource defaultWarningSettings """
-  int8Value :: Int8.
-  int8Value = toInt8 1.
-  int16Value :: Int16.
-  int16Value = toInt16 1.
-  int32Value :: Int32.
-  int32Value = toInt32 1.
-  int64Value :: Int64.
-  int64Value = toInt64 1.
-  uint8Value :: UInt8.
-  uint8Value = toUInt8 1.
-  uint16Value :: UInt16.
-  uint16Value = toUInt16 1.
-  uint32Value :: UInt32.
-  uint32Value = toUInt32 1.
-  uint64Value :: UInt64.
-  uint64Value = toUInt64 1.
-  (Eq::equals int8Value (toInt8 1), Eq::equals int8Value (toInt8 2),
-   Eq::equals int16Value (toInt16 1), Eq::equals int16Value (toInt16 2),
-   Eq::equals int32Value (toInt32 1), Eq::equals int32Value (toInt32 2),
-   Eq::equals int64Value (toInt64 1), Eq::equals int64Value (toInt64 2),
-   Eq::equals uint8Value (toUInt8 1), Eq::equals uint8Value (toUInt8 2),
-   Eq::equals uint16Value (toUInt16 1), Eq::equals uint16Value (toUInt16 2),
-   Eq::equals uint32Value (toUInt32 1), Eq::equals uint32Value (toUInt32 2),
-   Eq::equals uint64Value (toUInt64 1), Eq::equals uint64Value (toUInt64 2)).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      int8Value :: Int8.
+      int8Value = toInt8 1.
+      int16Value :: Int16.
+      int16Value = toInt16 1.
+      int32Value :: Int32.
+      int32Value = toInt32 1.
+      int64Value :: Int64.
+      int64Value = toInt64 1.
+      uint8Value :: UInt8.
+      uint8Value = toUInt8 1.
+      uint16Value :: UInt16.
+      uint16Value = toUInt16 1.
+      uint32Value :: UInt32.
+      uint32Value = toUInt32 1.
+      uint64Value :: UInt64.
+      uint64Value = toUInt64 1.
+      (Eq::equals int8Value (toInt8 1), Eq::equals int8Value (toInt8 2),
+       Eq::equals int16Value (toInt16 1), Eq::equals int16Value (toInt16 2),
+       Eq::equals int32Value (toInt32 1), Eq::equals int32Value (toInt32 2),
+       Eq::equals int64Value (toInt64 1), Eq::equals int64Value (toInt64 2),
+       Eq::equals uint8Value (toUInt8 1), Eq::equals uint8Value (toUInt8 2),
+       Eq::equals uint16Value (toUInt16 1), Eq::equals uint16Value (toUInt16 2),
+       Eq::equals uint32Value (toUInt32 1), Eq::equals uint32Value (toUInt32 2),
+       Eq::equals uint64Value (toUInt64 1), Eq::equals uint64Value (toUInt64 2)).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual
@@ -457,52 +464,57 @@ testBundledPreludeExposesOrderingConstructors = do
     lookupSource sourcePath =
       pure $
         case sourcePath of
-          "src/App/Main.jz" -> Just """
-            module App::Main {
-              compareValues :: Int -> Int -> Ordering.
-              compareValues = \\(left, right) -> if left < right then LT else if left == right then EQ else GT.
-              (compareValues 1 2, compareValues 2 2, compareValues 3 2).
-            }
-            """
+          "src/App/Main.jz" ->
+            Just
+              """
+              module App::Main {
+                compareValues :: Int -> Int -> Ordering.
+                compareValues = \\(left, right) -> if left < right then LT else if left == right then EQ else GT.
+                (compareValues 1 2, compareValues 2 2, compareValues 3 2).
+              }
+              """
           _ -> Nothing
 
 testBundledPreludeComparesEveryNumericWidth :: IO ()
 testBundledPreludeComparesEveryNumericWidth = do
-  result <- runSource defaultWarningSettings """
-  intLeft :: Int.
-  intLeft = 1.
-  floatLeft :: Float.
-  floatLeft = 1.0.
-  int8Left :: Int8.
-  int8Left = 1.
-  int16Left :: Int16.
-  int16Left = 1.
-  int32Left :: Int32.
-  int32Left = 1.
-  int64Left :: Int64.
-  int64Left = 1.
-  uint8Left :: UInt8.
-  uint8Left = 1.
-  uint16Left :: UInt16.
-  uint16Left = 1.
-  uint32Left :: UInt32.
-  uint32Left = 1.
-  uint64Left :: UInt64.
-  uint64Left = 1.
-  float16Left :: Float16.
-  float16Left = 1.0.
-  float32Left :: Float32.
-  float32Left = 1.0.
-  float64Left :: Float64.
-  float64Left = 1.0.
-  (Ord::compare intLeft 2, Ord::compare floatLeft 2.0,
-   Ord::compare int8Left (toInt8 2), Ord::compare int16Left (toInt16 2),
-   Ord::compare int32Left (toInt32 2), Ord::compare int64Left (toInt64 2),
-   Ord::compare uint8Left (toUInt8 2), Ord::compare uint16Left (toUInt16 2),
-   Ord::compare uint32Left (toUInt32 2), Ord::compare uint64Left (toUInt64 2),
-   Ord::compare float16Left (toFloat16 2), Ord::compare float32Left (toFloat32 2),
-   Ord::compare float64Left (toFloat64 2)).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      intLeft :: Int.
+      intLeft = 1.
+      floatLeft :: Float.
+      floatLeft = 1.0.
+      int8Left :: Int8.
+      int8Left = 1.
+      int16Left :: Int16.
+      int16Left = 1.
+      int32Left :: Int32.
+      int32Left = 1.
+      int64Left :: Int64.
+      int64Left = 1.
+      uint8Left :: UInt8.
+      uint8Left = 1.
+      uint16Left :: UInt16.
+      uint16Left = 1.
+      uint32Left :: UInt32.
+      uint32Left = 1.
+      uint64Left :: UInt64.
+      uint64Left = 1.
+      float16Left :: Float16.
+      float16Left = 1.0.
+      float32Left :: Float32.
+      float32Left = 1.0.
+      float64Left :: Float64.
+      float64Left = 1.0.
+      (Ord::compare intLeft 2, Ord::compare floatLeft 2.0,
+       Ord::compare int8Left (toInt8 2), Ord::compare int16Left (toInt16 2),
+       Ord::compare int32Left (toInt32 2), Ord::compare int64Left (toInt64 2),
+       Ord::compare uint8Left (toUInt8 2), Ord::compare uint16Left (toUInt16 2),
+       Ord::compare uint32Left (toUInt32 2), Ord::compare uint64Left (toUInt64 2),
+       Ord::compare float16Left (toFloat16 2), Ord::compare float32Left (toFloat32 2),
+       Ord::compare float64Left (toFloat64 2)).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual
@@ -512,63 +524,69 @@ testBundledPreludeComparesEveryNumericWidth = do
 
 testBundledPreludeShowsPrimitiveValues :: IO ()
 testBundledPreludeShowsPrimitiveValues = do
-  result <- runSource defaultWarningSettings """
-  apostrophe = '\\''.
-  backslash = '\\\\'.
-  expectedChar = __kernel_textAppendChar (__kernel_textAppendChar (__kernel_textAppendChar (__kernel_textAppendChar "" apostrophe) backslash) 'n') apostrophe.
-  quote = '"'.
-  expectedText = __kernel_textAppendChar (__kernel_textAppend (__kernel_textAppendChar "" quote) "Jazz") quote.
-  (Showable::show 42 == "42",
-   Showable::show 1.5 == "1.5",
-   Showable::show True == "True",
-   Showable::show '\\n' == expectedChar,
-   Showable::show "Jazz" == expectedText).
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      apostrophe = '\\''.
+      backslash = '\\\\'.
+      expectedChar = __kernel_textAppendChar (__kernel_textAppendChar (__kernel_textAppendChar (__kernel_textAppendChar "" apostrophe) backslash) 'n') apostrophe.
+      quote = '"'.
+      expectedText = __kernel_textAppendChar (__kernel_textAppend (__kernel_textAppendChar "" quote) "Jazz") quote.
+      (Showable::show 42 == "42",
+       Showable::show 1.5 == "1.5",
+       Showable::show True == "True",
+       Showable::show '\\n' == expectedChar,
+       Showable::show "Jazz" == expectedText).
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "primitive show output" (Just "(True, True, True, True, True)") (runOutput result)
 
 testBundledPreludeSuppliesPrimitiveDefaults :: IO ()
 testBundledPreludeSuppliesPrimitiveDefaults = do
-  result <- runSource defaultWarningSettings """
-  intDefault :: Int.
-  intDefault = Default::defaultValue @Int.
-  floatDefault :: Float.
-  floatDefault = Default::defaultValue @Float.
-  int8Default :: Int8.
-  int8Default = Default::defaultValue @Int8.
-  int16Default :: Int16.
-  int16Default = Default::defaultValue @Int16.
-  int32Default :: Int32.
-  int32Default = Default::defaultValue @Int32.
-  int64Default :: Int64.
-  int64Default = Default::defaultValue @Int64.
-  uint8Default :: UInt8.
-  uint8Default = Default::defaultValue @UInt8.
-  uint16Default :: UInt16.
-  uint16Default = Default::defaultValue @UInt16.
-  uint32Default :: UInt32.
-  uint32Default = Default::defaultValue @UInt32.
-  uint64Default :: UInt64.
-  uint64Default = Default::defaultValue @UInt64.
-  float16Default :: Float16.
-  float16Default = Default::defaultValue @Float16.
-  float32Default :: Float32.
-  float32Default = Default::defaultValue @Float32.
-  float64Default :: Float64.
-  float64Default = Default::defaultValue @Float64.
-  boolDefault :: Bool.
-  boolDefault = Default::defaultValue @Bool.
-  charDefault :: Char.
-  charDefault = Default::defaultValue @Char.
-  textDefault :: Text.
-  textDefault = Default::defaultValue @Text.
-  (intDefault == 0, floatDefault == 0.0,
-   int8Default == 0, int16Default == 0, int32Default == 0, int64Default == 0,
-   uint8Default == 0, uint16Default == 0, uint32Default == 0, uint64Default == 0,
-   float16Default == toFloat16 0, float32Default == toFloat32 0, float64Default == toFloat64 0,
-   boolDefault == False, charDefault == '\\0', textDefault == "").
-  """
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      intDefault :: Int.
+      intDefault = Default::defaultValue @Int.
+      floatDefault :: Float.
+      floatDefault = Default::defaultValue @Float.
+      int8Default :: Int8.
+      int8Default = Default::defaultValue @Int8.
+      int16Default :: Int16.
+      int16Default = Default::defaultValue @Int16.
+      int32Default :: Int32.
+      int32Default = Default::defaultValue @Int32.
+      int64Default :: Int64.
+      int64Default = Default::defaultValue @Int64.
+      uint8Default :: UInt8.
+      uint8Default = Default::defaultValue @UInt8.
+      uint16Default :: UInt16.
+      uint16Default = Default::defaultValue @UInt16.
+      uint32Default :: UInt32.
+      uint32Default = Default::defaultValue @UInt32.
+      uint64Default :: UInt64.
+      uint64Default = Default::defaultValue @UInt64.
+      float16Default :: Float16.
+      float16Default = Default::defaultValue @Float16.
+      float32Default :: Float32.
+      float32Default = Default::defaultValue @Float32.
+      float64Default :: Float64.
+      float64Default = Default::defaultValue @Float64.
+      boolDefault :: Bool.
+      boolDefault = Default::defaultValue @Bool.
+      charDefault :: Char.
+      charDefault = Default::defaultValue @Char.
+      textDefault :: Text.
+      textDefault = Default::defaultValue @Text.
+      (intDefault == 0, floatDefault == 0.0,
+       int8Default == 0, int16Default == 0, int32Default == 0, int64Default == 0,
+       uint8Default == 0, uint16Default == 0, uint32Default == 0, uint64Default == 0,
+       float16Default == toFloat16 0, float32Default == toFloat32 0, float64Default == toFloat64 0,
+       boolDefault == False, charDefault == '\\0', textDefault == "").
+      """
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual
@@ -583,11 +601,11 @@ testCompileWithoutPreludeRejectsNumericConversionAliases = do
       defaultWarningSettings
       Nothing
       ( """
-      x = toUInt8 1.
-      y = toInt 1.
-      z = toFloat 1.
+        x = toUInt8 1.
+        y = toInt 1.
+        z = toFloat 1.
 
-      """
+        """
       )
   assertEqual
     "public numeric conversion aliases are unavailable without prelude"
@@ -604,14 +622,14 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-      class Eq(a) {
-      equals :: a -> a -> Bool.
-      }.
-      impl Eq(Int) { }.
-      result = Eq::equals 1 1.
-      result.
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        impl Eq(Int) { }.
+        result = Eq::equals 1 1.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "no-prelude compile has no bundled Eq(Int).equals method body"
@@ -622,14 +640,14 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-      class Eq(a) {
-      equals :: a -> a -> Bool.
-      }.
-      impl Eq(Bool) { }.
-      result = Eq::equals True True.
-      result.
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        impl Eq(Bool) { }.
+        result = Eq::equals True True.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "no-prelude compile has no bundled Eq(Bool).equals method body"
@@ -640,18 +658,18 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-      class Eq(a) {
-      equals :: a -> a -> Bool.
-      }.
-      impl Eq(Float) { }.
-      left :: Float.
-      left = 1.5.
-      right :: Float.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        impl Eq(Float) { }.
+        left :: Float.
+        left = 1.5.
+        right :: Float.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "no-prelude compile has no bundled Eq(Float).equals method body"
@@ -662,18 +680,18 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-      class Eq(a) {
-      equals :: a -> a -> Bool.
-      }.
-      impl Eq(Float16) { }.
-      left :: Float16.
-      left = 1.5.
-      right :: Float16.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        impl Eq(Float16) { }.
+        left :: Float16.
+        left = 1.5.
+        right :: Float16.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "no-prelude compile has no bundled Eq(Float16).equals method body"
@@ -684,18 +702,18 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-      class Eq(a) {
-      equals :: a -> a -> Bool.
-      }.
-      impl Eq(Float32) { }.
-      left :: Float32.
-      left = 1.5.
-      right :: Float32.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        impl Eq(Float32) { }.
+        left :: Float32.
+        left = 1.5.
+        right :: Float32.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "no-prelude compile has no bundled Eq(Float32).equals method body"
@@ -706,18 +724,18 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       Nothing
       ( """
-      class Eq(a) {
-      equals :: a -> a -> Bool.
-      }.
-      impl Eq(Float64) { }.
-      left :: Float64.
-      left = 1.5.
-      right :: Float64.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        class Eq(a) {
+        equals :: a -> a -> Bool.
+        }.
+        impl Eq(Float64) { }.
+        left :: Float64.
+        left = 1.5.
+        right :: Float64.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "no-prelude compile has no bundled Eq(Float64).equals method body"
@@ -726,18 +744,26 @@ testCompileWithoutPreludeRejectsBundledEqEqualsMethodBodies = do
 
 testCompileWithoutPreludeRejectsBundledCapabilityFacts :: IO ()
 testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing """
-  x :: @{Eq(Int)}: Int.
-  x = 1.
-  """
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      x :: @{Eq(Int)}: Int.
+      x = 1.
+      """
   assertSingleErrorContains
     "no-prelude compile has no bundled capability facts"
     "missing class declaration 'Eq'"
     (compileErrors result)
-  widthResult <- compileSourceWithPrelude defaultWarningSettings Nothing """
-  x :: @{Num(UInt16)}: UInt16.
-  x = 1.
-  """
+  widthResult <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      x :: @{Num(UInt16)}: UInt16.
+      x = 1.
+      """
   assertSingleErrorContains
     "no-prelude compile has no bundled width-specific capability facts"
     "missing class declaration 'Num'"
@@ -745,18 +771,26 @@ testCompileWithoutPreludeRejectsBundledCapabilityFacts = do
 
 testExplicitPreludeDoesNotInheritBundledImplFacts :: IO ()
 testExplicitPreludeDoesNotInheritBundledImplFacts = do
-  result <- compileSourceWithPrelude defaultWarningSettings (Just "class Eq(a) { }.") """
-  x :: @{Eq(Int)}: Int.
-  x = 1.
-  """
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      (Just "class Eq(a) { }.")
+      """
+      x :: @{Eq(Int)}: Int.
+      x = 1.
+      """
   assertSingleErrorContains
     "explicit prelude uses only supplied impl facts"
     "missing impl fact 'Eq(Int)'"
     (compileErrors result)
-  widthResult <- compileSourceWithPrelude defaultWarningSettings (Just "class Num(a) { }.") """
-  x :: @{Num(UInt16)}: UInt16.
-  x = 1.
-  """
+  widthResult <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      (Just "class Num(a) { }.")
+      """
+      x :: @{Num(UInt16)}: UInt16.
+      x = 1.
+      """
   assertSingleErrorContains
     "explicit prelude uses only supplied width-specific impl facts"
     "missing impl fact 'Num(UInt16)'"
@@ -769,12 +803,12 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-          class Eq(a) {
-          equals :: a -> a -> Bool.
-          }.
-          impl Eq(Int) { }.
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Int) { }.
 
-          """
+            """
           )
       )
       """
@@ -790,12 +824,12 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-          class Eq(a) {
-          equals :: a -> a -> Bool.
-          }.
-          impl Eq(Bool) { }.
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Bool) { }.
 
-          """
+            """
           )
       )
       """
@@ -811,23 +845,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-          class Eq(a) {
-          equals :: a -> a -> Bool.
-          }.
-          impl Eq(Float) { }.
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Float) { }.
 
-          """
+            """
           )
       )
       ( """
-      left :: Float.
-      left = 1.5.
-      right :: Float.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        left :: Float.
+        left = 1.5.
+        right :: Float.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "explicit prelude has no bundled Eq(Float).equals method body"
@@ -838,23 +872,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-          class Eq(a) {
-          equals :: a -> a -> Bool.
-          }.
-          impl Eq(Float16) { }.
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Float16) { }.
 
-          """
+            """
           )
       )
       ( """
-      left :: Float16.
-      left = 1.5.
-      right :: Float16.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        left :: Float16.
+        left = 1.5.
+        right :: Float16.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "explicit prelude has no bundled Eq(Float16).equals method body"
@@ -865,23 +899,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-          class Eq(a) {
-          equals :: a -> a -> Bool.
-          }.
-          impl Eq(Float32) { }.
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Float32) { }.
 
-          """
+            """
           )
       )
       ( """
-      left :: Float32.
-      left = 1.5.
-      right :: Float32.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        left :: Float32.
+        left = 1.5.
+        right :: Float32.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "explicit prelude has no bundled Eq(Float32).equals method body"
@@ -892,23 +926,23 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
       defaultWarningSettings
       ( Just
           ( """
-          class Eq(a) {
-          equals :: a -> a -> Bool.
-          }.
-          impl Eq(Float64) { }.
+            class Eq(a) {
+            equals :: a -> a -> Bool.
+            }.
+            impl Eq(Float64) { }.
 
-          """
+            """
           )
       )
       ( """
-      left :: Float64.
-      left = 1.5.
-      right :: Float64.
-      right = 1.5.
-      result = Eq::equals left right.
-      result.
+        left :: Float64.
+        left = 1.5.
+        right :: Float64.
+        right = 1.5.
+        result = Eq::equals left right.
+        result.
 
-      """
+        """
       )
   assertSingleErrorContains
     "explicit prelude has no bundled Eq(Float64).equals method body"
@@ -917,10 +951,14 @@ testExplicitPreludeDoesNotInheritBundledEqEqualsMethodBodies = do
 
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable :: IO ()
 testCompileWithoutPreludeKeepsNumericConversionKernelBridgesAvailable = do
-  result <- compileSourceWithPrelude defaultWarningSettings Nothing """
-  x :: UInt8.
-  x = __kernel_toUInt8 1.
-  """
+  result <-
+    compileSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      """
+      x :: UInt8.
+      x = __kernel_toUInt8 1.
+      """
   assertEqual
     "numeric conversion kernel bridge names remain available without prelude"
     []
@@ -955,14 +993,20 @@ testBootstrapModulesStayOutsideBundledPrelude =
   mapM_ assertBundledPreludeNameUnavailable unavailableCases
   where
     unavailableCases =
-      [ ("Maybe", """
-      candidate :: Maybe(Int).
-      candidate = 1.
-      """, "E2009"),
-        ("Result", """
-        candidate :: Result(Text, Int).
-        candidate = 1.
-        """, "E2009"),
+      [ ( "Maybe",
+          """
+          candidate :: Maybe(Int).
+          candidate = 1.
+          """,
+          "E2009"
+        ),
+        ( "Result",
+          """
+          candidate :: Result(Text, Int).
+          candidate = 1.
+          """,
+          "E2009"
+        ),
         ("Nothing", "Nothing.", "E1001"),
         ("Just", "Just 1.", "E1001"),
         ("Err", "Err \"failure\".", "E1001"),
@@ -971,14 +1015,20 @@ testBootstrapModulesStayOutsideBundledPrelude =
         ("textLength", "textLength \"Jazz\".", "E1001"),
         ("textIsEmpty", "textIsEmpty \"\".", "E1001"),
         ("textUncons", "textUncons \"Jazz\".", "E1001"),
-        ("IOErrorCategory", """
-        candidate :: IOErrorCategory.
-        candidate = 1.
-        """, "E2009"),
-        ("IOError", """
-        candidate :: IOError.
-        candidate = 1.
-        """, "E2009"),
+        ( "IOErrorCategory",
+          """
+          candidate :: IOErrorCategory.
+          candidate = 1.
+          """,
+          "E2009"
+        ),
+        ( "IOError",
+          """
+          candidate :: IOError.
+          candidate = 1.
+          """,
+          "E2009"
+        ),
         ("NotFound", "NotFound.", "E1001"),
         ("PermissionDenied", "PermissionDenied.", "E1001"),
         ("AlreadyExists", "AlreadyExists.", "E1001"),

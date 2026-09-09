@@ -1,4 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Main (main) where
 
@@ -14,9 +17,9 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraph,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.FractionalLiteral (mkFractionalLiteralSource)
@@ -26,9 +29,13 @@ import Jazz.Compiler.ModuleExports
     ModuleTypeConstructorSelector (..),
   )
 import Jazz.Compiler.ModuleGraph
-  ( CoreModule (..),
-    DeclaredModuleExports (..),
-    ResolvedImport (..),
+  ( CoreModule,
+  )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
   )
 import Jazz.Compiler.ModuleResolver (ModuleResolutionConfig (..))
 import Jazz.Compiler.Name
@@ -37,18 +44,99 @@ import Jazz.Compiler.Name
     generatedName,
     mkIdentifier,
     qualifiedName,
-    resolvedAmbientName,
     sourceName,
   )
 import Jazz.Compiler.Parser.AST
-  ( SurfaceExpr (SEBlock),
-    SurfaceStatement (SSModule),
+  ( SurfaceExpr (..),
+    SurfaceExprForm (SEBlock),
+    SurfaceStatement (SSImport, SSModule),
   )
 import Jazz.Compiler.Parser.Lower
-  ( lowerSurfaceModuleDetailed,
+  ( ModuleLoweringFailure,
+    lowerSurfaceModuleDetailed,
   )
 import Jazz.Compiler.Runtime (renderRuntimeValue)
+import Jazz.Compiler.TypeRepresentation
+  ( pattern ConstrainedSignature,
+    pattern NumericFloat16,
+    pattern NumericFloat32,
+    pattern NumericFloat64,
+    pattern NumericInt16,
+    pattern NumericInt32,
+    pattern NumericInt64,
+    pattern NumericInt8,
+    pattern NumericUInt16,
+    pattern NumericUInt32,
+    pattern NumericUInt64,
+    pattern NumericUInt8,
+    pattern SignatureArrowToken,
+    pattern SignatureAtToken,
+    pattern SignatureColonToken,
+    pattern SignatureCommaToken,
+    pattern SignatureConstraint,
+    pattern SignatureIntToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureOperatorToken,
+    pattern SignatureOtherToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
+  )
 import Jazz.Compiler.WarningConfig (defaultWarningSettings)
+import Jazz.TestCore
+  ( loweredApply,
+    loweredAsPattern,
+    loweredBinary,
+    loweredBlock,
+    loweredCaseArm,
+    loweredClass,
+    loweredClassMethodSignature,
+    loweredConsListPattern,
+    loweredConstructor,
+    loweredConstructorPattern,
+    loweredData,
+    loweredExpression,
+    loweredIf,
+    loweredImpl,
+    loweredImplMethod,
+    loweredImport,
+    loweredLambda,
+    loweredLet,
+    loweredList,
+    loweredListPattern,
+    loweredLiteral,
+    loweredLiteralPattern,
+    loweredModule,
+    loweredOperatorValue,
+    loweredOrPattern,
+    loweredPatternCase,
+    loweredSectionLeft,
+    loweredSectionRight,
+    loweredSignature,
+    loweredTuple,
+    loweredTuplePattern,
+    loweredTypeApplication,
+    loweredVariable,
+    loweredVariablePattern,
+    loweredWildcardPattern,
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -66,7 +154,6 @@ tests =
   [ ("constructs hosted core values through the real module graph", testJazzSchemaRendering),
     ("canonicalizes every active core constructor", testCoreInventory),
     ("preserves arbitrary integers and exact fractional source parts", testNumericFidelity),
-    ("rejects names introduced after lowering", testNameBoundary),
     ("canonicalizes module metadata and qualified spans", testModuleInventory),
     ("preserves structured module-lowering failures", testModuleFailureBoundary)
   ]
@@ -101,9 +188,9 @@ testNumericFidelity = do
     expectRight
       "numeric core adapter"
       ( canonicalCoreExprRuntimeValue
-          ( ETuple
-              [ ELit (LInt 123456789012345678901234567890),
-                ELit (LFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32))
+          ( loweredTuple
+              [ loweredLiteral (LInt 123456789012345678901234567890),
+                loweredLiteral (LFloat 1.05 (mkFractionalLiteralSource 1 50 3) (Just NumericFloat32))
               ]
           )
       )
@@ -111,18 +198,16 @@ testNumericFidelity = do
   assertContains "arbitrary integer" "123456789012345678901234567890" rendered
   assertContains "exact fractional source" "CoreFractionalLiteral(\"1\", \"050\", Just(CoreFloat32Type))" rendered
 
-testNameBoundary :: IO ()
-testNameBoundary =
-  assertTextLeftContains
-    "resolved name rejection"
-    "post-lowering name"
-    ( canonicalCoreExprRuntimeValue
-        (EVar (resolvedAmbientName ValueNamespace (mkIdentifier "value")))
-    )
-
 testModuleInventory :: IO ()
 testModuleInventory = do
-  value <- expectRight "core module adapter" (canonicalCoreModuleRuntimeValue moduleInventory)
+  coreModule <-
+    case moduleInventoryResult of
+      Left failure -> failTest ("lower core module inventory failed: " <> Text.pack (show failure))
+      Right inventoryModule -> pure inventoryModule
+  value <-
+    expectRight
+      "core module adapter"
+      (canonicalCoreModuleRuntimeValue (Just ["App", "Main"]) coreModule)
   let rendered = renderRuntimeValue value
   assertContains "declared path" "[\"App\", \"Main\"]" rendered
   assertContains "qualified span" "CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 1, 1)" rendered
@@ -138,13 +223,16 @@ testModuleFailureBoundary = do
     expectRight
       "multiple module declarations"
       ( canonicalCoreModuleResultRuntimeValue
+          (Just ["App", "First"])
           ( lowerSurfaceModuleDetailed
-              "src/App/Main.jz"
-              ["App", "Main"]
-              ( SEBlock
-                  [ SSModule span1 ["App", "First"] Nothing,
-                    SSModule span2 ["App", "Second"] Nothing
-                  ]
+              testModuleIdentity
+              ( SurfaceExpr
+                  span1
+                  ( SEBlock
+                      [ SSModule span1 ["App", "First"] Nothing,
+                        SSModule span2 ["App", "Second"] Nothing
+                      ]
+                  )
               )
           )
       )
@@ -156,13 +244,13 @@ testModuleFailureBoundary = do
   pathMismatch <-
     expectRight
       "module path mismatch"
-    ( canonicalCoreModuleResultRuntimeValue
-        ( lowerSurfaceModuleDetailed
-            "src/App/Main.jz"
-            ["App", "Main"]
-            (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing])
-        )
-    )
+      ( canonicalCoreModuleResultRuntimeValue
+          (Just ["Wrong", "Path"])
+          ( lowerSurfaceModuleDetailed
+              testModuleIdentity
+              (SurfaceExpr span2 (SEBlock [SSModule span2 ["Wrong", "Path"] Nothing]))
+          )
+      )
   assertEqual
     "module path mismatch value"
     "CoreModuleLoweringFailed(CoreModulePathMismatchFailure(CanonicalSourcePath(\"src/App/Main.jz\"), [\"App\", \"Main\"], CoreModuleDeclaration(CoreSpan(Just(CanonicalSourcePath(\"src/App/Main.jz\")), 2, 3), [\"Wrong\", \"Path\"])))"
@@ -171,94 +259,88 @@ testModuleFailureBoundary = do
   successfulModule <-
     expectRight
       "successful module result"
-      (canonicalCoreModuleResultRuntimeValue (Right moduleInventory))
+      (canonicalCoreModuleResultRuntimeValue (Just ["App", "Main"]) moduleInventoryResult)
   assertContains "successful module result" "CoreModuleLowered" (renderRuntimeValue successfulModule)
 
-assertTextLeftContains :: Show value => Text.Text -> Text.Text -> Either Text.Text value -> IO ()
-assertTextLeftContains label needle value =
-  case value of
-    Left err -> assertContains label needle err
-    Right ok -> failTest (label <> ": expected Left, got Right " <> Text.pack (show ok))
-
-simpleCoreExpression :: Expr
+simpleCoreExpression :: Expr 'Lowered
 simpleCoreExpression =
-  EApply
-    (EVar (sourceName (mkIdentifier "f")))
-    (ELit (LInt 42))
+  loweredApply
+    (loweredVariable (sourceName (mkIdentifier "f")))
+    (loweredLiteral (LInt 42))
 
-coreInventory :: [Expr]
+coreInventory :: [Expr 'Lowered]
 coreInventory =
-  [ ELit (LInt 1),
-    ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing),
-    ELit (LBool True),
-    ELit (LChar 'x'),
-    ELit (LText "Jazz"),
-    EVar (sourceName (mkIdentifier "value")),
-    EVar (qualifiedName (mkIdentifier "Alias") (mkIdentifier "member")),
-    EVar (generatedName (LambdaPatternArgument 2)),
-    EVar (generatedName (OperatorBinding "$operator:2B")),
-    ELambda (sourceName (mkIdentifier "argument")) (EVar (sourceName (mkIdentifier "argument"))),
-    EOperatorValue "+",
-    EList [ELit (LInt 1)],
-    ETuple [],
-    EApply (EVar (sourceName (mkIdentifier "f"))) (ELit (LInt 1)),
-    ETypeApplication (EVar (sourceName (mkIdentifier "id"))) span1 signatureInventory,
-    EIf (ELit (LBool True)) (ELit (LInt 1)) (ELit (LInt 0)),
-    EPatternCase (EVar (sourceName (mkIdentifier "value"))) [CaseArm patternInventory (Just (ELit (LBool True))) (ELit (LInt 1))],
-    EBinary "+" (ELit (LInt 1)) (ELit (LInt 2)),
-    ESectionLeft (ELit (LInt 1)) "+",
-    ESectionRight "+" (ELit (LInt 2)),
-    EBlock statementInventory
+  [ loweredLiteral (LInt 1),
+    loweredLiteral (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing),
+    loweredLiteral (LBool True),
+    loweredLiteral (LChar 'x'),
+    loweredLiteral (LText "Jazz"),
+    loweredVariable (sourceName (mkIdentifier "value")),
+    loweredVariable (qualifiedName (mkIdentifier "Alias") (mkIdentifier "member")),
+    loweredVariable (generatedName (LambdaPatternArgument 2)),
+    loweredVariable (generatedName (OperatorBinding "$operator:2B")),
+    loweredLambda (sourceName (mkIdentifier "argument")) (loweredVariable (sourceName (mkIdentifier "argument"))),
+    loweredOperatorValue "+",
+    loweredList [loweredLiteral (LInt 1)],
+    loweredTuple [],
+    loweredApply (loweredVariable (sourceName (mkIdentifier "f"))) (loweredLiteral (LInt 1)),
+    loweredTypeApplication (loweredVariable (sourceName (mkIdentifier "id"))) span1 signatureInventory,
+    loweredIf (loweredLiteral (LBool True)) (loweredLiteral (LInt 1)) (loweredLiteral (LInt 0)),
+    loweredPatternCase (loweredVariable (sourceName (mkIdentifier "value"))) [loweredCaseArm patternInventory (Just (loweredLiteral (LBool True))) (loweredLiteral (LInt 1))],
+    loweredBinary "+" (loweredLiteral (LInt 1)) (loweredLiteral (LInt 2)),
+    loweredSectionLeft (loweredLiteral (LInt 1)) "+",
+    loweredSectionRight "+" (loweredLiteral (LInt 2)),
+    loweredBlock statementInventory
   ]
 
-patternInventory :: Pattern
+patternInventory :: Pattern 'Lowered
 patternInventory =
-  POr
-    [ PWildcard,
-      PVariable (sourceName (mkIdentifier "item")),
-      PLiteral (LText "text"),
-      PConstructor (sourceName (mkIdentifier "Some")) [PWildcard],
-      PList [PWildcard],
-      PConsList PWildcard (PVariable (sourceName (mkIdentifier "rest"))),
-      PTuple [PWildcard, PWildcard],
-      PAs (sourceName (mkIdentifier "whole")) PWildcard
+  loweredOrPattern
+    [ loweredWildcardPattern,
+      loweredVariablePattern (sourceName (mkIdentifier "item")),
+      loweredLiteralPattern (LText "text"),
+      loweredConstructorPattern (sourceName (mkIdentifier "Some")) [loweredWildcardPattern],
+      loweredListPattern [loweredWildcardPattern],
+      loweredConsListPattern loweredWildcardPattern (loweredVariablePattern (sourceName (mkIdentifier "rest"))),
+      loweredTuplePattern [loweredWildcardPattern, loweredWildcardPattern],
+      loweredAsPattern (sourceName (mkIdentifier "whole")) loweredWildcardPattern
     ]
 
-statementInventory :: [Statement]
+statementInventory :: [Statement 'Lowered]
 statementInventory =
-  [ SLet (generatedName (OperatorBinding "$operator:2B")) span1 (ELit (LInt 1)),
-    SSignature (sourceName (mkIdentifier "value")) span1 (SignatureType signatureInventory),
-    SSignature
+  [ loweredLet (generatedName (OperatorBinding "$operator:2B")) span1 (loweredLiteral (LInt 1)),
+    loweredSignature (sourceName (mkIdentifier "value")) span1 (SignatureType signatureInventory),
+    loweredSignature
       (sourceName (mkIdentifier "constrained"))
       span1
       (ConstrainedSignature [SignatureConstraint (sourceName (mkIdentifier "Eq")) [TypeVariable (sourceName (mkIdentifier "a"))]] (TypeVariable (sourceName (mkIdentifier "a")))),
-    SSignature (sourceName (mkIdentifier "unsupported")) span1 (UnsupportedSignature signatureTokenInventory),
-    SData
+    loweredSignature (sourceName (mkIdentifier "unsupported")) span1 (UnsupportedSignature signatureTokenInventory),
+    loweredData
       span1
       (sourceName (mkIdentifier "Box"))
       [sourceName (mkIdentifier "a")]
-      [ DataConstructor
+      [ loweredConstructor
           (sourceName (mkIdentifier "Box"))
           [ TypeVariable (sourceName (mkIdentifier "a")),
             TypeList TypeText
           ]
       ],
-    SClass
+    loweredClass
       span1
       (sourceName (mkIdentifier "Eq"))
       [sourceName (mkIdentifier "a")]
-      [ClassMethodSignature (sourceName (mkIdentifier "equals")) span2 (SignatureType signatureInventory)],
-    SImpl
+      [loweredClassMethodSignature (sourceName (mkIdentifier "equals")) span2 (SignatureType signatureInventory)],
+    loweredImpl
       span1
       (sourceName (mkIdentifier "Eq"))
       [TypeInt]
-      [ImplMethod (sourceName (mkIdentifier "equals")) span2 (ELit (LBool True))],
-    SModule span1 ["App", "Main"],
-    SImport span2 ["Lib", "Value"] (Just "Value") (Just ["item"]),
-    SExpr span2 (ELit (LInt 1))
+      [loweredImplMethod (sourceName (mkIdentifier "equals")) span2 (loweredLiteral (LBool True))],
+    loweredModule span1 ["App", "Main"],
+    loweredImport span2 ["Lib", "Value"] (Just "Value") (Just ["item"]),
+    loweredExpression span2 (loweredLiteral (LInt 1))
   ]
 
-signatureInventory :: SignatureType
+signatureInventory :: SignatureType 'Lowered
 signatureInventory =
   TypeTuple
     [ TypeInt,
@@ -284,7 +366,7 @@ signatureInventory =
       TypeFunction TypeInt TypeBool
     ]
 
-signatureTokenInventory :: [SignatureToken]
+signatureTokenInventory :: [SignatureToken 'Lowered]
 signatureTokenInventory =
   [ SignatureNameToken (sourceName (mkIdentifier "a")),
     SignatureIntToken 1,
@@ -302,33 +384,36 @@ signatureTokenInventory =
     SignatureOtherToken "?"
   ]
 
-moduleInventory :: CoreModule
-moduleInventory =
-  CoreModule
-    { coreModuleDeclaredPath = Just ["App", "Main"],
-      coreModuleDeclaredExports =
-        Just
-          ( DeclaredModuleExports
-              qualifiedSpan1
-              [ ModuleExportSelector (Just ValueNamespace) "value",
-                ModuleTypeExportSelector "Box" qualifiedSpan1 AbstractType,
-                ModuleTypeExportSelector "Choice" qualifiedSpan1 (AllTypeConstructors qualifiedSpan1),
-                ModuleTypeExportSelector
-                  "Maybe"
-                  qualifiedSpan1
-                  (SelectedTypeConstructors (LocatedModuleExportName "Some" qualifiedSpan1 :| [LocatedModuleExportName "None" qualifiedSpan1]))
-              ]
-          ),
-      coreModuleImports =
-        [ ResolvedImport
-            { resolvedImportSpan = qualifiedSpan2,
-              resolvedImportPath = ["Lib", "Value"],
-              resolvedImportAlias = Just "Value",
-              resolvedImportSymbols = Just ["item"]
-            }
-        ],
-      coreModuleExpr = EBlock [SExpr qualifiedSpan2 simpleCoreExpression]
-    }
+moduleInventoryResult :: Either ModuleLoweringFailure (CoreModule 'Lowered)
+moduleInventoryResult =
+  lowerSurfaceModuleDetailed
+    testModuleIdentity
+    ( SurfaceExpr
+        span1
+        ( SEBlock
+            [ SSModule
+                span1
+                ["App", "Main"]
+                ( Just
+                    [ ModuleExportSelector (Just ValueNamespace) "value",
+                      ModuleTypeExportSelector "Box" span1 AbstractType,
+                      ModuleTypeExportSelector "Choice" span1 (AllTypeConstructors span1),
+                      ModuleTypeExportSelector
+                        "Maybe"
+                        span1
+                        (SelectedTypeConstructors (LocatedModuleExportName "Some" span1 :| [LocatedModuleExportName "None" span1]))
+                    ]
+                ),
+              SSImport span2 ["Lib", "Value"] (Just "Value") (Just ["item"])
+            ]
+        )
+    )
+
+testModuleIdentity :: ModuleIdentity
+testModuleIdentity =
+  moduleIdentity
+    (mkModulePath (mkIdentifier "App" :| [mkIdentifier "Main"]))
+    (mkSourceFile "src/App/Main.jz")
 
 expectedConstructors :: [Text.Text]
 expectedConstructors =
@@ -441,12 +526,6 @@ span1 = SourceSpan 1 1
 
 span2 :: SourceSpan
 span2 = SourceSpan 2 3
-
-qualifiedSpan1 :: SourceSpan
-qualifiedSpan1 = SourceSpanIn "src/App/Main.jz" 1 1
-
-qualifiedSpan2 :: SourceSpan
-qualifiedSpan2 = SourceSpanIn "src/App/Main.jz" 2 3
 
 expectRight :: Text.Text -> Either Text.Text value -> IO value
 expectRight label result =

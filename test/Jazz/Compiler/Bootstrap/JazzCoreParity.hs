@@ -26,12 +26,13 @@ module Jazz.Compiler.Bootstrap.JazzCoreParity
   )
 where
 
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.Bootstrap.CanonicalCoreComparison
   ( canonicalCoreExprRuntimeValue,
-    canonicalCoreSourceResultRuntimeValue,
     canonicalCoreModuleResultRuntimeValue,
+    canonicalCoreSourceResultRuntimeValue,
   )
 import Jazz.Compiler.Bootstrap.CanonicalParserComparison
   ( canonicalSourceResultRuntimeValue,
@@ -47,17 +48,26 @@ import Jazz.Compiler.Driver
   ( RunResult,
     runModuleGraph,
   )
+import Jazz.Compiler.ModuleIdentity
+  ( ModuleIdentity,
+    mkModulePath,
+    mkSourceFile,
+    moduleIdentity,
+  )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
   )
 import Jazz.Compiler.Name
   ( IdentifierLike (identifierText),
-  )
-import Jazz.Compiler.Parser.AST
-  ( SurfaceExpr,
+    mkIdentifier,
   )
 import Jazz.Compiler.Parser
   ( parseSurfaceProgramTokensDetailed,
+  )
+import Jazz.Compiler.Parser.AST
+  ( SurfaceExpr (..),
+    SurfaceExprForm (SEBlock),
+    SurfaceStatement (SSModule),
   )
 import Jazz.Compiler.Parser.Failure
   ( ParserFailure,
@@ -95,9 +105,10 @@ expectedModuleBatchRendering :: [(FilePath, [Text], SurfaceExpr)] -> Either Text
 expectedModuleBatchRendering inputs =
   renderRuntimeValue . (`VList` Nothing) <$> mapM expectedModuleResult inputs
   where
-    expectedModuleResult (sourcePath, expectedPath, expression) =
+    expectedModuleResult (sourcePath, expectedPath, expression) = do
       canonicalCoreModuleResultRuntimeValue
-        (lowerSurfaceModuleDetailed sourcePath expectedPath expression)
+        (surfaceDeclaredModulePath expression)
+        (lowerSurfaceModuleDetailed (comparisonModuleIdentity sourcePath expectedPath) expression)
 
 expectedCoreSourceBatchRendering :: [(FilePath, [Text], Text)] -> Either Text Text
 expectedCoreSourceBatchRendering inputs =
@@ -107,7 +118,16 @@ expectedCoreSourceBatchRendering inputs =
       canonicalSourcePath <- normalizeCanonicalSourcePath sourcePath
       canonicalCoreSourceResultRuntimeValue
         canonicalSourcePath
-        (fmap (fmap (lowerSurfaceModuleDetailed sourcePath expectedPath)) (sourceResult source))
+        ( fmap
+            ( fmap
+                ( \expression ->
+                    ( surfaceDeclaredModulePath expression,
+                      lowerSurfaceModuleDetailed (comparisonModuleIdentity sourcePath expectedPath) expression
+                    )
+                )
+            )
+            (sourceResult source)
+        )
 
 expectedCoreCorpusRendering :: [(FilePath, [Text], Text)] -> Either Text Text
 expectedCoreCorpusRendering = expectedCoreSourceBatchRendering
@@ -194,12 +214,12 @@ runJazzLoweringBatch loweringFunction expressions =
         "__LOWER__"
         loweringFunction
         """
-    import CoreLower (__LOWER__).
-    import LexerTypes (CanonicalSpan).
-    import Maybe.
-    import NonEmpty.
-    import ParserTypes.
-    """
+        import CoreLower (__LOWER__).
+        import LexerTypes (CanonicalSpan).
+        import Maybe.
+        import NonEmpty.
+        import ParserTypes.
+        """
     )
     (map (renderLoweringCall loweringFunction) expressions)
 
@@ -220,16 +240,16 @@ runJazzLoweringSourceBatch loweringFunction sources =
         "__LOWER__"
         loweringFunction
         """
-    import CoreLower (__LOWER__).
-    import LexerTypes (CanonicalSourcePath).
-    import Maybe.
-    import Parser (parseSource).
-    import ParserTypes (
-      CanonicalSourceSuccess,
-      CanonicalSourceLexicalFailure,
-      CanonicalSourceParserFailure
-    ).
-    """
+        import CoreLower (__LOWER__).
+        import LexerTypes (CanonicalSourcePath).
+        import Maybe.
+        import Parser (parseSource).
+        import ParserTypes (
+          CanonicalSourceSuccess,
+          CanonicalSourceLexicalFailure,
+          CanonicalSourceParserFailure
+        ).
+        """
     )
     (map (renderLoweringSourceCall loweringFunction) sources)
 
@@ -275,12 +295,12 @@ renderLoweringSourceCall loweringFunction source =
         "__SOURCE__"
         (renderJazzRuntimeValue (VText source))
         """
-    case parseSource (CanonicalSourcePath "fixtures/core/foundation.jz") __SOURCE__ {
-      | CanonicalSourceSuccess path expression -> __LOWER__ expression
-      | CanonicalSourceLexicalFailure path failure -> Nothing
-      | CanonicalSourceParserFailure path failure -> Nothing
-    }
-    """
+        case parseSource (CanonicalSourcePath "fixtures/core/foundation.jz") __SOURCE__ {
+          | CanonicalSourceSuccess path expression -> __LOWER__ expression
+          | CanonicalSourceLexicalFailure path failure -> Nothing
+          | CanonicalSourceParserFailure path failure -> Nothing
+        }
+        """
     )
 
 renderParserSourceCall :: Text -> Text
@@ -323,6 +343,28 @@ parseFoundationSource source =
     Left lexicalFailure -> Left ("foundation source failed lexing: " <> Text.pack (show lexicalFailure))
     Right (Left parserFailure) -> Left ("foundation source failed parsing: " <> Text.pack (show parserFailure))
     Right (Right expression) -> Right expression
+
+surfaceDeclaredModulePath :: SurfaceExpr -> Maybe [Text]
+surfaceDeclaredModulePath (SurfaceExpr _ (SEBlock statements)) =
+  case [declaredPath | SSModule _ declaredPath _ <- statements] of
+    declaredPath : _ -> Just declaredPath
+    [] -> Nothing
+surfaceDeclaredModulePath _ = Nothing
+
+comparisonModuleIdentity :: FilePath -> [Text] -> ModuleIdentity
+comparisonModuleIdentity sourcePath modulePath =
+  moduleIdentity
+    (mkModulePath (fmap mkIdentifier identitySegments))
+    (mkSourceFile sourcePath)
+  where
+    -- Module-free parser fixtures still need an internal identity for the
+    -- phased CoreModule carrier. The path is unobservable unless a source
+    -- module declaration exists, and those fixtures supply their declared
+    -- path explicitly through the corpus manifest.
+    identitySegments =
+      case NonEmpty.nonEmpty modulePath of
+        Just segments -> segments
+        Nothing -> "CanonicalCoreComparison" NonEmpty.:| []
 
 sourceResult :: Text -> Either LexicalFailure (Either ParserFailure SurfaceExpr)
 sourceResult source =

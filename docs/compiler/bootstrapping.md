@@ -12,89 +12,30 @@ available for reproducible bootstrap builds.
 
 ## Hosted front end
 
-The hosted front end currently covers lexing, parsing, canonical-core lowering,
-and validation schemas for typed core and lowered IR.
-
-The lexer, parser, and core lowering are compared against stage 0 across the
-accepted and rejected parser corpus. Repeated runs must match complete values or
-structured failures, not only success counts.
+The hosted front end covers lexing, parsing, and canonical-core lowering.
+These stages are compared against stage 0 across the accepted and rejected
+parser corpus. Repeated runs must match complete values or structured failures,
+not only success counts.
 
 ## Current boundary
 
-Hosted front-end parity is implemented, but ordinary compilation still uses
-the stage-0 parsing and semantic pipeline. Typed core and lowered IR cover a
-bounded opt-in profile rather than the full language. It supports scalar
-bindings, direct calls, function values, unary closures, lexical capture,
-higher-order calls, curried application, capture-free, non-escaping direct self
-and mutual recursion, and closure-shaped self and mutual recursion when every
-external capture is available before the first group member. Closure-shaped
-groups share one immutable environment containing ordered external captures;
-members reuse it and reconstruct self or peer closures without cyclic
-initialization. Value-producing conditionals and bounded scalar pattern cases
-may nest anywhere in this profile. In value positions, lowering keeps their
-deterministic then, else, and result-join control flow, transporting each
-block-local value explicitly. A case evaluates its scrutinee once, tries
-literal, wildcard, and variable arms in source order, falls through false
-guards, and keeps variable binders inside one arm.
+Ordinary compilation uses the Haskell parsing and semantic pipeline, and run
+mode interprets analyzed core. The Jazz-authored frontend remains separately
+tested; it is not yet a complete semantic compiler.
 
-For a complete named or lifted function result, the opt-in lowerer records
-direct or closure tail intent instead. That result position propagates through
-selected conditional branches and selected bounded scalar-case bodies, which
-terminate directly without a result join. Conditions, scrutinees, guards,
-operands, and nested value contexts remain ordinary value positions. Partial
-applications still return closure values, and an oversaturated application can
-tail-terminate only at its final exact stage. The synthetic module entry remains
-ordinary call/join/return lowering. These terminators record intent only: they
-do not change the Lowered IR contract or validator, runtime ABI, public
-language behavior, hosted compiler, or promise native stack optimization.
-
-For scalar pattern cases, the required final unguarded catch-all makes this
-opt-in lowering profile total. It is separate from source-level static
-exhaustiveness and unreachable-arm analysis, which shipped under RFC 0012.
-
-Managed `Text` is the first non-closure managed value in this profile. Text
-literals, bindings, parameters, results, captures, calls, control-flow joins,
-returns, and tail-call operands use one semantic Text layout. Strict equality,
-length, append, and append-char lower to exact pure runtime-service
-dependencies; inequality reuses equality followed by Boolean-not. Text-only
-transport declares no service, and referenced services are deduplicated in a
-fixed catalog order.
-
-Non-unit tuples and exactly saturated local algebraic-data constructors are the
-second managed-data family. The producer retains concrete product and nominal
-variant recipes, including concrete generic, recursive, and mutually recursive
-layouts whose fields stay inside the admitted profile. Lowering assigns stable
-semantic layout identities, emits runtime layouts first, product and variant
-layouts in first semantic discovery order next, and closure environments last,
-then constructs every field exactly once from left to right. The resulting
-managed references cross the same bindings, direct and closure call boundaries,
-captures, control-flow joins, returns, and tail-call operands as managed Text.
-
-The same opt-in path now supports wildcard, variable, immediate scalar literal,
-constructor, tuple, as-, and top-level or-pattern cases over managed products
-and variants, including nested constructor and tuple patterns. The lowerer
-independently proves totality, treats guarded rows as non-covering, and emits
-source-ordered decision trees that test a tag before projecting its fields.
-
-Lists and cons, Text literal patterns, nested or-patterns, pattern lambdas,
-imported or multi-module data, product or variant equality, runtime ABI/native
-execution, and ordinary compile/run cutover remain unshipped. Pattern lambdas
-still need an invocation-time match-failure contract integrated with closures,
-currying, recursion, and callable identity. Ordinary run mode continues to
-evaluate canonical core with the reference interpreter.
-
-Backend preparation also covers only a subset of the language. The current
-supported forms and exclusions are maintained in
-[Project status](../project/status.md).
+The experimental Typed Core and Lowered IR backend has been removed. It had no
+native emitter or execution consumer. Its schemas and validators are no longer
+part of the hosted compiler or required steps toward self-hosting.
 
 ## Promotion
 
 A hosted stage is promoted only when it covers its accepted input domain,
 matches the canonical stage deterministically, preserves structured failures,
-and integrates with the next pipeline stage. Self-hosting additionally requires
-a complete Jazz-authored semantic compiler, full module integration, native
-emission and linking, a runtime, and end-to-end conformance.
+and integrates with the next pipeline stage. A complete hosted compiler still
+needs Jazz-authored name resolution, type inference, semantic validation, and
+full module integration before it can compile its own sources.
 
-Until those gates pass, hosted components are tested compiler stages rather
-than the canonical shipping pipeline. See the [roadmap](../project/roadmap.md)
-and current [status](../project/status.md).
+Native compilation remains a separate future goal. A concrete execution target
+and a fresh design must justify its intermediate representations, emission,
+linking, and runtime requirements. See the [roadmap](../project/roadmap.md) and
+current [status](../project/status.md).

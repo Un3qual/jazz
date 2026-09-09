@@ -12,3 +12,6 @@ profile-results/
 website/node_modules/
 website/build/
 website/.docusaurus/
+
+# Local Nix development profiles retain the toolchain across garbage collection.
+.nix-develop/

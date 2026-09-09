@@ -7,7 +7,6 @@ import unittest
 
 from markdown_visibility import (
     markdown_fences,
-    renderable_source_markdown,
     rendered_markdown,
     rendered_markdown_with_code,
     visible_markdown,
@@ -92,58 +91,6 @@ case-arm-pattern := pattern
         self.assertIn("## Before", visible)
         self.assertIn("## Visible heading", visible)
 
-    def test_renderable_source_masks_raw_html_but_preserves_example_metadata(
-        self,
-    ) -> None:
-        text = (
-            "<!-- jazz-example: fragment -->\n"
-            "```jazz\n0.\n```\n"
-            '<script type="text/plain">\n'
-            "<!-- jazz-example: executable path=examples/hidden.jz -->\n"
-            "```jazz\n1.\n```\n"
-            "</script>\n"
-        )
-
-        source = renderable_source_markdown(text)
-
-        self.assertIn("<!-- jazz-example: fragment -->", source)
-        self.assertIn("```jazz\n0.\n```", source)
-        self.assertNotIn("examples/hidden.jz", source)
-        self.assertNotIn("```jazz\n1.\n```", source)
-
-    def test_renderable_source_rejects_metadata_nested_in_a_larger_comment(
-        self,
-    ) -> None:
-        text = (
-            "<!--\n"
-            "<!-- jazz-example: executable path=examples/hidden.jz -->\n"
-            "```jazz\n1.\n```\n"
-            "<!-- jazz-example-output: case=hidden -->\n"
-            "```text\n1\n```\n"
-            "-->\n"
-        )
-
-        source = renderable_source_markdown(text)
-
-        self.assertNotIn("jazz-example", source)
-        self.assertNotIn("```jazz", source)
-        self.assertNotIn("```text", source)
-
-    def test_renderable_source_rejects_multiline_metadata_comment(self) -> None:
-        text = (
-            "<!--\n"
-            "jazz-example: executable path=examples/hidden.jz\n"
-            "-->\n"
-            "```jazz\n"
-            "1.\n"
-            "```\n"
-        )
-
-        source = renderable_source_markdown(text)
-
-        self.assertNotIn("jazz-example", source)
-        self.assertIn("```jazz", source)
-
     def test_list_continuation_indentation_is_not_executable_source(self) -> None:
         text = (
             "1. Example\n\n"
@@ -189,7 +136,7 @@ case-arm-pattern := pattern
             "> </script>\n"
         )
 
-        source = renderable_source_markdown(text)
+        source = visible_markdown(text)
 
         self.assertNotIn("examples/hidden.jz", source)
         self.assertNotIn("```jazz", source)

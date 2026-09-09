@@ -20,12 +20,11 @@ import Jazz.Compiler.Parser (parseStatementsUntilBrace)
 import Jazz.Compiler.Parser.AST
   ( SurfaceCaseArm (..),
     SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
-    SurfaceNumericType (..),
     SurfacePattern (..),
-    SurfaceSignaturePayload (..),
-    SurfaceSignatureType (..),
+    SurfacePatternForm (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Context
@@ -52,10 +51,17 @@ import Jazz.Compiler.Parser.Operator
   )
 import Jazz.Compiler.Parser.TestSupport
   ( lexSource,
+    surfaceExprAt,
+    surfacePatternAt,
   )
 import Jazz.Compiler.Parser.TokenParser
   ( runTokenParserPrefix,
     runTokenParserPrefixDetailed,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.TestHarness
   ( NamedTest,
@@ -92,7 +98,7 @@ testParsesUnitExpression = do
   tokens <- lexSource "()."
   assertExpression
     "Unit expression"
-    (SETuple [])
+    (e 1 1 (SETuple []))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 
@@ -101,7 +107,7 @@ testParsesCharAndTextExpressions = do
   tokens <- lexSource "pair 'a' \"Jazz\"."
   assertExpression
     "Char/Text application"
-    (SEApply (SEApply (SEVar "pair") (SELit (SLChar 'a'))) (SELit (SLText "Jazz")))
+    (e 1 1 (SEApply (e 1 1 (SEApply (e 1 1 (SEVar "pair")) (e 1 6 (SELit (SLChar 'a'))))) (e 1 10 (SELit (SLText "Jazz")))))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 
@@ -110,10 +116,22 @@ testApplicationBeforeInfixPrecedence = do
   tokens <- lexSource "f 1 + g 2 * 3."
   assertExpression
     "application before infix"
-    ( SEBinary
-        "+"
-        (SEApply (SEVar "f") (SELit (SLInt 1)))
-        (SEBinary "*" (SEApply (SEVar "g") (SELit (SLInt 2))) (SELit (SLInt 3)))
+    ( e
+        1
+        1
+        ( SEBinary
+            "+"
+            (e 1 1 (SEApply (e 1 1 (SEVar "f")) (e 1 3 (SELit (SLInt 1)))))
+            ( e
+                1
+                7
+                ( SEBinary
+                    "*"
+                    (e 1 7 (SEApply (e 1 7 (SEVar "g")) (e 1 9 (SELit (SLInt 2)))))
+                    (e 1 13 (SELit (SLInt 3)))
+                )
+            )
+        )
     )
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
@@ -123,7 +141,7 @@ testDeclaredOperatorPrecedence = do
   tokens <- lexSource "a %% b + c."
   assertExpression
     "declared operator precedence"
-    (SEBinary "+" (SEBinary "%%" (SEVar "a") (SEVar "b")) (SEVar "c"))
+    (e 1 1 (SEBinary "+" (e 1 1 (SEBinary "%%" (e 1 1 (SEVar "a")) (e 1 6 (SEVar "b")))) (e 1 10 (SEVar "c"))))
     [TDot]
     (parseExpressionTokens Set.empty [OperatorInfo "%%" 5 AssocLeft] tokens)
 
@@ -132,12 +150,20 @@ testQualifiedVariablesListsAndTuples = do
   tokens <- lexSource "Alias::member [1, 2] (3, 4)."
   assertExpression
     "qualified variable list and tuple application"
-    ( SEApply
+    ( e
+        1
+        1
         ( SEApply
-            (SEQualifiedVar "Alias" "member")
-            (SEList [SELit (SLInt 1), SELit (SLInt 2)])
+            ( e
+                1
+                1
+                ( SEApply
+                    (e 1 1 (SEQualifiedVar "Alias" "member"))
+                    (e 1 15 (SEList [e 1 16 (SELit (SLInt 1)), e 1 19 (SELit (SLInt 2))]))
+                )
+            )
+            (e 1 22 (SETuple [e 1 23 (SELit (SLInt 3)), e 1 26 (SELit (SLInt 4))]))
         )
-        (SETuple [SELit (SLInt 3), SELit (SLInt 4)])
     )
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
@@ -163,18 +189,22 @@ testControlFlowAndBlockExpressionStarters = do
   ifTokens <- lexSource "if True then 1 else 2."
   assertExpression
     "if expression starter"
-    (SEIf (SELit (SLBool True)) (SELit (SLInt 1)) (SELit (SLInt 2)))
+    (e 1 1 (SEIf (e 1 4 (SELit (SLBool True))) (e 1 14 (SELit (SLInt 1))) (e 1 21 (SELit (SLInt 2)))))
     [TDot]
     (parseExpressionTokens Set.empty [] ifTokens)
 
   caseTokens <- lexSource "case subject { | 0 -> 1 | _ -> 2 }."
   assertExpression
     "case expression starter"
-    ( SECase
-        (SEVar "subject")
-        [ SurfaceCaseArm (SPLiteral (SLInt 0)) Nothing (SELit (SLInt 1)),
-          SurfaceCaseArm SPWildcard Nothing (SELit (SLInt 2))
-        ]
+    ( e
+        1
+        1
+        ( SECase
+            (e 1 6 (SEVar "subject"))
+            [ SurfaceCaseArm (p 1 18 (SPLiteral (SLInt 0))) Nothing (e 1 23 (SELit (SLInt 1))),
+              SurfaceCaseArm (p 1 27 SPWildcard) Nothing (e 1 32 (SELit (SLInt 2)))
+            ]
+        )
     )
     [TDot]
     (parseExpressionTokens Set.empty [] caseTokens)
@@ -182,17 +212,21 @@ testControlFlowAndBlockExpressionStarters = do
   lambdaTokens <- lexSource "\\(x) -> x."
   assertExpression
     "lambda expression starter"
-    (SELambda (SurfaceLambdaIdentifier "x" :| []) (SEVar "x"))
+    (e 1 1 (SELambda (SurfaceLambdaIdentifier (SourceSpan 1 3) "x" :| []) (e 1 9 (SEVar "x"))))
     [TDot]
     (parseExpressionTokens Set.empty [] lambdaTokens)
 
   blockTokens <- lexSource "{ x = 1. x. }."
   assertExpression
     "block expression starter"
-    ( SEBlock
-        [ SSLet "x" (SourceSpan 1 3) (SELit (SLInt 1)),
-          SSExpr (SourceSpan 1 10) (SEVar "x")
-        ]
+    ( e
+        1
+        1
+        ( SEBlock
+            [ SSLet "x" (SourceSpan 1 3) (e 1 7 (SELit (SLInt 1))),
+              SSExpr (SourceSpan 1 10) (e 1 10 (SEVar "x"))
+            ]
+        )
     )
     [TDot]
     (parseExpressionTokens Set.empty [] blockTokens)
@@ -202,21 +236,21 @@ testKnownAliasesDisambiguateBlockStatements = do
   aliasTokens <- lexSource "{ Result::a. }."
   assertExpression
     "known alias parses compact qualified lookup in block"
-    (SEBlock [SSExpr (SourceSpan 1 3) (SEQualifiedVar "Result" "a")])
+    (e 1 1 (SEBlock [SSExpr (SourceSpan 1 3) (e 1 3 (SEQualifiedVar "Result" "a"))]))
     [TDot]
     (parseExpressionTokens (Set.singleton "Result") [] aliasTokens)
 
   nonAliasTokens <- lexSource "{ Result::a. }."
   assertExpression
     "unknown alias keeps compact signature in block"
-    (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SurfaceSignatureType (SurfaceTypeVariable "a"))])
+    (e 1 1 (SEBlock [SSSignature "Result" (SourceSpan 1 3) (SignatureType (TypeVariable "a"))]))
     [TDot]
     (parseExpressionTokens Set.empty [] nonAliasTokens)
 
   qualifiedMethodTokens <- lexSource "{ Make::make. }."
   assertExpression
     "uppercase capability qualifier keeps multi-letter method lookup in block"
-    (SEBlock [SSExpr (SourceSpan 1 3) (SEQualifiedVar "Make" "make")])
+    (e 1 1 (SEBlock [SSExpr (SourceSpan 1 3) (e 1 3 (SEQualifiedVar "Make" "make"))]))
     [TDot]
     (parseExpressionTokens Set.empty [] qualifiedMethodTokens)
 
@@ -225,14 +259,18 @@ testFractionalCaseBodyBeforeLaterArm = do
   tokens <- lexSource "case 0 { | _ -> 1.2 | _ -> 3 }."
   assertExpression
     "fractional case body before later arm"
-    ( SECase
-        (SELit (SLInt 0))
-        [ SurfaceCaseArm
-            SPWildcard
-            Nothing
-            (SELit (SLFloat 1.2 (mkFractionalLiteralSource 1 2 1) Nothing)),
-          SurfaceCaseArm SPWildcard Nothing (SELit (SLInt 3))
-        ]
+    ( e
+        1
+        1
+        ( SECase
+            (e 1 6 (SELit (SLInt 0)))
+            [ SurfaceCaseArm
+                (p 1 12 SPWildcard)
+                Nothing
+                (e 1 17 (SELit (SLFloat 1.2 (mkFractionalLiteralSource 1 2 1) Nothing))),
+              SurfaceCaseArm (p 1 23 SPWildcard) Nothing (e 1 28 (SELit (SLInt 3)))
+            ]
+        )
     )
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
@@ -242,9 +280,13 @@ testOperatorValuesAndSections = do
   tokens <- lexSource "(+) (10 +) (+ 20)."
   assertExpression
     "operator values and sections"
-    ( SEApply
-        (SEApply (SEOperatorValue "+") (SESectionLeft (SELit (SLInt 10)) "+"))
-        (SESectionRight "+" (SELit (SLInt 20)))
+    ( e
+        1
+        1
+        ( SEApply
+            (e 1 1 (SEApply (e 1 1 (SEOperatorValue "+")) (e 1 5 (SESectionLeft (e 1 6 (SELit (SLInt 10))) "+"))))
+            (e 1 12 (SESectionRight "+" (e 1 15 (SELit (SLInt 20)))))
+        )
     )
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
@@ -254,7 +296,7 @@ testFractionalLiteralSuffix = do
   tokens <- lexSource "1.25f32."
   assertExpression
     "fractional suffix"
-    (SELit (SLFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just SurfaceNumericFloat32)))
+    (e 1 1 (SELit (SLFloat 1.25 (mkFractionalLiteralSource 1 25 2) (Just NumericFloat32))))
     [TDot]
     (parseExpressionTokens Set.empty [] tokens)
 
@@ -317,6 +359,12 @@ tokenKinds (expr, remaining) = (expr, fmap tokenKind remaining)
 
 textShow :: (Show a) => a -> Text
 textShow = fromString . show
+
+e :: Int -> Int -> SurfaceExprForm -> SurfaceExpr
+e = surfaceExprAt
+
+p :: Int -> Int -> SurfacePatternForm -> SurfacePattern
+p = surfacePatternAt
 
 parseExpressionTokens :: Set.Set Text -> [OperatorInfo] -> [Token] -> Either Diagnostic (SurfaceExpr, [Token])
 parseExpressionTokens knownAliases declaredOperators =

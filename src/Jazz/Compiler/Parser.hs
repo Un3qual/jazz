@@ -5,22 +5,22 @@
 -- together and threads scope-local parser context.
 module Jazz.Compiler.Parser
   ( parseStatementsUntilBrace,
-    parseSurfaceExpressionTokens,
     parseSurfaceProgram,
     parseSurfaceProgramTokens,
     parseSurfaceProgramTokensDetailed,
   )
 where
 
-import Data.Set (Set)
+import Data.Bifunctor (first)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
-    SourceSpan,
+    SourceSpan (..),
   )
 import Jazz.Compiler.Parser.AST
   ( SurfaceExpr (..),
+    SurfaceExprForm (..),
     SurfaceStatement (..),
   )
 import Jazz.Compiler.Parser.Context
@@ -47,10 +47,6 @@ import Jazz.Compiler.Parser.Lexer
     TokenKind (..),
     tokenize,
   )
-import Jazz.Compiler.Parser.Operator
-  ( OperatorInfo,
-    operatorTableFromDeclarations
-  )
 import Jazz.Compiler.Parser.TokenParser
   ( Parser,
     failTokenParser,
@@ -58,7 +54,6 @@ import Jazz.Compiler.Parser.TokenParser
     parseAnyToken,
     peekToken,
     runTokenParserDetailed,
-    runTokenParserPrefix,
   )
 import qualified Text.Megaparsec as MP
 
@@ -73,7 +68,7 @@ parseSurfaceProgram source = do
 -- entrypoint keeps lexing and parsing as independently measurable phases.
 parseSurfaceProgramTokens :: [Token] -> Either Diagnostic SurfaceExpr
 parseSurfaceProgramTokens =
-  mapLeft parserFailureDiagnostic . parseSurfaceProgramTokensDetailed
+  first parserFailureDiagnostic . parseSurfaceProgramTokensDetailed
 
 parseSurfaceProgramTokensDetailed :: [Token] -> Either ParserFailure SurfaceExpr
 parseSurfaceProgramTokensDetailed tokens =
@@ -83,29 +78,17 @@ parseSurfaceProgramTokensDetailed tokens =
     expressionParser = parseExpressionParser blockParser
     statementParser = parseStatementParser expressionParser blockParser
     blockParser = parseStatementsUntilBrace statementParser
-    programParser =
-      SEBlock <$> parseProgramStatements statementParser initialParserContext
+    programParser = do
+      maybeFirstToken <- peekToken
+      statements <- parseProgramStatements statementParser initialParserContext
+      pure
+        ( SurfaceExpr
+            (maybe (SourceSpan 1 1) tokenSpan maybeFirstToken)
+            (SEBlock statements)
+        )
 
 -- | Stable prefix parser retained for callers that parse an expression from an
 -- already-tokenized stream.
-parseSurfaceExpressionTokens ::
-  Set Text ->
-  [OperatorInfo] ->
-  [Token] ->
-  Either Diagnostic (SurfaceExpr, [Token])
-parseSurfaceExpressionTokens knownAliases declaredOperators =
-  runTokenParserPrefix "expression" (expressionParser expressionContext)
-  where
-    expressionParser = parseExpressionParser blockParser
-    statementParser = parseStatementParser expressionParser blockParser
-    blockParser = parseStatementsUntilBrace statementParser
-    expressionContext =
-      ParserContext
-        { parserKnownAliases = knownAliases,
-          parserDeclaredOperators = operatorTableFromDeclarations declaredOperators,
-          parserStatementContext = NestedBlockContext
-        }
-
 parseProgramStatements :: StatementParser -> ParserContext -> Parser [SurfaceStatement]
 parseProgramStatements parseStatement context = do
   tokens <- MP.lookAhead MP.getInput
@@ -184,9 +167,3 @@ leadingModuleDeclaration statements =
   case statements of
     SSModule spanValue _ _ : _ -> Just spanValue
     _ -> Nothing
-
-mapLeft :: (errorA -> errorB) -> Either errorA value -> Either errorB value
-mapLeft transform result =
-  case result of
-    Left failure -> Left (transform failure)
-    Right value -> Right value

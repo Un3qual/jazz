@@ -8,10 +8,11 @@ import Jazz.Compiler.Diagnostics.Render
   )
 import Jazz.Compiler.Driver
   ( CompileResult,
-    RunResult (..),
+    RunResult,
     compileErrors,
     compileSource,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
     runSource,
     runWarnings,

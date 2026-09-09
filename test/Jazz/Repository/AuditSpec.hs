@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -11,13 +12,12 @@ import qualified Data.ByteString as ByteString
 import Data.Char (toLower)
 import Data.Foldable (toList)
 import Data.List (sort, stripPrefix)
+import Data.Maybe (listToMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import Jazz.Compiler.AST
-  ( SignatureType (..),
-  )
+import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (E5001),
   )
@@ -31,6 +31,7 @@ import qualified Jazz.Compiler.Parser.AST as Surface
 import Jazz.Compiler.SignatureRendering
   ( renderSignatureType,
   )
+import Jazz.Compiler.TypeRepresentation (SignatureType (..))
 import qualified Jazz.Repository.AuthoredSources as AuthoredSources
 import Jazz.Repository.FeatureInventory
   ( SurfaceFeature (..),
@@ -47,6 +48,7 @@ import Jazz.Repository.JazzSourceFormat
     renderJazzSourceFormatViolation,
     validateJazzModule,
   )
+import Jazz.Repository.OpaqueCarrierContracts (opaqueCarrierRecordUpdateTests)
 import Jazz.Repository.PackagePolicy
   ( PackagePolicyViolation (..),
     renderPackagePolicyViolation,
@@ -136,6 +138,7 @@ tests =
     ("uses canonical root-relative documentation paths", testCanonicalDocumentationPaths),
     ("keeps repository infrastructure on the canonical Jazz identity", testCanonicalRepositoryInfrastructure)
   ]
+    <> opaqueCarrierRecordUpdateTests
 
 testPartialErrorIdentifierPolicy :: IO ()
 testPartialErrorIdentifierPolicy =
@@ -295,7 +298,7 @@ testStandardLibraryModuleInventory =
 
 surfaceModulePaths :: Surface.SurfaceExpr -> Set.Set [Text]
 surfaceModulePaths expression =
-  case expression of
+  case Surface.surfaceExprForm expression of
     Surface.SEBlock statements ->
       Set.fromList
         [ modulePath
@@ -316,8 +319,6 @@ expectedAuthoredSourcePaths =
     "jazz/compiler/CoreTypes.jz",
     "jazz/compiler/Lexer.jz",
     "jazz/compiler/LexerTypes.jz",
-    "jazz/compiler/LoweredIRTypes.jz",
-    "jazz/compiler/LoweredIRValidate.jz",
     "jazz/compiler/Parser.jz",
     "jazz/compiler/ParserContext.jz",
     "jazz/compiler/ParserCore.jz",
@@ -329,8 +330,6 @@ expectedAuthoredSourcePaths =
     "jazz/compiler/ParserSignature.jz",
     "jazz/compiler/ParserToken.jz",
     "jazz/compiler/ParserTypes.jz",
-    "jazz/compiler/TypedCoreTypes.jz",
-    "jazz/compiler/TypedCoreValidate.jz",
     "jazz/stdlib/Char.jz",
     "jazz/stdlib/Dictionary.jz",
     "jazz/stdlib/IO.jz",
@@ -1057,10 +1056,7 @@ jsonArray value =
     _ -> []
 
 firstValue :: [Value] -> Maybe Value
-firstValue values =
-  case values of
-    [] -> Nothing
-    value : _ -> Just value
+firstValue = listToMaybe
 
 testPackageRoot :: IO ()
 testPackageRoot =
@@ -1464,7 +1460,7 @@ testDiagnosticRenderingBoundaries = do
   assertEqual
     "source-signature rendering"
     "[Int] -> Text"
-    (renderSignatureType (TypeFunction (TypeList TypeInt) TypeText))
+    (renderSignatureType (TypeFunction (TypeList TypeInt) TypeText :: AST.SignatureType 'AST.Lowered))
 
 testPerformanceDocumentation :: IO ()
 testPerformanceDocumentation =

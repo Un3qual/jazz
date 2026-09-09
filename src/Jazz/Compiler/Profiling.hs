@@ -1,4 +1,7 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Stable compiler-stage names shared by benchmarks and profiling tools.
@@ -17,8 +20,10 @@ module Jazz.Compiler.Profiling
   )
 where
 
+import Control.DeepSeq (NFData)
 import Control.Exception (bracket_)
 import Data.Text (Text)
+import GHC.Generics (Generic)
 #ifdef JAZZ_GHC_PROFILING
 import qualified Data.Text as Text
 import Debug.Trace (traceMarkerIO)
@@ -29,12 +34,10 @@ data BenchmarkGroup
   | AnalysisBenchmark
   | DiagnosticAnalysisBenchmark
   | ModulePreparationBenchmark
-  | TypedValidationBenchmark
-  | LoweredValidationBenchmark
-  | TypedLoweringBenchmark
   | RuntimeBenchmark
   | WholeProgramBenchmark
-  deriving (Bounded, Enum, Eq, Ord, Show)
+  deriving stock (Generic, Bounded, Enum, Eq, Ord, Show)
+  deriving anyclass (NFData)
 
 data CompilerStage
   = SourceLoadingStage
@@ -47,8 +50,6 @@ data CompilerStage
   | TypeInferenceStage
   | ConstraintSolvingStage
   | CapabilitySolvingStage
-  | TypedCoreValidationStage
-  | LoweredIRValidationStage
   | RuntimePreparationStage
   | EvaluationStage
   | HostOperationStage
@@ -74,9 +75,6 @@ benchmarkGroupName group =
     AnalysisBenchmark -> "analysis"
     DiagnosticAnalysisBenchmark -> "diagnostic-analysis"
     ModulePreparationBenchmark -> "module-preparation"
-    TypedValidationBenchmark -> "typed-validation"
-    LoweredValidationBenchmark -> "lowered-validation"
-    TypedLoweringBenchmark -> "typed-lowering"
     RuntimeBenchmark -> "runtime"
     WholeProgramBenchmark -> "whole-program"
 
@@ -87,9 +85,6 @@ benchmarkGroupStages group =
     AnalysisBenchmark -> [StaticAnalysisStage, TypeInferenceStage, ConstraintSolvingStage, CapabilitySolvingStage]
     DiagnosticAnalysisBenchmark -> [StaticAnalysisStage]
     ModulePreparationBenchmark -> [SourceLoadingStage, ModuleDiscoveryStage, ModuleResolutionStage, RuntimePreparationStage]
-    TypedValidationBenchmark -> [TypedCoreValidationStage]
-    LoweredValidationBenchmark -> [LoweredIRValidationStage]
-    TypedLoweringBenchmark -> [TypedCoreValidationStage, LoweringStage]
     RuntimeBenchmark -> [EvaluationStage, HostOperationStage]
     WholeProgramBenchmark ->
       [ SourceLoadingStage,
@@ -120,8 +115,6 @@ compilerStageName compilerStage =
     TypeInferenceStage -> "type-inference"
     ConstraintSolvingStage -> "constraint-solving"
     CapabilitySolvingStage -> "capability-solving"
-    TypedCoreValidationStage -> "typed-core-validation"
-    LoweredIRValidationStage -> "lowered-ir-validation"
     RuntimePreparationStage -> "runtime-preparation"
     EvaluationStage -> "evaluation"
     HostOperationStage -> "host-operation"

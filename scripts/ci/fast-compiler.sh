@@ -30,9 +30,6 @@ test_components=(
   canonical-lexer-comparison-spec
   canonical-parser-comparison-spec
   canonical-core-comparison-spec
-  jazz-lowered-ir-contract-spec
-  jazz-typed-core-contract-spec
-  jazz-typed-core-expression-direct-call-spec
   parser-core-spec
   jazz-parser-parity-spec
   jazz-parser-scale-spec

@@ -1,9 +1,10 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.TypeInference.Pattern
-  ( InferredPatternCaseArm (..),
-    inferPatternCaseType,
-    inferPatternCaseTypeWithResults,
+  ( inferPatternCaseType,
     inferPatternType,
     instantiateConstructorBinding,
   )
@@ -16,22 +17,28 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import Jazz.Compiler.AST
   ( CaseArm (..),
-    Expr,
+    CoreNode (coreNodeId),
+    CorePhase (..),
     Literal (..),
     Pattern (..),
+    patternNode,
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
-import Jazz.Compiler.Name (Name, identifierText)
+import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
     patternBinderNames,
   )
+import Jazz.Compiler.SemanticFacts
+  ( PatternConstructorFact (..),
+    PatternFacts (..),
+    PatternRefutability (..),
+  )
+import Jazz.Compiler.TypeInference.Capabilities (defaultLiteralTypes)
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Elaboration.Types (InferredExpr (..))
 import Jazz.Compiler.TypeInference.Solver
-  ( combineIntegerLiteralRanges,
+  ( freshIntegerLiteralType,
     freshTypeVar,
-    integerLiteralRangeFitsNumericType,
+    freshTypeVars,
     resolveType,
     unifyTypes,
   )
@@ -41,175 +48,109 @@ import Jazz.Compiler.TypeInference.State
     inferErrorCount,
     inferErrorsRev,
     modifyInferenceOutput,
+    recordExpressionFactType,
+    recordPatternFactSeed,
   )
-import Jazz.Compiler.TypeInference.Traversal (InferExprFn)
+import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode)
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
-    ExpressionType (..),
+    ExpressionType,
     IntegerLiteralRange (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     instantiateConstructorFieldType,
   )
 
-data InferredPatternCaseArm
-  = InferredPatternCaseArm
-      Pattern
-      (Maybe InferredExpr)
-      (Maybe InferredExpr)
-  deriving (Eq, Show)
-
-data PatternCaseArmResult result
-  = PatternCaseArmResult
-      Pattern
-      (Maybe result)
-      (Maybe result)
-
 inferPatternCaseType ::
-  InferExprFn ->
-  BuiltinResolutionMode ->
+  InferExprWithModeFn ->
+  InferenceMode ->
   TypeEnv ->
   ExpressionType ->
   InferState ->
-  [CaseArm] ->
+  [CaseArm 'Resolved] ->
   (Maybe ExpressionType, InferState)
-inferPatternCaseType inferExpression builtinMode env scrutineeType initialState caseArms =
-  let (expressionType, finalState, _) =
-        inferPatternCaseTypeInternal
-          ( \builtin childEnv childState childExpr ->
-              let (childType, nextState) =
-                    inferExpression builtin childEnv childState childExpr
-               in (childType, nextState, Nothing)
-          )
-          builtinMode
-          env
-          scrutineeType
-          initialState
-          caseArms
-   in (expressionType, finalState)
-
-inferPatternCaseTypeWithResults ::
-  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (InferredExpr, InferState)) ->
-  BuiltinResolutionMode ->
-  TypeEnv ->
-  ExpressionType ->
-  InferState ->
-  [CaseArm] ->
-  (Maybe ExpressionType, InferState, [InferredPatternCaseArm])
-inferPatternCaseTypeWithResults inferExpression builtinMode env scrutineeType initialState caseArms =
-  let (expressionType, finalState, armResults) =
-        inferPatternCaseTypeInternal
-          ( \builtin childEnv childState childExpr ->
-              let (childResult, nextState) =
-                    inferExpression builtin childEnv childState childExpr
-               in (inferredExpressionType childResult, nextState, Just childResult)
-          )
-          builtinMode
-          env
-          scrutineeType
-          initialState
-          caseArms
-   in (expressionType, finalState, map retainArm armResults)
+inferPatternCaseType inferExpression mode env scrutineeType initialState caseArms =
+  foldl' step (Nothing, initialState) caseArms
   where
-    retainArm (PatternCaseArmResult pattern maybeGuardResult maybeBodyResult) =
-      InferredPatternCaseArm pattern maybeGuardResult maybeBodyResult
-
-inferPatternCaseTypeInternal ::
-  (BuiltinResolutionMode -> TypeEnv -> InferState -> Expr -> (Maybe ExpressionType, InferState, Maybe result)) ->
-  BuiltinResolutionMode ->
-  TypeEnv ->
-  ExpressionType ->
-  InferState ->
-  [CaseArm] ->
-  (Maybe ExpressionType, InferState, [PatternCaseArmResult result])
-inferPatternCaseTypeInternal inferExpression builtinMode env scrutineeType initialState caseArms =
-  let (expressionType, finalState, reversedResults) =
-        foldl' step (Nothing, initialState, []) caseArms
-   in (expressionType, finalState, reverse reversedResults)
-  where
-    step (maybeExpectedBodyType, stateAcc, resultsAcc) (CaseArm pattern guardExpr bodyExpr) =
+    step (maybeExpectedBodyType, stateAcc) (CaseArm armNode pattern guardExpr bodyExpr) =
       let (rawPatternTyping, stateAfterPatternCheck) =
             inferPatternType env scrutineeType pattern stateAcc
           (patternTyping, stateAfterPattern) =
             rejectDuplicatePatternBinders pattern rawPatternTyping stateAcc stateAfterPatternCheck
        in if patternSkipsBranchType patternTyping
             then
-              ( maybeExpectedBodyType,
-                stateAfterPattern,
-                PatternCaseArmResult pattern Nothing Nothing : resultsAcc
-              )
+              (maybeExpectedBodyType, stateAfterPattern)
             else
               let armEnv =
                     extendTypeEnvWithPatternBindings
                       (patternBindings patternTyping)
                       env
-                  (stateAfterGuard, maybeGuardResult) =
-                    inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
-                  (maybeBodyType, stateAfterBody, maybeBodyResult) =
-                    inferExpression builtinMode armEnv stateAfterGuard bodyExpr
-                  nextResults =
-                    PatternCaseArmResult pattern maybeGuardResult maybeBodyResult : resultsAcc
+                  stateAfterGuard =
+                    inferCaseGuardType armEnv stateAfterPattern guardExpr
+                  (bodyResult, stateAfterBody) =
+                    inferExpression mode armEnv stateAfterGuard bodyExpr
+                  maybeBodyType = bodyResult
+                  stateAfterBodyFacts =
+                    maybe
+                      stateAfterBody
+                      (\bodyType -> recordExpressionFactType (coreNodeId armNode) bodyType stateAfterBody)
+                      maybeBodyType
                in case (maybeExpectedBodyType, maybeBodyType) of
                     (Nothing, _) ->
-                      (fmap (resolveType stateAfterBody) maybeBodyType, stateAfterBody, nextResults)
+                      (fmap (resolveType stateAfterBodyFacts) maybeBodyType, stateAfterBodyFacts)
                     (expectedBodyType, Nothing) ->
-                      (expectedBodyType, stateAfterBody, nextResults)
+                      (expectedBodyType, stateAfterBodyFacts)
                     (Just inferredExpectedBodyType, Just inferredBodyType) ->
-                      case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBody of
+                      case unifyTypes inferredExpectedBodyType inferredBodyType stateAfterBodyFacts of
                         Just unifiedState ->
-                          (Just (mergedUnifiedType unifiedState inferredExpectedBodyType inferredBodyType), unifiedState, nextResults)
+                          (Just (resolveType unifiedState inferredExpectedBodyType), unifiedState)
                         Nothing ->
                           ( Just inferredExpectedBodyType,
                             addTypeError
-                              stateAfterBody
+                              stateAfterBodyFacts
                               ( mkPatternBranchTypeMismatchError
-                                  (resolveType stateAfterBody inferredExpectedBodyType)
-                                  (resolveType stateAfterBody inferredBodyType)
-                              ),
-                            nextResults
+                                  (diagnosticType stateAfterBodyFacts inferredExpectedBodyType)
+                                  (diagnosticType stateAfterBodyFacts inferredBodyType)
+                              )
                           )
 
-    inferCaseGuardType builtinMode' armEnv stateAcc guardExpr =
+    inferCaseGuardType armEnv stateAcc guardExpr =
       case guardExpr of
-        Nothing -> (stateAcc, Nothing)
+        Nothing -> stateAcc
         Just conditionExpr ->
-          let (maybeGuardType, stateAfterGuard, maybeGuardResult) =
-                inferExpression builtinMode' armEnv stateAcc conditionExpr
+          let (guardResult, stateAfterGuard) =
+                inferExpression mode armEnv stateAcc conditionExpr
+              maybeGuardType = guardResult
               checkedState =
                 case maybeGuardType of
                   Just inferredGuardType ->
-                    case unifyTypes inferredGuardType TBoolType stateAfterGuard of
+                    case unifyTypes inferredGuardType SemanticBool stateAfterGuard of
                       Just unifiedState -> unifiedState
                       Nothing ->
                         addTypeError
                           stateAfterGuard
-                          (mkCaseGuardTypeError (resolveType stateAfterGuard inferredGuardType))
+                          (mkCaseGuardTypeError (diagnosticType stateAfterGuard inferredGuardType))
                   Nothing ->
                     stateAfterGuard
-           in (checkedState, maybeGuardResult)
+           in checkedState
 
-newtype PatternBindings = PatternBindings (Map Name ExpressionType)
-  deriving (Eq, Show)
+newtype PatternBindings = PatternBindings (Map ResolvedName ExpressionType)
+  deriving stock (Eq, Show)
+  deriving newtype (Semigroup, Monoid)
 
-instance Semigroup PatternBindings where
-  PatternBindings left <> PatternBindings right =
-    PatternBindings (Map.union left right)
-
-instance Monoid PatternBindings where
-  mempty = PatternBindings Map.empty
-
-singletonPatternBinding :: Name -> ExpressionType -> PatternBindings
+singletonPatternBinding :: ResolvedName -> ExpressionType -> PatternBindings
 singletonPatternBinding name expressionType =
   PatternBindings (Map.singleton name expressionType)
 
-lookupPatternBinding :: Name -> PatternBindings -> Maybe ExpressionType
+lookupPatternBinding :: ResolvedName -> PatternBindings -> Maybe ExpressionType
 lookupPatternBinding name (PatternBindings bindings) = Map.lookup name bindings
 
-insertPatternBinding :: Name -> ExpressionType -> PatternBindings -> PatternBindings
+insertPatternBinding :: ResolvedName -> ExpressionType -> PatternBindings -> PatternBindings
 insertPatternBinding name expressionType (PatternBindings bindings) =
   PatternBindings (Map.insert name expressionType bindings)
 
-patternBindingNames :: PatternBindings -> Set Name
+patternBindingNames :: PatternBindings -> Set ResolvedName
 patternBindingNames (PatternBindings bindings) = Map.keysSet bindings
 
 extendTypeEnvWithPatternBindings :: PatternBindings -> TypeEnv -> TypeEnv
@@ -245,7 +186,7 @@ skipBranchPatternTyping :: PatternTyping
 skipBranchPatternTyping =
   mempty {patternSkipsBranchType = True}
 
-rejectDuplicatePatternBinders :: Pattern -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
+rejectDuplicatePatternBinders :: Pattern 'Resolved -> PatternTyping -> InferState -> InferState -> (PatternTyping, InferState)
 rejectDuplicatePatternBinders pattern typing stableState checkedState =
   case patternDuplicateBinderNames pattern of
     [] -> (typing, checkedState)
@@ -259,36 +200,36 @@ rejectDuplicatePatternBinders pattern typing stableState checkedState =
     addDuplicateError stateAcc duplicateName =
       addTypeError stateAcc (mkDuplicatePatternBinderError duplicateName)
 
-patternDuplicateBinderNames :: Pattern -> [Name]
+patternDuplicateBinderNames :: Pattern 'Resolved -> [ResolvedName]
 patternDuplicateBinderNames pattern =
   Set.toList duplicates
   where
     (_, duplicates) = collect pattern Set.empty Set.empty
 
-    collect :: Pattern -> Set Name -> Set Name -> (Set Name, Set Name)
+    collect :: Pattern 'Resolved -> Set ResolvedName -> Set ResolvedName -> (Set ResolvedName, Set ResolvedName)
     collect candidate seen duplicatesAcc =
       case candidate of
-        PVariable name ->
+        PVariable _ name ->
           if Set.member name seen
             then (seen, Set.insert name duplicatesAcc)
             else (Set.insert name seen, duplicatesAcc)
-        PWildcard -> (seen, duplicatesAcc)
+        PWildcard _ -> (seen, duplicatesAcc)
         PLiteral {} -> (seen, duplicatesAcc)
-        PConstructor _ nestedPatterns ->
+        PConstructor _ _ nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
-        PList nestedPatterns ->
+        PList _ nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
-        PConsList headPattern tailPattern ->
+        PConsList _ headPattern tailPattern ->
           collectNested seen duplicatesAcc [headPattern, tailPattern]
-        PTuple nestedPatterns ->
+        PTuple _ nestedPatterns ->
           collectNested seen duplicatesAcc nestedPatterns
-        PAs name nestedPattern ->
+        PAs _ name nestedPattern ->
           let (seenAfterName, duplicatesAfterName) =
                 if Set.member name seen
                   then (seen, Set.insert name duplicatesAcc)
                   else (Set.insert name seen, duplicatesAcc)
            in collect nestedPattern seenAfterName duplicatesAfterName
-        POr alternatives ->
+        POr _ alternatives ->
           let duplicatesAfterAlternatives =
                 foldl'
                   ( \duplicatesAcc' alternative ->
@@ -305,10 +246,21 @@ patternDuplicateBinderNames pattern =
         )
         (seen, duplicatesAcc)
 
-inferPatternType :: TypeEnv -> ExpressionType -> Pattern -> InferState -> (PatternTyping, InferState)
+inferPatternType :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
 inferPatternType env scrutineeType pattern state =
+  let (typing, inferredState) = inferPatternTypeRaw env scrutineeType pattern state
+      facts =
+        PatternFacts
+          { patternBindingTypes = resolvedPatternBindingMap inferredState (patternBindings typing),
+            patternConstructorFact = patternConstructor pattern,
+            patternRefutability = patternRefutabilityFact pattern
+          }
+   in (typing, recordPatternFactSeed (coreNodeId (patternNode pattern)) facts inferredState)
+
+inferPatternTypeRaw :: TypeEnv -> ExpressionType -> Pattern 'Resolved -> InferState -> (PatternTyping, InferState)
+inferPatternTypeRaw env scrutineeType pattern state =
   case pattern of
-    PVariable name ->
+    PVariable _ name ->
       ( mempty
           { patternBindings =
               singletonPatternBinding
@@ -317,29 +269,29 @@ inferPatternType env scrutineeType pattern state =
           },
         state
       )
-    PWildcard -> (mempty, state)
-    PLiteral literal ->
-      let literalType = literalExpressionType literal
-       in case unifyTypes scrutineeType literalType state of
+    PWildcard _ -> (mempty, state)
+    PLiteral _ literal ->
+      let (literalType, stateAfterLiteral) = literalExpressionType literal state
+       in case unifyTypes scrutineeType literalType stateAfterLiteral of
             Just unifiedState -> (mempty, unifiedState)
             Nothing ->
               ( skipBranchPatternTyping,
                 addTypeError
-                  state
+                  stateAfterLiteral
                   ( mkPatternTypeMismatchError
-                      (resolveType state scrutineeType)
-                      literalType
+                      (diagnosticType stateAfterLiteral scrutineeType)
+                      (diagnosticType stateAfterLiteral literalType)
                   )
               )
-    PConstructor constructorName patterns ->
+    PConstructor _ constructorName patterns ->
       inferConstructorPatternType env scrutineeType constructorName patterns state
-    PList patterns ->
+    PList _ patterns ->
       inferListPatternType env scrutineeType patterns state
-    PConsList headPattern tailPattern ->
+    PConsList _ headPattern tailPattern ->
       inferConsListPatternType env scrutineeType headPattern tailPattern state
-    PTuple patterns ->
+    PTuple _ patterns ->
       inferTuplePatternType env scrutineeType patterns state
-    PAs name nestedPattern ->
+    PAs _ name nestedPattern ->
       let (typing, stateAfterPattern) =
             inferPatternType env scrutineeType nestedPattern state
        in if patternSkipsBranchType typing
@@ -354,13 +306,32 @@ inferPatternType env scrutineeType pattern state =
                   },
                 stateAfterPattern
               )
-    POr alternatives ->
+    POr _ alternatives ->
       inferOrPatternType env scrutineeType alternatives state
+
+resolvedPatternBindingMap :: InferState -> PatternBindings -> Map ResolvedName ExpressionType
+resolvedPatternBindingMap state (PatternBindings bindings) = Map.map (resolveType state) bindings
+
+patternConstructor :: Pattern 'Resolved -> PatternConstructorFact
+patternConstructor pattern =
+  case pattern of
+    PConstructor _ constructorName _ -> PatternConstructor constructorName
+    _ -> PatternHasNoConstructor
+
+patternRefutabilityFact :: Pattern phase -> PatternRefutability
+patternRefutabilityFact pattern =
+  case pattern of
+    PWildcard {} -> IrrefutablePattern
+    PVariable {} -> IrrefutablePattern
+    PAs _ _ nestedPattern -> patternRefutabilityFact nestedPattern
+    PTuple _ patterns
+      | all ((== IrrefutablePattern) . patternRefutabilityFact) patterns -> IrrefutablePattern
+    _ -> RefutablePattern
 
 inferOrPatternType ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferOrPatternType env scrutineeType alternatives initialState =
@@ -454,8 +425,8 @@ inferOrPatternType env scrutineeType alternatives initialState =
                             stateForBinder
                             ( mkOrPatternBinderTypeMismatchError
                                 binderName
-                                (resolveType stateForBinder leftType)
-                                (resolveType stateForBinder rightType)
+                                (diagnosticType stateForBinder leftType)
+                                (diagnosticType stateForBinder rightType)
                             )
                         )
                 _ ->
@@ -472,8 +443,8 @@ resolvePatternBindings state (PatternBindings bindings) =
 inferConstructorPatternType ::
   TypeEnv ->
   ExpressionType ->
-  Name ->
-  [Pattern] ->
+  ResolvedName ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferConstructorPatternType env scrutineeType constructorName patterns state =
@@ -501,8 +472,8 @@ inferConstructorPatternType env scrutineeType constructorName patterns state =
                       addTypeError
                         stateAfterConstructor
                         ( mkPatternTypeMismatchError
-                            (resolveType stateAfterConstructor scrutineeType)
-                            constructorResultType
+                            (diagnosticType stateAfterConstructor scrutineeType)
+                            (diagnosticType stateAfterConstructor constructorResultType)
                         )
                     )
         Nothing ->
@@ -523,7 +494,7 @@ inferConstructorPatternType env scrutineeType constructorName patterns state =
 inferConstructorArgumentPatterns ::
   TypeEnv ->
   [ExpressionType] ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferConstructorArgumentPatterns env argumentTypes patterns initialState =
@@ -543,12 +514,12 @@ inferConstructorArgumentPatterns env argumentTypes patterns initialState =
 inferListPatternType ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferListPatternType env scrutineeType patterns state =
   let (elementType, stateWithElementType) = freshTypeVar state
-      listPatternType = TListType elementType
+      listPatternType = SemanticList elementType
       stateAfterListCheck =
         case unifyTypes scrutineeType listPatternType stateWithElementType of
           Just unifiedState -> unifiedState
@@ -556,7 +527,7 @@ inferListPatternType env scrutineeType patterns state =
             addTypeError
               stateWithElementType
               ( mkListPatternTypeMismatchError
-                  (resolveType stateWithElementType scrutineeType)
+                  (diagnosticType stateWithElementType scrutineeType)
               )
    in if hasNewPatternError stateWithElementType stateAfterListCheck
         then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
@@ -570,7 +541,7 @@ inferListPatternType env scrutineeType patterns state =
 inferListElementPatterns ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferListElementPatterns env elementType patterns initialState =
@@ -590,13 +561,13 @@ inferListElementPatterns env elementType patterns initialState =
 inferConsListPatternType ::
   TypeEnv ->
   ExpressionType ->
-  Pattern ->
-  Pattern ->
+  Pattern 'Resolved ->
+  Pattern 'Resolved ->
   InferState ->
   (PatternTyping, InferState)
 inferConsListPatternType env scrutineeType headPattern tailPattern state =
   let (elementType, stateWithElementType) = freshTypeVar state
-      listPatternType = TListType elementType
+      listPatternType = SemanticList elementType
       stateAfterListCheck =
         case unifyTypes scrutineeType listPatternType stateWithElementType of
           Just unifiedState -> unifiedState
@@ -604,7 +575,7 @@ inferConsListPatternType env scrutineeType headPattern tailPattern state =
             addTypeError
               stateWithElementType
               ( mkListPatternTypeMismatchError
-                  (resolveType stateWithElementType scrutineeType)
+                  (diagnosticType stateWithElementType scrutineeType)
               )
    in if hasNewPatternError stateWithElementType stateAfterListCheck
         then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterListCheck)
@@ -619,8 +590,8 @@ inferConsListPatternType env scrutineeType headPattern tailPattern state =
 inferConsListSubpatterns ::
   TypeEnv ->
   ExpressionType ->
-  Pattern ->
-  Pattern ->
+  Pattern 'Resolved ->
+  Pattern 'Resolved ->
   InferState ->
   (PatternTyping, InferState)
 inferConsListSubpatterns env elementType headPattern tailPattern initialState =
@@ -629,7 +600,7 @@ inferConsListSubpatterns env elementType headPattern tailPattern initialState =
    in if patternSkipsBranchType headTyping
         then (headTyping, rollbackSkippedPatternState initialState stateAfterHeadPattern)
         else
-          let tailListType = TListType (resolveType stateAfterHeadPattern elementType)
+          let tailListType = SemanticList (resolveType stateAfterHeadPattern elementType)
               (tailTyping, stateAfterTailPattern) =
                 inferPatternType env tailListType tailPattern stateAfterHeadPattern
               mergedTyping = tailTyping <> headTyping
@@ -640,12 +611,12 @@ inferConsListSubpatterns env elementType headPattern tailPattern initialState =
 inferTuplePatternType ::
   TypeEnv ->
   ExpressionType ->
-  [Pattern] ->
+  [Pattern 'Resolved] ->
   InferState ->
   (PatternTyping, InferState)
 inferTuplePatternType env scrutineeType patterns state =
   case resolveType state scrutineeType of
-    TTupleType elementTypes
+    SemanticTuple elementTypes
       | length elementTypes == length patterns ->
           inferConstructorArgumentPatterns env elementTypes patterns state
       | otherwise ->
@@ -657,14 +628,14 @@ inferTuplePatternType env scrutineeType patterns state =
     resolvedScrutineeType ->
       let (elementTypes, stateWithElementTypes) =
             freshTypeVars (length patterns) state
-          tuplePatternType = TTupleType elementTypes
+          tuplePatternType = SemanticTuple elementTypes
           stateAfterTupleCheck =
             case unifyTypes scrutineeType tuplePatternType stateWithElementTypes of
               Just unifiedState -> unifiedState
               Nothing ->
                 addTypeError
                   stateWithElementTypes
-                  (mkTuplePatternTypeMismatchError resolvedScrutineeType)
+                  (mkTuplePatternTypeMismatchError (diagnosticType stateWithElementTypes resolvedScrutineeType))
        in if hasNewPatternError stateWithElementTypes stateAfterTupleCheck
             then (skipBranchPatternTyping, rollbackSkippedPatternState state stateAfterTupleCheck)
             else
@@ -673,15 +644,6 @@ inferTuplePatternType env scrutineeType patterns state =
                 (map (resolveType stateAfterTupleCheck) elementTypes)
                 patterns
                 stateAfterTupleCheck
-  where
-    freshTypeVars count initialState =
-      go [] initialState count
-
-    go reversedTypes stateAcc remainingCount
-      | remainingCount <= 0 = (reverse reversedTypes, stateAcc)
-      | otherwise =
-          let (nextType, nextState) = freshTypeVar stateAcc
-           in go (nextType : reversedTypes) nextState (remainingCount - 1)
 
 rollbackSkippedPatternState :: InferState -> InferState -> InferState
 rollbackSkippedPatternState stableState failedState =
@@ -698,15 +660,18 @@ hasNewPatternError :: InferState -> InferState -> Bool
 hasNewPatternError previousState nextState =
   inferErrorCount nextState > inferErrorCount previousState
 
-literalExpressionType :: Literal -> ExpressionType
-literalExpressionType literal =
+literalExpressionType :: Literal -> InferState -> (ExpressionType, InferState)
+literalExpressionType literal state =
   case literal of
-    LInt value -> TIntegerLiteralType (IntegerLiteralRange value value)
+    LInt value -> freshIntegerLiteralType (IntegerLiteralRange value value) state
     LFloat _ _ maybeTargetType ->
-      maybe TFloatType TNumericType maybeTargetType
-    LBool _ -> TBoolType
-    LChar _ -> TCharType
-    LText _ -> TTextType
+      (maybe SemanticFloat SemanticNumeric maybeTargetType, state)
+    LBool _ -> (SemanticBool, state)
+    LChar _ -> (SemanticChar, state)
+    LText _ -> (SemanticText, state)
+
+diagnosticType :: InferState -> ExpressionType -> ExpressionType
+diagnosticType state = defaultLiteralTypes state . resolveType state
 
 instantiateConstructorBinding :: TypeBinding -> InferState -> Maybe ([ExpressionType], ExpressionType, InferState)
 instantiateConstructorBinding binding state =
@@ -716,8 +681,8 @@ instantiateConstructorBinding binding state =
     _ -> Nothing
 
 instantiateConstructorType ::
-  Name ->
-  [Name] ->
+  ResolvedName ->
+  [ResolvedName] ->
   [ConstructorArgumentType] ->
   InferState ->
   ([ExpressionType], ExpressionType, InferState)
@@ -727,12 +692,12 @@ instantiateConstructorType typeName typeParameters argumentTypes state =
       (constructorArgumentTypesRev, stateAfterArguments) =
         instantiateConstructorArguments typeParameterBindings argumentTypes stateAfterParameters
    in ( reverse constructorArgumentTypesRev,
-        TDataType typeName (reverse resultParameterTypes),
+        SemanticData typeName (reverse resultParameterTypes),
         stateAfterArguments
       )
 
 instantiateConstructorTypeParameters ::
-  [Name] ->
+  [ResolvedName] ->
   InferState ->
   (Map Text ExpressionType, [ExpressionType], InferState)
 instantiateConstructorTypeParameters typeParameters initialState =
@@ -779,33 +744,3 @@ instantiateConstructorArguments typeParameterBindings argumentTypes initialState
         ConstructorArgumentFresh ->
           let (freshArgumentType, nextState) = freshTypeVar stateAcc
            in (freshArgumentType : argumentTypesRev, nextState)
-
-mergedUnifiedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
-mergedUnifiedType state leftType rightType =
-  mergeIntegerLiteralRanges (resolveType state leftType) (resolveType state rightType)
-
-mergeIntegerLiteralRanges :: ExpressionType -> ExpressionType -> ExpressionType
-mergeIntegerLiteralRanges leftType rightType =
-  case (leftType, rightType) of
-    (TIntegerLiteralType leftRange, TIntegerLiteralType rightRange) ->
-      TIntegerLiteralType (combineIntegerLiteralRanges leftRange rightRange)
-    (TIntegerLiteralType literalRange, numericType@(TNumericType concreteNumericType))
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (numericType@(TNumericType concreteNumericType), TIntegerLiteralType literalRange)
-      | integerLiteralRangeFitsNumericType literalRange concreteNumericType -> numericType
-    (TIntegerLiteralType {}, TIntType) -> TIntType
-    (TIntType, TIntegerLiteralType {}) -> TIntType
-    (TListType leftElementType, TListType rightElementType) ->
-      TListType (mergeIntegerLiteralRanges leftElementType rightElementType)
-    (TTupleType leftElementTypes, TTupleType rightElementTypes)
-      | length leftElementTypes == length rightElementTypes ->
-          TTupleType (zipWith mergeIntegerLiteralRanges leftElementTypes rightElementTypes)
-    (TDataType leftName leftArguments, TDataType rightName rightArguments)
-      | leftName == rightName,
-        length leftArguments == length rightArguments ->
-          TDataType leftName (zipWith mergeIntegerLiteralRanges leftArguments rightArguments)
-    (TFunctionType leftInputType leftOutputType, TFunctionType rightInputType rightOutputType) ->
-      TFunctionType
-        (mergeIntegerLiteralRanges leftInputType rightInputType)
-        (mergeIntegerLiteralRanges leftOutputType rightOutputType)
-    _ -> leftType

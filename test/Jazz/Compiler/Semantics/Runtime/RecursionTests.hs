@@ -1,44 +1,51 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.RecursionTests
-  ( recursionTests
-  ) where
+  ( recursionTests,
+  )
+where
 
 import Control.Exception
   ( SomeException,
     evaluate,
-    try
+    try,
   )
 import Data.Functor.Identity
   ( Identity,
-    runIdentity
+    runIdentity,
   )
+import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
-    Expr (..),
+  ( CorePhase (Analyzed),
+    Expr,
     Literal (..),
-    NumericType (..),
-    Pattern (..),
-    SignatureType (..),
-    Statement (..)
-  )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveCompatibility, ResolveKernelOnly)
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
-    runSource
+    runSource,
+  )
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (preludeModulePath)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Name
+  ( Name (..),
+    NameNamespace (ValueNamespace),
+    ResolvedNameOrigin (CurrentModule),
+    ResolvedUserName (..),
+    mkIdentifier,
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
@@ -46,67 +53,89 @@ import Jazz.Compiler.Runtime
     evaluateRuntimeExprWithHost,
     renderRuntimeValue,
     runtimeExplicitResultHintsInOrder,
-    runtimeValueExactlyMatchesConstraint
+    runtimeValueExactlyMatchesConstraint,
   )
 import Jazz.Compiler.Runtime.ScopePlan
   ( RuntimeScopePlan,
     buildRuntimeScopePlan,
     scopePlanIsRecursiveBinding,
-    scopePlanIsSelfRecursiveFunction
+    scopePlanIsSelfRecursiveFunction,
+    scopePlanModulePathForStatement,
   )
-import Jazz.Compiler.SourceProgram
-  ( parseAndLowerStandaloneSource,
-    scopeStatements
-  )
+import Jazz.Compiler.Runtime.Semantics (runtimeDefinitionName)
 import Jazz.Compiler.RuntimeHost
   ( RuntimeHost (..),
-    RuntimeHostExit (..)
+    RuntimeHostExit (..),
+  )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
+import Jazz.Compiler.SourceProgram
+  ( parseAndLowerStandaloneSource,
+    scopeStatements,
+  )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
+import Jazz.Compiler.TypeInference (analyzeSourceUnitExpression)
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SemanticType (..),
+    SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertEqual,
     assertSingleDiagnosticContains,
-    failTest
+    failTest,
   )
 import System.Timeout
-  ( timeout
+  ( timeout,
   )
 
 recursionTests :: [NamedTest]
 recursionTests =
-  [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe)
-    , ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe)
-    , ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe)
-    , ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations)
-    , ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely)
-    , ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity)
-    , ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch)
-    , ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError)
-    , ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError)
-    , ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError)
-    , ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError)
-    , ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError)
-    , ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer)
-    , ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility)
-    , ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility)
-    , ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility)
-    , ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion)
-    , ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError)
-    , ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError)
-    , ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError)
-    , ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer)
-    , ( "nested recursive forward alias preserves callable recursion"
-      , testNestedRecursiveForwardAliasRuntimeSuccess
-      )
-    , ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess)
-    , ("recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError)
-    , ("indirect recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError)
-    , ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals)
-    , ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
+  [ ("tail-recursive closure is stack safe at bootstrap depth", testTailRecursiveClosureIsStackSafe),
+    ("tail-recursive case arm is stack safe", testTailRecursiveCaseArmIsStackSafe),
+    ("typed tail-recursive closure preserves result hints", testTypedTailRecursiveClosureIsStackSafe),
+    ("explicitly hinted tail recursion preserves result obligations", testExplicitlyHintedTailRecursionPreservesResultObligations),
+    ("100,000 explicit result hints render and apply stack safely", testExplicitResultHintsRenderAndApplyStackSafely),
+    ("mixed explicit result hints preserve order and multiplicity", testMixedExplicitResultHintsPreserveOrderAndMultiplicity),
+    ("pure and host evaluators preserve diagnostic parity", testPureAndHostDiagnosticsMatch),
+    ("alias-only recursive cycle produces deterministic runtime diagnostic", testAliasOnlyRecursiveCycleRuntimeError),
+    ("wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("mixed wrapped alias cycle still produces deterministic runtime diagnostic", testMixedWrappedAliasCycleRuntimeError),
+    ("wrapped alias cycle still evaluates wrapper condition first", testWrappedAliasCycleConditionRuntimeError),
+    ("pattern-case alias-only recursive cycle produces deterministic runtime diagnostic", testPatternCaseAliasOnlyRecursiveCycleRuntimeError),
+    ("pattern-case binder shadows recursive peer during alias resolution", testPatternCaseBinderDoesNotAliasRecursivePeer),
+    ("pattern-case binder blocks false recursive function visibility", testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility),
+    ("prelude scope planning uses its nonempty module path", testPreludeScopePlanUsesNonemptyModulePath),
+    ("standalone runtime owners do not impersonate the prelude", testStandaloneRuntimeOwnerIsNotPrelude),
+    ("pattern-case binder preserves alias definition recursive visibility", testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility),
+    ("builtin names stay outside self-recursive function visibility", testBuiltinNameDoesNotGainSelfRecursiveVisibility),
+    ("pattern-case guard lambda does not classify non-function recursion", testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion),
+    ("function-valued pattern guard self-reference produces recursion diagnostic", testFunctionPatternGuardSelfReferenceRuntimeError),
+    ("block-wrapped alias-only recursive cycle produces deterministic runtime diagnostic", testBlockWrappedAliasOnlyRecursiveCycleRuntimeError),
+    ("non-function recursive cycle produces deterministic runtime diagnostic", testNonFunctionRecursiveCycleRuntimeError),
+    ("nested block alias cycle ignores later outer peer name", testNestedBlockAliasCycleIgnoresLaterOuterPeer),
+    ( "nested recursive forward alias preserves callable recursion",
+      testNestedRecursiveForwardAliasRuntimeSuccess
+    ),
+    ("recursive declared user operator applies at runtime", testRecursiveDeclaredUserOperatorRuntimeSuccess),
+    ("recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("indirect recursive declared user operator itemValue alias produces deterministic runtime diagnostic", testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError),
+    ("qualified method dispatch recursively defaults bound integer literals", testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals),
+    ("qualified method dispatch rejects mutual method alias cycle", testQualifiedMethodDispatchRejectsMutualMethodAliasCycle)
   ]
+
+testStandaloneRuntimeOwnerIsNotPrelude :: IO ()
+testStandaloneRuntimeOwnerIsNotPrelude = do
+  let localName =
+        UserName
+          (ResolvedUserName CurrentModule ValueNamespace (mkIdentifier "itemValue"))
+  assertEqual
+    "standalone runtime owner"
+    localName
+    (runtimeDefinitionName Nothing localName)
 
 testTailRecursiveClosureIsStackSafe :: IO ()
 testTailRecursiveClosureIsStackSafe =
@@ -153,26 +182,26 @@ testExplicitlyHintedTailRecursionPreservesResultObligations :: IO ()
 testExplicitlyHintedTailRecursionPreservesResultObligations = do
   let recursionDepth :: Int
       recursionDepth = 1000
-      isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
-        EApply
-          (ETypeApplication (EVar "collect") (SourceSpan 2 20) TypeInt)
-          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
+        expressionApply
+          (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
+          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
       expression =
-        EBlock
-          [ SLet
+        expressionBlock
+          [ statementLet
               "collect"
               (SourceSpan 1 1)
-              (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) recurse)),
-            SExpr
+              (expressionLambda "remaining" (expressionIf isZero (expressionLambda "itemValue" (expressionVariable "itemValue")) recurse)),
+            statementExpression
               (SourceSpan 3 1)
-              (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
+              (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
           ]
   case evaluateRuntimeExpr expression of
     Right (Just runtimeValue) ->
       assertEqual
         "repeated explicit tail hints in outermost-to-innermost order"
-        (replicate recursionDepth TypeInt)
+        (replicate recursionDepth SemanticInt)
         (runtimeExplicitResultHintsInOrder runtimeValue)
     Left diagnostic ->
       failTest ("explicitly hinted tail recursion failed: " <> renderDiagnostic diagnostic)
@@ -183,7 +212,7 @@ testExplicitResultHintsRenderAndApplyStackSafely :: IO ()
 testExplicitResultHintsRenderAndApplyStackSafely = do
   let recursionDepth = 100000
       callableExpression = explicitlyHintedCallable recursionDepth
-      appliedExpression = EApply callableExpression (ELit (LInt 7))
+      appliedExpression = expressionApply callableExpression (expressionLiteral (LInt 7))
   outcome <-
     try
       ( timeout
@@ -194,14 +223,14 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
                   observedHints = runtimeExplicitResultHintsInOrder callableValue
               _ <- evaluate (Text.length renderedCallable)
               observedCount <- evaluate (length observedHints)
-              allHintsMatch <- evaluate (all (== TypeInt) observedHints)
+              allHintsMatch <- evaluate (all (== SemanticInt) observedHints)
               appliedValue <- requireRuntimeValue "100,000-hint application" appliedExpression
               let renderedAppliedValue = renderRuntimeValue appliedValue
               _ <- evaluate (Text.length renderedAppliedValue)
               pure (renderedCallable, observedCount, allHintsMatch, renderedAppliedValue)
           )
-      )
-      :: IO (Either SomeException (Maybe (Text, Int, Bool, Text)))
+      ) ::
+      IO (Either SomeException (Maybe (Text, Int, Bool, Text)))
   case outcome of
     Right Nothing ->
       failTest "100,000 explicit result hints timed out while rendering or applying"
@@ -215,14 +244,21 @@ testExplicitResultHintsRenderAndApplyStackSafely = do
 
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity :: IO ()
 testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
-  let uint8 = TypeNumeric NumericUInt8
+  let uint8 = SemanticNumeric NumericUInt8
       callableExpression = mixedExplicitlyHintedCallable 6
-      appliedExpression = EApply callableExpression (ELit (LInt 7))
+      appliedExpression = expressionApply callableExpression (expressionLiteral (LInt 7))
   runtimeValue <- requireRuntimeValue "mixed explicit result hints" callableExpression
   assertEqual
     "mixed hints remain outermost-to-innermost without deduplication"
-    [uint8, TypeInt, TypeBool, uint8, TypeInt, TypeBool]
+    [uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool]
     (runtimeExplicitResultHintsInOrder runtimeValue)
+  case runtimeValue of
+    VAnnotated annotation _ ->
+      assertEqual
+        "reattaching result annotations combines their ordered obligations"
+        [uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool, uint8, SemanticInt, SemanticBool]
+        (runtimeExplicitResultHintsInOrder (VAnnotated annotation runtimeValue))
+    _ -> failTest "expected pending result annotations on the callable"
   appliedValue <- requireRuntimeValue "mixed explicit result hint application" appliedExpression
   assertEqual "mixed explicit result hint application renders" "7" (renderRuntimeValue appliedValue)
   assertEqual
@@ -232,49 +268,49 @@ testMixedExplicitResultHintsPreserveOrderAndMultiplicity = do
   assertEqual
     "mixed explicit result hint application does not retain intermediate Int result"
     False
-    (runtimeValueExactlyMatchesConstraint TypeInt appliedValue)
+    (runtimeValueExactlyMatchesConstraint SemanticInt appliedValue)
 
-mixedExplicitlyHintedCallable :: Int -> Expr
+mixedExplicitlyHintedCallable :: Int -> Expr 'Analyzed
 mixedExplicitlyHintedCallable recursionDepth =
   let uint8 = TypeNumeric NumericUInt8
-      isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
-      decrement = EBinary "-" (EVar "remaining") (ELit (LInt 1))
+      isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
+      decrement = expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1))
       hintedCall functionName line typeHint =
-        EApply
-          (ETypeApplication (EVar functionName) (SourceSpan line 20) typeHint)
+        expressionApply
+          (expressionTypeApplication (expressionVariable functionName) (SourceSpan line 20) typeHint)
           decrement
       collect functionName line nextFunctionName typeHint =
-        SLet
+        statementLet
           functionName
           (SourceSpan line 1)
-          (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) (hintedCall nextFunctionName line typeHint)))
-   in EBlock
+          (expressionLambda "remaining" (expressionIf isZero (expressionLambda "itemValue" (expressionVariable "itemValue")) (hintedCall nextFunctionName line typeHint)))
+   in expressionBlock
         [ collect "collectUInt8" 1 "collectInt" uint8,
           collect "collectInt" 2 "collectBool" TypeInt,
           collect "collectBool" 3 "collectUInt8" TypeBool,
-          SExpr
+          statementExpression
             (SourceSpan 4 1)
-            (EApply (EVar "collectUInt8") (ELit (LInt (fromIntegral recursionDepth))))
+            (expressionApply (expressionVariable "collectUInt8") (expressionLiteral (LInt (fromIntegral recursionDepth))))
         ]
 
-explicitlyHintedCallable :: Int -> Expr
+explicitlyHintedCallable :: Int -> Expr 'Analyzed
 explicitlyHintedCallable recursionDepth =
-  let isZero = EBinary "==" (EVar "remaining") (ELit (LInt 0))
+  let isZero = expressionBinary "==" (expressionVariable "remaining") (expressionLiteral (LInt 0))
       recurse =
-        EApply
-          (ETypeApplication (EVar "collect") (SourceSpan 2 20) TypeInt)
-          (EBinary "-" (EVar "remaining") (ELit (LInt 1)))
-   in EBlock
-        [ SLet
+        expressionApply
+          (expressionTypeApplication (expressionVariable "collect") (SourceSpan 2 20) TypeInt)
+          (expressionBinary "-" (expressionVariable "remaining") (expressionLiteral (LInt 1)))
+   in expressionBlock
+        [ statementLet
             "collect"
             (SourceSpan 1 1)
-            (ELambda "remaining" (EIf isZero (ELambda "itemValue" (EVar "itemValue")) recurse)),
-          SExpr
+            (expressionLambda "remaining" (expressionIf isZero (expressionLambda "itemValue" (expressionVariable "itemValue")) recurse)),
+          statementExpression
             (SourceSpan 3 1)
-            (EApply (EVar "collect") (ELit (LInt (fromIntegral recursionDepth))))
+            (expressionApply (expressionVariable "collect") (expressionLiteral (LInt (fromIntegral recursionDepth))))
         ]
 
-requireRuntimeValue :: Text -> Expr -> IO RuntimeValue
+requireRuntimeValue :: Text -> Expr 'Analyzed -> IO RuntimeValue
 requireRuntimeValue label expression =
   case evaluateRuntimeExpr expression of
     Left diagnostic ->
@@ -300,12 +336,12 @@ assertStackSafeRunResult label action expectedOutput = do
       assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
       assertEqual (label <> " output") expectedOutput (runOutput result)
 
-diagnosticParityExpressions :: [Expr]
+diagnosticParityExpressions :: [Expr 'Analyzed]
 diagnosticParityExpressions =
-  [ EVar "missing",
-    EIf (ELit (LInt 1)) (ELit (LInt 2)) (ELit (LInt 3)),
-    EApply (ELit (LInt 1)) (ELit (LInt 2)),
-    EPatternCase (ELit (LInt 1)) []
+  [ expressionVariable "missing",
+    expressionIf (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)) (expressionLiteral (LInt 3)),
+    expressionApply (expressionLiteral (LInt 1)) (expressionLiteral (LInt 2)),
+    expressionPatternCase (expressionLiteral (LInt 1)) []
   ]
 
 diagnosticParityHost :: RuntimeHost Identity
@@ -325,23 +361,21 @@ testPureAndHostDiagnosticsMatch =
   mapM_ assertParity diagnosticParityExpressions
   where
     assertParity expression =
-      case
-          ( evaluateRuntimeExpr expression,
-            runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
-          )
-        of
-          (Left pureDiagnostic, Left hostDiagnostic) ->
-            assertEqual
-              "pure/host rendered diagnostic"
-              (renderDiagnostic pureDiagnostic)
-              (renderDiagnostic hostDiagnostic)
-          (pureResult, hostResult) ->
-            failTest
-              ( "expected matching diagnostic failures, found "
-                  <> Text.pack (show pureResult)
-                  <> " and "
-                  <> Text.pack (show hostResult)
-              )
+      case ( evaluateRuntimeExpr expression,
+             runIdentity (evaluateRuntimeExprWithHost diagnosticParityHost expression)
+           ) of
+        (Left pureDiagnostic, Left hostDiagnostic) ->
+          assertEqual
+            "pure/host rendered diagnostic"
+            (renderDiagnostic pureDiagnostic)
+            (renderDiagnostic hostDiagnostic)
+        (pureResult, hostResult) ->
+          failTest
+            ( "expected matching diagnostic failures, found "
+                <> Text.pack (show pureResult)
+                <> " and "
+                <> Text.pack (show hostResult)
+            )
 
 testAliasOnlyRecursiveCycleRuntimeError :: IO ()
 testAliasOnlyRecursiveCycleRuntimeError = do
@@ -454,9 +488,9 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility :: IO ()
 testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
   let plan =
         buildRuntimeScopePlan
+          preludeModulePath
           Set.empty
           Nothing
-          ResolveKernelOnly
           Set.empty
           witnessStatements
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
@@ -469,26 +503,40 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
     witnessSource =
       "f = { apparent = \\(x) -> x. captured = \\(x) -> f. case True { | apparent -> apparent }. }. f."
     witnessStatements =
-      [ SLet
+      [ statementLet
           "f"
           (SourceSpan 1 1)
-          ( EBlock
-              [ SLet "apparent" (SourceSpan 1 1) (ELambda "x" (EVar "x")),
-                SLet "captured" (SourceSpan 1 1) (ELambda "x" (EVar "f")),
-                SExpr
+          ( expressionBlock
+              [ statementLet "apparent" (SourceSpan 1 1) (expressionLambda "x" (expressionVariable "x")),
+                statementLet "captured" (SourceSpan 1 1) (expressionLambda "x" (expressionVariable "f")),
+                statementExpression
                   (SourceSpan 1 1)
-                  ( EPatternCase
-                      (ELit (LBool True))
-                      [CaseArm (PVariable "apparent") Nothing (EVar "apparent")]
+                  ( expressionPatternCase
+                      (expressionLiteral (LBool True))
+                      [caseArm (patternVariable "apparent") Nothing (expressionVariable "apparent")]
                   )
               ]
           ),
-        SExpr (SourceSpan 1 1) (EVar "f")
+        statementExpression (SourceSpan 1 1) (expressionVariable "f")
       ]
+
+testPreludeScopePlanUsesNonemptyModulePath :: IO ()
+testPreludeScopePlanUsesNonemptyModulePath = do
+  let plan =
+        buildRuntimeScopePlan
+          preludeModulePath
+          (Set.singleton 0)
+          Nothing
+          Set.empty
+          [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
+  assertEqual
+    "prelude statement path"
+    (Just (InjectedPreludeSourceUnit preludeModulePath Nothing))
+    (scopePlanModulePathForStatement plan 0)
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
-  plan <- scopePlanForSource ResolveKernelOnly executableWitnessSource
+  plan <- scopePlanForSource executableWitnessSource
   assertEqual "definition-site witness is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
   assertEqual "definition-site witness gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings executableWitnessSource
@@ -501,9 +549,6 @@ testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
 
 testBuiltinNameDoesNotGainSelfRecursiveVisibility :: IO ()
 testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
-  plan <- scopePlanForSource ResolveCompatibility witnessSource
-  assertEqual "builtin-named witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
-  assertEqual "builtin-named witness gets no recursive function visibility" False (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings witnessSource
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -512,20 +557,41 @@ testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
     witnessSource =
       "map = \\(items) -> map (\\(item) -> item) items. map [1]."
 
-scopePlanForSource :: BuiltinResolutionMode -> Text -> IO RuntimeScopePlan
-scopePlanForSource builtinMode source =
+scopePlanForSource :: Text -> IO RuntimeScopePlan
+scopePlanForSource source =
   case parseAndLowerStandaloneSource source of
     Left diagnostic ->
       failTest ("expected scope-plan witness source to parse and lower: " <> renderDiagnostic diagnostic)
-    Right expression ->
-      pure
-        ( buildRuntimeScopePlan
-            Set.empty
-            Nothing
-            builtinMode
-            Set.empty
-            (scopeStatements expression)
-        )
+    Right loweredExpression ->
+      case resolveStandaloneExprNames (exportInventory []) loweredExpression of
+        Left diagnostics ->
+          failTest
+            ( "expected scope-plan witness source to resolve: "
+                <> Text.intercalate "\n" (map renderDiagnostic (toList diagnostics))
+            )
+        Right resolvedExpression -> do
+          (_, attachment) <-
+            analyzeSourceUnitExpression
+              preludeModulePath
+              Set.empty
+              Set.empty
+              defaultWarningSettings
+              resolvedExpression
+          analyzedExpression <-
+            case attachment of
+              Left failures -> failTest ("scope-plan witness facts failed: " <> Text.pack (show failures))
+              Right Nothing -> failTest "scope-plan witness produced no analyzed expression"
+              Right (Just expression) -> pure expression
+          pure
+            ( buildRuntimeScopePlan
+                preludeModulePath
+                Set.empty
+                Nothing
+                Set.empty
+                (scopeStatements analyzedExpression)
+            )
+  where
+    toList (diagnostic :| diagnostics) = diagnostic : diagnostics
 
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion :: IO ()
 testPatternCaseGuardLambdaDoesNotClassifyNonFunctionRecursion = do
@@ -629,7 +695,7 @@ testNestedBlockAliasCycleIgnoresLaterOuterPeer = do
 
 testNestedRecursiveForwardAliasRuntimeSuccess :: IO ()
 testNestedRecursiveForwardAliasRuntimeSuccess = do
-  plan <- scopePlanForSource ResolveKernelOnly source
+  plan <- scopePlanForSource source
   assertEqual "nested forward alias is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
   assertEqual "nested forward alias gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings source
@@ -661,12 +727,15 @@ testRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
     timeout
       1000000
       ( try
-          (runSource defaultWarningSettings """
-          operator %% tier 2.
-          (%%) = (%%).
-          1 %% 2.
-          """)
-          :: IO (Either SomeException RunResult)
+          ( runSource
+              defaultWarningSettings
+              """
+              operator %% tier 2.
+              (%%) = (%%).
+              1 %% 2.
+              """
+          ) ::
+          IO (Either SomeException RunResult)
       )
   case maybeResult of
     Nothing ->
@@ -691,13 +760,16 @@ testIndirectRecursiveDeclaredUserOperatorValueAliasRuntimeError = do
     timeout
       1000000
       ( try
-          (runSource defaultWarningSettings """
-          operator %% tier 2.
-          (%%) = alias.
-          alias = (%%).
-          1 %% 2.
-          """)
-          :: IO (Either SomeException RunResult)
+          ( runSource
+              defaultWarningSettings
+              """
+              operator %% tier 2.
+              (%%) = alias.
+              alias = (%%).
+              1 %% 2.
+              """
+          ) ::
+          IO (Either SomeException RunResult)
       )
   case maybeResult of
     Nothing ->
@@ -722,18 +794,18 @@ testQualifiedMethodDispatchRecursivelyDefaultsBoundIntegerLiterals = do
     runSource
       defaultWarningSettings
       ( """
-      class RuntimeApply(a) {
-      apply :: (a -> Bool) -> Bool.
-      }.
-      impl RuntimeApply(Int) {
-      apply = \\(fn) -> True.
-      }.
-      impl RuntimeApply(UInt8) {
-      apply = \\(fn) -> False.
-      }.
-      eq1 = (1 ==).
-      RuntimeApply::apply eq1.
-      """
+        class RuntimeApply(a) {
+        apply :: (a -> Bool) -> Bool.
+        }.
+        impl RuntimeApply(Int) {
+        apply = \\(fn) -> True.
+        }.
+        impl RuntimeApply(UInt8) {
+        apply = \\(fn) -> False.
+        }.
+        eq1 = (1 ==).
+        RuntimeApply::apply eq1.
+        """
       )
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
@@ -748,16 +820,16 @@ testQualifiedMethodDispatchRejectsMutualMethodAliasCycle = do
           ( runSource
               defaultWarningSettings
               ( """
-              class RuntimeFlag(a) {
-              enabled :: Bool.
-              other :: Bool.
-              }.
-              impl RuntimeFlag(Int) {
-              enabled = RuntimeFlag::other.
-              other = RuntimeFlag::enabled.
-              }.
-              RuntimeFlag::enabled.
-              """
+                class RuntimeFlag(a) {
+                enabled :: Bool.
+                other :: Bool.
+                }.
+                impl RuntimeFlag(Int) {
+                enabled = RuntimeFlag::other.
+                other = RuntimeFlag::enabled.
+                }.
+                RuntimeFlag::enabled.
+                """
               )
           ) ::
           IO (Either SomeException RunResult)

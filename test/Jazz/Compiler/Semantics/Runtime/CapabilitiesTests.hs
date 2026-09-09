@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.Runtime.CapabilitiesTests
@@ -9,24 +10,18 @@ import Control.Exception
   ( SomeException,
     try,
   )
-import qualified Data.Map.Strict as Map
+import Data.Foldable (toList)
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Set as Set
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
-    ClassMethodSignature (..),
-    DataConstructor (..),
+    CoreNode (..),
+    CorePhase (Analyzed),
     Expr (..),
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
-    Pattern (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
-  )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
   )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
@@ -36,34 +31,47 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
     runSource,
     runSourceWithPrelude,
   )
-import Jazz.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource,
-  )
-import Jazz.Compiler.Name (qualifiedName)
+import Jazz.Compiler.ModuleExports (exportInventory)
+import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..), mkModulePath, preludeModulePath, standaloneModulePath)
+import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
+import Jazz.Compiler.Name (mkIdentifier, qualifiedName)
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltinsAndBindingHints,
     renderRuntimeValue,
     runtimeValueExactlyMatchesConstraint,
   )
-import Jazz.Compiler.RuntimeHints
-  ( bindingRuntimeHintKey,
-    bindingRuntimeHintKeyInModule,
-    explicitTypeApplicationRuntimeHintKeyInModule,
+import Jazz.Compiler.Runtime.Types
+  ( RuntimeMethodCandidate (..),
   )
+import Jazz.Compiler.SemanticFacts
+  ( CapabilityId (..),
+    EvidenceReference (..),
+    ExpressionFacts (..),
+    ImplId (..),
+    MethodId (..),
+    RuntimeObligation (..),
+    RuntimePlan (..),
+  )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
+import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference
-  ( inferExpressionWithBuiltins,
-    inferExpressionWithBuiltinsAndSourceUnitStatements,
+  ( analyzeSourceUnitExpression,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
+import Jazz.Compiler.TypeRepresentation
+  ( SemanticType (..),
+    SignaturePayload (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -84,6 +92,7 @@ capabilityTests =
     ("scope with only capability declarations has no runtime output", testCapabilityDeclarationOnlyScopeHasNoOutput),
     ("capability declarations are inert at runtime", testCapabilityDeclarationsRuntimeInert),
     ("qualified method candidates carry compiler-owned runtime evidence", testQualifiedMethodCandidateCarriesRuntimeEvidence),
+    ("qualified method application preserves argument order", testQualifiedMethodApplicationPreservesArgumentOrder),
     ("qualified method dispatch executes selected impl body", testQualifiedMethodDispatchExecutesImplBody),
     ("let-bound qualified method dispatch executes selected impl body", testLetBoundQualifiedMethodDispatchExecutesImplBody),
     ("qualified method dispatch selects runtime body by argument types", testQualifiedMethodDispatchSelectsRuntimeBodyByArgumentTypes),
@@ -93,6 +102,7 @@ capabilityTests =
     ("qualified method dispatch preserves direct explicit type application hints", testQualifiedMethodDispatchPreservesDirectExplicitTypeApplicationHint),
     ("qualified method dispatch selects a nullary body by explicit target", testQualifiedMethodDispatchSelectsNullaryBodyByExplicitTarget),
     ("qualified method dispatch selects a nullary body by binding result type", testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType),
+    ("nullary method selection records canonical analyzed evidence", testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence),
     ("qualified method dispatch preserves inferred explicit type application tuple hints", testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint),
     ("qualified method dispatch applies explicit type argument to matching parameter", testQualifiedMethodDispatchAppliesExplicitTypeArgumentToMatchingParameter),
     ("qualified method dispatch preserves partially instantiated function templates", testQualifiedMethodDispatchPreservesPartiallyInstantiatedFunctionTemplate),
@@ -118,9 +128,6 @@ capabilityTests =
     ("raw list prepend re-hints the head to the concrete tail element type", testRawListPrependRehintsHeadToConcreteTailElementType),
     ("qualified method dispatch preserves bound nested list runtime hints", testQualifiedMethodDispatchPreservesBoundNestedListRuntimeHint),
     ("qualified method dispatch instantiates explicit empty list type application hints", testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint),
-    ("qualified method dispatch omits plain polymorphic empty list runtime hints", testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint),
-    ("qualified method dispatch records signed polymorphic function runtime templates", testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate),
-    ("qualified method dispatch records concrete explicit named application hints", testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint),
     ("qualified method dispatch rejects unhinted nested list helper exact selection", testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection),
     ("qualified method dispatch does not exact-match untyped empty list literals", testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral),
     ("qualified method dispatch prefers constructor alias body for direct constructor literals", testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral),
@@ -150,14 +157,13 @@ capabilityTests =
     ("qualified method dispatch treats defaulted integer bindings as Int64", testQualifiedMethodDispatchTreatsDefaultedIntegerBindingAsInt64),
     ("qualified method dispatch treats plain integer bindings as Int64 when exact candidates overlap", testQualifiedMethodDispatchTreatsPlainIntegerBindingAsInt64WithExactCandidates),
     ("qualified method dispatch treats inferred direct integer literals as exact Int", testQualifiedMethodDispatchTreatsInferredDirectIntegerLiteralAsExactInt),
-    ("qualified method dispatch preserves inferred narrow integer bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
+    ("successful direct-driver execution projects complete plans for inferred narrow bindings", testQualifiedMethodDispatchPreservesInferredNarrowIntegerBinding),
     ("qualified method dispatch preserves ADT application binding hints", testQualifiedMethodDispatchPreservesAdtApplicationBindingHint),
     ("qualified method dispatch preserves phantom ADT application binding hints", testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint),
     ("qualified method dispatch preserves ADT concrete payload hints", testQualifiedMethodDispatchPreservesAdtConcretePayloadHint),
     ("qualified method dispatch preserves monomorphic ADT concrete payload hints", testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint),
-    ("qualified method dispatch ignores unknown constructor field hint names", testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName),
     ("qualified method dispatch keeps nested inferred hints scoped", testQualifiedMethodDispatchKeepsNestedInferredHintsScoped),
-    ("nested binding hints retain their enclosing source unit", testNestedBindingHintsRetainEnclosingSourceUnit),
+    ("authored module transitions own standalone plans and evidence", testAuthoredModuleTransitionOwnsPlansAndEvidence),
     ("qualified method dispatch prefers alias binding over method sentinel at runtime", testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime),
     ("qualified zero-argument method dispatch returns itemValue", testQualifiedZeroArgumentMethodDispatchReturnsValue),
     ("qualified method dispatch rejects direct self alias", testQualifiedMethodDispatchRejectsDirectSelfAlias),
@@ -210,10 +216,14 @@ testCapabilityDeclarationsRuntimeInert = do
 testQualifiedMethodCandidateCarriesRuntimeEvidence :: IO ()
 testQualifiedMethodCandidateCarriesRuntimeEvidence =
   case evaluateRuntimeExpr qualifiedMethodEvidenceExpr of
-    Right (Just methodValue@VQualifiedMethod {}) -> do
+    Right (Just methodValue@(VQualifiedMethod _ _ _ candidates _)) -> do
+      assertEqual
+        "runtime candidate evidence target order"
+        [SemanticInt, SemanticBool]
+        [evidenceType evidence | RuntimeMethodCandidate evidence _ <- candidates]
       assertContains
         "runtime candidate evidence record"
-        "RuntimeEvidence"
+        "EvidenceReference"
         (Text.pack (show methodValue))
       assertContains
         "runtime candidate evidence class"
@@ -230,42 +240,63 @@ testQualifiedMethodCandidateCarriesRuntimeEvidence =
       failTest ("expected qualified method runtime itemValue, got " <> renderDiagnostic runtimeError)
   where
     qualifiedMethodEvidenceExpr =
-      EBlock
-        [ SClass
+      expressionBlock
+        [ statementClass
             (SourceSpan 1 1)
             "Eq"
             ["a"]
-            [ ClassMethodSignature
+            [ classMethodSignature
                 "equals"
                 (SourceSpan 2 1)
                 ( ConstrainedSignature
                     []
                     ( TypeFunction
-                        (TypeVariable "a")
-                        (TypeFunction (TypeVariable "a") (TypeBool))
+                        (fixtureTypeVariable "a")
+                        (TypeFunction (fixtureTypeVariable "a") (TypeBool))
                     )
                 )
             ],
-          SImpl
+          statementImpl
             (SourceSpan 3 1)
             "Eq"
             [TypeInt]
-            [ ImplMethod
+            [ implMethod
                 "equals"
                 (SourceSpan 4 1)
-                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+                (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
             ],
-          SImpl
+          statementImpl
             (SourceSpan 5 1)
             "Eq"
             [TypeBool]
-            [ ImplMethod
+            [ implMethod
                 "equals"
                 (SourceSpan 6 1)
-                (ELambda "left" (ELambda "right" (ELit (LBool True))))
+                (expressionLambda "left" (expressionLambda "right" (expressionLiteral (LBool True))))
             ],
-          SExpr (SourceSpan 7 1) (EVar (qualifiedName "Eq" "equals"))
+          statementExpression (SourceSpan 7 1) (expressionVariable (qualifiedName "Eq" "equals"))
         ]
+
+testQualifiedMethodApplicationPreservesArgumentOrder :: IO ()
+testQualifiedMethodApplicationPreservesArgumentOrder = do
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      class RuntimeOrder(a) {
+      order :: Int -> a -> Int.
+      }.
+      impl RuntimeOrder(Int) {
+      order = \\(left, right) -> left * 10 + right.
+      }.
+      impl RuntimeOrder(Bool) {
+      order = \\(left, right) -> left.
+      }.
+      RuntimeOrder::order 1 2.
+      """
+  assertEqual "compile errors" [] (runCompileErrors result)
+  assertEqual "runtime errors" [] (runRuntimeErrors result)
+  assertEqual "runtime output" (Just "12") (runOutput result)
 
 testQualifiedMethodDispatchExecutesImplBody :: IO ()
 testQualifiedMethodDispatchExecutesImplBody = do
@@ -446,6 +477,68 @@ testQualifiedMethodDispatchSelectsNullaryBodyByBindingResultType = do
   assertEqual "compile errors" [] (runCompileErrors result)
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "41") (runOutput result)
+
+testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence :: IO ()
+testNullaryMethodSelectionRecordsCanonicalAnalyzedEvidence = do
+  (inference, analyzedExpression) <-
+    analyzeRuntimePlan
+      Set.empty
+      """
+      class RuntimeDefault(a) {
+      defaultValue :: a.
+      }.
+      impl RuntimeDefault(Int) {
+      defaultValue = 41.
+      }.
+      impl RuntimeDefault(Bool) {
+      defaultValue = True.
+      }.
+      class UniqueDefault(a) {
+      defaultValue :: a.
+      }.
+      impl UniqueDefault(Int) {
+      defaultValue = 42.
+      }.
+      expected :: Int.
+      expected = RuntimeDefault::defaultValue.
+      (expected, RuntimeDefault::defaultValue @Bool, UniqueDefault::defaultValue).
+      """
+  assertEqual "nullary evidence inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
+  case implementationIdentities analyzedExpression of
+    [(runtimeCapability, runtimeIntImpl), (_, runtimeBoolImpl), (uniqueCapability, uniqueIntImpl)] -> do
+      let expectedResultEvidence = evidenceReference runtimeCapability runtimeIntImpl SemanticInt
+          explicitTargetEvidence = evidenceReference runtimeCapability runtimeBoolImpl SemanticBool
+          uniqueBareEvidence = evidenceReference uniqueCapability uniqueIntImpl SemanticInt
+      assertEqual
+        "all nullary selection modes retain their exact selected evidence"
+        [expectedResultEvidence, explicitTargetEvidence, uniqueBareEvidence]
+        (expressionEvidenceInventory analyzedExpression)
+      assertEqual
+        "nullary selection evidence is supplied before its result constraint"
+        [ ([expectedResultEvidence], [SupplyEvidence (expectedResultEvidence NonEmpty.:| []), ConstrainResult SemanticInt]),
+          ( [explicitTargetEvidence],
+            [ InstantiateTypes (SemanticBool NonEmpty.:| []),
+              SupplyEvidence (explicitTargetEvidence NonEmpty.:| []),
+              ConstrainResult SemanticBool
+            ]
+          ),
+          ([uniqueBareEvidence], [SupplyEvidence (uniqueBareEvidence NonEmpty.:| []), ConstrainResult SemanticInt])
+        ]
+        (expressionEvidencePlanInventory analyzedExpression)
+    implementations ->
+      failTest ("expected three nullary implementation identities, got " <> Text.pack (show implementations))
+  where
+    implementationIdentities expression =
+      [ (capabilityName, ImplId (StandaloneSourceUnit standaloneModulePath, coreNodeId implementationNode))
+      | SImpl implementationNode capabilityName [_] _ <- sourceUnitStatements expression
+      ]
+    evidenceReference capabilityName implementationId targetType =
+      EvidenceReference
+        { evidenceCapability = CapabilityId capabilityName,
+          evidenceImplementation = implementationId,
+          evidenceMethod = Just (MethodId (implementationId, mkIdentifier "defaultValue")),
+          evidenceType = targetType
+        }
 
 testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint :: IO ()
 testQualifiedMethodDispatchPreservesInferredExplicitTypeApplicationTupleHint = do
@@ -1060,53 +1153,6 @@ testQualifiedMethodDispatchInstantiatesExplicitEmptyListTypeApplicationHint = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint :: IO ()
-testQualifiedMethodDispatchOmitsPlainPolymorphicEmptyListRuntimeHint = do
-  let expr =
-        EBlock
-          [ SLet "empty" (SourceSpan 1 1) (EList []),
-            SExpr (SourceSpan 2 1) (EVar "empty")
-          ]
-  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
-  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
-  assertEqual "plain polymorphic empty list runtime hints" Map.empty (inferredRuntimeTypeHints inference)
-
-testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate :: IO ()
-testQualifiedMethodDispatchRecordsSignedPolymorphicFunctionRuntimeTemplate = do
-  let expr =
-        EBlock
-          [ SSignature "identity" (SourceSpan 1 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-            SLet "identity" (SourceSpan 2 1) (ELambda "itemValue" (EVar "itemValue")),
-            SExpr (SourceSpan 3 1) (EVar "identity")
-          ]
-  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
-  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
-  assertEqual
-    "signed polymorphic function runtime template"
-    (Just (TypeFunction (TypeVariable "t0") (TypeVariable "t0")))
-    (Map.lookup (bindingRuntimeHintKey "identity" (SourceSpan 2 1)) (inferredRuntimeTypeHints inference))
-
-testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint :: IO ()
-testQualifiedMethodDispatchRecordsConcreteExplicitNamedApplicationHint = do
-  let typeArgumentSpan = SourceSpan 4 12
-      boxCharType = TypeApplication "Box" [TypeChar]
-      expr =
-        EBlock
-          [ SData (SourceSpan 1 1) "Box" ["a"] [DataConstructor "Box" [TypeVariable "a"]],
-            SSignature "identity" (SourceSpan 2 1) (SignatureType (TypeFunction (TypeVariable "a") (TypeVariable "a"))),
-            SLet "identity" (SourceSpan 3 1) (ELambda "itemValue" (EVar "itemValue")),
-            SExpr (SourceSpan 4 1) (ETypeApplication (EVar "identity") typeArgumentSpan boxCharType)
-          ]
-  inference <- inferExpressionWithBuiltins ResolveKernelOnly defaultWarningSettings expr
-  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
-  assertEqual
-    "concrete explicit named application hint"
-    (Just (TypeFunction boxCharType boxCharType))
-    ( Map.lookup
-        (explicitTypeApplicationRuntimeHintKeyInModule Nothing typeArgumentSpan)
-        (inferredRuntimeTypeHints inference)
-    )
-
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection :: IO ()
 testQualifiedMethodDispatchRejectsUnhintedNestedListHelperExactSelection = do
   result <-
@@ -1139,7 +1185,7 @@ testQualifiedMethodDispatchDoesNotExactMatchUntypedEmptyListLiteral =
   assertEqual
     "untyped empty list exact match"
     False
-    (runtimeValueExactlyMatchesConstraint (TypeList (TypeInt)) (VList [] Nothing))
+    (runtimeValueExactlyMatchesConstraint (SemanticList (SemanticInt)) (VList [] Nothing))
 
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral :: IO ()
 testQualifiedMethodDispatchPrefersConstructorAliasBodyForDirectLiteral = do
@@ -1339,32 +1385,38 @@ testQualifiedMethodDispatchPreservesSelectedMethodSignature = do
 
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHint :: IO ()
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHint = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
-          (runtimeTypedCallableArgumentHintExpr (EVar (qualifiedName "RuntimePick" "pick")))
-  assertEqual "typed callable argument hint runtime result" (Right (Just (VBool False))) result
+  result <- runTypedCallablePlanCase "RuntimePick::pick" "choose 1"
+  assertTypedCallablePlanResult "typed callable argument plan" result
 
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar :: IO ()
 testQualifiedMethodDispatchAppliesTypedCallableArgumentHintThroughPrefixDollar = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
-          (runtimeTypedCallableArgumentHintThroughPrefixDollarExpr (EVar (qualifiedName "RuntimePick" "pick")))
-  assertEqual "typed callable argument hint through prefix dollar runtime result" (Right (Just (VBool False))) result
+  result <- runTypedCallablePlanCase "RuntimePick::pick" "($) choose 1"
+  assertTypedCallablePlanResult "typed callable argument plan through prefix dollar" result
 
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint :: IO ()
 testQualifiedMethodDispatchAppliesClosureArgumentSignatureHint = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "choose" (SourceSpan 9 1)) (TypeFunction (TypeNumeric NumericUInt8) (TypeBool)))
-          ( runtimeTypedCallableArgumentHintExpr
-              (ELambda "itemValue" (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue")))
-          )
-  assertEqual "closure argument signature hint runtime result" (Right (Just (VBool False))) result
+  result <- runTypedCallablePlanCase "\\(itemValue) -> RuntimePick::pick itemValue" "choose 1"
+  assertTypedCallablePlanResult "closure argument signature plan" result
+
+runTypedCallablePlanCase :: Text.Text -> Text.Text -> IO RunResult
+runTypedCallablePlanCase chooseExpression resultExpression =
+  runSource
+    defaultWarningSettings
+    ( "class RuntimePick(a) { pick :: a -> Bool. }.\n"
+        <> "impl RuntimePick(Int) { pick = \\(itemValue) -> True. }.\n"
+        <> "impl RuntimePick(UInt8) { pick = \\(itemValue) -> False. }.\n"
+        <> "choose :: UInt8 -> Bool.\nchoose = "
+        <> chooseExpression
+        <> ".\n"
+        <> resultExpression
+        <> "."
+    )
+
+assertTypedCallablePlanResult :: Text.Text -> RunResult -> IO ()
+assertTypedCallablePlanResult label result = do
+  assertEqual (label <> " compile errors") [] (runCompileErrors result)
+  assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
+  assertEqual (label <> " output") (Just "False") (runOutput result)
 
 testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata :: IO ()
 testQualifiedMethodDispatchPreservesDefaultedClosureResultMetadata = do
@@ -1805,152 +1857,49 @@ testQualifiedMethodDispatchPreservesAdtApplicationBindingHint = do
 
 testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint :: IO ()
 testQualifiedMethodDispatchPreservesPhantomAdtApplicationBindingHint = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "tag" (SourceSpan 6 1)) (TypeApplication "Tag" [TypeNumeric NumericUInt8]))
-          ( EBlock
-              [ SData
-                  (SourceSpan 1 1)
-                  "Tag"
-                  ["a"]
-                  [DataConstructor "Tag" []],
-                SClass
-                  (SourceSpan 2 1)
-                  "RuntimePick"
-                  ["a"]
-                  [ ClassMethodSignature
-                      "pick"
-                      (SourceSpan 3 1)
-                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
-                  ],
-                SImpl
-                  (SourceSpan 4 1)
-                  "RuntimePick"
-                  [TypeApplication "Tag" [TypeInt]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool True)))],
-                SImpl
-                  (SourceSpan 4 1)
-                  "RuntimePick"
-                  [TypeApplication "Tag" [TypeNumeric NumericUInt8]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "tag" (ELit (LBool False)))],
-                SLet
-                  "tag"
-                  (SourceSpan 6 1)
-                  (EVar "Tag"),
-                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "tag"))
-              ]
-          )
-  assertEqual "phantom ADT application hint runtime result" (Right (Just (VBool False))) result
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      data Tag a = Tag.
+      class RuntimePick(a) { pick :: a -> Bool. }.
+      impl RuntimePick(Tag(Int)) { pick = \\(tag) -> True. }.
+      impl RuntimePick(Tag(UInt8)) { pick = \\(tag) -> False. }.
+      tag :: Tag(UInt8).
+      tag = Tag.
+      RuntimePick::pick tag.
+      """
+  assertTypedCallablePlanResult "phantom ADT application plan" result
 
 testQualifiedMethodDispatchPreservesAdtConcretePayloadHint :: IO ()
 testQualifiedMethodDispatchPreservesAdtConcretePayloadHint = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (TypeApplication "Box" [TypeNumeric NumericUInt8]))
-          ( EBlock
-              [ SData
-                  (SourceSpan 1 1)
-                  "Box"
-                  ["a"]
-                  [DataConstructor "Box" [TypeNumeric NumericFloat32, TypeVariable "a"]],
-                SClass
-                  (SourceSpan 2 1)
-                  "RuntimePick"
-                  ["a"]
-                  [ ClassMethodSignature
-                      "pick"
-                      (SourceSpan 3 1)
-                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
-                  ],
-                SImpl
-                  (SourceSpan 4 1)
-                  "RuntimePick"
-                  [TypeApplication "Box" [TypeNumeric NumericUInt8]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
-                SLet
-                  "box"
-                  (SourceSpan 6 1)
-                  ( EApply
-                      (EApply (EVar "Box") (ELit (LFloat 1.5 (mkFractionalLiteralSource 1 5 1) Nothing)))
-                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
-                  ),
-                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
-              ]
-          )
-  assertEqual "ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      data Box a = Box Float32 a.
+      class RuntimePick(a) { pick :: a -> Bool. }.
+      impl RuntimePick(Box(UInt8)) { pick = \\(box) -> False. }.
+      box :: Box(UInt8).
+      box = Box 1.5f32 (toUInt8 2).
+      RuntimePick::pick box.
+      """
+  assertTypedCallablePlanResult "ADT concrete payload plan" result
 
 testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint :: IO ()
 testQualifiedMethodDispatchPreservesMonomorphicAdtConcretePayloadHint = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "token" (SourceSpan 6 1)) (TypeName "Token"))
-          ( EBlock
-              ( [ SData
-                    (SourceSpan 1 1)
-                    "Token"
-                    []
-                    [DataConstructor "Token" [TypeNumeric NumericUInt8]]
-                ]
-                  ++ runtimePickStatements
-                  ++ [ SLet
-                         "token"
-                         (SourceSpan 6 1)
-                         (EApply (EVar "Token") (ELit (LInt 1))),
-                       SExpr
-                         (SourceSpan 7 1)
-                         ( EPatternCase
-                             (EVar "token")
-                             [ CaseArm
-                                 (PConstructor "Token" [PVariable "itemValue"])
-                                 Nothing
-                                 (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "itemValue"))
-                             ]
-                         )
-                     ]
-              )
-          )
-  assertEqual "monomorphic ADT concrete payload hint runtime result" (Right (Just (VBool False))) result
-
-testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName :: IO ()
-testQualifiedMethodDispatchIgnoresUnknownConstructorFieldHintName = do
-  let result =
-        evaluateRuntimeExprWithBuiltinsAndBindingHints
-          ResolveKernelOnly
-          (Map.singleton (bindingRuntimeHintKey "box" (SourceSpan 6 1)) (TypeApplication "Box" [TypeNumeric NumericUInt8]))
-          ( EBlock
-              [ SData
-                  (SourceSpan 1 1)
-                  "Box"
-                  ["a"]
-                  [DataConstructor "Box" [TypeVariable "missing", TypeVariable "a"]],
-                SClass
-                  (SourceSpan 2 1)
-                  "RuntimePick"
-                  ["a"]
-                  [ ClassMethodSignature
-                      "pick"
-                      (SourceSpan 3 1)
-                      (ConstrainedSignature [] (TypeFunction (TypeVariable "a") (TypeBool)))
-                  ],
-                SImpl
-                  (SourceSpan 4 1)
-                  "RuntimePick"
-                  [TypeApplication "Box" [TypeNumeric NumericUInt8]]
-                  [ImplMethod "pick" (SourceSpan 5 1) (ELambda "box" (ELit (LBool False)))],
-                SLet
-                  "box"
-                  (SourceSpan 6 1)
-                  ( EApply
-                      (EApply (EVar "Box") (ELit (LInt 1)))
-                      (EApply (EVar "__kernel_toUInt8") (ELit (LInt 2)))
-                  ),
-                SExpr (SourceSpan 7 1) (EApply (EVar (qualifiedName "RuntimePick" "pick")) (EVar "box"))
-              ]
-          )
-  assertEqual "unknown constructor field hint runtime result" (Right (Just (VBool False))) result
+  result <-
+    runSource
+      defaultWarningSettings
+      """
+      data Token = Token UInt8.
+      class RuntimePick(a) { pick :: a -> Bool. }.
+      impl RuntimePick(Int) { pick = \\(itemValue) -> True. }.
+      impl RuntimePick(UInt8) { pick = \\(itemValue) -> False. }.
+      token = Token 1.
+      case token { | Token itemValue -> RuntimePick::pick itemValue }.
+      """
+  assertTypedCallablePlanResult "monomorphic ADT concrete payload plan" result
 
 testQualifiedMethodDispatchKeepsNestedInferredHintsScoped :: IO ()
 testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
@@ -1980,74 +1929,155 @@ testQualifiedMethodDispatchKeepsNestedInferredHintsScoped = do
   assertEqual "runtime errors" [] (runRuntimeErrors result)
   assertEqual "runtime output" (Just "True") (runOutput result)
 
-testNestedBindingHintsRetainEnclosingSourceUnit :: IO ()
-testNestedBindingHintsRetainEnclosingSourceUnit = do
-  let bindingSpan = SourceSpan 5 3
-      expr =
-        EBlock
-          [ SLet "seed" (SourceSpan 1 1) (ELit (LInt 0)),
-            SExpr
-              (SourceSpan 2 1)
-              ( EBlock
-                  [ SLet "itemValue" bindingSpan (ELit (LInt 1)),
-                    SExpr (SourceSpan 6 3) (EVar "itemValue")
-                  ]
-              )
-          ]
-  inference <-
-    inferExpressionWithBuiltinsAndSourceUnitStatements
-      ResolveKernelOnly
+testAuthoredModuleTransitionOwnsPlansAndEvidence :: IO ()
+testAuthoredModuleTransitionOwnsPlansAndEvidence = do
+  (inference, analyzedExpression) <-
+    analyzeRuntimePlan
       Set.empty
-      (Set.singleton 0)
+      """
+      module App::Main {
+      class RuntimePick(a) {
+      pick :: a -> Bool.
+      }.
+      impl RuntimePick(Int) {
+      pick = \\(itemValue) -> True.
+      }.
+      owned = 1.
+      RuntimePick::pick owned.
+      }
+      """
+  assertEqual "authored-module inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
+  let authoredPath = mkModulePath (mkIdentifier "App" NonEmpty.:| [mkIdentifier "Main"])
+      implementationIds =
+        [ ImplId (NamedSourceUnit authoredPath, coreNodeId node)
+        | SImpl node _ _ _ <- sourceUnitStatements analyzedExpression
+        ]
+      selectedEvidence = expressionEvidenceInventory analyzedExpression
+  assertEqual "one authored implementation" 1 (length implementationIds)
+  assertEqual
+    "qualified method evidence uses the authored module implementation id"
+    implementationIds
+    (map evidenceImplementation selectedEvidence)
+
+sourceUnitStatements :: Expr 'Analyzed -> [Statement 'Analyzed]
+sourceUnitStatements expression =
+  case expression of
+    EBlock _ statements -> statements
+    _ -> []
+
+expressionEvidenceInventory :: Expr 'Analyzed -> [EvidenceReference]
+expressionEvidenceInventory = foldMap fst . expressionEvidencePlanInventory
+
+expressionEvidencePlanInventory :: Expr 'Analyzed -> [([EvidenceReference], [RuntimeObligation])]
+expressionEvidencePlanInventory expression =
+  nodeEvidencePlan expression
+    <> case expression of
+      ELambda _ _ body -> expressionEvidencePlanInventory body
+      EList _ elements -> foldMap expressionEvidencePlanInventory elements
+      ETuple _ elements -> foldMap expressionEvidencePlanInventory elements
+      EApply _ function argument -> expressionEvidencePlanInventory function <> expressionEvidencePlanInventory argument
+      ETypeApplication _ function _ _ -> expressionEvidencePlanInventory function
+      EIf _ condition whenTrue whenFalse -> foldMap expressionEvidencePlanInventory [condition, whenTrue, whenFalse]
+      EPatternCase _ scrutinee arms -> expressionEvidencePlanInventory scrutinee <> foldMap armEvidencePlans arms
+      EBinary _ _ left right -> expressionEvidencePlanInventory left <> expressionEvidencePlanInventory right
+      ESectionLeft _ left _ -> expressionEvidencePlanInventory left
+      ESectionRight _ _ right -> expressionEvidencePlanInventory right
+      EBlock _ statements -> foldMap statementEvidencePlans statements
+      _ -> []
+  where
+    nodeEvidencePlan value =
+      case value of
+        ELit (CoreNode _ _ facts) _ -> plan facts
+        EVar (CoreNode _ _ facts) _ -> plan facts
+        ELambda (CoreNode _ _ facts) _ _ -> plan facts
+        EOperatorValue (CoreNode _ _ facts) _ -> plan facts
+        EList (CoreNode _ _ facts) _ -> plan facts
+        ETuple (CoreNode _ _ facts) _ -> plan facts
+        EApply (CoreNode _ _ facts) _ _ -> plan facts
+        ETypeApplication (CoreNode _ _ facts) _ _ _ -> plan facts
+        EIf (CoreNode _ _ facts) _ _ _ -> plan facts
+        EPatternCase (CoreNode _ _ facts) _ _ -> plan facts
+        EBinary (CoreNode _ _ facts) _ _ _ -> plan facts
+        ESectionLeft (CoreNode _ _ facts) _ _ -> plan facts
+        ESectionRight (CoreNode _ _ facts) _ _ -> plan facts
+        EBlock (CoreNode _ _ facts) _ -> plan facts
+    plan facts =
+      case expressionEvidence facts of
+        [] -> []
+        evidence ->
+          [(evidence, toList obligations)]
+          where
+            RuntimePlan obligations = expressionRuntimePlan facts
+    armEvidencePlans (CaseArm (CoreNode _ _ facts) _ guard body) =
+      plan facts <> foldMap expressionEvidencePlanInventory guard <> expressionEvidencePlanInventory body
+    statementEvidencePlans statement =
+      case statement of
+        SLet _ _ value -> expressionEvidencePlanInventory value
+        SImpl _ _ _ methods -> foldMap (\(ImplMethod _ _ body) -> expressionEvidencePlanInventory body) methods
+        SExpr _ value -> expressionEvidencePlanInventory value
+        _ -> []
+
+analyzeRuntimePlan :: Set.Set Int -> Text.Text -> IO (InferenceResult, Expr 'Analyzed)
+analyzeRuntimePlan preludeStatementIndices source = do
+  expression <-
+    case parseAndLowerStandaloneSource source of
+      Left diagnostic ->
+        failTest ("runtime-plan fixture failed to lower: " <> renderDiagnostic diagnostic)
+      Right lowered ->
+        case resolveStandaloneExprNames (exportInventory []) lowered of
+          Left diagnostics ->
+            failTest
+              ( "runtime-plan fixture failed to resolve: "
+                  <> Text.unlines (map renderDiagnostic (NonEmpty.toList diagnostics))
+              )
+          Right resolved -> pure resolved
+  (inference, attachment) <-
+    analyzeSourceUnitExpression
+      preludeModulePath
+      Set.empty
+      preludeStatementIndices
       defaultWarningSettings
-      expr
-  assertEqual "inference errors" [] (filter isErrorDiagnostic (inferredDiagnostics inference))
-  assertEqual
-    "nested binding hint source-unit path"
-    (Just (TypeNumeric NumericInt64))
-    ( Map.lookup
-        (bindingRuntimeHintKeyInModule Nothing "itemValue" bindingSpan)
-        (inferredRuntimeTypeHints inference)
-    )
-  assertEqual
-    "nested binding hint does not reuse the prelude path"
-    Nothing
-    ( Map.lookup
-        (bindingRuntimeHintKeyInModule (Just []) "itemValue" bindingSpan)
-        (inferredRuntimeTypeHints inference)
-    )
+      expression
+  analyzedExpression <-
+    case attachment of
+      Left failures ->
+        failTest ("analyzed runtime-plan attachment failed: " <> Text.pack (show failures))
+      Right Nothing ->
+        failTest "analyzed runtime-plan attachment produced no expression"
+      Right (Just analyzed) -> pure analyzed
+  pure (inference, analyzedExpression)
 
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime :: IO ()
 testQualifiedMethodDispatchPrefersAliasBindingOverMethodSentinelAtRuntime = do
   let result =
         evaluateRuntimeExpr
           ( runtimeExpr
-              ( EBlock
-                  [ SLet "Eq::helper" (SourceSpan 1 1) (ELambda "itemValue" (ELit (LBool True))),
-                    SClass
+              ( expressionBlock
+                  [ statementLet "Eq::helper" (SourceSpan 1 1) (expressionLambda "itemValue" (expressionLiteral (LBool True))),
+                    statementClass
                       (SourceSpan 2 1)
                       "Eq"
                       ["a"]
-                      [ ClassMethodSignature
+                      [ classMethodSignature
                           "helper"
                           (SourceSpan 3 1)
                           ( ConstrainedSignature
                               []
-                              (TypeFunction (TypeVariable "a") (TypeBool))
+                              (TypeFunction (fixtureTypeVariable "a") (TypeBool))
                           )
                       ],
-                    SImpl
+                    statementImpl
                       (SourceSpan 4 1)
                       "Eq"
                       [TypeInt]
-                      [ImplMethod "helper" (SourceSpan 5 1) (ELambda "itemValue" (ELit (LBool False)))],
-                    SExpr
+                      [implMethod "helper" (SourceSpan 5 1) (expressionLambda "itemValue" (expressionLiteral (LBool False)))],
+                    statementExpression
                       (SourceSpan 6 1)
-                      (EApply (EVar "Eq::helper") (ELit (LInt 1)))
+                      (expressionApply (expressionVariable "Eq::helper") (expressionLiteral (LInt 1)))
                   ]
               )
           )
-  assertEqual "alias binding runtime result" (Right (Just (VBool True))) result
+  assertRuntimeBool "alias binding runtime result" True result
 
 testQualifiedZeroArgumentMethodDispatchReturnsValue :: IO ()
 testQualifiedZeroArgumentMethodDispatchReturnsValue = do

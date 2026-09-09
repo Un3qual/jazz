@@ -22,6 +22,7 @@ import Jazz.Benchmark.Metadata
     benchmarkEnvironmentJson,
     captureBenchmarkEnvironment,
     checkBenchmarkCompatibility,
+    classifyProcessFact,
     compatibilityMismatchField,
     createBenchmarkArtifactDirectory,
     validateEnvironmentLabel,
@@ -42,6 +43,7 @@ import System.Directory
     removePathForcibly,
   )
 import System.Environment (lookupEnv, setEnv, unsetEnv)
+import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath (takeDirectory, (</>))
 import System.IO (hClose, openTempFile)
 
@@ -54,6 +56,7 @@ tests =
     ("round trips every required identity field", testRequiredIdentityRoundTrip),
     ("records unavailable optional platform facts", testUnavailablePlatformFact),
     ("records unavailable process facts without aborting", testUnavailableProcessFacts),
+    ("classifies process command output", testProcessFactClassification),
     ("derives benchmark build mode from profiling configuration", testBuildModeSelection),
     ("accepts only path-safe environment labels", testEnvironmentLabels),
     ("accepts exactly compatible environments", testExactCompatibility),
@@ -66,10 +69,8 @@ tests =
 
 testStableEncoding :: IO ()
 testStableEncoding = do
-  let first = benchmarkEnvironmentJson fixtureEnvironment
-      second = benchmarkEnvironmentJson fixtureEnvironment
-  assertEqual "deterministic bytes" first second
-  assertEqual "stable JSON bytes" expectedFixtureJson first
+  let encoded = benchmarkEnvironmentJson fixtureEnvironment
+  assertEqual "stable JSON bytes" expectedFixtureJson encoded
 
 testRequiredIdentityRoundTrip :: IO ()
 testRequiredIdentityRoundTrip =
@@ -95,6 +96,25 @@ testUnavailableProcessFacts =
       assertUnavailable "git revision" (environmentGitRevision environment)
       assertUnavailable "git dirty state" (environmentGitDirty environment)
       assertUnavailable "Cabal version" (environmentCabalVersion environment)
+
+testProcessFactClassification :: IO ()
+testProcessFactClassification = do
+  assertEqual
+    "successful non-empty command output"
+    (Right "revision")
+    (classifyProcessFact False ExitSuccess "  revision\n" "")
+  assertEqual
+    "successful allowed empty command output"
+    (Right "")
+    (classifyProcessFact True ExitSuccess "  \n" "")
+  assertEqual
+    "successful empty command output"
+    (Left "command produced no output")
+    (classifyProcessFact False ExitSuccess "" "")
+  assertEqual
+    "failed command retains stderr"
+    (Left "command failed (ExitFailure 1): failure details")
+    (classifyProcessFact False (ExitFailure 1) "partial output" "  failure details\n")
 
 testBuildModeSelection :: IO ()
 testBuildModeSelection = do

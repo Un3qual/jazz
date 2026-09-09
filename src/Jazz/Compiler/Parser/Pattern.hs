@@ -7,7 +7,6 @@ module Jazz.Compiler.Parser.Pattern
     parseCaseArmPatternTokens,
     parseCasePatternParser,
     parseCasePatternTokenStream,
-    parseCasePatternTokens,
     parseLambdaParameterParser,
     parseLambdaParameterTokens,
   )
@@ -17,12 +16,13 @@ import Control.Monad (void)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
 import Jazz.Compiler.Name (mkIdentifier)
 import Jazz.Compiler.Parser.AST
   ( SurfaceLambdaParameter (..),
     SurfaceLiteral (..),
     SurfacePattern (..),
+    SurfacePatternForm (..),
   )
 import Jazz.Compiler.Parser.Failure
   ( ParserEncountered (..),
@@ -40,7 +40,6 @@ import Jazz.Compiler.Parser.TokenParser
     failTokenParser,
     failTokenParserAt,
     parseAnyToken,
-    parseIdentifier,
     parseToken,
     peekToken,
     runTokenParserPrefix,
@@ -52,10 +51,6 @@ import qualified Text.Megaparsec as MP
 parseCaseArmPatternTokens :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
 parseCaseArmPatternTokens =
   runTokenParserPrefix "case arm pattern" parseCaseArmPatternParser
-
-parseCasePatternTokens :: [Token] -> Either Diagnostic (SurfacePattern, [Token])
-parseCasePatternTokens =
-  runTokenParserPrefix "case pattern" parseCasePatternParser
 
 parseCaseArmPatternTokenStream :: TokenStream -> Either Diagnostic (SurfacePattern, TokenStream)
 parseCaseArmPatternTokenStream =
@@ -71,21 +66,30 @@ parseLambdaParameterTokens =
 
 parseCaseArmPatternParser :: Parser SurfacePattern
 parseCaseArmPatternParser = do
+  maybeStartToken <- peekToken
   firstPattern <- parseCasePatternParser
-  collectCasePatternAlternatives [firstPattern]
+  collectCasePatternAlternatives
+    (maybe (surfacePatternSpan firstPattern) tokenSpan maybeStartToken)
+    [firstPattern]
 
-collectCasePatternAlternatives :: [SurfacePattern] -> Parser SurfacePattern
-collectCasePatternAlternatives reversedPatterns = do
+collectCasePatternAlternatives :: SourceSpan -> [SurfacePattern] -> Parser SurfacePattern
+collectCasePatternAlternatives patternSpan reversedPatterns = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TOperator "|"} -> do
       void parseAnyToken
       nextPattern <- parseCasePatternParser
-      collectCasePatternAlternatives (nextPattern : reversedPatterns)
+      collectCasePatternAlternatives patternSpan (nextPattern : reversedPatterns)
     _ ->
       case reverse reversedPatterns of
         [singlePattern] -> pure singlePattern
-        alternatives -> pure (SPOr alternatives)
+        alternatives@(_ : _) ->
+          pure
+            ( SurfacePattern
+                patternSpan
+                (SPOr alternatives)
+            )
+        [] -> failTokenParser (ExpectedSyntax "case pattern" ParserEndOfInput)
 
 parseCasePatternParser :: Parser SurfacePattern
 parseCasePatternParser = do
@@ -94,21 +98,21 @@ parseCasePatternParser = do
     Just token@Token {tokenKind = TInt value} -> do
       void parseAnyToken
       parseIntegralPatternLiteral token value
-    Just Token {tokenKind = TChar value} -> do
+    Just token@Token {tokenKind = TChar value} -> do
       void parseAnyToken
-      pure (SPLiteral (SLChar value))
-    Just Token {tokenKind = TText value} -> do
+      pure (locatedPattern token (SPLiteral (SLChar value)))
+    Just token@Token {tokenKind = TText value} -> do
       void parseAnyToken
-      pure (SPLiteral (SLText value))
-    Just Token {tokenKind = TLBracket} -> do
+      pure (locatedPattern token (SPLiteral (SLText value)))
+    Just token@Token {tokenKind = TLBracket} -> do
       void parseAnyToken
-      parseListPattern
+      parseListPattern token
     Just token@Token {tokenKind = TLParen} -> do
       void parseAnyToken
       parseTuplePattern token
-    Just Token {tokenKind = TIdentifier name} -> do
+    Just token@Token {tokenKind = TIdentifier name} -> do
       void parseAnyToken
-      parseIdentifierCasePattern name
+      parseIdentifierCasePattern token name
     Nothing ->
       failTokenParser (ExpectedSyntax "case pattern" ParserEndOfInput)
     Just token ->
@@ -116,17 +120,17 @@ parseCasePatternParser = do
         (tokenSpan token)
         (ExpectedSyntax "case pattern" (ParserFoundToken (tokenKind token) (tokenLexeme token)))
 
-parseIdentifierCasePattern :: Text -> Parser SurfacePattern
-parseIdentifierCasePattern name =
+parseIdentifierCasePattern :: Token -> Text -> Parser SurfacePattern
+parseIdentifierCasePattern identifierToken name =
   case name of
-    "_" -> pure SPWildcard
-    "True" -> pure (SPLiteral (SLBool True))
-    "False" -> pure (SPLiteral (SLBool False))
+    "_" -> pure (locatedPattern identifierToken SPWildcard)
+    "True" -> pure (locatedPattern identifierToken (SPLiteral (SLBool True)))
+    "False" -> pure (locatedPattern identifierToken (SPLiteral (SLBool False)))
     _
       | isConstructorIdentifierText name ->
-          parseConstructorPattern name
+          parseConstructorPattern identifierToken name
       | otherwise ->
-          parseAsPatternOrVariable parseCasePatternParser name
+          parseAsPatternOrVariable identifierToken parseCasePatternParser name
 
 parseTuplePattern :: Token -> Parser SurfacePattern
 parseTuplePattern leftParenToken = do
@@ -134,7 +138,7 @@ parseTuplePattern leftParenToken = do
   case maybeToken of
     Just Token {tokenKind = TRParen} -> do
       void parseAnyToken
-      pure (SPTuple [])
+      pure (locatedPattern leftParenToken (SPTuple []))
     _ -> do
       firstPattern <- parseCasePatternParser
       maybeComma <- peekToken
@@ -143,7 +147,7 @@ parseTuplePattern leftParenToken = do
           void parseAnyToken
           tuplePatterns <- parseTuplePatternElements [firstPattern]
           void (parseToken TRParen)
-          pure (SPTuple tuplePatterns)
+          pure (locatedPattern leftParenToken (SPTuple tuplePatterns))
         Just Token {tokenKind = TRParen} -> do
           void parseAnyToken
           pure firstPattern
@@ -167,8 +171,8 @@ parseTuplePatternElements reversedPatterns = do
     _ ->
       pure (reverse (nextPattern : reversedPatterns))
 
-parseConstructorPattern :: Text -> Parser SurfacePattern
-parseConstructorPattern constructorName =
+parseConstructorPattern :: Token -> Text -> Parser SurfacePattern
+parseConstructorPattern constructorToken constructorName =
   go []
   where
     go reversedArguments = do
@@ -184,7 +188,11 @@ parseConstructorPattern constructorName =
           finish reversedArguments
 
     finish reversedArguments =
-      pure (SPConstructor (mkIdentifier constructorName) (reverse reversedArguments))
+      pure
+        ( locatedPattern
+            constructorToken
+            (SPConstructor (mkIdentifier constructorName) (reverse reversedArguments))
+        )
 
 parseConstructorArgumentPattern :: Parser SurfacePattern
 parseConstructorArgumentPattern = do
@@ -193,26 +201,26 @@ parseConstructorArgumentPattern = do
     Just token@Token {tokenKind = TInt value} -> do
       void parseAnyToken
       parseIntegralPatternLiteral token value
-    Just Token {tokenKind = TChar value} -> do
+    Just token@Token {tokenKind = TChar value} -> do
       void parseAnyToken
-      pure (SPLiteral (SLChar value))
-    Just Token {tokenKind = TText value} -> do
+      pure (locatedPattern token (SPLiteral (SLChar value)))
+    Just token@Token {tokenKind = TText value} -> do
       void parseAnyToken
-      pure (SPLiteral (SLText value))
-    Just Token {tokenKind = TIdentifier name} -> do
+      pure (locatedPattern token (SPLiteral (SLText value)))
+    Just token@Token {tokenKind = TIdentifier name} -> do
       void parseAnyToken
       case name of
-        "True" -> pure (SPLiteral (SLBool True))
-        "False" -> pure (SPLiteral (SLBool False))
-        "_" -> pure SPWildcard
+        "True" -> pure (locatedPattern token (SPLiteral (SLBool True)))
+        "False" -> pure (locatedPattern token (SPLiteral (SLBool False)))
+        "_" -> pure (locatedPattern token SPWildcard)
         _
           | isConstructorIdentifierText name ->
-              pure (SPConstructor (mkIdentifier name) [])
+              pure (locatedPattern token (SPConstructor (mkIdentifier name) []))
           | otherwise ->
-              parseAsPatternOrVariable parseConstructorArgumentPattern name
-    Just Token {tokenKind = TLBracket} -> do
+              parseAsPatternOrVariable token parseConstructorArgumentPattern name
+    Just token@Token {tokenKind = TLBracket} -> do
       void parseAnyToken
-      parseListPattern
+      parseListPattern token
     Just token@Token {tokenKind = TLParen} -> do
       void parseAnyToken
       parseTuplePattern token
@@ -239,21 +247,22 @@ parseIntegralPatternLiteral wholeToken wholeValue = do
                   failTokenParserAt
                     (tokenSpan wholeToken)
                     (UnsupportedSyntax FractionalLiteralPattern)
-            _ -> pure (SPLiteral (SLInt wholeValue))
-    _ -> pure (SPLiteral (SLInt wholeValue))
+            _ -> pure (locatedPattern wholeToken (SPLiteral (SLInt wholeValue)))
+    _ -> pure (locatedPattern wholeToken (SPLiteral (SLInt wholeValue)))
 
 parseAsPatternOrVariable ::
+  Token ->
   Parser SurfacePattern ->
   Text ->
   Parser SurfacePattern
-parseAsPatternOrVariable parseAsTail name = do
+parseAsPatternOrVariable identifierToken parseAsTail name = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TAt} -> do
       void parseAnyToken
-      SPAs (mkIdentifier name) <$> parseAsTail
+      SurfacePattern (tokenSpan identifierToken) . SPAs (mkIdentifier name) <$> parseAsTail
     _ ->
-      pure (SPVariable (mkIdentifier name))
+      pure (locatedPattern identifierToken (SPVariable (mkIdentifier name)))
 
 patternArgumentBoundary :: Token -> Bool
 patternArgumentBoundary token =
@@ -276,13 +285,13 @@ startsCasePattern token =
     TLParen -> True
     _ -> False
 
-parseListPattern :: Parser SurfacePattern
-parseListPattern = do
+parseListPattern :: Token -> Parser SurfacePattern
+parseListPattern leftBracketToken = do
   maybeToken <- peekToken
   case maybeToken of
     Just Token {tokenKind = TRBracket} -> do
       void parseAnyToken
-      pure (SPList [])
+      pure (locatedPattern leftBracketToken (SPList []))
     _ -> do
       firstPattern <- parseCasePatternParser
       collectListPatterns [firstPattern]
@@ -300,12 +309,12 @@ parseListPattern = do
           void (parseToken TRBracket)
           case reverse reversedPatterns of
             [headPattern] ->
-              pure (SPConsList headPattern tailPattern)
+              pure (locatedPattern leftBracketToken (SPConsList headPattern tailPattern))
             _ ->
               failTokenParser (PatternFailure ConsLikeListPatternHeadCount)
         Just Token {tokenKind = TRBracket} -> do
           void parseAnyToken
-          pure (SPList (reverse reversedPatterns))
+          pure (locatedPattern leftBracketToken (SPList (reverse reversedPatterns)))
         Nothing ->
           failTokenParser (ExpectedSyntax "']'" (ParserEndOfInputIn "list pattern"))
         Just token ->
@@ -327,23 +336,23 @@ parseLambdaParameterParser = do
       parsePatternLambdaParameter
     Just Token {tokenKind = TLBracket} ->
       parsePatternLambdaParameter
-    Just Token {tokenKind = TIdentifier parameterName}
+    Just token@Token {tokenKind = TIdentifier parameterName}
       | parameterName == "_"
           || isReservedLiteralName parameterName
           || isConstructorIdentifierText parameterName ->
           parsePatternLambdaParameter
       | otherwise -> do
-          parsedName <- parseIdentifier
+          void parseAnyToken
           maybeTail <- peekToken
           case maybeTail of
             Just Token {tokenKind = TAt} ->
               SurfaceLambdaPattern
-                <$> (parseIdentifierCasePattern parsedName >>= collectCasePatternAlternatives . (: []))
+                <$> (parseIdentifierCasePattern token parameterName >>= collectCasePatternAlternatives (tokenSpan token) . (: []))
             Just Token {tokenKind = TOperator "|"} ->
               SurfaceLambdaPattern
-                <$> (parseIdentifierCasePattern parsedName >>= collectCasePatternAlternatives . (: []))
+                <$> (parseIdentifierCasePattern token parameterName >>= collectCasePatternAlternatives (tokenSpan token) . (: []))
             _ ->
-              pure (SurfaceLambdaIdentifier (mkIdentifier parsedName))
+              pure (SurfaceLambdaIdentifier (tokenSpan token) (mkIdentifier parameterName))
     Nothing ->
       failTokenParser (ExpectedSyntax "identifier" (ParserEndOfInputIn "lambda parameter list"))
     Just token ->
@@ -363,3 +372,6 @@ isConstructorIdentifierText name =
 
 isReservedLiteralName :: Text -> Bool
 isReservedLiteralName name = name == "True" || name == "False"
+
+locatedPattern :: Token -> SurfacePatternForm -> SurfacePattern
+locatedPattern token = SurfacePattern (tokenSpan token)

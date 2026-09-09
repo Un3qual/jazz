@@ -4,6 +4,10 @@ Status: Accepted
 Date: 2026-07-31
 Supersedes: Bootstrap and interpreter decisions dated 2026-03-03, 2026-03-18, 2026-07-10, 2026-07-11, and 2026-07-12.
 
+> The backend requirements of this RFC are superseded by
+> [RFC 0016](0016-optional-backend-removal.md). Its stage-0, hosted-frontend, and conformance
+> decisions remain in force.
+
 ## Decision
 
 The Haskell compiler and interpreter under `src/` are Jazz stage 0. Stage 0 is

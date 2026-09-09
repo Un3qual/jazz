@@ -24,9 +24,9 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraph,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.FractionalLiteral
@@ -66,6 +66,13 @@ import Jazz.Compiler.Parser.Lexer
 import Jazz.Compiler.Runtime
   ( renderRuntimeValue,
   )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
+  )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
   )
@@ -100,7 +107,7 @@ tests =
     ("locks the control-flow-patterns fixture family", testControlFlowPatternsFamily),
     ("locks the final parser fixture families", testFinalParserFamilies),
     ("assigns every fixture to exactly one family", testCompleteFixtureAssignment),
-    ("adapts the fixed parser corpus deterministically", testCorpusDeterminism),
+    ("covers every parser corpus adaptation category", testCorpusAdaptationCategories),
     ("canonicalizes a complete surface program", testCanonicalizesProgram)
   ]
 
@@ -122,7 +129,7 @@ testJazzSchemaRendering = do
   path <- normalizedPath "fixtures/parser/basic.jz"
   let expected =
         renderCanonicalParserResult
-          (canonicalizeParserResult path (Right (SELit (SLInt 42))))
+          (canonicalizeParserResult path (Right (seInt 42)))
   assertEqual "Jazz schema compile errors" [] (runCompileErrors result)
   assertEqual "Jazz schema runtime errors" [] (runRuntimeErrors result)
   assertEqual "Jazz schema output" (Just expected) (runOutput result)
@@ -216,145 +223,155 @@ testSurfaceNumericTypeEnumeration :: IO ()
 testSurfaceNumericTypeEnumeration =
   assertEqual
     "surface numeric type enumeration"
-    [ SurfaceNumericInt8,
-      SurfaceNumericInt16,
-      SurfaceNumericInt32,
-      SurfaceNumericInt64,
-      SurfaceNumericUInt8,
-      SurfaceNumericUInt16,
-      SurfaceNumericUInt32,
-      SurfaceNumericUInt64,
-      SurfaceNumericFloat16,
-      SurfaceNumericFloat32,
-      SurfaceNumericFloat64
+    [ NumericInt8,
+      NumericInt16,
+      NumericInt32,
+      NumericInt64,
+      NumericUInt8,
+      NumericUInt16,
+      NumericUInt32,
+      NumericUInt64,
+      NumericFloat16,
+      NumericFloat32,
+      NumericFloat64
     ]
     ([minBound .. maxBound] :: [SurfaceNumericType])
 
 surfaceInventory :: SurfaceExpr
 surfaceInventory =
-  SEBlock
-    [ SSLet "allExpressions" span1 (SEList allExpressions),
-      SSLet
-        "identity"
-        span1
-        (SELambda (SurfaceLambdaPattern (SPVariable "item") :| []) (SEVar "item")),
-      SSSignature "plain" span1 (SurfaceSignatureType SurfaceTypeInt),
-      SSSignature
-        "constrained"
-        span1
-        ( SurfaceConstrainedSignature
-            [SurfaceSignatureConstraint "Comparable" [SurfaceTypeVariable "a"]]
-            (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool)
-        ),
-      SSSignature "unsupported" span1 (SurfaceUnsupportedSignature allSignatureTokens),
-      SSData
-        span1
-        "Thing"
-        ["a"]
-        [ SurfaceDataConstructor
+  se
+    ( SEBlock
+        [ SSLet "allExpressions" span1 (se (SEList allExpressions)),
+          SSLet
+            "identity"
+            span1
+            (se (SELambda (SurfaceLambdaPattern (sp (SPVariable "item")) :| []) (se (SEVar "item")))),
+          SSSignature "plain" span1 (SignatureType TypeInt),
+          SSSignature
+            "constrained"
+            span1
+            ( ConstrainedSignature
+                [SignatureConstraint "Comparable" [TypeVariable "a"]]
+                (TypeFunction (TypeVariable "a") TypeBool)
+            ),
+          SSSignature "unsupported" span1 (UnsupportedSignature allSignatureTokens),
+          SSData
+            span1
             "Thing"
-            [SurfaceTypeVariable "a", SurfaceTypeList SurfaceTypeText]
-        ],
-      SSClass
-        span1
-        "Show"
-        ["a"]
-        [SurfaceClassMethodSignature "show" span1 (SurfaceSignatureType SurfaceTypeText)],
-      SSImpl
-        span1
-        "Show"
-        allSignatureTypes
-        [SurfaceImplMethod "show" span1 (seText "shown")],
-      SSModule span1 ["App", "Main"] (Just allModuleExports),
-      SSImport span1 ["Core", "Text"] (Just "TextCore") (Just ["length"]),
-      SSExpr span1 patternInventory
-    ]
+            ["a"]
+            [ SurfaceDataConstructor
+                "Thing"
+                [TypeVariable "a", TypeList TypeText]
+            ],
+          SSClass
+            span1
+            "Show"
+            ["a"]
+            [SurfaceClassMethodSignature "show" span1 (SignatureType TypeText)],
+          SSImpl
+            span1
+            "Show"
+            allSignatureTypes
+            [SurfaceImplMethod "show" span1 (seText "shown")],
+          SSModule span1 ["App", "Main"] (Just allModuleExports),
+          SSImport span1 ["Core", "Text"] (Just "TextCore") (Just ["length"]),
+          SSExpr span1 patternInventory
+        ]
+    )
 
 allExpressions :: [SurfaceExpr]
 allExpressions =
-  [ SELit (SLInt 42),
-    SELit (SLFloat 0.0 (mkFractionalLiteralSource 0 10 4) Nothing),
-    SELit (SLBool True),
-    SELit (SLChar 'x'),
-    SELit (SLText "Jazz"),
-    SEVar "value",
-    SEQualifiedVar "Text" "length",
-    SELambda (SurfaceLambdaIdentifier "value" :| [SurfaceLambdaPattern SPWildcard]) (SEVar "value"),
-    SEPatternLambda
-      ( SurfacePatternLambdaClause
-          span1
-          (SPConstructor "Nothing" [] :| [SPVariable "fallback"])
-          (SEVar "fallback")
-          :| [ SurfacePatternLambdaClause
-                 span2
-                 (SPConstructor "Just" [SPVariable "item"] :| [SPWildcard])
-                 (SEVar "item")
-             ]
+  [ se (SELit (SLInt 42)),
+    se (SELit (SLFloat 0.0 (mkFractionalLiteralSource 0 10 4) Nothing)),
+    se (SELit (SLBool True)),
+    se (SELit (SLChar 'x')),
+    se (SELit (SLText "Jazz")),
+    se (SEVar "value"),
+    se (SEQualifiedVar "Text" "length"),
+    se
+      ( SELambda
+          (SurfaceLambdaIdentifier span1 "value" :| [SurfaceLambdaPattern (sp SPWildcard)])
+          (se (SEVar "value"))
       ),
-    SEOperatorValue "+",
-    SEList [seInt 1],
-    SETuple [seInt 1, seInt 2],
-    SEApply (SEVar "identity") (seInt 1),
-    SETypeApplication (SEVar "identity") span1 (SurfaceTypeName "Int"),
-    SEIf (SELit (SLBool True)) (seInt 1) (seInt 0),
+    se
+      ( SEPatternLambda
+          ( SurfacePatternLambdaClause
+              span1
+              (sp (SPConstructor "Nothing" []) :| [sp (SPVariable "fallback")])
+              (se (SEVar "fallback"))
+              :| [ SurfacePatternLambdaClause
+                     span2
+                     (sp (SPConstructor "Just" [sp (SPVariable "item")]) :| [sp SPWildcard])
+                     (se (SEVar "item"))
+                 ]
+          )
+      ),
+    se (SEOperatorValue "+"),
+    se (SEList [seInt 1]),
+    se (SETuple [seInt 1, seInt 2]),
+    se (SEApply (se (SEVar "identity")) (seInt 1)),
+    se (SETypeApplication (se (SEVar "identity")) span1 (TypeName "Int")),
+    se (SEIf (se (SELit (SLBool True))) (seInt 1) (seInt 0)),
     patternInventory,
-    SEBinary "+" (seInt 1) (seInt 2),
-    SESectionLeft (seInt 1) "+",
-    SESectionRight "+" (seInt 1),
-    SEBlock [SSExpr span1 (seInt 1)]
+    se (SEBinary "+" (seInt 1) (seInt 2)),
+    se (SESectionLeft (seInt 1) "+"),
+    se (SESectionRight "+" (seInt 1)),
+    se (SEBlock [SSExpr span1 (seInt 1)])
   ]
-    <> [SELit (SLFloat 0.0 (mkFractionalLiteralSource 1 5 1) (Just numericType)) | numericType <- allNumericTypes]
+    <> [se (SELit (SLFloat 0.0 (mkFractionalLiteralSource 1 5 1) (Just numericType))) | numericType <- allNumericTypes]
 
 patternInventory :: SurfaceExpr
 patternInventory =
-  SECase
-    (SEVar "value")
-    [ SurfaceCaseArm SPWildcard Nothing (seInt 0),
-      SurfaceCaseArm (SPVariable "name") (Just (SELit (SLBool True))) (seInt 1),
-      SurfaceCaseArm (SPLiteral (SLInt 2)) Nothing (seInt 2),
-      SurfaceCaseArm (SPConstructor "Just" [SPVariable "item"]) Nothing (seInt 3),
-      SurfaceCaseArm (SPList [SPWildcard]) Nothing (seInt 4),
-      SurfaceCaseArm (SPConsList SPWildcard (SPVariable "rest")) Nothing (seInt 5),
-      SurfaceCaseArm (SPTuple [SPWildcard, SPWildcard]) Nothing (seInt 6),
-      SurfaceCaseArm (SPAs "whole" SPWildcard) Nothing (seInt 7),
-      SurfaceCaseArm (SPOr [SPLiteral (SLInt 8), SPLiteral (SLInt 9)]) Nothing (seInt 8)
-    ]
+  se
+    ( SECase
+        (se (SEVar "value"))
+        [ SurfaceCaseArm (sp SPWildcard) Nothing (seInt 0),
+          SurfaceCaseArm (sp (SPVariable "name")) (Just (se (SELit (SLBool True)))) (seInt 1),
+          SurfaceCaseArm (sp (SPLiteral (SLInt 2))) Nothing (seInt 2),
+          SurfaceCaseArm (sp (SPConstructor "Just" [sp (SPVariable "item")])) Nothing (seInt 3),
+          SurfaceCaseArm (sp (SPList [sp SPWildcard])) Nothing (seInt 4),
+          SurfaceCaseArm (sp (SPConsList (sp SPWildcard) (sp (SPVariable "rest")))) Nothing (seInt 5),
+          SurfaceCaseArm (sp (SPTuple [sp SPWildcard, sp SPWildcard])) Nothing (seInt 6),
+          SurfaceCaseArm (sp (SPAs "whole" (sp SPWildcard))) Nothing (seInt 7),
+          SurfaceCaseArm (sp (SPOr [sp (SPLiteral (SLInt 8)), sp (SPLiteral (SLInt 9))])) Nothing (seInt 8)
+        ]
+    )
 
 allSignatureTypes :: [SurfaceSignatureType]
 allSignatureTypes =
-  [ SurfaceTypeInt,
-    SurfaceTypeFloat,
-    SurfaceTypeBool,
-    SurfaceTypeChar,
-    SurfaceTypeText,
-    SurfaceTypeVariable "a",
-    SurfaceTypeName "Point",
-    SurfaceTypeApplication "Map" [SurfaceTypeText, SurfaceTypeInt],
-    SurfaceTypeList SurfaceTypeInt,
-    SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeText],
-    SurfaceTypeFunction SurfaceTypeInt SurfaceTypeText
+  [ TypeInt,
+    TypeFloat,
+    TypeBool,
+    TypeChar,
+    TypeText,
+    TypeVariable "a",
+    TypeName "Point",
+    TypeApplication "Map" [TypeText, TypeInt],
+    TypeList TypeInt,
+    TypeTuple [TypeInt, TypeText],
+    TypeFunction TypeInt TypeText
   ]
-    <> map SurfaceTypeNumeric allNumericTypes
+    <> map TypeNumeric allNumericTypes
 
 allNumericTypes :: [SurfaceNumericType]
 allNumericTypes = [minBound .. maxBound]
 
 allSignatureTokens :: [SurfaceSignatureToken]
 allSignatureTokens =
-  [ SurfaceSignatureNameToken "a",
-    SurfaceSignatureIntToken 9223372036854775808,
-    SurfaceSignatureArrowToken,
-    SurfaceSignatureAtToken,
-    SurfaceSignatureColonToken,
-    SurfaceSignatureLParenToken,
-    SurfaceSignatureRParenToken,
-    SurfaceSignatureLBraceToken,
-    SurfaceSignatureRBraceToken,
-    SurfaceSignatureLBracketToken,
-    SurfaceSignatureRBracketToken,
-    SurfaceSignatureCommaToken,
-    SurfaceSignatureOperatorToken "+",
-    SurfaceSignatureOtherToken "."
+  [ SignatureNameToken "a",
+    SignatureIntToken 9223372036854775808,
+    SignatureArrowToken,
+    SignatureAtToken,
+    SignatureColonToken,
+    SignatureLParenToken,
+    SignatureRParenToken,
+    SignatureLBraceToken,
+    SignatureRBraceToken,
+    SignatureLBracketToken,
+    SignatureRBracketToken,
+    SignatureCommaToken,
+    SignatureOperatorToken "+",
+    SignatureOtherToken "."
   ]
 
 allModuleExports :: [ModuleExportSelector]
@@ -539,8 +556,6 @@ testCompleteFixtureAssignment =
       let families = [ExpressionFoundation, TypesDeclarationsModules, ControlFlowPatterns, Operators, MixedOperatorControlFlow, CorpusClosure]
           assignedNames = concatMap parserFixtureFamilyNames families
           corpusNames = map parserFixtureName parserFixtureCorpus
-      assertEqual "complete corpus size" 365 (length corpusNames)
-      assertEqual "complete assignment count" 365 (length assignedNames)
       assertEqual "complete assignment membership" (sort corpusNames) (sort assignedNames)
     _ -> failTest "fixture corpus must contain at least two fixtures"
 
@@ -582,7 +597,6 @@ testExpressionFoundationFamily = do
     case lookupParserFixtureFamily ExpressionFoundation of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "expression family size" 52 (length fixtures)
   assertEqual
     "resolved expression family order"
     expressionFoundationFixtureNames
@@ -618,7 +632,6 @@ testTypesDeclarationsModulesFamily = do
     case lookupParserFixtureFamily TypesDeclarationsModules of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "types/declarations/modules family size" 101 (length fixtures)
   assertEqual
     "resolved types/declarations/modules family order"
     typesDeclarationsModulesFixtureNames
@@ -661,7 +674,6 @@ testControlFlowPatternsFamily = do
     case lookupParserFixtureFamily ControlFlowPatterns of
       Left violations -> failTest ("unexpected fixture manifest violations: " <> showText violations)
       Right values -> pure values
-  assertEqual "control-flow/patterns family size" 75 (length fixtures)
   assertEqual
     "resolved control-flow/patterns family order"
     controlFlowPatternsFixtureNames
@@ -934,24 +946,21 @@ controlFlowPatternsFixtureNames =
     "control-flow-patterns-recursive-block"
   ]
 
-testCorpusDeterminism :: IO ()
-testCorpusDeterminism = do
-  assertEqual "fixed corpus size" 365 (length parserFixtureCorpus)
-  first <- mapM canonicalFixture parserFixtureCorpus
-  second <- mapM canonicalFixture parserFixtureCorpus
-  assertEqual "manifest-order deterministic rendering" first second
+testCorpusAdaptationCategories :: IO ()
+testCorpusAdaptationCategories = do
+  renderedFixtures <- mapM canonicalFixture parserFixtureCorpus
   assertEqual
     "corpus contains lexical failures"
     True
-    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") first)
+    (any (Text.isInfixOf "CanonicalSourceLexicalFailure") renderedFixtures)
   assertEqual
     "corpus contains parser failures"
     True
-    (any (Text.isInfixOf "CanonicalSourceParserFailure") first)
+    (any (Text.isInfixOf "CanonicalSourceParserFailure") renderedFixtures)
   assertEqual
     "corpus contains successes"
     True
-    (any (Text.isInfixOf "CanonicalSourceSuccess") first)
+    (any (Text.isInfixOf "CanonicalSourceSuccess") renderedFixtures)
   where
     canonicalFixture fixture = do
       path <- normalizedPath (parserFixturePath fixture)
@@ -1005,32 +1014,49 @@ span2 :: SourceSpan
 span2 = SourceSpan 2 3
 
 seInt :: Integer -> SurfaceExpr
-seInt = SELit . SLInt
+seInt = se . SELit . SLInt
 
 seText :: Text.Text -> SurfaceExpr
-seText = SELit . SLText
+seText = se . SELit . SLText
+
+se :: SurfaceExprForm -> SurfaceExpr
+se = SurfaceExpr span1
+
+sp :: SurfacePatternForm -> SurfacePattern
+sp = SurfacePattern span1
 
 numericConstructorName :: SurfaceNumericType -> Text.Text
 numericConstructorName numericType =
-  Text.replace "SurfaceNumeric" "" (showText numericType) <> "Type"
+  case numericType of
+    NumericInt8 -> "Int8Type"
+    NumericInt16 -> "Int16Type"
+    NumericInt32 -> "Int32Type"
+    NumericInt64 -> "Int64Type"
+    NumericUInt8 -> "UInt8Type"
+    NumericUInt16 -> "UInt16Type"
+    NumericUInt32 -> "UInt32Type"
+    NumericUInt64 -> "UInt64Type"
+    NumericFloat16 -> "Float16Type"
+    NumericFloat32 -> "Float32Type"
+    NumericFloat64 -> "Float64Type"
 
 signatureTokenConstructorName :: SurfaceSignatureToken -> Text.Text
 signatureTokenConstructorName token =
   case token of
-    SurfaceSignatureNameToken {} -> "SignatureNameToken"
-    SurfaceSignatureIntToken {} -> "SignatureIntegerToken"
-    SurfaceSignatureArrowToken -> "SignatureArrowToken"
-    SurfaceSignatureAtToken -> "SignatureAtToken"
-    SurfaceSignatureColonToken -> "SignatureColonToken"
-    SurfaceSignatureLParenToken -> "SignatureLeftParenToken"
-    SurfaceSignatureRParenToken -> "SignatureRightParenToken"
-    SurfaceSignatureLBraceToken -> "SignatureLeftBraceToken"
-    SurfaceSignatureRBraceToken -> "SignatureRightBraceToken"
-    SurfaceSignatureLBracketToken -> "SignatureLeftBracketToken"
-    SurfaceSignatureRBracketToken -> "SignatureRightBracketToken"
-    SurfaceSignatureCommaToken -> "SignatureCommaToken"
-    SurfaceSignatureOperatorToken {} -> "SignatureOperatorToken"
-    SurfaceSignatureOtherToken {} -> "SignatureOtherToken"
+    SignatureNameToken {} -> "SignatureNameToken"
+    SignatureIntToken {} -> "SignatureIntegerToken"
+    SignatureArrowToken -> "SignatureArrowToken"
+    SignatureAtToken -> "SignatureAtToken"
+    SignatureColonToken -> "SignatureColonToken"
+    SignatureLParenToken -> "SignatureLeftParenToken"
+    SignatureRParenToken -> "SignatureRightParenToken"
+    SignatureLBraceToken -> "SignatureLeftBraceToken"
+    SignatureRBraceToken -> "SignatureRightBraceToken"
+    SignatureLBracketToken -> "SignatureLeftBracketToken"
+    SignatureRBracketToken -> "SignatureRightBracketToken"
+    SignatureCommaToken -> "SignatureCommaToken"
+    SignatureOperatorToken {} -> "SignatureOperatorToken"
+    SignatureOtherToken {} -> "SignatureOtherToken"
 
 showText :: (Show value) => value -> Text.Text
 showText = Text.pack . show

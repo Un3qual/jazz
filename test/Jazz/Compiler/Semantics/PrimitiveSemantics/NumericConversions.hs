@@ -1,45 +1,56 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Semantics.PrimitiveSemantics.NumericConversions
   ( integerWidthTests,
-    numericConversionTests
+    numericConversionTests,
   )
 where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (Lowered),
+    Expr,
     Literal (..),
-    NumericType (..),
-    SignaturePayload (..),
-    SignatureType (..),
-    Statement (..)
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
   ( compileErrors,
     compileExpr,
     compileSource,
-    compileSourceWithPrelude
+    compileSourceWithPrelude,
   )
 import Jazz.Compiler.FractionalLiteral
-  ( mkFractionalLiteralSource
+  ( mkFractionalLiteralSource,
   )
 import Jazz.Compiler.Semantics.PrimitiveSemantics.Shared
   ( assertCompileError,
     assertCompileErrorWithBundledPrelude,
     assertCompiles,
     assertCompilesWithBundledPrelude,
-    mkProgram
+    mkProgram,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignaturePayload (..),
+    SignatureType (..),
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredApply,
+    loweredBlock,
+    loweredLet,
+    loweredLiteral,
+    loweredSignature,
+    loweredVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,
-    assertSingleDiagnosticContains
+    assertSingleDiagnosticContains,
   )
 
 integerWidthTests :: [NamedTest]
@@ -113,33 +124,36 @@ assertCompileErrorWithPrelude preludeSource source failureLabel errorCode = do
 
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteral =
-  assertCompiles """
-  y :: UInt8.
-  y = 2.
-  x = 1 + y.
-  z :: UInt8.
-  z = x.
-  """
+  assertCompiles
+    """
+    y :: UInt8.
+    y = 2.
+    x = 1 + y.
+    z :: UInt8.
+    z = x.
+    """
 
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection :: IO ()
 testSourcePipelinePreservesNumericWidthWithLeftIntegerLiteralSection =
-  assertCompiles """
-  y :: UInt8.
-  y = 2.
-  f = (1 +).
-  z :: UInt8.
-  z = f y.
-  """
+  assertCompiles
+    """
+    y :: UInt8.
+    y = 2.
+    f = (1 +).
+    z :: UInt8.
+    z = f y.
+    """
 
 testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection :: IO ()
 testSourcePipelinePreservesNumericWidthWithRightIntegerLiteralSection =
-  assertCompiles """
-  y :: UInt8.
-  y = 2.
-  f = (+ 1).
-  z :: UInt8.
-  z = f y.
-  """
+  assertCompiles
+    """
+    y :: UInt8.
+    y = 2.
+    f = (+ 1).
+    z :: UInt8.
+    z = f y.
+    """
 
 testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch :: IO ()
 testSourcePipelineRejectsLeftArithmeticSectionTypeMismatch = do
@@ -167,27 +181,30 @@ testSourcePipelineRejectsRightArithmeticSectionTypeMismatch = do
 
 testSourcePipelineAcceptsTargetNamedIntegerConversions :: IO ()
 testSourcePipelineAcceptsTargetNamedIntegerConversions =
-  assertCompilesWithBundledPrelude """
-  x :: UInt8.
-  x = toUInt8 255.
-  y :: Int16.
-  y = toInt16 x.
-  """
+  assertCompilesWithBundledPrelude
+    """
+    x :: UInt8.
+    x = toUInt8 255.
+    y :: Int16.
+    y = toInt16 x.
+    """
 
 testSourcePipelineAcceptsTargetNamedFloatConversions :: IO ()
 testSourcePipelineAcceptsTargetNamedFloatConversions =
-  assertCompilesWithBundledPrelude """
-  x :: Float64.
-  x = toFloat64 1.
-  """
+  assertCompilesWithBundledPrelude
+    """
+    x :: Float64.
+    x = toFloat64 1.
+    """
 
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults :: IO ()
 testSourcePipelineAcceptsFloat64FractionalLiteralDefaults =
-  assertCompiles """
-  x = 1.5.
-  y :: Float64.
-  y = x.
-  """
+  assertCompiles
+    """
+    x = 1.5.
+    y :: Float64.
+    y = x.
+    """
 
 testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals :: IO ()
 testSourcePipelineAcceptsTargetedFloat16Float32FractionalLiterals =
@@ -911,10 +928,11 @@ testSourcePipelineRejectsTypedPreludeAliasLiteralOverflow =
 
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames :: IO ()
 testSourcePipelineIgnoresConversionLiteralChecksForShadowedNames =
-  assertCompiles """
-  toUInt8 = \\(x) -> x.
-  x = toUInt8 256.
-  """
+  assertCompiles
+    """
+    toUInt8 = \\(x) -> x.
+    x = toUInt8 256.
+    """
 
 testSourcePipelineFreshensPreludeConversionAliases :: IO ()
 testSourcePipelineFreshensPreludeConversionAliases =
@@ -951,25 +969,25 @@ testSourcePipelineRejectsNonNumericConversionSource =
     "non-numeric conversion argument"
     "E2006"
 
-sourceExactNegativeFloatTargetOverflowProgram :: Expr
+sourceExactNegativeFloatTargetOverflowProgram :: Expr 'Lowered
 sourceExactNegativeFloatTargetOverflowProgram =
   mkProgram
-    ( EApply
-        (EVar "__kernel_toFloat16")
-        (ELit (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18) Nothing))
+    ( loweredApply
+        (loweredVariable "__kernel_toFloat16")
+        (loweredLiteral (LFloat (-65504.0) (mkFractionalLiteralSource (-65504) 1 18) Nothing))
     )
 
-targetedFloat64OverflowProgram :: Expr
+targetedFloat64OverflowProgram :: Expr 'Lowered
 targetedFloat64OverflowProgram =
-  EBlock
-    [ SSignature
+  loweredBlock
+    [ loweredSignature
         "x"
         (SourceSpan 1 1)
         (SignatureType (TypeNumeric NumericFloat64)),
-      SLet
+      loweredLet
         "x"
         (SourceSpan 2 1)
-        (ELit (LFloat literalValue literalSource Nothing))
+        (loweredLiteral (LFloat literalValue literalSource Nothing))
     ]
   where
     literalValue = 1 / 0 :: Double

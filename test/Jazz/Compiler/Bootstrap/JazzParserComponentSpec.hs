@@ -4,9 +4,9 @@ module Main (main) where
 
 import qualified Data.Text as Text
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    runCompileErrors,
+  ( runCompileErrors,
     runModuleGraph,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.ModuleResolver

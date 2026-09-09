@@ -16,10 +16,11 @@ import qualified Data.Text as Text
 import Jazz.Compiler.Name
   ( IdentifierLike (identifierText),
     Name (..),
+    ResolvedName,
+    ResolvedUserName (..),
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue (..),
-    pattern VExplicitResultHints,
   )
 import Jazz.Compiler.Stdlib.Shared
   ( assertStdlibConstructorPrivate,
@@ -187,12 +188,10 @@ mapSummary runtimeValue =
               }
     _ -> Nothing
 
-constructorHasName :: Text -> Name -> Bool
+constructorHasName :: Text -> ResolvedName -> Bool
 constructorHasName expectedName constructorName =
   case constructorName of
-    SourceName identifier -> identifierText identifier == expectedName
-    QualifiedName _ member -> identifierText member == expectedName
-    ResolvedName _ _ identifier -> identifierText identifier == expectedName
+    UserName (ResolvedUserName _ _ identifier) -> identifierText identifier == expectedName
     BuiltinName identifier -> identifierText identifier == expectedName
     GeneratedName _ -> False
 
@@ -205,9 +204,7 @@ runtimeInteger runtimeValue =
 runtimeValueCore :: RuntimeValue -> RuntimeValue
 runtimeValueCore runtimeValue =
   case runtimeValue of
-    VTyped _ innerValue -> runtimeValueCore innerValue
-    VExplicitTypeApplication _ innerValue -> runtimeValueCore innerValue
-    VExplicitResultHints _ innerValue -> runtimeValueCore innerValue
+    VAnnotated _ innerValue -> runtimeValueCore innerValue
     _ -> runtimeValue
 
 testPrivateConstructors :: IO ()

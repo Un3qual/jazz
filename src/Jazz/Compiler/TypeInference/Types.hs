@@ -1,25 +1,37 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Internal type model shared by inference subsystems.
 module Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
     ConstructorArgumentType (..),
     DataTypeBinding (..),
-    ExpressionType (..),
+    ExpressionType,
     ImplMethodType (..),
+    InferenceVariable (..),
     IntegerLiteralRange (..),
     NumericConstraint (..),
+    QuantifiedVariables,
     ScopeCapabilityFacts (..),
+    SemanticType (..),
     TypeBinding (..),
     TypeEnv,
     TypeScheme (..),
-    TypeSchemeConstraint (..),
-    TypeSchemePrimitiveConstraint (..),
+    TypeSchemeConstraint,
+    SchemeConstraint (..),
+    TypeSchemePrimitiveConstraint,
+    SchemePrimitiveConstraint (..),
     emptyScopeCapabilityFacts,
     instantiateConstructorFieldType,
+    quantifiedVariablesFromPreferred,
+    quantifiedVariablesMembershipSet,
+    quantifiedVariablesOrderedList,
   )
 where
 
@@ -31,78 +43,87 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import GHC.Generics (Generic)
 import Jazz.Compiler.AST
-  ( NumericType,
+  ( CorePhase (Resolved),
     SignaturePayload,
-    SignatureType (..),
+    SignatureType,
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinSymbol,
     numericTypeFromName,
   )
+import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Name
-  ( Name,
+  ( ResolvedName,
     identifierText,
   )
+import Jazz.Compiler.StableSet
+  ( StableSet,
+    stableSetFromPreferred,
+    stableSetMembershipSet,
+    stableSetOrderedList,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( InferenceVariable (..),
+    SemanticType (..),
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+  )
 
-data ExpressionType
-  = TIntType
-  | TIntegerLiteralType IntegerLiteralRange
-  | TFloatType
-  | TNumericType NumericType
-  | TBoolType
-  | TCharType
-  | TTextType
-  | TListType ExpressionType
-  | TTupleType [ExpressionType]
-  | TDataType Name [ExpressionType]
-  | TFunctionType ExpressionType ExpressionType
-  | TVarType Int
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+type ExpressionType = SemanticType ResolvedName InferenceVariable
 
 data ConstructorArgumentType
   = ConstructorArgumentMonomorphic ExpressionType
   | ConstructorArgumentParameter Text
-  | ConstructorArgumentStructured SignatureType
+  | ConstructorArgumentStructured (SignatureType 'Resolved)
   | ConstructorArgumentFresh
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 instantiateConstructorFieldType ::
   Map Text ExpressionType ->
-  SignatureType ->
+  SignatureType 'Resolved ->
   Maybe ExpressionType
 instantiateConstructorFieldType typeParameterBindings fieldType =
   case fieldType of
-    TypeInt -> Just TIntType
-    TypeFloat -> Just TFloatType
-    TypeNumeric numericType -> Just (TNumericType numericType)
-    TypeBool -> Just TBoolType
-    TypeChar -> Just TCharType
-    TypeText -> Just TTextType
+    TypeInt -> Just SemanticInt
+    TypeFloat -> Just SemanticFloat
+    TypeNumeric numericType -> Just (SemanticNumeric numericType)
+    TypeBool -> Just SemanticBool
+    TypeChar -> Just SemanticChar
+    TypeText -> Just SemanticText
     TypeVariable name -> Map.lookup (identifierText name) typeParameterBindings
     TypeName name ->
       Just
         ( case identifierText name of
-            "Int" -> TIntType
-            "Float" -> TFloatType
-            "Bool" -> TBoolType
-            "Char" -> TCharType
-            "Text" -> TTextType
+            "Int" -> SemanticInt
+            "Float" -> SemanticFloat
+            "Bool" -> SemanticBool
+            "Char" -> SemanticChar
+            "Text" -> SemanticText
             namedTypeText ->
               maybe
-                (TDataType name [])
-                TNumericType
+                (SemanticData name [])
+                SemanticNumeric
                 (numericTypeFromName namedTypeText)
         )
     TypeApplication name arguments ->
-      TDataType name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
+      SemanticData name <$> traverse (instantiateConstructorFieldType typeParameterBindings) arguments
     TypeList elementType ->
-      TListType <$> instantiateConstructorFieldType typeParameterBindings elementType
+      SemanticList <$> instantiateConstructorFieldType typeParameterBindings elementType
     TypeTuple elementTypes ->
-      TTupleType <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
+      SemanticTuple <$> traverse (instantiateConstructorFieldType typeParameterBindings) elementTypes
     TypeFunction argumentType resultType ->
-      TFunctionType
+      SemanticFunction
         <$> instantiateConstructorFieldType typeParameterBindings argumentType
         <*> instantiateConstructorFieldType typeParameterBindings resultType
 
@@ -125,13 +146,28 @@ data TypeBinding
   | BuiltinAliasTypeBinding BuiltinSymbol
   | BuiltinOperatorAliasTypeBinding Text
   | OperatorAliasSchemeTypeBinding Text TypeScheme
-  | ConstructorTypeBinding Name [Name] [ConstructorArgumentType]
+  | ConstructorTypeBinding ResolvedName [ResolvedName] [ConstructorArgumentType]
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
+newtype QuantifiedVariables = QuantifiedVariables (StableSet InferenceVariable)
+  deriving stock (Eq, Generic, Show)
+  deriving anyclass (NFData)
+
+quantifiedVariablesFromPreferred :: [InferenceVariable] -> Set InferenceVariable -> QuantifiedVariables
+quantifiedVariablesFromPreferred preferred variables =
+  QuantifiedVariables (stableSetFromPreferred preferred variables)
+
+quantifiedVariablesMembershipSet :: QuantifiedVariables -> Set InferenceVariable
+quantifiedVariablesMembershipSet (QuantifiedVariables variables) =
+  stableSetMembershipSet variables
+
+quantifiedVariablesOrderedList :: QuantifiedVariables -> [InferenceVariable]
+quantifiedVariablesOrderedList (QuantifiedVariables variables) =
+  stableSetOrderedList variables
+
 data TypeScheme = TypeScheme
-  { schemeQuantifiedVariables :: Set Int,
-    schemeQuantifiedOrder :: [Int],
+  { schemeQuantifiedVariables :: QuantifiedVariables,
     schemeClassConstraints :: [TypeSchemeConstraint],
     schemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint],
     schemeDefiningCapabilities :: ScopeCapabilityFacts,
@@ -140,37 +176,41 @@ data TypeScheme = TypeScheme
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data TypeSchemePrimitiveConstraint
-  = TypeSchemeNumericConstraint NumericConstraint ExpressionType
-  | TypeSchemeStrictEqualityConstraint ExpressionType
+type TypeSchemePrimitiveConstraint = SchemePrimitiveConstraint ExpressionType
+
+data SchemePrimitiveConstraint typeValue
+  = TypeSchemeNumericConstraint NumericConstraint typeValue
+  | TypeSchemeStrictEqualityConstraint typeValue
+  deriving stock (Eq, Foldable, Functor, Generic, Show, Traversable)
+  deriving anyclass (NFData)
+
+type TypeSchemeConstraint = SchemeConstraint ExpressionType
+
+data SchemeConstraint typeValue
+  = TypeSchemeConstraint Text typeValue
+  | TypeSchemeInferredConstraint Text typeValue
+  | TypeSchemeMethodConstraint Text Text typeValue
+  deriving stock (Eq, Foldable, Functor, Generic, Ord, Show, Traversable)
+  deriving anyclass (NFData)
+
+type TypeEnv = Map ResolvedName TypeBinding
+
+data DataTypeBinding = DataTypeBinding [ResolvedName] [[ConstructorArgumentType]]
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data TypeSchemeConstraint
-  = TypeSchemeConstraint Text ExpressionType
-  | TypeSchemeInferredConstraint Text ExpressionType
-  | TypeSchemeMethodConstraint Text Text ExpressionType
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
-
-type TypeEnv = Map Name TypeBinding
-
-data DataTypeBinding = DataTypeBinding [Name] [[ConstructorArgumentType]]
+data ClassMethodType = ClassMethodType Text (SignaturePayload 'Resolved)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
-data ClassMethodType = ClassMethodType Text SignaturePayload
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
-
-data ImplMethodType = ImplMethodType SignatureType
+newtype ImplMethodType = ImplMethodType (SignatureType 'Resolved)
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
 
 data ScopeCapabilityFacts = ScopeCapabilityFacts
   { scopeClassFacts :: Map Text Int,
     scopeGeneratedEqualityClassFacts :: Set Text,
-    scopeConcreteImplFacts :: Set Text,
+    scopeConcreteImplFacts :: Set ConcreteImplFact,
     scopeClassMethodSignatures :: Map Text ClassMethodType,
     scopeConcreteImplMethods :: Map Text [ImplMethodType]
   }

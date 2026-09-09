@@ -7,6 +7,7 @@ where
 
 import Data.Char (isAlphaNum)
 import Data.List (isPrefixOf, sort)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
@@ -128,11 +129,7 @@ isOperatorCharacter :: Char -> Bool
 isOperatorCharacter character = character `elem` (":!#$%&*+./<=>?@\\^|-~" :: String)
 
 characterAfter :: Int -> String -> Maybe Char
-characterAfter offset = safeHead . drop offset
-
-safeHead :: [value] -> Maybe value
-safeHead [] = Nothing
-safeHead (value : _) = Just value
+characterAfter offset = listToMaybe . drop offset
 
 beginsCharacterLiteral :: String -> Bool
 beginsCharacterLiteral [] = False

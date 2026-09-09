@@ -1,7 +1,13 @@
+{-# LANGUAGE DataKinds #-}
+
 -- | Explicitly separated state for inference traversal and solver operations.
 module Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
     DeferredExplicitConstraint (..),
+    ExplicitInstantiationSeed (..),
+    ExplicitInstantiationTarget (..),
+    ExpressionEvidenceSeed (..),
+    ImplementationEvidenceCandidate (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -13,12 +19,17 @@ module Jazz.Compiler.TypeInference.State
     inferConstructorWitnessNames,
     inferCurrentModuleLocalCapabilityFacts,
     inferCurrentModulePath,
-    inferRuntimeHintPath,
     inferDataTypes,
     inferDeferredExplicitConstraintCount,
     inferDeferredExplicitConstraints,
     inferErrorCount,
     inferErrorsRev,
+    inferExpressionFactTypes,
+    inferBinaryOperations,
+    inferExpressionEvidenceSeeds,
+    inferExplicitInstantiationSeeds,
+    inferImplementationEvidenceCandidates,
+    inferFactInvariantFailures,
     inferGeneratedEqualityClassFacts,
     inferInferredClassConstraintCount,
     inferInferredClassConstraints,
@@ -26,23 +37,29 @@ module Jazz.Compiler.TypeInference.State
     inferNextTypeVar,
     inferNumericVars,
     inferPatternCoverageSites,
+    inferPatternFactSeeds,
     inferRigidTypeVars,
-    inferRuntimeTypeHints,
     inferStrictEqualityVars,
+    inferStatementFactSeeds,
     inferSubst,
     inferVisibleTypes,
     initialInferState,
     modifyDeclarationState,
     modifyInferenceOutput,
     modifyModuleInferenceState,
+    recordExpressionFactType,
+    recordBinaryOperation,
+    recordExpressionEvidenceSeed,
+    recordExplicitInstantiationSeed,
+    recordPatternFactSeed,
+    recordStatementFactSeed,
     recordPatternCoverageSite,
     reservePatternCoverageSite,
   )
 where
 
 import Data.Foldable (toList)
-import Data.IntMap.Strict (IntMap)
-import qualified Data.IntMap.Strict as IntMap
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Sequence (Seq)
@@ -50,29 +67,41 @@ import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
-import Jazz.Compiler.AST (SignatureType)
+import Jazz.Compiler.AST (CorePhase (Resolved), SignatureType)
+import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.Diagnostics (Diagnostic)
-import Jazz.Compiler.Name (Name)
+import Jazz.Compiler.Name (ResolvedName, UnresolvedName)
 import Jazz.Compiler.PatternCoverage (PatternCoverageSite)
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import Jazz.Compiler.SemanticFacts
+  ( BinaryOperation,
+    CapabilityId,
+    CoreNodeId,
+    ImplId,
+    MethodId,
+    PatternFacts,
+    SemanticFactInvariantFailure (..),
+    StatementDeclarationFact,
+  )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType,
     DataTypeBinding,
     ExpressionType,
     ImplMethodType,
+    InferenceVariable,
     NumericConstraint,
     ScopeCapabilityFacts,
+    TypeBinding,
     TypeEnv,
     TypeSchemeConstraint,
     emptyScopeCapabilityFacts,
   )
 
 data SolverState = SolverState
-  { solverNextTypeVar :: Int,
-    solverSubstitution :: IntMap ExpressionType,
-    solverStrictEqualityVars :: Set Int,
-    solverNumericVars :: Map Int NumericConstraint,
-    solverRigidTypeVars :: Set Int
+  { solverNextTypeVar :: InferenceVariable,
+    solverSubstitution :: Map InferenceVariable ExpressionType,
+    solverStrictEqualityVars :: Set InferenceVariable,
+    solverNumericVars :: Map InferenceVariable NumericConstraint,
+    solverRigidTypeVars :: Set InferenceVariable
   }
   deriving (Eq, Show)
 
@@ -80,7 +109,7 @@ data DeclarationState = DeclarationState
   { declarationDataTypes :: Map Text DataTypeBinding,
     declarationClassFacts :: Map Text Int,
     declarationGeneratedEqualityClassFacts :: Set Text,
-    declarationConcreteImplFacts :: Set Text,
+    declarationConcreteImplFacts :: Set ConcreteImplFact,
     declarationClassMethodSignatures :: Map Text ClassMethodType,
     declarationConcreteImplMethods :: Map Text [ImplMethodType]
   }
@@ -88,17 +117,22 @@ data DeclarationState = DeclarationState
 
 data ModuleInferenceState = ModuleInferenceState
   { inferenceModulePath :: Maybe [Text],
-    -- Standalone prelude statements use the same synthetic path as compiled preludes.
-    inferenceRuntimeHintPath :: Maybe [Text],
     inferenceLocalCapabilities :: ScopeCapabilityFacts,
     inferenceModuleCapabilities :: Map [Text] ScopeCapabilityFacts,
-    inferenceConstructorWitnessNames :: Map Name Name,
+    inferenceConstructorWitnessNames :: Map ResolvedName UnresolvedName,
+    inferenceImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate],
     inferenceVisibleTypes :: TypeEnv
   }
   deriving (Eq, Show)
 
 data InferenceOutput = InferenceOutput
-  { outputRuntimeHints :: Map BindingRuntimeHintKey SignatureType,
+  { outputExpressionFactTypes :: Map CoreNodeId ExpressionType,
+    outputBinaryOperations :: Map CoreNodeId BinaryOperation,
+    outputExpressionEvidenceSeeds :: Map CoreNodeId ExpressionEvidenceSeed,
+    outputExplicitInstantiationSeeds :: Map CoreNodeId ExplicitInstantiationSeed,
+    outputPatternFactSeeds :: Map CoreNodeId PatternFacts,
+    outputStatementFactSeeds :: Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact),
+    outputFactInvariantFailures :: Seq SemanticFactInvariantFailure,
     outputDeferredConstraints :: Seq DeferredExplicitConstraint,
     outputInferredConstraints :: [TypeSchemeConstraint],
     outputInferredConstraintCount :: Int,
@@ -106,6 +140,33 @@ data InferenceOutput = InferenceOutput
     outputErrorCount :: Int,
     outputPatternCoverageSites :: Seq PatternCoverageSite,
     outputNextPatternCoverageOrdinal :: Int
+  }
+  deriving (Eq, Show)
+
+data ExpressionEvidenceSeed = ExpressionEvidenceSeed
+  { evidenceSeedCapability :: CapabilityId,
+    evidenceSeedImplementation :: ImplId,
+    evidenceSeedMethod :: MethodId,
+    evidenceSeedType :: ExpressionType
+  }
+  deriving (Eq, Show)
+
+data ExplicitInstantiationTarget
+  = ExplicitBinderInstantiation ResolvedName
+  | ExplicitQualifiedMethodInstantiation ResolvedName
+  deriving (Eq, Show)
+
+data ExplicitInstantiationSeed = ExplicitInstantiationSeed
+  { explicitInstantiationSeedTarget :: ExplicitInstantiationTarget,
+    explicitInstantiationSeedArguments :: NonEmpty ExpressionType
+  }
+  deriving (Eq, Show)
+
+data ImplementationEvidenceCandidate = ImplementationEvidenceCandidate
+  { implementationCandidateCapability :: ResolvedName,
+    implementationCandidateTarget :: SignatureType 'Resolved,
+    implementationCandidateId :: ImplId,
+    implementationCandidateMethodId :: MethodId
   }
   deriving (Eq, Show)
 
@@ -145,7 +206,7 @@ initialInferState =
     { inferSolver =
         SolverState
           { solverNextTypeVar = 0,
-            solverSubstitution = IntMap.empty,
+            solverSubstitution = Map.empty,
             solverStrictEqualityVars = Set.empty,
             solverNumericVars = Map.empty,
             solverRigidTypeVars = Set.empty
@@ -162,15 +223,21 @@ initialInferState =
       inferModule =
         ModuleInferenceState
           { inferenceModulePath = Nothing,
-            inferenceRuntimeHintPath = Nothing,
             inferenceLocalCapabilities = emptyScopeCapabilityFacts,
             inferenceModuleCapabilities = Map.empty,
             inferenceConstructorWitnessNames = Map.empty,
+            inferenceImplementationEvidenceCandidates = Map.empty,
             inferenceVisibleTypes = Map.empty
           },
       inferOutput =
         InferenceOutput
-          { outputRuntimeHints = Map.empty,
+          { outputExpressionFactTypes = Map.empty,
+            outputBinaryOperations = Map.empty,
+            outputExpressionEvidenceSeeds = Map.empty,
+            outputExplicitInstantiationSeeds = Map.empty,
+            outputPatternFactSeeds = Map.empty,
+            outputStatementFactSeeds = Map.empty,
+            outputFactInvariantFailures = Seq.empty,
             outputDeferredConstraints = Seq.empty,
             outputInferredConstraints = [],
             outputInferredConstraintCount = 0,
@@ -181,19 +248,19 @@ initialInferState =
           }
     }
 
-inferNextTypeVar :: InferState -> Int
+inferNextTypeVar :: InferState -> InferenceVariable
 inferNextTypeVar = solverNextTypeVar . inferSolver
 
-inferSubst :: InferState -> IntMap ExpressionType
+inferSubst :: InferState -> Map InferenceVariable ExpressionType
 inferSubst = solverSubstitution . inferSolver
 
-inferStrictEqualityVars :: InferState -> Set Int
+inferStrictEqualityVars :: InferState -> Set InferenceVariable
 inferStrictEqualityVars = solverStrictEqualityVars . inferSolver
 
-inferNumericVars :: InferState -> Map Int NumericConstraint
+inferNumericVars :: InferState -> Map InferenceVariable NumericConstraint
 inferNumericVars = solverNumericVars . inferSolver
 
-inferRigidTypeVars :: InferState -> Set Int
+inferRigidTypeVars :: InferState -> Set InferenceVariable
 inferRigidTypeVars = solverRigidTypeVars . inferSolver
 
 inferDataTypes :: InferState -> Map Text DataTypeBinding
@@ -205,7 +272,7 @@ inferClassFacts = declarationClassFacts . inferDeclarations
 inferGeneratedEqualityClassFacts :: InferState -> Set Text
 inferGeneratedEqualityClassFacts = declarationGeneratedEqualityClassFacts . inferDeclarations
 
-inferConcreteImplFacts :: InferState -> Set Text
+inferConcreteImplFacts :: InferState -> Set ConcreteImplFact
 inferConcreteImplFacts = declarationConcreteImplFacts . inferDeclarations
 
 inferClassMethodSignatures :: InferState -> Map Text ClassMethodType
@@ -217,23 +284,106 @@ inferConcreteImplMethods = declarationConcreteImplMethods . inferDeclarations
 inferCurrentModulePath :: InferState -> Maybe [Text]
 inferCurrentModulePath = inferenceModulePath . inferModule
 
-inferRuntimeHintPath :: InferState -> Maybe [Text]
-inferRuntimeHintPath = inferenceRuntimeHintPath . inferModule
-
 inferCurrentModuleLocalCapabilityFacts :: InferState -> ScopeCapabilityFacts
 inferCurrentModuleLocalCapabilityFacts = inferenceLocalCapabilities . inferModule
 
 inferModuleCapabilityFacts :: InferState -> Map [Text] ScopeCapabilityFacts
 inferModuleCapabilityFacts = inferenceModuleCapabilities . inferModule
 
-inferConstructorWitnessNames :: InferState -> Map Name Name
+inferConstructorWitnessNames :: InferState -> Map ResolvedName UnresolvedName
 inferConstructorWitnessNames = inferenceConstructorWitnessNames . inferModule
 
 inferVisibleTypes :: InferState -> TypeEnv
 inferVisibleTypes = inferenceVisibleTypes . inferModule
 
-inferRuntimeTypeHints :: InferState -> Map BindingRuntimeHintKey SignatureType
-inferRuntimeTypeHints = outputRuntimeHints . inferOutput
+inferExpressionFactTypes :: InferState -> Map CoreNodeId ExpressionType
+inferExpressionFactTypes = outputExpressionFactTypes . inferOutput
+
+inferBinaryOperations :: InferState -> Map CoreNodeId BinaryOperation
+inferBinaryOperations = outputBinaryOperations . inferOutput
+
+recordBinaryOperation :: CoreNodeId -> BinaryOperation -> InferState -> InferState
+recordBinaryOperation nodeId operation =
+  recordFact
+    outputBinaryOperations
+    (\facts output -> output {outputBinaryOperations = facts})
+    DuplicateExpressionFacts
+    nodeId
+    operation
+
+inferExpressionEvidenceSeeds :: InferState -> Map CoreNodeId ExpressionEvidenceSeed
+inferExpressionEvidenceSeeds = outputExpressionEvidenceSeeds . inferOutput
+
+inferExplicitInstantiationSeeds :: InferState -> Map CoreNodeId ExplicitInstantiationSeed
+inferExplicitInstantiationSeeds = outputExplicitInstantiationSeeds . inferOutput
+
+inferImplementationEvidenceCandidates :: InferState -> Map Text [ImplementationEvidenceCandidate]
+inferImplementationEvidenceCandidates = inferenceImplementationEvidenceCandidates . inferModule
+
+inferPatternFactSeeds :: InferState -> Map CoreNodeId PatternFacts
+inferPatternFactSeeds = outputPatternFactSeeds . inferOutput
+
+inferStatementFactSeeds :: InferState -> Map CoreNodeId ([(ResolvedName, TypeBinding)], StatementDeclarationFact)
+inferStatementFactSeeds = outputStatementFactSeeds . inferOutput
+
+inferFactInvariantFailures :: InferState -> [SemanticFactInvariantFailure]
+inferFactInvariantFailures = toList . outputFactInvariantFailures . inferOutput
+
+recordExpressionFactType :: CoreNodeId -> ExpressionType -> InferState -> InferState
+recordExpressionFactType nodeId expressionType =
+  recordFact
+    outputExpressionFactTypes
+    (\facts output -> output {outputExpressionFactTypes = facts})
+    DuplicateExpressionFacts
+    nodeId
+    expressionType
+
+recordExpressionEvidenceSeed :: CoreNodeId -> ExpressionEvidenceSeed -> InferState -> InferState
+recordExpressionEvidenceSeed nodeId seed =
+  recordFact
+    outputExpressionEvidenceSeeds
+    (\seeds output -> output {outputExpressionEvidenceSeeds = seeds})
+    DuplicateExpressionFacts
+    nodeId
+    seed
+
+recordExplicitInstantiationSeed :: CoreNodeId -> ExplicitInstantiationSeed -> InferState -> InferState
+recordExplicitInstantiationSeed nodeId seed =
+  recordFact
+    outputExplicitInstantiationSeeds
+    (\seeds output -> output {outputExplicitInstantiationSeeds = seeds})
+    DuplicateExplicitInstantiationSeed
+    nodeId
+    seed
+
+recordPatternFactSeed :: CoreNodeId -> PatternFacts -> InferState -> InferState
+recordPatternFactSeed nodeId facts =
+  recordFact
+    outputPatternFactSeeds
+    (\seeds output -> output {outputPatternFactSeeds = seeds})
+    DuplicatePatternFacts
+    nodeId
+    facts
+
+recordStatementFactSeed :: CoreNodeId -> ([(ResolvedName, TypeBinding)], StatementDeclarationFact) -> InferState -> InferState
+recordStatementFactSeed nodeId facts =
+  recordFact
+    outputStatementFactSeeds
+    (\seeds output -> output {outputStatementFactSeeds = seeds})
+    DuplicateStatementFacts
+    nodeId
+    facts
+
+recordFact :: (Ord key) => (InferenceOutput -> Map key value) -> (Map key value -> InferenceOutput -> InferenceOutput) -> (key -> SemanticFactInvariantFailure) -> key -> value -> InferState -> InferState
+recordFact project replace duplicateFailure key value =
+  modifyInferenceOutput $ \output ->
+    if Map.member key (project output)
+      then
+        output
+          { outputFactInvariantFailures =
+              outputFactInvariantFailures output Seq.|> duplicateFailure key
+          }
+      else replace (Map.insert key value (project output)) output
 
 inferDeferredExplicitConstraints :: InferState -> [DeferredExplicitConstraint]
 inferDeferredExplicitConstraints = toList . outputDeferredConstraints . inferOutput

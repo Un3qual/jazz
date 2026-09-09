@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Stdlib.Shared
@@ -10,7 +11,6 @@ module Jazz.Compiler.Stdlib.Shared
   )
 where
 
-import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.BundledPrelude
@@ -28,48 +28,32 @@ import Jazz.Compiler.Diagnostics.Render
   ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
-    buildCompiledProgram,
+  ( RunResult,
+    buildAnalyzedProgram,
     runCompileErrors,
     runModuleGraph,
     runModuleGraphObserved,
+    runOutput,
     runRuntimeErrors,
   )
-import Jazz.Compiler.ModuleInterface
-  ( CompiledModule (..),
-    CompiledPrelude (..),
-    CompiledProgram (..),
-    ModuleInterface (interfaceRuntimeHints),
-    compiledProgramErrors,
+import Jazz.Compiler.ModuleCompiler
+  ( analyzedProgramErrors,
   )
 import Jazz.Compiler.ModuleResolver
   ( ModuleResolutionConfig (..),
   )
-import Jazz.Compiler.Name
-  ( IdentifierLike (identifierText),
-    Name (..),
-    NameNamespace (..),
-    ResolvedNameOrigin (..),
-    mkQualifiedIdentifier,
-    sourceName,
+import Jazz.Compiler.ModuleRuntime
+  ( RuntimeProgram (runtimeProgramOutput),
+    evaluateAnalyzedProgram,
   )
 import Jazz.Compiler.Prelude
   ( ResolvedPrelude (PreludeBundled),
   )
 import Jazz.Compiler.Runtime
-  ( ModuleEvaluationMode (..),
-    RuntimeCell,
-    RuntimeEnv,
-    RuntimeValue,
-    ScopeResult (..),
-    evaluateModuleScope,
+  ( RuntimeValue,
   )
 import Jazz.Compiler.Runtime.Observation
   ( RuntimeObservationRequest,
-  )
-import Jazz.Compiler.SourceProgram
-  ( parseAndLowerStandaloneSource,
-    scopeStatements,
   )
 import Jazz.Compiler.WarningConfig
   ( defaultWarningSettings,
@@ -117,18 +101,28 @@ assertStdlibConstructorPrivate modulePath constructorName source = do
 runStdlibPrivateProbeValue :: [Text] -> Text -> IO (Either Diagnostic (Maybe RuntimeValue))
 runStdlibPrivateProbeValue targetModulePath probeSource = do
   bundledPreludeSource <- loadBundledPreludeSource
-  compiledResult <-
-    buildCompiledProgram
+  analyzedResult <-
+    buildAnalyzedProgram
       defaultWarningSettings
       (PreludeBundled bundledPreludeSource)
       resolverConfig
       targetModulePath
-      (readCheckedInJazzModuleSource StandardLibrarySource)
+      probeSourceLookup
   pure $ do
-    compiledProgram <- compiledResult
-    case compiledProgramErrors compiledProgram of
+    (_, _, maybeAnalyzedProgram) <- analyzedResult
+    analyzedProgram <- maybe (Left (privateProbeDiagnostic targetModulePath)) Right maybeAnalyzedProgram
+    case analyzedProgramErrors analyzedProgram of
       firstError : _ -> Left firstError
-      [] -> evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram
+      [] -> runtimeProgramOutput <$> evaluateAnalyzedProgram analyzedProgram
+  where
+    targetSourcePath = "src/" <> modulePathFile targetModulePath <> ".jz"
+    probeSourceLookup sourcePath = do
+      maybeSource <- readCheckedInJazzModuleSource StandardLibrarySource sourcePath
+      pure
+        ( if sourcePath == targetSourcePath
+            then injectPrivateProbe probeSource <$> maybeSource
+            else maybeSource
+        )
 
 runStdlibSource :: [Text] -> Text -> IO RunResult
 runStdlibSource modulePath entrySource =
@@ -170,92 +164,13 @@ modulePathFile :: [Text] -> FilePath
 modulePathFile =
   foldr1 (\segment suffix -> segment <> "/" <> suffix) . map Text.unpack
 
-evaluateCompiledPrivateProbeValue :: [Text] -> Text -> CompiledProgram -> Either Diagnostic (Maybe RuntimeValue)
-evaluateCompiledPrivateProbeValue targetModulePath probeSource compiledProgram = do
-  ambientEnvironment <- evaluateTestPrelude (compiledProgramPrelude compiledProgram)
-  targetScope <- evaluateModules ambientEnvironment Nothing (compiledProgramModules compiledProgram)
-  case targetScope of
-    Nothing -> Left (privateProbeDiagnostic targetModulePath)
-    Just (compiledModule, environment) -> do
-      probeExpression <- parseAndLowerStandaloneSource probeSource
-      probeResult <-
-        evaluateModuleScope
-          (Just targetModulePath)
-          EvaluateEntryModule
-          (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
-          (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-          (withSourceAliases environment)
-          (scopeStatements probeExpression)
-      pure (scopeResultValue probeResult)
-  where
-    evaluateModules _ targetScope [] = Right targetScope
-    evaluateModules availableEnvironment targetScope (compiledModule : rest) = do
-      let modulePath = compiledModulePath compiledModule
-          evaluationMode = if modulePath == targetModulePath then EvaluateEntryModule else EvaluateDependencyModule
-      scopeResult <-
-        evaluateModuleScope
-          (Just modulePath)
-          evaluationMode
-          (compiledPreludeBuiltinMode (compiledProgramPrelude compiledProgram))
-          (interfaceRuntimeHints (compiledModuleInterface compiledModule))
-          availableEnvironment
-          (scopeStatements (compiledModuleExpr compiledModule))
-      let fullEnvironment = scopeResultEnvironment scopeResult
-          publishedEnvironment = publishTestScope (ImportedModule modulePath) fullEnvironment
-          nextAvailableEnvironment = Map.union publishedEnvironment availableEnvironment
-          nextTargetScope =
-            if modulePath == targetModulePath
-              then Just (compiledModule, fullEnvironment)
-              else targetScope
-      evaluateModules nextAvailableEnvironment nextTargetScope rest
-
-evaluateTestPrelude :: CompiledPrelude -> Either Diagnostic RuntimeEnv
-evaluateTestPrelude compiledPrelude =
-  case compiledPreludeExpr compiledPrelude of
-    Nothing -> Right Map.empty
-    Just expression -> do
-      scopeResult <-
-        evaluateModuleScope
-          (Just [])
-          EvaluateDependencyModule
-          (compiledPreludeBuiltinMode compiledPrelude)
-          (compiledPreludeRuntimeHints compiledPrelude)
-          Map.empty
-          (scopeStatements expression)
-      pure (publishTestScope AmbientPrelude (scopeResultEnvironment scopeResult))
-
-publishTestScope :: ResolvedNameOrigin -> RuntimeEnv -> RuntimeEnv
-publishTestScope origin = Map.fromList . concatMap publishCell . Map.toList
-  where
-    publishCell :: (Name, RuntimeCell) -> [(Name, RuntimeCell)]
-    publishCell (name, cell) =
-      case name of
-        SourceName identifier ->
-          [ (ResolvedName origin namespace identifier, cell)
-          | namespace <- [ValueNamespace, ConstructorNamespace, TypeNamespace, CapabilityNamespace]
-          ]
-        QualifiedName qualifier member ->
-          [ ( ResolvedName
-                origin
-                ValueNamespace
-                (mkQualifiedIdentifier (identifierText qualifier) (identifierText member)),
-              cell
-            )
-          ]
-        ResolvedName CurrentModule namespace identifier ->
-          [(ResolvedName origin namespace identifier, cell)]
-        ResolvedName AmbientPrelude namespace identifier
-          | origin == AmbientPrelude -> [(ResolvedName AmbientPrelude namespace identifier, cell)]
-        _ -> []
-
-withSourceAliases :: RuntimeEnv -> RuntimeEnv
-withSourceAliases environment = Map.union aliases environment
-  where
-    aliases =
-      Map.fromList
-        [ (sourceName identifier, cell)
-        | (ResolvedName CurrentModule _ identifier, cell) <- Map.toList environment
-        ]
+injectPrivateProbe :: Text -> Text -> Text
+injectPrivateProbe probeSource moduleSource =
+  case Text.breakOnEnd "}" moduleSource of
+    (prefix, suffix)
+      | not (Text.null prefix) ->
+          Text.dropEnd 1 prefix <> "\n" <> probeSource <> "\n}" <> suffix
+    _ -> moduleSource
 
 privateProbeDiagnostic :: [Text] -> Diagnostic
 privateProbeDiagnostic modulePath =

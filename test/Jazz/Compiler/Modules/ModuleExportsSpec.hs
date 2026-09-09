@@ -5,6 +5,7 @@ module Main (main) where
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import Data.Text (Text)
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleExports
   ( LocatedModuleExportName (..),
@@ -16,10 +17,12 @@ import Jazz.Compiler.ModuleExports
     declarationExportNames,
     exportInventory,
     exportInventoryEntries,
+    exportedConstructorOwners,
     firstExportNamespace,
     renderModuleExportSelector,
     selectExportNames,
     selectModuleExportSelectors,
+    selectValidatedModuleExportSelectors,
     selectorEligibleNames,
     visibleImportInventory,
   )
@@ -30,7 +33,7 @@ import Jazz.Compiler.ModuleInterface
   )
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.Compiler.TypeInference.Types
-  ( ExpressionType (TIntType),
+  ( SemanticType (..),
     TypeBinding (PlainTypeBinding),
   )
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
@@ -47,6 +50,10 @@ tests =
     ("selects exact module export namespaces", testSelectsExactModuleExportNamespaces),
     ("keeps same-text entries for bare module export selectors", testBareModuleExportSelectorKeepsSameTextEntries),
     ("renders grouped type export selectors", testRendersGroupedTypeExportSelectors),
+    ("retains constructor ownership for grouped type selectors", testGroupedTypeSelectorOwnership),
+    ("distinguishes standalone constructor selectors from owned selectors", testStandaloneConstructorSelectorOwnership),
+    ("drops constructor ownership when filtering its constructor or type", testFilteredConstructorOwnership),
+    ("combines conflicting constructor owners without bias", testConflictingConstructorOwnership),
     ("filters alias imports to values, constructors, and types", testAliasVisibility),
     ("keeps all namespaces for unqualified imports", testUnqualifiedVisibility),
     ("finds the first requested namespace deterministically", testFirstNamespace),
@@ -171,6 +178,81 @@ testRendersGroupedTypeExportSelectors = do
         )
     )
 
+testGroupedTypeSelectorOwnership :: IO ()
+testGroupedTypeSelectorOwnership =
+  assertEqual
+    "grouped type constructor owner"
+    (Set.singleton "A")
+    ( exportedConstructorOwners
+        "C"
+        ( selectValidatedModuleExportSelectors
+            reboundConstructorOwners
+            [ModuleTypeExportSelector "A" (SourceSpan 1 1) (AllTypeConstructors (SourceSpan 1 8))]
+            reboundConstructorInventory
+        )
+    )
+
+testStandaloneConstructorSelectorOwnership :: IO ()
+testStandaloneConstructorSelectorOwnership =
+  assertEqual
+    "standalone constructor has no selected type owner"
+    Set.empty
+    ( exportedConstructorOwners
+        "C"
+        ( selectValidatedModuleExportSelectors
+            reboundConstructorOwners
+            [ModuleExportSelector (Just ConstructorNamespace) "C"]
+            reboundConstructorInventory
+        )
+    )
+
+testFilteredConstructorOwnership :: IO ()
+testFilteredConstructorOwnership = do
+  assertEqual
+    "filtering constructor drops ownership"
+    Set.empty
+    (exportedConstructorOwners "C" (selectExportNames (Just ["A"]) ownedConstructorInventory))
+  assertEqual
+    "filtering owner type drops ownership"
+    Set.empty
+    (exportedConstructorOwners "C" (selectExportNames (Just ["C"]) ownedConstructorInventory))
+
+testConflictingConstructorOwnership :: IO ()
+testConflictingConstructorOwnership =
+  assertEqual
+    "conflicting selected owners remain explicit"
+    (Set.fromList ["A", "B"])
+    (exportedConstructorOwners "C" (ownedBy "A" <> ownedBy "B"))
+
+ownedConstructorInventory :: ModuleExportInventory
+ownedConstructorInventory = ownedBy "A"
+
+ownedBy :: Text -> ModuleExportInventory
+ownedBy typeName =
+  selectValidatedModuleExportSelectors
+    (Map.singleton typeName (Set.singleton "C"))
+    [ModuleTypeExportSelector typeName (SourceSpan 1 1) (AllTypeConstructors (SourceSpan 1 8))]
+    ( exportInventory
+        [ ModuleExport TypeNamespace typeName,
+          ModuleExport ConstructorNamespace "C"
+        ]
+    )
+
+reboundConstructorOwners :: Map.Map Text (Set.Set Text)
+reboundConstructorOwners =
+  Map.fromList
+    [ ("A", Set.singleton "C"),
+      ("B", Set.singleton "C")
+    ]
+
+reboundConstructorInventory :: ModuleExportInventory
+reboundConstructorInventory =
+  exportInventory
+    [ ModuleExport TypeNamespace "A",
+      ModuleExport ConstructorNamespace "C",
+      ModuleExport TypeNamespace "B"
+    ]
+
 testAliasVisibility :: IO ()
 testAliasVisibility =
   assertEqual
@@ -222,6 +304,6 @@ testInterfaceInventory =
         { interfaceValueTypes =
             Map.singleton
               (ModuleExport ValueNamespace "answer")
-              (PlainTypeBinding TIntType),
+              (PlainTypeBinding SemanticInt),
           interfaceClassFacts = Map.singleton "Eq" 1
         }

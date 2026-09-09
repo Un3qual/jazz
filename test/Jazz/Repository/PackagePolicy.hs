@@ -8,6 +8,7 @@ module Jazz.Repository.PackagePolicy
 where
 
 import Data.Char (isAlphaNum, isSpace)
+import Data.Maybe (listToMaybe)
 import Data.Text (Text)
 import qualified Data.Text as Text
 
@@ -38,9 +39,7 @@ validatePackagePolicy source =
         actualValue /= Just expectedValue
       ]
     sourceRepositoryBody =
-      case [body | (header, body) <- topLevelStanzas sourceLines, normalizedHeader header == "source-repository head"] of
-        [] -> Nothing
-        body : _ -> Just body
+      listToMaybe [body | (header, body) <- topLevelStanzas sourceLines, normalizedHeader header == "source-repository head"]
     sourceRepositoryViolations =
       case sourceRepositoryBody of
         Nothing -> [MissingHeadSourceRepository]
@@ -61,9 +60,7 @@ validatePackagePolicy source =
     hasPublicLibrary =
       any isPublicLibraryStanza libraryStanzas
     privateLibraryBody =
-      case [body | (header, body) <- libraryStanzas, normalizedHeader header == privateLibraryHeader] of
-        [] -> Nothing
-        body : _ -> Just body
+      listToMaybe [body | (header, body) <- libraryStanzas, normalizedHeader header == privateLibraryHeader]
     publicLibraryViolations =
       [PublicLibraryStanza | hasPublicLibrary]
     missingPrivateLibraryViolations =
@@ -142,19 +139,16 @@ legacyPackageIdentities =
 
 topLevelFieldValue :: Text -> [Text] -> Maybe Text
 topLevelFieldValue fieldName sourceLines =
-  case [ value
-       | (indentation, candidateName, value) <- logicalFieldEntries sourceLines,
-         indentation == 0,
-         candidateName == Text.toCaseFold fieldName
-       ] of
-    [] -> Nothing
-    value : _ -> Just value
+  listToMaybe
+    [ value
+    | (indentation, candidateName, value) <- logicalFieldEntries sourceLines,
+      indentation == 0,
+      candidateName == Text.toCaseFold fieldName
+    ]
 
 fieldValue :: Text -> [Text] -> Maybe Text
 fieldValue fieldName sourceLines =
-  case [value | (candidateName, value) <- logicalFields sourceLines, candidateName == Text.toCaseFold fieldName] of
-    [] -> Nothing
-    value : _ -> Just value
+  listToMaybe [value | (candidateName, value) <- logicalFields sourceLines, candidateName == Text.toCaseFold fieldName]
 
 logicalFields :: [Text] -> [(Text, Text)]
 logicalFields sourceLines =

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract rendered link, image, HTML, and heading targets from Markdown."""
+"""Extract rendered link and heading targets from Markdown."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ from markdown_visibility import (
 )
 
 
-FULL_REFERENCE_RE = re.compile(r"\[([^\]]+)\]\[([^\]]*)\]")
 INERT_HTML_CONTENT_TAGS = frozenset({"script", "style", "template", "textarea"})
 VOID_HTML_TAGS = frozenset(
     {
@@ -41,9 +40,6 @@ VOID_HTML_TAGS = frozenset(
     }
 )
 ATX_HEADING_RE = re.compile(r"^[ \t]{0,3}#{1,6}(?:[ \t]+|$)(.*?)[ \t]*$", re.MULTILINE)
-ATX_HEADING_LEVEL_RE = re.compile(
-    r"^[ \t]{0,3}(#{1,6})(?:[ \t]+|$)", re.MULTILINE
-)
 SETEXT_HEADING_UNDERLINE_RE = re.compile(r"^[ \t]{0,3}(=+|-+)[ \t]*$")
 EXPLICIT_HEADING_ID_RE = re.compile(r"[ \t]+\{#([A-Za-z][A-Za-z0-9_.:-]*)\}[ \t]*$")
 MARKDOWN_AUTOLINK_RE = re.compile(
@@ -449,78 +445,6 @@ def _is_escaped_markdown_character(text: str, position: int) -> bool:
     return backslashes % 2 == 1
 
 
-@dataclass(frozen=True)
-class MarkdownInlineLink:
-    label: str
-    raw_target: str
-    is_image: bool
-
-
-def _inline_label_end(text: str, start: int) -> int | None:
-    depth = 1
-    position = start
-    while position < len(text):
-        character = text[position]
-        if character == "\\" and position + 1 < len(text):
-            position += 2
-            continue
-        if character == "[":
-            depth += 1
-        elif character == "]":
-            depth -= 1
-            if depth == 0:
-                return position
-        position += 1
-    return None
-
-
-def markdown_inline_links(text: str) -> list[MarkdownInlineLink]:
-    """Extract rendered inline links and images, including nested labels."""
-    links: list[MarkdownInlineLink] = []
-    position = 0
-    while position < len(text):
-        if text[position] != "[" or _is_escaped_markdown_character(text, position):
-            position += 1
-            continue
-        is_image = (
-            position > 0
-            and text[position - 1] == "!"
-            and not _is_escaped_markdown_character(text, position - 1)
-        )
-        label_start = position + 1
-        label_end = _inline_label_end(text, label_start)
-        if label_end is None or label_end + 1 >= len(text) or text[label_end + 1] != "(":
-            position += 1
-            continue
-        inline_end = _inline_link_end(text, label_end + 1)
-        if inline_end is None:
-            position = label_end + 1
-            continue
-        target_start = _skip_space_tabs(text, label_end + 2)
-        line_break_end = _line_ending_end(text, target_start)
-        if line_break_end is not None:
-            target_start = _skip_space_tabs(text, line_break_end)
-        if target_start < len(text) and text[target_start] == ")":
-            raw_target = ""
-        else:
-            destination = _link_destination_at(text, target_start)
-            if destination is None:
-                position = inline_end
-                continue
-            raw_target = destination[0]
-        label = text[label_start:label_end]
-        links.append(
-            MarkdownInlineLink(
-                label=label,
-                raw_target=raw_target,
-                is_image=is_image,
-            )
-        )
-        links.extend(markdown_inline_links(label))
-        position = inline_end
-    return links
-
-
 def _inline_link_end(text: str, start: int) -> int | None:
     if start >= len(text) or text[start] != "(":
         return None
@@ -608,13 +532,6 @@ def used_reference_targets(text: str) -> list[str]:
     ]
 
 
-def used_reference_image_targets(text: str) -> list[str]:
-    """Resolve image targets used by full, collapsed, and shortcut references."""
-    return [
-        target for target, is_image in _used_reference_target_usages(text) if is_image
-    ]
-
-
 def _markdown_heading_text(markup: str) -> str:
     text = re.sub(r"!?\[([^\]]*)\]\([^)]+\)", r"\1", markup)
     text = re.sub(r"\[([^\]]+)\]\[[^\]]*\]", r"\1", text)
@@ -659,7 +576,6 @@ def _markdown_heading_slug(markup: str) -> str:
 class _HtmlHeadingParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.levels: set[int] = set()
         self.fragments: set[str] = set()
 
     def collect_heading(
@@ -668,7 +584,6 @@ class _HtmlHeadingParser(HTMLParser):
         match = re.fullmatch(r"h([1-6])", tag.casefold())
         if match is None:
             return
-        self.levels.add(int(match.group(1)))
         for name, value in attributes:
             if name.casefold() == "id" and value:
                 self.fragments.add(value)
@@ -683,32 +598,6 @@ class _HtmlHeadingParser(HTMLParser):
         self, tag: str, attributes: list[tuple[str, str | None]]
     ) -> None:
         self.collect_heading(tag, attributes)
-
-
-def rendered_heading_levels(text: str) -> set[int]:
-    """Return heading levels produced by visible Markdown and raw HTML."""
-    rendered = container_relative_markdown(
-        without_indented_code_blocks(
-            without_inert_html_subtrees(rendered_markdown(text))
-        )
-    )
-    levels = {
-        len(match.group(1)) for match in ATX_HEADING_LEVEL_RE.finditer(rendered)
-    }
-    lines = rendered.splitlines()
-    for index, line in enumerate(lines[1:], 1):
-        underline = SETEXT_HEADING_UNDERLINE_RE.fullmatch(line)
-        previous = lines[index - 1]
-        if underline is not None and previous.strip():
-            levels.add(1 if underline.group(1).startswith("=") else 2)
-
-    html_parser = _HtmlHeadingParser()
-    html_parser.feed(
-        without_inert_html_subtrees(rendered_html_source_markdown(text))
-    )
-    html_parser.close()
-    levels.update(html_parser.levels)
-    return levels
 
 
 def _add_markdown_heading_fragment(
@@ -779,46 +668,9 @@ def rendered_heading_fragments(text: str) -> set[str]:
     return fragments
 
 
-def _srcset_targets(value: str) -> list[str]:
-    """Extract URL tokens from an HTML srcset candidate list."""
-    targets: list[str] = []
-    position = 0
-    while position < len(value):
-        while position < len(value) and (
-            value[position].isspace() or value[position] == ","
-        ):
-            position += 1
-        if position >= len(value):
-            break
-
-        start = position
-        while position < len(value) and not value[position].isspace():
-            position += 1
-        target_with_separator = value[start:position]
-        target = target_with_separator.rstrip(",")
-        if target:
-            targets.append(target)
-        if target != target_with_separator:
-            continue
-
-        parenthesis_depth = 0
-        while position < len(value):
-            character = value[position]
-            position += 1
-            if character == "(":
-                parenthesis_depth += 1
-            elif character == ")" and parenthesis_depth:
-                parenthesis_depth -= 1
-            elif character == "," and not parenthesis_depth:
-                break
-    return targets
-
-
 class _HtmlReferenceTargetParser(HTMLParser):
-    def __init__(self, *, include_links: bool, include_images: bool) -> None:
+    def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.include_links = include_links
-        self.include_images = include_images
         self.targets: list[str] = []
         self.inert_depth = 0
         self.open_elements: list[tuple[str, bool]] = []
@@ -853,14 +705,8 @@ class _HtmlReferenceTargetParser(HTMLParser):
     ) -> None:
         for name, value in attributes:
             folded_name = name.casefold()
-            if self.include_links and folded_tag == "a" and folded_name == "href":
+            if folded_tag == "a" and folded_name == "href":
                 self.targets.append(value or "")
-            if not self.include_images:
-                continue
-            if folded_tag == "img" and folded_name == "src":
-                self.targets.append(value or "")
-            if folded_tag in {"img", "source"} and folded_name == "srcset":
-                self.targets.extend(_srcset_targets(value or ""))
 
     def handle_endtag(self, tag: str) -> None:
         folded_tag = tag.casefold()
@@ -882,23 +728,9 @@ class _HtmlReferenceTargetParser(HTMLParser):
         )
 
 
-def html_reference_targets(text: str, *, include_images: bool = True) -> list[str]:
-    """Collect link and optional image targets from rendered raw HTML."""
-    parser = _HtmlReferenceTargetParser(
-        include_links=True,
-        include_images=include_images,
-    )
-    parser.feed(text)
-    parser.close()
-    return parser.targets
-
-
-def html_image_targets(text: str) -> list[str]:
-    """Collect image targets from rendered raw HTML."""
-    parser = _HtmlReferenceTargetParser(
-        include_links=False,
-        include_images=True,
-    )
+def html_reference_targets(text: str) -> list[str]:
+    """Collect link targets from rendered raw HTML."""
+    parser = _HtmlReferenceTargetParser()
     parser.feed(text)
     parser.close()
     return parser.targets

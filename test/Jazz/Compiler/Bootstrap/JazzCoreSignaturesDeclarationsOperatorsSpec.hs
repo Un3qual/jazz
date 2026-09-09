@@ -15,14 +15,22 @@ import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
 import Jazz.Compiler.Driver
-  ( RunResult (..),
+  ( RunResult,
     runCompileErrors,
+    runOutput,
     runRuntimeErrors,
   )
 import Jazz.Compiler.Name
   ( Identifier,
   )
 import Jazz.Compiler.Parser.AST
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    SignatureConstraint (..),
+    SignaturePayload (..),
+    SignatureToken (..),
+    SignatureType (..),
+  )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
@@ -158,219 +166,248 @@ directExpressions = map snd directFixtures
 directFixtures :: [(Text.Text, SurfaceExpr)]
 directFixtures =
   [ ( "type-application-primitive",
-      SETypeApplication (SEVar "identity") span2 SurfaceTypeInt
+      se (SETypeApplication (seVar "identity") span2 TypeInt)
     ),
     ( "type-application-recursive-qualified",
-      SETypeApplication
-        (SETypeApplication
-          (SEQualifiedVar "Alias" "map")
-          span1
-          (SurfaceTypeApplication "Alias::Maybe" [SurfaceTypeVariable "a"]))
-        span2
-        ( SurfaceTypeFunction
-            (SurfaceTypeList (SurfaceTypeNumeric SurfaceNumericUInt16))
-            (SurfaceTypeTuple [SurfaceTypeBool, SurfaceTypeText])
+      se
+        ( SETypeApplication
+            ( se
+                ( SETypeApplication
+                    (se (SEQualifiedVar "Alias" "map"))
+                    span1
+                    (TypeApplication "Alias::Maybe" [TypeVariable "a"])
+                )
+            )
+            span2
+            ( TypeFunction
+                (TypeList (TypeNumeric NumericUInt16))
+                (TypeTuple [TypeBool, TypeText])
+            )
         )
     ),
-    ("dollar-basic", SEBinary "$" (SEVar "function") (seInt 1)),
+    ("dollar-basic", se (SEBinary "$" (seVar "function") (seInt 1))),
     ( "dollar-nested-control-flow",
-      SEBinary
-        "$"
-        (SEVar "choose")
-        (SEIf (SEVar "condition") (seInt 1) (SEBinary "$" (SEVar "fallback") (seInt 0)))
+      se
+        ( SEBinary
+            "$"
+            (seVar "choose")
+            (se (SEIf (seVar "condition") (seInt 1) (se (SEBinary "$" (seVar "fallback") (seInt 0)))))
+        )
     ),
     ( "ordinary-binding",
-      SEBlock
-        [ SSLet "item" span1 (seInt 1),
-          SSExpr span2 (SEVar "item")
-        ]
+      se
+        ( SEBlock
+            [ SSLet "item" span1 (seInt 1),
+              SSExpr span2 (seVar "item")
+            ]
+        )
     ),
     ( "operator-binding",
-      SEBlock
-        [ SSLet "$operator:%2B%2B" span1 (SEVar "combine"),
-          SSExpr span2 (SEVar "combine")
-        ]
+      se
+        ( SEBlock
+            [ SSLet "$operator:%2B%2B" span1 (seVar "combine"),
+              SSExpr span2 (seVar "combine")
+            ]
+        )
     ),
     ( "signature-primitives",
       signatureBlock
-        [ ("integer", SurfaceTypeInt),
-          ("floating", SurfaceTypeFloat),
-          ("boolean", SurfaceTypeBool),
-          ("character", SurfaceTypeChar),
-          ("text", SurfaceTypeText)
+        [ ("integer", TypeInt),
+          ("floating", TypeFloat),
+          ("boolean", TypeBool),
+          ("character", TypeChar),
+          ("text", TypeText)
         ]
     ),
     ( "signature-numeric-widths",
       signatureBlock
-        [ ("i8", SurfaceTypeNumeric SurfaceNumericInt8),
-          ("i16", SurfaceTypeNumeric SurfaceNumericInt16),
-          ("i32", SurfaceTypeNumeric SurfaceNumericInt32),
-          ("i64", SurfaceTypeNumeric SurfaceNumericInt64),
-          ("u8", SurfaceTypeNumeric SurfaceNumericUInt8),
-          ("u16", SurfaceTypeNumeric SurfaceNumericUInt16),
-          ("u32", SurfaceTypeNumeric SurfaceNumericUInt32),
-          ("u64", SurfaceTypeNumeric SurfaceNumericUInt64),
-          ("f16", SurfaceTypeNumeric SurfaceNumericFloat16),
-          ("f32", SurfaceTypeNumeric SurfaceNumericFloat32),
-          ("f64", SurfaceTypeNumeric SurfaceNumericFloat64)
+        [ ("i8", TypeNumeric NumericInt8),
+          ("i16", TypeNumeric NumericInt16),
+          ("i32", TypeNumeric NumericInt32),
+          ("i64", TypeNumeric NumericInt64),
+          ("u8", TypeNumeric NumericUInt8),
+          ("u16", TypeNumeric NumericUInt16),
+          ("u32", TypeNumeric NumericUInt32),
+          ("u64", TypeNumeric NumericUInt64),
+          ("f16", TypeNumeric NumericFloat16),
+          ("f32", TypeNumeric NumericFloat32),
+          ("f64", TypeNumeric NumericFloat64)
         ]
     ),
     ( "signature-recursive-shapes",
       signatureBlock
-        [ ("variable", SurfaceTypeVariable "a"),
-          ("named", SurfaceTypeName "Result"),
-          ("applied", SurfaceTypeApplication "Result" [SurfaceTypeVariable "a", SurfaceTypeText]),
-          ("list", SurfaceTypeList (SurfaceTypeVariable "a")),
-          ("unit", SurfaceTypeTuple []),
-          ("tuple", SurfaceTypeTuple [SurfaceTypeInt, SurfaceTypeBool]),
-          ("function", SurfaceTypeFunction (SurfaceTypeList SurfaceTypeInt) (SurfaceTypeTuple [SurfaceTypeText, SurfaceTypeBool]))
+        [ ("variable", TypeVariable "a"),
+          ("named", TypeName "Result"),
+          ("applied", TypeApplication "Result" [TypeVariable "a", TypeText]),
+          ("list", TypeList (TypeVariable "a")),
+          ("unit", TypeTuple []),
+          ("tuple", TypeTuple [TypeInt, TypeBool]),
+          ("function", TypeFunction (TypeList TypeInt) (TypeTuple [TypeText, TypeBool]))
         ]
     ),
     ( "signature-qualified-names",
       signatureBlock
-        [ ("qualified", SurfaceTypeName "Alias::Result"),
-          ("qualifiedApplied", SurfaceTypeApplication "Alias::Box" [SurfaceTypeName "Other::Item"]),
-          ("multiQualified", SurfaceTypeName "Alias::Nested::Result"),
-          ("missingQualifier", SurfaceTypeName "::Result"),
-          ("missingMember", SurfaceTypeName "Alias::")
+        [ ("qualified", TypeName "Alias::Result"),
+          ("qualifiedApplied", TypeApplication "Alias::Box" [TypeName "Other::Item"]),
+          ("multiQualified", TypeName "Alias::Nested::Result"),
+          ("missingQualifier", TypeName "::Result"),
+          ("missingMember", TypeName "Alias::")
         ]
     ),
     ( "signature-constraints",
-      SEBlock
-        [ SSSignature
-            "constrained"
-            span1
-            ( SurfaceConstrainedSignature
-                [ SurfaceSignatureConstraint "Eq" [SurfaceTypeVariable "a"],
-                  SurfaceSignatureConstraint "Alias::Ord" [SurfaceTypeList (SurfaceTypeVariable "a")]
-                ]
-                (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeList (SurfaceTypeVariable "a")))
-            )
-        ]
+      se
+        ( SEBlock
+            [ SSSignature
+                "constrained"
+                span1
+                ( ConstrainedSignature
+                    [ SignatureConstraint "Eq" [TypeVariable "a"],
+                      SignatureConstraint "Alias::Ord" [TypeList (TypeVariable "a")]
+                    ]
+                    (TypeFunction (TypeVariable "a") (TypeList (TypeVariable "a")))
+                )
+            ]
+        )
     ),
     ( "unsupported-signature-token-inventory",
-      SEBlock
-        [ SSSignature
-            "unsupported"
-            span1
-            ( SurfaceUnsupportedSignature
-                [ SurfaceSignatureNameToken "a",
-                  SurfaceSignatureIntToken 12,
-                  SurfaceSignatureArrowToken,
-                  SurfaceSignatureAtToken,
-                  SurfaceSignatureColonToken,
-                  SurfaceSignatureLParenToken,
-                  SurfaceSignatureRParenToken,
-                  SurfaceSignatureLBraceToken,
-                  SurfaceSignatureRBraceToken,
-                  SurfaceSignatureLBracketToken,
-                  SurfaceSignatureRBracketToken,
-                  SurfaceSignatureCommaToken,
-                  SurfaceSignatureOperatorToken "+",
-                  SurfaceSignatureOtherToken "forall"
-                ]
-            )
-        ]
+      se
+        ( SEBlock
+            [ SSSignature
+                "unsupported"
+                span1
+                ( UnsupportedSignature
+                    [ SignatureNameToken "a",
+                      SignatureIntToken 12,
+                      SignatureArrowToken,
+                      SignatureAtToken,
+                      SignatureColonToken,
+                      SignatureLParenToken,
+                      SignatureRParenToken,
+                      SignatureLBraceToken,
+                      SignatureRBraceToken,
+                      SignatureLBracketToken,
+                      SignatureRBracketToken,
+                      SignatureCommaToken,
+                      SignatureOperatorToken "+",
+                      SignatureOtherToken "forall"
+                    ]
+                )
+            ]
+        )
     ),
     ( "operator-signature",
-      SEBlock
-        [ SSSignature
-            "$operator:%25%25"
-            span1
-            (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeInt)))
-        ]
+      se
+        ( SEBlock
+            [ SSSignature
+                "$operator:%25%25"
+                span1
+                (SignatureType (TypeFunction TypeInt (TypeFunction TypeInt TypeInt)))
+            ]
+        )
     ),
     ( "data-empty",
-      SEBlock [SSData span1 "Empty" [] []]
+      se (SEBlock [SSData span1 "Empty" [] []])
     ),
     ( "data-constructors",
-      SEBlock
-        [ SSData
-            span1
-            "Result"
-            ["error", "item"]
-            [ SurfaceDataConstructor "Failure" [SurfaceTypeVariable "error"],
-              SurfaceDataConstructor "Success" [SurfaceTypeVariable "item"],
-              SurfaceDataConstructor "Opaque" [SurfaceTypeInt]
+      se
+        ( SEBlock
+            [ SSData
+                span1
+                "Result"
+                ["error", "item"]
+                [ SurfaceDataConstructor "Failure" [TypeVariable "error"],
+                  SurfaceDataConstructor "Success" [TypeVariable "item"],
+                  SurfaceDataConstructor "Opaque" [TypeInt]
+                ]
             ]
-        ]
+        )
     ),
     ( "class-empty",
-      SEBlock [SSClass span1 "Marker" ["a"] []]
+      se (SEBlock [SSClass span1 "Marker" ["a"] []])
     ),
     ( "class-methods",
-      SEBlock
-        [ SSClass
-            span1
-            "Eq"
-            ["a"]
-            [ SurfaceClassMethodSignature
-                "equals"
-                span2
-                ( SurfaceSignatureType
-                    (SurfaceTypeFunction (SurfaceTypeVariable "a") (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeBool))
-                ),
-              SurfaceClassMethodSignature
-                "compare"
+      se
+        ( SEBlock
+            [ SSClass
                 span1
-                ( SurfaceConstrainedSignature
-                    [SurfaceSignatureConstraint "Alias::Ord" [SurfaceTypeVariable "a"]]
-                    (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeInt)
-                )
+                "Eq"
+                ["a"]
+                [ SurfaceClassMethodSignature
+                    "equals"
+                    span2
+                    ( SignatureType
+                        (TypeFunction (TypeVariable "a") (TypeFunction (TypeVariable "a") TypeBool))
+                    ),
+                  SurfaceClassMethodSignature
+                    "compare"
+                    span1
+                    ( ConstrainedSignature
+                        [SignatureConstraint "Alias::Ord" [TypeVariable "a"]]
+                        (TypeFunction (TypeVariable "a") TypeInt)
+                    )
+                ]
             ]
-        ]
+        )
     ),
     ( "impl-empty",
-      SEBlock [SSImpl span1 "Show" [SurfaceTypeText] []]
+      se (SEBlock [SSImpl span1 "Show" [TypeText] []])
     ),
     ( "impl-methods",
-      SEBlock
-        [ SSImpl
-            span1
-            "Transform"
-            [SurfaceTypeApplication "Alias::Box" [SurfaceTypeInt]]
-            [ SurfaceImplMethod
-                "apply"
-                span2
-                ( SEIf
-                    (SEVar "condition")
-                    (SETypeApplication (SEVar "identity") span2 SurfaceTypeText)
-                    (SEBinary "$" (SEVar "fallback") (SEVar "item"))
-                )
+      se
+        ( SEBlock
+            [ SSImpl
+                span1
+                "Transform"
+                [TypeApplication "Alias::Box" [TypeInt]]
+                [ SurfaceImplMethod
+                    "apply"
+                    span2
+                    ( se
+                        ( SEIf
+                            (seVar "condition")
+                            (se (SETypeApplication (seVar "identity") span2 TypeText))
+                            (se (SEBinary "$" (seVar "fallback") (seVar "item")))
+                        )
+                    )
+                ]
             ]
-        ]
+        )
     ),
     ( "mixed-block",
-      SEBlock
-        [ SSSignature "convert" span1 (SurfaceSignatureType (SurfaceTypeFunction SurfaceTypeInt SurfaceTypeText)),
-          SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [SurfaceTypeVariable "a"]],
-          SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SurfaceSignatureType (SurfaceTypeFunction (SurfaceTypeVariable "a") SurfaceTypeText))],
-          SSImpl span1 "Render" [SurfaceTypeInt] [SurfaceImplMethod "render" span2 (SEBinary "$" (SEVar "toText") (SEVar "item"))],
-          SSLet "convert" span2 (SETypeApplication (SEVar "identity") span2 SurfaceTypeText),
-          SSExpr span2 (SEVar "convert")
-        ]
+      se
+        ( SEBlock
+            [ SSSignature "convert" span1 (SignatureType (TypeFunction TypeInt TypeText)),
+              SSData span1 "Wrapped" ["a"] [SurfaceDataConstructor "Wrapped" [TypeVariable "a"]],
+              SSClass span1 "Render" ["a"] [SurfaceClassMethodSignature "render" span2 (SignatureType (TypeFunction (TypeVariable "a") TypeText))],
+              SSImpl span1 "Render" [TypeInt] [SurfaceImplMethod "render" span2 (se (SEBinary "$" (seVar "toText") (seVar "item")))],
+              SSLet "convert" span2 (se (SETypeApplication (seVar "identity") span2 TypeText)),
+              SSExpr span2 (seVar "convert")
+            ]
+        )
     )
   ]
 
 signatureBlock :: [(Identifier, SurfaceSignatureType)] -> SurfaceExpr
 signatureBlock signatures =
-  SEBlock
-    [ SSSignature name span1 (SurfaceSignatureType signatureType)
-      | (name, signatureType) <- signatures
-    ]
+  se
+    ( SEBlock
+        [ SSSignature name span1 (SignatureType signatureType)
+        | (name, signatureType) <- signatures
+        ]
+    )
 
 earlierChildExpressions :: [SurfaceExpr]
 earlierChildExpressions =
-  [ SETypeApplication (SEVar "identity") span1 SurfaceTypeInt,
-    SEBinary "$" (SEVar "function") (seInt 1),
-    SEBlock [SSSignature "item" span1 (SurfaceSignatureType SurfaceTypeInt)],
-    SEBlock [SSLet "$operator:%2B%2B" span1 (SEVar "combine")]
+  [ se (SETypeApplication (seVar "identity") span1 TypeInt),
+    se (SEBinary "$" (seVar "function") (seInt 1)),
+    se (SEBlock [SSSignature "item" span1 (SignatureType TypeInt)]),
+    se (SEBlock [SSLet "$operator:%2B%2B" span1 (seVar "combine")])
   ]
 
 initialDeferredExpressions :: [SurfaceExpr]
 initialDeferredExpressions =
-  [ SEBlock [SSModule span1 ["App", "Main"] Nothing],
-    SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing]
+  [ se (SEBlock [SSModule span1 ["App", "Main"] Nothing]),
+    se (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing])
   ]
 
 expectedComposedFixtureNames :: [Text.Text]
@@ -445,56 +482,68 @@ deferredExpressions = map snd deferredFixtures
 
 deferredFixtures :: [(Text.Text, SurfaceExpr)]
 deferredFixtures =
-  [ ("module-root", SEBlock [SSModule span1 ["App", "Main"] Nothing]),
-    ("import-root", SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing]),
+  [ ("module-root", se (SEBlock [SSModule span1 ["App", "Main"] Nothing])),
+    ("import-root", se (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing])),
     ( "module-in-if-branch",
-      SEIf
-        (SEVar "condition")
-        (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)])
-        (seInt 0)
+      se
+        ( SEIf
+            (seVar "condition")
+            (se (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)]))
+            (seInt 0)
+        )
     ),
     ( "import-in-case-body",
-      SECase
-        (SEVar "item")
-        [ SurfaceCaseArm
-            SPWildcard
-            Nothing
-            (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 0)])
-        ]
+      se
+        ( SECase
+            (seVar "item")
+            [ SurfaceCaseArm
+                (sp SPWildcard)
+                Nothing
+                (se (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 0)]))
+            ]
+        )
     ),
     ( "module-in-lambda-body",
-      SELambda
-        (SurfaceLambdaIdentifier "item" :| [])
-        (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (SEVar "item")])
+      se
+        ( SELambda
+            (SurfaceLambdaIdentifier span1 "item" :| [])
+            (se (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seVar "item")]))
+        )
     ),
     ( "import-in-let-item",
-      SEBlock
-        [ SSLet
-            "item"
-            span1
-            (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)])
-        ]
+      se
+        ( SEBlock
+            [ SSLet
+                "item"
+                span1
+                (se (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)]))
+            ]
+        )
     ),
     ( "module-in-impl-method",
-      SEBlock
-        [ SSImpl
-            span1
-            "Render"
-            [SurfaceTypeInt]
-            [ SurfaceImplMethod
-                "render"
-                span2
-                (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)])
+      se
+        ( SEBlock
+            [ SSImpl
+                span1
+                "Render"
+                [TypeInt]
+                [ SurfaceImplMethod
+                    "render"
+                    span2
+                    (se (SEBlock [SSModule span1 ["App", "Main"] Nothing, SSExpr span2 (seInt 1)]))
+                ]
             ]
-        ]
+        )
     ),
     ( "import-in-operator-binding",
-      SEBlock
-        [ SSLet
-            "$operator:%25%25"
-            span1
-            (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)])
-        ]
+      se
+        ( SEBlock
+            [ SSLet
+                "$operator:%25%25"
+                span1
+                (se (SEBlock [SSImport span1 ["Core", "Text"] Nothing Nothing, SSExpr span2 (seInt 1)]))
+            ]
+        )
     )
   ]
 
@@ -505,7 +554,16 @@ span2 :: SourceSpan
 span2 = SourceSpan 2 3
 
 seInt :: Integer -> SurfaceExpr
-seInt = SELit . SLInt
+seInt = se . SELit . SLInt
+
+seVar :: Identifier -> SurfaceExpr
+seVar = se . SEVar
+
+se :: SurfaceExprForm -> SurfaceExpr
+se = SurfaceExpr span1
+
+sp :: SurfacePatternForm -> SurfacePattern
+sp = SurfacePattern span1
 
 nothingListRendering :: Int -> Text.Text
 nothingListRendering count = "[" <> Text.intercalate ", " (replicate count "Nothing") <> "]"
@@ -516,7 +574,7 @@ assertSuccessfulOutput label expected result = do
   assertEqual (label <> " runtime errors") [] (runRuntimeErrors result)
   assertEqual (label <> " output") (Just expected) (runOutput result)
 
-expectRight :: Show err => Text.Text -> Either err value -> IO value
+expectRight :: (Show err) => Text.Text -> Either err value -> IO value
 expectRight label value =
   case value of
     Left err -> failTest (label <> ": expected Right, got Left " <> Text.pack (show err))

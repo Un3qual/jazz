@@ -1,11 +1,17 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 -- | Shared helpers for the first class/impl environment-validation slice.
 module Jazz.Compiler.CapabilityFacts
-  ( concreteConstraintArgument,
-    concreteImplFactKey,
+  ( ConcreteImplFact (..),
+    concreteConstraintArgument,
+    concreteImplFact,
     concreteImplFactClassName,
-    constraintImplFactKey,
     constraintSignatureAliasNames,
     constraintSignatureAliasVariants,
     constraintSignatureTypeContainsClassParameter,
@@ -14,51 +20,105 @@ module Jazz.Compiler.CapabilityFacts
     identifierLooksLikeTypeVariable,
     normalizeConstraintSignatureName,
     qualifiedMethodKey,
+    renderConcreteImplFact,
     splitQualifiedMethodKey,
     signaturePayloadConstraintType,
     substituteClassMethodSignature,
-    constraintFunctionArgumentTypes
-  ) where
+    substituteSignatureType,
+    constraintFunctionArgumentTypes,
+  )
+where
 
+import Control.DeepSeq (NFData)
 import Data.Char (isLower)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
-import Jazz.Compiler.AST
-  ( NumericType (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..)
-  )
+import GHC.Generics (Generic)
+import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeFromName,
-    renderNumericTypeName
+    renderNumericTypeName,
   )
 import Jazz.Compiler.Name
   ( IdentifierLike (identifierText),
     Name (..),
-    renderName
+    ResolvedName,
+    ResolvedUserName (..),
+    mkIdentifier,
+    renderName,
   )
 import Jazz.Compiler.SignatureRendering
-  ( renderSignatureType
+  ( renderSignatureType,
+  )
+import Jazz.Compiler.TypeRepresentation
+  ( NumericType (..),
+    pattern ConstrainedSignature,
+    pattern SignatureArrowToken,
+    pattern SignatureLBraceToken,
+    pattern SignatureLBracketToken,
+    pattern SignatureLParenToken,
+    pattern SignatureNameToken,
+    pattern SignatureRBraceToken,
+    pattern SignatureRBracketToken,
+    pattern SignatureRParenToken,
+    pattern SignatureType,
+    pattern TypeApplication,
+    pattern TypeBool,
+    pattern TypeChar,
+    pattern TypeFloat,
+    pattern TypeFunction,
+    pattern TypeInt,
+    pattern TypeList,
+    pattern TypeName,
+    pattern TypeNumeric,
+    pattern TypeText,
+    pattern TypeTuple,
+    pattern TypeVariable,
+    pattern UnsupportedSignature,
   )
 
-concreteImplFactKey :: Name -> [SignatureType] -> Maybe Text
-concreteImplFactKey capabilityName arguments =
+type SignaturePayload = AST.SignaturePayload 'AST.Resolved
+
+type SignatureToken = AST.SignatureToken 'AST.Resolved
+
+type SignatureType = AST.SignatureType 'AST.Resolved
+
+data ConcreteImplFact = ConcreteImplFact ResolvedName SignatureType
+  deriving stock (Generic, Show)
+  deriving anyclass (NFData)
+
+-- | Concrete facts preserve the legacy text-key collision semantics: the
+-- capability and complete argument compare by rendered identity, rather than
+-- the implementation-specific 'ResolvedName' origins used to construct them. Keeping
+-- the rendered argument also retains legacy collisions such as 'TypeInt' and
+-- @TypeName "Int"@.
+instance Eq ConcreteImplFact where
+  leftFact == rightFact = concreteImplFactIdentity leftFact == concreteImplFactIdentity rightFact
+
+instance Ord ConcreteImplFact where
+  compare leftFact rightFact = compare (concreteImplFactIdentity leftFact) (concreteImplFactIdentity rightFact)
+
+concreteImplFactIdentity :: ConcreteImplFact -> (Text, Text)
+concreteImplFactIdentity (ConcreteImplFact capabilityName argument) =
+  (renderName capabilityName, renderSignatureType argument)
+
+concreteImplFact :: ResolvedName -> [SignatureType] -> Maybe ConcreteImplFact
+concreteImplFact capabilityName arguments =
   case arguments of
     [argument]
       | concreteConstraintArgument argument ->
-          Just (constraintImplFactKey capabilityName argument)
+          Just (ConcreteImplFact capabilityName argument)
     _ -> Nothing
 
-constraintImplFactKey :: Name -> SignatureType -> Text
-constraintImplFactKey constraintName argument =
-  renderName constraintName <> "(" <> renderSignatureType argument <> ")"
+renderConcreteImplFact :: ConcreteImplFact -> Text
+renderConcreteImplFact (ConcreteImplFact capabilityName argument) =
+  renderName capabilityName <> "(" <> renderSignatureType argument <> ")"
 
-concreteImplFactClassName :: Text -> Text
-concreteImplFactClassName implKey =
-  fst (Text.breakOn "(" implKey)
+concreteImplFactClassName :: ConcreteImplFact -> Text
+concreteImplFactClassName (ConcreteImplFact capabilityName _) = renderName capabilityName
 
-qualifiedMethodKey :: Name -> Name -> Text
+qualifiedMethodKey :: ResolvedName -> ResolvedName -> Text
 qualifiedMethodKey capabilityName methodName =
   renderName capabilityName <> "::" <> renderName methodName
 
@@ -159,7 +219,7 @@ unsupportedSignatureAtomToConstraintType tokens =
         _ -> Nothing
     _ -> Nothing
 
-signatureTypeForName :: Name -> SignatureType
+signatureTypeForName :: ResolvedName -> SignatureType
 signatureTypeForName name =
   case renderName name of
     "Int" -> TypeInt
@@ -279,7 +339,7 @@ constraintSignatureAliasVariants signatureType =
       map TypeName (constraintSignatureAliasNames name)
     TypeApplication name arguments ->
       [ TypeApplication name variantArguments
-        | variantArguments <- traverse constraintSignatureAliasVariants arguments
+      | variantArguments <- traverse constraintSignatureAliasVariants arguments
       ]
     TypeList elementType ->
       map TypeList (constraintSignatureAliasVariants elementType)
@@ -287,21 +347,29 @@ constraintSignatureAliasVariants signatureType =
       map TypeTuple (traverse constraintSignatureAliasVariants elementTypes)
     TypeFunction argumentType resultType ->
       [ TypeFunction variantArgument variantResult
-        | variantArgument <- constraintSignatureAliasVariants argumentType,
-          variantResult <- constraintSignatureAliasVariants resultType
+      | variantArgument <- constraintSignatureAliasVariants argumentType,
+        variantResult <- constraintSignatureAliasVariants resultType
       ]
     _ -> [signatureType]
 
-constraintSignatureAliasNames :: Name -> [Name]
+constraintSignatureAliasNames :: ResolvedName -> [ResolvedName]
 constraintSignatureAliasNames name =
   case renderName name of
-    "Int" -> ["Int", "Int64"]
-    "Int64" -> ["Int64", "Int"]
-    "Float" -> ["Float", "Float64"]
-    "Float64" -> ["Float64", "Float"]
+    "Int" -> map (`renameResolved` name) ["Int", "Int64"]
+    "Int64" -> map (`renameResolved` name) ["Int64", "Int"]
+    "Float" -> map (`renameResolved` name) ["Float", "Float64"]
+    "Float64" -> map (`renameResolved` name) ["Float64", "Float"]
     _ -> [name]
 
-identifierLooksLikeTypeVariable :: Name -> Bool
+renameResolved :: Text -> ResolvedName -> ResolvedName
+renameResolved replacement name =
+  case name of
+    UserName (ResolvedUserName origin namespace _) ->
+      UserName (ResolvedUserName origin namespace (mkIdentifier replacement))
+    BuiltinName _ -> BuiltinName (mkIdentifier replacement)
+    GeneratedName {} -> name
+
+identifierLooksLikeTypeVariable :: ResolvedName -> Bool
 identifierLooksLikeTypeVariable name =
   case Text.uncons (terminalIdentifierText name) of
     Just (firstChar, _) -> isLower firstChar
@@ -309,15 +377,13 @@ identifierLooksLikeTypeVariable name =
   where
     terminalIdentifierText candidate =
       case candidate of
-        SourceName identifier -> identifierText identifier
-        QualifiedName _ member -> identifierText member
-        ResolvedName _ _ identifier -> identifierText identifier
+        UserName (ResolvedUserName _ _ identifier) -> identifierText identifier
         BuiltinName identifier -> identifierText identifier
         GeneratedName {} -> ""
 
 constraintSignatureTypeVariableNamesInOrder :: SignatureType -> [Text]
 constraintSignatureTypeVariableNamesInOrder =
-  dedupe . go
+  stableUnique . go
   where
     go signatureType =
       case signatureType of
@@ -337,10 +403,8 @@ constraintSignatureTypeVariableNamesInOrder =
           go argumentType ++ go resultType
         _ -> []
 
-    dedupe =
-      goDedupe []
-
-    goDedupe _ [] = []
-    goDedupe seen (name : rest)
-      | name `elem` seen = goDedupe seen rest
-      | otherwise = name : goDedupe (name : seen) rest
+    stableUnique = reverse . snd . foldl' keep (Set.empty, [])
+      where
+        keep (seen, reversedNames) name
+          | Set.member name seen = (seen, reversedNames)
+          | otherwise = (Set.insert name seen, name : reversedNames)

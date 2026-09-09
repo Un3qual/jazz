@@ -79,7 +79,6 @@ compile-only checks.
 - Complete capability method dispatch and extend the current direct-call purity
   checks to higher-order and cross-module analysis.
 - A fully Jazz-authored canonical compiler pipeline.
-- Complete typed-core production and backend-neutral lowering.
 - Native code generation, linking, and a production runtime.
 - Stable releases, package distribution, editor tooling, and a broader
   ecosystem.

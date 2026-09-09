@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -5,63 +6,77 @@ module Main (main) where
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( Expr (..),
+  ( CorePhase (Analyzed, Lowered),
+    Expr,
     Literal (..),
-    Statement (..)
-  )
-import Jazz.Compiler.BundledPrelude
-  ( bundledPreludeSource
   )
 import Jazz.Compiler.BuiltinCatalog
   ( BuiltinOwnership (..),
     BuiltinSymbol (..),
     allBuiltinSymbols,
-    builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolKernelName,
     builtinSymbolName,
+    builtinSymbolOwnership,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
     lookupBuiltinSymbol,
-    lookupKernelBuiltinSymbol
+    lookupKernelBuiltinSymbol,
+  )
+import Jazz.Compiler.BundledPrelude
+  ( bundledPreludeSource,
   )
 import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..)
+  ( SourceSpan (..),
   )
 import Jazz.Compiler.Diagnostics.Render
-  ( renderDiagnostic
+  ( renderDiagnostic,
   )
 import Jazz.Compiler.Driver
-  ( compileExpr,
+  ( compileErrors,
+    compileExpr,
     compileSource,
     compileSourceWithPrelude,
-    compileErrors,
     runCompileErrors,
     runOutput,
     runRuntimeErrors,
     runSource,
-    runSourceWithPrelude
+    runSourceWithPrelude,
   )
 import Jazz.Compiler.Name
   ( mkIdentifier,
-    sourceName
+    sourceName,
   )
 import Jazz.Compiler.Runtime
-  ( evaluateRuntimeExpr
+  ( evaluateRuntimeExpr,
+  )
+import Jazz.Compiler.Semantics.Runtime.Fixtures
+  ( expressionApply,
+    expressionBlock,
+    expressionList,
+    expressionLiteral,
+    expressionSectionLeft,
+    expressionVariable,
+    statementExpression,
   )
 import Jazz.Compiler.WarningConfig
-  ( defaultWarningSettings
+  ( defaultWarningSettings,
+  )
+import Jazz.TestCore
+  ( loweredBlock,
+    loweredExpression,
+    loweredVariable,
   )
 import Jazz.TestHarness
   ( NamedTest,
     assertContains,
     assertEqual,
     assertLeftDiagnosticContains,
-    runTestSuite
+    runTestSuite,
   )
 import Jazz.TestSource
   ( JazzSourceRole (StandardLibrarySource),
-    readCheckedInJazzSource
+    readCheckedInJazzSource,
   )
 
 main :: IO ()
@@ -270,11 +285,11 @@ testBundledPreludeIncludesEqFloat64EqualsMethodBody =
   assertContains
     "bundled prelude renders Eq(Float64).equals body"
     ( """
-    impl Eq(Float64) {
-    equals = \\(left, right) -> left == right.
-    }.
+      impl Eq(Float64) {
+      equals = \\(left, right) -> left == right.
+      }.
 
-    """
+      """
     )
     bundledPreludeSource
 
@@ -285,9 +300,9 @@ normalizePreludeLineEndings text =
 
 testDirectCompileHelperStaysKernelOnly :: IO ()
 testDirectCompileHelperStaysKernelOnly = do
-  kernelResult <- compileExpr defaultWarningSettings (runtimeExpr (EVar "__kernel_map"))
+  kernelResult <- compileExpr defaultWarningSettings (compileExprInput (loweredVariable "__kernel_map"))
   assertEqual "direct compile helper accepts kernel bridge" [] (compileErrors kernelResult)
-  canonicalResult <- compileExpr defaultWarningSettings (runtimeExpr (EVar "map"))
+  canonicalResult <- compileExpr defaultWarningSettings (compileExprInput (loweredVariable "map"))
   assertEqual
     "direct compile helper rejects canonical alias"
     ["error: E1001: unbound variable 'map'"]
@@ -355,86 +370,91 @@ testRuntimeBuiltinOverApplicationFails =
 
 -- Apply one extra argument after a builtin is fully saturated. Runtime should
 -- reject application of the resulting non-function value.
-overAppliedBuiltinExpr :: Text -> Expr
+overAppliedBuiltinExpr :: Text -> Expr 'Analyzed
 overAppliedBuiltinExpr name =
   runtimeExpr $
     case name of
       "map" ->
-        EApply
-          ( EApply
-              (EApply (EVar "__kernel_map") (ESectionLeft (ELit (LInt 1)) "+"))
-              (EList [ELit (LInt 2)])
+        expressionApply
+          ( expressionApply
+              (expressionApply (expressionVariable "__kernel_map") (expressionSectionLeft (expressionLiteral (LInt 1)) "+"))
+              (expressionList [expressionLiteral (LInt 2)])
           )
-          (ELit (LInt 3))
+          (expressionLiteral (LInt 3))
       "filter" ->
-        EApply
-          ( EApply
-              (EApply (EVar "__kernel_filter") (ESectionLeft (ELit (LInt 1)) "<"))
-              (EList [ELit (LInt 2), ELit (LInt 3)])
+        expressionApply
+          ( expressionApply
+              (expressionApply (expressionVariable "__kernel_filter") (expressionSectionLeft (expressionLiteral (LInt 1)) "<"))
+              (expressionList [expressionLiteral (LInt 2), expressionLiteral (LInt 3)])
           )
-          (ELit (LInt 4))
+          (expressionLiteral (LInt 4))
       "hd" ->
-        EApply
-          (EApply (EVar "__kernel_hd") (EList [ELit (LInt 1)]))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_hd") (expressionList [expressionLiteral (LInt 1)]))
+          (expressionLiteral (LInt 2))
       "tl" ->
-        EApply
-          (EApply (EVar "__kernel_tl") (EList [ELit (LInt 1), ELit (LInt 2)]))
-          (ELit (LInt 3))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_tl") (expressionList [expressionLiteral (LInt 1), expressionLiteral (LInt 2)]))
+          (expressionLiteral (LInt 3))
       "print!" ->
-        EApply
-          (EApply (EVar "__kernel_print!") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_print!") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toInt8" ->
-        EApply
-          (EApply (EVar "__kernel_toInt8") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toInt8") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toInt16" ->
-        EApply
-          (EApply (EVar "__kernel_toInt16") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toInt16") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toInt32" ->
-        EApply
-          (EApply (EVar "__kernel_toInt32") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toInt32") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toInt64" ->
-        EApply
-          (EApply (EVar "__kernel_toInt64") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toInt64") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toUInt8" ->
-        EApply
-          (EApply (EVar "__kernel_toUInt8") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toUInt8") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toUInt16" ->
-        EApply
-          (EApply (EVar "__kernel_toUInt16") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toUInt16") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toUInt32" ->
-        EApply
-          (EApply (EVar "__kernel_toUInt32") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toUInt32") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toUInt64" ->
-        EApply
-          (EApply (EVar "__kernel_toUInt64") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toUInt64") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toFloat16" ->
-        EApply
-          (EApply (EVar "__kernel_toFloat16") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toFloat16") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toFloat32" ->
-        EApply
-          (EApply (EVar "__kernel_toFloat32") (ELit (LInt 1)))
-          (ELit (LInt 2))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toFloat32") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
       "toFloat64" ->
-        EApply
-          (EApply (EVar "__kernel_toFloat64") (ELit (LInt 1)))
-          (ELit (LInt 2))
-      _ -> EApply (EVar (sourceName (mkIdentifier name))) (ELit (LInt 1))
+        expressionApply
+          (expressionApply (expressionVariable "__kernel_toFloat64") (expressionLiteral (LInt 1)))
+          (expressionLiteral (LInt 2))
+      _ -> expressionApply (expressionVariable (sourceName (mkIdentifier name))) (expressionLiteral (LInt 1))
 
-runtimeExpr :: Expr -> Expr
+compileExprInput :: Expr 'Lowered -> Expr 'Lowered
+compileExprInput expr =
+  loweredBlock
+    [loweredExpression (SourceSpan 1 1) expr]
+
+runtimeExpr :: Expr 'Analyzed -> Expr 'Analyzed
 runtimeExpr expr =
-  EBlock
-    [ SExpr
+  expressionBlock
+    [ statementExpression
         (SourceSpan 1 1)
         expr
     ]

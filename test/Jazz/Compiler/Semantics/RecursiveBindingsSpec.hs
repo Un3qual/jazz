@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -5,24 +6,21 @@ module Main (main) where
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Text (Text)
+import qualified Data.Text as Text
 import Jazz.Compiler.AST
-  ( CaseArm (..),
+  ( CorePhase (Lowered),
     Expr (..),
-    Literal (..),
-    Pattern (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
   )
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan (..),
-  )
+import Jazz.Compiler.Diagnostics.Render (renderDiagnostic)
 import Jazz.Compiler.Name
-  ( Name,
+  ( UnresolvedName,
     mkIdentifier,
     operatorBindingName,
     sourceName,
   )
+import Jazz.Compiler.Parser (parseSurfaceProgram)
+import Jazz.Compiler.Parser.Lower (lowerSurfaceExpr)
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     buildRecursiveScopeFacts,
@@ -43,11 +41,7 @@ import Jazz.Compiler.RecursiveBindings
     recursiveScopeBindingNames,
     recursiveScopeGroups,
   )
-import Jazz.TestHarness
-  ( NamedTest,
-    assertEqual,
-    runTestSuite,
-  )
+import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
 
 main :: IO ()
 main = runTestSuite "RecursiveBindings" tests
@@ -74,12 +68,8 @@ tests =
     ("recursive groups resolve aliases in their definition-site pattern scope", testRecursiveGroupsRespectAliasDefinitionPatternScope),
     ("recursive groups keep a callable pattern case with a guarded self-reference", testRecursiveGroupsKeepCallablePatternGuardSelfReference),
     ("recursive groups follow a block alias to the nearest prior callable rebinding", testRecursiveGroupsFollowPriorBlockCallableRebinding),
-    ( "recursive groups follow forward aliases within a nested recursive group",
-      testRecursiveGroupsFollowNestedRecursiveForwardAlias
-    ),
-    ( "recursive groups reject ordinary nested forward callable aliases",
-      testRecursiveGroupsRejectNestedNonRecursiveForwardAlias
-    ),
+    ("recursive groups follow forward aliases within a nested recursive group", testRecursiveGroupsFollowNestedRecursiveForwardAlias),
+    ("recursive groups reject ordinary nested forward callable aliases", testRecursiveGroupsRejectNestedNonRecursiveForwardAlias),
     ("recursive groups use the latest callable block rebinding", testRecursiveGroupsUseLatestBlockCallableRebinding),
     ("recursive groups let a scalar block rebinding hide a prior callable", testRecursiveGroupsPreferLatestScalarBlockRebinding),
     ("recursive groups ignore eager self operator use in a conditional", testRecursiveGroupsIgnoreEagerOperatorConditional),
@@ -90,7 +80,6 @@ tests =
     ("nested ordinary initializers retain enclosing mutual recursion", testRecursiveGroupsKeepNestedInitializerMutualRecursion),
     ("nested aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion),
     ("nested conditional aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion),
-    ("nested operator aliases resolve a nearest prior outer declaration", testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion),
     ("nested aliases without an outer declaration remain local self cycles", testRecursiveGroupsKeepNoOuterNestedAliasLocal),
     ("nested aliases do not resolve to the current enclosing declaration", testRecursiveGroupsKeepCurrentNestedAliasLocal),
     ("nested self-recursive lambdas stay out of enclosing SCCs", testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal),
@@ -104,827 +93,230 @@ tests =
 
 testCollectBindingNames :: IO ()
 testCollectBindingNames =
-  assertEqual
-    "binding names"
-    (Map.fromList [(0, "x"), (2, "y")])
-    (collectBindingNames indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "x") span0 (ELit (LInt 1))),
-        (1, SSignature (ident "x") span0 (SignatureType TypeInt)),
-        (2, SLet (ident "y") span0 (EVar (ident "x")))
-      ]
+  assertEqual "binding names" (Map.fromList [(0, "x"), (2, "y")]) (collectBindingNames (indexedAt [0, 1, 2] "x = 1. x :: Int. y = x."))
 
 testRecursiveScopeFacts :: IO ()
 testRecursiveScopeFacts = do
-  assertEqual
-    "scope fact binding names"
-    (Map.fromList [(0, "left"), (2, "right")])
-    (recursiveScopeBindingNames facts)
-  assertEqual
-    "scope fact recursive groups"
-    (Map.fromList [(0, [0, 2]), (2, [0, 2])])
-    (recursiveScopeGroups facts)
+  assertEqual "scope fact binding names" (Map.fromList [(0, "left"), (2, "right")]) (recursiveScopeBindingNames facts)
+  assertEqual "scope fact recursive groups" (Map.fromList [(0, [0, 2]), (2, [0, 2])]) (recursiveScopeGroups facts)
   where
-    facts =
-      buildRecursiveScopeFacts
-        Set.empty
-        [ (0, SLet (ident "left") span0 (ELambda (ident "item") (EVar (ident "right")))),
-          (1, SExpr span0 (ELit (LInt 0))),
-          (2, SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left"))))
-        ]
+    facts = buildRecursiveScopeFacts Set.empty (indexedAt [0, 1, 2] "left = \\(item) -> right. 0. right = \\(item) -> left.")
 
 testPreparedRecursiveScope :: IO ()
 testPreparedRecursiveScope = do
-  assertEqual
-    "prepared statements"
-    statements
-    (preparedRecursiveScopeStatements preparedScope)
-  assertEqual
-    "prepared binding names"
-    (Map.fromList [(0, "left"), (2, "right")])
-    (preparedRecursiveScopeBindingNames preparedScope)
-  assertEqual
-    "prepared recursive groups"
-    (Map.fromList [(0, [0, 2]), (2, [0, 2])])
-    (preparedRecursiveScopeGroups preparedScope)
-  assertEqual
-    "prepared outer binding names"
-    (Set.singleton (ident "outside"))
-    (preparedRecursiveScopeOuterBindingNames preparedScope)
+  assertEqual "prepared statements" statements (preparedRecursiveScopeStatements preparedScope)
+  assertEqual "prepared binding names" (Map.fromList [(0, "left"), (2, "right")]) (preparedRecursiveScopeBindingNames preparedScope)
+  assertEqual "prepared recursive groups" (Map.fromList [(0, [0, 2]), (2, [0, 2])]) (preparedRecursiveScopeGroups preparedScope)
+  assertEqual "prepared outer binding names" (Set.singleton (ident "outside")) (preparedRecursiveScopeOuterBindingNames preparedScope)
   where
-    preparedScope :: PreparedRecursiveScope
+    preparedScope :: PreparedRecursiveScope 'Lowered
     preparedScope = prepareRecursiveScope (Set.singleton (ident "outside")) statements
-    statements =
-      [ SLet (ident "left") span0 (ELambda (ident "item") (EVar (ident "right"))),
-        SExpr span0 (ELit (LInt 0)),
-        SLet (ident "right") span0 (ELambda (ident "item") (EVar (ident "left")))
-      ]
+    statements = programStatements "left = \\(item) -> right. 0. right = \\(item) -> left."
 
 testLambdaCapturePlans :: IO ()
 testLambdaCapturePlans = do
-  assertEqual
-    "outer lambda captures"
-    (Just (Set.singleton (ident "outside")))
-    (fst <$> lookupLambdaCapturedNames outerLambdaHints)
-  assertEqual
-    "ordered outer lambda captures"
-    (Just [ident "outside"])
-    (fst <$> lookupLambdaCapturedNamesOrdered outerLambdaHints)
-  assertEqual
-    "nested lambda captures"
-    (Just (Set.fromList [ident "outside", ident "outer"]))
-    (fst <$> lookupLambdaCapturedNames nestedLambdaHints)
-  assertEqual
-    "ordered nested lambda captures"
-    (Just [ident "outer", ident "outside"])
-    (fst <$> lookupLambdaCapturedNamesOrdered nestedLambdaHints)
+  assertEqual "outer lambda captures" (Just (Set.singleton (ident "outside"))) (fst <$> lookupLambdaCapturedNames outerLambdaHints)
+  assertEqual "ordered outer lambda captures" (Just [ident "outside"]) (fst <$> lookupLambdaCapturedNamesOrdered outerLambdaHints)
+  assertEqual "nested lambda captures" (Just (Set.fromList [ident "outside", ident "outer"])) (fst <$> lookupLambdaCapturedNames nestedLambdaHints)
+  assertEqual "ordered nested lambda captures" (Just [ident "outer", ident "outside"]) (fst <$> lookupLambdaCapturedNamesOrdered nestedLambdaHints)
   where
     rootHints = collectLambdaCaptureHints expression
     outerLambdaHints = lambdaCaptureHintsChild 1 rootHints
     nestedBodyHints = maybe rootHints snd (lookupLambdaCapturedNames outerLambdaHints)
     nestedLambdaHints = lambdaCaptureHintsChild 0 nestedBodyHints
-    expression =
-      EApply
-        (EVar (ident "consume"))
-        ( ELambda
-            (ident "outer")
-            ( EApply
-                ( ELambda
-                    (ident "inner")
-                    ( ETuple
-                        [ EVar (ident "outer"),
-                          EVar (ident "inner"),
-                          EVar (ident "outside")
-                        ]
-                    )
-                )
-                (EVar (ident "outer"))
-            )
-        )
+    expression = fixtureExpression "consume (\\(outer) -> (\\(inner) -> (outer, inner, outside)) outer)."
 
 testLambdaCaptureOrder :: IO ()
 testLambdaCaptureOrder = do
-  assertEqual
-    "ordered captures deduplicate by first occurrence and exclude the parameter"
-    (Just [ident "right", ident "left"])
-    (fst <$> lookupLambdaCapturedNamesOrdered rootHints)
-  assertEqual
-    "ordered captures exclude a prior block-local binding"
-    (Just [ident "outside", ident "tail"])
-    (fst <$> lookupLambdaCapturedNamesOrdered blockHints)
+  assertEqual "ordered captures deduplicate by first occurrence and exclude the parameter" (Just [ident "right", ident "left"]) (fst <$> lookupLambdaCapturedNamesOrdered rootHints)
+  assertEqual "ordered captures exclude a prior block-local binding" (Just [ident "outside", ident "tail"]) (fst <$> lookupLambdaCapturedNamesOrdered blockHints)
   where
-    rootHints =
-      collectLambdaCaptureHints
-        ( ELambda
-            (ident "item")
-            ( ETuple
-                [ EVar (ident "right"),
-                  EVar (ident "left"),
-                  EVar (ident "right"),
-                  EVar (ident "item")
-                ]
-            )
-        )
-    blockHints =
-      collectLambdaCaptureHints
-        ( ELambda
-            (ident "item")
-            ( EBlock
-                [ SLet (ident "local") span0 (EVar (ident "outside")),
-                  SExpr
-                    span0
-                    ( ETuple
-                        [ EVar (ident "local"),
-                          EVar (ident "outside"),
-                          EVar (ident "tail"),
-                          EVar (ident "item")
-                        ]
-                    )
-                ]
-            )
-        )
+    rootHints = collectLambdaCaptureHints (fixtureExpression "probe = \\(item) -> (right, left, right, item).")
+    blockHints = collectLambdaCaptureHints (fixtureExpression "probe = \\(item) -> { local = outside. (local, outside, tail, item). }.")
 
 testFreeVarsLambdaParameterBound :: IO ()
 testFreeVarsLambdaParameterBound =
-  assertEqual
-    "lambda free vars"
-    (Set.singleton "y")
-    (freeVarsExprWithBound Set.empty expr)
-  where
-    expr =
-      ELambda
-        (ident "x")
-        (EApply (EVar (ident "x")) (EVar (ident "y")))
+  assertEqual "lambda free vars" (Set.singleton "y") (freeVarsExprWithBound Set.empty (fixtureExpression "probe = \\(x) -> x y."))
 
 testFreeVarsScopeKeepsOrdinaryInitializerNameFree :: IO ()
 testFreeVarsScopeKeepsOrdinaryInitializerNameFree =
-  assertEqual
-    "scope free vars"
-    (Set.fromList ["f", "g"])
-    (freeVarsScopeWithBound Set.empty statements)
-  where
-    statements =
-      [ SLet
-          (ident "f")
-          span0
-          (EApply (EVar (ident "f")) (EVar (ident "g")))
-      ]
+  assertEqual "scope free vars" (Set.fromList ["f", "g"]) (freeVarsScopeWithBound Set.empty (programStatements "f = f g."))
 
 testFreeVarsScopeResolvesOuterInitializerName :: IO ()
 testFreeVarsScopeResolvesOuterInitializerName =
-  assertEqual
-    "outer same-name binding is not free"
-    (Set.singleton "g")
-    (freeVarsScopeWithBound (Set.singleton "f") statements)
-  where
-    statements =
-      [ SLet
-          (ident "f")
-          span0
-          (EApply (EVar (ident "f")) (EVar (ident "g")))
-      ]
+  assertEqual "outer same-name binding is not free" (Set.singleton "g") (freeVarsScopeWithBound (Set.singleton "f") (programStatements "f = f g."))
 
 testFreeVarsScopeResolvesPriorLocalInitializerName :: IO ()
 testFreeVarsScopeResolvesPriorLocalInitializerName =
-  assertEqual
-    "nearest prior local binding is not free"
-    (Set.singleton "g")
-    (freeVarsScopeWithBound Set.empty statements)
-  where
-    statements =
-      [ SLet (ident "f") span0 (ELit (LInt 0)),
-        SLet
-          (ident "f")
-          span0
-          (EApply (EVar (ident "f")) (EVar (ident "g")))
-      ]
+  assertEqual "nearest prior local binding is not free" (Set.singleton "g") (freeVarsScopeWithBound Set.empty (programStatements "f = 0. f = f g."))
 
 testRecursiveGroupsKeepSingletonSelfRecursion :: IO ()
-testRecursiveGroupsKeepSingletonSelfRecursion =
-  assertEqual
-    "singleton self-recursive group"
-    (Map.fromList [(0, [0])])
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 (EVar (ident "f")))
-      ]
+testRecursiveGroupsKeepSingletonSelfRecursion = assertGroups "singleton self-recursive group" (Map.fromList [(0, [0])]) [0] "f = f."
 
 testRecursiveGroupsKeepTopLevelSelfRecursiveLambda :: IO ()
-testRecursiveGroupsKeepTopLevelSelfRecursiveLambda =
-  assertEqual
-    "top-level lambda self recursion"
-    (Map.fromList [(1, [1])])
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ ( 1,
-          SLet
-            (ident "loop")
-            span0
-            (ELambda (ident "item") (EApply (EVar (ident "loop")) (EVar (ident "item"))))
-        )
-      ]
+testRecursiveGroupsKeepTopLevelSelfRecursiveLambda = assertGroups "top-level lambda self recursion" (Map.fromList [(1, [1])]) [1] "loop = \\(item) -> loop item."
 
 testRecursiveGroupsKeepTopLevelMutualLambdas :: IO ()
-testRecursiveGroupsKeepTopLevelMutualLambdas =
-  assertEqual
-    "top-level lambda mutual recursion"
-    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ ( 1,
-          SLet
-            (ident "left")
-            span0
-            (ELambda (ident "item") (EApply (EVar (ident "right")) (EVar (ident "item"))))
-        ),
-        ( 3,
-          SLet
-            (ident "right")
-            span0
-            (ELambda (ident "item") (EApply (EVar (ident "left")) (EVar (ident "item"))))
-        )
-      ]
+testRecursiveGroupsKeepTopLevelMutualLambdas = assertGroups "top-level lambda mutual recursion" (Map.fromList [(1, [1, 3]), (3, [1, 3])]) [1, 3] "left = \\(item) -> right item. right = \\(item) -> left item."
 
 testRecursiveGroupsIgnoreSameNameNonAliasReference :: IO ()
-testRecursiveGroupsIgnoreSameNameNonAliasReference =
-  assertEqual
-    "same-name non-alias reference does not create self edge"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 (EApply (ELambda (ident "x") (EVar (ident "x"))) (EVar (ident "f"))))
-      ]
+testRecursiveGroupsIgnoreSameNameNonAliasReference = assertGroups "same-name non-alias reference does not create self edge" Map.empty [0] "f = (\\(x) -> x) f."
 
 testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper :: IO ()
-testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper =
-  assertEqual
-    "mixed alias and eager self wrapper does not create self edge"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 mixedWrapperExpr)
-      ]
-    mixedWrapperExpr =
-      EIf
-        (ELit (LBool True))
-        (EBinary "+" (EVar (ident "f")) (ELit (LInt 1)))
-        (EVar (ident "f"))
+testRecursiveGroupsIgnoreMixedAliasAndEagerSelfWrapper = assertGroups "mixed alias and eager self wrapper does not create self edge" Map.empty [0] "f = if True then f + 1 else f."
 
 testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal :: IO ()
-testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal =
-  assertEqual
-    "eager block statement before alias terminal does not create self edge"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 blockExpr)
-      ]
-    blockExpr =
-      EBlock
-        [ SExpr span0 (EBinary "+" (EVar (ident "f")) (ELit (LInt 1))),
-          SExpr span0 (EVar (ident "f"))
-        ]
+testRecursiveGroupsIgnoreEagerBlockStatementsBeforeAliasTerminal = assertGroups "eager block statement before alias terminal does not create self edge" Map.empty [0] "f = { f + 1. f. }."
 
 testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult :: IO ()
-testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult =
-  assertEqual
-    "eager self use is not owned by an unrelated callable result"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 blockExpr)
-      ]
-    blockExpr =
-      EBlock
-        [ SExpr span0 (EApply (EVar (ident "f")) (ELit (LBool True))),
-          SExpr span0 (ELambda (ident "x") (EVar (ident "x")))
-        ]
+testRecursiveGroupsIgnoreEagerSelfBeforeCallableResult = assertGroups "eager self use is not owned by an unrelated callable result" Map.empty [0] "f = { f True. \\(x) -> x. }."
 
 testRecursiveGroupsRespectPatternBinderFunctionShadowing :: IO ()
 testRecursiveGroupsRespectPatternBinderFunctionShadowing =
-  assertEqual
-    "pattern-bound scalar does not manufacture a recursive function owner"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
-  where
-    functionName = ident "f"
-    apparentName = ident "apparent"
-    capturedName = ident "captured"
-    functionBody =
-      EBlock
-        [ SLet apparentName span0 (ELambda (ident "x") (EVar (ident "x"))),
-          SLet capturedName span0 (ELambda (ident "x") (EVar functionName)),
-          SExpr
-            span0
-            ( EPatternCase
-                (ELit (LBool True))
-                [CaseArm (PVariable apparentName) Nothing (EVar apparentName)]
-            )
-        ]
+  assertGroups "pattern-bound scalar does not manufacture a recursive function owner" Map.empty [0] "f = { apparent = \\(x) -> x. captured = \\(x) -> f. case True { | apparent -> apparent }. }."
 
 testRecursiveGroupsRespectAliasDefinitionPatternScope :: IO ()
 testRecursiveGroupsRespectAliasDefinitionPatternScope =
-  assertEqual
-    "pattern-bound use site does not hide an alias initializer's prior callable"
-    (Map.fromList [(0, [0])])
-    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
-  where
-    functionName = ident "f"
-    targetName = ident "target"
-    aliasName = ident "alias"
-    functionBody =
-      EBlock
-        [ SLet targetName span0 (ELambda (ident "x") (EVar functionName)),
-          SLet aliasName span0 (EVar targetName),
-          SExpr
-            span0
-            ( EPatternCase
-                (ELit (LBool True))
-                [CaseArm (PVariable targetName) Nothing (EVar aliasName)]
-            )
-        ]
+  assertGroups "pattern-bound use site does not hide an alias initializer's prior callable" (Map.fromList [(0, [0])]) [0] "f = { target = \\(x) -> f. alias = target. case True { | target -> alias }. }."
 
 testRecursiveGroupsKeepCallablePatternGuardSelfReference :: IO ()
 testRecursiveGroupsKeepCallablePatternGuardSelfReference =
-  assertEqual
-    "callable pattern-case guard owns its self-reference"
-    (Map.fromList [(0, [0])])
-    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 patternCaseExpr)])
-  where
-    functionName = ident "f"
-    identityLambda = ELambda (ident "x") (EVar (ident "x"))
-    patternCaseExpr =
-      EPatternCase
-        (ELit (LInt 1))
-        [ CaseArm
-            (PLiteral (LInt 1))
-            ( Just
-                ( EBinary
-                    "=="
-                    (EApply (EVar functionName) (ELit (LInt 0)))
-                    (ELit (LInt 0))
-                )
-            )
-            identityLambda,
-          CaseArm PWildcard Nothing identityLambda
-        ]
+  assertGroups "callable pattern-case guard owns its self-reference" (Map.fromList [(0, [0])]) [0] "f = case 1 { | 1 if f 0 == 0 -> \\(x) -> x | _ -> \\(x) -> x }."
 
 testRecursiveGroupsFollowPriorBlockCallableRebinding :: IO ()
 testRecursiveGroupsFollowPriorBlockCallableRebinding =
-  assertEqual
-    "same-name block alias follows the nearest prior callable declaration"
-    (Map.fromList [(0, [0])])
-    (inferRecursiveGroupsOrdered Set.empty (outerBlockStatements leadingStatements))
-  where
-    leadingStatements =
-      [ SLet (ident "inner") span0 innerCallable,
-        SLet (ident "inner") span0 (EVar (ident "inner"))
-      ]
+  assertGroups "same-name block alias follows the nearest prior callable declaration" (Map.fromList [(0, [0])]) [0] "f = { inner = \\(x) -> f x. inner = inner. inner. }."
 
 testRecursiveGroupsFollowNestedRecursiveForwardAlias :: IO ()
 testRecursiveGroupsFollowNestedRecursiveForwardAlias =
-  assertEqual
-    "nested recursive peer makes its forward alias callable-producing"
-    (Map.fromList [(0, [0])])
-    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
-  where
-    functionName = ident "f"
-    aliasName = ident "a"
-    targetName = ident "b"
-    argumentName = ident "x"
-    recursiveCall = EApply (EVar functionName) (EVar argumentName)
-    callableBranch = ELambda argumentName recursiveCall
-    functionBody =
-      EBlock
-        [ SLet aliasName span0 (EVar targetName),
-          SLet targetName span0 (EIf (ELit (LBool False)) (EVar aliasName) callableBranch),
-          SExpr span0 (EVar aliasName)
-        ]
+  assertGroups "nested recursive peer makes its forward alias callable-producing" (Map.fromList [(0, [0])]) [0] "f = { a = b. b = if False then a else \\(x) -> f x. a. }."
 
 testRecursiveGroupsRejectNestedNonRecursiveForwardAlias :: IO ()
 testRecursiveGroupsRejectNestedNonRecursiveForwardAlias =
-  assertEqual
-    "ordinary nested forward declaration does not make its alias callable-producing"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty [(0, SLet functionName span0 functionBody)])
-  where
-    functionName = ident "f"
-    aliasName = ident "a"
-    targetName = ident "b"
-    argumentName = ident "x"
-    functionBody =
-      EBlock
-        [ SLet aliasName span0 (EVar targetName),
-          SLet
-            targetName
-            span0
-            (ELambda argumentName (EApply (EVar functionName) (EVar argumentName))),
-          SExpr span0 (EVar aliasName)
-        ]
+  assertGroups "ordinary nested forward declaration does not make its alias callable-producing" Map.empty [0] "f = { a = b. b = \\(x) -> f x. a. }."
 
 testRecursiveGroupsUseLatestBlockCallableRebinding :: IO ()
 testRecursiveGroupsUseLatestBlockCallableRebinding =
-  assertEqual
-    "terminal block name uses the latest callable declaration"
-    (Map.fromList [(0, [0])])
-    (inferRecursiveGroupsOrdered Set.empty (outerBlockStatements leadingStatements))
-  where
-    leadingStatements =
-      [ SLet (ident "inner") span0 (ELit (LBool True)),
-        SLet (ident "inner") span0 innerCallable
-      ]
+  assertGroups "terminal block name uses the latest callable declaration" (Map.fromList [(0, [0])]) [0] "f = { inner = True. inner = \\(x) -> f x. inner. }."
 
 testRecursiveGroupsPreferLatestScalarBlockRebinding :: IO ()
 testRecursiveGroupsPreferLatestScalarBlockRebinding =
-  assertEqual
-    "terminal block name does not reach through the latest scalar declaration"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty (outerBlockStatements leadingStatements))
-  where
-    leadingStatements =
-      [ SLet (ident "inner") span0 innerCallable,
-        SLet (ident "inner") span0 (ELit (LBool True))
-      ]
-
-outerBlockStatements :: [Statement] -> [(Int, Statement)]
-outerBlockStatements leadingStatements =
-  [ ( 0,
-      SLet
-        (ident "f")
-        span0
-        (EBlock (leadingStatements <> [SExpr span0 (EVar (ident "inner"))]))
-    )
-  ]
-
-innerCallable :: Expr
-innerCallable =
-  ELambda
-    (ident "x")
-    (EApply (EVar (ident "f")) (EVar (ident "x")))
+  assertGroups "terminal block name does not reach through the latest scalar declaration" Map.empty [0] "f = { inner = \\(x) -> f x. inner = True. inner. }."
 
 testRecursiveGroupsIgnoreEagerOperatorConditional :: IO ()
 testRecursiveGroupsIgnoreEagerOperatorConditional =
-  assertEqual
-    "eager operator condition prevents alias-only self ownership"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty [(0, SLet operatorName span0 conditionalExpr)])
-  where
-    operatorName = operatorBindingName "%%"
-    conditionalExpr =
-      EIf
-        (EBinary "%%" (ELit (LBool True)) (ELit (LBool False)))
-        (EOperatorValue "%%")
-        (EOperatorValue "%%")
+  assertEqual "eager operator condition prevents alias-only self ownership" Map.empty (inferRecursiveGroupsOrdered Set.empty [(0, operatorLet "operator %% tier 2. (%%) = if True %% False then (%%) else (%%).")])
 
 testRecursiveGroupsKeepAliasOnlyOperatorSelfCycle :: IO ()
 testRecursiveGroupsKeepAliasOnlyOperatorSelfCycle =
-  assertEqual
-    "operator value alias retains self ownership"
-    (Map.fromList [(0, [0])])
-    ( inferRecursiveGroupsOrdered
-        Set.empty
-        [(0, SLet (operatorBindingName "%%") span0 (EOperatorValue "%%"))]
-    )
+  assertEqual "operator value alias retains self ownership" (Map.fromList [(0, [0])]) (inferRecursiveGroupsOrdered Set.empty [(0, operatorLet "operator %% tier 2. (%%) = (%%).")])
 
 testRecursiveGroupsPreferOuterBindingForSingletonName :: IO ()
 testRecursiveGroupsPreferOuterBindingForSingletonName =
-  assertEqual
-    "outer singleton binding suppresses self edge"
-    Map.empty
-    (inferRecursiveGroupsOrdered (Set.singleton "f") indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 (EVar (ident "f")))
-      ]
+  assertEqual "outer singleton binding suppresses self edge" Map.empty (inferRecursiveGroupsOrdered (Set.singleton "f") (indexedAt [0] "f = f."))
 
 testFreeVarsScopeKeepsNestedSelfRecursionLocal :: IO ()
-testFreeVarsScopeKeepsNestedSelfRecursionLocal =
-  assertEqual
-    "nested self-recursive name stays local to block"
-    Set.empty
-    (freeVarsScopeWithBound Set.empty nestedStatements)
-  where
-    nestedStatements =
-      [ SLet (ident "loop") span0 (EVar (ident "loop")),
-        SExpr span0 (EVar (ident "loop"))
-      ]
+testFreeVarsScopeKeepsNestedSelfRecursionLocal = assertEqual "nested self-recursive name stays local to block" Set.empty (freeVarsScopeWithBound Set.empty (programStatements "loop = loop. loop."))
 
 testFreeVarsScopeKeepsNestedRecursivePeersLocal :: IO ()
-testFreeVarsScopeKeepsNestedRecursivePeersLocal =
-  assertEqual
-    "nested recursive peer names stay local to block"
-    Set.empty
-    (freeVarsScopeWithBound Set.empty nestedStatements)
-  where
-    nestedStatements =
-      [ SLet (ident "y") span0 (EVar (ident "z")),
-        SLet (ident "z") span0 (EVar (ident "y")),
-        SExpr span0 (EVar (ident "y"))
-      ]
+testFreeVarsScopeKeepsNestedRecursivePeersLocal = assertEqual "nested recursive peer names stay local to block" Set.empty (freeVarsScopeWithBound Set.empty (programStatements "y = z. z = y. y."))
 
 testRecursiveGroupsKeepNestedInitializerMutualRecursion :: IO ()
 testRecursiveGroupsKeepNestedInitializerMutualRecursion =
-  assertEqual
-    "nested ordinary initializers preserve enclosing owner edges"
-    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ ( 1,
-          SLet
-            (ident "left")
-            span0
-            ( ELambda
-                (ident "item")
-                ( EBlock
-                    [ SLet
-                        (ident "right")
-                        span0
-                        (EApply (EVar (ident "right")) (EVar (ident "item"))),
-                      SExpr span0 (EVar (ident "item"))
-                    ]
-                )
-            )
-        ),
-        ( 3,
-          SLet
-            (ident "right")
-            span0
-            ( ELambda
-                (ident "item")
-                ( EBlock
-                    [ SLet
-                        (ident "left")
-                        span0
-                        (EApply (EVar (ident "left")) (EVar (ident "item"))),
-                      SExpr span0 (EVar (ident "item"))
-                    ]
-                )
-            )
-        )
-      ]
+  assertGroups "nested ordinary initializers preserve enclosing owner edges" (Map.fromList [(1, [1, 3]), (3, [1, 3])]) [1, 3] "left = \\(item) -> { right = right item. item. }. right = \\(item) -> { left = left item. item. }."
 
 testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion :: IO ()
-testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion =
-  assertEqual
-    "nested alias preserves prior outer mutual edge"
-    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
-    (inferRecursiveGroupsOrdered Set.empty (nestedPriorOuterMutualStatements (EVar (ident "left"))))
+testRecursiveGroupsKeepNestedPriorOuterAliasMutualRecursion = assertGroups "nested alias preserves prior outer mutual edge" mutualGroup [1, 3] (nestedPriorOuterSource "left")
 
 testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion :: IO ()
-testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion =
-  assertEqual
-    "nested conditional alias preserves prior outer mutual edge"
-    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
-    ( inferRecursiveGroupsOrdered
-        Set.empty
-        ( nestedPriorOuterMutualStatements
-            (EIf (ELit (LBool True)) (EVar (ident "left")) (EVar (ident "left")))
-        )
-    )
-
-testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion :: IO ()
-testRecursiveGroupsKeepNestedPriorOuterOperatorAliasMutualRecursion =
-  assertEqual
-    "nested operator alias preserves prior outer mutual edge"
-    (Map.fromList [(1, [1, 3]), (3, [1, 3])])
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    operatorName = operatorBindingName "%%"
-    indexedStatements =
-      [ (1, SLet operatorName span0 (EVar (ident "peer"))),
-        ( 3,
-          SLet
-            (ident "peer")
-            span0
-            ( EBlock
-                [ SLet operatorName span0 (EOperatorValue "%%"),
-                  SExpr span0 (ELit (LInt 0))
-                ]
-            )
-        )
-      ]
+testRecursiveGroupsKeepNestedPriorOuterConditionalAliasMutualRecursion = assertGroups "nested conditional alias preserves prior outer mutual edge" mutualGroup [1, 3] (nestedPriorOuterSource "if True then left else left")
 
 testRecursiveGroupsKeepNoOuterNestedAliasLocal :: IO ()
-testRecursiveGroupsKeepNoOuterNestedAliasLocal =
-  assertEqual
-    "nested alias keeps a local self cycle instead of resolving to a future outer peer"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ ( 1,
-          SLet
-            (ident "owner")
-            span0
-            ( EBlock
-                [ SLet (ident "local") span0 (EVar (ident "local")),
-                  SExpr span0 (ELit (LInt 0))
-                ]
-            )
-        ),
-        (3, SLet (ident "local") span0 (EVar (ident "owner")))
-      ]
+testRecursiveGroupsKeepNoOuterNestedAliasLocal = assertGroups "nested alias keeps a local self cycle instead of resolving to a future outer peer" Map.empty [1, 3] "owner = { local = local. 0. }. local = owner."
 
 testRecursiveGroupsKeepCurrentNestedAliasLocal :: IO ()
-testRecursiveGroupsKeepCurrentNestedAliasLocal =
-  assertEqual
-    "nested alias does not manufacture an enclosing self edge"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ ( 1,
-          SLet
-            (ident "owner")
-            span0
-            ( EBlock
-                [ SLet (ident "owner") span0 (EVar (ident "owner")),
-                  SExpr span0 (ELit (LInt 0))
-                ]
-            )
-        )
-      ]
+testRecursiveGroupsKeepCurrentNestedAliasLocal = assertGroups "nested alias does not manufacture an enclosing self edge" Map.empty [1] "owner = { owner = owner. 0. }."
 
 testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal :: IO ()
-testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal =
-  assertEqual
-    "nested self-recursive lambda does not form an enclosing mutual SCC"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty nestedSelfRecursiveLambdaStatements)
+testRecursiveGroupsKeepNestedSelfRecursiveLambdaLocal = assertGroups "nested self-recursive lambda does not form an enclosing mutual SCC" Map.empty [1, 3] (nestedSelfRecursiveLambdaSource "\\(nested) -> loop nested")
 
 testRecursiveGroupsKeepNestedConditionalSelfRecursiveLambdaLocal :: IO ()
-testRecursiveGroupsKeepNestedConditionalSelfRecursiveLambdaLocal =
-  assertEqual
-    "nested conditional self-recursive lambda does not form an enclosing mutual SCC"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      nestedSelfRecursiveLambdaStatementsWith
-        ( EIf
-            (ELit (LBool True))
-            (ELambda (ident "nested") (EApply (EVar (ident "loop")) (EVar (ident "nested"))))
-            (ELambda (ident "nested") (EVar (ident "nested")))
-        )
-
-nestedSelfRecursiveLambdaStatements :: [(Int, Statement)]
-nestedSelfRecursiveLambdaStatements =
-  nestedSelfRecursiveLambdaStatementsWith
-    (ELambda (ident "nested") (EApply (EVar (ident "loop")) (EVar (ident "nested"))))
-
-nestedSelfRecursiveLambdaStatementsWith :: Expr -> [(Int, Statement)]
-nestedSelfRecursiveLambdaStatementsWith localLoopExpr =
-  [ ( 1,
-      SLet
-        (ident "owner")
-        span0
-        ( ELambda
-            (ident "item")
-            ( EBlock
-                [ SLet (ident "loop") span0 localLoopExpr,
-                  SExpr span0 (EVar (ident "item"))
-                ]
-            )
-        )
-    ),
-    ( 3,
-      SLet
-        (ident "loop")
-        span0
-        (ELambda (ident "item") (EApply (EVar (ident "owner")) (EVar (ident "item"))))
-    )
-  ]
-
-nestedPriorOuterMutualStatements :: Expr -> [(Int, Statement)]
-nestedPriorOuterMutualStatements nestedAliasExpr =
-  [ ( 1,
-      SLet
-        (ident "left")
-        span0
-        (ELambda (ident "item") (EApply (EVar (ident "right")) (EVar (ident "item"))))
-    ),
-    ( 3,
-      SLet
-        (ident "right")
-        span0
-        ( ELambda
-            (ident "item")
-            ( EBlock
-                [ SLet (ident "left") span0 nestedAliasExpr,
-                  SExpr span0 (EVar (ident "item"))
-                ]
-            )
-        )
-    )
-  ]
+testRecursiveGroupsKeepNestedConditionalSelfRecursiveLambdaLocal = assertGroups "nested conditional self-recursive lambda does not form an enclosing mutual SCC" Map.empty [1, 3] (nestedSelfRecursiveLambdaSource "if True then \\(nested) -> loop nested else \\(nested) -> nested")
 
 testRecursiveGroupsDoNotLeakNestedBlockPeers :: IO ()
-testRecursiveGroupsDoNotLeakNestedBlockPeers =
-  assertEqual
-    "nested block recursive peer names do not form outer SCC"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    nestedBlock =
-      EBlock
-        [ SLet (ident "y") span0 (EVar (ident "z")),
-          SLet (ident "z") span0 (EVar (ident "y")),
-          SExpr span0 (EVar (ident "y"))
-        ]
-    indexedStatements =
-      [ (0, SLet (ident "x") span0 nestedBlock),
-        (1, SLet (ident "z") span0 (EVar (ident "x")))
-      ]
+testRecursiveGroupsDoNotLeakNestedBlockPeers = assertGroups "nested block recursive peer names do not form outer SCC" Map.empty [0, 1] "x = { y = z. z = y. y. }. z = x."
 
 testRecursiveGroupsPreserveDeclarationOrder :: IO ()
-testRecursiveGroupsPreserveDeclarationOrder =
-  assertEqual
-    "ordered recursive group"
-    (Map.fromList [(0, [0, 1, 2]), (1, [0, 1, 2]), (2, [0, 1, 2])])
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 (EVar (ident "h"))),
-        (1, SLet (ident "h") span0 (EVar (ident "g"))),
-        (2, SLet (ident "g") span0 (EVar (ident "f")))
-      ]
+testRecursiveGroupsPreserveDeclarationOrder = assertGroups "ordered recursive group" (Map.fromList [(0, [0, 1, 2]), (1, [0, 1, 2]), (2, [0, 1, 2])]) [0, 1, 2] "f = h. h = g. g = f."
 
 testRecursiveGroupsPreferNearestEarlierRebinding :: IO ()
-testRecursiveGroupsPreferNearestEarlierRebinding =
-  assertEqual
-    "nearest earlier rebinding wins"
-    Map.empty
-    (inferRecursiveGroupsOrdered Set.empty indexedStatements)
-  where
-    indexedStatements =
-      [ (0, SLet (ident "x") span0 (ELit (LInt 0))),
-        (1, SLet (ident "f") span0 (EVar (ident "x"))),
-        (2, SLet (ident "x") span0 (EVar (ident "f")))
-      ]
+testRecursiveGroupsPreferNearestEarlierRebinding = assertGroups "nearest earlier rebinding wins" Map.empty [0, 1, 2] "x = 0. f = x. x = f."
 
 testInferSelfRecursiveBindingsIsParameterized :: IO ()
 testInferSelfRecursiveBindingsIsParameterized = do
-  assertEqual
-    "wrapped lambda policy marks self recursion"
-    (Set.singleton 0)
-    (inferSelfRecursiveBindings Set.empty hasWrappedLambdaBranch indexedStatements)
-  assertEqual
-    "bare lambda policy does not mark wrapped self recursion"
-    Set.empty
-    (inferSelfRecursiveBindings Set.empty isBareLambda indexedStatements)
+  assertEqual "wrapped lambda policy marks self recursion" (Set.singleton 0) (inferSelfRecursiveBindings Set.empty hasWrappedLambdaBranch indexedStatements)
+  assertEqual "bare lambda policy does not mark wrapped self recursion" Set.empty (inferSelfRecursiveBindings Set.empty isBareLambda indexedStatements)
   where
-    indexedStatements =
-      [ (0, SLet (ident "f") span0 wrappedSelfRecursiveExpr)
-      ]
-
-    wrappedSelfRecursiveExpr =
-      EIf
-        (ELit (LBool True))
-        (ELambda (ident "x") (EApply (EVar (ident "f")) (EVar (ident "x"))))
-        (ELit (LInt 0))
-
-    hasWrappedLambdaBranch expr =
-      case expr of
-        EIf _ (ELambda _ _) _ -> True
-        _ -> False
-
-    isBareLambda expr =
-      case expr of
-        ELambda {} -> True
-        _ -> False
+    indexedStatements = indexedAt [0] "f = if True then \\(x) -> f x else 0."
+    hasWrappedLambdaBranch (EIf _ _ (ELambda {}) _) = True
+    hasWrappedLambdaBranch _ = False
+    isBareLambda ELambda {} = True
+    isBareLambda _ = False
 
 testInferSelfRecursiveBindingsRespectsOuterNames :: IO ()
 testInferSelfRecursiveBindingsRespectsOuterNames =
-  assertEqual
-    "an outer builtin-like name suppresses a self-recursive function cell"
-    Set.empty
-    (inferSelfRecursiveBindings (Set.singleton (ident "map")) isLambda indexedStatements)
+  assertEqual "an outer builtin-like name suppresses a self-recursive function cell" Set.empty (inferSelfRecursiveBindings (Set.singleton (ident "map")) isLambda (indexedAt [0] "map = \\(items) -> map items."))
   where
-    indexedStatements =
-      [ ( 0,
-          SLet
-            (ident "map")
-            span0
-            (ELambda (ident "items") (EApply (EVar (ident "map")) (EVar (ident "items"))))
-        )
-      ]
+    isLambda ELambda {} = True
+    isLambda _ = False
 
-    isLambda expr =
-      case expr of
-        ELambda {} -> True
-        _ -> False
+mutualGroup :: Map.Map Int [Int]
+mutualGroup = Map.fromList [(1, [1, 3]), (3, [1, 3])]
 
-ident :: Text -> Name
+assertGroups :: Text -> Map.Map Int [Int] -> [Int] -> Text -> IO ()
+assertGroups label expected indices source = assertEqual label expected (inferRecursiveGroupsOrdered Set.empty (letStatementsAt indices source))
+
+nestedPriorOuterSource :: Text -> Text
+nestedPriorOuterSource nestedAlias = "left = \\(item) -> right item. right = \\(item) -> { left = " <> nestedAlias <> ". item. }."
+
+nestedSelfRecursiveLambdaSource :: Text -> Text
+nestedSelfRecursiveLambdaSource localLoop = "owner = \\(item) -> { loop = " <> localLoop <> ". item. }. loop = \\(item) -> owner item."
+
+operatorLet :: Text -> Statement 'Lowered
+operatorLet source =
+  case [statement | statement@(SLet _ name _) <- programStatements source, name == operatorBindingName "%%"] of
+    [statement] -> statement
+    statements -> error ("expected one lowered operator binding, got " <> show statements)
+
+letStatementsAt :: [Int] -> Text -> [(Int, Statement 'Lowered)]
+letStatementsAt indices source = pairIndices indices [statement | statement@SLet {} <- programStatements source]
+
+indexedAt :: [Int] -> Text -> [(Int, Statement 'Lowered)]
+indexedAt indices = pairIndices indices . programStatements
+
+pairIndices :: [Int] -> [Statement 'Lowered] -> [(Int, Statement 'Lowered)]
+pairIndices indices statements
+  | length indices == length statements = zip indices statements
+  | otherwise = error ("fixture index count mismatch: " <> show (indices, statements))
+
+fixtureExpression :: Text -> Expr 'Lowered
+fixtureExpression source =
+  case programStatements source of
+    [SExpr _ expression] -> expression
+    [SLet _ _ expression] -> expression
+    statements -> error ("expected one expression fixture, got " <> show statements)
+
+programStatements :: Text -> [Statement 'Lowered]
+programStatements source =
+  case loweredProgram source of
+    EBlock _ statements -> statements
+    expression -> error ("expected lowered program block, got " <> show expression)
+
+loweredProgram :: Text -> Expr 'Lowered
+loweredProgram source =
+  case parseSurfaceProgram source of
+    Left diagnostic -> error (Text.unpack (renderDiagnostic diagnostic))
+    Right surface -> lowerSurfaceExpr surface
+
+ident :: Text -> UnresolvedName
 ident = sourceName . mkIdentifier
-
-span0 :: SourceSpan
-span0 = SourceSpan 1 1

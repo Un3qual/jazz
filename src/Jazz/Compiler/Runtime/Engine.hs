@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -30,13 +31,16 @@ import Control.Monad.Trans.State.Strict
     modify',
     put,
   )
+import qualified Data.Foldable as Foldable
 import Data.Functor.Identity (runIdentity)
 import qualified Data.IntMap.Lazy as LazyIntMap
 import Data.List (scanl')
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Lazy as LazyMap
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import qualified Data.Sequence as Seq
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Text (Text)
@@ -45,42 +49,41 @@ import Data.Word (Word64)
 import Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
+    CoreNode (coreNodeFacts, coreNodeId),
+    CorePhase (..),
+    CoreSort (StatementSort),
     DataConstructor (..),
     Expr (..),
     ImplMethod (..),
-    Literal (..),
-    NumericType (..),
-    SignaturePayload (..),
-    SignatureType (..),
     Statement (..),
+    expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    BuiltinSymbol (..),
+  ( BuiltinSymbol (..),
     builtinSymbolArity,
     builtinSymbolName,
-    lookupBuiltinSymbolInMode,
+    lookupKernelBuiltinSymbol,
   )
 import Jazz.Compiler.CapabilityFacts
-  ( concreteConstraintArgument,
-    qualifiedMethodKey,
-    signaturePayloadConstraintType,
-    substituteClassMethodSignature,
+  ( qualifiedMethodKey,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
   )
-import Jazz.Compiler.Diagnostics
-  ( Diagnostic,
-    SourceSpan,
+import Jazz.Compiler.Diagnostics (Diagnostic)
+import Jazz.Compiler.ModuleIdentity
+  ( ModulePath,
+    preludeModulePath,
+    standaloneModulePath,
   )
 import Jazz.Compiler.Name
-  ( GeneratedNameKind (..),
-    Name (..),
+  ( Name (..),
     NameNamespace (..),
+    ResolvedName,
     ResolvedNameOrigin (..),
-    generatedName,
+    ResolvedUserName (..),
     identifierText,
+    mkIdentifier,
     operatorBindingName,
     qualifiedMemberName,
     renderName,
@@ -95,7 +98,6 @@ import Jazz.Compiler.RecursiveBindings
   ( LambdaCaptureHints,
     closureCaptureCandidatesWithBound,
     collectLambdaCaptureHints,
-    emptyLambdaCaptureHints,
     lambdaCaptureHintsChild,
     lookupLambdaCapturedNames,
   )
@@ -149,19 +151,17 @@ import Jazz.Compiler.Runtime.Request
     RuntimeScopeRequest (..),
   )
 import Jazz.Compiler.Runtime.ScopePlan
-  ( RuntimeScopePlan,
-    buildRuntimeScopePlan,
+  ( buildRuntimeScopePlan,
     exprDefinitelyNotFunctionValue,
     runtimeExprRequiresHost,
     runtimeModulePathAfterStatements,
-    runtimeSignatureNumericTarget,
+    runtimeStatementRequiresHost,
     scopePlanBindingNameAt,
     scopePlanIndexedStatements,
     scopePlanIsHostRecursiveBinding,
     scopePlanIsRecursiveBinding,
     scopePlanIsSelfRecursiveFunction,
     scopePlanModulePathForStatement,
-    scopePlanPreviousSignaturePayload,
     scopePlanRecursiveGroupAt,
     scopePlanStatementAt,
   )
@@ -172,9 +172,6 @@ import Jazz.Compiler.Runtime.Semantics
     applyRuntimeFunctionResultHint,
     applyRuntimeTypeHint,
     attachDefaultBindingIntegerTarget,
-    attachRuntimeTypeHint,
-    convertFloatToNumericTarget,
-    convertIntegerToNumericTarget,
     evalNumericConversion,
     explicitTypeApplicationRuntimeFunctionHint,
     explicitTypeApplicationRuntimeValueHint,
@@ -183,15 +180,16 @@ import Jazz.Compiler.Runtime.Semantics
     matchCaseArm,
     numericConversionBuiltinForTarget,
     preferredRuntimeMethodCandidates,
+    qualifyRuntimeType,
     renderRuntimeType,
     renderRuntimeValue,
-    runtimeConstraintType,
-    runtimeConstructorArgument,
     runtimeDefinitionName,
     runtimeDefinitionNameIn,
     runtimeDiagnostic,
+    runtimeFunctionArguments,
     runtimeQualifiedMethodIsFullyApplied,
     runtimeValueExactlyMatchesConstraint,
+    substituteRuntimeVariable,
     untypedIntMetadata,
   )
 import Jazz.Compiler.Runtime.Types
@@ -199,27 +197,28 @@ import Jazz.Compiler.Runtime.Types
     DeferredHostBindingState (..),
     DeferredHostScopeId (..),
     ModuleEvaluationMode (..),
+    RuntimeAnnotation (..),
+    RuntimeAppliedArguments,
     RuntimeCell,
     RuntimeClosure (..),
     RuntimeEnv,
-    RuntimeEvidence (..),
     RuntimeHostEvaluationState (..),
     RuntimeHostEvaluationT,
     RuntimeMethodCandidate (..),
+    RuntimeMethodCandidates,
     RuntimeValue (..),
     ScopeResult (..),
-    appendRuntimeConstructorArgument,
-    attachRuntimeExplicitResultHints,
+    appendRuntimeAppliedArgument,
+    appendRuntimeMethodCandidate,
     constructorApplicationIsSaturated,
+    emptyRuntimeAppliedArguments,
+    emptyRuntimeMethodCandidates,
+    filterRuntimeMethodCandidates,
     foldRuntimeExplicitResultHints,
+    runtimeAppliedArgumentsInOrder,
     runtimeConstructorName,
-    runtimeEvidenceTarget,
-    pattern VExplicitResultHints,
-  )
-import Jazz.Compiler.RuntimeHints
-  ( BindingRuntimeHintKey,
-    bindingRuntimeHintKeyInModule,
-    explicitTypeApplicationRuntimeHintKeyInModule,
+    runtimeMethodCandidatesInOrder,
+    pattern VQualifiedMethodApplication,
   )
 import Jazz.Compiler.RuntimeHost
   ( HostIOFailure (..),
@@ -229,27 +228,26 @@ import Jazz.Compiler.RuntimeHost
     hostIOCategoryToken,
     hostIOFailureMessage,
   )
-
-scopePlanBindingRuntimeTypeHint ::
-  RuntimeScopePlan ->
-  Map BindingRuntimeHintKey SignatureType ->
-  Int ->
-  Name ->
-  Maybe SignatureType
-scopePlanBindingRuntimeTypeHint scopePlan bindingTypeHints statementIndex bindingName =
-  runtimeConstraintType modulePath <$> rawHint
-  where
-    modulePath = scopePlanModulePathForStatement scopePlan statementIndex
-    rawHint =
-      case scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName >>= signaturePayloadConstraintType of
-        Just signatureHint -> Just signatureHint
-        Nothing ->
-          case scopePlanStatementAt scopePlan statementIndex of
-            Just (SLet _ bindingSpan _) ->
-              Map.lookup
-                (bindingRuntimeHintKeyInModule modulePath bindingName bindingSpan)
-                bindingTypeHints
-            _ -> Nothing
+import Jazz.Compiler.SemanticFacts
+  ( AnalyzedMethodSignature (..),
+    AnalyzedScheme (..),
+    AnalyzedType,
+    CapabilityId (..),
+    CoreNodeId,
+    EvidenceReference (..),
+    ExpressionFacts (expressionRuntimePlan),
+    ImplId (..),
+    MethodId (..),
+    RuntimeObligation (..),
+    RuntimePlan (..),
+    StatementDeclarationFact (..),
+    StatementFacts (..),
+  )
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
+import Jazz.Compiler.TypeRepresentation
+  ( InferenceVariable,
+    SemanticType (..),
+  )
 
 closeRuntimeProfileOnReturn :: Bool -> EvaluationMachine -> EvaluationMachine
 closeRuntimeProfileOnReturn enabled machine =
@@ -296,17 +294,15 @@ evaluateRuntimeExpressionWithRequiredEvaluationHost ::
   RuntimeHostEvaluationT m (Either RuntimeControl (Maybe RuntimeValue))
 evaluateRuntimeExpressionWithRequiredEvaluationHost host request =
   case expr of
-    EBlock statements ->
+    EBlock _ statements ->
       fmap scopeResultValue
         <$> evaluateRuntimeScopeWithRequiredHostRequest
           host
           (runtimeExpressionScopeRequest request statements)
     _ ->
       runExceptT
-        (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty False expr)
+        (Just <$> evalValueWithHost host Nothing Map.empty False expr)
   where
-    builtinMode = runtimeExpressionBuiltinMode request
-    bindingTypeHints = runtimeExpressionBindingTypeHints request
     expr = runtimeExpression request
 
 evaluateRuntimeExpressionWithEvaluationHost ::
@@ -317,14 +313,14 @@ evaluateRuntimeExpressionWithEvaluationHost ::
 evaluateRuntimeExpressionWithEvaluationHost host request =
   if runtimeExprRequiresHost expr
     then case expr of
-      EBlock statements ->
+      EBlock _ statements ->
         fmap scopeResultValue
           <$> evaluateRuntimeScopeWithEvaluationHostRequest
             host
             (runtimeExpressionScopeRequest request statements)
       _ ->
         runExceptT
-          (Just <$> evalValueWithHost host Nothing builtinMode bindingTypeHints Map.empty False expr)
+          (Just <$> evalValueWithHost host Nothing Map.empty False expr)
     else
       pure
         ( case evaluateRuntimeExpressionPure request of
@@ -332,33 +328,27 @@ evaluateRuntimeExpressionWithEvaluationHost host request =
             Right value -> Right value
         )
   where
-    builtinMode = runtimeExpressionBuiltinMode request
-    bindingTypeHints = runtimeExpressionBindingTypeHints request
     expr = runtimeExpression request
 
--- | Evaluate an expression under the builtin resolution mode chosen by the
--- caller, returning a terminal scope value when one exists.
+-- | Evaluate an expression, returning a terminal scope value when one exists.
 evaluateRuntimeExpressionPure :: RuntimeExpressionRequest -> Either Diagnostic (Maybe RuntimeValue)
 evaluateRuntimeExpressionPure request =
   case expr of
-    EBlock statements ->
+    EBlock _ statements ->
       scopeResultValue
         <$> evaluateRuntimeScopePureRequest
           (runtimeExpressionScopeRequest request statements)
-    _ -> Just <$> evalValue builtinMode bindingTypeHints Map.empty expr
+    _ -> Just <$> evalValue Map.empty expr
   where
-    builtinMode = runtimeExpressionBuiltinMode request
-    bindingTypeHints = runtimeExpressionBindingTypeHints request
     expr = runtimeExpression request
 
-runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> [Statement] -> RuntimeScopeRequest
+runtimeExpressionScopeRequest :: RuntimeExpressionRequest -> [Statement 'Analyzed] -> RuntimeScopeRequest
 runtimeExpressionScopeRequest request statements =
   RuntimeScopeRequest
     { runtimeScopeSourceUnitStatementIndices = runtimeExpressionSourceUnitStatementIndices request,
+      runtimeScopePreludeModulePath = runtimeExpressionPreludeModulePath request,
       runtimeScopeCurrentModulePath = Nothing,
       runtimeScopeEvaluationMode = EvaluateEntryModule,
-      runtimeScopeBuiltinMode = runtimeExpressionBuiltinMode request,
-      runtimeScopeBindingTypeHints = runtimeExpressionBindingTypeHints request,
       runtimeScopeInitialEnvironment = Map.empty,
       runtimeScopeStatements = statements
     }
@@ -370,15 +360,12 @@ opaqueRuntimeEnvironmentMayReachHostCells :: RuntimeEnv -> Bool
 opaqueRuntimeEnvironmentMayReachHostCells = not . Map.null
 
 -- | Immutable expression-local inputs for the shared evaluator. Callable
--- transfer replaces only the captured environment and module path; builtin
--- resolution and runtime hints remain stable for the whole machine run.
+-- transfer replaces the captured environment and module path.
 data EvaluationContext = EvaluationContext
-  { evaluationModulePath :: Maybe [Text],
-    evaluationBuiltinMode :: BuiltinResolutionMode,
-    evaluationBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
+  { evaluationModulePath :: Maybe SourceUnitOwner,
     evaluationEnvironment :: RuntimeEnv,
     evaluationEnvironmentMayReachHostCells :: Bool,
-    evaluationLambdaCaptureHints :: LambdaCaptureHints,
+    evaluationLambdaCaptureHints :: LambdaCaptureHints 'Analyzed,
     evaluationClosureBaseName :: Text,
     evaluationLambdaStage :: Int
   }
@@ -391,8 +378,10 @@ evaluationContextForLambdaChild childIndex context =
     }
 
 data RuntimeResultObligation
-  = ApplyFunctionResultHint SignatureType
-  | ApplyExplicitResultHint SignatureType
+  = ApplyFunctionResultHint AnalyzedType
+  | ApplyResultTypeHint AnalyzedType
+  | ApplyExplicitResultHint AnalyzedType
+  | ApplyExpressionRuntimePlan (Maybe SourceUnitOwner) RuntimePlan
   | AttachDefaultIntegerResult
   | CloseRuntimeProfileFrame
   deriving (Eq, Show)
@@ -401,7 +390,7 @@ newtype RuntimeReturnPolicy
   = RuntimeReturnPolicy [RuntimeResultObligation]
 
 data EvaluationControl
-  = EvaluateExpression EvaluationContext Expr
+  = EvaluateExpression EvaluationContext (Expr 'Analyzed)
   | ApplyCallable RuntimeValue RuntimeValue
   | ForceRuntimeValue RuntimeValue
   | ReturnRuntimeValue RuntimeValue
@@ -409,23 +398,24 @@ data EvaluationControl
 -- | First-order continuation frames make evaluation order inspectable and
 -- keep Jazz recursion on the heap instead of the Haskell call stack.
 data EvaluationFrame
-  = EvaluateApplicationArgument EvaluationContext Expr
+  = EvaluateApplicationArgument EvaluationContext (Expr 'Analyzed)
   | ApplyEvaluatedFunction RuntimeValue
-  | EvaluateListElement EvaluationContext Int [RuntimeValue] [Expr]
-  | EvaluateTupleElement EvaluationContext Int [RuntimeValue] [Expr]
-  | EvaluateIfBranch EvaluationContext Expr Expr
-  | EvaluateCaseArms EvaluationContext [(Int, CaseArm)]
-  | EvaluateCaseGuard EvaluationContext RuntimeValue RuntimeEnv Int Expr [(Int, CaseArm)]
-  | EvaluateBuiltinRightOperand EvaluationContext Text Expr
+  | EvaluateListElement EvaluationContext Int [RuntimeValue] [Expr 'Analyzed]
+  | EvaluateTupleElement EvaluationContext Int [RuntimeValue] [Expr 'Analyzed]
+  | EvaluateIfBranch EvaluationContext (Expr 'Analyzed) (Expr 'Analyzed)
+  | EvaluateCaseArms EvaluationContext [(Int, CaseArm 'Analyzed)]
+  | EvaluateCaseGuard EvaluationContext RuntimeValue RuntimeEnv Int (Expr 'Analyzed) [(Int, CaseArm 'Analyzed)]
+  | EvaluateBuiltinRightOperand EvaluationContext Text (Expr 'Analyzed)
   | ApplyBuiltinBinary Text RuntimeValue
-  | EvaluateDeclaredOperatorLeft EvaluationContext Expr Expr
-  | ApplyDeclaredOperatorLeft EvaluationContext RuntimeValue Expr
-  | EvaluateDeclaredOperatorRight EvaluationContext Expr
+  | EvaluateDeclaredOperatorLeft EvaluationContext (Expr 'Analyzed) (Expr 'Analyzed)
+  | ApplyDeclaredOperatorLeft EvaluationContext RuntimeValue (Expr 'Analyzed)
+  | EvaluateDeclaredOperatorRight EvaluationContext (Expr 'Analyzed)
   | EvaluateLeftSection EvaluationContext Text
   | ApplyForcedCallable RuntimeValue
   | EvaluateRightSection EvaluationContext Text
   | BuildDeclaredRightSection EvaluationContext Text RuntimeValue
-  | ApplyTypeApplicationHint EvaluationContext SourceSpan SignatureType
+  | ApplyDeclaredRightSectionOperand RuntimeValue
+  | FinishTypeApplication
   | ApplyRemainingArguments [RuntimeValue]
 
 data EvaluationContinuation
@@ -438,7 +428,8 @@ data EvaluationMachine = EvaluationMachine
   { evaluationControl :: EvaluationControl,
     evaluationContinuations :: [EvaluationContinuation],
     evaluationContinuationDepth :: !Word64,
-    evaluationReturnPolicy :: RuntimeReturnPolicy
+    -- Compact now, rather than retaining a thunk per tail call until return.
+    evaluationReturnPolicy :: !RuntimeReturnPolicy
   }
 
 data EvaluationProgress
@@ -454,11 +445,10 @@ evaluateRuntimeScopeWithRequiredHostRequest host request =
   runExceptT
     ( evalScopeWithHost
         host
+        (runtimeScopePreludeModulePath request)
         (runtimeScopeSourceUnitStatementIndices request)
         currentModulePath
         evaluationMode
-        builtinMode
-        bindingTypeHints
         (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
         initialEnv
         statements
@@ -466,8 +456,6 @@ evaluateRuntimeScopeWithRequiredHostRequest host request =
   where
     currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
-    builtinMode = runtimeScopeBuiltinMode request
-    bindingTypeHints = runtimeScopeBindingTypeHints request
     initialEnv = runtimeScopeInitialEnvironment request
     statements = runtimeScopeStatements request
 
@@ -490,17 +478,16 @@ evaluateRuntimeScopeWithEvaluationHostRequest ::
   RuntimeScopeRequest ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
 evaluateRuntimeScopeWithEvaluationHostRequest host request =
-  if runtimeExprRequiresHost (EBlock statements)
+  if any runtimeStatementRequiresHost statements
     || opaqueRuntimeEnvironmentMayReachHostCells initialEnv
     then
       runExceptT
         ( evalScopeWithHost
             host
+            preludePath
             preludeStatementIndices
             currentModulePath
             evaluationMode
-            builtinMode
-            bindingTypeHints
             (opaqueRuntimeEnvironmentMayReachHostCells initialEnv)
             initialEnv
             statements
@@ -512,11 +499,10 @@ evaluateRuntimeScopeWithEvaluationHostRequest host request =
             Right value -> Right value
         )
   where
+    preludePath = runtimeScopePreludeModulePath request
     preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
     currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
-    builtinMode = runtimeScopeBuiltinMode request
-    bindingTypeHints = runtimeScopeBindingTypeHints request
     initialEnv = runtimeScopeInitialEnvironment request
     statements = runtimeScopeStatements request
 
@@ -524,17 +510,16 @@ evaluateRuntimeScopePureRequest :: RuntimeScopeRequest -> Either Diagnostic Scop
 evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
   where
     preludeStatementIndices = runtimeScopeSourceUnitStatementIndices request
+    preludePath = runtimeScopePreludeModulePath request
     currentModulePath = runtimeScopeCurrentModulePath request
     evaluationMode = runtimeScopeEvaluationMode request
-    builtinMode = runtimeScopeBuiltinMode request
-    bindingTypeHints = runtimeScopeBindingTypeHints request
     initialEnv = runtimeScopeInitialEnvironment request
     statements = runtimeScopeStatements request
     scopePlan =
       buildRuntimeScopePlan
+        preludePath
         preludeStatementIndices
         currentModulePath
-        builtinMode
         (Map.keysSet initialEnv)
         statements
     indexedStatements = scopePlanIndexedStatements scopePlan
@@ -551,17 +536,17 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
 
     extendPrefixEnvironment env (statementIndex, statement) =
       case statement of
-        SLet bindingName _ _ ->
+        SLet _ bindingName _ ->
           LazyMap.insert bindingName (bindingCellAt statementIndex) env
-        SData _ typeName typeParameters constructors ->
-          insertDataConstructors (modulePathForStatement statementIndex) typeName typeParameters constructors env
-        SClass _ capabilityName parameters methods ->
-          insertClassMethods capabilityName parameters methods env
-        SImpl _ capabilityName arguments methods ->
-          insertImplMethods (modulePathForStatement statementIndex) capabilityName arguments methods env
+        SData _ _ _ constructors ->
+          insertDataConstructors (modulePathForStatement statementIndex) constructors env
+        SClass _ capabilityName _ methods ->
+          insertClassMethods (modulePathForStatement statementIndex) capabilityName methods env
+        SImpl implementationNode capabilityName _ methods ->
+          insertImplMethods (modulePathForStatement statementIndex) implementationNode capabilityName methods env
         _ -> env
 
-    go :: Maybe RuntimeValue -> [(Int, Statement)] -> Either Diagnostic ScopeResult
+    go :: Maybe RuntimeValue -> [(Int, Statement 'Analyzed)] -> Either Diagnostic ScopeResult
     go lastExprValue remainingStatements =
       case remainingStatements of
         [] ->
@@ -595,12 +580,12 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                   value <- evalValueAt statementIndex (envBefore statementIndex) expr
                   go (Just value) rest
 
-    modulePathForStatement :: Int -> Maybe [Text]
+    modulePathForStatement :: Int -> Maybe SourceUnitOwner
     modulePathForStatement = scopePlanModulePathForStatement scopePlan
 
-    evalValueAt :: Int -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalValueAt :: Int -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
     evalValueAt statementIndex =
-      evalValueWithModulePath (modulePathForStatement statementIndex) builtinMode bindingTypeHints
+      evalValueWithModulePath (modulePathForStatement statementIndex)
 
     bindingCellAt :: Int -> RuntimeCell
     bindingCellAt statementIndex =
@@ -610,16 +595,16 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
           Left
             (runtimeDiagnostic E3020 "internal runtime error: missing binding cell for statement")
 
-    cellForStatement :: Int -> Statement -> RuntimeCell
+    cellForStatement :: Int -> Statement 'Analyzed -> RuntimeCell
     cellForStatement statementIndex statement =
       case statement of
-        SLet bindingName _ valueExpr ->
+        SLet _ bindingName valueExpr ->
           bindingCell statementIndex bindingName valueExpr
         _ ->
           Left
             (runtimeDiagnostic E3020 "internal runtime error: expected binding statement")
 
-    bindingCell :: Int -> Name -> Expr -> RuntimeCell
+    bindingCell :: Int -> ResolvedName -> Expr 'Analyzed -> RuntimeCell
     bindingCell statementIndex bindingName valueExpr =
       case selectedRecursiveAliasTarget statementIndex visibleEnv valueExpr of
         Left diagnostic ->
@@ -639,63 +624,15 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         visibleEnv = bindingEnv statementIndex bindingName
 
-    evalBindingValue :: Int -> Name -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+    evalBindingValue :: Int -> ResolvedName -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
     evalBindingValue statementIndex bindingName env valueExpr =
       nameRuntimeClosureBinding
         (modulePathForStatement statementIndex)
         bindingName
-        <$> case previousSignatureNumericTarget statementIndex bindingName of
-          Just targetType -> do
-            runtimeValue <-
-              evalNumericSignatureBinding
-                statementIndex
-                targetType
-                env
-                valueExpr
-                maybeTypeHint
-            attachRuntimeTypeHint maybeTypeHint runtimeValue
-              >>= attachDefaultBindingIntegerTarget
-          Nothing -> do
-            runtimeValue <-
-              evalValueWithModulePathAndResultHint
-                (modulePathForStatement statementIndex)
-                builtinMode
-                bindingTypeHints
-                env
-                maybeTypeHint
-                valueExpr
-            attachRuntimeTypeHint maybeTypeHint runtimeValue
-              >>= attachDefaultBindingIntegerTarget
-      where
-        maybeTypeHint = bindingRuntimeTypeHint statementIndex bindingName
-
-    evalNumericSignatureBinding :: Int -> NumericType -> RuntimeEnv -> Expr -> Maybe SignatureType -> Either Diagnostic RuntimeValue
-    evalNumericSignatureBinding statementIndex targetType env valueExpr maybeTypeHint =
-      case valueExpr of
-        ELit (LInt literalValue) ->
-          convertIntegerToNumericTarget conversionBuiltin targetType literalValue
-        ELit (LFloat literalValue literalSource _) ->
-          convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource)
-        _ -> do
-          runtimeValue <-
-            evalValueWithModulePathAndResultHint
-              (modulePathForStatement statementIndex)
-              builtinMode
-              bindingTypeHints
-              env
-              maybeTypeHint
-              valueExpr
-          evalNumericConversion conversionBuiltin targetType runtimeValue
-      where
-        conversionBuiltin = numericConversionBuiltinForTarget targetType
-
-    previousSignatureNumericTarget :: Int -> Name -> Maybe NumericType
-    previousSignatureNumericTarget statementIndex bindingName =
-      scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName
-        >>= runtimeSignatureNumericTarget
-
-    bindingRuntimeTypeHint :: Int -> Name -> Maybe SignatureType
-    bindingRuntimeTypeHint = scopePlanBindingRuntimeTypeHint scopePlan bindingTypeHints
+        <$> evalValueWithModulePath
+          (modulePathForStatement statementIndex)
+          env
+          valueExpr
 
     -- Alias bridges can legitimately point across a recursive SCC, but pure
     -- alias loops need a deterministic diagnostic instead of infinite forcing.
@@ -705,7 +642,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
           Left (runtimeDiagnostic E3021 "runtime recursive alias cycle has no concrete value")
       | otherwise =
           case scopePlanStatementAt scopePlan statementIndex of
-            Just (SLet bindingName _ aliasExpr) ->
+            Just (SLet _ bindingName aliasExpr) ->
               case selectedRecursiveAliasTarget statementIndex (bindingEnv statementIndex bindingName) aliasExpr of
                 Left diagnostic ->
                   Left diagnostic
@@ -720,7 +657,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
               Left
                 (runtimeDiagnostic E3020 "internal runtime error: missing binding statement while resolving alias")
 
-    bindingEnv :: Int -> Name -> RuntimeEnv
+    bindingEnv :: Int -> ResolvedName -> RuntimeEnv
     bindingEnv statementIndex bindingName =
       case functionSelfReferenceCell statementIndex bindingName of
         Just selfCell ->
@@ -738,14 +675,14 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         peerVisibleEnv = recursivePeerEnv statementIndex (envBefore statementIndex)
 
-    functionSelfReferenceCell :: Int -> Name -> Maybe RuntimeCell
+    functionSelfReferenceCell :: Int -> ResolvedName -> Maybe RuntimeCell
     functionSelfReferenceCell statementIndex bindingName
       | recursiveFunctionNeedsSelf statementIndex bindingName =
           Just (Left (runtimeDiagnostic E3021 "runtime recursive binding has no concrete value"))
       | otherwise =
           Nothing
 
-    recursiveFunctionNeedsSelf :: Int -> Name -> Bool
+    recursiveFunctionNeedsSelf :: Int -> ResolvedName -> Bool
     recursiveFunctionNeedsSelf statementIndex bindingName =
       scopePlanIsSelfRecursiveFunction scopePlan statementIndex
         && Map.notMember bindingName (envBefore statementIndex)
@@ -763,7 +700,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
     -- evaluate to their closure first, then get their own binding stitched
     -- into the captured env without forcing the whole wrapper through a
     -- self-referential scope during evaluation.
-    attachSelfRecursiveBinding :: Int -> Name -> RuntimeValue -> RuntimeValue
+    attachSelfRecursiveBinding :: Int -> ResolvedName -> RuntimeValue -> RuntimeValue
     attachSelfRecursiveBinding statementIndex bindingName runtimeValue
       | recursiveFunctionNeedsSelf statementIndex bindingName =
           case runtimeValue of
@@ -780,17 +717,17 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       | otherwise =
           runtimeValue
 
-    recursiveAliasTarget :: Set Name -> Int -> Expr -> Maybe Int
+    recursiveAliasTarget :: Set ResolvedName -> Int -> Expr 'Analyzed -> Maybe Int
     recursiveAliasTarget locallyBoundNames statementIndex valueExpr =
       case peelSingleExprBlock valueExpr of
-        EVar targetName ->
+        EVar _ targetName ->
           if Set.member targetName locallyBoundNames
             then Nothing
             else case scopePlanRecursiveGroupAt scopePlan statementIndex of
               Just groupMembers ->
                 lookupRecursivePeer targetName groupMembers
               Nothing -> Nothing
-        EOperatorValue operatorSymbol
+        EOperatorValue _ operatorSymbol
           | not (isBuiltinOperatorSymbol operatorSymbol) ->
               let targetName = operatorBindingName operatorSymbol
                in if Set.member targetName locallyBoundNames
@@ -803,21 +740,21 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
 
     -- Preserve wrapper runtime semantics by evaluating the branch condition
     -- first, then following alias resolution only through the selected branch.
-    selectedRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr -> Either Diagnostic (Maybe Int)
+    selectedRecursiveAliasTarget :: Int -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
     selectedRecursiveAliasTarget =
       selectedRecursiveAliasTargetWithBound Set.empty
 
     selectedRecursiveAliasTargetWithBound ::
-      Set Name ->
+      Set ResolvedName ->
       Int ->
       RuntimeEnv ->
-      Expr ->
+      Expr 'Analyzed ->
       Either Diagnostic (Maybe Int)
     selectedRecursiveAliasTargetWithBound locallyBoundNames statementIndex env expr =
       case peelSingleExprBlock expr of
-        EIf conditionExpr thenExpr elseExpr ->
+        EIf _ conditionExpr thenExpr elseExpr ->
           selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr
-        EPatternCase scrutineeExpr caseArms -> do
+        EPatternCase _ scrutineeExpr caseArms -> do
           scrutineeValue <- evalValueAt statementIndex env scrutineeExpr
           selectedArm <-
             selectMatchingCaseArmForAlias
@@ -838,7 +775,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         peeledExpr ->
           Right (recursiveAliasTarget locallyBoundNames statementIndex peeledExpr)
 
-    selectRecursiveAliasTarget :: Set Name -> Int -> RuntimeEnv -> Expr -> Expr -> Expr -> Either Diagnostic (Maybe Int)
+    selectRecursiveAliasTarget :: Set ResolvedName -> Int -> RuntimeEnv -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic (Maybe Int)
     selectRecursiveAliasTarget locallyBoundNames statementIndex env conditionExpr thenExpr elseExpr = do
       conditionValue <- evalValueAt statementIndex env conditionExpr
       case conditionValue of
@@ -854,12 +791,12 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             )
 
     selectMatchingCaseArmForAlias ::
-      Maybe [Text] ->
-      (RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue) ->
+      Maybe SourceUnitOwner ->
+      (RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue) ->
       RuntimeEnv ->
       RuntimeValue ->
-      [CaseArm] ->
-      Either Diagnostic (Maybe (Set Name, RuntimeEnv, Expr))
+      [CaseArm 'Analyzed] ->
+      Either Diagnostic (Maybe (Set ResolvedName, RuntimeEnv, Expr 'Analyzed))
     selectMatchingCaseArmForAlias patternModulePath evalGuard env scrutineeValue =
       chooseRemainingArm
       where
@@ -903,53 +840,54 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             Nothing ->
               chooseRemainingArm rest
 
-    caseArmBoundNames :: CaseArm -> Set Name
-    caseArmBoundNames (CaseArm casePattern _ _) =
+    caseArmBoundNames :: CaseArm 'Analyzed -> Set ResolvedName
+    caseArmBoundNames (CaseArm _ casePattern _ _) =
       patternBinderNames casePattern
 
     -- Single-expression blocks are semantically transparent here, so peel
     -- them before following recursive alias edges and cycle detection.
-    peelSingleExprBlock :: Expr -> Expr
+    peelSingleExprBlock :: Expr 'Analyzed -> Expr 'Analyzed
     peelSingleExprBlock expr =
       case expr of
-        EBlock [SExpr _ innerExpr] -> peelSingleExprBlock innerExpr
+        EBlock _ [SExpr _ innerExpr] -> peelSingleExprBlock innerExpr
         _ -> expr
 
-    terminalBlockLocalAliasExpr :: [Statement] -> Maybe ([Statement], Expr)
+    terminalBlockLocalAliasExpr :: [Statement 'Analyzed] -> Maybe ([Statement 'Analyzed], Expr 'Analyzed)
     terminalBlockLocalAliasExpr blockStatements =
       case reverse blockStatements of
-        SExpr _ (EVar aliasName) : precedingStatements ->
+        SExpr _ (EVar _ aliasName) : precedingStatements ->
           let prefixStatements = reverse precedingStatements
            in fmap
                 (\aliasExpr -> (prefixStatements, aliasExpr))
                 (followLocalAlias Set.empty aliasName (localAliasBindings prefixStatements))
         _ -> Nothing
 
-    localAliasBindings :: [Statement] -> Map Name Expr
+    localAliasBindings :: [Statement 'Analyzed] -> Map ResolvedName (Expr 'Analyzed)
     localAliasBindings =
       foldl' collectBinding Map.empty
       where
+        collectBinding :: Map ResolvedName (Expr 'Analyzed) -> Statement 'Analyzed -> Map ResolvedName (Expr 'Analyzed)
         collectBinding bindings statement =
           case statement of
-            SLet bindingName _ bindingExpr ->
+            SLet _ bindingName bindingExpr ->
               Map.insert bindingName bindingExpr bindings
             _ -> bindings
 
-    followLocalAlias :: Set Name -> Name -> Map Name Expr -> Maybe Expr
+    followLocalAlias :: Set ResolvedName -> ResolvedName -> Map ResolvedName (Expr 'Analyzed) -> Maybe (Expr 'Analyzed)
     followLocalAlias visitedNames aliasName localBindings =
       if Set.member aliasName visitedNames
         then Nothing
         else case Map.lookup aliasName localBindings of
           Just aliasExpr ->
             case peelSingleExprBlock aliasExpr of
-              EVar nextAliasName
+              EVar _ nextAliasName
                 | Map.member nextAliasName localBindings ->
                     followLocalAlias (Set.insert aliasName visitedNames) nextAliasName localBindings
               _ -> Just aliasExpr
           Nothing ->
             Nothing
 
-    blockLocalAliasEnv :: Maybe [Text] -> RuntimeEnv -> [Statement] -> RuntimeEnv
+    blockLocalAliasEnv :: Maybe SourceUnitOwner -> RuntimeEnv -> [Statement 'Analyzed] -> RuntimeEnv
     blockLocalAliasEnv blockModulePath blockInitialEnv blockStatements =
       case LazyIntMap.lookup (length indexedBlockStatements) blockPrefixEnvironments of
         Just env -> env
@@ -957,9 +895,9 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         blockScopePlan =
           buildRuntimeScopePlan
+            preludeModulePath
             Set.empty
             blockModulePath
-            builtinMode
             (Map.keysSet blockInitialEnv)
             blockStatements
         indexedBlockStatements = scopePlanIndexedStatements blockScopePlan
@@ -977,14 +915,14 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
 
         extendBlockPrefixEnvironment env (statementIndex, statement) =
           case statement of
-            SLet bindingName _ _ ->
+            SLet _ bindingName _ ->
               LazyMap.insert bindingName (blockBindingCellAt statementIndex) env
-            SData _ typeName typeParameters constructors ->
-              insertDataConstructors blockModulePath typeName typeParameters constructors env
-            SClass _ capabilityName parameters methods ->
-              insertClassMethods capabilityName parameters methods env
-            SImpl _ capabilityName arguments methods ->
-              insertImplMethods blockModulePath capabilityName arguments methods env
+            SData _ _ _ constructors ->
+              insertDataConstructors blockModulePath constructors env
+            SClass _ capabilityName _ methods ->
+              insertClassMethods blockModulePath capabilityName methods env
+            SImpl implementationNode capabilityName _ methods ->
+              insertImplMethods blockModulePath implementationNode capabilityName methods env
             _ -> env
 
         blockBindingCellAt statementIndex =
@@ -996,21 +934,16 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
 
         blockCellForStatement statementIndex statement =
           case statement of
-            SLet bindingName _ valueExpr ->
-              evalValueWithModulePathAndResultHint
+            SLet _ _ valueExpr ->
+              evalValueWithModulePath
                 blockModulePath
-                builtinMode
-                bindingTypeHints
                 (blockEnvBefore statementIndex)
-                (scopePlanBindingRuntimeTypeHint blockScopePlan bindingTypeHints statementIndex bindingName)
                 valueExpr
-                >>= attachRuntimeTypeHint (scopePlanBindingRuntimeTypeHint blockScopePlan bindingTypeHints statementIndex bindingName)
-                >>= attachDefaultBindingIntegerTarget
             _ ->
               Left
                 (runtimeDiagnostic E3020 "internal runtime error: expected block binding statement for alias selection")
 
-    lookupRecursivePeer :: Name -> [Int] -> Maybe Int
+    lookupRecursivePeer :: ResolvedName -> [Int] -> Maybe Int
     lookupRecursivePeer targetName =
       foldl' chooseTarget Nothing
       where
@@ -1042,58 +975,68 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 _ ->
                   envAcc
 
-    insertDataConstructors :: Maybe [Text] -> Name -> [Name] -> [DataConstructor] -> RuntimeEnv -> RuntimeEnv
-    insertDataConstructors definitionModulePath typeName typeParameters constructors env =
+    insertDataConstructors :: Maybe SourceUnitOwner -> [DataConstructor 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertDataConstructors definitionModulePath constructors env =
       foldl' insertConstructor env constructors
       where
-        insertConstructor envAcc (DataConstructor constructorName constructorArguments) =
-          Map.insert
-            constructorName
-            ( Right
-                ( VConstructor
-                    (runtimeDefinitionNameIn TypeNamespace definitionModulePath typeName)
-                    typeParameters
-                    (runtimeDefinitionNameIn ConstructorNamespace definitionModulePath constructorName)
-                    (map (runtimeConstructorArgument definitionModulePath) constructorArguments)
-                    []
-                )
-            )
-            envAcc
+        insertConstructor envAcc (DataConstructor node constructorName _) =
+          Map.insert constructorName (constructorValue node constructorName) envAcc
+        constructorValue node constructorName =
+          case Map.elems (statementGeneralizedSchemes (coreNodeFacts node)) of
+            [scheme]
+              | (fields, SemanticData typeName arguments) <- runtimeFunctionArguments (analyzedSchemeType scheme),
+                Just parameters <- traverse parameterVariable arguments ->
+                  Right
+                    ( VConstructor
+                        (runtimeDefinitionNameIn TypeNamespace definitionModulePath typeName)
+                        parameters
+                        (runtimeDefinitionNameIn ConstructorNamespace definitionModulePath constructorName)
+                        (map (qualifyRuntimeType definitionModulePath) fields)
+                        []
+                    )
+            _ -> Left (runtimeDiagnostic E3021 "runtime constructor is missing its analyzed scheme")
+        parameterVariable (SemanticVariable variable) = Just variable
+        parameterVariable _ = Nothing
 
-    insertClassMethods :: Name -> [Name] -> [ClassMethodSignature] -> RuntimeEnv -> RuntimeEnv
-    insertClassMethods capabilityName parameters methods env =
-      case parameters of
-        [classParameter] ->
-          foldl' (insertMethod (identifierText classParameter)) env methods
-        _ -> env
+    insertClassMethods :: Maybe SourceUnitOwner -> ResolvedName -> [ClassMethodSignature 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertClassMethods definitionModulePath capabilityName methods env =
+      foldl' insertMethod env methods
       where
-        insertMethod classParameter envAcc (ClassMethodSignature methodName _ methodSignature) =
+        insertMethod envAcc (ClassMethodSignature node methodName _) =
           let methodKey = qualifiedMethodKey capabilityName methodName
               methodName' = qualifiedMemberName capabilityName methodName
-           in if Map.member methodName' envAcc
-                then envAcc
-                else Map.insert methodName' (Right (VQualifiedMethod methodKey classParameter methodSignature [] [])) envAcc
+              methodValue = case statementDeclarationFact (coreNodeFacts node) of
+                MethodDeclaration _ signature ->
+                  Right
+                    ( VQualifiedMethodApplication
+                        methodKey
+                        (analyzedMethodClassParameter signature)
+                        (qualifyRuntimeType definitionModulePath (analyzedMethodType signature))
+                        emptyRuntimeMethodCandidates
+                        emptyRuntimeAppliedArguments
+                    )
+                _ -> Left (runtimeDiagnostic E3021 "runtime method is missing its analyzed signature")
+           in Map.insertWith (\_ existing -> existing) methodName' methodValue envAcc
 
-    insertImplMethods :: Maybe [Text] -> Name -> [SignatureType] -> [ImplMethod] -> RuntimeEnv -> RuntimeEnv
-    insertImplMethods methodModulePath capabilityName arguments methods env =
-      case arguments of
-        [implTarget]
-          | concreteConstraintArgument implTarget ->
-              methodEnv
+    insertImplMethods :: Maybe SourceUnitOwner -> CoreNode 'Analyzed 'StatementSort -> ResolvedName -> [ImplMethod 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertImplMethods methodModulePath implementationNode capabilityName methods env =
+      case statementDeclarationFact (coreNodeFacts implementationNode) of
+        ImplementationDeclaration _ [implTarget] ->
+          methodEnv
           where
-            runtimeImplTarget = runtimeConstraintType methodModulePath implTarget
+            runtimeImplTarget = qualifyRuntimeType methodModulePath implTarget
             methodEnv = foldl' insertCandidate env methodCandidates
             methodExprsByKey =
               Map.fromList
                 [ (qualifiedMethodKey capabilityName methodName, methodExpr)
-                | ImplMethod methodName _ methodExpr <- methods
+                | ImplMethod _ methodName methodExpr <- methods
                 ]
             methodCandidates =
               map
-                ( \(ImplMethod methodName _ methodExpr) ->
+                ( \(ImplMethod _ methodName methodExpr) ->
                     let methodKey = qualifiedMethodKey capabilityName methodName
                         methodName' = qualifiedMemberName capabilityName methodName
-                        evidence = RuntimeEvidence (identifierText capabilityName) runtimeImplTarget (Just methodKey)
+                        evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
                      in ( methodName',
                           methodKey,
                           RuntimeMethodCandidate evidence (methodCandidateCell runtimeImplTarget methodName' methodKey methodExpr)
@@ -1111,7 +1054,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                         ("runtime recursive qualified method alias cycle '" <> methodKey <> "' has no concrete value")
                     )
                 Right False ->
-                  evalValueWithModulePath methodModulePath builtinMode bindingTypeHints methodEnv methodExpr
+                  evalValueWithModulePath methodModulePath methodEnv methodExpr
                     >>= attachRuntimeMethodSignature methodModulePath methodEnv candidateImplTarget methodName
             insertCandidate envAcc (methodName, _, methodCandidate) =
               Map.adjust (addMethodCandidate methodCandidate) methodName envAcc
@@ -1119,47 +1062,31 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         addMethodCandidate methodCandidate methodCell =
           case methodCell of
-            Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
-              Right (VQualifiedMethod methodKey classParameter methodSignature (candidates ++ [methodCandidate]) capturedArgs)
+            Right (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs) ->
+              Right
+                ( VQualifiedMethodApplication
+                    methodKey
+                    classParameter
+                    methodSignature
+                    (appendRuntimeMethodCandidate methodCandidate candidates)
+                    capturedArgs
+                )
             _ -> methodCell
 
-    attachRuntimeMethodSignature ::
-      Maybe [Text] ->
-      RuntimeEnv ->
-      SignatureType ->
-      Name ->
-      RuntimeValue ->
-      Either Diagnostic RuntimeValue
-    attachRuntimeMethodSignature methodModulePath env implTarget methodName methodValue =
-      case Map.lookup methodName env of
-        Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
-          attachRuntimeTypeHint
-            ( runtimeConstraintType signatureModulePath
-                <$> substituteClassMethodSignature classParameter implTarget methodSignature
-            )
-            methodValue
-        _ ->
-          Right methodValue
-      where
-        signatureModulePath =
-          case methodName of
-            ResolvedName (ImportedModule classModulePath) _ _ -> Just classModulePath
-            _ -> methodModulePath
-
-    selectedQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Either Diagnostic Bool
+    selectedQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Either Diagnostic Bool
     selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey expr
       | Set.member methodKey visitedMethodKeys =
           Right True
       | otherwise =
           case peelSingleExprBlock expr of
-            EIf conditionExpr thenExpr elseExpr ->
+            EIf _ conditionExpr thenExpr elseExpr ->
               selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr
-            EPatternCase scrutineeExpr caseArms -> do
-              scrutineeValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env scrutineeExpr
+            EPatternCase _ scrutineeExpr caseArms -> do
+              scrutineeValue <- evalValueWithModulePath methodModulePath env scrutineeExpr
               selectedArm <-
                 selectMatchingCaseArmForAlias
                   methodModulePath
-                  (evalValueWithModulePath methodModulePath builtinMode bindingTypeHints)
+                  (evalValueWithModulePath methodModulePath)
                   env
                   scrutineeValue
                   caseArms
@@ -1168,7 +1095,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                   selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys armEnv methodKey bodyExpr
                 Nothing ->
                   Right False
-            EBlock blockStatements ->
+            EBlock _ blockStatements ->
               case terminalBlockLocalAliasExpr blockStatements of
                 Just (prefixStatements, aliasExpr) ->
                   selectedQualifiedMethodAliasTarget
@@ -1180,7 +1107,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                     aliasExpr
                 Nothing ->
                   Right False
-            EVar aliasName ->
+            EVar _ aliasName ->
               let aliasNameText = identifierText aliasName
                in case Map.lookup aliasNameText methodExprsByKey of
                     Just aliasExpr ->
@@ -1192,9 +1119,9 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
       where
         nextVisitedMethodKeys = Set.insert methodKey visitedMethodKeys
 
-    selectQualifiedMethodAliasTarget :: Maybe [Text] -> Map Text Expr -> Set Text -> RuntimeEnv -> Text -> Expr -> Expr -> Expr -> Either Diagnostic Bool
+    selectQualifiedMethodAliasTarget :: Maybe SourceUnitOwner -> Map Text (Expr 'Analyzed) -> Set Text -> RuntimeEnv -> Text -> Expr 'Analyzed -> Expr 'Analyzed -> Expr 'Analyzed -> Either Diagnostic Bool
     selectQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey conditionExpr thenExpr elseExpr = do
-      conditionValue <- evalValueWithModulePath methodModulePath builtinMode bindingTypeHints env conditionExpr
+      conditionValue <- evalValueWithModulePath methodModulePath env conditionExpr
       case conditionValue of
         VBool True ->
           selectedQualifiedMethodAliasTarget methodModulePath methodExprsByKey visitedMethodKeys env methodKey thenExpr
@@ -1207,12 +1134,34 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                 ("runtime branch condition must be Bool, found " <> renderRuntimeType other)
             )
 
-evalValue :: BuiltinResolutionMode -> Map BindingRuntimeHintKey SignatureType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
+evalValue :: RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
 evalValue =
   evalValueWithModulePath Nothing
 
-evalValueWithModulePath :: Maybe [Text] -> BuiltinResolutionMode -> Map BindingRuntimeHintKey SignatureType -> RuntimeEnv -> Expr -> Either Diagnostic RuntimeValue
-evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr =
+attachRuntimeMethodSignature ::
+  Maybe SourceUnitOwner ->
+  RuntimeEnv ->
+  AnalyzedType ->
+  ResolvedName ->
+  RuntimeValue ->
+  Either Diagnostic RuntimeValue
+attachRuntimeMethodSignature methodModulePath env implTarget methodName methodValue =
+  case Map.lookup methodName env of
+    Just (Right (VQualifiedMethodApplication _ classParameter methodSignature _ _)) ->
+      applyRuntimeTypeHint
+        (qualifyRuntimeType signatureModulePath (substituteRuntimeVariable classParameter implTarget methodSignature))
+        methodValue
+    _ ->
+      Right methodValue
+  where
+    signatureModulePath =
+      case methodName of
+        UserName (ResolvedUserName (ImportedModule classModulePath) _ _) ->
+          Just (NamedSourceUnit classModulePath)
+        _ -> methodModulePath
+
+evalValueWithModulePath :: Maybe SourceUnitOwner -> RuntimeEnv -> Expr 'Analyzed -> Either Diagnostic RuntimeValue
+evalValueWithModulePath currentModulePath env expr =
   runtimeControlAsDiagnosticResult
     ( runIdentity
         ( runRuntimeHostEvaluation disabledRuntimeHost $ \host ->
@@ -1221,8 +1170,6 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
                   host
                   EvaluationContext
                     { evaluationModulePath = currentModulePath,
-                      evaluationBuiltinMode = builtinMode,
-                      evaluationBindingTypeHints = bindingTypeHints,
                       evaluationEnvironment = env,
                       evaluationEnvironmentMayReachHostCells = False,
                       evaluationLambdaCaptureHints = collectLambdaCaptureHints expr,
@@ -1234,62 +1181,7 @@ evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr 
         )
     )
 
-evalValueWithModulePathAndResultHint ::
-  Maybe [Text] ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  RuntimeEnv ->
-  Maybe SignatureType ->
-  Expr ->
-  Either Diagnostic RuntimeValue
-evalValueWithModulePathAndResultHint currentModulePath builtinMode bindingTypeHints env maybeTypeHint expr =
-  case qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr of
-    Just hintedValue ->
-      hintedValue
-        >>= forceRuntimeValuePure builtinMode bindingTypeHints
-    Nothing ->
-      evalValueWithModulePath currentModulePath builtinMode bindingTypeHints env expr
-
-qualifiedMethodReferenceWithTypeHint ::
-  Maybe SignatureType ->
-  RuntimeEnv ->
-  Expr ->
-  Maybe (Either Diagnostic RuntimeValue)
-qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr =
-  case (maybeTypeHint, expr) of
-    (Just typeHint, EVar name) ->
-      case Map.lookup name env of
-        Just (Right methodValue@VQualifiedMethod {}) ->
-          Just (applyRuntimeTypeHint typeHint methodValue)
-        _ -> Nothing
-    _ -> Nothing
-
-declaredOperatorRightSectionClosure :: Maybe [Text] -> Text -> RuntimeValue -> RuntimeValue -> RuntimeValue
-declaredOperatorRightSectionClosure currentModulePath operatorSymbol operatorValue rightValue =
-  VClosure
-    RuntimeClosure
-      { runtimeClosureEnvironment = capturedEnv,
-        runtimeClosureEnvironmentMayReachHostCells = False,
-        runtimeClosureLambdaCaptureHints = emptyLambdaCaptureHints,
-        runtimeClosureParameter = leftParameter,
-        runtimeClosureBody =
-          EApply (EApply (EVar functionName) (EVar leftParameter)) (EVar rightParameter),
-        runtimeClosureTypeHint = Nothing,
-        runtimeClosureModulePath = currentModulePath,
-        runtimeClosureCallableIdentity =
-          GeneratedCallable ("declared right section " <> operatorSymbol)
-      }
-  where
-    functionName = generatedName OperatorSectionFunction
-    leftParameter = generatedName OperatorSectionLeft
-    rightParameter = generatedName OperatorSectionRight
-    capturedEnv =
-      Map.fromList
-        [ (functionName, Right operatorValue),
-          (rightParameter, Right rightValue)
-        ]
-
-nameRuntimeClosureBinding :: Maybe [Text] -> Name -> RuntimeValue -> RuntimeValue
+nameRuntimeClosureBinding :: Maybe SourceUnitOwner -> ResolvedName -> RuntimeValue -> RuntimeValue
 nameRuntimeClosureBinding currentModulePath bindingName runtimeValue =
   case runtimeValue of
     VClosure closure ->
@@ -1301,14 +1193,8 @@ nameRuntimeClosureBinding currentModulePath bindingName runtimeValue =
                 1
                 (renderName (runtimeClosureParameter closure))
           }
-    VTyped typeHint innerValue ->
-      VTyped typeHint (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
-    VExplicitTypeApplication typeHint innerValue ->
-      VExplicitTypeApplication typeHint (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
-    VExplicitResultHints hints innerValue ->
-      attachRuntimeExplicitResultHints
-        hints
-        (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
+    VAnnotated annotation innerValue ->
+      VAnnotated annotation (nameRuntimeClosureBinding currentModulePath bindingName innerValue)
     _ -> runtimeValue
   where
     qualifiedBindingName =
@@ -1321,8 +1207,8 @@ nextClosureOrigin callableIdentity =
     GeneratedCallable name -> ("<" <> name <> ">", 2)
     _ -> ("<entry>", 1)
 
-deferredHostBindingName :: DeferredHostBindingKey -> Name
-deferredHostBindingName (DeferredHostBindingKey _ _ _ bindingName) = bindingName
+deferredHostBindingName :: DeferredHostBindingKey -> ResolvedName
+deferredHostBindingName (DeferredHostBindingKey _ _ bindingName) = bindingName
 
 throwRuntimeDiagnostic :: (Monad m) => Diagnostic -> ExceptT RuntimeControl m value
 throwRuntimeDiagnostic = throwE . RuntimeDiagnostic
@@ -1343,38 +1229,30 @@ runEvaluationMachine ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
   EvaluationContext ->
-  Expr ->
+  Expr 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
 runEvaluationMachine host context expression =
   runEvaluationControl
     host
-    (evaluationBuiltinMode context)
-    (evaluationBindingTypeHints context)
     (EvaluateExpression context expression)
 
 runCallableMachine ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-runCallableMachine host builtinMode bindingTypeHints functionValue argumentValue =
+runCallableMachine host functionValue argumentValue =
   runEvaluationControl
     host
-    builtinMode
-    bindingTypeHints
     (ApplyCallable functionValue argumentValue)
 
 runEvaluationControl ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   EvaluationControl ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-runEvaluationControl host builtinMode bindingTypeHints initialControl =
+runEvaluationControl host initialControl =
   ExceptT $ do
     initialState <- get
     let activeMachineCount = runtimeHostEvaluationActiveMachineCount initialState
@@ -1406,7 +1284,7 @@ runEvaluationControl host builtinMode bindingTypeHints initialControl =
                     )
                 )
             else pure ()
-          progress <- stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingTypeHints machine
+          progress <- stepEvaluationMachine observeStatistics observeProfile host machine
           case progress of
             EvaluationFinished value -> pure value
             EvaluationContinues nextMachine -> advance nextMachine
@@ -1451,11 +1329,9 @@ stepEvaluationMachine ::
   Bool ->
   Bool ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   EvaluationMachine ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) EvaluationProgress
-stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingTypeHints machine =
+stepEvaluationMachine observeStatistics observeProfile host machine =
   case evaluationControl machine of
     EvaluateExpression context expression ->
       stepExpression context expression
@@ -1466,7 +1342,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
         then lift (modifyRuntimeObservation recordRuntimeForcedValue)
         else pure ()
       forcedValue <-
-        forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue
+        forceRuntimeValueWithHost host runtimeValue
       continueWith (ReturnRuntimeValue forcedValue) machine
     ReturnRuntimeValue runtimeValue -> do
       dischargedValue <-
@@ -1478,8 +1354,6 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             observeStatistics
             observeProfile
             host
-            builtinMode
-            bindingTypeHints
             machine
               { evaluationContinuations = rest,
                 evaluationContinuationDepth = evaluationContinuationDepth machine - 1,
@@ -1490,21 +1364,21 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
   where
     stepExpression context expression =
       case expression of
-        ELit literal ->
-          continueWith (ReturnRuntimeValue (literalRuntimeValue literal)) machine
-        EVar name ->
+        ELit _ literal ->
+          continueWith (ReturnRuntimeValue (literalRuntimeValue literal)) expressionMachine
+        EVar _ name ->
           case Map.lookup name (evaluationEnvironment context) of
             Just runtimeCell -> do
               runtimeValue <- liftRuntimeResult runtimeCell
-              continueWith (ForceRuntimeValue runtimeValue) machine
+              forceReference runtimeValue
             Nothing ->
-              case lookupBuiltinSymbolInMode builtinMode (identifierText name) of
+              case lookupKernelBuiltinSymbol (identifierText name) of
                 Just builtinFunction ->
-                  continueWith (ReturnRuntimeValue (VBuiltin builtinFunction [])) machine
+                  continueWith (ReturnRuntimeValue (VBuiltin builtinFunction [])) expressionMachine
                 Nothing ->
                   throwRuntimeDiagnostic
                     (runtimeDiagnostic E3002 ("runtime unbound variable '" <> identifierText name <> "'"))
-        ELambda parameterName bodyExpr ->
+        ELambda _ parameterName bodyExpr ->
           do
             let (capturedNames, nestedCaptureHints) =
                   fromMaybe
@@ -1543,79 +1417,61 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                         }
                   )
               )
-              machine
-        EOperatorValue operatorSymbol
+              expressionMachine
+        EOperatorValue _ operatorSymbol
           | isBuiltinOperatorSymbol operatorSymbol ->
-              continueWith (ReturnRuntimeValue (VOperator operatorSymbol [])) machine
+              continueWith (ReturnRuntimeValue (VOperator operatorSymbol [])) expressionMachine
           | otherwise -> do
               operatorValue <-
                 liftRuntimeResult
                   (lookupDeclaredOperatorCell operatorSymbol (evaluationEnvironment context))
-              continueWith (ForceRuntimeValue operatorValue) machine
-        EList [] ->
-          continueWith (ReturnRuntimeValue (VList [] Nothing)) machine
-        EList (element : rest) ->
+              forceReference operatorValue
+        EList _ [] ->
+          continueWith (ReturnRuntimeValue (VList [] Nothing)) expressionMachine
+        EList _ (element : rest) ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateListElement context 1 [] rest)
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) element)
-        ETuple [] ->
+        ETuple _ [] ->
           do
             recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction TupleConstruction 1)
-            continueWith (ReturnRuntimeValue (VTuple [])) machine
-        ETuple (element : rest) ->
+            continueWith (ReturnRuntimeValue (VTuple [])) expressionMachine
+        ETuple _ (element : rest) ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateTupleElement context 1 [] rest)
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) element)
-        EApply functionExpr argumentExpr ->
+        EApply _ functionExpr argumentExpr ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateApplicationArgument context argumentExpr)
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) functionExpr)
-        ETypeApplication functionExpr typeArgumentSpan signatureType ->
+        ETypeApplication _ functionExpr _ _ ->
           case functionExpr of
-            EVar name ->
+            EVar _ name ->
               case Map.lookup name (evaluationEnvironment context) of
                 Just runtimeCell -> do
                   unforcedValue <- liftRuntimeResult runtimeCell
                   case unforcedValue of
-                    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs -> do
-                      let explicitTarget = runtimeConstraintType (evaluationModulePath context) signatureType
-                          matchingCandidates =
-                            filter
-                              (\(RuntimeMethodCandidate evidence _) -> runtimeEvidenceTarget evidence == explicitTarget)
-                              candidates
-                      selectedValue <-
-                        applyQualifiedMethodWithHost
-                          host
-                          builtinMode
-                          bindingTypeHints
-                          methodKey
-                          classParameter
-                          methodSignature
-                          matchingCandidates
-                          capturedArgs
-                      hintedValue <-
-                        applyTypeApplicationRuntimeHint context typeArgumentSpan signatureType selectedValue
-                      continueWith (ReturnRuntimeValue hintedValue) machine
-                    _ -> evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType
-                Nothing -> evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType
-            _ -> evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType
-        EIf conditionExpr thenExpr elseExpr ->
+                    VQualifiedMethodApplication {} -> forceReference unforcedValue
+                    _ -> evaluateTypeApplicationNormally expressionMachine context functionExpr
+                Nothing -> evaluateTypeApplicationNormally expressionMachine context functionExpr
+            _ -> evaluateTypeApplicationNormally expressionMachine context functionExpr
+        EIf _ conditionExpr thenExpr elseExpr ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateIfBranch context thenExpr elseExpr)
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) conditionExpr)
-        EPatternCase scrutineeExpr caseArms ->
+        EPatternCase _ scrutineeExpr caseArms ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateCaseArms context (zip [0 ..] caseArms))
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) scrutineeExpr)
-        EBinary operatorSymbol leftExpr rightExpr
+        EBinary _ operatorSymbol leftExpr rightExpr
           | isBuiltinOperatorSymbol operatorSymbol ->
               suspendEvaluation
-                machine
+                expressionMachine
                 (EvaluateBuiltinRightOperand context operatorSymbol rightExpr)
                 (EvaluateExpression (evaluationContextForLambdaChild 0 context) leftExpr)
           | otherwise -> do
@@ -1623,40 +1479,63 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                 liftRuntimeResult
                   (lookupDeclaredOperatorCell operatorSymbol (evaluationEnvironment context))
               suspendEvaluation
-                machine
+                expressionMachine
                 (EvaluateDeclaredOperatorLeft context leftExpr rightExpr)
                 (ForceRuntimeValue operatorValue)
-        ESectionLeft leftExpr operatorSymbol ->
+        ESectionLeft _ leftExpr operatorSymbol ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateLeftSection context operatorSymbol)
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) leftExpr)
-        ESectionRight operatorSymbol rightExpr ->
+        ESectionRight _ operatorSymbol rightExpr ->
           suspendEvaluation
-            machine
+            expressionMachine
             (EvaluateRightSection context operatorSymbol)
             (EvaluateExpression (evaluationContextForLambdaChild 0 context) rightExpr)
-        EBlock statements ->
-          stepBlock context statements
+        EBlock _ statements ->
+          stepBlock expressionMachine context statements
+      where
+        modulePath = evaluationModulePath context
+        runtimePlan@(RuntimePlan obligations) = expressionRuntimePlanOf expression
+        expressionMachine =
+          appendRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath runtimePlan) machine
 
-    evaluateTypeApplicationNormally context functionExpr typeArgumentSpan signatureType =
+        forceReference runtimeValue = do
+          -- Consume the callable prefix before a method can run. Deferred host
+          -- cells expose their value first; their plan stays on the return path.
+          let (callableObligations, resultObligations) =
+                if isFunctionValue runtimeValue
+                  then Seq.spanl preparesCallable obligations
+                  else (Seq.empty, obligations)
+          preparedValue <-
+            liftRuntimeResult (applyExpressionRuntimePlan modulePath (RuntimePlan callableObligations) runtimeValue)
+          continueWith
+            (ForceRuntimeValue preparedValue)
+            (appendRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath (RuntimePlan resultObligations)) machine)
+
+        preparesCallable obligation = case obligation of
+          InstantiateTypes {} -> True
+          SupplyEvidence {} -> True
+          SpecializeNumericLiteral {} -> False
+          ConstrainResult {} -> False
+
+    evaluateTypeApplicationNormally expressionMachine context functionExpr =
       suspendEvaluation
-        machine
-        (ApplyTypeApplicationHint context typeArgumentSpan signatureType)
+        expressionMachine
+        FinishTypeApplication
         (EvaluateExpression (evaluationContextForLambdaChild 0 context) functionExpr)
 
-    stepBlock context statements =
+    stepBlock expressionMachine context statements =
       case reverse statements of
         SExpr _ terminalExpr : reversedPrefix -> do
           let prefixStatements = reverse reversedPrefix
           scopeResult <-
             evalScopeWithHost
               host
+              preludeModulePath
               Set.empty
               (evaluationModulePath context)
               EvaluateEntryModule
-              builtinMode
-              bindingTypeHints
               (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
               prefixStatements
@@ -1670,16 +1549,15 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                     evaluationEnvironmentMayReachHostCells =
                       scopeResultEnvironmentMayReachHostCells scopeResult
                   }
-          continueWith (EvaluateExpression terminalContext terminalExpr) machine
+          continueWith (EvaluateExpression terminalContext terminalExpr) expressionMachine
         _ -> do
           _ <-
             evalScopeWithHost
               host
+              preludeModulePath
               Set.empty
               (evaluationModulePath context)
               EvaluateEntryModule
-              builtinMode
-              bindingTypeHints
               (evaluationEnvironmentMayReachHostCells context)
               (evaluationEnvironment context)
               statements
@@ -1705,19 +1583,19 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
       case functionValue of
         VDeferredHostBinding {} -> do
           forcedFunctionValue <-
-            forceRuntimeValueWithHost host builtinMode bindingTypeHints functionValue
+            forceRuntimeValueWithHost host functionValue
           continueWith (ApplyCallable forcedFunctionValue argumentValue) machine
-        VExplicitTypeApplication typeHint innerFunctionValue ->
+        VAnnotated (RuntimeTypeApplication typeHint) innerFunctionValue ->
           case explicitTypeApplicationRuntimeFunctionHint typeHint innerFunctionValue of
             Just instantiatedFunctionHint ->
               continueWith
-                (ApplyCallable (VTyped instantiatedFunctionHint innerFunctionValue) argumentValue)
+                (ApplyCallable (VAnnotated (RuntimeTypeHint instantiatedFunctionHint) innerFunctionValue) argumentValue)
                 machine
             Nothing ->
               continueWith
                 (ApplyCallable innerFunctionValue argumentValue)
                 (appendRuntimeResultObligation (ApplyExplicitResultHint typeHint) machine)
-        VExplicitResultHints hints innerFunctionValue ->
+        VAnnotated (RuntimeResultHints hints) innerFunctionValue ->
           continueWith
             (ApplyCallable innerFunctionValue argumentValue)
             ( foldRuntimeExplicitResultHints
@@ -1729,7 +1607,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                 machine
                 hints
             )
-        VTyped typeHint innerFunctionValue -> do
+        VAnnotated (RuntimeTypeHint typeHint) innerFunctionValue -> do
           hintedArgumentValue <-
             liftRuntimeResult (applyRuntimeFunctionArgumentHint typeHint argumentValue)
           continueWith
@@ -1740,15 +1618,20 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               continueWith (ApplyCallable leftValue argumentValue) profiledMachine
           | otherwise -> do
               resultValue <-
-                evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue argumentValue
+                evalBinaryWithHost host operatorSymbol leftValue argumentValue
               continueWith (ReturnRuntimeValue resultValue) profiledMachine
         VSectionRight operatorSymbol rightValue
           | operatorSymbol == "$" ->
               continueWith (ApplyCallable argumentValue rightValue) profiledMachine
           | otherwise -> do
               resultValue <-
-                evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol argumentValue rightValue
+                evalBinaryWithHost host operatorSymbol argumentValue rightValue
               continueWith (ReturnRuntimeValue resultValue) profiledMachine
+        VDeclaredOperatorRightSection _ operatorValue rightValue ->
+          suspendEvaluation
+            profiledMachine
+            (ApplyDeclaredRightSectionOperand rightValue)
+            (ApplyCallable operatorValue argumentValue)
         VClosure closure -> do
           hintedArgumentValue <-
             case runtimeClosureTypeHint closure of
@@ -1764,8 +1647,6 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               closureContext =
                 EvaluationContext
                   { evaluationModulePath = runtimeClosureModulePath closure,
-                    evaluationBuiltinMode = builtinMode,
-                    evaluationBindingTypeHints = bindingTypeHints,
                     evaluationEnvironment =
                       Map.insert
                         (runtimeClosureParameter closure)
@@ -1787,8 +1668,6 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               observeStatistics
               observeProfile
               host
-              builtinMode
-              bindingTypeHints
               builtinFunction
               (capturedArgs <> [argumentValue])
           continueWith (ReturnRuntimeValue resultValue) profiledMachine
@@ -1805,8 +1684,6 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   resultValue <-
                     evalBinaryWithHost
                       host
-                      builtinMode
-                      bindingTypeHints
                       operatorSymbol
                       leftValue
                       rightValue
@@ -1815,7 +1692,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
               throwRuntimeDiagnostic
                 (runtimeDiagnostic E3016 ("runtime primitive '" <> operatorSymbol <> "' received invalid arguments"))
         VConstructorApplication shape capturedArgs -> do
-          let arguments = appendRuntimeConstructorArgument argumentValue capturedArgs
+          let arguments = appendRuntimeAppliedArgument argumentValue capturedArgs
           resultValue <-
             liftRuntimeResult
               ( applyConstructor
@@ -1826,15 +1703,15 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
             then recordRuntimeStatisticWhen observeStatistics (recordRuntimeConstruction SaturatedAdtConstruction 1)
             else pure ()
           continueWith (ReturnRuntimeValue resultValue) profiledMachine
-        VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
-          let arguments = capturedArgs <> [argumentValue]
+        VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
+          let arguments = appendRuntimeAppliedArgument argumentValue capturedArgs
               preferredCandidates =
                 preferredRuntimeMethodCandidates
                   classParameter
                   methodSignature
                   arguments
                   candidates
-           in case preferredCandidates of
+           in case runtimeMethodCandidatesInOrder preferredCandidates of
                 [] ->
                   throwRuntimeDiagnostic
                     (runtimeDiagnostic E3026 ("no matching qualified method body '" <> methodKey <> "'"))
@@ -1842,7 +1719,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   methodValue <- liftRuntimeResult methodCell
                   suspendEvaluation
                     profiledMachine
-                    (ApplyRemainingArguments arguments)
+                    (ApplyRemainingArguments (runtimeAppliedArgumentsInOrder arguments))
                     (ForceRuntimeValue methodValue)
                 _
                   | runtimeQualifiedMethodIsFullyApplied
@@ -1855,7 +1732,7 @@ stepEvaluationMachine observeStatistics observeProfile host builtinMode bindingT
                   | otherwise ->
                       continueWith
                         ( ReturnRuntimeValue
-                            ( VQualifiedMethod
+                            ( VQualifiedMethodApplication
                                 methodKey
                                 classParameter
                                 methodSignature
@@ -1876,8 +1753,9 @@ runtimeApplicationKind runtimeValue =
     VOperator {} -> Just OperatorApplication
     VSectionLeft {} -> Just OperatorApplication
     VSectionRight {} -> Just OperatorApplication
+    VDeclaredOperatorRightSection {} -> Just ClosureApplication
     VConstructorApplication {} -> Just ConstructorApplication
-    VQualifiedMethod {} -> Just MethodApplication
+    VQualifiedMethodApplication {} -> Just MethodApplication
     _ -> Nothing
 
 runtimeCallableIdentity :: RuntimeValue -> Maybe RuntimeCallableIdentity
@@ -1889,9 +1767,11 @@ runtimeCallableIdentity runtimeValue =
     VOperator operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionLeft operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
     VSectionRight operatorSymbol _ -> Just (OperatorCallable operatorSymbol)
+    VDeclaredOperatorRightSection operatorSymbol _ _ ->
+      Just (GeneratedCallable ("declared right section " <> operatorSymbol))
     VConstructorApplication shape _ ->
       Just (ConstructorCallable (renderName (runtimeConstructorName shape)))
-    VQualifiedMethod methodKey _ _ _ _ -> Just (MethodCallable methodKey)
+    VQualifiedMethodApplication methodKey _ _ _ _ -> Just (MethodCallable methodKey)
     _ -> Nothing
 
 resumeEvaluationFrame ::
@@ -1899,13 +1779,11 @@ resumeEvaluationFrame ::
   Bool ->
   Bool ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   EvaluationMachine ->
   EvaluationFrame ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) EvaluationProgress
-resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingTypeHints machine frame runtimeValue =
+resumeEvaluationFrame observeStatistics observeProfile host machine frame runtimeValue =
   case frame of
     EvaluateApplicationArgument context argumentExpr ->
       suspendEvaluation
@@ -1985,8 +1863,6 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
           resultValue <-
             evalBinaryWithHost
               host
-              builtinMode
-              bindingTypeHints
               operatorSymbol
               leftValue
               runtimeValue
@@ -2036,56 +1912,20 @@ resumeEvaluationFrame observeStatistics observeProfile host builtinMode bindingT
             machine
             (BuildDeclaredRightSection context operatorSymbol runtimeValue)
             (ForceRuntimeValue operatorValue)
-    BuildDeclaredRightSection context operatorSymbol rightValue ->
+    BuildDeclaredRightSection _ operatorSymbol rightValue ->
       do
         recordRuntimeStatisticWhen observeStatistics (recordRuntimeClosureCreation 2)
         continueWith
           ( ReturnRuntimeValue
-              ( declaredOperatorRightSectionClosure
-                  (evaluationModulePath context)
-                  operatorSymbol
-                  runtimeValue
-                  rightValue
-              )
+              (VDeclaredOperatorRightSection operatorSymbol runtimeValue rightValue)
           )
           machine
-    ApplyTypeApplicationHint context typeArgumentSpan signatureType -> do
-      hintedValue <- applyTypeApplicationRuntimeHint context typeArgumentSpan signatureType runtimeValue
-      continueWith (ReturnRuntimeValue hintedValue) machine
+    ApplyDeclaredRightSectionOperand rightValue ->
+      continueWith (ApplyCallable runtimeValue rightValue) machine
+    FinishTypeApplication ->
+      continueWith (ReturnRuntimeValue runtimeValue) machine
     ApplyRemainingArguments arguments ->
       applyRemainingArguments machine runtimeValue arguments
-
-applyTypeApplicationRuntimeHint ::
-  (Monad m) =>
-  EvaluationContext ->
-  SourceSpan ->
-  SignatureType ->
-  RuntimeValue ->
-  ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-applyTypeApplicationRuntimeHint context typeArgumentSpan signatureType runtimeValue =
-  case Map.lookup
-    ( explicitTypeApplicationRuntimeHintKeyInModule
-        (evaluationModulePath context)
-        typeArgumentSpan
-    )
-    (evaluationBindingTypeHints context) of
-    Just concreteTypeHint ->
-      liftRuntimeResult
-        ( applyRuntimeTypeHint
-            (runtimeConstraintType (evaluationModulePath context) concreteTypeHint)
-            runtimeValue
-        )
-    Nothing ->
-      if isFunctionValue runtimeValue
-        then pure (VExplicitTypeApplication typeHint runtimeValue)
-        else
-          liftRuntimeResult
-            ( applyRuntimeTypeHint
-                (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
-                runtimeValue
-            )
-  where
-    typeHint = runtimeConstraintType (evaluationModulePath context) signatureType
 
 continueCaseEvaluation ::
   (Monad m) =>
@@ -2093,7 +1933,7 @@ continueCaseEvaluation ::
   EvaluationMachine ->
   EvaluationContext ->
   RuntimeValue ->
-  [(Int, CaseArm)] ->
+  [(Int, CaseArm 'Analyzed)] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) EvaluationProgress
 continueCaseEvaluation observeStatistics machine context scrutineeValue =
   chooseArm
@@ -2102,7 +1942,7 @@ continueCaseEvaluation observeStatistics machine context scrutineeValue =
       case remainingArms of
         [] ->
           throwRuntimeDiagnostic (runtimeDiagnostic E3022 "pattern case matched no arms")
-        (armIndex, caseArm@(CaseArm casePattern _ _)) : rest -> do
+        (armIndex, caseArm@(CaseArm _ casePattern _ _)) : rest -> do
           recordRuntimeStatisticWhen observeStatistics recordRuntimePatternAttempt
           case matchCaseArm
             (evaluationModulePath context)
@@ -2193,6 +2033,25 @@ appendRuntimeResultObligation obligation machine =
     }
 
 prependRuntimeResultObligation :: RuntimeResultObligation -> RuntimeReturnPolicy -> RuntimeReturnPolicy
+prependRuntimeResultObligation (ApplyFunctionResultHint typeHint) policy =
+  case typeHint of
+    SemanticFunction _ resultType -> prependRuntimeResultObligation (ApplyResultTypeHint resultType) policy
+    _ -> policy
+prependRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath (RuntimePlan obligations)) policy
+  | Seq.null obligations = policy
+  | ConstrainResult semanticType Seq.:< rest <- Seq.viewl obligations,
+    Seq.null rest =
+      case semanticType of
+        SemanticInt -> prependRuntimeResultObligation AttachDefaultIntegerResult policy
+        _
+          | Foldable.null semanticType ->
+              prependRuntimeResultObligation (ApplyResultTypeHint (qualifyRuntimeType modulePath semanticType)) policy
+        _ -> policy
+-- An Int result hint already performs Int64 conversion/defaulting. Keep that
+-- stronger check when it meets an ordinary integer-defaulting obligation.
+prependRuntimeResultObligation AttachDefaultIntegerResult policy@(RuntimeReturnPolicy (ApplyResultTypeHint SemanticInt : _)) = policy
+prependRuntimeResultObligation obligation@(ApplyResultTypeHint SemanticInt) (RuntimeReturnPolicy (AttachDefaultIntegerResult : rest)) =
+  prependRuntimeResultObligation obligation (RuntimeReturnPolicy rest)
 prependRuntimeResultObligation obligation policy@(RuntimeReturnPolicy obligations) =
   case obligations of
     existing : _
@@ -2203,7 +2062,7 @@ equivalentIdempotentObligation :: RuntimeResultObligation -> RuntimeResultObliga
 equivalentIdempotentObligation leftObligation rightObligation =
   case (leftObligation, rightObligation) of
     (AttachDefaultIntegerResult, AttachDefaultIntegerResult) -> True
-    (ApplyFunctionResultHint leftHint, ApplyFunctionResultHint rightHint) ->
+    (ApplyResultTypeHint leftHint, ApplyResultTypeHint rightHint) ->
       leftHint == rightHint
     _ -> False
 
@@ -2219,13 +2078,101 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
       case obligation of
         ApplyFunctionResultHint typeHint ->
           liftRuntimeResult (applyRuntimeFunctionResultHint typeHint currentValue)
+        ApplyResultTypeHint typeHint ->
+          liftRuntimeResult (applyRuntimeTypeHint typeHint currentValue)
         ApplyExplicitResultHint typeHint ->
           liftRuntimeResult (applyExplicitTypeApplicationResultHint typeHint currentValue)
+        ApplyExpressionRuntimePlan modulePath runtimePlan ->
+          liftRuntimeResult (applyExpressionRuntimePlan modulePath runtimePlan currentValue)
         AttachDefaultIntegerResult ->
           liftRuntimeResult (attachDefaultBindingIntegerTarget currentValue)
         CloseRuntimeProfileFrame -> do
           lift (modifyRuntimeObservation recordRuntimeProfileClose)
           pure currentValue
+
+expressionRuntimePlanOf :: Expr 'Analyzed -> RuntimePlan
+expressionRuntimePlanOf = expressionRuntimePlan . coreNodeFacts . expressionNode
+
+applyExpressionRuntimePlan :: Maybe SourceUnitOwner -> RuntimePlan -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyExpressionRuntimePlan modulePath (RuntimePlan obligations) initialValue =
+  foldM applyObligation initialValue obligations
+  where
+    applyObligation runtimeValue obligation =
+      case obligation of
+        InstantiateTypes instantiatedTypes ->
+          foldM applyInstantiation runtimeValue instantiatedTypes
+        SupplyEvidence evidenceReferences ->
+          Right (selectRuntimeEvidence evidenceReferences runtimeValue)
+        SpecializeNumericLiteral targetType ->
+          evalNumericConversion (numericConversionBuiltinForTarget targetType) targetType runtimeValue
+        ConstrainResult semanticType ->
+          constrainRuntimeResult semanticType runtimeValue
+
+    applyInstantiation runtimeValue semanticType
+      | not (Foldable.null semanticType) = Right runtimeValue
+      | otherwise =
+          applyRuntimeInstantiation (qualifyRuntimeType modulePath semanticType) runtimeValue
+
+    constrainRuntimeResult semanticType runtimeValue = case semanticType of
+      SemanticInt -> attachDefaultBindingIntegerTarget runtimeValue
+      _ | Foldable.null semanticType -> applyRuntimeTypeHint (qualifyRuntimeType modulePath semanticType) runtimeValue
+      _ -> Right runtimeValue
+
+applyRuntimeInstantiation :: AnalyzedType -> RuntimeValue -> Either Diagnostic RuntimeValue
+applyRuntimeInstantiation typeHint runtimeValue
+  | isFunctionValue runtimeValue = Right (VAnnotated (RuntimeTypeApplication typeHint) runtimeValue)
+  | otherwise =
+      applyRuntimeTypeHint
+        (fromMaybe typeHint (explicitTypeApplicationRuntimeValueHint typeHint runtimeValue))
+        runtimeValue
+
+selectRuntimeEvidence :: NonEmpty.NonEmpty EvidenceReference -> RuntimeValue -> RuntimeValue
+selectRuntimeEvidence evidenceReferences runtimeValue =
+  case runtimeValue of
+    VAnnotated annotation innerValue ->
+      VAnnotated annotation (selectRuntimeEvidence evidenceReferences innerValue)
+    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
+      VQualifiedMethodApplication
+        methodKey
+        classParameter
+        methodSignature
+        (filterRuntimeMethodCandidates selected candidates)
+        capturedArgs
+    _ -> runtimeValue
+  where
+    selected (RuntimeMethodCandidate runtimeEvidenceValue _) =
+      any (runtimeEvidenceMatches runtimeEvidenceValue) evidenceReferences
+
+runtimeEvidenceMatches :: EvidenceReference -> EvidenceReference -> Bool
+runtimeEvidenceMatches candidate reference =
+  canonicalCapability (evidenceImplementation candidate) (evidenceCapability candidate)
+    == canonicalCapability (evidenceImplementation reference) (evidenceCapability reference)
+    && evidenceImplementation candidate == evidenceImplementation reference
+    && evidenceMethod candidate == evidenceMethod reference
+
+-- Evidence is owned by its implementation, regardless of the module evaluating
+-- the reference. This also gives standalone references the same qualification
+-- as their runtime candidates.
+canonicalCapability :: ImplId -> CapabilityId -> CapabilityId
+canonicalCapability (ImplId (owner, _)) (CapabilityId capabilityName) =
+  CapabilityId
+    (runtimeDefinitionNameIn CapabilityNamespace (Just owner) capabilityName)
+
+runtimeEvidence ::
+  Maybe SourceUnitOwner ->
+  CoreNodeId ->
+  ResolvedName ->
+  ResolvedName ->
+  AnalyzedType ->
+  EvidenceReference
+runtimeEvidence modulePath implementationNodeId capabilityName methodName targetType =
+  EvidenceReference
+    (CapabilityId capabilityName)
+    implementationId
+    (Just (MethodId (implementationId, mkIdentifier (identifierText methodName))))
+    targetType
+  where
+    implementationId = ImplId (fromMaybe (StandaloneSourceUnit standaloneModulePath) modulePath, implementationNodeId)
 
 lookupDeclaredOperatorCell :: Text -> RuntimeEnv -> Either Diagnostic RuntimeValue
 lookupDeclaredOperatorCell operatorSymbol env =
@@ -2241,20 +2188,16 @@ lookupDeclaredOperatorCell operatorSymbol env =
 evalValueWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
+  Maybe SourceUnitOwner ->
   RuntimeEnv ->
   Bool ->
-  Expr ->
+  Expr 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalValueWithHost host currentModulePath builtinMode bindingTypeHints env envMayReachHostCells expr =
+evalValueWithHost host currentModulePath env envMayReachHostCells expr =
   runEvaluationMachine
     host
     EvaluationContext
       { evaluationModulePath = currentModulePath,
-        evaluationBuiltinMode = builtinMode,
-        evaluationBindingTypeHints = bindingTypeHints,
         evaluationEnvironment = env,
         evaluationEnvironmentMayReachHostCells = envMayReachHostCells,
         evaluationLambdaCaptureHints = collectLambdaCaptureHints expr,
@@ -2263,45 +2206,18 @@ evalValueWithHost host currentModulePath builtinMode bindingTypeHints env envMay
       }
     expr
 
-evalValueWithHostAndResultHint ::
-  (Monad m) =>
-  RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  RuntimeEnv ->
-  Bool ->
-  Maybe SignatureType ->
-  Expr ->
-  ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalValueWithHostAndResultHint host currentModulePath builtinMode bindingTypeHints env envMayReachHostCells maybeTypeHint expr =
-  case qualifiedMethodReferenceWithTypeHint maybeTypeHint env expr of
-    Just hintedValue ->
-      liftRuntimeResult hintedValue
-        >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
-    Nothing ->
-      evalValueWithHost
-        host
-        currentModulePath
-        builtinMode
-        bindingTypeHints
-        env
-        envMayReachHostCells
-        expr
-
 evalScopeWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  ModulePath ->
   Set Int ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   Bool ->
   RuntimeEnv ->
-  [Statement] ->
+  [Statement 'Analyzed] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements = do
+evalScopeWithHost host preludePath preludeStatementIndices currentModulePath evaluationMode initialEnvMayReachHostCells initialEnv statements = do
   scopeId <- lift freshDeferredHostScopeId
   observationEnabled <-
     lift
@@ -2310,11 +2226,10 @@ evalScopeWithHost host preludeStatementIndices currentModulePath evaluationMode 
     observationEnabled
     scopeId
     host
+    preludePath
     preludeStatementIndices
     currentModulePath
     evaluationMode
-    builtinMode
-    bindingTypeHints
     initialEnvMayReachHostCells
     initialEnv
     statements
@@ -2324,23 +2239,22 @@ evalScopeWithHostInstance ::
   Bool ->
   DeferredHostScopeId ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
+  ModulePath ->
   Set Int ->
-  Maybe [Text] ->
+  Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   Bool ->
   RuntimeEnv ->
-  [Statement] ->
+  [Statement 'Analyzed] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) ScopeResult
-evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndices currentModulePath evaluationMode builtinMode bindingTypeHints initialEnvMayReachHostCells initialEnv statements =
+evalScopeWithHostInstance observationEnabled scopeId host preludePath preludeStatementIndices currentModulePath evaluationMode initialEnvMayReachHostCells initialEnv statements =
   go initialEnvMayReachHostCells initialEnv Nothing indexedStatements
   where
     scopePlan =
       buildRuntimeScopePlan
+        preludePath
         preludeStatementIndices
         currentModulePath
-        builtinMode
         (Map.keysSet initialEnv)
         statements
     indexedStatements = scopePlanIndexedStatements scopePlan
@@ -2365,10 +2279,9 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
               ( evaluateRuntimeScopePureRequest
                   RuntimeScopeRequest
                     { runtimeScopeSourceUnitStatementIndices = chunkPreludeStatementIndices,
+                      runtimeScopePreludeModulePath = preludePath,
                       runtimeScopeCurrentModulePath = modulePathForStatement statementIndex,
                       runtimeScopeEvaluationMode = evaluationMode,
-                      runtimeScopeBuiltinMode = builtinMode,
-                      runtimeScopeBindingTypeHints = bindingTypeHints,
                       runtimeScopeInitialEnvironment = env,
                       runtimeScopeStatements = map snd pureChunk
                     }
@@ -2380,7 +2293,7 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
             remainingAfterChunk
       | otherwise =
           case statement of
-            SLet name _ _ ->
+            SLet _ name _ ->
               let bindingCell = hostBindingCell hostCellsMayBeReachable statementIndex env
                in case evaluationMode of
                     EvaluateDependencyModule ->
@@ -2392,10 +2305,10 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
                     EvaluateEntryModule -> do
                       value <- forceRuntimeCellWithHost bindingCell
                       go True (Map.insert name (Right value) env) Nothing rest
-            SImpl _ capabilityName arguments methods ->
+            SImpl implementationNode capabilityName _ methods ->
               go
                 True
-                (insertImplMethodsWithHost (modulePathForStatement statementIndex) capabilityName arguments methods env)
+                (insertImplMethodsWithHost (modulePathForStatement statementIndex) implementationNode capabilityName methods env)
                 Nothing
                 rest
             SExpr _ valueExpr ->
@@ -2406,8 +2319,6 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
                     evalValueWithHost
                       host
                       (modulePathForStatement statementIndex)
-                      builtinMode
-                      bindingTypeHints
                       env
                       hostCellsMayBeReachable
                       valueExpr
@@ -2472,17 +2383,14 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
 
     makeHostBindingCell hostCellsMayBeReachable statementIndex capturedEnv diagnosticBaseEnv =
       case scopePlanStatementAt scopePlan statementIndex of
-        Just (SLet bindingName bindingSpan valueExpr) ->
+        Just (SLet bindingNode bindingName valueExpr) ->
           Right
             ( VDeferredHostBinding
-                (DeferredHostBindingKey scopeId (modulePathForStatement statementIndex) bindingSpan bindingName)
+                (DeferredHostBindingKey scopeId (coreNodeId bindingNode) bindingName)
                 (recursiveBindingDiagnostic hostCellsMayBeReachable statementIndex diagnosticBaseEnv)
                 (modulePathForStatement statementIndex)
                 valueExpr
                 capturedEnv
-                bindingTypeHints
-                (previousSignatureNumericTarget statementIndex bindingName)
-                (bindingRuntimeTypeHint statementIndex bindingName)
             )
         _ ->
           Left
@@ -2496,10 +2404,9 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
               case evaluateRuntimeScopePureRequest
                 RuntimeScopeRequest
                   { runtimeScopeSourceUnitStatementIndices = groupPreludeStatementIndices,
+                    runtimeScopePreludeModulePath = preludePath,
                     runtimeScopeCurrentModulePath = modulePathForStatement statementIndex,
                     runtimeScopeEvaluationMode = EvaluateEntryModule,
-                    runtimeScopeBuiltinMode = builtinMode,
-                    runtimeScopeBindingTypeHints = bindingTypeHints,
                     runtimeScopeInitialEnvironment = diagnosticBaseEnv,
                     runtimeScopeStatements = groupStatements
                   } of
@@ -2525,34 +2432,33 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
 
     forceRuntimeCellWithHost bindingCell =
       liftRuntimeResult bindingCell
-        >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
+        >>= forceRuntimeValueWithHost host
 
-    insertImplMethodsWithHost methodModulePath capabilityName arguments methods env =
-      case arguments of
-        [implTarget]
-          | concreteConstraintArgument implTarget -> methodEnv
+    insertImplMethodsWithHost methodModulePath implementationNode capabilityName methods env =
+      case statementDeclarationFact (coreNodeFacts implementationNode) of
+        ImplementationDeclaration _ [implTarget] -> methodEnv
           where
-            runtimeImplTarget = runtimeConstraintType methodModulePath implTarget
+            runtimeImplTarget = qualifyRuntimeType methodModulePath implTarget
             methodEnv = foldl' insertCandidate env methodCandidates
             methodCandidates =
               map
-                ( \(ImplMethod methodName methodSpan methodExpr) ->
-                    let methodKey = qualifiedMethodKey capabilityName methodName
-                        qualifiedMethodName = qualifiedMemberName capabilityName methodName
-                        evidence = RuntimeEvidence (identifierText capabilityName) runtimeImplTarget (Just methodKey)
+                ( \(ImplMethod methodNode methodName methodExpr) ->
+                    let qualifiedMethodName = qualifiedMemberName capabilityName methodName
+                        evidence = runtimeEvidence methodModulePath (coreNodeId implementationNode) capabilityName methodName runtimeImplTarget
                      in ( qualifiedMethodName,
                           RuntimeMethodCandidate
                             evidence
-                            ( Right
+                            ( attachRuntimeMethodSignature
+                                methodModulePath
+                                methodEnv
+                                runtimeImplTarget
+                                qualifiedMethodName
                                 ( VDeferredHostBinding
-                                    (DeferredHostBindingKey scopeId methodModulePath methodSpan qualifiedMethodName)
+                                    (DeferredHostBindingKey scopeId (coreNodeId methodNode) qualifiedMethodName)
                                     (runtimeDiagnostic E3021 "runtime recursive host binding has no concrete value")
                                     methodModulePath
                                     methodExpr
                                     methodEnv
-                                    bindingTypeHints
-                                    Nothing
-                                    (methodRuntimeTypeHint runtimeImplTarget qualifiedMethodName)
                                 )
                             )
                         )
@@ -2564,109 +2470,49 @@ evalScopeWithHostInstance observationEnabled scopeId host preludeStatementIndice
 
             addMethodCandidate methodCandidate methodCell =
               case methodCell of
-                Right (VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs) ->
-                  Right (VQualifiedMethod methodKey classParameter methodSignature (candidates <> [methodCandidate]) capturedArgs)
+                Right (VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs) ->
+                  Right
+                    ( VQualifiedMethodApplication
+                        methodKey
+                        classParameter
+                        methodSignature
+                        (appendRuntimeMethodCandidate methodCandidate candidates)
+                        capturedArgs
+                    )
                 _ -> methodCell
-
-            methodRuntimeTypeHint candidateImplTarget methodName =
-              case Map.lookup methodName methodEnv of
-                Just (Right (VQualifiedMethod _ classParameter methodSignature _ _)) ->
-                  runtimeConstraintType signatureModulePath
-                    <$> substituteClassMethodSignature classParameter candidateImplTarget methodSignature
-                _ -> Nothing
-              where
-                signatureModulePath =
-                  case methodName of
-                    ResolvedName (ImportedModule classModulePath) _ _ -> Just classModulePath
-                    _ -> methodModulePath
         _ -> env
-
-    previousSignatureNumericTarget statementIndex bindingName =
-      scopePlanPreviousSignaturePayload scopePlan statementIndex bindingName
-        >>= runtimeSignatureNumericTarget
-
-    bindingRuntimeTypeHint statementIndex bindingName =
-      scopePlanBindingRuntimeTypeHint scopePlan bindingTypeHints statementIndex bindingName
 
 evalHostBindingValue ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  Maybe [Text] ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
+  Maybe SourceUnitOwner ->
   RuntimeEnv ->
-  Name ->
-  Expr ->
-  Maybe NumericType ->
-  Maybe SignatureType ->
+  ResolvedName ->
+  Expr 'Analyzed ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalHostBindingValue host currentModulePath builtinMode bindingTypeHints env bindingName valueExpr maybeNumericTarget maybeTypeHint = do
-  value <-
-    case maybeNumericTarget of
-      Just targetType ->
-        evalHostNumericSignatureBinding targetType
-      Nothing ->
-        evalValueWithHostAndResultHint
-          host
-          currentModulePath
-          builtinMode
-          bindingTypeHints
-          env
-          True
-          maybeTypeHint
-          valueExpr
+evalHostBindingValue host currentModulePath env bindingName valueExpr =
   nameRuntimeClosureBinding currentModulePath bindingName
-    <$> liftRuntimeResult
-      ( attachRuntimeTypeHint maybeTypeHint value
-          >>= attachDefaultBindingIntegerTarget
-      )
-  where
-    evalHostNumericSignatureBinding targetType =
-      case valueExpr of
-        ELit (LInt literalValue) ->
-          liftRuntimeResult
-            (convertIntegerToNumericTarget conversionBuiltin targetType literalValue)
-        ELit (LFloat literalValue literalSource _) ->
-          liftRuntimeResult
-            (convertFloatToNumericTarget conversionBuiltin targetType literalValue (Just literalSource))
-        _ -> do
-          runtimeValue <-
-            evalValueWithHostAndResultHint
-              host
-              currentModulePath
-              builtinMode
-              bindingTypeHints
-              env
-              True
-              maybeTypeHint
-              valueExpr
-          liftRuntimeResult (evalNumericConversion conversionBuiltin targetType runtimeValue)
-      where
-        conversionBuiltin = numericConversionBuiltinForTarget targetType
+    <$> evalValueWithHost host currentModulePath env True valueExpr
 
 forceQualifiedMethodValueWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue =
+forceQualifiedMethodValueWithHost host runtimeValue =
   case runtimeValue of
-    VQualifiedMethod methodKey classParameter methodSignature candidates capturedArgs ->
-      applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates capturedArgs
+    VQualifiedMethodApplication methodKey classParameter methodSignature candidates capturedArgs ->
+      applyQualifiedMethodWithHost host methodKey classParameter methodSignature candidates capturedArgs
     _ -> pure runtimeValue
 
 forceRuntimeValueWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
+forceRuntimeValueWithHost host runtimeValue =
   case runtimeValue of
-    VDeferredHostBinding bindingKey recursionDiagnostic currentModulePath valueExpr env capturedBindingTypeHints maybeNumericTarget maybeTypeHint -> do
+    VDeferredHostBinding bindingKey recursionDiagnostic currentModulePath valueExpr env -> do
       evaluationState <- lift get
       let cache = runtimeHostEvaluationBindingCache evaluationState
           observeStatistics =
@@ -2691,13 +2537,9 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
                   ( evalHostBindingValue
                       host
                       currentModulePath
-                      builtinMode
-                      capturedBindingTypeHints
                       env
                       (deferredHostBindingName bindingKey)
                       valueExpr
-                      maybeNumericTarget
-                      maybeTypeHint
                   )
               )
           lift
@@ -2705,70 +2547,54 @@ forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue =
                 (Map.insert bindingKey (DeferredHostBindingEvaluated result))
             )
           liftRuntimeControl result
-    VTyped typeHint innerValue ->
-      VTyped typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
-    VExplicitTypeApplication typeHint innerValue ->
-      VExplicitTypeApplication typeHint <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
-    VExplicitResultHints hints innerValue ->
-      attachRuntimeExplicitResultHints hints
-        <$> forceRuntimeValueWithHost host builtinMode bindingTypeHints innerValue
+    VAnnotated annotation innerValue -> do
+      forcedValue <- forceRuntimeValueWithHost host innerValue
+      case annotation of
+        -- Nullary methods produce a value while being forced, so their pending
+        -- type application must become a value hint rather than a callable tag.
+        RuntimeTypeApplication typeHint -> liftRuntimeResult (applyRuntimeInstantiation typeHint forcedValue)
+        RuntimeTypeHint typeHint -> liftRuntimeResult (applyRuntimeTypeHint typeHint forcedValue)
+        _ -> pure (VAnnotated annotation forcedValue)
     _ ->
-      forceQualifiedMethodValueWithHost host builtinMode bindingTypeHints runtimeValue
-
-forceRuntimeValuePure ::
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
-  RuntimeValue ->
-  Either Diagnostic RuntimeValue
-forceRuntimeValuePure builtinMode bindingTypeHints runtimeValue =
-  runtimeControlAsDiagnosticResult
-    ( runIdentity
-        ( runRuntimeHostEvaluation disabledRuntimeHost $ \host ->
-            runExceptT
-              (forceRuntimeValueWithHost host builtinMode bindingTypeHints runtimeValue)
-        )
-    )
+      forceQualifiedMethodValueWithHost host runtimeValue
 
 applyRuntimeFunctionWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   RuntimeValue ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-applyRuntimeFunctionWithHost host builtinMode bindingTypeHints functionValue argumentValue =
+applyRuntimeFunctionWithHost host functionValue argumentValue =
   runCallableMachine
     host
-    builtinMode
-    bindingTypeHints
     functionValue
     argumentValue
 
 applyQualifiedMethodWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   Text ->
-  Text ->
-  SignaturePayload ->
-  [RuntimeMethodCandidate] ->
-  [RuntimeValue] ->
+  InferenceVariable ->
+  AnalyzedType ->
+  RuntimeMethodCandidates ->
+  RuntimeAppliedArguments ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-applyQualifiedMethodWithHost host builtinMode bindingTypeHints methodKey classParameter methodSignature candidates arguments =
-  case preferredCandidates of
+applyQualifiedMethodWithHost host methodKey classParameter methodSignature candidates arguments =
+  case runtimeMethodCandidatesInOrder preferredCandidates of
     [] -> throwRuntimeDiagnostic (runtimeDiagnostic E3026 ("no matching qualified method body '" <> methodKey <> "'"))
     [RuntimeMethodCandidate _ methodCell] -> do
       methodValue <-
         liftRuntimeResult methodCell
-          >>= forceRuntimeValueWithHost host builtinMode bindingTypeHints
-      foldM (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints) methodValue arguments
+          >>= forceRuntimeValueWithHost host
+      foldM
+        (applyRuntimeFunctionWithHost host)
+        methodValue
+        (runtimeAppliedArgumentsInOrder arguments)
     _
       | runtimeQualifiedMethodIsFullyApplied classParameter methodSignature arguments preferredCandidates ->
           throwRuntimeDiagnostic (runtimeDiagnostic E3026 ("ambiguous qualified method body '" <> methodKey <> "'"))
       | otherwise ->
-          pure (VQualifiedMethod methodKey classParameter methodSignature preferredCandidates arguments)
+          pure (VQualifiedMethodApplication methodKey classParameter methodSignature preferredCandidates arguments)
   where
     preferredCandidates =
       preferredRuntimeMethodCandidates
@@ -2782,12 +2608,10 @@ applyBuiltinWithHost ::
   Bool ->
   Bool ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   BuiltinSymbol ->
   [RuntimeValue] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-applyBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTypeHints builtinFunction arguments
+applyBuiltinWithHost observeStatistics observeProfile host builtinFunction arguments
   | length arguments < builtinSymbolArity builtinFunction =
       pure (VBuiltin builtinFunction arguments)
   | length arguments == builtinSymbolArity builtinFunction = do
@@ -2799,8 +2623,6 @@ applyBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTy
           observeStatistics
           observeProfile
           host
-          builtinMode
-          bindingTypeHints
           builtinFunction
           arguments
       mapM_
@@ -2820,12 +2642,10 @@ evalBuiltinWithHost ::
   Bool ->
   Bool ->
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   BuiltinSymbol ->
   [RuntimeValue] ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTypeHints builtinFunction arguments =
+evalBuiltinWithHost observeStatistics observeProfile host builtinFunction arguments =
   case (builtinFunction, arguments) of
     (BuiltinReadTextRaw, [VText path]) -> do
       beginHostOperation observeStatistics observeProfile ReadTextHostOperation
@@ -2856,7 +2676,7 @@ evalBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTyp
       beginHostOperation observeStatistics observeProfile ArgumentsHostOperation
       argumentsText <- lift (runtimeHostArguments host)
       endHostOperation observeProfile
-      pure (VList (map VText argumentsText) (Just (TypeList TypeText)))
+      pure (VList (map VText argumentsText) (Just (SemanticList SemanticText)))
     (BuiltinExit, [statusValue])
       | Just status <- runtimeHostExitStatus statusValue,
         status >= 0 && status <= 255 -> do
@@ -2884,7 +2704,7 @@ evalBuiltinWithHost observeStatistics observeProfile host builtinMode bindingTyp
     _ ->
       evalBuiltin
         RuntimeDiagnostic
-        (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints)
+        (applyRuntimeFunctionWithHost host)
         builtinFunction
         arguments
 
@@ -3020,24 +2840,20 @@ runtimeHostExitStatus :: RuntimeValue -> Maybe Integer
 runtimeHostExitStatus runtimeValue =
   case runtimeValue of
     VInt status _ -> Just status
-    VTyped _ innerValue -> runtimeHostExitStatus innerValue
-    VExplicitTypeApplication _ innerValue -> runtimeHostExitStatus innerValue
-    VExplicitResultHints _ innerValue -> runtimeHostExitStatus innerValue
+    VAnnotated _ innerValue -> runtimeHostExitStatus innerValue
     _ -> Nothing
 
 evalBinaryWithHost ::
   (Monad m) =>
   RuntimeHost (RuntimeHostEvaluationT m) ->
-  BuiltinResolutionMode ->
-  Map BindingRuntimeHintKey SignatureType ->
   Text ->
   RuntimeValue ->
   RuntimeValue ->
   ExceptT RuntimeControl (RuntimeHostEvaluationT m) RuntimeValue
-evalBinaryWithHost host builtinMode bindingTypeHints operatorSymbol leftValue rightValue =
+evalBinaryWithHost host operatorSymbol leftValue rightValue =
   evalBinary
     RuntimeDiagnostic
-    (applyRuntimeFunctionWithHost host builtinMode bindingTypeHints)
+    (applyRuntimeFunctionWithHost host)
     operatorSymbol
     leftValue
     rightValue

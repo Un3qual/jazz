@@ -1,33 +1,31 @@
+{-# LANGUAGE DataKinds #-}
+
 module Jazz.Compiler.Runtime.Request
   ( RuntimeExpressionRequest (..),
     RuntimeScopeRequest (..),
   )
 where
 
-import Data.Map.Strict (Map)
 import Data.Set (Set)
-import Data.Text (Text)
-import Jazz.Compiler.AST (Expr, SignatureType, Statement)
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
+import Jazz.Compiler.AST (CorePhase (..), Expr, Statement)
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Runtime.Types
   ( ModuleEvaluationMode,
     RuntimeEnv,
   )
-import Jazz.Compiler.RuntimeHints (BindingRuntimeHintKey)
+import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner)
 
 data RuntimeExpressionRequest = RuntimeExpressionRequest
   { runtimeExpressionSourceUnitStatementIndices :: Set Int,
-    runtimeExpressionBuiltinMode :: BuiltinResolutionMode,
-    runtimeExpressionBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
-    runtimeExpression :: Expr
+    runtimeExpressionPreludeModulePath :: ModulePath,
+    runtimeExpression :: Expr 'Analyzed
   }
 
 data RuntimeScopeRequest = RuntimeScopeRequest
   { runtimeScopeSourceUnitStatementIndices :: Set Int,
-    runtimeScopeCurrentModulePath :: Maybe [Text],
+    runtimeScopePreludeModulePath :: ModulePath,
+    runtimeScopeCurrentModulePath :: Maybe SourceUnitOwner,
     runtimeScopeEvaluationMode :: ModuleEvaluationMode,
-    runtimeScopeBuiltinMode :: BuiltinResolutionMode,
-    runtimeScopeBindingTypeHints :: Map BindingRuntimeHintKey SignatureType,
     runtimeScopeInitialEnvironment :: RuntimeEnv,
-    runtimeScopeStatements :: [Statement]
+    runtimeScopeStatements :: [Statement 'Analyzed]
   }

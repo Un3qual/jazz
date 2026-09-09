@@ -1,39 +1,106 @@
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Canonical core AST shared by lowering, analysis, type inference, and the
--- small interpreter/runtime slice in `jazz`.
+-- interpreter. The phase index makes the name and fact invariants explicit.
 module Jazz.Compiler.AST
   ( CaseArm (..),
     ClassMethodSignature (..),
+    CoreNameAt,
+    CoreNode (..),
+    CoreNodeId (..),
+    CorePhase (..),
+    CoreSort (..),
+    CoreUserNameAt,
     DataConstructor (..),
     Expr (..),
+    FactsAt,
     ImplMethod (..),
     Literal (..),
-    NumericType (..),
+    NumericType,
     Pattern (..),
-    SignatureConstraint (..),
-    SignaturePayload (..),
-    SignatureToken (..),
-    SignatureType (..),
+    SignatureConstraint,
+    SignaturePayload,
+    SignatureToken,
+    SignatureType,
     Statement (..),
+    expressionNode,
+    patternNode,
+    statementNode,
   )
 where
 
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData (..))
+import Data.Kind (Constraint, Type)
 import Data.Text (Text)
 import GHC.Generics (Generic)
-import Jazz.Compiler.Diagnostics
-  ( SourceSpan,
+import Jazz.Compiler.Diagnostics (SourceSpan)
+import Jazz.Compiler.FractionalLiteral (FractionalLiteralSource)
+import Jazz.Compiler.Name
+  ( Name,
+    ResolvedUserName,
+    SourceName,
   )
-import Jazz.Compiler.FractionalLiteral
-  ( FractionalLiteralSource,
+import Jazz.Compiler.SemanticFacts
+  ( CoreNodeId (..),
+    ExpressionFacts,
+    PatternFacts,
+    StatementFacts,
   )
-import Jazz.Compiler.Name (Name)
+import qualified Jazz.Compiler.TypeRepresentation as TypeRepresentation
 
--- | Literals currently supported by the lowered core language.
+data CorePhase = Lowered | Resolved | Analyzed
+
+data CoreSort = ExpressionSort | PatternSort | StatementSort
+
+type family CoreUserNameAt (phase :: CorePhase) :: Type where
+  CoreUserNameAt 'Lowered = SourceName
+  CoreUserNameAt 'Resolved = ResolvedUserName
+  CoreUserNameAt 'Analyzed = ResolvedUserName
+
+type CoreNameAt phase = Name (CoreUserNameAt phase)
+
+type family FactsAt (phase :: CorePhase) (sort :: CoreSort) :: Type where
+  FactsAt 'Lowered sort = ()
+  FactsAt 'Resolved sort = ()
+  FactsAt 'Analyzed 'ExpressionSort = ExpressionFacts
+  FactsAt 'Analyzed 'PatternSort = PatternFacts
+  FactsAt 'Analyzed 'StatementSort = StatementFacts
+
+data CoreNode (phase :: CorePhase) (sort :: CoreSort) = CoreNode
+  { coreNodeId :: !CoreNodeId,
+    coreNodeSpan :: !SourceSpan,
+    coreNodeFacts :: !(FactsAt phase sort)
+  }
+  deriving stock (Generic)
+
+type role CoreNode nominal nominal
+
+deriving stock instance (Eq (FactsAt phase sort)) => Eq (CoreNode phase sort)
+
+deriving stock instance (Show (FactsAt phase sort)) => Show (CoreNode phase sort)
+
+instance (NFData (FactsAt phase sort)) => NFData (CoreNode phase sort) where
+  rnf (CoreNode nodeId spanValue facts) = rnf nodeId `seq` rnf spanValue `seq` rnf facts
+
+type NumericType = TypeRepresentation.NumericType
+
+type SignatureType phase = TypeRepresentation.SignatureType (CoreNameAt phase) (CoreNameAt phase)
+
+type SignatureConstraint phase = TypeRepresentation.SignatureConstraint (CoreNameAt phase) (CoreNameAt phase)
+
+type SignatureToken phase = TypeRepresentation.SignatureToken (CoreNameAt phase)
+
+type SignaturePayload phase = TypeRepresentation.SignaturePayload (CoreNameAt phase) (CoreNameAt phase) (CoreNameAt phase)
+
 data Literal
   = LInt Integer
   | LFloat Double FractionalLiteralSource (Maybe NumericType)
@@ -41,138 +108,179 @@ data Literal
   | LChar Char
   | LText Text
   deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
 
--- | Core patterns for the first active-path case-expression slice.
-data Pattern
-  = PWildcard
-  | PVariable Name
-  | PLiteral Literal
-  | PConstructor Name [Pattern]
-  | PList [Pattern]
-  | PConsList Pattern Pattern
-  | PTuple [Pattern]
-  | PAs Name Pattern
-  | POr [Pattern]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+instance NFData Literal
 
--- | One lowered pattern-match arm.
-data CaseArm = CaseArm Pattern (Maybe Expr) Expr
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+data Pattern (phase :: CorePhase)
+  = PWildcard (CoreNode phase 'PatternSort)
+  | PVariable (CoreNode phase 'PatternSort) (CoreNameAt phase)
+  | PLiteral (CoreNode phase 'PatternSort) Literal
+  | PConstructor (CoreNode phase 'PatternSort) (CoreNameAt phase) [Pattern phase]
+  | PList (CoreNode phase 'PatternSort) [Pattern phase]
+  | PConsList (CoreNode phase 'PatternSort) (Pattern phase) (Pattern phase)
+  | PTuple (CoreNode phase 'PatternSort) [Pattern phase]
+  | PAs (CoreNode phase 'PatternSort) (CoreNameAt phase) (Pattern phase)
+  | POr (CoreNode phase 'PatternSort) [Pattern phase]
+  deriving stock (Generic)
 
--- | Core constructor metadata lowered from parser-owned `data` declarations.
-data DataConstructor = DataConstructor Name [SignatureType]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+type role Pattern nominal
 
--- | Core expressions after surface syntax has been lowered into the stable
--- analyzer/runtime representation.
-data Expr
-  = ELit Literal
-  | EVar Name
-  | ELambda Name Expr
-  | EOperatorValue Text
-  | EList [Expr]
-  | ETuple [Expr]
-  | EApply Expr Expr
-  | ETypeApplication Expr SourceSpan SignatureType
-  | EIf Expr Expr Expr
-  | EPatternCase Expr [CaseArm]
-  | EBinary Text Expr Expr
-  | ESectionLeft Expr Text
-  | ESectionRight Text Expr
-  | EBlock [Statement]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+data CaseArm (phase :: CorePhase)
+  = CaseArm
+      (CoreNode phase 'ExpressionSort)
+      (Pattern phase)
+      (Maybe (Expr phase))
+      (Expr phase)
+  deriving stock (Generic)
 
--- | Lowered signature payload used by analyzer/type inference.
-data SignaturePayload
-  = SignatureType SignatureType
-  | ConstrainedSignature [SignatureConstraint] SignatureType
-  | UnsupportedSignature [SignatureToken]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+type role CaseArm nominal
 
--- | Lowered representation for constrained signatures. Type inference rejects
--- this payload until constraint semantics are defined, but the parser/lowering
--- pipeline owns its shape.
-data SignatureConstraint = SignatureConstraint Name [SignatureType]
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+data DataConstructor (phase :: CorePhase)
+  = DataConstructor
+      (CoreNode phase 'StatementSort)
+      (CoreNameAt phase)
+      [SignatureType phase]
+  deriving stock (Generic)
 
--- | Supported monomorphic signature types.
-data NumericType
-  = NumericInt8
-  | NumericInt16
-  | NumericInt32
-  | NumericInt64
-  | NumericUInt8
-  | NumericUInt16
-  | NumericUInt32
-  | NumericUInt64
-  | NumericFloat16
-  | NumericFloat32
-  | NumericFloat64
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
+type role DataConstructor nominal
 
-data SignatureType
-  = TypeInt
-  | TypeFloat
-  | TypeNumeric NumericType
-  | TypeBool
-  | TypeChar
-  | TypeText
-  | TypeVariable Name
-  | TypeName Name
-  | TypeApplication Name [SignatureType]
-  | TypeList SignatureType
-  | TypeTuple [SignatureType]
-  | TypeFunction SignatureType SignatureType
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+data Expr (phase :: CorePhase)
+  = ELit (CoreNode phase 'ExpressionSort) Literal
+  | EVar (CoreNode phase 'ExpressionSort) (CoreNameAt phase)
+  | ELambda (CoreNode phase 'ExpressionSort) (CoreNameAt phase) (Expr phase)
+  | EOperatorValue (CoreNode phase 'ExpressionSort) Text
+  | EList (CoreNode phase 'ExpressionSort) [Expr phase]
+  | ETuple (CoreNode phase 'ExpressionSort) [Expr phase]
+  | EApply (CoreNode phase 'ExpressionSort) (Expr phase) (Expr phase)
+  | ETypeApplication (CoreNode phase 'ExpressionSort) (Expr phase) SourceSpan (SignatureType phase)
+  | EIf (CoreNode phase 'ExpressionSort) (Expr phase) (Expr phase) (Expr phase)
+  | EPatternCase (CoreNode phase 'ExpressionSort) (Expr phase) [CaseArm phase]
+  | EBinary (CoreNode phase 'ExpressionSort) Text (Expr phase) (Expr phase)
+  | ESectionLeft (CoreNode phase 'ExpressionSort) (Expr phase) Text
+  | ESectionRight (CoreNode phase 'ExpressionSort) Text (Expr phase)
+  | EBlock (CoreNode phase 'ExpressionSort) [Statement phase]
+  deriving stock (Generic)
 
--- | Tokenized fallback for unsupported signature surfaces. Tokens are stored
--- structurally so diagnostics can remain deterministic without preserving raw
--- source slices.
-data SignatureToken
-  = SignatureNameToken Name
-  | SignatureIntToken Integer
-  | SignatureArrowToken
-  | SignatureAtToken
-  | SignatureColonToken
-  | SignatureLParenToken
-  | SignatureRParenToken
-  | SignatureLBraceToken
-  | SignatureRBraceToken
-  | SignatureLBracketToken
-  | SignatureRBracketToken
-  | SignatureCommaToken
-  | SignatureOperatorToken Text
-  | SignatureOtherToken Text
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+type role Expr nominal
 
-data ClassMethodSignature = ClassMethodSignature Name SourceSpan SignaturePayload
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+data ClassMethodSignature (phase :: CorePhase)
+  = ClassMethodSignature
+      (CoreNode phase 'StatementSort)
+      (CoreNameAt phase)
+      (SignaturePayload phase)
+  deriving stock (Generic)
 
-data ImplMethod = ImplMethod Name SourceSpan Expr
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+type role ClassMethodSignature nominal
 
--- | Dot-terminated statements that can appear either at the top level or
--- inside block expressions.
-data Statement
-  = SLet Name SourceSpan Expr
-  | SSignature Name SourceSpan SignaturePayload
-  | SData SourceSpan Name [Name] [DataConstructor]
-  | SClass SourceSpan Name [Name] [ClassMethodSignature]
-  | SImpl SourceSpan Name [SignatureType] [ImplMethod]
-  | SModule SourceSpan [Text]
-  | SImport SourceSpan [Text] (Maybe Text) (Maybe [Text])
-  | SExpr SourceSpan Expr
-  deriving stock (Eq, Generic, Show)
-  deriving anyclass (NFData)
+data ImplMethod (phase :: CorePhase)
+  = ImplMethod
+      (CoreNode phase 'StatementSort)
+      (CoreNameAt phase)
+      (Expr phase)
+  deriving stock (Generic)
+
+type role ImplMethod nominal
+
+data Statement (phase :: CorePhase)
+  = SLet (CoreNode phase 'StatementSort) (CoreNameAt phase) (Expr phase)
+  | SSignature (CoreNode phase 'StatementSort) (CoreNameAt phase) (SignaturePayload phase)
+  | SData (CoreNode phase 'StatementSort) (CoreNameAt phase) [CoreNameAt phase] [DataConstructor phase]
+  | SClass (CoreNode phase 'StatementSort) (CoreNameAt phase) [CoreNameAt phase] [ClassMethodSignature phase]
+  | SImpl (CoreNode phase 'StatementSort) (CoreNameAt phase) [SignatureType phase] [ImplMethod phase]
+  | SModule (CoreNode phase 'StatementSort) [Text]
+  | SImport (CoreNode phase 'StatementSort) [Text] (Maybe Text) (Maybe [Text])
+  | SExpr (CoreNode phase 'StatementSort) (Expr phase)
+  deriving stock (Generic)
+
+type role Statement nominal
+
+expressionNode :: Expr phase -> CoreNode phase 'ExpressionSort
+expressionNode expression =
+  case expression of
+    ELit node _ -> node
+    EVar node _ -> node
+    ELambda node _ _ -> node
+    EOperatorValue node _ -> node
+    EList node _ -> node
+    ETuple node _ -> node
+    EApply node _ _ -> node
+    ETypeApplication node _ _ _ -> node
+    EIf node _ _ _ -> node
+    EPatternCase node _ _ -> node
+    EBinary node _ _ _ -> node
+    ESectionLeft node _ _ -> node
+    ESectionRight node _ _ -> node
+    EBlock node _ -> node
+
+patternNode :: Pattern phase -> CoreNode phase 'PatternSort
+patternNode pattern = case pattern of
+  PWildcard node -> node
+  PVariable node _ -> node
+  PLiteral node _ -> node
+  PConstructor node _ _ -> node
+  PList node _ -> node
+  PConsList node _ _ -> node
+  PTuple node _ -> node
+  PAs node _ _ -> node
+  POr node _ -> node
+
+statementNode :: Statement phase -> CoreNode phase 'StatementSort
+statementNode statement =
+  case statement of
+    SLet node _ _ -> node
+    SSignature node _ _ -> node
+    SData node _ _ _ -> node
+    SClass node _ _ _ -> node
+    SImpl node _ _ _ -> node
+    SModule node _ -> node
+    SImport node _ _ _ -> node
+    SExpr node _ -> node
+
+type CoreConstraints (c :: Type -> Constraint) phase =
+  ( c (CoreNameAt phase),
+    c (FactsAt phase 'ExpressionSort),
+    c (FactsAt phase 'PatternSort),
+    c (FactsAt phase 'StatementSort)
+  )
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (Pattern phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (Pattern phase)
+
+instance (CoreConstraints NFData phase) => NFData (Pattern phase)
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (CaseArm phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (CaseArm phase)
+
+instance (CoreConstraints NFData phase) => NFData (CaseArm phase)
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (DataConstructor phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (DataConstructor phase)
+
+instance (CoreConstraints NFData phase) => NFData (DataConstructor phase)
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (Expr phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (Expr phase)
+
+instance (CoreConstraints NFData phase) => NFData (Expr phase)
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (ClassMethodSignature phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (ClassMethodSignature phase)
+
+instance (CoreConstraints NFData phase) => NFData (ClassMethodSignature phase)
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (ImplMethod phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (ImplMethod phase)
+
+instance (CoreConstraints NFData phase) => NFData (ImplMethod phase)
+
+deriving stock instance (CoreConstraints Eq phase) => Eq (Statement phase)
+
+deriving stock instance (CoreConstraints Show phase) => Show (Statement phase)
+
+instance (CoreConstraints NFData phase) => NFData (Statement phase)
