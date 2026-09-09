@@ -715,7 +715,7 @@ resolveExprNames ::
   ResolutionContext ->
   Expr 'Lowered ->
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpression)
+resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpression)
   where
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context
@@ -807,9 +807,8 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
         GeneratedName generatedKind -> GeneratedName generatedKind
 
     resolveUnqualified boundValues namespace identifier
-      | namespace == ValueNamespace,
-        Set.member nameText boundValues =
-          UserName (ResolvedUserName CurrentModule ValueNamespace identifier)
+      | Map.lookup nameText boundValues == Just namespace =
+          UserName (ResolvedUserName CurrentModule namespace identifier)
       | localName namespace nameText =
           UserName (ResolvedUserName CurrentModule namespace identifier)
       | Just dependencyPath <- importedOrigin namespace nameText =
@@ -875,7 +874,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
         ELit node literal -> ELit (resolveNode node) literal
         EVar node name -> EVar (resolveNode node) (resolveName boundValues (referenceNamespace boundValues name) name)
         ELambda node parameter body ->
-          let lambdaBoundValues = maybe boundValues (`Set.insert` boundValues) (sourceNameText parameter)
+          let lambdaBoundValues = maybe boundValues (\name -> Map.insert name ValueNamespace boundValues) (sourceNameText parameter)
            in ELambda (resolveNode node) (resolveBinder ValueNamespace parameter) (resolveExpr lambdaBoundValues body)
         EOperatorValue node symbol -> EOperatorValue (resolveNode node) symbol
         EList node items -> EList (resolveNode node) (map (resolveExpr boundValues) items)
@@ -908,8 +907,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
           Set.map
             (sourceName . mkIdentifier)
             ( Set.unions
-                [ initialBoundValues,
-                  localConstructors,
+                [ Map.keysSet initialBoundValues,
                   ambientValues,
                   ambientConstructors,
                   Map.keysSet visibleValueOrigins,
@@ -925,23 +923,27 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
           let statementBoundValues =
                 case statement of
                   SLet _ bindingName _ ->
-                    Set.unions
-                      [ visibleBoundValues,
-                        maybe Set.empty selfBoundValue (sourceNameText bindingName),
-                        recursivePeerBoundValues statementIndex
+                    Map.unions
+                      [ maybe Map.empty (selfBoundValue visibleBoundValues) (sourceNameText bindingName),
+                        Map.fromSet (const ValueNamespace) (Set.filter (\name -> Map.lookup name visibleBoundValues /= Just ConstructorNamespace) (recursivePeerBoundValues statementIndex)),
+                        visibleBoundValues
                       ]
                   _ -> visibleBoundValues
               resolvedStatement = resolveStatement statementBoundValues statement
               nextVisibleBoundValues =
                 case statement of
                   SLet _ bindingName _ ->
-                    maybe visibleBoundValues (`Set.insert` visibleBoundValues) (sourceNameText bindingName)
+                    maybe visibleBoundValues (\name -> Map.insert name ValueNamespace visibleBoundValues) (sourceNameText bindingName)
+                  SData _ _ _ constructors ->
+                    Map.union
+                      (Map.fromList [(name, ConstructorNamespace) | DataConstructor _ constructor _ <- constructors, Just name <- [sourceNameText constructor]])
+                      visibleBoundValues
                   _ -> visibleBoundValues
            in (nextVisibleBoundValues, resolvedStatement : resolvedRev)
 
-        selfBoundValue name
-          | Set.member name localConstructors = Set.empty
-          | otherwise = Set.singleton name
+        selfBoundValue visibleBindings name
+          | Map.lookup name visibleBindings == Just ConstructorNamespace = Map.empty
+          | otherwise = Map.singleton name ValueNamespace
 
         recursivePeerBoundValues statementIndex =
           Set.fromList
@@ -954,7 +956,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
     referenceNamespace boundValues name =
       case name of
         UserName (UnqualifiedSourceName identifier)
-          | Set.member nameText boundValues -> ValueNamespace
+          | Just namespace <- Map.lookup nameText boundValues -> namespace
           | Set.member nameText localConstructors -> ConstructorNamespace
           | Set.member nameText localValues -> ValueNamespace
           | Map.member nameText visibleValueOrigins -> ValueNamespace
@@ -970,12 +972,12 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
         UserName (UnqualifiedSourceName identifier) ->
           UserName (ResolvedUserName CurrentModule namespace identifier)
         UserName (QualifiedSourceName qualifier member) ->
-          resolveName Set.empty namespace (UserName (QualifiedSourceName qualifier member))
+          resolveName Map.empty namespace (UserName (QualifiedSourceName qualifier member))
         BuiltinName identifier -> BuiltinName identifier
         GeneratedName generatedKind -> GeneratedName generatedKind
 
     resolveCaseArm boundValues (CaseArm node patternValue guard body) =
-      let armBoundValues = Set.union boundValues (corePatternBinders patternValue)
+      let armBoundValues = Map.union (Map.fromSet (const ValueNamespace) (corePatternBinders patternValue)) boundValues
        in CaseArm
             (resolveNode node)
             (resolvePattern patternValue)
@@ -988,7 +990,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
         PVariable node name -> PVariable (resolveNode node) (resolveBinder ValueNamespace name)
         PLiteral node literal -> PLiteral (resolveNode node) literal
         PConstructor node name patterns ->
-          PConstructor (resolveNode node) (resolveName Set.empty ConstructorNamespace name) (map resolvePattern patterns)
+          PConstructor (resolveNode node) (resolveName Map.empty ConstructorNamespace name) (map resolvePattern patterns)
         PList node patterns -> PList (resolveNode node) (map resolvePattern patterns)
         PConsList node headPattern tailPattern ->
           PConsList (resolveNode node) (resolvePattern headPattern) (resolvePattern tailPattern)
@@ -1021,7 +1023,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
         SImpl node name arguments methods ->
           SImpl
             (resolveNode node)
-            (resolveName Set.empty CapabilityNamespace name)
+            (resolveName Map.empty CapabilityNamespace name)
             (map resolveSignatureType arguments)
             (map (resolveImplMethod boundValues) methods)
         SModule node path -> SModule (resolveNode node) path
@@ -1059,14 +1061,14 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
             (resolveSignatureType signatureType)
         UnsupportedSignature tokens -> UnsupportedSignature (map resolveSignatureToken tokens)
 
-    resolveSignatureToken = fmap (resolveName Set.empty TypeNamespace)
+    resolveSignatureToken = fmap (resolveName Map.empty TypeNamespace)
 
     resolveSignatureConstraint (SignatureConstraint name arguments) =
-      SignatureConstraint (resolveName Set.empty CapabilityNamespace name) (map resolveSignatureType arguments)
+      SignatureConstraint (resolveName Map.empty CapabilityNamespace name) (map resolveSignatureType arguments)
 
     resolveSignatureType =
       bimap
-        (resolveName Set.empty TypeNamespace)
+        (resolveName Map.empty TypeNamespace)
         (resolveBinder TypeNamespace)
 
     sourceNameText name =

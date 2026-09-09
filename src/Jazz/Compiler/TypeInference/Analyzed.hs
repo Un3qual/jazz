@@ -149,7 +149,7 @@ attachAnalyzedSourceUnitExpression sourcePath preludePath preludeStatementIndice
       case expression of
         EBlock node statements ->
           EBlock
-            <$> attachExpressionNode state Map.empty expression node
+            <$> attachExpressionNode state Map.empty (Just expression) node
             <*> traverse
               ( \(ownerPath, statementBinders, statement) ->
                   attachStatementNode ownerPath state statementBinders statement
@@ -208,19 +208,19 @@ attachExpr modulePath state binders expression =
         <*> traverse (uncurry attachStatement) (statementEnvironments modulePath binders statements)
   where
     recur = attachExpr modulePath state binders
-    attachNode = attachExpressionNode state binders
+    attachNode value = attachExpressionNode state binders (Just value)
     attachPattern = attachPatternNode state
     attachStatement statementBinders = attachStatementNode modulePath state statementBinders
     attachArm (CaseArm armNode pattern guard body) =
       let armBinders = extendPatternBinders modulePath binders pattern
           recurArm = attachExpr modulePath state armBinders
        in CaseArm
-            <$> attachExpressionNode state armBinders body armNode
+            <$> attachExpressionNode state armBinders Nothing armNode
             <*> attachPattern pattern
             <*> traverse recurArm guard
             <*> recurArm body
 
-attachExpressionNode :: InferState -> Map ResolvedName CoreBinderId -> Expr 'Resolved -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
+attachExpressionNode :: InferState -> Map ResolvedName CoreBinderId -> Maybe (Expr 'Resolved) -> CoreNode 'Resolved 'ExpressionSort -> Attachment (CoreNode 'Analyzed 'ExpressionSort)
 attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
   case Map.lookup nodeId (inferExpressionFactTypes state) of
     Nothing -> missing (MissingExpressionFacts nodeId)
@@ -259,17 +259,17 @@ attachExpressionNode state binders expression (CoreNode nodeId spanValue ()) =
                   RuntimePlan
                     ( foldMap (Seq.singleton . InstantiateTypes) (attachedRuntimeArguments explicitFacts)
                         <> evidenceObligations
-                        <> numericLiteralObligations state expression semanticType
+                        <> foldMap (\value -> numericLiteralObligations state value semanticType) expression
                         <> Seq.singleton (ConstrainResult semanticType)
                     )
               }
 
-explicitInstantiationFacts :: InferState -> Map ResolvedName CoreBinderId -> CoreNodeId -> Expr 'Resolved -> Attachment AttachedExplicitInstantiation
+explicitInstantiationFacts :: InferState -> Map ResolvedName CoreBinderId -> CoreNodeId -> Maybe (Expr 'Resolved) -> Attachment AttachedExplicitInstantiation
 explicitInstantiationFacts state binders nodeId expression =
   case (expression, Map.lookup nodeId (inferExplicitInstantiationSeeds state)) of
-    (ETypeApplication {}, Nothing) ->
+    (Just ETypeApplication {}, Nothing) ->
       missing (MissingExplicitInstantiationSeed nodeId)
-    (ETypeApplication _ function _ _, Just seed) ->
+    (Just (ETypeApplication _ function _ _), Just seed) ->
       attachSeed function seed
     (_, Nothing) -> pure noExplicitInstantiation
     (_, Just _) -> missing (UnexpectedExplicitInstantiationSeed nodeId)

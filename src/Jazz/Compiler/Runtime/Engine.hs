@@ -540,7 +540,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         SData _ _ _ constructors ->
           insertDataConstructors (modulePathForStatement statementIndex) constructors env
         SClass _ capabilityName _ methods ->
-          insertClassMethods capabilityName methods env
+          insertClassMethods (modulePathForStatement statementIndex) capabilityName methods env
         SImpl implementationNode capabilityName _ methods ->
           insertImplMethods (modulePathForStatement statementIndex) implementationNode capabilityName methods env
         _ -> env
@@ -919,7 +919,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
             SData _ _ _ constructors ->
               insertDataConstructors blockModulePath constructors env
             SClass _ capabilityName _ methods ->
-              insertClassMethods capabilityName methods env
+              insertClassMethods blockModulePath capabilityName methods env
             SImpl implementationNode capabilityName _ methods ->
               insertImplMethods blockModulePath implementationNode capabilityName methods env
             _ -> env
@@ -997,8 +997,8 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
         parameterVariable (SemanticVariable variable) = Just variable
         parameterVariable _ = Nothing
 
-    insertClassMethods :: ResolvedName -> [ClassMethodSignature 'Analyzed] -> RuntimeEnv -> RuntimeEnv
-    insertClassMethods capabilityName methods env =
+    insertClassMethods :: Maybe SourceUnitOwner -> ResolvedName -> [ClassMethodSignature 'Analyzed] -> RuntimeEnv -> RuntimeEnv
+    insertClassMethods definitionModulePath capabilityName methods env =
       foldl' insertMethod env methods
       where
         insertMethod envAcc (ClassMethodSignature node methodName _) =
@@ -1010,7 +1010,7 @@ evaluateRuntimeScopePureRequest request = go Nothing indexedStatements
                     ( VQualifiedMethodApplication
                         methodKey
                         (analyzedMethodClassParameter signature)
-                        (analyzedMethodType signature)
+                        (qualifyRuntimeType definitionModulePath (analyzedMethodType signature))
                         emptyRuntimeMethodCandidates
                         emptyRuntimeAppliedArguments
                     )

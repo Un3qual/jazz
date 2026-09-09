@@ -531,7 +531,7 @@ testPreludeScopePlanUsesNonemptyModulePath = do
           [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
   assertEqual
     "prelude statement path"
-    (Just (PreludeSourceUnit preludeModulePath))
+    (Just (InjectedPreludeSourceUnit preludeModulePath Nothing))
     (scopePlanModulePathForStatement plan 0)
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()

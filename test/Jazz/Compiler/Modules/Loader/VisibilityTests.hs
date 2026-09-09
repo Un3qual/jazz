@@ -22,6 +22,8 @@ import Jazz.Compiler.Driver
     runModuleGraphWithResolvedPrelude,
     runOutput,
     runRuntimeErrors,
+    runSource,
+    runSourceWithPrelude,
     runWarnings,
   )
 import Jazz.Compiler.Modules.Loader.Shared
@@ -37,7 +39,11 @@ import Jazz.TestHarness
 
 visibilityTests :: [NamedTest]
 visibilityTests =
-  [ ("ordinary Prelude implementations retain separate evidence ownership", testOrdinaryPreludeImplementationIdentity),
+  [ ("case arms retain independent attachment facts", testCaseArmInstantiation),
+    ("failed dependencies retain their original diagnostics", testFailedDependencyInstantiation),
+    ("standalone Prelude constructors match authored patterns", testStandalonePreludePattern),
+    ("future constructors do not suppress recursive values", testFutureConstructorBinding),
+    ("ordinary Prelude implementations retain separate evidence ownership", testOrdinaryPreludeImplementationIdentity),
     ("ordinary Prelude modules retain nominal constructor identity", testOrdinaryPreludeIdentity),
     ("local constructors remain visible before value rebinding", testLocalConstructorRebinding),
     ("run module graph default helper executes bundled prelude aliases across files", testRunModuleGraphDefaultLoadsBundledPrelude),
@@ -1731,3 +1737,45 @@ testOrdinaryPreludeImplementationIdentity = do
   assertEqual "ordinary Prelude implementation compile errors" [] (runCompileErrors result)
   assertEqual "ordinary Prelude implementation runtime errors" [] (runRuntimeErrors result)
   assertEqual "ordinary and ambient Prelude method results" (Just "(True, 0)") (runOutput result)
+
+testCaseArmInstantiation :: IO ()
+testCaseArmInstantiation = do
+  result <-
+    runSourceWithPrelude
+      defaultWarningSettings
+      Nothing
+      "identity = \\(x) -> x. selected = case 0 { | _ -> identity @Int }. selected 7."
+  assertEqual "case arm compile errors" [] (runCompileErrors result)
+  assertEqual "case arm runtime errors" [] (runRuntimeErrors result)
+  assertEqual "case arm output" (Just "7") (runOutput result)
+
+testFailedDependencyInstantiation :: IO ()
+testFailedDependencyInstantiation = do
+  let sources =
+        Map.fromList
+          [ ("src/App/Main.jz", "module App::Main { import Lib::Broken. identity @Int 7. }"),
+            ("src/Lib/Broken.jz", "module Lib::Broken { identity = \\(x) -> x. bad = missing. }")
+          ]
+  result <- compileModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  case compileErrors result of
+    [diagnostic] -> assertContains "original dependency diagnostic" "missing" (renderDiagnostic diagnostic)
+    diagnostics -> failTest ("expected the dependency diagnostic, got " <> Text.pack (show diagnostics))
+
+testStandalonePreludePattern :: IO ()
+testStandalonePreludePattern =
+  mapM_ check [source, "module App::Main { " <> source <> " }"]
+  where
+    source = "matches = \\(item) -> case item { | LT -> True | _ -> False }. (case LT { | LT -> True | _ -> False }, matches (Ord::compare 1 2))."
+    check program = do
+      result <- runSource defaultWarningSettings program
+      assertEqual "Prelude pattern compile errors" [] (runCompileErrors result)
+      assertEqual "Prelude pattern runtime errors" [] (runRuntimeErrors result)
+      assertEqual "Prelude pattern results" (Just "(True, True)") (runOutput result)
+
+testFutureConstructorBinding :: IO ()
+testFutureConstructorBinding = do
+  let sources = Map.singleton "src/App/Main.jz" "module App::Main { Just = \\(x) -> if x == 0 then 7 else Just (x - 1). result = Just 2. data Marker = Just. result. }"
+  result <- runModuleGraphWithPrelude defaultWarningSettings Nothing resolverConfig ["App", "Main"] (lookupSourceIn sources)
+  assertEqual "future constructor compile errors" [] (runCompileErrors result)
+  assertEqual "future constructor runtime errors" [] (runRuntimeErrors result)
+  assertEqual "recursive binding output" (Just "7") (runOutput result)

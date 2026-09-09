@@ -14,6 +14,7 @@ where
 
 import Data.List (mapAccumL)
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Maybe (listToMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Jazz.Compiler.AST (Statement (..))
@@ -26,6 +27,7 @@ sourceUnitOwnerOrigin owner =
     StandaloneSourceUnit _ -> CurrentModule
     NamedSourceUnit path -> ImportedModule path
     PreludeSourceUnit _ -> AmbientPrelude
+    InjectedPreludeSourceUnit _ destination -> maybe CurrentModule ImportedModule destination
 
 sourceUnitStatementOwners ::
   ModulePath ->
@@ -36,7 +38,7 @@ sourceUnitStatementOwners ::
 sourceUnitStatementOwners sourcePath preludePath preludeStatementIndices statements =
   statementOwners
     (StandaloneSourceUnit sourcePath)
-    (PreludeSourceUnit preludePath)
+    (injectedPreludeOwner preludePath statements)
     namedOwner
     preludeStatementIndices
     statements
@@ -54,12 +56,13 @@ sourceUnitStatementRuntimePaths ::
   Maybe SourceUnitOwner ->
   [Statement phase] ->
   [Maybe SourceUnitOwner]
-sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModulePath =
+sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModulePath statements =
   statementOwners
     initialModulePath
-    (Just (PreludeSourceUnit preludePath))
+    (Just (injectedPreludeOwner preludePath statements))
     declaredPath
     preludeStatementIndices
+    statements
   where
     declaredPath statement =
       case statement of
@@ -67,6 +70,17 @@ sourceUnitStatementRuntimePaths preludePath preludeStatementIndices initialModul
           Just . NamedSourceUnit . mkModulePath . fmap mkIdentifier
             <$> NonEmpty.nonEmpty modulePathSegments
         _ -> Nothing
+
+-- Injected declarations are resolved with the authored source, so their runtime
+-- names must use its module origin even though their evidence belongs to Prelude.
+injectedPreludeOwner :: ModulePath -> [Statement phase] -> SourceUnitOwner
+injectedPreludeOwner preludePath statements =
+  InjectedPreludeSourceUnit preludePath $
+    listToMaybe
+      [ mkModulePath (fmap mkIdentifier segments)
+      | SModule _ path <- statements,
+        Just segments <- [NonEmpty.nonEmpty path]
+      ]
 
 statementOwners ::
   owner ->

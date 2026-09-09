@@ -59,6 +59,8 @@ data SourceUnitOwner
   = StandaloneSourceUnit ModulePath
   | NamedSourceUnit ModulePath
   | PreludeSourceUnit ModulePath
+  | -- The prelude artifact and the optional module into which it was injected.
+    InjectedPreludeSourceUnit ModulePath (Maybe ModulePath)
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
 
@@ -68,6 +70,7 @@ sourceUnitOwnerModulePath owner =
     StandaloneSourceUnit path -> path
     NamedSourceUnit path -> path
     PreludeSourceUnit path -> path
+    InjectedPreludeSourceUnit path _ -> path
 
 newtype SourceFile = SourceFile FilePath
   deriving stock (Eq, Generic, Ord, Show)

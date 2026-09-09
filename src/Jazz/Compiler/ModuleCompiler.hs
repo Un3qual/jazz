@@ -128,10 +128,13 @@ analyzeProgram inputs resolvedProgram =
   do
     (preludeDiagnostics, maybePrelude, ambientInterface) <- analyzePrelude inputs (coreProgramPrelude resolvedProgram)
     (maybeModules, _, moduleDiagnostics) <-
-      foldM
-        (analyzeModule ambientInterface)
-        (Seq.empty, Map.empty, Seq.empty)
-        (NonEmpty.toList (coreProgramModules resolvedProgram))
+      if any isErrorDiagnostic preludeDiagnostics
+        then pure (Seq.empty, Map.empty, Seq.empty)
+        else
+          foldM
+            (analyzeModule ambientInterface)
+            (Seq.empty, Map.empty, Seq.empty)
+            (NonEmpty.toList (coreProgramModules resolvedProgram))
     let diagnostics = preludeDiagnostics <> toList moduleDiagnostics
     if any isErrorDiagnostic diagnostics
       then pure (diagnostics, Nothing)
@@ -142,6 +145,9 @@ analyzeProgram inputs resolvedProgram =
             Right analyzed -> pure (diagnostics, Just analyzed)
         _ -> fail "successful analyzed program lost a prelude or module artifact"
   where
+    analyzeModule _ accumulated@(_, dependenciesByPath, _) resolvedModule
+      | any ((`Map.notMember` dependenciesByPath) . ModuleGraph.importedModule) (coreModuleImports resolvedModule) =
+          pure accumulated
     analyzeModule ambientInterface (modules, dependenciesByPath, diagnostics) resolvedModule = do
       let importedInterface =
             ambientInterface
@@ -170,15 +176,15 @@ analyzeProgram inputs resolvedProgram =
                 (analyzedModuleFromExpression resolvedModule inference moduleStatementFacts analyzedExpression)
           )
           maybeAnalyzedExpression
-      let dependency =
+      let dependency analyzedModule =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
               inferredModuleInterface inference,
-              maybe Map.empty moduleBinderInventory maybeAnalyzedModule,
+              moduleBinderInventory analyzedModule,
               moduleEvidenceCandidates NamedSourceUnit resolvedModule
             )
       pure
         ( modules Seq.|> maybeAnalyzedModule,
-          Map.insert modulePath dependency dependenciesByPath,
+          maybe dependenciesByPath (\analyzedModule -> Map.insert modulePath (dependency analyzedModule) dependenciesByPath) maybeAnalyzedModule,
           diagnostics <> Seq.fromList (inferredDiagnostics inference)
         )
 
