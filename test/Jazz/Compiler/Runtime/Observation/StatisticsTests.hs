@@ -20,8 +20,7 @@ import Jazz.Compiler.AST
     Literal (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-    BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
+  ( BuiltinSymbol (BuiltinArguments, BuiltinMap, BuiltinTextLength, BuiltinTextUnconsRaw),
     builtinSymbolKernelName,
   )
 import Jazz.Compiler.Diagnostics
@@ -257,7 +256,6 @@ testDisabledObservationSkipsContinuationDepthState = do
                 inspectingHost
                 Nothing
                 EvaluateEntryModule
-                ResolveKernelOnly
                 Map.empty
                 [statementExpression (SourceSpan 1 1) expression]
           )

@@ -17,9 +17,6 @@ import Jazz.Compiler.AST
     Expr (..),
     Statement (..),
   )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-  )
 import Jazz.Compiler.Name
   ( NameNamespace (CapabilityNamespace, TypeNamespace, ValueNamespace),
     ResolvedName,
@@ -414,13 +411,12 @@ testProductionScopeElaboratesSignatureOnce = do
       TypeInferenceScope.inferScopeTypeWithMode
         syntheticProductionInfer
         InferConcreteFunctions
-        ResolveKernelOnly
         Map.empty
         initialInferState
         (programStatements (resolvedProgram "identity :: a -> a.\nidentity = \\(item) -> item."))
 
     syntheticProductionInfer :: InferExprWithModeFn
-    syntheticProductionInfer mode _ env state expression =
+    syntheticProductionInfer mode env state expression =
       case mode of
         InferConcreteFunctions ->
           case expression of
@@ -449,7 +445,6 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
       TypeInferenceScope.inferScopeTypeWithModeAndForwardBindings
         syntheticProductionInfer
         InferenceOnly
-        ResolveKernelOnly
         Map.empty
         initialInferState
         statements
@@ -458,12 +453,11 @@ testPreparedInferenceScopeRederivesForOuterBindings = do
         (prepareRecursiveScope (Set.singleton (valueName "self")) statements)
         syntheticProductionInfer
         InferenceOnly
-        ResolveKernelOnly
         Map.empty
         initialInferState
 
     syntheticProductionInfer :: InferExprWithModeFn
-    syntheticProductionInfer mode _ env state expression =
+    syntheticProductionInfer mode env state expression =
       case mode of
         InferenceOnly ->
           case expression of
@@ -491,13 +485,12 @@ testRecursivePreviewSolverStateIsTransactional =
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        ResolveKernelOnly
         Map.empty
         initialInferState
         (programStatements (resolvedProgram "left = right.\nearly = probe.\nright = left."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
-    syntheticPreviewInfer mode _ _ state expression =
+    syntheticPreviewInfer mode _ state expression =
       case expression of
         EVar _ name
           | name == valueName "left" ->
@@ -535,13 +528,12 @@ testRecursivePreviewRefreshesAfterSolverChange =
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        ResolveKernelOnly
         (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
         (programStatements (resolvedProgram "left = right.\nadvance = advanceSolver.\nprobe = probeLeft.\nright = left shared."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
-    syntheticPreviewInfer mode _ env state expression =
+    syntheticPreviewInfer mode env state expression =
       case expression of
         EVar _ name
           | name == valueName "right" ->
@@ -611,13 +603,12 @@ assertRecursivePreviewRefreshesAfterConstraintChange label addConstraint hasCons
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         syntheticPreviewInfer
-        ResolveKernelOnly
         (Map.singleton (valueName "shared") (PlainTypeBinding (SemanticVariable sharedTypeVar)))
         initialInferState
         (programStatements (resolvedProgram "left = right.\nadvance = advanceConstraint.\nprobe = probeLeft.\nright = left constraintSensitive."))
 
     syntheticPreviewInfer :: InferExprWithModeFn
-    syntheticPreviewInfer mode _ env state expression =
+    syntheticPreviewInfer mode env state expression =
       case expression of
         EVar _ name
           | name == valueName "right" ->
@@ -668,13 +659,12 @@ testRecursivePreviewReuseAtSameFrontier =
     (_, finalState) =
       TypeInferenceScope.inferScopeType
         allocatingInfer
-        ResolveKernelOnly
         Map.empty
         initialInferState
         (programStatements (resolvedProgram "left = right.\nearlyOne = probe.\nearlyTwo = probe.\nearlyThree = probe.\nright = left."))
 
     allocatingInfer :: InferExprWithModeFn
-    allocatingInfer mode _ _ state _ =
+    allocatingInfer mode _ state _ =
       let (_, nextState) = freshTypeVar state
        in inferenceOnlyResult mode (Just SemanticBool) nextState
 

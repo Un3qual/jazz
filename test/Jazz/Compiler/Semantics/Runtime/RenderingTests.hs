@@ -13,9 +13,6 @@ import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( Literal (..),
   )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-  )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
@@ -36,7 +33,6 @@ import Jazz.Compiler.Runtime
   ( RuntimeAnnotation (..),
     RuntimeValue (..),
     evaluateRuntimeExpr,
-    evaluateRuntimeExprWithBuiltins,
   )
 import Jazz.Compiler.Runtime.Semantics
   ( literalRuntimeValue,
@@ -708,8 +704,7 @@ testStructuralAdtEqualityRuntimeSuccess = do
 testStructuralAdtEqualitySeesThroughRuntimeTypeHints :: IO ()
 testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
   let result =
-        evaluateRuntimeExprWithBuiltins
-          ResolveKernelOnly
+        evaluateRuntimeExpr
           ( expressionBlock
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
                 statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),
@@ -727,8 +722,7 @@ testStructuralAdtEqualitySeesThroughRuntimeTypeHints = do
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints :: IO ()
 testStructuralAdtEqualityPreservesIncompatibleRuntimeTypeHints = do
   let result =
-        evaluateRuntimeExprWithBuiltins
-          ResolveKernelOnly
+        evaluateRuntimeExpr
           ( expressionBlock
               [ statementData (SourceSpan 1 1) "Tag" ["a"] [dataConstructor "Tag" []],
                 statementLet "left" (SourceSpan 2 1) (typedTag NumericUInt8),

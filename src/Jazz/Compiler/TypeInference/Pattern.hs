@@ -23,7 +23,6 @@ import Jazz.Compiler.AST
     Pattern (..),
     patternNode,
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.Pattern
   ( commonPatternBinderNames,
@@ -65,13 +64,12 @@ import Jazz.Compiler.TypeInference.Types
 inferPatternCaseType ::
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   ExpressionType ->
   InferState ->
   [CaseArm 'Resolved] ->
   (Maybe ExpressionType, InferState)
-inferPatternCaseType inferExpression mode builtinMode env scrutineeType initialState caseArms =
+inferPatternCaseType inferExpression mode env scrutineeType initialState caseArms =
   foldl' step (Nothing, initialState) caseArms
   where
     step (maybeExpectedBodyType, stateAcc) (CaseArm armNode pattern guardExpr bodyExpr) =
@@ -88,9 +86,9 @@ inferPatternCaseType inferExpression mode builtinMode env scrutineeType initialS
                       (patternBindings patternTyping)
                       env
                   stateAfterGuard =
-                    inferCaseGuardType builtinMode armEnv stateAfterPattern guardExpr
+                    inferCaseGuardType armEnv stateAfterPattern guardExpr
                   (bodyResult, stateAfterBody) =
-                    inferExpression mode builtinMode armEnv stateAfterGuard bodyExpr
+                    inferExpression mode armEnv stateAfterGuard bodyExpr
                   maybeBodyType = bodyResult
                   stateAfterBodyFacts =
                     maybe
@@ -116,12 +114,12 @@ inferPatternCaseType inferExpression mode builtinMode env scrutineeType initialS
                               )
                           )
 
-    inferCaseGuardType builtinMode' armEnv stateAcc guardExpr =
+    inferCaseGuardType armEnv stateAcc guardExpr =
       case guardExpr of
         Nothing -> stateAcc
         Just conditionExpr ->
           let (guardResult, stateAfterGuard) =
-                inferExpression mode builtinMode' armEnv stateAcc conditionExpr
+                inferExpression mode armEnv stateAcc conditionExpr
               maybeGuardType = guardResult
               checkedState =
                 case maybeGuardType of

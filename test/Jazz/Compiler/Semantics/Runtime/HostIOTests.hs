@@ -30,7 +30,6 @@ import Jazz.Compiler.AST
     Expr,
     Literal (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.Driver
   ( runCompileErrors,
@@ -482,7 +481,6 @@ testHostDependencyScopeKeepsUnusedBindingLazy = do
               statefulHost
               Nothing
               EvaluateDependencyModule
-              ResolveKernelOnly
               Map.empty
               statements
           )
@@ -509,7 +507,6 @@ testHostDependencyBindingIsShared = do
             statefulHost
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
-            ResolveKernelOnly
             Map.empty
             dependencyStatements
         case dependencyResult of
@@ -519,7 +516,6 @@ testHostDependencyBindingIsShared = do
               statefulHost
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
-              ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
@@ -559,7 +555,6 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
               evaluationHost
               (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
               EvaluateDependencyModule
-              ResolveKernelOnly
               Map.empty
               dependencyStatements
           case dependencyResult of
@@ -569,7 +564,6 @@ testHostMapCallbackPreservesActiveHostCacheAndEffectOrder = do
                 evaluationHost
                 (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
                 EvaluateEntryModule
-                ResolveKernelOnly
                 (scopeResultEnvironment dependencyScope)
                 entryStatements
       (result, calls) = runState action []
@@ -600,7 +594,6 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
             statefulHost
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
-            ResolveKernelOnly
             Map.empty
             dependencyStatements
         case dependencyResult of
@@ -610,7 +603,6 @@ testPublicHostScopeKeepsImportedDeferredCellOnActiveHost = do
               statefulHost
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
-              ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
@@ -648,7 +640,6 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
             statefulHost
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
-            ResolveKernelOnly
             Map.empty
             dependencyStatements
         case dependencyResult of
@@ -658,7 +649,6 @@ testHostDependencyScopeKeepsDeferredCellsOnActiveHost = do
               statefulHost
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
-              ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []
@@ -700,7 +690,6 @@ testStackedResultObligationsPreserveRecursiveUnwindOrder = do
               statefulHost
               Nothing
               EvaluateEntryModule
-              ResolveKernelOnly
               (Map.singleton (fixtureValueName "convert") (Right stackedFunction))
               statements
           )
@@ -741,7 +730,6 @@ testHostDependencyBindingRetainsRuntimePlan = do
             statefulHost
             (Just (NamedSourceUnit (mkModulePath ("Dependency" :| []))))
             EvaluateDependencyModule
-            ResolveKernelOnly
             Map.empty
             dependencyStatements
         case dependencyResult of
@@ -751,7 +739,6 @@ testHostDependencyBindingRetainsRuntimePlan = do
               statefulHost
               (Just (NamedSourceUnit (mkModulePath ("Main" :| []))))
               EvaluateEntryModule
-              ResolveKernelOnly
               (scopeResultEnvironment dependencyScope)
               entryStatements
       (result, calls) = runState action []

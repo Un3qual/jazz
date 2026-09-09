@@ -5,7 +5,6 @@
 module Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
-    preparedPreludeBuiltinMode,
     preparedPreludeExpr,
     preparePrelude,
     resolvedExplicitPrelude,
@@ -21,7 +20,6 @@ import Jazz.Compiler.AST
     Expr (..),
     Statement (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.BundledPrelude (bundledPreludeIdentity)
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -70,9 +68,6 @@ data PreparedPrelude = PreparedPrelude
   }
   deriving (Eq, Show)
 
-preparedPreludeBuiltinMode :: PreparedPrelude -> BuiltinResolutionMode
-preparedPreludeBuiltinMode = preludeBuiltinMode . preparedPreludeArtifact
-
 preparedPreludeExpr :: PreparedPrelude -> Maybe (Expr 'Lowered)
 preparedPreludeExpr = fmap coreModuleExpr . preludeModule . preparedPreludeArtifact
 
@@ -105,7 +100,6 @@ preparePrelude resolvedPrelude =
     preludeArtifact identity maybeModule =
       PreludeArtifact
         { preludeIdentity = identity,
-          preludeBuiltinMode = ResolveKernelOnly,
           preludeModule = maybeModule
         }
 

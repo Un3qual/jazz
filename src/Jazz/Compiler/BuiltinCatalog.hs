@@ -6,11 +6,10 @@
 -- | Canonical builtin inventory and name-resolution policy shared across
 -- analyzer, type inference, runtime, and prelude validation.
 module Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    BuiltinOwnership (..),
+  ( BuiltinOwnership (..),
     BuiltinSymbol (..),
     allBuiltinSymbols,
-    builtinNamesInMode,
+    kernelBuiltinNames,
     builtinSymbolOwnership,
     builtinSymbolArity,
     builtinSymbolName,
@@ -22,14 +21,10 @@ module Jazz.Compiler.BuiltinCatalog
     numericTypeIntegerBounds,
     numericTypeIsIntegral,
     numericTypeLiteralIntegerBounds,
-    numericTypeSupportsRuntimeArithmetic,
-    numericTypeSupportsRuntimeComparison,
     renderNumericTypeName,
     kernelBridgeBindingPrefix,
     kernelBridgeTargetName,
-    isBuiltinSymbolNameInMode,
     isKernelBuiltinSymbolName,
-    lookupBuiltinSymbolInMode,
     lookupBuiltinSymbol,
     lookupKernelBuiltinSymbol,
   )
@@ -45,13 +40,6 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 import Jazz.Compiler.TypeRepresentation (NumericType (..))
-
--- | Selects the compiler-owned builtin naming scheme used by every compiler
--- phase. Public builtin spellings remain available through the Prelude.
-data BuiltinResolutionMode
-  = ResolveKernelOnly
-  deriving stock (Eq, Generic, Ord, Show)
-  deriving anyclass (NFData)
 
 -- | Declares whether a builtin is conceptually owned by the kernel runtime or
 -- should be surfaced through the prelude contract.
@@ -115,8 +103,8 @@ allBuiltinSymbols = [minBound .. maxBound]
 
 -- | Render the accepted compiler-owned builtin names. Public Prelude aliases
 -- are deliberately absent from this set.
-builtinNamesInMode :: BuiltinResolutionMode -> Set Text
-builtinNamesInMode ResolveKernelOnly =
+kernelBuiltinNames :: Set Text
+kernelBuiltinNames =
   Set.fromList (map builtinSymbolKernelName allBuiltinSymbols)
 
 -- | Classify the public ownership contract for a builtin independent of the
@@ -380,17 +368,6 @@ numericTypeIsIntegral numericType =
     NumericFloat32 -> False
     NumericFloat64 -> False
 
-numericTypeSupportsRuntimeArithmetic :: NumericType -> Bool
-numericTypeSupportsRuntimeArithmetic numericType =
-  numericTypeIsIntegral numericType
-    || numericType == NumericFloat16
-    || numericType == NumericFloat32
-    || numericType == NumericFloat64
-
-numericTypeSupportsRuntimeComparison :: NumericType -> Bool
-numericTypeSupportsRuntimeComparison numericType =
-  numericTypeSupportsRuntimeArithmetic numericType
-
 -- | Prefix reserved for prelude bindings that directly expose kernel-owned
 -- builtin symbols. Example: `__kernel_map = __kernel_map.`
 kernelBridgeBindingPrefix :: Text
@@ -419,18 +396,6 @@ lookupKernelBuiltinSymbol :: Text -> Maybe BuiltinSymbol
 lookupKernelBuiltinSymbol name =
   lookupByRenderedName builtinSymbolKernelName name
 
--- | Resolve a compiler-owned builtin name according to the selected mode.
-lookupBuiltinSymbolInMode :: BuiltinResolutionMode -> Text -> Maybe BuiltinSymbol
-lookupBuiltinSymbolInMode ResolveKernelOnly =
-  lookupKernelBuiltinSymbol
-
--- | Test whether a name is accepted by the selected builtin resolution mode.
-isBuiltinSymbolNameInMode :: BuiltinResolutionMode -> Text -> Bool
-isBuiltinSymbolNameInMode mode name =
-  case lookupBuiltinSymbolInMode mode name of
-    Just _ -> True
-    Nothing -> False
-
 -- | Test whether a name is reserved for the compiler-owned kernel bridge.
 isKernelBuiltinSymbolName :: Text -> Bool
 isKernelBuiltinSymbolName name =
@@ -438,7 +403,7 @@ isKernelBuiltinSymbolName name =
     Just _ -> True
     Nothing -> False
 
--- | Shared lookup helper used by public-name and kernel-name resolution.
+-- | Look up a builtin by its rendered name.
 lookupByRenderedName :: (BuiltinSymbol -> Text) -> Text -> Maybe BuiltinSymbol
 lookupByRenderedName renderSymbolName name =
   find (\symbol -> renderSymbolName symbol == name) allBuiltinSymbols

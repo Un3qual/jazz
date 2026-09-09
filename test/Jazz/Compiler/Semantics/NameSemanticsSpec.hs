@@ -4,7 +4,6 @@ module Main (main) where
 
 import Data.List.NonEmpty (NonEmpty (..))
 import Jazz.Compiler.AST (Expr (..), Statement (..))
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleIdentity (mkModulePath)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
@@ -80,7 +79,7 @@ testGeneratedNamesDoNotAcquireUserPurity = do
 testKernelBridgeTargetResolution :: IO ()
 testKernelBridgeTargetResolution =
   assertRight "lower kernel bridge" (parseAndLowerStandaloneSource "__kernel_hd = __kernel_hd.") $ \lowered ->
-    assertRight "resolve kernel bridge" (resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) lowered) $ \resolved ->
+    assertRight "resolve kernel bridge" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved ->
       case resolved of
         EBlock _ [SLet _ binder (EVar _ target)] -> do
           assertEqual

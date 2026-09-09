@@ -15,9 +15,6 @@ import Jazz.Compiler.AST
     Statement (SLet, SSignature),
   )
 import qualified Jazz.Compiler.AST as AST
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-  )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (ConcreteImplFact),
   )
@@ -328,8 +325,7 @@ assertImportedConstraintFactAccepted label sourceArgument importedArgument = do
   where
     inferenceInputs factArgument =
       InferenceInputs
-        { inferenceBuiltinMode = ResolveKernelOnly,
-          inferenceWarningSettings = defaultWarningSettings,
+        { inferenceWarningSettings = defaultWarningSettings,
           inferenceImportedTypes = Map.empty,
           inferenceImportedDataTypes =
             Map.fromList

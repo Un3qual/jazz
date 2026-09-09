@@ -23,9 +23,6 @@ import Jazz.Compiler.AST
     Literal (..),
     Statement (..),
   )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-  )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
     isErrorDiagnostic,
@@ -67,7 +64,7 @@ import Jazz.Compiler.Semantics.Runtime.Fixtures
 import Jazz.Compiler.Semantics.Runtime.Shared
 import Jazz.Compiler.SourceProgram (parseAndLowerStandaloneSource)
 import Jazz.Compiler.TypeInference
-  ( analyzeSourceUnitExpressionWithBuiltins,
+  ( analyzeSourceUnitExpression,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.TypeRepresentation
@@ -2027,7 +2024,7 @@ analyzeRuntimePlan preludeStatementIndices source = do
       Left diagnostic ->
         failTest ("runtime-plan fixture failed to lower: " <> renderDiagnostic diagnostic)
       Right lowered ->
-        case resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) lowered of
+        case resolveStandaloneExprNames (exportInventory []) lowered of
           Left diagnostics ->
             failTest
               ( "runtime-plan fixture failed to resolve: "
@@ -2035,8 +2032,7 @@ analyzeRuntimePlan preludeStatementIndices source = do
               )
           Right resolved -> pure resolved
   (inference, attachment) <-
-    analyzeSourceUnitExpressionWithBuiltins
-      ResolveKernelOnly
+    analyzeSourceUnitExpression
       preludeModulePath
       Set.empty
       preludeStatementIndices

@@ -55,7 +55,6 @@ import Jazz.Compiler.AST
     FactsAt,
     Statement,
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan)
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
@@ -152,7 +151,6 @@ coreModuleExpr coreModule =
 
 data PreludeArtifact (phase :: CorePhase) = PreludeArtifact
   { preludeIdentity :: ModuleIdentity,
-    preludeBuiltinMode :: BuiltinResolutionMode,
     preludeModule :: Maybe (CoreModule phase)
   }
   deriving stock (Generic)

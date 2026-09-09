@@ -32,7 +32,6 @@ import Jazz.Compiler.AST
     statementNode,
   )
 import qualified Jazz.Compiler.AST as AST
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
@@ -159,7 +158,7 @@ analyzeProgram inputs resolvedProgram =
           (moduleStatementFactSeeds resolvedModule)
           (importedBinderIds importedInterface)
           (Map.unionWith (<>) (moduleEvidenceCandidates resolvedModule) (importedEvidenceCandidates importedInterface))
-          (moduleInferenceInputs inputs (ModuleGraph.preludeBuiltinMode (coreProgramPrelude resolvedProgram)) modulePath importedInterface)
+          (moduleInferenceInputs inputs modulePath importedInterface)
           Set.empty
           (coreModuleExpr resolvedModule)
       maybeAnalyzedExpression <- checkedAttachment modulePath attachment
@@ -189,7 +188,7 @@ analyzePrelude inputs prelude =
     Nothing ->
       pure
         ( [],
-          Just (ModuleGraph.PreludeArtifact (ModuleGraph.preludeIdentity prelude) (ModuleGraph.preludeBuiltinMode prelude) Nothing),
+          Just (ModuleGraph.PreludeArtifact (ModuleGraph.preludeIdentity prelude) Nothing),
           mempty
         )
     Just resolvedPreludeModule -> do
@@ -200,7 +199,7 @@ analyzePrelude inputs prelude =
           (moduleStatementFactSeeds resolvedPreludeModule)
           Map.empty
           (moduleEvidenceCandidates resolvedPreludeModule)
-          (moduleInferenceInputs inputs (ModuleGraph.preludeBuiltinMode prelude) preludePath mempty)
+          (moduleInferenceInputs inputs preludePath mempty)
           (compileInputPreludeHiddenStatementIndices inputs)
           (coreModuleExpr resolvedPreludeModule)
       maybeAnalyzedExpression <- checkedAttachment preludePath attachment
@@ -214,7 +213,7 @@ analyzePrelude inputs prelude =
           maybeAnalyzedExpression
       let diagnostics = inferredDiagnostics inference
           maybeAnalyzedPrelude =
-            (\analyzedModule -> ModuleGraph.PreludeArtifact (ModuleGraph.preludeIdentity prelude) (ModuleGraph.preludeBuiltinMode prelude) (Just analyzedModule))
+            (\analyzedModule -> ModuleGraph.PreludeArtifact (ModuleGraph.preludeIdentity prelude) (Just analyzedModule))
               <$> maybeAnalyzedModule
           ambientInterface =
             importWholeInterface
@@ -249,11 +248,10 @@ moduleStatementFactSeeds = map importSeed . coreModuleImports
           (NonEmpty.toList (modulePathTextSegments (ModuleGraph.importedModule importDecl)))
       )
 
-moduleInferenceInputs :: CompileInputs -> BuiltinResolutionMode -> ModulePath -> ImportedInterface -> InferenceInputs
-moduleInferenceInputs inputs builtinMode modulePath importedInterface =
+moduleInferenceInputs :: CompileInputs -> ModulePath -> ImportedInterface -> InferenceInputs
+moduleInferenceInputs inputs modulePath importedInterface =
   InferenceInputs
-    { inferenceBuiltinMode = builtinMode,
-      inferenceWarningSettings = compileInputWarningSettings inputs,
+    { inferenceWarningSettings = compileInputWarningSettings inputs,
       inferenceImportedTypes = interfaceTypeEnv importedInterface,
       inferenceImportedDataTypes = importedDataTypes importedInterface,
       inferenceImportedConstructorWitnessNames = interfaceConstructorWitnessNames importedInterface,

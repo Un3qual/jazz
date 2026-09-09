@@ -29,8 +29,6 @@ import qualified Data.Text as Text
 import Jazz.Compiler.BuiltinCatalog
   ( numericTypeIntegerBounds,
     numericTypeIsIntegral,
-    numericTypeSupportsRuntimeArithmetic,
-    numericTypeSupportsRuntimeComparison,
   )
 import Jazz.Compiler.Name (ResolvedName, identifierText)
 import Jazz.Compiler.TypeInference.State
@@ -318,8 +316,8 @@ typeSatisfiesNumericConstraint :: NumericConstraint -> ExpressionType -> Bool
 typeSatisfiesNumericConstraint numericConstraint expressionType =
   case numericConstraint of
     AnyNumericConstraint -> anyNumeric
-    RuntimeArithmeticNumericConstraint -> runtimeArithmeticNumeric
-    RuntimeComparisonNumericConstraint -> runtimeComparisonNumeric
+    RuntimeArithmeticNumericConstraint -> anyNumeric
+    RuntimeComparisonNumericConstraint -> anyNumeric
     IntegralNumericConstraint -> integralNumeric
     IntegralLiteralNumericConstraint literalRange ->
       case expressionType of
@@ -335,20 +333,6 @@ typeSatisfiesNumericConstraint numericConstraint expressionType =
         SemanticInt -> True
         SemanticFloat -> True
         SemanticNumeric {} -> True
-        SemanticVariable {} -> True
-        _ -> False
-    runtimeArithmeticNumeric =
-      case expressionType of
-        SemanticInt -> True
-        SemanticFloat -> True
-        SemanticNumeric numericType -> numericTypeSupportsRuntimeArithmetic numericType
-        SemanticVariable {} -> True
-        _ -> False
-    runtimeComparisonNumeric =
-      case expressionType of
-        SemanticInt -> True
-        SemanticFloat -> True
-        SemanticNumeric numericType -> numericTypeSupportsRuntimeComparison numericType
         SemanticVariable {} -> True
         _ -> False
     integralNumeric =
@@ -383,7 +367,7 @@ supportsRuntimeEqualityTypeWith seenDataTypes state expressionType
       case resolveType state expressionType of
         SemanticInt -> True
         SemanticFloat -> True
-        SemanticNumeric numericType -> numericTypeSupportsRuntimeComparison numericType
+        SemanticNumeric {} -> True
         SemanticBool -> True
         SemanticChar -> True
         SemanticText -> True

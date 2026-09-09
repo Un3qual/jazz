@@ -7,7 +7,7 @@
 module Jazz.Compiler.TypeInference
   ( InferenceInputs (..),
     InferenceResult (..),
-    analyzeSourceUnitExpressionWithBuiltins,
+    analyzeSourceUnitExpression,
     inferExpressionWithInputs,
     analyzeExpressionWithInputs,
     inferExpressionDefault,
@@ -38,12 +38,11 @@ import Jazz.Compiler.Analyzer
     analyzeProgramWithInputsAndPreparedScope,
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    BuiltinSymbol (BuiltinListPrependRaw),
-    builtinNamesInMode,
+  ( BuiltinSymbol (BuiltinListPrependRaw),
     builtinSymbolName,
     builtinSymbolNumericConversionTarget,
-    lookupBuiltinSymbolInMode,
+    kernelBuiltinNames,
+    lookupKernelBuiltinSymbol,
     numericTypeFloatMax,
     numericTypeIntegerBounds,
     numericTypeLiteralIntegerBounds,
@@ -176,8 +175,7 @@ import Jazz.Compiler.WarningConfig
   )
 
 data InferenceInputs = InferenceInputs
-  { inferenceBuiltinMode :: BuiltinResolutionMode,
-    inferenceWarningSettings :: WarningSettings,
+  { inferenceWarningSettings :: WarningSettings,
     inferenceImportedTypes :: TypeEnv,
     inferenceImportedDataTypes :: Map Text DataTypeBinding,
     inferenceImportedConstructorWitnessNames :: Map ResolvedName UnresolvedName,
@@ -194,8 +192,7 @@ data InferenceRequest = InferenceRequest
     requestedImplementationEvidenceCandidates :: Map Text [ImplementationEvidenceCandidate]
   }
 
-analyzeSourceUnitExpressionWithBuiltins ::
-  BuiltinResolutionMode ->
+analyzeSourceUnitExpression ::
   ModulePath ->
   Set Int ->
   Set Int ->
@@ -207,11 +204,11 @@ analyzeSourceUnitExpressionWithBuiltins ::
         (NonEmpty.NonEmpty SemanticFactInvariantFailure)
         (Maybe (Expr 'Analyzed))
     )
-analyzeSourceUnitExpressionWithBuiltins builtinMode preludePath hiddenStatementIndices preludeStatementIndices settings expression = do
+analyzeSourceUnitExpression preludePath hiddenStatementIndices preludeStatementIndices settings expression = do
   (inference, finalState) <-
     inferExpressionWithRequestAndState
       InferenceRequest
-        { requestedInferenceInputs = emptyInferenceInputs builtinMode settings,
+        { requestedInferenceInputs = emptyInferenceInputs settings,
           requestedHiddenStatementIndices = hiddenStatementIndices,
           requestedPreludeStatementIndices = preludeStatementIndices,
           requestedModuleStatementFacts = [],
@@ -342,17 +339,14 @@ inferExpressionWork mode inputs moduleStatementFacts evidenceCandidates expr =
                 prepareRecursiveScope
                   ( Set.union
                       (Map.keysSet (inferenceImportedTypes inputs))
-                      (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode (inferenceBuiltinMode inputs)))
+                      (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
                   )
                   statements
               (blockResult, rawBlockState, bindings) =
                 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope
                   preparedScope
-                  ( \childMode childBuiltin childEnv childState childExpr ->
-                      inferExprTypeWithMode False childMode childBuiltin childEnv childState childExpr
-                  )
+                  (inferExprTypeWithMode False)
                   mode
-                  (inferenceBuiltinMode inputs)
                   (inferenceImportedTypes inputs)
                   initialState
               blockState =
@@ -369,7 +363,6 @@ inferExpressionWork mode inputs moduleStatementFacts evidenceCandidates expr =
                 inferExprTypeWithMode
                   True
                   mode
-                  (inferenceBuiltinMode inputs)
                   (inferenceImportedTypes inputs)
                   initialState
                   expr
@@ -471,11 +464,10 @@ forceListWith forceValue values =
     [] -> ()
     value : remaining -> forceValue value `seq` forceListWith forceValue remaining
 
-emptyInferenceInputs :: BuiltinResolutionMode -> WarningSettings -> InferenceInputs
-emptyInferenceInputs builtinMode settings =
+emptyInferenceInputs :: WarningSettings -> InferenceInputs
+emptyInferenceInputs settings =
   InferenceInputs
-    { inferenceBuiltinMode = builtinMode,
-      inferenceWarningSettings = settings,
+    { inferenceWarningSettings = settings,
       inferenceImportedTypes = Map.empty,
       inferenceImportedDataTypes = Map.empty,
       inferenceImportedConstructorWitnessNames = Map.empty,
@@ -487,8 +479,7 @@ emptyInferenceInputs builtinMode settings =
 analysisInputsForInference :: InferenceInputs -> Map Int (ResolvedName, AnalysisBinding) -> AnalysisInputs
 analysisInputsForInference inputs forwardValues =
   AnalysisInputs
-    { analysisBuiltinMode = inferenceBuiltinMode inputs,
-      analysisWarningSettings = inferenceWarningSettings inputs,
+    { analysisWarningSettings = inferenceWarningSettings inputs,
       analysisImportedValues =
         Map.map (const (AnalysisBinding Nothing True)) (inferenceImportedTypes inputs),
       analysisForwardFunctions = forwardValues,
@@ -580,7 +571,7 @@ inferExpressionDefault :: Expr 'Resolved -> IO InferenceResult
 inferExpressionDefault =
   inferExpressionWithRequest
     InferenceRequest
-      { requestedInferenceInputs = emptyInferenceInputs ResolveKernelOnly defaultWarningSettings,
+      { requestedInferenceInputs = emptyInferenceInputs defaultWarningSettings,
         requestedHiddenStatementIndices = Set.empty,
         requestedPreludeStatementIndices = Set.empty,
         requestedModuleStatementFacts = [],
@@ -603,16 +594,15 @@ instantiateEnvBinding binding state =
 inferExprTypeWithMode ::
   Bool ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExprTypeWithMode allowForwardSignedFunctions mode builtinMode env state expr =
+inferExprTypeWithMode allowForwardSignedFunctions mode env state expr =
   case expr of
     EBlock _ statements ->
       uncurry recordBlockResult (inferBlock mode statements)
-    _ -> inferExprTypeDetailedWithMode mode builtinMode env state expr
+    _ -> inferExprTypeDetailedWithMode mode env state expr
   where
     recordBlockResult result inferredState =
       ( result,
@@ -624,11 +614,8 @@ inferExprTypeWithMode allowForwardSignedFunctions mode builtinMode env state exp
 
     inferBlock blockMode statements =
       (if allowForwardSignedFunctions then inferScopeTypeWithMode else inferNestedScopeTypeWithMode)
-        ( \childMode childBuiltin childEnv childState childExpr ->
-            inferExprTypeWithMode False childMode childBuiltin childEnv childState childExpr
-        )
+        (inferExprTypeWithMode False)
         blockMode
-        builtinMode
         env
         state
         statements
@@ -636,7 +623,6 @@ inferExprTypeWithMode allowForwardSignedFunctions mode builtinMode env state exp
 -- | Infer expression types and record the semantic facts consumed by analysis.
 inferExprTypeDetailedWithMode ::
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr 'Resolved ->
@@ -644,13 +630,12 @@ inferExprTypeDetailedWithMode ::
 inferExprTypeDetailedWithMode _mode = inferExprTypeDetailed
 
 inferExprTypeDetailed ::
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExprTypeDetailed builtinMode env state expr =
-  let (result, inferredState) = inferExprTypeDetailedRaw builtinMode env state expr
+inferExprTypeDetailed env state expr =
+  let (result, inferredState) = inferExprTypeDetailedRaw env state expr
    in ( result,
         maybe
           inferredState
@@ -659,12 +644,11 @@ inferExprTypeDetailed builtinMode env state expr =
       )
 
 inferExprTypeDetailedRaw ::
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   Expr 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExprTypeDetailedRaw builtinMode env state expr =
+inferExprTypeDetailedRaw env state expr =
   case expr of
     ELit _ literal ->
       let (literalType, stateAfterLiteral) = literalExpressionType literal state
@@ -672,18 +656,18 @@ inferExprTypeDetailedRaw builtinMode env state expr =
     ETuple _ [] -> (Just (SemanticTuple []), state)
     EBinary _ symbol left right -> inferBinaryExpression symbol left right
     EIf _ condition thenExpression elseExpression ->
-      let (conditionResult, stateAfterCondition) = inferExprTypeDetailed builtinMode env state condition
-          (thenResult, stateAfterThen) = inferExprTypeDetailed builtinMode env stateAfterCondition thenExpression
-          (elseResult, stateAfterElse) = inferExprTypeDetailed builtinMode env stateAfterThen elseExpression
+      let (conditionResult, stateAfterCondition) = inferExprTypeDetailed env state condition
+          (thenResult, stateAfterThen) = inferExprTypeDetailed env stateAfterCondition thenExpression
+          (elseResult, stateAfterElse) = inferExprTypeDetailed env stateAfterThen elseExpression
           (expressionType, finalState) = inferIfFromResults conditionResult thenResult elseResult stateAfterElse
        in (expressionType, finalState)
     EPatternCase _ scrutinee caseArms ->
       let (coverageOrdinal, stateWithOrdinal) = reservePatternCoverageSite state
-          (scrutineeResult, stateAfterScrutinee) = inferExprTypeDetailed builtinMode env stateWithOrdinal scrutinee
+          (scrutineeResult, stateAfterScrutinee) = inferExprTypeDetailed env stateWithOrdinal scrutinee
           (scrutineeType, stateWithScrutineeType) = case scrutineeResult of
             Just inferredType -> (inferredType, stateAfterScrutinee)
             Nothing -> freshTypeVar stateAfterScrutinee
-          (expressionType, inferredFinalState) = inferPatternCaseType inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env scrutineeType stateWithScrutineeType caseArms
+          (expressionType, inferredFinalState) = inferPatternCaseType inferExprTypeDetailedWithMode InferConcreteFunctions env scrutineeType stateWithScrutineeType caseArms
           finalState =
             recordPatternCoverageSite
               ( PatternCoverageSite
@@ -697,13 +681,13 @@ inferExprTypeDetailedRaw builtinMode env state expr =
        in (expressionType, finalState)
     EList _ elements -> inferListElements state elements
     ETuple _ elements -> inferTupleElements state elements
-    EBlock _ statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions builtinMode env state statements
+    EBlock _ statements -> inferNestedScopeTypeWithMode (inferExprTypeWithMode False) InferConcreteFunctions env state statements
     EVar node name ->
       let (expressionType, finalState) = inferVariableType (coreNodeId node) name state
        in (expressionType, finalState)
     ELambda _ name body ->
       let (parameterType, stateAfterParameter) = freshTypeVar state
-          (bodyResult, finalState) = inferExprTypeDetailed builtinMode (Map.insert name (PlainTypeBinding parameterType) env) stateAfterParameter body
+          (bodyResult, finalState) = inferExprTypeDetailed (Map.insert name (PlainTypeBinding parameterType) env) stateAfterParameter body
           expressionType = SemanticFunction (resolveType finalState parameterType) <$> bodyResult
        in (expressionType, finalState)
     EOperatorValue {} ->
@@ -714,14 +698,14 @@ inferExprTypeDetailedRaw builtinMode env state expr =
           if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
       | Just (methodName, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
         Map.notMember methodName env ->
-          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env state (coreNodeId (expressionNode expr)) methodKey arguments
+          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferExprTypeDetailedWithMode InferConcreteFunctions env state (coreNodeId (expressionNode expr)) methodKey arguments
               stateWithSpineFacts = case (expressionType, sequenceA argumentResults) of
                 (Just resultType, Just argumentTypes) -> recordQualifiedMethodSpineFacts expr (foldr SemanticFunction (resolveType finalState resultType) (map (resolveType finalState) argumentTypes)) finalState
                 _ -> finalState
            in (expressionType, stateWithSpineFacts)
       | otherwise -> inferGenericApplication function argument
     ETypeApplication node function argumentSpan argument ->
-      inferExplicitTypeApplication inferExprTypeDetailedWithMode InferConcreteFunctions builtinMode env state (coreNodeId node) function argumentSpan argument
+      inferExplicitTypeApplication inferExprTypeDetailedWithMode InferConcreteFunctions env state (coreNodeId node) function argumentSpan argument
     ESectionLeft _ left symbol -> inferLeftSection symbol left
     ESectionRight _ symbol right -> inferRightSection symbol right
   where
@@ -729,7 +713,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
       case Map.lookup name env of
         Just localType -> instantiateEnvBinding localType initialState
         Nothing ->
-          case instantiateBuiltinType builtinMode (identifierText name) initialState of
+          case instantiateBuiltinType (identifierText name) initialState of
             Just (builtinType, nextState) -> (Just builtinType, nextState)
             Nothing ->
               case instantiateQualifiedMethodType nodeId (identifierText name) initialState of
@@ -753,9 +737,9 @@ inferExprTypeDetailedRaw builtinMode env state expr =
 
     inferBuiltinOperatorApplication operatorSymbol maybeAliasScheme (_, leftExpr) (_, rightExpr) =
       let (leftResult, stateAfterLeft) =
-            inferExprTypeDetailed builtinMode env state leftExpr
+            inferExprTypeDetailed env state leftExpr
           (rightResult, stateAfterRight) =
-            inferExprTypeDetailed builtinMode env stateAfterLeft rightExpr
+            inferExprTypeDetailed env stateAfterLeft rightExpr
           (expressionType, operandTyping, stateAfterBinary) =
             case (leftResult, rightResult) of
               (Just leftType, Just rightType) ->
@@ -900,9 +884,9 @@ inferExprTypeDetailedRaw builtinMode env state expr =
 
     inferGenericApplication functionExpr argumentExpr =
       let (functionResult, stateAfterFunction) =
-            inferExprTypeDetailed builtinMode env state functionExpr
+            inferExprTypeDetailed env state functionExpr
           (argumentResult, stateAfterArgument) =
-            inferExprTypeDetailed builtinMode env stateAfterFunction argumentExpr
+            inferExprTypeDetailed env stateAfterFunction argumentExpr
           (rawExpressionType, rawFinalState) =
             inferApplicationFromResults
               env
@@ -960,7 +944,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
     builtinListPrependRawExpr expression =
       case expression of
         EVar _ name ->
-          lookupBuiltinSymbolInMode builtinMode (identifierText name)
+          lookupKernelBuiltinSymbol (identifierText name)
             == Just BuiltinListPrependRaw
         _ -> False
 
@@ -995,7 +979,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
       case inferApplicationFromResultsUnchecked applicationStartState functionResult argumentResult stateAfterArgument of
         result@(Nothing, _) -> result
         result@(Just _, unifiedState) ->
-          case numericConversionLiteralDiagnostic builtinMode currentEnv functionExpr argumentExpr of
+          case numericConversionLiteralDiagnostic currentEnv functionExpr argumentExpr of
             Just diagnostic -> (Nothing, addTypeError unifiedState diagnostic)
             Nothing -> result
 
@@ -1023,9 +1007,9 @@ inferExprTypeDetailedRaw builtinMode env state expr =
     inferBinaryExpression operatorSymbol leftExpr rightExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
           let (leftResult, stateAfterLeft) =
-                inferExprTypeDetailed builtinMode env state leftExpr
+                inferExprTypeDetailed env state leftExpr
               (rightResult, stateAfterRight) =
-                inferExprTypeDetailed builtinMode env stateAfterLeft rightExpr
+                inferExprTypeDetailed env stateAfterLeft rightExpr
               (expressionType, operandTyping, finalState) =
                 case (leftResult, rightResult) of
                   (Just leftType, Just rightType) ->
@@ -1047,7 +1031,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
             instantiateDeclaredOperatorBindingType currentEnv operatorSymbol initialState
           operatorResult = operatorType
           (leftResult, stateAfterLeft) =
-            inferExprTypeDetailed builtinMode currentEnv stateAfterOperator leftExpr
+            inferExprTypeDetailed currentEnv stateAfterOperator leftExpr
           (intermediateType, stateAfterFirstApplication) =
             inferApplicationFromResultsUnchecked
               initialState
@@ -1056,7 +1040,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
               stateAfterLeft
           intermediateResult = intermediateType
           (rightResult, stateAfterRight) =
-            inferExprTypeDetailed builtinMode currentEnv stateAfterFirstApplication rightExpr
+            inferExprTypeDetailed currentEnv stateAfterFirstApplication rightExpr
           (expressionType, finalState) =
             inferApplicationFromResultsUnchecked
               stateAfterFirstApplication
@@ -1068,7 +1052,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
     inferLeftSection operatorSymbol leftExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
           let (leftResult, stateAfterLeft) =
-                inferExprTypeDetailed builtinMode env state leftExpr
+                inferExprTypeDetailed env state leftExpr
               (expressionType, finalState) =
                 case leftResult of
                   Just leftType ->
@@ -1080,7 +1064,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                 instantiateDeclaredOperatorBindingType env operatorSymbol state
               operatorResult = operatorType
               (leftResult, stateAfterLeft) =
-                inferExprTypeDetailed builtinMode env stateAfterOperator leftExpr
+                inferExprTypeDetailed env stateAfterOperator leftExpr
               (expressionType, finalState) =
                 inferApplicationFromResultsUnchecked
                   state
@@ -1092,7 +1076,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
     inferRightSection operatorSymbol rightExpr
       | hasOperatorRule operatorSymbol || isBuiltinOperatorSymbol operatorSymbol =
           let (rightResult, stateAfterRight) =
-                inferExprTypeDetailed builtinMode env state rightExpr
+                inferExprTypeDetailed env state rightExpr
               (expressionType, finalState) =
                 case rightResult of
                   Just rightType ->
@@ -1113,7 +1097,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
                   stateAfterOperator
               intermediateResult = intermediateType
               (rightResult, stateAfterRight) =
-                inferExprTypeDetailed builtinMode env stateAfterFirstApplication rightExpr
+                inferExprTypeDetailed env stateAfterFirstApplication rightExpr
               (bodyType, finalState) =
                 inferApplicationFromResultsUnchecked
                   stateAfterFirstApplication
@@ -1132,7 +1116,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
            in (Just (SemanticList elementType), finalState)
         firstElement : restElements ->
           let (firstResult, stateAfterFirst) =
-                inferExprTypeDetailed builtinMode env initialState firstElement
+                inferExprTypeDetailed env initialState firstElement
               (finalElementType, finalState) =
                 foldl'
                   inferNextListElement
@@ -1142,7 +1126,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
 
     inferNextListElement (expectedType, stateAcc) element =
       let (actualResult, stateAfterElement) =
-            inferExprTypeDetailed builtinMode env stateAcc element
+            inferExprTypeDetailed env stateAcc element
           actualType = actualResult
           (nextExpectedType, finalState) =
             case (expectedType, actualType) of
@@ -1174,7 +1158,7 @@ inferExprTypeDetailedRaw builtinMode env state expr =
               (SemanticTuple . reverse <$> maybeReversedTypes, stateAcc)
             element : rest ->
               let (elementResult, stateAfterElement) =
-                    inferExprTypeDetailed builtinMode env stateAcc element
+                    inferExprTypeDetailed env stateAcc element
                   nextReversedTypes =
                     case (maybeReversedTypes, elementResult) of
                       (Just reversedTypes, Just inferredElementType) ->
@@ -1319,11 +1303,11 @@ checkLiteralType state literal =
         Nothing -> state
     _ -> state
 
-numericConversionLiteralDiagnostic :: BuiltinResolutionMode -> TypeEnv -> Expr 'Resolved -> Expr 'Resolved -> Maybe Diagnostic
-numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
+numericConversionLiteralDiagnostic :: TypeEnv -> Expr 'Resolved -> Expr 'Resolved -> Maybe Diagnostic
+numericConversionLiteralDiagnostic env functionExpr argumentExpr =
   case (functionExpr, argumentExpr) of
     (EVar _ functionName, ELit _ (LInt literalValue)) ->
-      case numericConversionTargetFromCallable builtinMode env functionName of
+      case numericConversionTargetFromCallable env functionName of
         Just targetType ->
           case numericTypeLiteralIntegerBounds targetType of
             Just bounds@(lowerBound, upperBound)
@@ -1332,7 +1316,7 @@ numericConversionLiteralDiagnostic builtinMode env functionExpr argumentExpr =
             _ -> Nothing
         Nothing -> Nothing
     (EVar _ functionName, ELit _ (LFloat literalValue literalSource _)) ->
-      case numericConversionTargetFromCallable builtinMode env functionName of
+      case numericConversionTargetFromCallable env functionName of
         Just targetType ->
           numericConversionFloatLiteralDiagnostic
             (identifierText functionName)
@@ -1366,8 +1350,8 @@ numericConversionFloatLiteralDiagnostic conversionName targetType literalValue l
 finiteFloat :: Double -> Bool
 finiteFloat value = not (isNaN value) && not (isInfinite value)
 
-numericConversionTargetFromCallable :: BuiltinResolutionMode -> TypeEnv -> ResolvedName -> Maybe NumericType
-numericConversionTargetFromCallable builtinMode env functionName =
+numericConversionTargetFromCallable :: TypeEnv -> ResolvedName -> Maybe NumericType
+numericConversionTargetFromCallable env functionName =
   let nameText = identifierText functionName
    in case Map.lookup functionName env of
         Just (BuiltinAliasTypeBinding builtinSymbol) ->
@@ -1375,14 +1359,14 @@ numericConversionTargetFromCallable builtinMode env functionName =
         Just _ ->
           Nothing
         Nothing ->
-          lookupBuiltinSymbolInMode builtinMode nameText >>= builtinSymbolNumericConversionTarget
+          lookupKernelBuiltinSymbol nameText >>= builtinSymbolNumericConversionTarget
 
 singletonIntegerLiteralRange :: Integer -> IntegerLiteralRange
 singletonIntegerLiteralRange value = IntegerLiteralRange value value
 
-instantiateBuiltinType :: BuiltinResolutionMode -> Text -> InferState -> Maybe (ExpressionType, InferState)
-instantiateBuiltinType builtinMode name state =
-  case lookupBuiltinSymbolInMode builtinMode name of
+instantiateBuiltinType :: Text -> InferState -> Maybe (ExpressionType, InferState)
+instantiateBuiltinType name state =
+  case lookupKernelBuiltinSymbol name of
     Just builtinSymbol -> instantiateBuiltinSymbolType builtinSymbol state
     Nothing -> Nothing
 

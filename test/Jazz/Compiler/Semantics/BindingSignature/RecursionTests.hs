@@ -22,9 +22,6 @@ import Jazz.Compiler.Analyzer
     AnalysisResult (..),
   )
 import qualified Jazz.Compiler.Analyzer as Analyzer
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-  )
 import Jazz.Compiler.Diagnostics
   ( isErrorDiagnostic,
   )
@@ -191,8 +188,7 @@ programStatements expression = error ("expected resolved block, got " <> show ex
 analysisInputs :: AnalysisInputs
 analysisInputs =
   AnalysisInputs
-    { analysisBuiltinMode = ResolveKernelOnly,
-      analysisWarningSettings = defaultWarningSettings,
+    { analysisWarningSettings = defaultWarningSettings,
       analysisImportedValues = Map.empty,
       analysisForwardFunctions = Map.empty,
       analysisImportedClasses = Set.empty,

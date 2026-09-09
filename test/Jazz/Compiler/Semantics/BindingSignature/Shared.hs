@@ -34,7 +34,6 @@ import Jazz.Compiler.AST
     Expr (..),
     Statement (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
@@ -173,7 +172,7 @@ mergeLoweredPrograms programs =
 
 resolvedProgram :: Text.Text -> Expr 'Resolved
 resolvedProgram source =
-  case resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) (loweredProgram source) of
+  case resolveStandaloneExprNames (exportInventory []) (loweredProgram source) of
     Left diagnostics -> error (Text.unpack (Text.unlines (map renderDiagnostic (toList diagnostics))))
     Right expression -> expression
   where

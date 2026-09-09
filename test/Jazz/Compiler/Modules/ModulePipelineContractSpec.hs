@@ -32,8 +32,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-    BuiltinSymbol (BuiltinToInt8),
+  ( BuiltinSymbol (BuiltinToInt8),
   )
 import Jazz.Compiler.Diagnostics (Diagnostic, SourceSpan (..))
 import Jazz.Compiler.Diagnostics.Render
@@ -1965,7 +1964,6 @@ testPrelude =
         moduleIdentity
           (nominalModulePath ("Prelude" :| []))
           (mkSourceFile "<module-pipeline-test-prelude>"),
-      preludeBuiltinMode = ResolveKernelOnly,
       preludeModule = Nothing
     }
 

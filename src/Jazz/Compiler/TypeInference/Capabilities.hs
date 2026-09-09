@@ -67,8 +67,7 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode,
-    numericTypeFromName,
+  ( numericTypeFromName,
     numericTypeIsIntegral,
   )
 import Jazz.Compiler.CapabilityFacts
@@ -498,14 +497,13 @@ qualifiedMethodClassIsVisible methodKey state =
 inferQualifiedMethodApplicationWithResults ::
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   CoreNodeId ->
   Text ->
   [Expr 'Resolved] ->
   (Maybe ExpressionType, InferState, [Maybe ExpressionType])
-inferQualifiedMethodApplicationWithResults inferExpression mode builtinMode env state nodeId methodKey argumentExprs =
+inferQualifiedMethodApplicationWithResults inferExpression mode env state nodeId methodKey argumentExprs =
   let (reversedResults, stateAfterArguments) = foldl' step ([], state) argumentExprs
       results = reverse reversedResults
    in case sequenceA results of
@@ -522,26 +520,24 @@ inferQualifiedMethodApplicationWithResults inferExpression mode builtinMode env 
   where
     step (resultsAcc, stateAcc) argumentExpr =
       let (result, stateAfterArgument) =
-            inferExpression mode builtinMode env stateAcc argumentExpr
+            inferExpression mode env stateAcc argumentExpr
        in (result : resultsAcc, stateAfterArgument)
 
 checkImplMethodBodies ::
-  ( BuiltinResolutionMode ->
-    TypeEnv ->
+  ( TypeEnv ->
     InferState ->
     ExpressionType ->
     Expr 'Resolved ->
     (result, InferState)
   ) ->
   (result -> Maybe ExpressionType) ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   ResolvedName ->
   [SignatureType 'Resolved] ->
   [ImplMethod 'Resolved] ->
   (InferState, [(Int, result)])
-checkImplMethodBodies inferExpected resultType builtinMode env state capabilityName arguments methods =
+checkImplMethodBodies inferExpected resultType env state capabilityName arguments methods =
   case arguments of
     [implTarget]
       | concreteConstraintArgument implTarget,
@@ -571,7 +567,6 @@ checkImplMethodBodies inferExpected resultType builtinMode env state capabilityN
                               Just expectedType ->
                                 let (methodResult, rawStateAfterMethod) =
                                       inferExpected
-                                        builtinMode
                                         (implMethodEnv stateAcc)
                                         stateAfterExpectedType
                                         expectedType

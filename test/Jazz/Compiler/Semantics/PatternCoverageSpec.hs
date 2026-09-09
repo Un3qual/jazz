@@ -19,7 +19,6 @@ import Jazz.Compiler.AST
     Literal (..),
     Pattern (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (..))
 import Jazz.Compiler.DiagnosticCatalog (diagnosticCodeText)
 import Jazz.Compiler.Diagnostics
   ( Diagnostic,
@@ -678,8 +677,7 @@ testHiddenImportedConstructorCoverage = do
 hiddenConstructorInputs :: InferenceInputs
 hiddenConstructorInputs =
   InferenceInputs
-    { inferenceBuiltinMode = ResolveKernelOnly,
-      inferenceWarningSettings = defaultWarningSettings,
+    { inferenceWarningSettings = defaultWarningSettings,
       inferenceImportedTypes =
         Map.fromList
           [ (resolvedLocalName ValueNamespace (mkIdentifier "subject"), PlainTypeBinding maybeIntType),
@@ -758,7 +756,7 @@ resolvedPatternCase patternValue =
 
 resolveExpression :: Expr 'Lowered -> Expr 'Resolved
 resolveExpression expression =
-  case resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) expression of
+  case resolveStandaloneExprNames (exportInventory []) expression of
     Right resolved -> resolved
     Left diagnostics -> error (show diagnostics)
 

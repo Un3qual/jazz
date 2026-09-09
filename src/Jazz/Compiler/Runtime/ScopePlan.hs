@@ -39,10 +39,9 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    BuiltinSymbol (..),
-    builtinNamesInMode,
-    lookupBuiltinSymbolInMode,
+  ( BuiltinSymbol (..),
+    kernelBuiltinNames,
+    lookupKernelBuiltinSymbol,
   )
 import Jazz.Compiler.ModuleIdentity (ModulePath, mkModulePath)
 import Jazz.Compiler.Name
@@ -75,11 +74,10 @@ buildRuntimeScopePlan ::
   ModulePath ->
   Set Int ->
   Maybe SourceUnitOwner ->
-  BuiltinResolutionMode ->
   Set ResolvedName ->
   [Statement 'Analyzed] ->
   RuntimeScopePlan
-buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath builtinMode outerBindingNames statements =
+buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath outerBindingNames statements =
   RuntimeScopePlan
     { runtimeScopePlanIndexedStatements = indexedStatements,
       runtimeScopePlanStatementsByIndex = statementsByIndex,
@@ -95,7 +93,7 @@ buildRuntimeScopePlan preludePath preludeStatementIndices initialModulePath buil
     recursionOuterBindingNames =
       Set.union
         outerBindingNames
-        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
+        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
     recursiveScopeFactsValue =
       buildRecursiveScopeFacts
         recursionOuterBindingNames
@@ -209,7 +207,7 @@ runtimeStatementRequiresHost statement =
 
 runtimeNameRequiresHost :: ResolvedName -> Bool
 runtimeNameRequiresHost name =
-  case lookupBuiltinSymbolInMode ResolveKernelOnly (identifierText name) of
+  case lookupKernelBuiltinSymbol (identifierText name) of
     Just BuiltinReadTextRaw -> True
     Just BuiltinWriteTextRaw -> True
     Just BuiltinReadStdinRaw -> True

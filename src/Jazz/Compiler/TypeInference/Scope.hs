@@ -39,9 +39,8 @@ import Jazz.Compiler.AST
     expressionNode,
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    builtinNamesInMode,
-    lookupBuiltinSymbolInMode,
+  ( kernelBuiltinNames,
+    lookupKernelBuiltinSymbol,
     numericTypeFloatMax,
   )
 import Jazz.Compiler.CapabilityFacts
@@ -147,15 +146,14 @@ import Jazz.Compiler.TypeRepresentation
 inferExprTypeWithExpectedMode ::
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   ExpressionType ->
   Expr 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expectedType expr =
+inferExprTypeWithExpectedMode inferExpression mode env state expectedType expr =
   let hadFactsBefore = Map.member nodeId (inferExpressionFactTypes state)
-      (result, inferredState) = inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expectedType expr
+      (result, inferredState) = inferExprTypeWithExpectedModeRaw inferExpression mode env state expectedType expr
       childTraversalRecordedFacts = not hadFactsBefore && Map.member nodeId (inferExpressionFactTypes inferredState)
    in if childTraversalRecordedFacts
         then (result, inferredState)
@@ -169,13 +167,12 @@ inferExprTypeWithExpectedMode inferExpression mode builtinMode env state expecte
 inferExprTypeWithExpectedModeRaw ::
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   ExpressionType ->
   Expr 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expectedType expr =
+inferExprTypeWithExpectedModeRaw inferExpression mode env state expectedType expr =
   case (resolveType state expectedType, expr) of
     (_, EVar node name)
       | Map.notMember name env,
@@ -189,14 +186,14 @@ inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expe
     (SemanticFunction argumentType resultType, ELambda _ parameterName bodyExpr) ->
       let extendedEnv = Map.insert parameterName (PlainTypeBinding argumentType) env
           (bodyResult, stateAfterBody) =
-            inferExprTypeWithExpectedMode inferExpression mode builtinMode extendedEnv state resultType bodyExpr
+            inferExprTypeWithExpectedMode inferExpression mode extendedEnv state resultType bodyExpr
           checkedResult = case mode of
             InferenceOnly -> bodyResult
             InferConcreteFunctions -> Just (maybe resultType id bodyResult)
        in (SemanticFunction (resolveType stateAfterBody argumentType) <$> checkedResult, stateAfterBody)
     (SemanticNumeric _, literalExpr@(ELit _ (LInt _)))
       | mode == InferConcreteFunctions ->
-          let (literalResult, nextState) = inferExpression mode builtinMode env state literalExpr
+          let (literalResult, nextState) = inferExpression mode env state literalExpr
            in case literalResult of
                 Just literalType
                   | Just checkedState <- unifyTypes expectedType literalType nextState ->
@@ -208,7 +205,7 @@ inferExprTypeWithExpectedModeRaw inferExpression mode builtinMode env state expe
             maybe state (addTypeError state) (targetedFloatLiteralDiagnostic numericType literalValue literalSource)
           )
     _ ->
-      let (inferred, nextState) = inferExpression mode builtinMode env state expr
+      let (inferred, nextState) = inferExpression mode env state expr
        in case inferred of
             Just expressionType
               | mode == InferConcreteFunctions,
@@ -272,13 +269,12 @@ publishVisibleTypes env state =
         (inferModule state) {inferenceVisibleTypes = env}
     }
 
-inferScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferScopeTypeWithMode inferExpression mode builtinMode initialEnv initialState statements =
+inferScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
+inferScopeTypeWithMode inferExpression mode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
         inferScopeTypeWithModeAndForwardBindings
           inferExpression
           mode
-          builtinMode
           initialEnv
           initialState
           statements
@@ -287,85 +283,79 @@ inferScopeTypeWithMode inferExpression mode builtinMode initialEnv initialState 
 inferScopeTypeWithModeAndForwardBindings ::
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   [Statement 'Resolved] ->
   (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan))
-inferScopeTypeWithModeAndForwardBindings inferExpression mode builtinMode initialEnv initialState statements =
+inferScopeTypeWithModeAndForwardBindings inferExpression mode initialEnv initialState statements =
   inferScopeTypeInternal
     ScopeInferenceRequest
       { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
         scopeInferExpression = inferExpression,
         scopeInferenceMode = mode,
-        scopeBuiltinMode = builtinMode,
         scopeInitialEnv = initialEnv,
         scopeInitialState = initialState,
-        scopePreparedInference = prepareInferenceScope builtinMode initialEnv statements
+        scopePreparedInference = prepareInferenceScope initialEnv statements
       }
 
 inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope ::
   PreparedRecursiveScope 'Resolved ->
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   (Maybe ExpressionType, InferState, Map Int (ResolvedName, SourceSpan))
-inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferExpression mode builtinMode initialEnv initialState =
-  let inferenceScope = preparedInferenceScope (inferenceOuterBindingNames builtinMode initialEnv) preparedScope
+inferScopeTypeWithModeAndForwardBindingsUsingPreparedScope preparedScope inferExpression mode initialEnv initialState =
+  let inferenceScope = preparedInferenceScope (inferenceOuterBindingNames initialEnv) preparedScope
    in inferenceScope `seq`
         inferScopeTypeInternal
           ScopeInferenceRequest
             { scopeForwardSignedFunctionsPolicy = PermitForwardSignedFunctions,
               scopeInferExpression = inferExpression,
               scopeInferenceMode = mode,
-              scopeBuiltinMode = builtinMode,
               scopeInitialEnv = initialEnv,
               scopeInitialState = initialState,
               scopePreparedInference = inferenceScope
             }
 
-inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferNestedScopeTypeWithMode inferExpression mode builtinMode initialEnv initialState statements =
+inferNestedScopeTypeWithMode :: InferExprWithModeFn -> InferenceMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
+inferNestedScopeTypeWithMode inferExpression mode initialEnv initialState statements =
   let (inferredResult, finalState, _) =
         inferScopeTypeInternal
           ScopeInferenceRequest
             { scopeForwardSignedFunctionsPolicy = ForbidForwardSignedFunctions,
               scopeInferExpression = inferExpression,
               scopeInferenceMode = mode,
-              scopeBuiltinMode = builtinMode,
               scopeInitialEnv = initialEnv,
               scopeInitialState = initialState,
-              scopePreparedInference = prepareInferenceScope builtinMode initialEnv statements
+              scopePreparedInference = prepareInferenceScope initialEnv statements
             }
    in (inferredResult, finalState)
 
-inferScopeType :: InferExprWithModeFn -> BuiltinResolutionMode -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
-inferScopeType inferExpression builtinMode initialEnv initialState statements =
+inferScopeType :: InferExprWithModeFn -> TypeEnv -> InferState -> [Statement 'Resolved] -> (Maybe ExpressionType, InferState)
+inferScopeType inferExpression initialEnv initialState statements =
   let (inferredResult, finalState) =
         inferNestedScopeTypeWithMode
           inferExpression
           InferenceOnly
-          builtinMode
           initialEnv
           initialState
           statements
    in (inferredResult, finalState)
 
-prepareInferenceScope :: BuiltinResolutionMode -> TypeEnv -> [Statement 'Resolved] -> PreparedInferenceScope
-prepareInferenceScope builtinMode initialEnv statements =
+prepareInferenceScope :: TypeEnv -> [Statement 'Resolved] -> PreparedInferenceScope
+prepareInferenceScope initialEnv statements =
   preparedInferenceScope
     outerBindingNames
     (prepareRecursiveScope outerBindingNames statements)
   where
-    outerBindingNames = inferenceOuterBindingNames builtinMode initialEnv
+    outerBindingNames = inferenceOuterBindingNames initialEnv
 
-inferenceOuterBindingNames :: BuiltinResolutionMode -> TypeEnv -> Set ResolvedName
-inferenceOuterBindingNames builtinMode initialEnv =
+inferenceOuterBindingNames :: TypeEnv -> Set ResolvedName
+inferenceOuterBindingNames initialEnv =
   Set.union
     (Map.keysSet initialEnv)
-    (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
+    (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
 
 data PreparedInferenceScope = PreparedInferenceScope ![Statement 'Resolved] !(Map Int ResolvedName) !(Map Int [Int])
 
@@ -383,7 +373,6 @@ data ScopeInferenceRequest = ScopeInferenceRequest
   { scopeForwardSignedFunctionsPolicy :: ForwardSignedFunctionsPolicy,
     scopeInferExpression :: InferExprWithModeFn,
     scopeInferenceMode :: InferenceMode,
-    scopeBuiltinMode :: BuiltinResolutionMode,
     scopeInitialEnv :: TypeEnv,
     scopeInitialState :: InferState,
     scopePreparedInference :: PreparedInferenceScope
@@ -417,7 +406,6 @@ inferScopeTypeInternal
     { scopeForwardSignedFunctionsPolicy,
       scopeInferExpression,
       scopeInferenceMode,
-      scopeBuiltinMode,
       scopeInitialEnv,
       scopeInitialState,
       scopePreparedInference = PreparedInferenceScope statements bindingNamesByStatement recursiveGroupsByStatement
@@ -444,7 +432,6 @@ inferScopeTypeInternal
     where
       inferExpression = scopeInferExpression
       mode = scopeInferenceMode
-      builtinMode = scopeBuiltinMode
       initialEnv = scopeInitialEnv
       initialState = scopeInitialState
 
@@ -641,7 +628,7 @@ inferScopeTypeInternal
         inferSelfRecursiveBindings
           ( Set.union
               (Map.keysSet initialEnv)
-              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
+              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
           )
           exprContainsFunctionBranch
           indexedStatements
@@ -649,7 +636,7 @@ inferScopeTypeInternal
         inferSelfReferencedBindings
           ( Set.union
               (Map.keysSet initialEnv)
-              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
+              (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
           )
           indexedStatements
       signedBindingStatements = collectSignedBindingStatements indexedStatements
@@ -740,7 +727,6 @@ inferScopeTypeInternal
                                in checkImplMethodBodies
                                     (inferExprTypeWithExpectedMode inferExpression mode)
                                     id
-                                    builtinMode
                                     env
                                     implSeededState
                                     capabilityName
@@ -873,9 +859,9 @@ inferScopeTypeInternal
                         (rawValueResult, rawStateAfterValue) =
                           case maybeExpectedValueType of
                             Just expectedValueType ->
-                              inferExprTypeWithExpectedMode inferExpression mode builtinMode envWithPendingSignature stateForSignatureCheck expectedValueType valueExpr
+                              inferExprTypeWithExpectedMode inferExpression mode envWithPendingSignature stateForSignatureCheck expectedValueType valueExpr
                             Nothing ->
-                              inferExpression mode builtinMode envWithPendingSignature stateForStatement valueExpr
+                              inferExpression mode envWithPendingSignature stateForStatement valueExpr
                         rawValueType = rawValueResult
                         valueType =
                           targetedFractionalLiteralBindingType
@@ -1038,7 +1024,7 @@ inferScopeTypeInternal
                     let exprSpan = coreNodeSpan exprNode
                         (envForStatement, stateForStatement, _) =
                           exposeVisibleRecursiveGroupSchemes statementIndex env envFreeVariables stateForSource recursiveGroupPreviewCache
-                        (exprResult, rawStateAfterExpr) = inferExpression mode builtinMode envForStatement stateForStatement expr
+                        (exprResult, rawStateAfterExpr) = inferExpression mode envForStatement stateForStatement expr
                         exprType = exprResult
                         stateAfterExpr =
                           annotateNewErrorsWithPrimarySpan exprSpan stateForStatement rawStateAfterExpr
@@ -1132,7 +1118,7 @@ inferScopeTypeInternal
                       Just _ ->
                         monomorphicBinding
                       Nothing ->
-                        case lookupBuiltinSymbolInMode builtinMode referencedName of
+                        case lookupKernelBuiltinSymbol referencedName of
                           Just builtinSymbol -> Just (BuiltinAliasTypeBinding builtinSymbol)
                           Nothing -> monomorphicBinding
               _ -> monomorphicBinding
@@ -1496,7 +1482,7 @@ inferScopeTypeInternal
                           Map.insert bindingName (PlainTypeBinding bindingSeed) envWithRecursiveBindings
                         _ -> envWithRecursiveBindings
                     (valueResult, rawStateAfterValue) =
-                      inferExpression InferenceOnly builtinMode envWithBindingSeed stateAcc valueExpr
+                      inferExpression InferenceOnly envWithBindingSeed stateAcc valueExpr
                     valueType = valueResult
                     stateAfterValue =
                       annotateNewErrorsWithPrimarySpan bindingSpan stateAcc rawStateAfterValue
@@ -2355,7 +2341,6 @@ instantiateTypeScheme typeScheme state =
 inferExplicitTypeApplication ::
   InferExprWithModeFn ->
   InferenceMode ->
-  BuiltinResolutionMode ->
   TypeEnv ->
   InferState ->
   CoreNodeId ->
@@ -2363,7 +2348,7 @@ inferExplicitTypeApplication ::
   SourceSpan ->
   SignatureType 'Resolved ->
   (Maybe ExpressionType, InferState)
-inferExplicitTypeApplication inferExpression mode builtinMode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
+inferExplicitTypeApplication inferExpression mode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
   case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
     (_, Just explicitArgumentType)
       | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr,
@@ -2396,7 +2381,7 @@ inferExplicitTypeApplication inferExpression mode builtinMode env state applicat
       (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
     (Nothing, _) ->
       let (functionResult, stateAfterFunction) =
-            inferExpression mode builtinMode env state functionExpr
+            inferExpression mode env state functionExpr
        in case functionResult of
             Just _ ->
               (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)

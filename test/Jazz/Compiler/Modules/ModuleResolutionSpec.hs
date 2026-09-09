@@ -11,7 +11,6 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as Text
 import Jazz.Compiler.AST (CorePhase (Lowered, Resolved), coreNodeSpan)
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.DiagnosticCatalog
   ( diagnosticCodeText,
   )
@@ -137,12 +136,11 @@ resolvedModuleExportSelectors =
 
 resolveTestProgram ::
   ModuleResolutionConfig ->
-  BuiltinResolutionMode ->
   (FilePath -> IO (Maybe Text)) ->
   [Text] ->
   IO (Either Diagnostic (ModuleGraph.CoreProgram 'Resolved))
-resolveTestProgram config builtinMode =
-  resolveProgramWithAmbientExports config (testPrelude builtinMode) (exportInventory [])
+resolveTestProgram config =
+  resolveProgramWithAmbientExports config testPrelude (exportInventory [])
 
 resolveTestModuleGraph ::
   ModuleResolutionConfig ->
@@ -153,7 +151,7 @@ resolveTestModuleGraph config sources entryModulePath =
   fmap (fmap programModules) $
     resolveProgramWithAmbientExports
       config
-      (testPrelude ResolveKernelOnly)
+      testPrelude
       (exportInventory [])
       (\path -> pure (Map.lookup path sources))
       entryModulePath
@@ -326,15 +324,13 @@ absentPrelude =
         moduleIdentity
           (mkModulePath (mkIdentifier "Jazz" :| [mkIdentifier "Prelude"]))
           (mkSourceFile "<absent-prelude>"),
-      ModuleGraph.preludeBuiltinMode = ResolveKernelOnly,
       ModuleGraph.preludeModule = Nothing
     }
 
-testPrelude :: BuiltinResolutionMode -> ModuleGraph.PreludeArtifact phase
-testPrelude builtinMode =
+testPrelude :: ModuleGraph.PreludeArtifact phase
+testPrelude =
   ModuleGraph.PreludeArtifact
     { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity absentPrelude,
-      ModuleGraph.preludeBuiltinMode = builtinMode,
       ModuleGraph.preludeModule = Nothing
     }
 
@@ -349,7 +345,6 @@ testResolvedProgramRetainsLoweredModules = do
   result <-
     resolveTestProgram
       resolverConfig
-      ResolveKernelOnly
       lookupSource
       ["App", "Main"]
   assertRight "resolved program" result $ \program -> do
@@ -373,7 +368,6 @@ testResolvedModuleCarriesExplicitPublicInventory = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["App", "Main"]
   assertRight "resolved explicit public inventory" result $ \program ->
@@ -416,7 +410,6 @@ testResolvedModulePreservesExplicitExportSelectorOrder = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["App", "Main"]
   assertRight "resolved explicit export selector order" result $ \program ->
@@ -448,7 +441,6 @@ testResolvesMixedModuleFacts = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["App", "Main"]
   assertRight "resolved mixed module facts" result $ \program -> do
@@ -496,7 +488,6 @@ testEmptyExportListProducesEmptyInventory = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["App", "Main"]
   assertRight "resolved empty public inventory" result $ \program ->
@@ -538,7 +529,6 @@ testNamespaceAwareExportsSelectExactEntries = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["Lib", "Box"]
   assertRight "resolved namespace-aware public inventory" result $ \program ->
@@ -572,7 +562,6 @@ testNamespaceAwareExportsRejectWrongNamespace = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["Lib", "Token"]
   assertLeftDiagnosticCodeAndContains
@@ -596,7 +585,6 @@ testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
   result <-
     resolveTestProgram
       testResolverConfig
-      ResolveKernelOnly
       lookupSource
       ["Lib", "Empty"]
   assertLeftDiagnosticCodeAndContains
@@ -617,7 +605,7 @@ testNamespaceAwareExportDiagnosticRendersEmptyInventory = do
 
 testGroupedTypeExportsExpandFlatInventory :: IO ()
 testGroupedTypeExportsExpandFlatInventory = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertRight "resolved grouped public inventory" result $ \program ->
     case programModules program of
       [resolvedModule] ->
@@ -650,7 +638,7 @@ testGroupedTypeExportsExpandFlatInventory = do
 
 testGroupedTypeExportsRejectUnknownType :: IO ()
 testGroupedTypeExportsRejectUnknownType = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertLeftDiagnosticCodeAndContains
     "unknown grouped type"
     "E4015"
@@ -668,7 +656,7 @@ testGroupedTypeExportsRejectUnknownType = do
 
 testGroupedTypeExportsRejectUnknownConstructor :: IO ()
 testGroupedTypeExportsRejectUnknownConstructor = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertLeftDiagnosticCodeAndContains
     "unknown grouped constructor"
     "E4015"
@@ -686,7 +674,7 @@ testGroupedTypeExportsRejectUnknownConstructor = do
 
 testGroupedTypeExportsRejectWrongOwner :: IO ()
 testGroupedTypeExportsRejectWrongOwner = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Types"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Types"]
   assertLeftDiagnosticCodeAndContains
     "wrong-owner grouped constructor"
     "E4015"
@@ -704,7 +692,7 @@ testGroupedTypeExportsRejectWrongOwner = do
 
 testGroupedTypeExportsRejectImportedConstructor :: IO ()
 testGroupedTypeExportsRejectImportedConstructor = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Wrapper"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Wrapper"]
   assertLeftDiagnosticCodeAndContains
     "imported grouped constructor"
     "E4015"
@@ -726,7 +714,7 @@ testGroupedTypeExportsRejectImportedConstructor = do
 
 testExplicitExportsKeepPrivateLocalsUsable :: IO ()
 testExplicitExportsKeepPrivateLocalsUsable = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertRight "private local remains resolvable" result (const (pure ()))
   where
     sources =
@@ -752,7 +740,7 @@ testExplicitExportsKeepPrivateLocalsUsable = do
 
 testRejectsUnknownModuleExport :: IO ()
 testRejectsUnknownModuleExport = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Value"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Value"]
   assertLeftDiagnosticCodeAndContains
     "unknown module export"
     "E4015"
@@ -777,7 +765,7 @@ testRejectsUnknownModuleExport = do
 
 testRejectsImportedOnlyModuleExport :: IO ()
 testRejectsImportedOnlyModuleExport = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["Lib", "Wrapper"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["Lib", "Wrapper"]
   assertLeftDiagnosticCodeAndContains
     "imported-only module export"
     "E4015"
@@ -806,7 +794,7 @@ testRejectsImportedOnlyModuleExport = do
 
 testExplicitImportRejectsPrivateModuleBinding :: IO ()
 testExplicitImportRejectsPrivateModuleBinding = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "private explicit import"
     "E4007"
@@ -1408,7 +1396,7 @@ testModuleLexerFailureRetainsStructuredDetail = do
 
 testImplMethodRejectsHiddenUnqualifiedReference :: IO ()
 testImplMethodRejectsHiddenUnqualifiedReference = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "implementation method hidden unqualified reference"
     "E4011"
@@ -1431,7 +1419,7 @@ testImplMethodRejectsHiddenUnqualifiedReference = do
 
 testImplMethodRejectsHiddenQualifiedReference :: IO ()
 testImplMethodRejectsHiddenQualifiedReference = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "implementation method hidden qualified reference"
     "E4014"
@@ -2144,7 +2132,7 @@ testResolverConfig =
 
 testAcceptsExplicitClassImportSymbol :: IO ()
 testAcceptsExplicitClassImportSymbol = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertRight "explicit class import" result (const (pure ()))
   where
     sources =
@@ -2167,7 +2155,7 @@ testAcceptsExplicitClassImportSymbol = do
 
 testRejectsTypeOnlyImportSymbol :: IO ()
 testRejectsTypeOnlyImportSymbol = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "type-only import"
     "E4007"
@@ -2188,7 +2176,7 @@ testRejectsTypeOnlyImportSymbol = do
 
 testReportsClassImportCollision :: IO ()
 testReportsClassImportCollision = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "class import collision"
     "E4008"
@@ -2211,7 +2199,7 @@ testReportsClassImportCollision = do
 
 testReportsTypeImportCollision :: IO ()
 testReportsTypeImportCollision = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertLeftDiagnosticCodeAndContains
     "type import collision"
     "E4008"
@@ -2235,7 +2223,7 @@ testReportsTypeImportCollision = do
 
 testKeepsRepeatedClassImportsIdempotent :: IO ()
 testKeepsRepeatedClassImportsIdempotent = do
-  result <- resolveTestProgram testResolverConfig ResolveKernelOnly lookupSource ["App", "Main"]
+  result <- resolveTestProgram testResolverConfig lookupSource ["App", "Main"]
   assertRight "repeated class import" result (const (pure ()))
   where
     sources =

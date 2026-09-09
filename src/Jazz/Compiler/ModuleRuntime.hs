@@ -160,7 +160,6 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
   evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
     entryPath = coreProgramEntry analyzedProgram
-    builtinMode = preludeBuiltinMode (coreProgramPrelude analyzedProgram)
 
     evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
@@ -174,7 +173,6 @@ evaluateAnalyzedProgramPureUnchecked analyzedProgram = do
             evaluateModuleScope
               (Just (NamedSourceUnit (preparedModulePath preparedModule)))
               (preparedModuleEvaluationMode preparedModule)
-              builtinMode
               (preparedModuleImportedEnvironment preparedModule)
               (scopeStatements (coreModuleExpr analyzedModule))
           let (nextRuntimeModules, nextOutput) =
@@ -190,7 +188,6 @@ evaluatePrelude analyzedPrelude =
         evaluateModuleScope
           (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
-          (preludeBuiltinMode analyzedPrelude)
           Map.empty
           (scopeStatements (coreModuleExpr analyzedModule))
       pure
@@ -262,7 +259,6 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgra
     evaluateModules ambientEnv emptyRuntimeModuleAccumulator Nothing (NonEmpty.toList (coreProgramModules analyzedProgram))
   where
     entryPath = coreProgramEntry analyzedProgram
-    builtinMode = preludeBuiltinMode (coreProgramPrelude analyzedProgram)
 
     evaluateModules ambientEnv runtimeModules output remainingModules =
       case remainingModules of
@@ -278,7 +274,6 @@ evaluateAnalyzedProgramWithEvaluationHostUnchecked evaluationHost analyzedProgra
                   evaluationHost
                   (Just (NamedSourceUnit (preparedModulePath preparedModule)))
                   (preparedModuleEvaluationMode preparedModule)
-                  builtinMode
                   (preparedModuleImportedEnvironment preparedModule)
                   (scopeStatements (coreModuleExpr analyzedModule))
               )
@@ -353,7 +348,6 @@ evaluatePreludeWithEvaluationHost host analyzedPrelude =
           host
           (Just (PreludeSourceUnit (coreModulePath analyzedModule)))
           EvaluateDependencyModule
-          (preludeBuiltinMode analyzedPrelude)
           Map.empty
           (scopeStatements (coreModuleExpr analyzedModule))
       pure $

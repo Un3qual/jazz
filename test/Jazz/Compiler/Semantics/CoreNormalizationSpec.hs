@@ -17,7 +17,6 @@ import Jazz.Compiler.AST
     Pattern (..),
     Statement (..),
   )
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.Diagnostics (SourceSpan (..))
 import Jazz.Compiler.ModuleExports (exportInventory)
 import Jazz.Compiler.ModuleResolver (resolveStandaloneExprNames)
@@ -55,7 +54,7 @@ testIfRemainsCanonicalIf :: IO ()
 testIfRemainsCanonicalIf =
   assertRight "parse if" (parseSurfaceProgram "if True then 1 else 2.") $ \surface -> do
     let lowered = lowerSurfaceExpr surface
-    assertRight "resolve if" (resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) lowered) $ \resolved -> do
+    assertRight "resolve if" (resolveStandaloneExprNames (exportInventory []) lowered) $ \resolved -> do
       inference <- inferExpressionDefault resolved
       assertEqual "resolved equals inferred" resolved (inferredExpr inference)
 

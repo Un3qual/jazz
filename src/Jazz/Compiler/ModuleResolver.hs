@@ -45,9 +45,8 @@ import Jazz.Compiler.AST
     Statement (..),
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    builtinNamesInMode,
-    lookupBuiltinSymbolInMode,
+  ( kernelBuiltinNames,
+    lookupKernelBuiltinSymbol,
   )
 import Jazz.Compiler.DiagnosticCatalog
   ( ErrorCode (..),
@@ -232,7 +231,6 @@ resolveProgramWithAmbientExports config prelude ambientExports loadSource entryM
       fmap (>>= finalizeProgram nominalEntryPath) $
         resolveStateWithLookupAndVisibleSymbols
           config
-          (ModuleGraph.preludeBuiltinMode prelude)
           ambientExports
           loadSource
           nominalEntryPath
@@ -251,12 +249,11 @@ resolveProgramWithAmbientExports config prelude ambientExports loadSource entryM
 resolveStateWithLookupAndVisibleSymbols ::
   (Monad m) =>
   ModuleResolutionConfig ->
-  BuiltinResolutionMode ->
   ModuleExportInventory ->
   (FilePath -> m (Maybe Text)) ->
   ModulePath ->
   m (Either Diagnostic ResolvedState)
-resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSource entryModulePath =
+resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryModulePath =
   visitModule [] initialState entryModulePath
   where
     initialState =
@@ -306,7 +303,6 @@ resolveStateWithLookupAndVisibleSymbols config builtinMode ambientExports loadSo
                         Left err -> pure (Left err)
                         Right () ->
                           case resolveCoreModuleNames
-                            builtinMode
                             ambientExports
                             (discoveryLocalInventory discovery)
                             (discoveryPublicInventory discovery)
@@ -654,8 +650,7 @@ collectImportPaths imports =
   ]
 
 data ResolutionContext = ResolutionContext
-  { resolutionBuiltinMode :: BuiltinResolutionMode,
-    resolutionAmbientExports :: ModuleExportInventory,
+  { resolutionAmbientExports :: ModuleExportInventory,
     resolutionLocalInventory :: ModuleExportInventory,
     resolutionInventoriesByModule :: Map ModulePath ModuleExportInventory,
     resolutionImports :: [ModuleGraph.ModuleImport 'Lowered]
@@ -665,7 +660,6 @@ resolveNode :: CoreNode 'Lowered sort -> CoreNode 'Resolved sort
 resolveNode (CoreNode nodeId spanValue ()) = CoreNode nodeId spanValue ()
 
 resolveCoreModuleNames ::
-  BuiltinResolutionMode ->
   ModuleExportInventory ->
   ModuleExportInventory ->
   ModuleExportInventory ->
@@ -673,7 +667,7 @@ resolveCoreModuleNames ::
   [ModuleGraph.ModuleImport 'Lowered] ->
   ModuleGraph.CoreModule 'Lowered ->
   Either (NonEmpty Diagnostic) (ModuleGraph.CoreModule 'Resolved)
-resolveCoreModuleNames builtinMode ambientExports localInventory publicInventory inventoriesByModule imports coreModule = do
+resolveCoreModuleNames ambientExports localInventory publicInventory inventoriesByModule imports coreModule = do
   resolvedExpr <- resolveExprNames context (ModuleGraph.coreModuleExpr coreModule)
   resolvedImports <-
     either
@@ -704,8 +698,7 @@ resolveCoreModuleNames builtinMode ambientExports localInventory publicInventory
   where
     context =
       ResolutionContext
-        { resolutionBuiltinMode = builtinMode,
-          resolutionAmbientExports = ambientExports,
+        { resolutionAmbientExports = ambientExports,
           resolutionLocalInventory = localInventory,
           resolutionInventoriesByModule = inventoriesByModule,
           resolutionImports = imports
@@ -720,7 +713,6 @@ resolvePreludeArtifact publicInventory artifact =
     Nothing -> Right (artifactWithoutModule artifact)
     Just loweredModule ->
       case resolveCoreModuleNames
-        (ModuleGraph.preludeBuiltinMode artifact)
         (exportInventory [])
         publicInventory
         publicInventory
@@ -732,14 +724,12 @@ resolvePreludeArtifact publicInventory artifact =
           Right
             ModuleGraph.PreludeArtifact
               { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity artifact,
-                ModuleGraph.preludeBuiltinMode = ModuleGraph.preludeBuiltinMode artifact,
                 ModuleGraph.preludeModule = Just resolvedModule
               }
   where
     artifactWithoutModule loweredArtifact =
       ModuleGraph.PreludeArtifact
         { ModuleGraph.preludeIdentity = ModuleGraph.preludeIdentity loweredArtifact,
-          ModuleGraph.preludeBuiltinMode = ModuleGraph.preludeBuiltinMode loweredArtifact,
           ModuleGraph.preludeModule = Nothing
         }
 
@@ -749,7 +739,6 @@ resolveExprNames ::
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
 resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpression)
   where
-    builtinMode = resolutionBuiltinMode context
     ambientExports = resolutionAmbientExports context
     localInventory = resolutionLocalInventory context
     inventoriesByModule = resolutionInventoriesByModule context
@@ -855,7 +844,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
       | ambientName namespace nameText =
           UserName (ResolvedUserName AmbientPrelude namespace identifier)
       | namespace == ValueNamespace,
-        Just _ <- lookupBuiltinSymbolInMode builtinMode nameText =
+        Just _ <- lookupKernelBuiltinSymbol nameText =
           BuiltinName identifier
       | otherwise =
           UserName (ResolvedUserName CurrentModule namespace identifier)
@@ -947,7 +936,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
                   ambientConstructors,
                   Map.keysSet visibleValueOrigins,
                   Map.keysSet visibleConstructorOrigins,
-                  builtinNamesInMode builtinMode
+                  kernelBuiltinNames
                 ]
             )
         recursiveScopeFactsValue = buildRecursiveScopeFacts outerBindingNames indexedStatements
@@ -1067,7 +1056,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
           EVar referenceNode (UserName (UnqualifiedSourceName referenceIdentifier))
           )
             | bindingIdentifier == referenceIdentifier,
-              Just _ <- lookupBuiltinSymbolInMode builtinMode (identifierText referenceIdentifier) ->
+              Just _ <- lookupKernelBuiltinSymbol (identifierText referenceIdentifier) ->
                 EVar (resolveNode referenceNode) (BuiltinName referenceIdentifier)
         _ -> resolveExpr boundValues value
 
@@ -1129,15 +1118,13 @@ resolveExprNames context rootExpression = Right (resolveExpr Set.empty rootExpre
 -- from its declarations so constructors, types, and capabilities receive the
 -- same namespaces as module-graph compilation.
 resolveStandaloneExprNames ::
-  BuiltinResolutionMode ->
   ModuleExportInventory ->
   Expr 'Lowered ->
   Either (NonEmpty Diagnostic) (Expr 'Resolved)
-resolveStandaloneExprNames builtinMode ambientExports expression =
+resolveStandaloneExprNames ambientExports expression =
   resolveExprNames
     ResolutionContext
-      { resolutionBuiltinMode = builtinMode,
-        resolutionAmbientExports = ambientExports,
+      { resolutionAmbientExports = ambientExports,
         resolutionLocalInventory = standaloneLocalInventory expression,
         resolutionInventoriesByModule = Map.empty,
         resolutionImports = []

@@ -24,9 +24,6 @@ import Jazz.Compiler.AST
     Expr,
     Literal (..),
   )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
-  )
 import Jazz.Compiler.Diagnostics
   ( SourceSpan (..),
   )
@@ -76,7 +73,7 @@ import Jazz.Compiler.SourceProgram
     scopeStatements,
   )
 import Jazz.Compiler.SourceUnitOwnership (SourceUnitOwner (..))
-import Jazz.Compiler.TypeInference (analyzeSourceUnitExpressionWithBuiltins)
+import Jazz.Compiler.TypeInference (analyzeSourceUnitExpression)
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
     SemanticType (..),
@@ -494,7 +491,6 @@ testPatternCaseBinderDoesNotGainRecursiveFunctionVisibility = do
           preludeModulePath
           Set.empty
           Nothing
-          ResolveKernelOnly
           Set.empty
           witnessStatements
   assertEqual "pattern-binder witness is not a runtime recursive group" False (scopePlanIsRecursiveBinding plan 0)
@@ -531,7 +527,6 @@ testPreludeScopePlanUsesNonemptyModulePath = do
           preludeModulePath
           (Set.singleton 0)
           Nothing
-          ResolveKernelOnly
           Set.empty
           [statementLet "preludeValue" (SourceSpan 1 1) (expressionLiteral (LInt 1))]
   assertEqual
@@ -541,7 +536,7 @@ testPreludeScopePlanUsesNonemptyModulePath = do
 
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility :: IO ()
 testPatternCaseBinderPreservesAliasDefinitionRecursiveVisibility = do
-  plan <- scopePlanForSource ResolveKernelOnly executableWitnessSource
+  plan <- scopePlanForSource executableWitnessSource
   assertEqual "definition-site witness is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
   assertEqual "definition-site witness gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings executableWitnessSource
@@ -562,13 +557,13 @@ testBuiltinNameDoesNotGainSelfRecursiveVisibility = do
     witnessSource =
       "map = \\(items) -> map (\\(item) -> item) items. map [1]."
 
-scopePlanForSource :: BuiltinResolutionMode -> Text -> IO RuntimeScopePlan
-scopePlanForSource builtinMode source =
+scopePlanForSource :: Text -> IO RuntimeScopePlan
+scopePlanForSource source =
   case parseAndLowerStandaloneSource source of
     Left diagnostic ->
       failTest ("expected scope-plan witness source to parse and lower: " <> renderDiagnostic diagnostic)
     Right loweredExpression ->
-      case resolveStandaloneExprNames builtinMode (exportInventory []) loweredExpression of
+      case resolveStandaloneExprNames (exportInventory []) loweredExpression of
         Left diagnostics ->
           failTest
             ( "expected scope-plan witness source to resolve: "
@@ -576,8 +571,7 @@ scopePlanForSource builtinMode source =
             )
         Right resolvedExpression -> do
           (_, attachment) <-
-            analyzeSourceUnitExpressionWithBuiltins
-              builtinMode
+            analyzeSourceUnitExpression
               preludeModulePath
               Set.empty
               Set.empty
@@ -593,7 +587,6 @@ scopePlanForSource builtinMode source =
                 preludeModulePath
                 Set.empty
                 Nothing
-                builtinMode
                 Set.empty
                 (scopeStatements analyzedExpression)
             )
@@ -702,7 +695,7 @@ testNestedBlockAliasCycleIgnoresLaterOuterPeer = do
 
 testNestedRecursiveForwardAliasRuntimeSuccess :: IO ()
 testNestedRecursiveForwardAliasRuntimeSuccess = do
-  plan <- scopePlanForSource ResolveKernelOnly source
+  plan <- scopePlanForSource source
   assertEqual "nested forward alias is a runtime recursive group" True (scopePlanIsRecursiveBinding plan 0)
   assertEqual "nested forward alias gets recursive function visibility" True (scopePlanIsSelfRecursiveFunction plan 0)
   result <- runSource defaultWarningSettings source

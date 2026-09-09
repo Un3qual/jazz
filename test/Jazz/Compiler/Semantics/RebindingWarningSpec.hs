@@ -13,7 +13,6 @@ import Jazz.Compiler.Analyzer
   ( AnalysisResult (..),
   )
 import qualified Jazz.Compiler.Analyzer as Analyzer
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode (ResolveKernelOnly))
 import Jazz.Compiler.BundledPrelude
   ( bundledPreludeSource,
   )
@@ -441,7 +440,7 @@ analyzeRebindingWarnings settings expression = do
 
 resolveForAnalyzer :: Expr 'Lowered -> IO (Expr 'Resolved)
 resolveForAnalyzer expression =
-  case resolveStandaloneExprNames ResolveKernelOnly (exportInventory []) expression of
+  case resolveStandaloneExprNames (exportInventory []) expression of
     Left diagnostics -> failTest ("fixture resolution failed: " <> Text.pack (show diagnostics))
     Right resolved -> pure resolved
 

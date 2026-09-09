@@ -11,12 +11,10 @@ module Jazz.Compiler.Analyzer
     Expr (..),
     Statement (..),
     AnalysisResult (..),
-    analyzeProgramWithBuiltinsAndHiddenStatements,
+    analyzeProgramWithHiddenStatements,
     analyzeProgramWithInputs,
     analyzeProgramWithInputsAndPreparedScope,
-    analyzeProgramWithBuiltins,
     analyzeProgram,
-    analyzeRebindingWarningsWithBuiltins,
     analyzeRebindingWarnings,
   )
 where
@@ -43,9 +41,8 @@ import Jazz.Compiler.Analyzer.UnusedBindings
   ( collectUnusedBindingWarnings,
   )
 import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-    builtinNamesInMode,
-    isBuiltinSymbolNameInMode,
+  ( isKernelBuiltinSymbolName,
+    kernelBuiltinNames,
   )
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact,
@@ -116,8 +113,7 @@ data AnalysisBinding = AnalysisBinding
   deriving (Eq, Show)
 
 data AnalysisInputs = AnalysisInputs
-  { analysisBuiltinMode :: BuiltinResolutionMode,
-    analysisWarningSettings :: WarningSettings,
+  { analysisWarningSettings :: WarningSettings,
     analysisImportedValues :: Map ResolvedName AnalysisBinding,
     analysisForwardFunctions :: Map Int (ResolvedName, AnalysisBinding),
     analysisImportedClasses :: Set ResolvedName,
@@ -148,26 +144,21 @@ data VisibleBinding = VisibleBinding
 -- - optional same-scope rebinding warnings
 -- - recursive-group visibility for self/mutual recursion
 analyzeProgram :: WarningSettings -> Expr 'Resolved -> IO AnalysisResult
-analyzeProgram = analyzeProgramWithBuiltins ResolveKernelOnly
-
-analyzeProgramWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Resolved -> IO AnalysisResult
-analyzeProgramWithBuiltins builtinMode =
-  analyzeProgramWithBuiltinsAndHiddenStatements builtinMode Set.empty
+analyzeProgram =
+  analyzeProgramWithHiddenStatements Set.empty
 
 -- | Analyzer entrypoint used by prelude/module flows. Hidden statement indices
 -- suppress synthetic-source locations while preserving the same semantic walk
 -- used for ordinary user code.
-analyzeProgramWithBuiltinsAndHiddenStatements ::
-  BuiltinResolutionMode ->
+analyzeProgramWithHiddenStatements ::
   Set Int ->
   WarningSettings ->
   Expr 'Resolved ->
   IO AnalysisResult
-analyzeProgramWithBuiltinsAndHiddenStatements builtinMode hiddenStatementIndices settings expr =
+analyzeProgramWithHiddenStatements hiddenStatementIndices settings expr =
   analyzeProgramWithInputs
     AnalysisInputs
-      { analysisBuiltinMode = builtinMode,
-        analysisWarningSettings = settings,
+      { analysisWarningSettings = settings,
         analysisImportedValues = Map.empty,
         analysisForwardFunctions = Map.empty,
         analysisImportedClasses = Set.empty,
@@ -184,10 +175,9 @@ analyzeProgramWithInputs inputs hiddenStatementIndices expr =
     collectedDiagnostics =
       case expr of
         EBlock _ statements ->
-          collectScopeDiagnostics builtinMode hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
+          collectScopeDiagnostics hiddenStatementIndices settings importedBindings forwardBindings importedClasses topLevelContext statements
         _ ->
-          collectExprDiagnostics builtinMode settings importedBindings importedClasses topLevelContext expr
-    builtinMode = analysisBuiltinMode inputs
+          collectExprDiagnostics settings importedBindings importedClasses topLevelContext expr
     settings = analysisWarningSettings inputs
     importedBindings = analysisVisibleBindings inputs
     forwardBindings = analysisVisibleForwardBindings inputs
@@ -204,12 +194,11 @@ analyzeProgramWithInputsAndPreparedScope inputs hiddenStatementIndices expr prep
   let expectedOuterBindingNames =
         Set.union
           (Map.keysSet (analysisImportedValues inputs))
-          (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode (analysisBuiltinMode inputs)))
+          (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
       analysisScope = preparedAnalysisScope expectedOuterBindingNames preparedScope
       collectedDiagnostics =
         collectScopeDiagnosticsWithPreparedScope
           analysisScope
-          (analysisBuiltinMode inputs)
           hiddenStatementIndices
           (analysisWarningSettings inputs)
           (analysisVisibleBindings inputs)
@@ -298,12 +287,9 @@ materializeDiagnostics diagnostics =
   )
 
 analyzeRebindingWarnings :: WarningSettings -> Expr 'Resolved -> IO [Diagnostic]
-analyzeRebindingWarnings = analyzeRebindingWarningsWithBuiltins ResolveKernelOnly
-
-analyzeRebindingWarningsWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Resolved -> IO [Diagnostic]
-analyzeRebindingWarningsWithBuiltins builtinMode settings expr =
+analyzeRebindingWarnings settings expr =
   filter (isJust . diagnosticWarningCategory) . analysisDiagnostics
-    <$> analyzeProgramWithBuiltins builtinMode settings expr
+    <$> analyzeProgram settings expr
 
 applyWarningPolicy :: WarningSettings -> Diagnostic -> Diagnostic
 applyWarningPolicy settings diagnostic =
@@ -313,21 +299,20 @@ applyWarningPolicy settings diagnostic =
     _ -> diagnostic
 
 collectExprDiagnostics ::
-  BuiltinResolutionMode ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
   Set Text ->
   AnalysisContext ->
   Expr 'Resolved ->
   CollectedDiagnostics
-collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context expr =
+collectExprDiagnostics settings visibleBindings visibleClassNames context expr =
   case expr of
     ELit _ _ -> mempty
     EVar _ name ->
       case Map.lookup (resolvedValueScopeName name) visibleBindings of
         Just _ -> mempty
         Nothing
-          | isBuiltinSymbolNameInMode builtinMode nameText -> mempty
+          | isKernelBuiltinSymbolName nameText -> mempty
           | qualifiedMethodClassIsVisible visibleClassNames nameText -> mempty
           | otherwise -> errorDiagnostics [mkUnboundVariableError nameText]
       where
@@ -348,22 +333,22 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
                   primarySpan
                   visibleBindings
           bodyDiagnostics =
-            collectExprDiagnostics builtinMode settings lambdaBindings visibleClassNames context bodyExpr
+            collectExprDiagnostics settings lambdaBindings visibleClassNames context bodyExpr
        in warningDiagnostics shadowingWarnings <> bodyDiagnostics
     EOperatorValue _ _ -> mempty
     EList _ elements ->
-      collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements
+      collectExprListDiagnostics settings visibleBindings visibleClassNames context elements
     ETuple _ elements ->
-      collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements
+      collectExprListDiagnostics settings visibleBindings visibleClassNames context elements
     EApply _ functionExpr argumentExpr ->
       let functionDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context functionExpr
           argumentDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context argumentExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context argumentExpr
           purityErrors =
             case directCallCalleeName functionExpr of
               Just calleeName
-                | shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context calleeName ->
+                | shouldRejectImpureCall visibleBindings visibleClassNames context calleeName ->
                     [ mkImpureCallInPureContextError
                         context
                         calleeName
@@ -372,25 +357,24 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
               _ -> []
        in functionDiagnostics <> argumentDiagnostics <> errorDiagnostics purityErrors
     ETypeApplication _ functionExpr _ _ ->
-      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context functionExpr
+      collectExprDiagnostics settings visibleBindings visibleClassNames context functionExpr
     EIf _ conditionExpr thenExpr elseExpr ->
       let conditionDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context conditionExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context conditionExpr
           thenDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context thenExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context thenExpr
           elseDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context elseExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context elseExpr
        in conditionDiagnostics <> thenDiagnostics <> elseDiagnostics
     EPatternCase _ scrutineeExpr caseArms ->
       let scrutineeDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context scrutineeExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context scrutineeExpr
           armDiagnostics (CaseArm _ pattern guardExpr bodyExpr) =
             let armBindings = extendBindingsWithPattern pattern visibleBindings
                 guardDiagnostics =
                   maybe
                     mempty
                     ( collectExprDiagnostics
-                        builtinMode
                         settings
                         armBindings
                         visibleClassNames
@@ -399,7 +383,6 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
                     guardExpr
                 bodyDiagnostics =
                   collectExprDiagnostics
-                    builtinMode
                     settings
                     armBindings
                     visibleClassNames
@@ -409,33 +392,31 @@ collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames co
        in scrutineeDiagnostics <> foldMap armDiagnostics caseArms
     EBinary _ _ leftExpr rightExpr ->
       let leftDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context leftExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
           rightDiagnostics =
-            collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context rightExpr
+            collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
        in leftDiagnostics <> rightDiagnostics
     ESectionLeft _ leftExpr _ ->
-      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context leftExpr
+      collectExprDiagnostics settings visibleBindings visibleClassNames context leftExpr
     ESectionRight _ _ rightExpr ->
-      collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context rightExpr
-    EBlock _ statements -> collectScopeDiagnostics builtinMode Set.empty settings visibleBindings Map.empty visibleClassNames context statements
+      collectExprDiagnostics settings visibleBindings visibleClassNames context rightExpr
+    EBlock _ statements -> collectScopeDiagnostics Set.empty settings visibleBindings Map.empty visibleClassNames context statements
 
 collectExprListDiagnostics ::
-  BuiltinResolutionMode ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
   Set Text ->
   AnalysisContext ->
   [Expr 'Resolved] ->
   CollectedDiagnostics
-collectExprListDiagnostics builtinMode settings visibleBindings visibleClassNames context elements =
+collectExprListDiagnostics settings visibleBindings visibleClassNames context elements =
   foldMap
-    (collectExprDiagnostics builtinMode settings visibleBindings visibleClassNames context)
+    (collectExprDiagnostics settings visibleBindings visibleClassNames context)
     elements
 
 -- | Walk a block scope in declaration order, enforcing signature adjacency,
 -- rebinding policy, and recursive-peer visibility at the same time.
 collectScopeDiagnostics ::
-  BuiltinResolutionMode ->
   Set Int ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
@@ -444,7 +425,7 @@ collectScopeDiagnostics ::
   AnalysisContext ->
   [Statement 'Resolved] ->
   CollectedDiagnostics
-collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
+collectScopeDiagnostics hiddenStatementIndices settings outerScope forwardBindings outerClassNames context statements =
   collectScopeDiagnosticsWithPreparedScope
     ( preparedAnalysisScope
         outerBindingNames
@@ -453,7 +434,6 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope f
             statements
         )
     )
-    builtinMode
     hiddenStatementIndices
     settings
     outerScope
@@ -464,11 +444,10 @@ collectScopeDiagnostics builtinMode hiddenStatementIndices settings outerScope f
     outerBindingNames =
       Set.union
         (Map.keysSet outerScope)
-        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) (builtinNamesInMode builtinMode))
+        (Set.map (resolvedAmbientName ValueNamespace . mkIdentifier) kernelBuiltinNames)
 
 collectScopeDiagnosticsWithPreparedScope ::
   PreparedAnalysisScope ->
-  BuiltinResolutionMode ->
   Set Int ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
@@ -476,7 +455,7 @@ collectScopeDiagnosticsWithPreparedScope ::
   Set Text ->
   AnalysisContext ->
   CollectedDiagnostics
-collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) builtinMode hiddenStatementIndices settings outerScope forwardBindings outerClassNames context =
+collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRecursiveGroupsByStatement) hiddenStatementIndices settings outerScope forwardBindings outerClassNames context =
   flushPendingSignature finalPendingSignature finalDiagnostics
   where
     indexedStatements = zip [0 ..] statements
@@ -514,7 +493,6 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               visible = currentVisibleBindings scopeBindings
               exprDiagnostics =
                 collectExprDiagnostics
-                  builtinMode
                   settings
                   visible
                   (currentVisibleClassNames classDeclarations importedClassNames)
@@ -593,7 +571,6 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               methodErrors = duplicateImplMethodErrors capabilityName arguments methods
               methodBodyDiagnostics =
                 collectImplMethodDiagnostics
-                  builtinMode
                   settings
                   visible
                   (currentVisibleClassNames classDeclarations importedClassNames)
@@ -694,7 +671,6 @@ collectScopeDiagnosticsWithPreparedScope (PreparedAnalysisScope statements rawRe
               bindingContext = contextForBinding bindingName
               valueDiagnostics =
                 collectExprDiagnostics
-                  builtinMode
                   settings
                   visible
                   (currentVisibleClassNames classDeclarations importedClassNames)
@@ -931,18 +907,16 @@ mkDuplicateImplMethodError implLabel methodName methodSpan previousSpan =
         (mkErrorDiagnostic E1007 CompilationOrigin ("duplicate method binding '" <> methodName <> "' in impl '" <> implLabel <> "'"))
 
 collectImplMethodDiagnostics ::
-  BuiltinResolutionMode ->
   WarningSettings ->
   Map ResolvedName VisibleBinding ->
   Set Text ->
   [ImplMethod 'Resolved] ->
   CollectedDiagnostics
-collectImplMethodDiagnostics builtinMode settings visibleBindings visibleClassNames methods =
+collectImplMethodDiagnostics settings visibleBindings visibleClassNames methods =
   foldMap collectMethodDiagnostics methods
   where
     collectMethodDiagnostics (ImplMethod methodNode methodName methodExpr) =
       collectExprDiagnostics
-        builtinMode
         settings
         visibleBindings
         visibleClassNames
@@ -998,13 +972,12 @@ contextForExpressionStatement statementSpan context =
 -- | Purity is name-based in this compiler slice; reject only when the current
 -- context is pure and the callee is known either locally or through builtins.
 shouldRejectImpureCall ::
-  BuiltinResolutionMode ->
   Map ResolvedName VisibleBinding ->
   Set Text ->
   AnalysisContext ->
   ResolvedName ->
   Bool
-shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context calleeName =
+shouldRejectImpureCall visibleBindings visibleClassNames context calleeName =
   not (contextAllowsImpureCalls context)
     && isKnownImpureCallee
   where
@@ -1012,7 +985,7 @@ shouldRejectImpureCall builtinMode visibleBindings visibleClassNames context cal
     isKnownImpureCallee =
       identifierPurity calleeName == Impure
         && ( Map.member (resolvedValueScopeName calleeName) visibleBindings
-               || isBuiltinSymbolNameInMode builtinMode calleeNameText
+               || isKernelBuiltinSymbolName calleeNameText
                || qualifiedMethodClassIsVisible visibleClassNames calleeNameText
            )
 

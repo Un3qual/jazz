@@ -52,9 +52,6 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr (..),
   )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (..),
-  )
 import Jazz.Compiler.BundledPrelude
   ( loadBundledPreludeSource,
   )
@@ -91,7 +88,6 @@ import Jazz.Compiler.Prelude
   ( PreparedPrelude (..),
     ResolvedPrelude (..),
     preparePrelude,
-    preparedPreludeBuiltinMode,
     preparedPreludeExpr,
     resolvedExplicitPrelude,
   )
@@ -102,7 +98,7 @@ import Jazz.Compiler.Profiling
   )
 import Jazz.Compiler.Runtime
   ( RuntimeValue,
-    evaluateRuntimeExprWithHostAndBuiltinsAndSourceUnitStatementsObserved,
+    evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved,
     renderRuntimeValue,
   )
 import Jazz.Compiler.Runtime.Observation
@@ -122,7 +118,7 @@ import Jazz.Compiler.SourceProgram
     scopeStatements,
   )
 import Jazz.Compiler.TypeInference
-  ( analyzeSourceUnitExpressionWithBuiltins,
+  ( analyzeSourceUnitExpression,
   )
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 import Jazz.Compiler.WarningConfig
@@ -198,30 +194,25 @@ runRuntimeErrors =
 -- Compiler driver flow for the current implementation slice:
 -- analyze -> collect warnings/errors -> apply warning-as-error policy.
 compileExpr :: WarningSettings -> Expr 'Lowered -> IO CompileResult
-compileExpr = compileExprWithBuiltins ResolveKernelOnly
+compileExpr = compileExprWithHiddenStatements Set.empty
 
-compileExprWithBuiltins :: BuiltinResolutionMode -> WarningSettings -> Expr 'Lowered -> IO CompileResult
-compileExprWithBuiltins = compileExprWithBuiltinsAndHiddenStatements Set.empty
-
-compileExprWithBuiltinsAndHiddenStatements ::
+compileExprWithHiddenStatements ::
   Set Int ->
-  BuiltinResolutionMode ->
   WarningSettings ->
   Expr 'Lowered ->
   IO CompileResult
-compileExprWithBuiltinsAndHiddenStatements hiddenStatementIndices builtinMode settings expr =
-  compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices hiddenStatementIndices preludeModulePath builtinMode settings expr
+compileExprWithHiddenStatements hiddenStatementIndices settings expr =
+  compileExprWithSourceUnitStatements hiddenStatementIndices hiddenStatementIndices preludeModulePath settings expr
 
-compileExprWithBuiltinsAndSourceUnitStatements ::
+compileExprWithSourceUnitStatements ::
   Set Int ->
   Set Int ->
   ModulePath ->
-  BuiltinResolutionMode ->
   WarningSettings ->
   Expr 'Lowered ->
   IO CompileResult
-compileExprWithBuiltinsAndSourceUnitStatements hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr = do
-  (diagnostics, analyzedAttachment) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr
+compileExprWithSourceUnitStatements hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
+  (diagnostics, analyzedAttachment) <- analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr
   withAnalyzedAttachment analyzedAttachment $ \_ ->
     pure
       CompileResult
@@ -246,11 +237,10 @@ compileSourceWithResolvedPrelude settings resolvedPrelude source =
           { compileDiagnostics = [parseErrorCode]
           }
     Right loweredProgram ->
-      compileExprWithBuiltinsAndSourceUnitStatements
+      compileExprWithSourceUnitStatements
         (parsedHiddenStatementIndices loweredProgram)
         (parsedPreludeStatementIndices loweredProgram)
         (parsedPreludeModulePath loweredProgram)
-        (parsedBuiltinMode loweredProgram)
         settings
         (parsedExpr loweredProgram)
 
@@ -306,19 +296,18 @@ compileModuleGraphWithResolvedPrelude settings resolvedPrelude resolutionConfig 
           { compileDiagnostics = diagnostics
           }
 
-runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved ::
+runExprWithSourceUnitStatementsAndHostObserved ::
   RuntimeObservationRequest ->
   RuntimeHost IO ->
   Set Int ->
   Set Int ->
   ModulePath ->
-  BuiltinResolutionMode ->
   WarningSettings ->
   Expr 'Lowered ->
   IO RunResult
-runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr = do
+runExprWithSourceUnitStatementsAndHostObserved observationRequest host hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
   (compilePhaseDiagnostics, analyzedAttachment) <-
-    analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr
+    analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr
   if any isErrorDiagnostic compilePhaseDiagnostics
     then
       pure
@@ -331,12 +320,11 @@ runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved observationRequest hos
       case maybeAnalyzedExpr of
         Just analyzedExpr -> do
           runtimeResult <-
-            evaluateRuntimeExprWithHostAndBuiltinsAndSourceUnitStatementsObserved
+            evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved
               observationRequest
               host
               preludeStatementIndices
               preludePath
-              builtinMode
               analyzedExpr
           pure (runtimeObservationRunResult id compilePhaseDiagnostics runtimeResult)
         Nothing ->
@@ -386,13 +374,12 @@ runSourceWithResolvedPreludeAndHostObserved observationRequest host settings res
             runRuntimeObservation = Nothing
           }
     Right loweredProgram ->
-      runExprWithBuiltinsAndSourceUnitStatementsAndHostObserved
+      runExprWithSourceUnitStatementsAndHostObserved
         observationRequest
         host
         (parsedHiddenStatementIndices loweredProgram)
         (parsedPreludeStatementIndices loweredProgram)
         (parsedPreludeModulePath loweredProgram)
-        (parsedBuiltinMode loweredProgram)
         settings
         (parsedExpr loweredProgram)
 
@@ -606,9 +593,9 @@ buildAnalyzedProgram settings resolvedPrelude resolutionConfig entryModulePath s
 
 -- | Run inference/canonicalization and retain the canonical diagnostic order
 -- for downstream compile/run results.
-analyzeForDriver :: Set Int -> Set Int -> ModulePath -> BuiltinResolutionMode -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Maybe (Expr 'Analyzed)))
-analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath builtinMode settings expr = do
-  case resolveStandaloneExprNames builtinMode (exportInventory []) (reindexLoweredExpr expr) of
+analyzeForDriver :: Set Int -> Set Int -> ModulePath -> WarningSettings -> Expr 'Lowered -> IO ([Diagnostic], Either (NonEmpty.NonEmpty SemanticFactInvariantFailure) (Maybe (Expr 'Analyzed)))
+analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath settings expr = do
+  case resolveStandaloneExprNames (exportInventory []) (reindexLoweredExpr expr) of
     Left diagnostics ->
       pure (NonEmpty.toList diagnostics, Right Nothing)
     Right resolvedExpr -> do
@@ -616,8 +603,7 @@ analyzeForDriver hiddenStatementIndices preludeStatementIndices preludePath buil
         withCompilerStageResult
           TypeInferenceStage
           (evaluate . forceInferenceResult . fst)
-          ( analyzeSourceUnitExpressionWithBuiltins
-              builtinMode
+          ( analyzeSourceUnitExpression
               preludePath
               hiddenStatementIndices
               preludeStatementIndices
@@ -662,8 +648,7 @@ mergePreparedPrelude preparedPrelude loweredSource =
         { parsedExpr = loweredSource,
           parsedHiddenStatementIndices = Set.empty,
           parsedPreludeStatementIndices = Set.empty,
-          parsedPreludeModulePath = preparedPreludePath preparedPrelude,
-          parsedBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
+          parsedPreludeModulePath = preparedPreludePath preparedPrelude
         }
     Just loweredPrelude ->
       let preludeStatements = scopeStatements loweredPrelude
@@ -673,8 +658,7 @@ mergePreparedPrelude preparedPrelude loweredSource =
             { parsedExpr = combinedExpr,
               parsedHiddenStatementIndices = preparedPreludeHiddenStatementIndices preparedPrelude,
               parsedPreludeStatementIndices = preludeStatementIndices,
-              parsedPreludeModulePath = preparedPreludePath preparedPrelude,
-              parsedBuiltinMode = preparedPreludeBuiltinMode preparedPrelude
+              parsedPreludeModulePath = preparedPreludePath preparedPrelude
             }
   where
     preparedPreludePath =
@@ -686,6 +670,5 @@ data ParsedProgram = ParsedProgram
   { parsedExpr :: Expr 'Lowered,
     parsedHiddenStatementIndices :: Set Int,
     parsedPreludeStatementIndices :: Set Int,
-    parsedPreludeModulePath :: ModulePath,
-    parsedBuiltinMode :: BuiltinResolutionMode
+    parsedPreludeModulePath :: ModulePath
   }

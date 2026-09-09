@@ -4,7 +4,6 @@
 module Jazz.Compiler.TypeInference.Traversal (InferenceMode (..), InferExprWithModeFn) where
 
 import Jazz.Compiler.AST (CorePhase (Resolved), Expr)
-import Jazz.Compiler.BuiltinCatalog (BuiltinResolutionMode)
 import Jazz.Compiler.TypeInference.State (InferState)
 import Jazz.Compiler.TypeInference.Types (ExpressionType, TypeEnv)
 
@@ -12,4 +11,4 @@ import Jazz.Compiler.TypeInference.Types (ExpressionType, TypeEnv)
 -- and permits signed forward references within eligible function bodies.
 data InferenceMode = InferenceOnly | InferConcreteFunctions deriving (Eq, Show)
 
-type InferExprWithModeFn = InferenceMode -> BuiltinResolutionMode -> TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, InferState)
+type InferExprWithModeFn = InferenceMode -> TypeEnv -> InferState -> Expr 'Resolved -> (Maybe ExpressionType, InferState)

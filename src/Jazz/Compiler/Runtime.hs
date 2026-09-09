@@ -18,12 +18,11 @@ module Jazz.Compiler.Runtime
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
     evaluateModuleScope,
-    evaluateRuntimeExprWithBuiltinsAndSourceUnitStatements,
-    evaluateRuntimeExprWithBuiltins,
+    evaluateRuntimeExprWithSourceUnitStatements,
     evaluateRuntimeExpr,
     evaluateRuntimeExprObserved,
     evaluateRuntimeExprWithHost,
-    evaluateRuntimeExprWithHostAndBuiltinsAndSourceUnitStatementsObserved,
+    evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved,
     evaluateModuleScopeWithHost,
     evaluateModuleScopeWithRequiredHost,
     evaluateModuleScopeWithRequiredEvaluationHost,
@@ -44,9 +43,6 @@ import Jazz.Compiler.AST
   ( CorePhase (..),
     Expr,
     Statement,
-  )
-import Jazz.Compiler.BuiltinCatalog
-  ( BuiltinResolutionMode (ResolveKernelOnly),
   )
 import Jazz.Compiler.Diagnostics (Diagnostic)
 import Jazz.Compiler.ModuleIdentity (ModulePath, preludeModulePath)
@@ -110,7 +106,6 @@ evaluateRuntimeExprObserved observationRequest expr =
         RuntimeExpressionRequest
           { runtimeExpressionSourceUnitStatementIndices = Set.empty,
             runtimeExpressionPreludeModulePath = preludeModulePath,
-            runtimeExpressionBuiltinMode = ResolveKernelOnly,
             runtimeExpression = expr
           }
     )
@@ -125,53 +120,41 @@ evaluateRuntimeExprWithHost host expr =
         RuntimeExpressionRequest
           { runtimeExpressionSourceUnitStatementIndices = Set.empty,
             runtimeExpressionPreludeModulePath = preludeModulePath,
-            runtimeExpressionBuiltinMode = ResolveKernelOnly,
             runtimeExpression = expr
           }
     )
 
-evaluateRuntimeExprWithHostAndBuiltinsAndSourceUnitStatementsObserved ::
+evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved ::
   (Monad m) =>
   RuntimeObservationRequest ->
   RuntimeHost m ->
   Set Int ->
   ModulePath ->
-  BuiltinResolutionMode ->
   Expr 'Analyzed ->
   m (RuntimeObservationResult (Maybe RuntimeValue))
-evaluateRuntimeExprWithHostAndBuiltinsAndSourceUnitStatementsObserved observationRequest host sourceUnitStatementIndices preludePath builtinMode expr =
+evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved observationRequest host sourceUnitStatementIndices preludePath expr =
   evaluateRuntimeExpressionObserved
     observationRequest
     host
     RuntimeExpressionRequest
       { runtimeExpressionSourceUnitStatementIndices = sourceUnitStatementIndices,
         runtimeExpressionPreludeModulePath = preludePath,
-        runtimeExpressionBuiltinMode = builtinMode,
         runtimeExpression = expr
       }
 
-evaluateRuntimeExprWithBuiltins :: BuiltinResolutionMode -> Expr 'Analyzed -> Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExprWithBuiltins builtinMode expr =
-  evaluateRuntimeExprWithBuiltinsAndSourceUnitStatements
-    Set.empty
-    builtinMode
-    expr
-
-evaluateRuntimeExprWithBuiltinsAndSourceUnitStatements ::
+evaluateRuntimeExprWithSourceUnitStatements ::
   Set Int ->
-  BuiltinResolutionMode ->
   Expr 'Analyzed ->
   Either Diagnostic (Maybe RuntimeValue)
-evaluateRuntimeExprWithBuiltinsAndSourceUnitStatements sourceUnitStatementIndices builtinMode expr =
+evaluateRuntimeExprWithSourceUnitStatements sourceUnitStatementIndices expr =
   runIdentity
     ( fmap
         (runtimeOutcomeAsDiagnosticResult . runtimeObservationOutcome)
-        ( evaluateRuntimeExprWithHostAndBuiltinsAndSourceUnitStatementsObserved
+        ( evaluateRuntimeExprWithHostAndSourceUnitStatementsObserved
             RuntimeObservationDisabled
             disabledRuntimeHost
             sourceUnitStatementIndices
             preludeModulePath
-            builtinMode
             expr
         )
     )
@@ -179,11 +162,10 @@ evaluateRuntimeExprWithBuiltinsAndSourceUnitStatements sourceUnitStatementIndice
 evaluateModuleScope ::
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
   RuntimeEnv ->
   [Statement 'Analyzed] ->
   Either Diagnostic ScopeResult
-evaluateModuleScope currentModulePath evaluationMode builtinMode initialEnv statements =
+evaluateModuleScope currentModulePath evaluationMode initialEnv statements =
   runIdentity
     ( evaluateRuntimeScopeWithHostRequest
         disabledRuntimeHost
@@ -192,7 +174,6 @@ evaluateModuleScope currentModulePath evaluationMode builtinMode initialEnv stat
             runtimeScopePreludeModulePath = preludeModulePath,
             runtimeScopeCurrentModulePath = currentModulePath,
             runtimeScopeEvaluationMode = evaluationMode,
-            runtimeScopeBuiltinMode = builtinMode,
             runtimeScopeInitialEnvironment = initialEnv,
             runtimeScopeStatements = statements
           }
@@ -203,11 +184,10 @@ evaluateModuleScopeWithHost ::
   RuntimeHost m ->
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
   RuntimeEnv ->
   [Statement 'Analyzed] ->
   m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithHost host currentModulePath evaluationMode builtinMode initialEnv statements =
+evaluateModuleScopeWithHost host currentModulePath evaluationMode initialEnv statements =
   evaluateRuntimeScopeWithHostRequest
     host
     RuntimeScopeRequest
@@ -215,7 +195,6 @@ evaluateModuleScopeWithHost host currentModulePath evaluationMode builtinMode in
         runtimeScopePreludeModulePath = preludeModulePath,
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
-        runtimeScopeBuiltinMode = builtinMode,
         runtimeScopeInitialEnvironment = initialEnv,
         runtimeScopeStatements = statements
       }
@@ -225,11 +204,10 @@ evaluateModuleScopeWithRequiredHost ::
   RuntimeHost m ->
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
   RuntimeEnv ->
   [Statement 'Analyzed] ->
   m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builtinMode initialEnv statements =
+evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode initialEnv statements =
   runRuntimeHostEvaluation host $ \evaluationHost ->
     runtimeControlAsDiagnosticResult
       <$> evaluateRuntimeScopeWithRequiredHostRequest
@@ -239,7 +217,6 @@ evaluateModuleScopeWithRequiredHost host currentModulePath evaluationMode builti
             runtimeScopePreludeModulePath = preludeModulePath,
             runtimeScopeCurrentModulePath = currentModulePath,
             runtimeScopeEvaluationMode = evaluationMode,
-            runtimeScopeBuiltinMode = builtinMode,
             runtimeScopeInitialEnvironment = initialEnv,
             runtimeScopeStatements = statements
           }
@@ -249,17 +226,15 @@ evaluateModuleScopeWithRequiredEvaluationHost ::
   RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
   RuntimeEnv ->
   [Statement 'Analyzed] ->
   RuntimeHostEvaluationT m (Either Diagnostic ScopeResult)
-evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationMode builtinMode initialEnv statements =
+evaluateModuleScopeWithRequiredEvaluationHost host currentModulePath evaluationMode initialEnv statements =
   runtimeControlAsDiagnosticResult
     <$> evaluateModuleScopeWithRequiredEvaluationHostControl
       host
       currentModulePath
       evaluationMode
-      builtinMode
       initialEnv
       statements
 
@@ -268,11 +243,10 @@ evaluateModuleScopeWithRequiredEvaluationHostControl ::
   RuntimeHost (RuntimeHostEvaluationT m) ->
   Maybe SourceUnitOwner ->
   ModuleEvaluationMode ->
-  BuiltinResolutionMode ->
   RuntimeEnv ->
   [Statement 'Analyzed] ->
   RuntimeHostEvaluationT m (Either RuntimeControl ScopeResult)
-evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath evaluationMode builtinMode initialEnv statements =
+evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath evaluationMode initialEnv statements =
   evaluateRuntimeScopeWithRequiredHostRequest
     host
     RuntimeScopeRequest
@@ -280,7 +254,6 @@ evaluateModuleScopeWithRequiredEvaluationHostControl host currentModulePath eval
         runtimeScopePreludeModulePath = preludeModulePath,
         runtimeScopeCurrentModulePath = currentModulePath,
         runtimeScopeEvaluationMode = evaluationMode,
-        runtimeScopeBuiltinMode = builtinMode,
         runtimeScopeInitialEnvironment = initialEnv,
         runtimeScopeStatements = statements
       }
