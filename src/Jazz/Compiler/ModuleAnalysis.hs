@@ -155,10 +155,10 @@ moduleInferenceInputs :: CompileInputs -> ModulePath -> ImportedInterface -> Inf
 moduleInferenceInputs inputs modulePath importedInterface =
   InferenceInputs
     { inferenceWarningSettings = compileInputWarningSettings inputs,
-      inferenceImportedTypes = interfaceTypeEnv importedInterface,
+      inferenceImportedTypes = importedTypes importedInterface,
       inferenceImportedDataTypes = importedDataTypes importedInterface,
-      inferenceImportedConstructorWitnessNames = interfaceConstructorWitnessNames importedInterface,
-      inferenceImportedCapabilities = interfaceCapabilities importedInterface,
+      inferenceImportedConstructorWitnessNames = importedConstructorWitnessNames importedInterface,
+      inferenceImportedCapabilities = importedCapabilities importedInterface,
       inferenceImportedClassNames = importedClassNames importedInterface,
       inferenceCurrentModulePath = Just (modulePathTexts modulePath)
     }
@@ -305,15 +305,6 @@ instance Monoid ImportedInterface where
         importedBinderIds = Map.empty,
         importedEvidenceCandidates = Map.empty
       }
-
-interfaceTypeEnv :: ImportedInterface -> TypeEnv
-interfaceTypeEnv = importedTypes
-
-interfaceCapabilities :: ImportedInterface -> ScopeCapabilityFacts
-interfaceCapabilities = importedCapabilities
-
-interfaceConstructorWitnessNames :: ImportedInterface -> Map ResolvedName UnresolvedName
-interfaceConstructorWitnessNames = importedConstructorWitnessNames
 
 importWholeInterface :: ResolvedNameOrigin -> Map ModuleExport CoreBinderId -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
 importWholeInterface origin binderIds evidenceCandidates moduleInterface =

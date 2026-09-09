@@ -14,9 +14,9 @@ public behavior.
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
 Current executor status (`2026-09-09`, terminal):
-`JN-MEGAPARSEC-SIMPLIFICATION-001` is complete at `adeea4ca`; verification is
-recorded in its completed plan. `Ready Now` is empty. There is no source-backed
-next curation target and no named candidate currently.
+`JN-QUALITY-REVIEW-FIXES-001` is complete; verification is recorded in its
+completed plan. `Ready Now` is empty.
+There is no source-backed next curation target and no named candidate currently.
 
 ## Next Curation Target
 

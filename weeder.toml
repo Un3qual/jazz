@@ -90,16 +90,57 @@ type-class-roots = false
 unused-types = true
 root-modules = []
 
-# Structural data contracts survive even when one executable does not exercise
-# every instance: comparisons/debugging, generic deep evaluation, catalog
-# enumeration and lawful typed traversals are intentionally supported APIs.
-# This also roots these instances on otherwise-unused types; it does not root
-# arbitrary classes, functions or whole compiler modules.
+# Retain structural contracts only for the named migration-baseline types.
+# Weeder matches module against source paths. Instance patterns match the entire
+# result head, so a retained type in a constraint cannot root a new wrapper.
+# New types and source files require review before entering this baseline.
 root-instances = [
   # Persisted benchmark metadata readers are part of the artifact format API.
   { instance = '^FromJSON (BenchmarkBuildMode|BenchmarkTimeMode|BenchmarkEnvironment)$' },
   { instance = '^FromJSON value => FromJSON \(EnvironmentFact value\)$' },
-  { class = '\.(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable)$' },
+  { module = '^benchmark/Jazz/Benchmark/Metadata\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(EnvironmentFact value\)|BenchmarkArtifactPaths|BenchmarkBuildMode|BenchmarkEnvironment|BenchmarkEnvironmentCapture|BenchmarkTimeMode|CompatibilityDecision|CompatibilityField|CompatibilityMismatch|CompatibilityPolicy)$' },
+  { module = '^benchmark/Jazz/Benchmark/ScaleCases\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompilerScaleCase|CompilerScaleScenario)$' },
+  { module = '^program-support/Jazz/ProgramCorpus/Runner\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ProgramCaseResult)$' },
+  { module = '^program-support/Jazz/ProgramCorpus/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (FeatureTag|ProgramBudgetMetric|ProgramBudgetViolation|ProgramBudgets|ProgramCase|ProgramCaseDocument|ProgramCorpus|ProgramCorpusDocument|ProgramCorpusViolation|ProgramPathField|ProgramTermination|WorkloadClass)$' },
+  { module = '^src/Jazz/CLI/Main\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CliOptions|CliOutput|RawCliOptions)$' },
+  { module = '^src/Jazz/Compiler/AST\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(CoreNode phase sort\))$' },
+  { module = '^src/Jazz/Compiler/Analyzer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalysisBinding|AnalysisInputs)$' },
+  { module = '^src/Jazz/Compiler/BuiltinCatalog\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (BuiltinOwnership|BuiltinSymbol)$' },
+  { module = '^src/Jazz/Compiler/DiagnosticCatalog\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DiagnosticCode|DiagnosticMetadata|DiagnosticSeverity|DiagnosticSubsystem)$' },
+  { module = '^src/Jazz/Compiler/Diagnostics\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Diagnostic|DiagnosticContext|DiagnosticLabel|DiagnosticMessage|DiagnosticOrigin)$' },
+  { module = '^src/Jazz/Compiler/Driver\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompileResult|RunExecution|RunResult)$' },
+  { module = '^src/Jazz/Compiler/ModuleExports\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LocatedModuleExportName|ModuleExportSelector|ModuleImportMode|ModuleTypeConstructorSelector)$' },
+  { module = '^src/Jazz/Compiler/ModuleGraph\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeclaredImportExposure|DeclaredModuleExports|DeclaredModuleFacts|ProgramInvariantFailure|ResolvedModuleFacts)$' },
+  { module = '^src/Jazz/Compiler/ModuleIdentity\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleIdentity|ModuleQualifier|SourceFile|SourceUnitOwner)$' },
+  { module = '^src/Jazz/Compiler/ModuleResolver\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleResolutionConfig)$' },
+  { module = '^src/Jazz/Compiler/Name\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Name)$' },
+  { module = '^src/Jazz/Compiler/Parser/Context\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserContext|StatementContext)$' },
+  { module = '^src/Jazz/Compiler/Parser/Lexer\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (LexerError)$' },
+  { module = '^src/Jazz/Compiler/Parser/Lower\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ModuleDeclaration|ModuleLoweringFailure)$' },
+  { module = '^src/Jazz/Compiler/Parser/Operator\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (Associativity|OperatorInfo|OperatorTable)$' },
+  { module = '^src/Jazz/Compiler/Parser/TokenParser\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserError)$' },
+  { module = '^src/Jazz/Compiler/PatternCoverage\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ConstructorWitnessName|DataConstructorInventory|VisibleConstructor)$' },
+  { module = '^src/Jazz/Compiler/Prelude\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (PreparedPrelude|ResolvedPrelude)$' },
+  { module = '^src/Jazz/Compiler/Profiling\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CompilerStage|CompilerStageBoundary)$' },
+  { module = '^src/Jazz/Compiler/Runtime/Engine\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (RuntimeResultObligation)$' },
+  { module = '^src/Jazz/Compiler/Runtime/Observation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(RuntimeObservationResult value\)|RuntimeApplicationKind|RuntimeBuiltinKind|RuntimeConstructionKind|RuntimeDeferredCacheKind|RuntimeHostOperationKind|RuntimeObservationRequest|RuntimeProfileEvent|RuntimeProfileFrame|RuntimeTermination)$' },
+  { module = '^src/Jazz/Compiler/Runtime/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (DeferredHostBindingKey|DeferredHostScopeId|ModuleEvaluationMode|RuntimeConstructorShape|RuntimeExplicitResultHints|RuntimeFloatMetadata|RuntimeIntMetadata)$' },
+  { module = '^src/Jazz/Compiler/RuntimeHost\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (HostIOCategory|RuntimeHostExit)$' },
+  { module = '^src/Jazz/Compiler/SemanticFacts\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (AnalyzedMethodSignature|AnalyzedNumericConstraint|AnalyzedPrimitiveConstraint|AnalyzedScheme|AnalyzedSchemeConstraint|CapabilityId|EvidenceReference|ImplId|MethodId|PatternConstructorFact|PatternRefutability|SemanticFactInvariantFailure|SemanticInstantiation)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/DiagnosticCause\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(TypeErrorCause typeValue\))$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Pattern\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (PatternBindings)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Result\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceResult)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Signature\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (SignatureTypeFailure)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Traversal\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (InferenceMode)$' },
+  { module = '^src/Jazz/Compiler/TypeInference/Types\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (IntegerLiteralRange|SchemePrimitiveConstraint)$' },
+  { module = '^src/Jazz/Compiler/TypeRepresentation\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (\(SignatureConstraint typeName variable\)|\(SignatureConstraint typeName\)|\(SignaturePayload typeName variable tokenName\)|\(SignatureToken name\)|\(SignatureType typeName variable\)|\(SignatureType typeName\)|SignatureToken)$' },
+  { module = '^src/Jazz/Compiler/WarningConfig\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (WarningSettings)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalLexerComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalKeyword|CanonicalLexError|CanonicalLexErrorReason|CanonicalLexResult|CanonicalLiteralKind|CanonicalPunctuation|CanonicalToken|CanonicalTokenKind)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalParserComparison\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalParserResult|CanonicalSourceResult)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/CanonicalValue\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CanonicalSourcePath|CanonicalSpan)$' },
+  { module = '^test/Jazz/Compiler/Bootstrap/JazzCoreModulesCorpusClosureSpec\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (CoreCorpusManifestEntry)$' },
+  { module = '^test/Jazz/Compiler/Parser/FixtureCorpus\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation)$' },
+  { module = '^test/Jazz/Repository/SourceLayout\.hs$', instance = '(^|=> )(Eq|Ord|Show|Generic|NFData|Enum|Bounded|Functor|Foldable|Traversable) (JazzSourceModule|JazzSourceRole|SourceLayoutViolation)$' },
   # Literal construction interfaces used by test/tooling clients.
   { instance = '^IsString (Identifier|UnresolvedName)$' },
   # Megaparsec stream/error interfaces, including its optional default renderer.

@@ -119,12 +119,15 @@ instances are not automatically treated as roots. A new baseline entry requires
 review of its production, benchmark, or test use. Generated Cabal `Paths_jazz`
 metadata is the only generated-module exemption.
 
-The common instance policy retains structural contracts (`Eq`, `Ord`, `Show`,
-`Generic`, `NFData`, `Enum`, `Bounded`, `Functor`, `Foldable`, and `Traversable`),
-including instances on otherwise unreachable types. This trades detection of
-unused structural instances for preserving comparison, debugging, forcing, and
-traversal APIs; other classes and declarations remain checked. Additional instance
-roots name literal construction, parser stream/error interfaces, runtime-plan
+The instance policies retain structural contracts (`Eq`, `Ord`, `Show`,
+`Generic`, `NFData`, `Enum`, `Bounded`, `Functor`, `Foldable`, and `Traversable`)
+only for explicitly named types in the reviewed migration baseline, grouped by
+source path. Complete instance-head matches prevent a retained type appearing in
+a constraint from exempting a new type. Adding a new type does not extend this
+baseline automatically. The quality gate runs `scripts/test-weeder-policy.sh`
+to verify that both configurations retain a named type and reject new unused
+types in the same module. Additional instance roots name literal construction,
+parser stream/error interfaces, runtime-plan
 composition, and benchmark metadata readers explicitly. Shared test helpers have
 named export roots because Cabal compiles them separately into components using
 different subsets. The full graph also records the remaining legacy parser,

@@ -18,6 +18,7 @@ esac
 quality_build="$(mktemp -d "${TMPDIR:-/tmp}/jazz-haskell-quality.XXXXXX")"
 trap 'rm -r -- "$quality_build"' EXIT
 
+bash scripts/test-weeder-policy.sh
 hlint src app test benchmark program-support --hint=.hlint.yaml
 cabal build exe:jazz --disable-tests --disable-benchmarks \
   --builddir="$quality_build" --ghc-options=-fwrite-ide-info \
