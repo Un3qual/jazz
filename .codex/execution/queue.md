@@ -12,11 +12,11 @@ public behavior.
 
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
+| `JN-MEGAPARSEC-SIMPLIFICATION-001` | Simplify lexer and parser with library combinators | `P2` | `M` | `impl` | `yes` | `-` | [Megaparsec simplification](../plans/2026-09-09-megaparsec-simplification.md) | `Implementation` | `src/Jazz/Compiler/Parser/`, `test/Jazz/Compiler/Parser/`, `jazz.cabal` | Preserve syntax and diagnostics while removing manual parser mechanics | `cabal test all --jobs=4 --test-show-details=failures` | `2026-09-09` |
 
-Current executor status (`2026-09-09`, terminal):
-`JN-PURESCRIPT-COMPILER-QUALITY-001` is complete at `11eb4e58` and `9088b55e`;
-verification is recorded in its completed plan. `Ready Now` is empty. There is
-no source-backed next curation target and no named candidate currently.
+Current executor status (`2026-09-09`, active):
+`JN-MEGAPARSEC-SIMPLIFICATION-001` implements the user's independent parser
+simplification request inline. There is no additional curation candidate.
 
 ## Next Curation Target
 
