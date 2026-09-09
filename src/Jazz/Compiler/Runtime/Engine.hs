@@ -380,6 +380,7 @@ evaluationContextForLambdaChild childIndex context =
 
 data RuntimeResultObligation
   = ApplyFunctionResultHint AnalyzedType
+  | ApplyResultTypeHint AnalyzedType
   | ApplyExplicitResultHint AnalyzedType
   | ApplyExpressionRuntimePlan (Maybe SourceUnitOwner) RuntimePlan
   | AttachDefaultIntegerResult
@@ -428,7 +429,8 @@ data EvaluationMachine = EvaluationMachine
   { evaluationControl :: EvaluationControl,
     evaluationContinuations :: [EvaluationContinuation],
     evaluationContinuationDepth :: !Word64,
-    evaluationReturnPolicy :: RuntimeReturnPolicy
+    -- Compact now, rather than retaining a thunk per tail call until return.
+    evaluationReturnPolicy :: !RuntimeReturnPolicy
   }
 
 data EvaluationProgress
@@ -2032,6 +2034,25 @@ appendRuntimeResultObligation obligation machine =
     }
 
 prependRuntimeResultObligation :: RuntimeResultObligation -> RuntimeReturnPolicy -> RuntimeReturnPolicy
+prependRuntimeResultObligation (ApplyFunctionResultHint typeHint) policy =
+  case typeHint of
+    SemanticFunction _ resultType -> prependRuntimeResultObligation (ApplyResultTypeHint resultType) policy
+    _ -> policy
+prependRuntimeResultObligation (ApplyExpressionRuntimePlan modulePath (RuntimePlan obligations)) policy
+  | Seq.null obligations = policy
+  | ConstrainResult semanticType Seq.:< rest <- Seq.viewl obligations,
+    Seq.null rest =
+      case semanticType of
+        SemanticInt -> prependRuntimeResultObligation AttachDefaultIntegerResult policy
+        _
+          | Foldable.null semanticType ->
+              prependRuntimeResultObligation (ApplyResultTypeHint (qualifyRuntimeType modulePath semanticType)) policy
+        _ -> policy
+-- An Int result hint already performs Int64 conversion/defaulting. Keep that
+-- stronger check when it meets an ordinary integer-defaulting obligation.
+prependRuntimeResultObligation AttachDefaultIntegerResult policy@(RuntimeReturnPolicy (ApplyResultTypeHint SemanticInt : _)) = policy
+prependRuntimeResultObligation obligation@(ApplyResultTypeHint SemanticInt) (RuntimeReturnPolicy (AttachDefaultIntegerResult : rest)) =
+  prependRuntimeResultObligation obligation (RuntimeReturnPolicy rest)
 prependRuntimeResultObligation obligation policy@(RuntimeReturnPolicy obligations) =
   case obligations of
     existing : _
@@ -2042,7 +2063,7 @@ equivalentIdempotentObligation :: RuntimeResultObligation -> RuntimeResultObliga
 equivalentIdempotentObligation leftObligation rightObligation =
   case (leftObligation, rightObligation) of
     (AttachDefaultIntegerResult, AttachDefaultIntegerResult) -> True
-    (ApplyFunctionResultHint leftHint, ApplyFunctionResultHint rightHint) ->
+    (ApplyResultTypeHint leftHint, ApplyResultTypeHint rightHint) ->
       leftHint == rightHint
     _ -> False
 
@@ -2058,6 +2079,8 @@ dischargeRuntimeReturnPolicy (RuntimeReturnPolicy obligations) runtimeValue =
       case obligation of
         ApplyFunctionResultHint typeHint ->
           liftRuntimeResult (applyRuntimeFunctionResultHint typeHint currentValue)
+        ApplyResultTypeHint typeHint ->
+          liftRuntimeResult (applyRuntimeTypeHint typeHint currentValue)
         ApplyExplicitResultHint typeHint ->
           liftRuntimeResult (applyExplicitTypeApplicationResultHint typeHint currentValue)
         ApplyExpressionRuntimePlan modulePath runtimePlan ->
