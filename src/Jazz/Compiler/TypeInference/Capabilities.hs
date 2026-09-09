@@ -43,15 +43,27 @@ module Jazz.Compiler.TypeInference.Capabilities
   )
 where
 
-import Control.Applicative ((<|>))
-import Data.Foldable (toList)
-import Data.List (uncons)
-import Data.Map.Strict (Map)
+import Control.Applicative
+  ( (<|>),
+  )
+import Data.Foldable
+  ( toList,
+  )
+import Data.List
+  ( uncons,
+  )
+import Data.Map.Strict
+  ( Map,
+  )
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
-import Data.Set (Set)
+import Data.Set
+  ( Set,
+  )
 import qualified Data.Set as Set
-import Data.Text (Text)
+import Data.Text
+  ( Text,
+  )
 import qualified Data.Text as Text
 import Jazz.Compiler.AST
   ( CaseArm (..),
@@ -124,6 +136,14 @@ import Jazz.Compiler.TypeInference.Diagnostics
     mkTypeSchemeNumericConstraintError,
     mkTypeSchemeStrictEqualityConstraintError,
   )
+import Jazz.Compiler.TypeInference.Environment
+  ( TypeEnvFreeVariables,
+    deleteTypeEnvFreeVariables,
+    freeTypeVariablesInEnv,
+    insertTypeEnvFreeVariables,
+    resolveTypeEnvFreeVariables,
+    typeEnvFreeVariables,
+  )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( addStrictEqualityTypeVarConstraint,
@@ -161,12 +181,13 @@ import Jazz.Compiler.TypeInference.State
     modifyModuleInferenceState,
     recordExpressionEvidenceSeed,
   )
-import Jazz.Compiler.TypeInference.Traversal (InferExprWithModeFn, InferenceMode)
+import Jazz.Compiler.TypeInference.Traversal
+  ( InferExprWithModeFn,
+    InferenceMode,
+  )
 import Jazz.Compiler.TypeInference.TypeOps
   ( dedupeTypeSchemeConstraints,
     freeTypeVariables,
-    freeTypeVariablesInTypeSchemeConstraints,
-    freeTypeVariablesInTypeSchemePrimitiveConstraints,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ClassMethodType (..),
@@ -772,108 +793,6 @@ uniqueExactRuntimeCandidateHint state argumentType candidateHints =
 
 resolveTypeSchemeConstraint :: InferState -> TypeSchemeConstraint -> TypeSchemeConstraint
 resolveTypeSchemeConstraint state = fmap (resolveType state)
-
-freeTypeVariablesInEnv :: InferState -> TypeEnv -> Set InferenceVariable
-freeTypeVariablesInEnv state =
-  Set.unions . map (freeTypeVariablesInBinding state) . Map.elems
-
-data TypeEnvFreeVariables = TypeEnvFreeVariables
-  { typeEnvBindingFreeVariables :: Map ResolvedName (Set InferenceVariable),
-    typeEnvFreeVariableReferenceCounts :: Map InferenceVariable Int
-  }
-
-typeEnvFreeVariables :: TypeEnv -> TypeEnvFreeVariables
-typeEnvFreeVariables =
-  Map.foldlWithKey' (\summary name binding -> insertTypeEnvFreeVariables name binding summary) emptyTypeEnvFreeVariables
-
-emptyTypeEnvFreeVariables :: TypeEnvFreeVariables
-emptyTypeEnvFreeVariables = TypeEnvFreeVariables Map.empty Map.empty
-
-insertTypeEnvFreeVariables :: ResolvedName -> TypeBinding -> TypeEnvFreeVariables -> TypeEnvFreeVariables
-insertTypeEnvFreeVariables name binding summary =
-  TypeEnvFreeVariables
-    { typeEnvBindingFreeVariables =
-        Map.insert name newVariables (typeEnvBindingFreeVariables summary),
-      typeEnvFreeVariableReferenceCounts =
-        Set.foldl' incrementReference countsWithoutPriorBinding newVariables
-    }
-  where
-    newVariables = freeTypeVariablesInBindingRaw binding
-    priorVariables =
-      Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
-    countsWithoutPriorBinding =
-      Set.foldl' decrementTypeEnvFreeVariableReference (typeEnvFreeVariableReferenceCounts summary) priorVariables
-    incrementReference counts typeVar = Map.insertWith (+) typeVar 1 counts
-
-deleteTypeEnvFreeVariables :: ResolvedName -> TypeEnvFreeVariables -> TypeEnvFreeVariables
-deleteTypeEnvFreeVariables name summary =
-  TypeEnvFreeVariables
-    { typeEnvBindingFreeVariables =
-        Map.delete name (typeEnvBindingFreeVariables summary),
-      typeEnvFreeVariableReferenceCounts =
-        Set.foldl'
-          decrementTypeEnvFreeVariableReference
-          (typeEnvFreeVariableReferenceCounts summary)
-          priorVariables
-    }
-  where
-    priorVariables =
-      Map.findWithDefault Set.empty name (typeEnvBindingFreeVariables summary)
-
-decrementTypeEnvFreeVariableReference :: Map InferenceVariable Int -> InferenceVariable -> Map InferenceVariable Int
-decrementTypeEnvFreeVariableReference counts typeVar =
-  Map.update decrement typeVar counts
-  where
-    decrement count
-      | count <= 1 = Nothing
-      | otherwise = Just (count - 1)
-
-resolveTypeEnvFreeVariables :: InferState -> TypeEnvFreeVariables -> Set InferenceVariable
-resolveTypeEnvFreeVariables state summary =
-  Set.unions
-    [ freeTypeVariables (resolveType state (SemanticVariable typeVar))
-    | typeVar <- Map.keys (typeEnvFreeVariableReferenceCounts summary)
-    ]
-
-freeTypeVariablesInBinding :: InferState -> TypeBinding -> Set InferenceVariable
-freeTypeVariablesInBinding state binding =
-  Set.unions
-    [ freeTypeVariables (resolveType state (SemanticVariable typeVar))
-    | typeVar <- Set.toList (freeTypeVariablesInBindingRaw binding)
-    ]
-
-freeTypeVariablesInBindingRaw :: TypeBinding -> Set InferenceVariable
-freeTypeVariablesInBindingRaw binding =
-  case binding of
-    PlainTypeBinding expressionType ->
-      freeTypeVariables expressionType
-    SchemeTypeBinding typeScheme ->
-      freeTypeVariablesInSchemeRaw typeScheme
-    OperatorAliasSchemeTypeBinding _ typeScheme ->
-      freeTypeVariablesInSchemeRaw typeScheme
-    BuiltinAliasTypeBinding {} -> Set.empty
-    BuiltinOperatorAliasTypeBinding {} -> Set.empty
-    ConstructorTypeBinding _ _ argumentTypes ->
-      Set.unions (map freeTypeVariablesInConstructorArgumentRaw argumentTypes)
-
-freeTypeVariablesInSchemeRaw :: TypeScheme -> Set InferenceVariable
-freeTypeVariablesInSchemeRaw typeScheme =
-  Set.difference
-    ( Set.unions
-        [ freeTypeVariables (schemeResultType typeScheme),
-          freeTypeVariablesInTypeSchemeConstraints (schemeClassConstraints typeScheme),
-          freeTypeVariablesInTypeSchemePrimitiveConstraints (schemePrimitiveConstraints typeScheme)
-        ]
-    )
-    (quantifiedVariablesMembershipSet (schemeQuantifiedVariables typeScheme))
-
-freeTypeVariablesInConstructorArgumentRaw :: ConstructorArgumentType -> Set InferenceVariable
-freeTypeVariablesInConstructorArgumentRaw argumentType =
-  case argumentType of
-    ConstructorArgumentMonomorphic expressionType -> freeTypeVariables expressionType
-    ConstructorArgumentParameter {} -> Set.empty
-    ConstructorArgumentStructured {} -> Set.empty
-    ConstructorArgumentFresh -> Set.empty
 
 applyTypeSchemePrimitiveConstraints :: [TypeSchemePrimitiveConstraint] -> InferState -> InferState
 applyTypeSchemePrimitiveConstraints primitiveConstraints state =

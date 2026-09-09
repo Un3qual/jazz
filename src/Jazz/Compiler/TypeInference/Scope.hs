@@ -17,18 +17,27 @@ module Jazz.Compiler.TypeInference.Scope
   )
 where
 
-import Data.List (uncons, unsnoc)
-import Data.List.NonEmpty (NonEmpty (..))
-import Data.Map.Strict (Map)
+import Data.List
+  ( uncons,
+    unsnoc,
+  )
+import Data.Map.Strict
+  ( Map,
+  )
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing)
-import Data.Set (Set)
+import Data.Maybe
+  ( isNothing,
+  )
+import Data.Set
+  ( Set,
+  )
 import qualified Data.Set as Set
-import Data.Text (Text)
+import Data.Text
+  ( Text,
+  )
 import Jazz.Compiler.AST
   ( ClassMethodSignature (..),
     CoreNode (coreNodeId, coreNodeSpan),
-    CoreNodeId,
     CorePhase (..),
     DataConstructor (..),
     Expr (..),
@@ -57,10 +66,11 @@ import Jazz.Compiler.Name
     ResolvedName,
     identifierText,
     mkIdentifier,
-    operatorBindingName,
     resolvedAmbientName,
   )
-import Jazz.Compiler.Parser.Operator (isBuiltinOperatorSymbol)
+import Jazz.Compiler.Parser.Operator
+  ( isBuiltinOperatorSymbol,
+  )
 import Jazz.Compiler.RecursiveBindings
   ( PreparedRecursiveScope,
     exprContainsFunctionBranch,
@@ -73,10 +83,55 @@ import Jazz.Compiler.RecursiveBindings
     recursiveScopeBindingNames,
     recursiveScopeGroups,
   )
-import Jazz.Compiler.SemanticFacts (StatementDeclarationFact (..))
+import Jazz.Compiler.SemanticFacts
+  ( StatementDeclarationFact (..),
+  )
 import Jazz.Compiler.TypeInference.Capabilities
+  ( TypeEnvFreeVariables,
+    addUnpreservedInferredMethodConstraintErrors,
+    builtinDollarOperatorExpr,
+    capabilityFactsFromState,
+    checkImplMethodBodies,
+    defaultBindingLiteralTypes,
+    defaultLiteralTypes,
+    deleteTypeEnvFreeVariables,
+    enterModuleCapabilityScope,
+    finalizeDeferredExplicitConstraintsAt,
+    finalizeDeferredExplicitConstraintsAtWithEntailments,
+    flushCurrentModuleCapabilityFacts,
+    freeTypeVariablesInEnv,
+    importModuleCapabilityFacts,
+    insertTypeEnvFreeVariables,
+    instantiateQualifiedMethodTypeWithExpected,
+    newInferredClassConstraints,
+    resolveTypeEnvFreeVariables,
+    resolveTypeSchemeConstraint,
+    restoreCapabilityFacts,
+    seedStatementCapabilityFact,
+    typeEnvFreeVariables,
+    typeSchemeDefiningFactsFromState,
+    updateRootModuleBaselineFacts,
+  )
 import Jazz.Compiler.TypeInference.Diagnostics
-import Jazz.Compiler.TypeInference.Pattern (instantiateConstructorBinding)
+  ( addTypeError,
+    annotateNewErrorsWithPrimarySpan,
+    mkBindingTypeMismatchError,
+    mkDuplicateDataTypeDeclarationError,
+    mkInvalidConstructorPayloadTypeError,
+    mkInvalidImplTargetError,
+    mkInvalidQualifiedMethodSignatureError,
+    mkInvalidSignatureTypeError,
+    mkMethodLocalTypeVariableError,
+    mkSignatureTypeMismatchError,
+    mkUndeclaredSignatureConstraintError,
+    mkUnknownConstructorPayloadTypeError,
+    targetedFloatLiteralDiagnostic,
+  )
+import Jazz.Compiler.TypeInference.Instantiation
+  ( inferExplicitTypeApplication,
+    instantiateNonBuiltinTypeBinding,
+    typeBindingScheme,
+  )
 import qualified Jazz.Compiler.TypeInference.Signature as Signature
 import Jazz.Compiler.TypeInference.Solver
   ( freshTypeVar,
@@ -87,8 +142,6 @@ import Jazz.Compiler.TypeInference.Solver
   )
 import Jazz.Compiler.TypeInference.State
   ( DeclarationState (..),
-    ExplicitInstantiationSeed (..),
-    ExplicitInstantiationTarget (..),
     InferState (..),
     InferenceOutput (..),
     ModuleInferenceState (..),
@@ -104,7 +157,6 @@ import Jazz.Compiler.TypeInference.State
     inferStrictEqualityVars,
     modifyDeclarationState,
     modifyInferenceOutput,
-    recordExplicitInstantiationSeed,
     recordExpressionFactType,
     recordStatementFactSeed,
   )
@@ -117,9 +169,6 @@ import Jazz.Compiler.TypeInference.TypeOps
     freeTypeVariables,
     freeTypeVariablesInTypeSchemeConstraints,
     freeTypeVariablesInTypeSchemePrimitiveConstraints,
-    instantiateTypeSchemeConstraint,
-    instantiateTypeSchemePrimitiveConstraint,
-    replaceTypeVariables,
   )
 import Jazz.Compiler.TypeInference.Types
   ( ConstructorArgumentType (..),
@@ -138,7 +187,6 @@ import Jazz.Compiler.TypeInference.Types
     TypeSchemePrimitiveConstraint,
     quantifiedVariablesFromPreferred,
     quantifiedVariablesMembershipSet,
-    quantifiedVariablesOrderedList,
   )
 import Jazz.Compiler.TypeRepresentation
   ( NumericType (..),
@@ -2047,13 +2095,6 @@ pruneCapturedInferredClassConstraintsForBindings statementStartState bindings st
     capturedInScheme constraint =
       constraint `elem` capturedConstraints
 
-typeBindingScheme :: TypeBinding -> Maybe TypeScheme
-typeBindingScheme binding =
-  case binding of
-    SchemeTypeBinding typeScheme -> Just typeScheme
-    OperatorAliasSchemeTypeBinding _ typeScheme -> Just typeScheme
-    _ -> Nothing
-
 typeSchemeConstraintIsInferred :: TypeSchemeConstraint -> Bool
 typeSchemeConstraintIsInferred constraint =
   case constraint of
@@ -2277,206 +2318,6 @@ constructorArgumentTypes predeclaredDataTypes typeParameters fieldTypes initialS
               }
         )
         state
-
--- | Instantiate non-builtin local bindings and constructors at use sites.
--- Builtin aliases stay with the top-level dispatcher because their rules share
--- the operator and primitive catalog owned there.
-instantiateNonBuiltinTypeBinding :: TypeBinding -> InferState -> (Maybe ExpressionType, InferState)
-instantiateNonBuiltinTypeBinding binding state =
-  case binding of
-    PlainTypeBinding expressionType ->
-      (Just (resolveType state expressionType), state)
-    SchemeTypeBinding typeScheme ->
-      instantiateTypeScheme typeScheme state
-    BuiltinAliasTypeBinding {} -> (Nothing, state)
-    BuiltinOperatorAliasTypeBinding {} -> (Nothing, state)
-    OperatorAliasSchemeTypeBinding _ typeScheme ->
-      instantiateTypeScheme typeScheme state
-    ConstructorTypeBinding {} ->
-      case instantiateConstructorBinding binding state of
-        Just (constructorArgumentTypes', constructorResultType, nextState) ->
-          ( Just
-              (foldr SemanticFunction constructorResultType constructorArgumentTypes'),
-            nextState
-          )
-        Nothing -> (Nothing, state)
-
-instantiateTypeScheme :: TypeScheme -> InferState -> (Maybe ExpressionType, InferState)
-instantiateTypeScheme typeScheme state =
-  let (freshBindings, nextState) =
-        foldl'
-          allocateFreshBinding
-          (Map.empty, state)
-          (quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme))
-      instantiatedType =
-        replaceTypeVariables freshBindings expressionType
-      instantiatedConstraints =
-        map (instantiateTypeSchemeConstraint freshBindings) explicitConstraints
-      instantiatedPrimitiveConstraints =
-        map (instantiateTypeSchemePrimitiveConstraint freshBindings) primitiveConstraints
-      stateWithPrimitiveConstraints =
-        applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
-      stateWithDeferredConstraints =
-        deferExplicitConstraintsWithFacts
-          (definingFacts <> capabilityFactsFromState state)
-          definingFacts
-          instantiatedConstraints
-          stateWithPrimitiveConstraints
-   in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
-  where
-    explicitConstraints = schemeClassConstraints typeScheme
-    primitiveConstraints = schemePrimitiveConstraints typeScheme
-    definingFacts = schemeDefiningCapabilities typeScheme
-    expressionType = schemeResultType typeScheme
-
-    allocateFreshBinding (bindings, stateAcc) typeVar =
-      let (freshType, nextState) = freshTypeVar stateAcc
-       in (Map.insert typeVar freshType bindings, nextState)
-
-inferExplicitTypeApplication ::
-  InferExprWithModeFn ->
-  InferenceMode ->
-  TypeEnv ->
-  InferState ->
-  CoreNodeId ->
-  Expr 'Resolved ->
-  SourceSpan ->
-  SignatureType 'Resolved ->
-  (Maybe ExpressionType, InferState)
-inferExplicitTypeApplication inferExpression mode env state applicationNodeId functionExpr typeArgumentSpan typeArgument =
-  case (explicitTypeApplicationScheme env functionExpr, Signature.constraintSignatureTypeToExpressionTypeWithState state Map.empty typeArgument) of
-    (_, Just explicitArgumentType)
-      | Just methodKey <- explicitQualifiedMethodTypeApplicationKey env state functionExpr,
-        Just targetName <- explicitTypeApplicationTargetName functionExpr ->
-          let (maybeInstantiatedType, nextState) =
-                instantiateQualifiedMethodTypeWithExplicitTarget applicationNodeId methodKey explicitArgumentType state
-           in ( maybeInstantiatedType,
-                recordExplicitInstantiationDecision
-                  applicationNodeId
-                  (ExplicitQualifiedMethodInstantiation targetName)
-                  explicitArgumentType
-                  maybeInstantiatedType
-                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState)
-              )
-    (Just typeScheme, Just explicitArgumentType)
-      | Just targetName <- explicitTypeApplicationTargetName functionExpr ->
-          let (maybeInstantiatedType, nextState) =
-                instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state
-           in ( maybeInstantiatedType,
-                recordExplicitInstantiationDecision
-                  applicationNodeId
-                  (ExplicitBinderInstantiation targetName)
-                  explicitArgumentType
-                  maybeInstantiatedType
-                  (recordExplicitFunctionFact functionExpr maybeInstantiatedType nextState)
-              )
-    (Just _, Just _) ->
-      (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
-    (Just _, Nothing) ->
-      (Nothing, addTypeError state (mkInvalidExplicitTypeApplicationArgumentError state typeArgumentSpan typeArgument))
-    (Nothing, _) ->
-      let (functionResult, stateAfterFunction) =
-            inferExpression mode env state functionExpr
-       in case functionResult of
-            Just _ ->
-              (Nothing, addTypeError stateAfterFunction mkExplicitTypeApplicationTargetError)
-            Nothing -> (Nothing, stateAfterFunction)
-
-recordExplicitFunctionFact :: Expr 'Resolved -> Maybe ExpressionType -> InferState -> InferState
-recordExplicitFunctionFact functionExpr maybeExpressionType state =
-  case (functionExpr, maybeExpressionType) of
-    (EVar node _, Just expressionType) ->
-      recordExpressionFactType (coreNodeId node) expressionType state
-    (EOperatorValue node _, Just expressionType) ->
-      recordExpressionFactType (coreNodeId node) expressionType state
-    _ -> state
-
-recordExplicitInstantiationDecision ::
-  CoreNodeId ->
-  ExplicitInstantiationTarget ->
-  ExpressionType ->
-  Maybe ExpressionType ->
-  InferState ->
-  InferState
-recordExplicitInstantiationDecision applicationNodeId target argumentType maybeInstantiatedType state =
-  case maybeInstantiatedType of
-    Nothing -> state
-    Just _ ->
-      recordExplicitInstantiationSeed
-        applicationNodeId
-        ( ExplicitInstantiationSeed
-            { explicitInstantiationSeedTarget = target,
-              explicitInstantiationSeedArguments = argumentType :| []
-            }
-        )
-        state
-
-explicitTypeApplicationTargetName :: Expr 'Resolved -> Maybe ResolvedName
-explicitTypeApplicationTargetName functionExpr =
-  case functionExpr of
-    EVar _ name -> Just name
-    EOperatorValue _ operatorSymbol -> Just (operatorBindingName operatorSymbol)
-    _ -> Nothing
-
-explicitQualifiedMethodTypeApplicationKey :: TypeEnv -> InferState -> Expr 'Resolved -> Maybe Text
-explicitQualifiedMethodTypeApplicationKey env state functionExpr =
-  case functionExpr of
-    EVar _ name
-      | Map.notMember name env,
-        qualifiedMethodClassIsVisible methodKey state ->
-          Just methodKey
-      where
-        methodKey = identifierText name
-    _ -> Nothing
-
-explicitTypeApplicationScheme :: TypeEnv -> Expr 'Resolved -> Maybe TypeScheme
-explicitTypeApplicationScheme env functionExpr =
-  case functionExpr of
-    EVar _ name ->
-      Map.lookup name env >>= typeBindingScheme
-    EOperatorValue _ operatorSymbol ->
-      Map.lookup (operatorBindingName operatorSymbol) env >>= typeBindingScheme
-    _ -> Nothing
-
-instantiateTypeSchemeWithExplicitArgument ::
-  TypeScheme ->
-  ExpressionType ->
-  InferState ->
-  (Maybe ExpressionType, InferState)
-instantiateTypeSchemeWithExplicitArgument typeScheme explicitArgumentType state =
-  case quantifiedVariablesOrderedList (schemeQuantifiedVariables typeScheme) of
-    [] ->
-      (Nothing, addTypeError state mkExplicitTypeApplicationTargetError)
-    explicitTypeVar : remainingTypeVars ->
-      let (freshBindings, nextState) =
-            foldl'
-              allocateFreshBinding
-              (Map.singleton explicitTypeVar explicitArgumentType, state)
-              remainingTypeVars
-          instantiatedType =
-            replaceTypeVariables freshBindings expressionType
-          instantiatedConstraints =
-            map (instantiateTypeSchemeConstraint freshBindings) explicitConstraints
-          instantiatedPrimitiveConstraints =
-            map (instantiateTypeSchemePrimitiveConstraint freshBindings) primitiveConstraints
-          stateWithPrimitiveConstraints =
-            applyTypeSchemePrimitiveConstraints instantiatedPrimitiveConstraints nextState
-          stateWithDeferredConstraints =
-            deferExplicitConstraintsWithFacts
-              (definingFacts <> capabilityFactsFromState state)
-              definingFacts
-              instantiatedConstraints
-              stateWithPrimitiveConstraints
-       in (Just (resolveType stateWithDeferredConstraints instantiatedType), stateWithDeferredConstraints)
-  where
-    explicitConstraints = schemeClassConstraints typeScheme
-    primitiveConstraints = schemePrimitiveConstraints typeScheme
-    definingFacts = schemeDefiningCapabilities typeScheme
-    expressionType = schemeResultType typeScheme
-
-    allocateFreshBinding (bindings, stateAcc) typeVar =
-      let (freshType, nextState) = freshTypeVar stateAcc
-       in (Map.insert typeVar freshType bindings, nextState)
 
 specializeExpectedType :: InferState -> ExpressionType -> ExpressionType -> ExpressionType
 specializeExpectedType state expectedType expressionType =
