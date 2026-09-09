@@ -10,6 +10,7 @@ from pathlib import Path
 
 FAST_COMPONENTS = (
     "cli-spec",
+    "generated-invariants-spec",
     "runtime-observation-spec",
     "warning-config-spec",
     "structured-error-diagnostics-spec",

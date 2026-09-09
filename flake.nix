@@ -129,7 +129,10 @@
 
         devShells.quality = pkgs.mkShell {
           inputsFrom = [ self.devShells.${system}.default ];
-          packages = [ weeder ];
+          # Do not propagate Weeder's bare GHC ahead of Jazz's package wrapper.
+          packages = [ (pkgs.writeShellScriptBin "weeder" ''
+            exec ${weeder}/bin/weeder "$@"
+          '') ];
         };
 
         devShells.docs = pkgs.mkShell {

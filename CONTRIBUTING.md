@@ -84,9 +84,54 @@ The repository audit also rejects the partial `error` identifier and qualified
 total map lookup instead; use a domain-specific type-variable name such as
 `failure` when abstracting over an error type.
 
-The locked HLint is advisory until it parses all GHC 9.14 syntax used by the
-compiler. Do not suppress its parse failures or present its hint count as a
-clean verification gate.
+HLint runs in the fast tier with the curated `.hlint.yaml` policy. It parses
+all Haskell source, test, benchmark, and program-support files. The configuration
+disables HLint's implicit `PatternSynonyms` extension, since Jazz enables it
+explicitly per module and uses `pattern` as an ordinary identifier elsewhere.
+Parse failures remain fatal. Four presentation hints defer to Ormolu and explicit
+argument names; other existing hints have a reviewed declaration-scoped baseline.
+New exemptions need a concrete reason, not a directory-wide suppression.
+
+The `generated-invariants-spec` suite uses QuickCheck's recursive generation and
+shrinking for semantic type traversal/substitution and stable set operation
+histories. Ordering expectations use a separate list model. Each property runs
+1,000 cases. A failure prints its shrunk counterexample and a
+`JAZZ_QUICKCHECK_REPLAY` value; copy that value into the environment when rerunning:
+
+```bash
+cabal test generated-invariants-spec --test-show-details=direct
+```
+
+The extended tier runs dead-code analysis in a separate quality shell:
+
+```bash
+nix develop .#quality --command bash scripts/ci/haskell-quality.sh
+```
+
+Weeder is pinned to a GHC 9.14-compatible upstream revision and built with the
+same GHC as Jazz; the ordinary development shell does not build this extra tool.
+The check starts with a fresh build directory containing only the production
+library and CLI. It checks `weeder-production.toml` before building tests and
+benchmarks, then checks the complete graph with `weeder.toml`. Test entry points
+therefore cannot silently keep production code alive. Both files document their
+explicit roots and reviewed baseline; all library exports and all typeclass
+instances are not automatically treated as roots. A new baseline entry requires
+review of its production, benchmark, or test use. Generated Cabal `Paths_jazz`
+metadata is the only generated-module exemption.
+
+The common instance policy retains structural contracts (`Eq`, `Ord`, `Show`,
+`Generic`, `NFData`, `Enum`, `Bounded`, `Functor`, `Foldable`, and `Traversable`),
+including instances on otherwise unreachable types. This trades detection of
+unused structural instances for preserving comparison, debugging, forcing, and
+traversal APIs; other classes and declarations remain checked. Additional instance
+roots name literal construction, parser stream/error interfaces, runtime-plan
+composition, and benchmark metadata readers explicitly. Shared test helpers have
+named export roots because Cabal compiles them separately into components using
+different subsets. The full graph also records the remaining legacy parser,
+runtime, forcing, and profiling adapters as explicit migration debt. Review and
+remove these entries with the corresponding API rather than expanding them to
+whole modules. The production config retains named compiler inspection APIs for
+tests and tooling, so adding a new unused export still fails the gate.
 
 For public documentation or website work, run:
 
@@ -101,6 +146,7 @@ are also available locally:
 
 - `scripts/ci/fast-compiler.sh` runs warning-clean, focused pull-request checks.
 - `scripts/ci/main-functional.sh` runs the complete ordinary test matrix.
+- `scripts/ci/haskell-quality.sh` checks production and full-graph dead code.
 - `scripts/ci/extended.sh` runs exhaustive parser-scale, repeated corpus,
   profiling, determinism, and benchmark work.
 - `scripts/ci/release-candidate.sh` combines all release-candidate gates.

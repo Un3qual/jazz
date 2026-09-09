@@ -8,12 +8,14 @@ roots = [
   # Shared benchmark/corpus API; each Cabal component uses only a subset.
   # benchmark/Jazz/Benchmark/Metadata.hs
   '^Jazz\.Benchmark\.Metadata\.(BenchmarkArtifactPaths|BenchmarkBuildMode|BenchmarkEnvironment|BenchmarkEnvironmentCapture|BenchmarkTimeMode|CompatibilityDecision|CompatibilityField|CompatibilityMismatch|CompatibilityPolicy|EnvironmentFact|benchmarkArtifactPaths|benchmarkBuildModeForProfiling|benchmarkEnvironmentJson|benchmarkRunIdentity|benchmarkTimeModeFromArguments|captureBenchmarkEnvironment|checkBenchmarkCompatibility|classifyProcessFact|createBenchmarkArtifactDirectory|writeBenchmarkEnvironment)$',
+  # Shared benchmark inspection API; component usage differs.
+  '^Jazz\.Benchmark\.ScaleCases\.compilerScaleCaseSourceCount$',
   # Shared benchmark/corpus API; each Cabal component uses only a subset.
   # benchmark/Jazz/Benchmark/Stages.hs
   '^Jazz\.Benchmark\.Stages\.(runBenchmarkMain|runBenchmarkMainWithArguments|runBenchmarkMainWithEnvironmentCapture)$',
   # Shared benchmark/corpus API; each Cabal component uses only a subset.
   # program-support/Jazz/ProgramCorpus/Manifest.hs
-  '^Jazz\.ProgramCorpus\.Manifest\.(loadProgramCorpusAt|loadProgramCorpusAtWithManifestReader)$',
+  '^Jazz\.ProgramCorpus\.Manifest\.(loadProgramCorpusAt|loadProgramCorpusAtWithManifestReader|programCaseById)$',
   # Shared benchmark/corpus API; each Cabal component uses only a subset.
   # program-support/Jazz/ProgramCorpus/Runner.hs
   '^Jazz\.ProgramCorpus\.Runner\.(loadProgramCaseEntrySource|prepareProgramCase|programCaseBudgetViolations|runProgramCaseObserved)$',
@@ -53,9 +55,11 @@ roots = [
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/Compiler/Bootstrap/JazzCoreParity.hs
   '^Jazz\.Compiler\.Bootstrap\.JazzCoreParity\.(expectedCanonicalExpressionBatchRendering|expectedControlFlowPatternsBatchRendering|expectedControlFlowPatternsSourceBatchRendering|expectedCoreCorpusRendering|expectedCoreSourceBatchRendering|expectedFoundationBatchRendering|expectedFoundationSourceBatchRendering|expectedModuleBatchRendering|expectedParserSourceBatchRendering|expectedSignaturesDeclarationsOperatorsBatchRendering|expectedSignaturesDeclarationsOperatorsSourceBatchRendering|runJazzCanonicalExpressionBatch|runJazzControlFlowPatternsBatch|runJazzControlFlowPatternsSourceBatch|runJazzCoreCorpus|runJazzCoreSourceBatch|runJazzFoundationBatch|runJazzFoundationSourceBatch|runJazzModuleBatch|runJazzParserSourceBatch|runJazzSignaturesDeclarationsOperatorsBatch|runJazzSignaturesDeclarationsOperatorsSourceBatch)$',
+  # Shared scale runner: full components use one family; smoke uses all four.
+  '^Jazz\.Compiler\.Bootstrap\.JazzParserScale\.(runJazzParserControlFlowScale|runJazzParserDeclarationsScale|runJazzParserOperatorScale|runJazzParserScale)$',
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/Compiler/Bootstrap/JazzParserScaleAssertions.hs
-  '^Jazz\.Compiler\.Bootstrap\.JazzParserScaleAssertions\.(fullControlFlowLimits|fullDeclarationsLimits|fullExpressionLimits|fullOperatorLimits|fullScaleWorkload)$',
+  '^Jazz\.Compiler\.Bootstrap\.JazzParserScaleAssertions\.(fullControlFlowLimits|fullDeclarationsLimits|fullExpressionLimits|fullOperatorLimits|fullScaleWorkload|assertDeterministicScalePair|smokeControlFlowLimits|smokeDeclarationsLimits|smokeExpressionLimits|smokeOperatorLimits|smokeScaleWorkload)$',
   # Shared test-support API; each Cabal component uses only a subset.
   # test/Jazz/Compiler/Parser/FixtureCorpus.hs
   '^Jazz\.Compiler\.Parser\.FixtureCorpus\.(ParserFixture|ParserFixtureExpectation|ParserFixtureFamily|ParserFixtureManifestViolation|lookupParserFixtureFamily|parserFixtureCorpus|parserFixtureFamilyNames|validateParserFixtureManifest)$',

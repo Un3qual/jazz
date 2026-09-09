@@ -16,6 +16,7 @@ export JAZZ_CABAL_JOBS
 
 test_components=(
   cli-spec
+  generated-invariants-spec
   runtime-observation-spec
   warning-config-spec
   structured-error-diagnostics-spec
@@ -42,6 +43,8 @@ test_components=(
 )
 
 actionlint
+hlint src app test benchmark program-support --hint=.hlint.yaml
+
 cabal build all --jobs="$JAZZ_CABAL_JOBS"
 cabal test "${test_components[@]}" \
   --test-show-details=direct \
