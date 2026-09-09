@@ -20,7 +20,7 @@ where
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Control.Monad (void)
-import Data.Char (chr, isDigit, isHexDigit, isSpace, ord)
+import Data.Char (chr, isDigit, isHexDigit, ord)
 import Data.Foldable (asum)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe (fromMaybe)
@@ -53,7 +53,9 @@ import Text.Megaparsec
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Char
   ( char,
+    space1,
   )
+import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Error
   ( ErrorFancy (..),
     ParseError (..),
@@ -163,73 +165,49 @@ tokenizeDetailed source =
 
 lexerTokens :: LexerParser [Token]
 lexerTokens =
-  MP.many (tokenParser <* skipIgnored)
+  MP.many (L.lexeme skipIgnored tokenParser)
 
 skipIgnored :: LexerParser ()
 skipIgnored =
-  MP.skipMany (void (MP.satisfy isSpace) <|> lineComment)
-
-lineComment :: LexerParser ()
-lineComment = do
-  void (char '#')
-  void (MP.takeWhileP (Just "comment") (/= '\n'))
+  L.space space1 (L.skipLineComment "#") MP.empty
 
 tokenParser :: LexerParser Token
 tokenParser = do
-  position <- MP.getSourcePos
-  nextChar <- MP.lookAhead MP.anySingle
-  let spanValue = sourcePosSpan position
-  token <-
+  start <- MP.getSourcePos
+  let spanValue = sourcePosSpan start
+  (raw, kind) <- MP.match $ do
+    nextChar <- MP.lookAhead MP.anySingle
     case nextChar of
-      '\'' -> charToken spanValue
-      '"' -> textToken spanValue
+      '\'' -> do
+        values <- quotedScalars '\'' CharacterLiteral spanValue
+        case values of
+          [value] -> pure (TChar value)
+          _ -> literalFailure spanValue (InvalidCharacterLength (length values))
+      '"' -> TText . Text.pack <$> quotedScalars '"' TextLiteral spanValue
       _
-        | isDigit nextChar -> intToken spanValue
-        | isIdentifierStartCharacter nextChar -> identifierToken spanValue
+        | isDigit nextChar -> TInt <$> L.decimal
+        | isIdentifierStartCharacter nextChar -> identifierKind <$> identifier
         | otherwise -> symbolToken spanValue nextChar
   end <- MP.getSourcePos
-  let endPoint = sourcePosSpan end
-  pure token {tokenSpan = SourceRange (spanLine spanValue) (spanColumn spanValue) (spanLine endPoint) (spanColumn endPoint)}
-
-charToken :: SourceSpan -> LexerParser Token
-charToken spanValue = do
-  (raw, values) <- MP.match (quotedScalars '\'' CharacterLiteral spanValue)
-  case values of
-    [value] ->
-      pure
-        Token
-          { tokenKind = TChar value,
-            tokenLexeme = raw,
-            tokenSpan = spanValue
-          }
-    _ -> literalFailure spanValue (InvalidCharacterLength (length values))
-
-textToken :: SourceSpan -> LexerParser Token
-textToken spanValue = do
-  (raw, values) <- MP.match (quotedScalars '"' TextLiteral spanValue)
   pure
     Token
-      { tokenKind = TText (Text.pack values),
+      { tokenKind = kind,
         tokenLexeme = raw,
-        tokenSpan = spanValue
+        tokenSpan = SourceRange (unPos (MP.sourceLine start)) (unPos (MP.sourceColumn start)) (unPos (MP.sourceLine end)) (unPos (MP.sourceColumn end))
       }
+  where
+    identifier =
+      Text.cons
+        <$> MP.satisfy isIdentifierStartCharacter
+        <*> MP.takeWhileP (Just "identifier character") isIdentifierContinuationCharacter
 
 quotedScalars :: Char -> LexicalLiteralKind -> SourceSpan -> LexerParser [Char]
-quotedScalars delimiter literalKind spanValue = do
-  void (char delimiter)
-  go []
+quotedScalars delimiter literalKind spanValue =
+  char delimiter *> MP.manyTill scalar (char delimiter)
   where
-    go reversedValues = do
-      atEnd <- MP.atEnd
-      if atEnd
-        then literalFailure spanValue (UnterminatedLiteral literalKind)
-        else do
-          next <- MP.lookAhead MP.anySingle
-          if next == delimiter
-            then void (char delimiter) *> pure (reverse reversedValues)
-            else do
-              value <- quotedScalar delimiter literalKind spanValue
-              go (value : reversedValues)
+    scalar =
+      (MP.eof *> literalFailure spanValue (UnterminatedLiteral literalKind))
+        <|> quotedScalar delimiter literalKind spanValue
 
 quotedScalar :: Char -> LexicalLiteralKind -> SourceSpan -> LexerParser Char
 quotedScalar delimiter literalKind spanValue =
@@ -296,109 +274,59 @@ literalFailure :: SourceSpan -> LexicalFailureReason -> LexerParser a
 literalFailure spanValue reason =
   MP.customFailure (LexerError (LexicalFailure reason spanValue))
 
-intToken :: SourceSpan -> LexerParser Token
-intToken spanValue = do
-  digits <- MP.takeWhile1P (Just "integer literal") isDigit
-  value <- parseIntegerLiteral spanValue digits
-  pure
-    Token
-      { tokenKind = TInt value,
-        tokenLexeme = digits,
-        tokenSpan = spanValue
-      }
-
-identifierToken :: SourceSpan -> LexerParser Token
-identifierToken spanValue = do
-  firstChar <- MP.satisfy isIdentifierStartCharacter
-  rest <- MP.takeWhileP (Just "identifier character") isIdentifierContinuationCharacter
-  let ident = Text.cons firstChar rest
-  pure
-    Token
-      { tokenKind = identifierKind ident,
-        tokenLexeme = ident,
-        tokenSpan = spanValue
-      }
-
-symbolToken :: SourceSpan -> Char -> LexerParser Token
+symbolToken :: SourceSpan -> Char -> LexerParser TokenKind
 symbolToken spanValue nextChar =
   case nextChar of
     ':' ->
-      fixedToken TColonColon "::" spanValue <|> fixedToken TColon ":" spanValue
-    '@' -> fixedToken TAt "@" spanValue
+      fixedToken TColonColon "::" <|> fixedToken TColon ":"
+    '@' -> fixedToken TAt "@"
     '=' ->
-      operatorToken "==" spanValue
-        <|> operatorToken "=>" spanValue
-        <|> fixedToken TEquals "=" spanValue
+      operatorToken "=="
+        <|> operatorToken "=>"
+        <|> fixedToken TEquals "="
     '!' ->
-      operatorToken "!=" spanValue <|> operatorRunToken spanValue
+      operatorToken "!=" <|> operatorRunKind
     '<' ->
-      operatorToken "<=" spanValue <|> operatorRunToken spanValue
+      operatorToken "<=" <|> operatorRunKind
     '>' ->
-      operatorToken ">=" spanValue <|> operatorRunToken spanValue
-    '+' -> operatorRunToken spanValue
-    '-' -> operatorOrArrowRunToken spanValue
-    '*' -> operatorRunToken spanValue
-    '/' -> operatorRunToken spanValue
-    '|' -> operatorRunToken spanValue
-    '%' -> operatorRunToken spanValue
-    '&' -> operatorRunToken spanValue
-    '?' -> operatorRunToken spanValue
-    '^' -> operatorRunToken spanValue
-    '~' -> operatorRunToken spanValue
-    '$' -> operatorToken "$" spanValue
-    '\\' -> fixedToken TLambda "\\" spanValue
-    '.' -> fixedToken TDot "." spanValue
-    '{' -> fixedToken TLBrace "{" spanValue
-    '}' -> fixedToken TRBrace "}" spanValue
-    '(' -> fixedToken TLParen "(" spanValue
-    ')' -> fixedToken TRParen ")" spanValue
-    '[' -> fixedToken TLBracket "[" spanValue
-    ']' -> fixedToken TRBracket "]" spanValue
-    ',' -> fixedToken TComma "," spanValue
+      operatorToken ">=" <|> operatorRunKind
+    '+' -> operatorRunKind
+    '-' -> operatorOrArrowRunKind
+    '*' -> operatorRunKind
+    '/' -> operatorRunKind
+    '|' -> operatorRunKind
+    '%' -> operatorRunKind
+    '&' -> operatorRunKind
+    '?' -> operatorRunKind
+    '^' -> operatorRunKind
+    '~' -> operatorRunKind
+    '$' -> operatorToken "$"
+    '\\' -> fixedToken TLambda "\\"
+    '.' -> fixedToken TDot "."
+    '{' -> fixedToken TLBrace "{"
+    '}' -> fixedToken TRBrace "}"
+    '(' -> fixedToken TLParen "("
+    ')' -> fixedToken TRParen ")"
+    '[' -> fixedToken TLBracket "["
+    ']' -> fixedToken TRBracket "]"
+    ',' -> fixedToken TComma ","
     _ -> MP.anySingle *> unexpectedCharacter spanValue nextChar
 
-fixedToken :: TokenKind -> Text -> SourceSpan -> LexerParser Token
-fixedToken kind lexeme spanValue = do
-  void (MP.chunk lexeme)
-  pure
-    Token
-      { tokenKind = kind,
-        tokenLexeme = lexeme,
-        tokenSpan = spanValue
-      }
+fixedToken :: TokenKind -> Text -> LexerParser TokenKind
+fixedToken kind lexeme = kind <$ MP.chunk lexeme
 
-operatorToken :: Text -> SourceSpan -> LexerParser Token
-operatorToken symbol spanValue = do
-  void (MP.chunk symbol)
-  pure
-    Token
-      { tokenKind = TOperator symbol,
-        tokenLexeme = symbol,
-        tokenSpan = spanValue
-      }
+operatorToken :: Text -> LexerParser TokenKind
+operatorToken symbol = fixedToken (TOperator symbol) symbol
 
-operatorRunToken :: SourceSpan -> LexerParser Token
-operatorRunToken spanValue = do
+operatorRunKind :: LexerParser TokenKind
+operatorRunKind = TOperator <$> MP.takeWhile1P (Just "operator") isStage2OperatorSymbolChar
+
+operatorOrArrowRunKind :: LexerParser TokenKind
+operatorOrArrowRunKind = do
   symbol <- MP.takeWhile1P (Just "operator") isStage2OperatorSymbolChar
-  pure
-    Token
-      { tokenKind = TOperator symbol,
-        tokenLexeme = symbol,
-        tokenSpan = spanValue
-      }
-
-operatorOrArrowRunToken :: SourceSpan -> LexerParser Token
-operatorOrArrowRunToken spanValue = do
-  symbol <- MP.takeWhile1P (Just "operator") isStage2OperatorSymbolChar
-  pure
-    Token
-      { tokenKind =
-          case symbol of
-            "->" -> TArrow
-            _ -> TOperator symbol,
-        tokenLexeme = symbol,
-        tokenSpan = spanValue
-      }
+  pure $ case symbol of
+    "->" -> TArrow
+    _ -> TOperator symbol
 
 unexpectedCharacter :: SourceSpan -> Char -> LexerParser a
 unexpectedCharacter spanValue charValue =
@@ -446,36 +374,10 @@ firstCustomLexerFailure bundle =
 fallbackLexerFailure :: Text -> MP.ParseErrorBundle Text LexerError -> LexicalFailure
 fallbackLexerFailure source bundle =
   let offset = MP.errorOffset (NonEmpty.head (MP.bundleErrors bundle))
-      spanValue = sourceSpanAtOffset offset source
+      spanValue = sourcePosSpan (MP.pstateSourcePos (MP.reachOffsetNoLine offset (MP.bundlePosState bundle)))
    in case Text.uncons (Text.drop offset source) of
         Just (value, _) -> LexicalFailure (UnexpectedCharacter value) spanValue
         Nothing -> LexicalFailure UnexpectedEndOfInput spanValue
-
-sourceSpanAtOffset :: Int -> Text -> SourceSpan
-sourceSpanAtOffset offset source =
-  let (lineNumber, columnNumber) =
-        Text.foldl' advance (1, 1) (Text.take offset source)
-   in SourceSpan lineNumber columnNumber
-  where
-    advance (lineNumber, columnNumber) value =
-      case value of
-        '\n' -> (lineNumber + 1, 1)
-        '\t' ->
-          let nextColumn = columnNumber + (8 - ((columnNumber - 1) `mod` 8))
-           in (lineNumber, nextColumn)
-        _ -> (lineNumber, columnNumber + 1)
-
-parseIntegerLiteral :: SourceSpan -> Text -> LexerParser Integer
-parseIntegerLiteral spanValue digits =
-  case TextRead.decimal digits :: Either String (Integer, Text) of
-    Right (value, trailing)
-      | Text.null trailing -> pure value
-      | otherwise -> invalidIntegerLiteral digits spanValue
-    Left _ -> invalidIntegerLiteral digits spanValue
-
-invalidIntegerLiteral :: Text -> SourceSpan -> LexerParser a
-invalidIntegerLiteral digits spanValue =
-  literalFailure spanValue (InvalidIntegerLiteral digits)
 
 lexicalFailureDiagnostic :: LexicalFailure -> Diagnostic
 lexicalFailureDiagnostic failure =

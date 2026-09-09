@@ -92,7 +92,7 @@ parseSurfaceProgramTokensDetailed tokens =
 -- already-tokenized stream.
 parseProgramStatements :: StatementParser -> ParserContext -> Parser [SurfaceStatement]
 parseProgramStatements parseStatement context = do
-  tokens <- MP.lookAhead MP.getInput
+  tokens <- MP.getInput
   let scopeContext =
         context
           { parserKnownAliases =
@@ -138,7 +138,7 @@ parseStatementsUntilBrace parseStatement context = do
     case parserStatementContext context of
       NestedBlockContext -> pure context
       _ -> do
-        tokens <- MP.lookAhead MP.getInput
+        tokens <- MP.getInput
         pure
           context
             { parserKnownAliases =

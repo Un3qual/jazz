@@ -87,12 +87,9 @@ type Parser = Parsec ParserError TokenStream
 -- This excludes trailing whitespace and includes consumed closing delimiters.
 withConsumedSpan :: (SourceSpan -> a -> a) -> Parser a -> Parser a
 withConsumedSpan locate parser = do
-  before <- MP.getInput
-  value <- parser
-  after <- MP.getInput
-  let consumed = tokenStreamLength before - tokenStreamLength after
-  pure $ case (tokenStreamAt 0 before, tokenStreamAt (consumed - 1) before) of
-    (Just firstToken, Just lastToken) | consumed > 0 -> locate (spanThrough (tokenSpan firstToken) (tokenSpan lastToken)) value
+  (consumed, value) <- MP.match parser
+  pure $ case (tokenStreamAt 0 consumed, tokenStreamAt (tokenStreamLength consumed - 1) consumed) of
+    (Just firstToken, Just lastToken) -> locate (spanThrough (tokenSpan firstToken) (tokenSpan lastToken)) value
     _ -> value
 
 runTokenParser :: Text -> Parser a -> [Token] -> Either Diagnostic a
@@ -136,17 +133,7 @@ peekToken =
   optional (MP.lookAhead parseAnyToken)
 
 requireEndOfInput :: Parser ()
-requireEndOfInput = do
-  maybeToken <- peekToken
-  case maybeToken of
-    Nothing -> pure ()
-    Just token ->
-      failTokenParserAt
-        (tokenSpan token)
-        ( ExpectedSyntax
-            "end of input"
-            (ParserFoundToken (tokenKind token) (tokenLexeme token))
-        )
+requireEndOfInput = expectedSyntax "end of input" MP.eof
 
 parseToken :: TokenKind -> Parser Token
 parseToken expectedKind =
@@ -170,23 +157,22 @@ parseIdentifier =
       "identifier"
 
 parseTokenWhere :: (Token -> Bool) -> Text -> Parser Token
-parseTokenWhere matches expectedDescription = do
-  maybeToken <- peekToken
-  case maybeToken of
-    Nothing ->
-      failParserFailure
-        (parserFailure (ExpectedSyntax expectedDescription ParserEndOfInput))
-    Just token
-      | matches token -> parseAnyToken
-      | otherwise ->
-          failParserFailure
-            ( parserFailureAt
-                (tokenSpan token)
-                ( ExpectedSyntax
-                    expectedDescription
-                    (ParserFoundToken (tokenKind token) (tokenLexeme token))
-                )
-            )
+parseTokenWhere matches expectedDescription =
+  expectedSyntax expectedDescription (MP.satisfy matches)
+
+-- Convert primitive failures before alternatives merge them, preserving Jazz's
+-- structured expected/found reasons and the offending token's full range.
+expectedSyntax :: Text -> Parser a -> Parser a
+expectedSyntax description = MP.region convert
+  where
+    convert (TrivialError offset encountered _) =
+      FancyError offset (Set.singleton (ErrorCustom (ParserError failure)))
+      where
+        failure = case encountered of
+          Just (MP.Tokens (token NonEmpty.:| _)) ->
+            parserFailureAt (tokenSpan token) (ExpectedSyntax description (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+          _ -> parserFailure (ExpectedSyntax description ParserEndOfInput)
+    convert err = err
 
 failTokenParser :: ParserFailureReason -> Parser a
 failTokenParser = failParserFailure . parserFailure

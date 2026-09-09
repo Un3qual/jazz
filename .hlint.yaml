@@ -50,7 +50,7 @@
     within: ["Jazz.Compiler.AST", "Jazz.Compiler.ModuleExports", "Jazz.Compiler.ModuleGraph", "Jazz.Compiler.Name", "Jazz.Compiler.Parser.AdtPattern.Shared", "Jazz.Compiler.Parser.Foundation.Shared", "Jazz.Compiler.RecursiveBindings", "Jazz.Compiler.Runtime", "Jazz.Compiler.Runtime.Primitives", "Jazz.Compiler.Runtime.ScopePlan", "Jazz.Compiler.Semantics.BindingSignature.BasicsTests", "Jazz.Compiler.Semantics.BindingSignature.ConstraintsTests", "Jazz.Compiler.SourceProgram", "Jazz.Compiler.Stdlib.OrderedCollectionsTests", "Jazz.Compiler.TypeInference.Solver", "Jazz.Compiler.TypeRepresentation"]
 - ignore:
     name: "Use $>"
-    within: ["Jazz.Compiler.Parser.Lexer.quotedScalars", "Jazz.Compiler.Parser.Signature.constraintBlockParser", "Jazz.Compiler.Parser.Signature.parenthesizedSignatureTypeParser"]
+    within: ["Jazz.Compiler.Parser.Signature.constraintBlockParser", "Jazz.Compiler.Parser.Signature.parenthesizedSignatureTypeParser"]
 - ignore:
     name: "Use <$>"
     within: ["Jazz.Compiler.ModuleResolver.resolveProgramWithAmbientExports", "Main.resolveTestModuleGraph"]

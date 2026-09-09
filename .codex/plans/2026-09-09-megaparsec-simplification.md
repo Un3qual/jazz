@@ -1,6 +1,6 @@
 ---
 id: JN-MEGAPARSEC-SIMPLIFICATION-001
-status: in_progress
+status: ready
 priority: P2
 size: M
 kind: impl
@@ -8,12 +8,12 @@ autonomous_ready: yes
 depends_on: []
 plan_section: "Implementation"
 target_paths:
-  - src/Jazz/Compiler/Parser/
-  - test/Jazz/Compiler/Parser/
+  - src/Jazz/Compiler/Parser/Lexer.hs
+  - test/Jazz/Compiler/Parser/TokenParserSpec.hs
   - jazz.cabal
 verification:
   - cabal test all --jobs=4 --test-show-details=failures
-deliverable: "Replace manual lexer and parser mechanics with library combinators"
+deliverable: "Preserve syntax and diagnostics while removing manual parser mechanics"
 last_verified: 2026-09-09
 ---
 
@@ -40,7 +40,50 @@ consumption/backtracking, source ranges, lexemes, and hosted frontend parity.
 
 ## Implementation
 
-- [ ] Simplify lexer, token adapter, and list grammars; add direct dependency.
-- [ ] Verify exact failures, ranges, literals, syntax, and hosted parity.
+- [x] Simplify lexer, token adapter, and list grammars; add direct dependency.
+- [x] Verify exact failures, ranges, literals, syntax, and hosted parity.
 - [ ] Run full default suite and formatting/lint/package/repository checks.
 - [ ] Record evidence, commit, and close dispatcher.
+
+## Results and evidence
+
+Production parser code is 214 lines shorter across seven files. The lexer uses
+one `match` capture for original lexemes and ranges, `space`/`skipLineComment`/
+`lexeme` for trivia, `decimal` for arbitrary-precision integers, `manyTill` for
+quoted bodies, and `reachOffsetNoLine` for fallback error positions. The token
+adapter uses `satisfy`/`eof` with `region` to retain structured errors, and `match`
+for consumed token extents. Lists, tuples, constructor arguments, or-pattern
+tails, case arms, and lambda parameters use standard repetition combinators.
+Signature wrappers use `between`. Removed redundant `lookAhead getInput` calls
+and the obsolete quoted-body HLint exception.
+
+Added `parser-combinators >= 1.3 && < 1.4` for
+`Control.Monad.Combinators.NonEmpty.sepBy1` in lambda parameter parsing.
+Megaparsec already reexports the ordinary list combinators. Kept
+`InvalidIntegerLiteral` in the public lexical-failure vocabulary because hosted
+canonical adapters expose it, while removing the unreachable manual decimal
+conversion failure path.
+
+Preserved precedence climbing, custom Unicode/escape validation, indexed stream
+instances, and declaration loops that enforce duplicate-name policy or scope and
+recovery boundaries. This changes no public syntax or hosted schemas.
+
+- Full default matrix: all 62 suites passed; command included
+  `--enable-tests --keep-going --jobs=4 --test-show-details=failures
+  --ghc-options=-fwrite-ide-info`. Log: `/tmp/jazz-megaparsec-all.log`.
+- Direct comparison with `b4b9edbf`: exact old/new agreement on 54,241 lexer
+  inputs and 11,478 parser inputs, including 93 repository Jazz sources,
+  exhaustive short inputs, and truncated declarations/expressions. Compared
+  complete shown results including errors and ranges. Baseline modules and
+  comparison harness were isolated in `/tmp/jazz-parser-oracle`; no duplicate
+  implementation added to the repository. Log: `/tmp/jazz-megaparsec-oracle.log`.
+- Added tests for alternative commitment and error ranges, large zero-padded
+  integers, Unicode whitespace/comments, raw carriage returns, and rejected
+  Haskell-only escapes. Existing fixtures cover trailing separators, operator
+  behavior, nested patterns, and hosted parity.
+- HLint across `src app test benchmark program-support`: no hints. Ormolu
+  on all changed Haskell files and `git diff --check` passed.
+- Initial focused build caught a local name-shadowing error; corrected before
+  the successful focused/full runs. Queue checker caught initial metadata
+  mismatches; corrected to exact file targets, matching deliverable, and `ready`
+  status, then passed.

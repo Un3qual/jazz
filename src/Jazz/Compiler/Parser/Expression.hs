@@ -10,6 +10,7 @@ module Jazz.Compiler.Parser.Expression
 where
 
 import Control.Monad (void)
+import qualified Control.Monad.Combinators.NonEmpty as NE
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Set as Set
@@ -479,7 +480,7 @@ parseParenExpr parseBlock context leftParenToken = do
       case afterInner of
         Token {tokenKind = TComma} :< _ -> do
           void parseAnyToken
-          tupleElements <- parseTupleElements parseBlock context [innerExpr]
+          tupleElements <- (innerExpr :) <$> parseListElements parseBlock context
           void (parseToken TRParen)
           pure (locatedExpr leftParenToken (SETuple tupleElements))
         operatorToken@Token {tokenKind = TOperator symbol} :< Token {tokenKind = TRParen} :< _ -> do
@@ -490,20 +491,6 @@ parseParenExpr parseBlock context leftParenToken = do
         _ -> do
           void (parseToken TRParen)
           pure innerExpr
-
-parseTupleElements ::
-  StatementBlockParser ->
-  ParserContext ->
-  [SurfaceExpr] ->
-  Parser [SurfaceExpr]
-parseTupleElements parseBlock context reversedElements = do
-  nextElement <- parseExpressionParser parseBlock context
-  maybeToken <- peekToken
-  case maybeToken of
-    Just Token {tokenKind = TComma} -> do
-      void parseAnyToken
-      parseTupleElements parseBlock context (nextElement : reversedElements)
-    _ -> pure (reverse (nextElement : reversedElements))
 
 parseListExpr :: StatementBlockParser -> ParserContext -> Token -> Parser SurfaceExpr
 parseListExpr parseBlock context leftBracketToken = do
@@ -518,18 +505,8 @@ parseListExpr parseBlock context leftBracketToken = do
       pure (locatedExpr leftBracketToken (SEList elements))
 
 parseListElements :: StatementBlockParser -> ParserContext -> Parser [SurfaceExpr]
-parseListElements parseBlock context = do
-  firstElement <- parseExpressionParser parseBlock context
-  collect [firstElement]
-  where
-    collect reversedElements = do
-      maybeToken <- peekToken
-      case maybeToken of
-        Just Token {tokenKind = TComma} -> do
-          void parseAnyToken
-          nextElement <- parseExpressionParser parseBlock context
-          collect (nextElement : reversedElements)
-        _ -> pure (reverse reversedElements)
+parseListElements parseBlock context =
+  parseExpressionParser parseBlock context `MP.sepBy1` parseToken TComma
 
 parseIfExpr ::
   StatementBlockParser ->
@@ -605,17 +582,10 @@ parseCaseArms parseBlock context = do
         (ExpectedSyntax "case arm" (ParserBeforeToken TRBrace "}" Nothing))
     _ -> do
       firstArm <- parseCaseArm parseBlock context
-      collect [firstArm]
-  where
-    collect reversedArms = do
-      maybeToken <- peekToken
-      case maybeToken of
-        Just Token {tokenKind = TRBrace} -> do
-          void parseAnyToken
-          pure (reverse reversedArms)
-        _ -> do
-          nextArm <- parseCaseArm parseBlock context
-          collect (nextArm : reversedArms)
+      (firstArm :)
+        <$> MP.manyTill
+          (parseCaseArm parseBlock context)
+          (MP.satisfy ((== TRBrace) . tokenKind))
 
 parseCaseArm :: StatementBlockParser -> ParserContext -> Parser SurfaceCaseArm
 parseCaseArm parseBlock context = do
@@ -1223,19 +1193,10 @@ parseLambdaParameters leftParenToken = do
             :| []
         )
     _ -> do
-      firstParameter <- Pattern.parseLambdaParameterParser
-      collect firstParameter []
-  where
-    collect firstParameter reversedRemaining = do
+      parameters <- Pattern.parseLambdaParameterParser `NE.sepBy1` parseToken TComma
       tokens <- MP.getInput
       case tokens of
-        Token {tokenKind = TComma} :< _ -> do
-          void parseAnyToken
-          nextParameter <- Pattern.parseLambdaParameterParser
-          collect firstParameter (nextParameter : reversedRemaining)
-        Token {tokenKind = TRParen} :< _ -> do
-          void parseAnyToken
-          pure (firstParameter :| reverse reversedRemaining)
+        Token {tokenKind = TRParen} :< _ -> parameters <$ parseAnyToken
         EmptyTokens ->
           failTokenParser (ExpectedSyntax "')'" (ParserEndOfInputIn "lambda parameter list"))
         token :< _ ->
