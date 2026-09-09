@@ -160,6 +160,8 @@ assertSingleDiagnosticCode label expectedCode diagnostics =
             <> if null diagnostics then "" else ": " <> Text.pack (show diagnostics)
         )
 
+-- Legacy diagnostic fixtures assert start positions only. Exact primary and
+-- related extents are covered by SourceRangesSpec and StructuredErrorDiagnosticsSpec.
 assertSingleDiagnosticPrimaryStart :: Text -> SourceSpan -> [Diagnostic] -> IO ()
 assertSingleDiagnosticPrimaryStart label expectedSpan diagnostics =
   case diagnostics of

@@ -6,12 +6,10 @@ ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
 cd "$ROOT"
 
 JAZZ_CABAL_JOBS="${JAZZ_CABAL_JOBS-1}"
-case "$JAZZ_CABAL_JOBS" in
-  "" | 0 | *[!0-9]*)
-    printf 'FAIL: JAZZ_CABAL_JOBS must be a positive integer\n' >&2
-    exit 2
-    ;;
-esac
+if [[ ! "$JAZZ_CABAL_JOBS" =~ ^[0-9]*[1-9][0-9]*$ ]]; then
+  printf 'FAIL: JAZZ_CABAL_JOBS must be a positive integer\n' >&2
+  exit 2
+fi
 
 # A fresh tree is essential: cached test HIE files could otherwise keep unused
 # production code alive, and deleted modules could remain in the graph.

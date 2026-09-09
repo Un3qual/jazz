@@ -300,6 +300,17 @@ class CiScriptTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.logged_commands(), [])
 
+    def test_quality_worker_count_rejects_zero_padded_zero_before_work(self) -> None:
+        script = REPOSITORY_ROOT / "scripts/ci/haskell-quality.sh"
+        for invalid in ("00", "000"):
+            with self.subTest(invalid=invalid):
+                result = self.run_script(script, JAZZ_CABAL_JOBS=invalid)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(self.logged_commands(), [])
+        result = self.run_script(script, JAZZ_CABAL_JOBS="004")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(any("--jobs=004" in command for command in self.logged_commands()))
+
     def test_production_weeds_stop_before_test_roots_enter_the_graph(self) -> None:
         weeder = self.bin_root / "weeder"
         with weeder.open("a", encoding="utf-8") as stub:
