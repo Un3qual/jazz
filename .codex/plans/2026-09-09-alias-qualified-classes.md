@@ -227,3 +227,29 @@ documentation gate, plan formatting, execution-queue validation and
 `git diff --check`. The documentation gate passed on a serialized rerun after
 its first concurrent run hit one-second fixture timeouts and inspected the plan
 before formatting completed.
+
+## PR 155 second review refresh — 2026-09-10
+
+The complete refresh contained 15 threads, eight reviews and six PR comments.
+The three new Cubic findings were evaluated against the current contracts:
+
+- `3981771101`: qualified type names must be adjacent. Both the continuation
+  predicate and shared type-name parser now enforce adjacency. Regressions
+  reject whitespace on either side of the separator in a result type and in a
+  bare signature, preserving the existing unsupported-signature fallback there.
+- `3981771109`: added Python's standard-library calendar validation to reject
+  impossible verification dates. A new age limit was rejected as scope creep:
+  no repository policy defines how old a status verification may be. The date
+  check accepts valid leap days and rejects invalid leap days and month/day values.
+- `3981771116`: the two invalid-source loops now include the source in their
+  assertion labels, without adding another test abstraction.
+
+Earlier unresolved CodeAnt date/qualified-result comments and its RFC-table
+nitpick are already fixed. Hosted parser/core parity remains deferred. The four
+focused parser, loader and diagnostic suites passed after reproducing the new
+whitespace failures.
+
+Final verification passed all 47 non-bootstrap suites, the serialized
+documentation gate, HLint, Ormolu, plan formatting, execution-queue validation
+and `git diff --check`. The maintainer's concurrent AGENTS.md/YAGNI commit was
+preserved without changes.

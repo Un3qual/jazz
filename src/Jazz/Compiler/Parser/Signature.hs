@@ -268,8 +268,14 @@ signatureTypeHeadParser = do
   firstToken <- identifierTokenParser
   maybeQualifiedMember <-
     MP.optional $ do
-      _ <- TokenParser.parseTokenKind TColonColon
+      separator <- TokenParser.parseToken TColonColon
       memberToken <- identifierTokenParser
+      if isImmediatelyAfter firstToken separator && isImmediatelyAfter separator memberToken
+        then pure ()
+        else
+          TokenParser.failTokenParserAt
+            (tokenSpan separator)
+            (ExpectedSyntax "adjacent qualified type name" (ParserFoundToken TColonColon (tokenLexeme separator)))
       pure memberToken
   case maybeQualifiedMember of
     Just memberToken ->

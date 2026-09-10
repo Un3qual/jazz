@@ -280,7 +280,7 @@ testRejectsOverlongAliasQualifiedClassMethod =
 testRejectsNonIdentifierConstraintAliases :: IO ()
 testRejectsNonIdentifierConstraintAliases =
   forM_ ["f :: @{1::Eq(a)}: a -> a.", "f :: @{((1::Eq(a)))}: a -> a."] $ \source ->
-    assertLeftDiagnosticContains "constraint alias" "expected alias before '::'" (parseSurfaceProgram source)
+    assertLeftDiagnosticContains ("constraint alias: " <> source) "expected alias before '::'" (parseSurfaceProgram source)
 
 testRejectsUnfinishedSignatures :: IO ()
 testRejectsUnfinishedSignatures =
@@ -294,7 +294,7 @@ testRejectsUnfinishedSignatures =
       ("f :: Int\nnext :: Bool.", "expected '.' before 'next'")
     ]
     $ \(source, expected) ->
-      assertLeftDiagnosticContains "unfinished signature" expected (parseSurfaceProgram source)
+      assertLeftDiagnosticContains ("unfinished signature: " <> source) expected (parseSurfaceProgram source)
 
 testRejectsTraitAbstractionSyntax :: IO ()
 testRejectsTraitAbstractionSyntax =

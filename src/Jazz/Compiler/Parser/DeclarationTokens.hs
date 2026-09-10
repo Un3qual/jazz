@@ -40,6 +40,7 @@ import Jazz.Compiler.Parser.Failure
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
     TokenKind (..),
+    isImmediatelyAfter,
   )
 import Jazz.Compiler.Parser.TokenStream
   ( TokenStream,
@@ -86,8 +87,10 @@ collectUntilDot = go 0 []
       TRBrace -> max 0 (depth - 1)
       _ -> depth
 
-    continuesQualifiedType (previous : _) (Token {tokenKind = TIdentifier {}} :< Token {tokenKind = TColonColon} :< Token {tokenKind = TIdentifier {}} :< _) =
-      tokenKind previous `elem` [TArrow, TLParen, TLBracket, TLBrace, TComma, TColon, TColonColon]
+    continuesQualifiedType (previous : _) (alias@Token {tokenKind = TIdentifier {}} :< separator@Token {tokenKind = TColonColon} :< member@Token {tokenKind = TIdentifier {}} :< _) =
+      isImmediatelyAfter alias separator
+        && isImmediatelyAfter separator member
+        && tokenKind previous `elem` [TArrow, TLParen, TLBracket, TLBrace, TComma, TColon, TColonColon]
     continuesQualifiedType _ _ = False
 
 beginsStatement :: TokenStream -> Bool
