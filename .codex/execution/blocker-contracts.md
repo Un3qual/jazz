@@ -210,37 +210,39 @@ Each blocked item should answer these questions:
 
 ### JN-MODULE-REBASE-PLAN-001
 
-- Smallest unblocker: none currently. The namespace-aware module export child
-  landed as `JN-MODULE-NAMESPACE-AWARE-EXPORT-001`, followed by Haskell
-  alias-qualified classes under `JN-MODULE-ALIAS-QUALIFIED-CLASSES-001` (RFC 0017).
-- Decision needed: none. Optional namespace prefixes, bare-selector
-  compatibility, omitted-list export-all, `()` export-nothing, local/public
-  inventory separation, alias-qualified methods/constraints/impl heads, and
-  no re-exports are implemented. Hosted qualification parity is explicitly
-  deferred, including existing parser comparisons affected by the new grammar.
-- Recommended default: preserve the completed namespace-aware export contract
-  and `E4007`-`E4015` diagnostics until a separate source-backed module behavior
-  contract is accepted.
-- Candidate child: none currently.
-- Target paths: not set until a separate module behavior contract is accepted.
-- Verification: focused `ModuleImportParserSpec.hs`, `ParserFoundationSpec.hs`,
-  `OperatorFixitySpec.hs`, `ModuleExportsSpec.hs`,
-  `ModuleResolutionSpec.hs`, `ModulePipelineContractSpec.hs`, and `LoaderSpec.hs`;
-  `cabal build all`;
-  `cabal test all --test-show-details=failures`;
+- Smallest unblocker: maintainer review and acceptance of
+  [RFC 0018](../../rfcs/proposed/0018-explicit-module-re-exports.md), selected
+  as the next batch on `2026-09-10`.
+- Decision needed: authorize explicit typed header selectors for unqualified
+  imports, preservation of original declaration identities, public constructor
+  filtering, and class-attached evidence forwarding through explicit class
+  re-exports. The proposal is unimplemented and has no language authority yet.
+- Recommended default: reuse existing typed selectors; preserve owned-only bare
+  selectors and omitted lists. Forward original bindings and selected public
+  evidence, deduplicate identical origins, and reject genuine collisions.
+- Candidate child: `JN-MODULE-EXPLICIT-REEXPORTS-001`.
+- Promotion check: obtain maintainer acceptance, move RFC 0018 to `accepted/`
+  and index it, update these links, then create a matching implementation plan
+  under `.codex/plans/` before adding a `Ready Now` row.
+- Target paths: `src/Jazz/Compiler/ModuleExports.hs`,
+  `src/Jazz/Compiler/ModuleGraph.hs`, `src/Jazz/Compiler/ModuleResolver.hs`,
+  `src/Jazz/Compiler/ModuleResolver/Imports.hs`,
+  `src/Jazz/Compiler/ModuleResolver/Names.hs`,
+  `src/Jazz/Compiler/ModuleInterface.hs`, `src/Jazz/Compiler/ModuleAnalysis.hs`,
+  `src/Jazz/Compiler/ModuleCompiler.hs`, `src/Jazz/Compiler/ModuleRuntime.hs`,
+  `test/Jazz/Compiler/Modules/` and the public module/capability references.
+- Verification: `cabal test module-exports-spec module-resolution-spec module-pipeline-contract-spec loader-spec --test-show-details=failures`;
+  `JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh`;
   `bash scripts/check-execution-queue.sh`; `bash scripts/check-docs.sh`;
   `git diff --check`.
-- Landed evidence: `src/Jazz/Compiler/ModuleExports.hs` owns the
-  typed inventory and structured selectors; module headers accept exact
-  `value`, `constructor`, `type`, and `class` prefixes plus bare compatibility;
-  `src/Jazz/Compiler/ModuleResolver.hs` separates local and public
-  inventories; compiler imports and runtime publication consume the public
-  inventory; focused and full verification passed on `2026-07-10`.
-- Not in scope: re-exports, wildcard or constructor-group shorthand, body-level
-  export declarations, visibility modifiers, cross-module operators,
-  separate impl imports, orphan/overlap policy,
-  default methods, superclasses, effects, new prelude/catalog API, public
-  builtin fallback in no-prelude mode, or package/module-root semantics.
+- Landed evidence: typed inventories and header selectors, local/public export
+  separation, and RFC 0017 alias-qualified classes are implemented. Current
+  public behavior still rejects re-exports; the proposed RFC authorizes no
+  changes before acceptance.
+- Not in scope: alias-qualified header selectors, export renaming, whole-module
+  exports, cross-module operators, separate impl imports, overlap/orphan policy,
+  default methods, superclasses, effects, standard-library growth, packages,
+  hosted/bootstrap work, or native execution.
 
 ### JN-WARNING-DEPRECATED-SYNTAX-CONTRACT-001
 
