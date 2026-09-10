@@ -1,6 +1,6 @@
 ---
 id: JN-MODULE-REEXPORT-REVIEW-001
-status: ready
+status: complete
 priority: P1
 size: M
 kind: impl
@@ -9,6 +9,8 @@ depends_on: []
 plan_section: "Implementation"
 target_paths:
   - src/Jazz/Compiler/ModuleRuntime.hs
+  - src/Jazz/Compiler/Runtime.hs
+  - src/Jazz/Compiler/Runtime/Outcome.hs
   - src/Jazz/Compiler/ModuleAnalysis.hs
   - src/Jazz/Compiler/ModuleExports.hs
   - src/Jazz/Compiler/ModuleResolver.hs
@@ -40,7 +42,7 @@ the existing isolated worktree and commit verified milestones.
 - [x] Remove the constructor-ownership conversion round trip. Keep constructor
       validation and selection on the shared inventory, preserving visibility
       and original-owner checks. Reuse existing constructor coverage.
-- [ ] Run focused suites, supported non-bootstrap suites, Haskell quality gates,
+- [x] Run focused suites, supported non-bootstrap suites, Haskell quality gates,
       executable examples and repository checks. Record results and close queue.
 
 ## Verification record
@@ -69,6 +71,27 @@ the existing isolated worktree and commit verified milestones.
   loader and module pipeline suites passed again.
 - All six executable examples passed with the rebuilt executable.
 - The first quality pass reported the two adapters left unused by the runtime
-  simplification. Both were removed; the fresh gate is being rerun.
+  simplification. Both were removed in `55684943`; the fresh gate passed.
 - The initial docs run found plan formatting drift and one checker-fixture
-  timeout under parallel build load. Formatting and a quiet rerun remain.
+  timeout under parallel build load. Formatting was corrected and the quiet rerun passed all checks.
+
+## Final verification
+
+- `cabal test` passed all 47 supported non-bootstrap suites selected from
+  `jazz.cabal` by excluding Bootstrap main modules.
+- After the final dead-code cleanup, `runtime-semantics-spec`,
+  `runtime-observation-spec`, `loader-spec`, and `module-pipeline-contract-spec`
+  passed again.
+- `JAZZ_CABAL_JOBS=4 bash scripts/ci/haskell-quality.sh` passed in the pinned
+  quality shell: HLint reported no hints; fresh production and full Weeder
+  passed; all test/benchmark targets, including opt-in scale suites, built;
+  generated-invariant tests passed.
+- All six executable examples and public-documentation examples passed.
+  `cabal check` reported no errors or warnings.
+- `bash scripts/check-docs.sh` passed, including checker regressions, links,
+  documentation policy and execution-queue checks. The earlier one-second
+  checker-fixture timeout did not recur on the quiet rerun.
+- All changed Haskell files were formatted with pinned Ormolu. Final closeout
+  checks cover queue state, Markdown formatting and `git diff --check`.
+- Production Haskell is 55 lines shorter across the review fixes. Hosted
+  bootstrap execution/parity remains deferred; only compilation was verified.
