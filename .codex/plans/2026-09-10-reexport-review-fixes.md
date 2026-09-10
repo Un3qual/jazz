@@ -33,11 +33,11 @@ the existing isolated worktree and commit verified milestones.
 - [x] Reproduce lost facade-owned runtime methods with distinguishable results.
       Publish from the completed environment and merge duplicate class imports
       by implementation identity. Cover disjoint facade impls and repeated paths.
-- [ ] Reproduce the private-class/module-prefix collision. Match complete class
+- [x] Reproduce the private-class/module-prefix collision. Match complete class
       keys when rebasing and selecting method metadata.
-- [ ] Reproduce the same-spelled selector diagnostic error. Retain locations in
+- [x] Reproduce the same-spelled selector diagnostic error. Retain locations in
       parsed selectors and remove resolver token rescanning.
-- [ ] Remove the constructor-ownership conversion round trip. Keep constructor
+- [x] Remove the constructor-ownership conversion round trip. Keep constructor
       validation and selection on the shared inventory, preserving visibility
       and original-owner checks. Reuse existing constructor coverage.
 - [ ] Run focused suites, supported non-bootstrap suites, Haskell quality gates,
@@ -51,3 +51,14 @@ the existing isolated worktree and commit verified milestones.
   per-module pure runner. Removing that duplicate runner gives the whole graph
   one evaluation session and keeps method bodies distinct.
 - `loader-spec` and `module-pipeline-contract-spec` passed after runtime fixes.
+
+- Runtime publication/session fixes committed as `47752eab`.
+- The private `Lib` class regression failed with E2015 before exact key matching;
+  `loader-spec` then passed. Fix committed as `68270f8a`.
+- Same-spelled export diagnostics failed at column 24 instead of 37 before
+  retaining selector spans. Parser, foundation, resolution, exports and loader
+  suites passed after fixture metadata was updated. Fix committed as `77c9406c`.
+- Constructor selection now builds an index from existing ownership links rather
+  than comparing all types with all constructors and reattaching ownership for
+  each selector. Existing export, resolution and loader suites passed unchanged
+  in behavior, including hidden and wrong-origin constructors.

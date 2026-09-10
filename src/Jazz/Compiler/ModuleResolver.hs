@@ -42,6 +42,7 @@ import Data.Foldable
   )
 import Data.List
   ( find,
+    partition,
     sortOn,
   )
 import Data.List.NonEmpty
@@ -98,8 +99,7 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
     exportNamesInNamespace,
     exportNamesInNamespaces,
-    exportOrigin,
-    exportedConstructorOwners,
+    exportedTypeConstructors,
     inventoryHasSelector,
     moduleExportSelectorName,
     moduleExportSelectorNamespace,
@@ -455,7 +455,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
       let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
           selectors = ModuleGraph.declaredModuleExportSelectors declaredExports
        in case firstInvalidExport moduleSpan selectors of
-            Nothing -> Right (foldMap selectSelector selectors)
+            Nothing -> Right (selectSelectors selectors)
             Just invalidExport ->
               Left
                 ( setDiagnosticSubject
@@ -481,20 +481,11 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports localIn
     selectorInventory selector = case selector of
       ModuleExportSelector Nothing _ _ -> localInventory
       _ -> availableInventory
-    selectSelector selector = selectValidatedModuleExportSelectors constructorOwners [selector] (selectorInventory selector)
-    constructorOwners =
-      Map.fromList
-        [ ( typeName,
-            Set.fromList
-              [ constructor
-              | constructor <- Set.toList (exportNamesInNamespace ConstructorNamespace availableInventory),
-                Set.member typeName (exportedConstructorOwners constructor availableInventory),
-                exportOrigin modulePath (ModuleExport ConstructorNamespace constructor) availableInventory
-                  == exportOrigin modulePath (ModuleExport TypeNamespace typeName) availableInventory
-              ]
-          )
-        | typeName <- Set.toList (exportNamesInNamespace TypeNamespace availableInventory)
-        ]
+    selectSelectors selectors =
+      let (ownedSelectors, typedSelectors) = partition ((== Nothing) . moduleExportSelectorNamespace) selectors
+       in selectValidatedModuleExportSelectors ownedSelectors localInventory
+            <> selectValidatedModuleExportSelectors typedSelectors availableInventory
+    constructorOwners = exportedTypeConstructors availableInventory
     firstInvalidExport _ [] = Nothing
     firstInvalidExport moduleSpan (selector : rest) =
       case validateSelector moduleSpan selector of

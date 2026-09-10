@@ -23,6 +23,7 @@ import Jazz.Compiler.ModuleExports
     selectModuleExportSelectors,
     selectValidatedModuleExportSelectors,
     selectorEligibleNames,
+    withConstructorOwners,
   )
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
@@ -172,7 +173,6 @@ testGroupedTypeSelectorOwnership =
     ( exportedConstructorOwners
         "C"
         ( selectValidatedModuleExportSelectors
-            reboundConstructorOwners
             [ModuleTypeExportSelector "A" (SourceSpan 1 1) (AllTypeConstructors (SourceSpan 1 8))]
             reboundConstructorInventory
         )
@@ -186,7 +186,6 @@ testStandaloneConstructorSelectorOwnership =
     ( exportedConstructorOwners
         "C"
         ( selectValidatedModuleExportSelectors
-            reboundConstructorOwners
             [ModuleExportSelector (Just ConstructorNamespace) "C" (SourceSpan 1 1)]
             reboundConstructorInventory
         )
@@ -216,12 +215,12 @@ ownedConstructorInventory = ownedBy "A"
 ownedBy :: Text -> ModuleExportInventory
 ownedBy typeName =
   selectValidatedModuleExportSelectors
-    (Map.singleton typeName (Set.singleton "C"))
     [ModuleTypeExportSelector typeName (SourceSpan 1 1) (AllTypeConstructors (SourceSpan 1 8))]
-    ( exportInventory
-        [ ModuleExport TypeNamespace typeName,
-          ModuleExport ConstructorNamespace "C"
-        ]
+    ( withConstructorOwners (Map.singleton typeName (Set.singleton "C")) $
+        exportInventory
+          [ ModuleExport TypeNamespace typeName,
+            ModuleExport ConstructorNamespace "C"
+          ]
     )
 
 reboundConstructorOwners :: Map.Map Text (Set.Set Text)
@@ -233,11 +232,12 @@ reboundConstructorOwners =
 
 reboundConstructorInventory :: ModuleExportInventory
 reboundConstructorInventory =
-  exportInventory
-    [ ModuleExport TypeNamespace "A",
-      ModuleExport ConstructorNamespace "C",
-      ModuleExport TypeNamespace "B"
-    ]
+  withConstructorOwners reboundConstructorOwners $
+    exportInventory
+      [ ModuleExport TypeNamespace "A",
+        ModuleExport ConstructorNamespace "C",
+        ModuleExport TypeNamespace "B"
+      ]
 
 testFirstNamespace :: IO ()
 testFirstNamespace =

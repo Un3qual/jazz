@@ -21,6 +21,7 @@ module Jazz.Compiler.ModuleExports
     withConstructorOwners,
     overlayExportInventory,
     exportedConstructorOwners,
+    exportedTypeConstructors,
     exportNamesInNamespace,
     exportNamesInNamespaces,
     declarationExportNames,
@@ -151,6 +152,24 @@ exportedConstructorOwners :: Text -> ModuleExportInventory -> Set Text
 exportedConstructorOwners constructorName =
   Map.findWithDefault Set.empty constructorName . inventoryConstructorOwners
 
+-- Only visible constructors of the selected original type can join a group.
+exportedTypeConstructors :: ModuleExportInventory -> Map Text (Set Text)
+exportedTypeConstructors inventory =
+  Map.union
+    ( Map.fromListWith
+        Set.union
+        [ (typeName, Set.singleton constructor)
+        | constructor <- Set.toList (exportNamesInNamespace ConstructorNamespace inventory),
+          typeName <- Set.toList (exportedConstructorOwners constructor inventory),
+          Set.member typeName typeNames,
+          origin ConstructorNamespace constructor == origin TypeNamespace typeName
+        ]
+    )
+    (Map.fromSet (const Set.empty) typeNames)
+  where
+    typeNames = exportNamesInNamespace TypeNamespace inventory
+    origin namespace name = Map.lookup (ModuleExport namespace name) (inventoryOrigins inventory)
+
 exportNamesInNamespace :: NameNamespace -> ModuleExportInventory -> Set Text
 exportNamesInNamespace namespace =
   Set.map moduleExportName
@@ -225,15 +244,15 @@ selectModuleExportSelectors selectors inventory =
     inventory
 
 selectValidatedModuleExportSelectors ::
-  Map Text (Set Text) ->
   [ModuleExportSelector] ->
   ModuleExportInventory ->
   ModuleExportInventory
-selectValidatedModuleExportSelectors constructorOwners selectors inventory =
+selectValidatedModuleExportSelectors selectors inventory =
   foldMap selectedInventory selectors
   where
+    constructorOwners = exportedTypeConstructors inventory
     selectedInventory selector =
-      let selected = restrictInventory (selectedEntries selector) (withConstructorOwners constructorOwners inventory)
+      let selected = restrictInventory (selectedEntries selector) inventory
        in case selector of
             ModuleTypeExportSelector typeName _ _ ->
               selected
