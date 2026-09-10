@@ -59,6 +59,7 @@ import Jazz.TestHarness
 signatureTests :: [NamedTest]
 signatureTests =
   [ ("parses signature statement with source span", testParseSignatureSpan),
+    ("parses qualified result types after arrows", testParseQualifiedResultTypes),
     ("parses Char and Text signatures", testParsesCharAndTextSignatures),
     ("parses generic named signatures", testParsesGenericNamedSignatures),
     ("normalizes List application syntax", testNormalizesListApplicationSyntax),
@@ -88,6 +89,26 @@ signatureTests =
     ("parses operator keyword as an ordinary signature name", testParsesOperatorKeywordAsSignatureName),
     ("parses class method signature metadata", testParsesClassMethodSignatureMetadata)
   ]
+
+testParseQualifiedResultTypes :: IO ()
+testParseQualifiedResultTypes =
+  assertRight
+    "qualified result type"
+    (parseSurfaceProgramPoints "f :: Int -> Facts::OnlyType.")
+    ( assertEqual
+        "qualified result signature"
+        ( e
+            1
+            1
+            ( SEBlock
+                [ SSSignature
+                    "f"
+                    (SourceSpan 1 1)
+                    (SignatureType (TypeFunction TypeInt (TypeName (mkQualifiedIdentifier "Facts" "OnlyType"))))
+                ]
+            )
+        )
+    )
 
 testParseSignatureSpan :: IO ()
 testParseSignatureSpan =

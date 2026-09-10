@@ -199,3 +199,31 @@ scan; the shared scan now stops at the statement terminator. After that final
 correction, loader, parser-foundation, source-range and structured-diagnostic
 suites passed again. Final HLint and Ormolu checks passed, as did plan formatting,
 execution-queue validation and `git diff --check`.
+
+## PR 155 review follow-through — 2026-09-10
+
+The initial snapshot contained all 12 review threads, six review summaries and six PR comments;
+every connection was complete without further pagination. The inventory includes
+CodeRabbit's outside-diff finding and CodeAnt's top-level nitpick. Duplicate
+reports were evaluated together, and bootstrap remains maintainer-deferred.
+
+| Finding                                                                                                      | Disposition                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CodeAnt: hard-coded status date (`3981380847`)                                                               | Replaced the exact-date assertion with the existing YYYY-MM-DD format requirement; no freshness policy added.                                                                                          |
+| CodeAnt: qualified result type rejected after an arrow (`3981393241`)                                        | Reproduced and fixed the signature-boundary predicate to permit qualified names where a type can begin.                                                                                                |
+| Cubic: nested declaration swallowed (`3981509075`); CodeRabbit outside-diff: premature dot (`5169932770`)    | Reproduced and fixed boundary detection at every depth and rejection of terminators inside unclosed delimiters. Retained the existing depth counter instead of introducing a delimiter-stack redesign. |
+| CodeRabbit/Cubic: non-identifier constraint alias (`3981469011`, `3981509048`)                               | Added explicit alias-token rejection and regressions, including grouped heads. Merely restricting the successful pattern would still fall through to unsupported-signature handling.                   |
+| CodeRabbit/Cubic: broad rejection assertions (`3981469038`, `3981509106`)                                    | Replaced the helper accepting any parser failure with assertions for each intended diagnostic.                                                                                                         |
+| CodeAnt nitpick/Cubic: RFC 0017 outside its table (`5622167267`, `3981509091`)                               | Removed the table-breaking blank line.                                                                                                                                                                 |
+| Cubic: method span applied to argument errors (`3981509100`)                                                 | Reproduced E2007 at the method rather than the list argument. Annotated argument-inference errors before method-resolution errors; existing specific spans remain intact.                              |
+| CodeAnt/Cubic: hosted core schema (`3981393765`, `3981509087`); CodeAnt: hosted parser schema (`3981393774`) | Valid parity gaps already documented above; deferred under the maintainer's bootstrap exclusion. No hosted code or canonical adapters changed.                                                         |
+
+The focused loader, parser-foundation, source-range and structured-diagnostic
+suites passed after reproducing the behavioral failures. The earlier unfinished
+signature location regression now asserts its intentional parser rejection.
+
+Final verification passed all 47 non-bootstrap suites, HLint, Ormolu, the
+documentation gate, plan formatting, execution-queue validation and
+`git diff --check`. The documentation gate passed on a serialized rerun after
+its first concurrent run hit one-second fixture timeouts and inspected the plan
+before formatting completed.

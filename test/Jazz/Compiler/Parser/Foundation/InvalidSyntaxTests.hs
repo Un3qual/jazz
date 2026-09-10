@@ -45,6 +45,8 @@ invalidSyntaxTests =
     ("rejects qualified class declarations", testRejectsQualifiedClassDeclaration),
     ("rejects malformed alias-qualified class methods", testRejectsMalformedAliasQualifiedClassMethod),
     ("rejects overlong alias-qualified class methods", testRejectsOverlongAliasQualifiedClassMethod),
+    ("rejects non-identifier aliases in constraints", testRejectsNonIdentifierConstraintAliases),
+    ("rejects statement boundaries inside unfinished signatures", testRejectsUnfinishedSignatures),
     ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
     ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
     ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody),
@@ -256,32 +258,43 @@ testRejectsMalformedClassCapabilityHeader =
 
 testRejectsQualifiedClassDeclaration :: IO ()
 testRejectsQualifiedClassDeclaration =
-  assertRejected
+  assertLeftDiagnosticContains
     "qualified class declaration"
-    "class Facts::Eq(a) { }."
+    "expected unqualified class name"
+    (parseSurfaceProgram "class Facts::Eq(a) { }.")
 
 testRejectsMalformedAliasQualifiedClassMethod :: IO ()
 testRejectsMalformedAliasQualifiedClassMethod =
-  assertRejected
+  assertLeftDiagnosticContains
     "malformed alias-qualified class method"
-    "Facts::Eq::."
+    "expected method name after '::'"
+    (parseSurfaceProgram "Facts::Eq::.")
 
 testRejectsOverlongAliasQualifiedClassMethod :: IO ()
 testRejectsOverlongAliasQualifiedClassMethod =
-  assertRejected
+  assertLeftDiagnosticContains
     "overlong alias-qualified class method"
-    "Facts::Eq::equals::extra."
+    "unexpected token '::' in qualified class method name"
+    (parseSurfaceProgram "Facts::Eq::equals::extra.")
 
-assertRejected :: Text.Text -> Text.Text -> IO ()
-assertRejected label source =
-  case parseSurfaceProgram source of
-    Left _ -> pure ()
-    Right parsed ->
-      failTest
-        ( label
-            <> ": expected parser rejection, got "
-            <> Text.pack (show parsed)
-        )
+testRejectsNonIdentifierConstraintAliases :: IO ()
+testRejectsNonIdentifierConstraintAliases =
+  forM_ ["f :: @{1::Eq(a)}: a -> a.", "f :: @{((1::Eq(a)))}: a -> a."] $ \source ->
+    assertLeftDiagnosticContains "constraint alias" "expected alias before '::'" (parseSurfaceProgram source)
+
+testRejectsUnfinishedSignatures :: IO ()
+testRejectsUnfinishedSignatures =
+  forM_
+    [ ("f :: (Int\nnext = 1.", "expected '.' before 'next'"),
+      ("f :: @{Eq(a)\nnext = 1.", "expected '.' before 'next'"),
+      ("f :: (Int\nclass Eq(a) { }.", "expected '.' before 'class'"),
+      ("f :: (Int.", "expected closing delimiter"),
+      ("f :: [Int.", "expected closing delimiter"),
+      ("f :: @{Eq(a).", "expected closing delimiter"),
+      ("f :: Int\nnext :: Bool.", "expected '.' before 'next'")
+    ]
+    $ \(source, expected) ->
+      assertLeftDiagnosticContains "unfinished signature" expected (parseSurfaceProgram source)
 
 testRejectsTraitAbstractionSyntax :: IO ()
 testRejectsTraitAbstractionSyntax =

@@ -61,9 +61,15 @@ collectUntilDot = go 0 []
                     (tokenSpan token)
                     (ExpectedSyntax "signature text" (ParserBeforeToken TDot "." Nothing))
                 )
+          | depth > 0 ->
+              Left
+                ( parserFailureAt
+                    (tokenSpan token)
+                    (ExpectedSyntax "closing delimiter" (ParserBeforeToken TDot "." (Just "signature")))
+                )
           | otherwise -> Right (reverse acc, rest)
         _
-          | depth == 0 && not (null acc) && beginsStatement allTokens ->
+          | not (null acc) && beginsStatement allTokens && not (continuesQualifiedType acc allTokens) ->
               Left
                 ( parserFailureAt
                     (tokenSpan token)
@@ -79,6 +85,10 @@ collectUntilDot = go 0 []
       TRBracket -> max 0 (depth - 1)
       TRBrace -> max 0 (depth - 1)
       _ -> depth
+
+    continuesQualifiedType (previous : _) (Token {tokenKind = TIdentifier {}} :< Token {tokenKind = TColonColon} :< Token {tokenKind = TIdentifier {}} :< _) =
+      tokenKind previous `elem` [TArrow, TLParen, TLBracket, TLBrace, TComma, TColon, TColonColon]
+    continuesQualifiedType _ _ = False
 
 beginsStatement :: TokenStream -> Bool
 beginsStatement tokens =

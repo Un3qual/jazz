@@ -699,7 +699,7 @@ inferExprTypeDetailedRaw env state expr =
           if sectionFallback then inferSectionApplicationWithFallback function argument symbol left right else inferBuiltinOperatorApplication symbol aliasScheme left right
       | Just (methodName, methodSpan, methodKey, arguments) <- qualifiedMethodApplicationSpine expr state,
         Map.notMember methodName env ->
-          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferExprTypeDetailedWithMode InferConcreteFunctions env state (coreNodeId (expressionNode expr)) methodKey arguments
+          let (expressionType, finalState, argumentResults) = inferQualifiedMethodApplicationWithResults inferLocatedMethodArgument InferConcreteFunctions env state (coreNodeId (expressionNode expr)) methodKey arguments
               stateWithSpineFacts = case (expressionType, sequenceA argumentResults) of
                 (Just resultType, Just argumentTypes) -> recordQualifiedMethodSpineFacts expr (foldr SemanticFunction (resolveType finalState resultType) (map (resolveType finalState) argumentTypes)) finalState
                 _ -> finalState
@@ -710,6 +710,10 @@ inferExprTypeDetailedRaw env state expr =
     ESectionLeft _ left symbol -> inferLeftSection symbol left
     ESectionRight _ symbol right -> inferRightSection symbol right
   where
+    inferLocatedMethodArgument mode argumentEnv priorState argumentExpr =
+      let (argumentType, nextState) = inferExprTypeDetailedWithMode mode argumentEnv priorState argumentExpr
+       in (argumentType, annotateNewErrorsWithPrimarySpan (coreNodeSpan (expressionNode argumentExpr)) priorState nextState)
+
     inferVariableType nodeId name initialState =
       case Map.lookup name env of
         Just localType -> instantiateEnvBinding localType initialState
