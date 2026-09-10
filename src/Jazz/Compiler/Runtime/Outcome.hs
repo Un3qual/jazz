@@ -7,7 +7,6 @@ module Jazz.Compiler.Runtime.Outcome
   ( RuntimeControl (..),
     RuntimeOutcome (..),
     runtimeControlOutcome,
-    diagnosticResultOutcome,
     runtimeControlAsDiagnosticResult,
     runtimeOutcomeAsDiagnosticResult,
     runtimeExitNotRepresentableDiagnostic,
@@ -43,12 +42,6 @@ runtimeControlOutcome controlResult =
   case controlResult of
     Left (RuntimeDiagnostic diagnostic) -> RuntimeOutcomeFailed diagnostic
     Left (RuntimeExitRequested status) -> RuntimeOutcomeExited status
-    Right value -> RuntimeOutcomeCompleted value
-
-diagnosticResultOutcome :: Either Diagnostic value -> RuntimeOutcome value
-diagnosticResultOutcome result =
-  case result of
-    Left diagnostic -> RuntimeOutcomeFailed diagnostic
     Right value -> RuntimeOutcomeCompleted value
 
 runtimeControlAsDiagnosticResult :: Either RuntimeControl value -> Either Diagnostic value

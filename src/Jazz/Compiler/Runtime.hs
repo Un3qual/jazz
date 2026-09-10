@@ -17,7 +17,6 @@ module Jazz.Compiler.Runtime
     prependRuntimeExplicitResultHint,
     runtimeExplicitResultHintsInOrder,
     ScopeResult (..),
-    evaluateModuleScope,
     evaluateRuntimeExprWithSourceUnitStatements,
     evaluateRuntimeExpr,
     evaluateRuntimeExprObserved,
@@ -157,26 +156,6 @@ evaluateRuntimeExprWithSourceUnitStatements sourceUnitStatementIndices expr =
             preludeModulePath
             expr
         )
-    )
-
-evaluateModuleScope ::
-  Maybe SourceUnitOwner ->
-  ModuleEvaluationMode ->
-  RuntimeEnv ->
-  [Statement 'Analyzed] ->
-  Either Diagnostic ScopeResult
-evaluateModuleScope currentModulePath evaluationMode initialEnv statements =
-  runIdentity
-    ( evaluateRuntimeScopeWithHostRequest
-        disabledRuntimeHost
-        RuntimeScopeRequest
-          { runtimeScopeSourceUnitStatementIndices = Set.empty,
-            runtimeScopePreludeModulePath = preludeModulePath,
-            runtimeScopeCurrentModulePath = currentModulePath,
-            runtimeScopeEvaluationMode = evaluationMode,
-            runtimeScopeInitialEnvironment = initialEnv,
-            runtimeScopeStatements = statements
-          }
     )
 
 evaluateModuleScopeWithHost ::

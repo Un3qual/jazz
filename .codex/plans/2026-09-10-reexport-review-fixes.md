@@ -62,3 +62,13 @@ the existing isolated worktree and commit verified milestones.
   than comparing all types with all constructors and reattaching ownership for
   each selector. Existing export, resolution and loader suites passed unchanged
   in behavior, including hidden and wrong-origin constructors.
+
+- Constructor ownership refactor committed as `05cb803e`.
+- All 47 supported non-bootstrap suites passed. After removing the now-unused
+  pure-scope and diagnostic-result adapters, runtime semantics, observation,
+  loader and module pipeline suites passed again.
+- All six executable examples passed with the rebuilt executable.
+- The first quality pass reported the two adapters left unused by the runtime
+  simplification. Both were removed; the fresh gate is being rerun.
+- The initial docs run found plan formatting drift and one checker-fixture
+  timeout under parallel build load. Formatting and a quiet rerun remain.

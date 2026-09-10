@@ -14,7 +14,6 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.Runtime.Outcome
   ( RuntimeControl (..),
     RuntimeOutcome (..),
-    diagnosticResultOutcome,
     runtimeControlAsDiagnosticResult,
     runtimeControlOutcome,
     runtimeExitNotRepresentableDiagnostic,
@@ -27,7 +26,6 @@ tests =
   [ ("runtime controls preserve completed values", testCompletedControl),
     ("runtime controls preserve diagnostic failures", testDiagnosticControl),
     ("runtime controls preserve requested exits", testExitControl),
-    ("diagnostic results preserve both branches", testDiagnosticResult),
     ("legacy control results preserve values and diagnostics", testLegacyControlResult),
     ("legacy outcome results use the canonical exit diagnostic", testLegacyOutcomeResult)
   ]
@@ -52,17 +50,6 @@ testExitControl =
     "exit control"
     (RuntimeOutcomeExited 17 :: RuntimeOutcome Int)
     (runtimeControlOutcome (Left (RuntimeExitRequested 17)))
-
-testDiagnosticResult :: IO ()
-testDiagnosticResult = do
-  assertEqual
-    "completed diagnostic result"
-    (RuntimeOutcomeCompleted (42 :: Int))
-    (diagnosticResultOutcome (Right 42))
-  assertEqual
-    "failed diagnostic result"
-    (RuntimeOutcomeFailed sampleDiagnostic :: RuntimeOutcome Int)
-    (diagnosticResultOutcome (Left sampleDiagnostic))
 
 testLegacyControlResult :: IO ()
 testLegacyControlResult = do
