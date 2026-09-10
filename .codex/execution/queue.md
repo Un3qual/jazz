@@ -13,7 +13,7 @@ public behavior.
 | id  | title | priority | size | kind | autonomous_ready | depends_on | plan | plan_section | target_paths | deliverable | verification | last_verified |
 | --- | ----- | -------- | ---- | ---- | ---------------- | ---------- | ---- | ------------ | ------------ | ----------- | ------------ | ------------- |
 
-Current executor status (`2026-09-10`): Ready Now is empty. RFC 0018 re-export review fixes are complete at `55684943`, with runtime implementation forwarding, shared evaluation state, exact class identities, selector locations and constructor ownership verified. Bootstrap work remains deferred. There is no source-backed next curation target and no named candidate currently.
+Current executor status (`2026-09-10`): Ready Now is empty. PR 156 review fixes are verified at `376b5cab`, and all captured review threads are resolved. Bootstrap work remains deferred. There is no source-backed next curation target and no named candidate currently.
 
 ## Next Curation Target
 
