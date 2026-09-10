@@ -35,6 +35,15 @@ still introduce an unqualified class name. See
 [module resolution](module-resolution.md#qualified-classes) for visibility and
 identity rules.
 
+Module headers optionally contain a comma-separated export list. Its selectors
+are a bare identifier, `value name`, `constructor Name`, `class Name`,
+`type Name`, `type Name(..)`, or `type Name(Constructor, ...)`. Typed selectors
+can select owned declarations or explicit unqualified imports. Bare selectors
+and omitted lists select owned declarations only; an empty list exports nothing.
+Constructor groups preserve the original type's identity and public visibility.
+See [module resolution](module-resolution.md#import-binding) for selection and
+collision rules.
+
 Parentheses around one expression group it; zero or at least two comma-separated
 elements form a tuple. Every clause of an ordered pattern lambda has the same
 arity.

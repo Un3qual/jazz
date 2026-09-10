@@ -390,6 +390,7 @@ test-suite loader-spec
       Jazz.Compiler.Modules.Loader.CapabilitiesTests
       Jazz.Compiler.Modules.Loader.DiagnosticsTests
       Jazz.Compiler.Modules.Loader.OperatorsTests
+      Jazz.Compiler.Modules.Loader.ReexportTests
       Jazz.Compiler.Modules.Loader.Shared
       Jazz.Compiler.Modules.Loader.VisibilityTests
       Jazz.Repository.Root

@@ -1,0 +1,3 @@
+module Example::Numbers (value answer) {
+  answer = 42.
+}

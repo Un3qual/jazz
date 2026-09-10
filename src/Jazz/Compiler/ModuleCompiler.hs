@@ -40,7 +40,7 @@ import Jazz.Compiler.ModuleGraph
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity (SourceUnitOwner (..))
 import Jazz.Compiler.ModuleInterface (CompileInputs (..))
-import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude))
+import Jazz.Compiler.Name (ResolvedNameOrigin (AmbientPrelude, ImportedModule))
 import Jazz.Compiler.TypeInference.Result (InferenceResult (..))
 
 analyzedProgramDiagnostics :: CoreProgram 'Analyzed -> [Diagnostic]
@@ -80,22 +80,25 @@ analyzeProgram inputs resolvedProgram =
       | any ((`Map.notMember` dependenciesByPath) . ModuleGraph.importedModule) (coreModuleImports resolvedModule) =
           pure accumulated
     analyzeDependency ambientInterface (modules, dependenciesByPath, diagnostics) resolvedModule = do
-      let importedInterface =
-            ambientInterface
-              <> foldMap
-                (uncurry dependencyImportInterface)
-                [ (importDecl, dependency)
-                | importDecl <- coreModuleImports resolvedModule,
-                  Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) dependenciesByPath]
-                ]
+      let explicitImports =
+            foldMap
+              (uncurry dependencyImportInterface)
+              [ (importDecl, dependency)
+              | importDecl <- coreModuleImports resolvedModule,
+                Just dependency <- [Map.lookup (ModuleGraph.importedModule importDecl) dependenciesByPath]
+              ]
+          importedInterface = ambientInterface <> explicitImports
           modulePath = coreModulePath resolvedModule
       (inference, maybeAnalyzedModule) <-
         analyzeModule inputs NamedSourceUnit Set.empty importedInterface resolvedModule
       let dependency analyzedModule =
             ( ModuleGraph.resolvedModuleExports (coreModuleFacts resolvedModule),
-              inferredModuleInterface inference,
-              moduleBinderInventory analyzedModule,
-              moduleEvidenceCandidates NamedSourceUnit resolvedModule
+              importWholeInterface
+                (ImportedModule modulePath)
+                (moduleBinderInventory analyzedModule)
+                (moduleEvidenceCandidates NamedSourceUnit resolvedModule)
+                (inferredModuleInterface inference)
+                <> explicitImports
             )
       pure
         ( modules Seq.|> maybeAnalyzedModule,

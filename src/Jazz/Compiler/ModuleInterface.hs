@@ -12,7 +12,6 @@ module Jazz.Compiler.ModuleInterface
     emptyCompileInputs,
     emptyModuleInterface,
     moduleExportForBinding,
-    moduleInterfaceExportInventory,
   )
 where
 
@@ -26,8 +25,6 @@ import GHC.Generics (Generic)
 import Jazz.Compiler.CapabilityFacts (ConcreteImplFact)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
-    ModuleExportInventory,
-    exportInventory,
   )
 import Jazz.Compiler.Name (NameNamespace (..))
 import Jazz.Compiler.TypeInference.Types
@@ -59,18 +56,6 @@ data ModuleInterface = ModuleInterface
   }
   deriving stock (Eq, Generic, Show)
   deriving anyclass (NFData)
-
-moduleInterfaceExportInventory :: ModuleInterface -> ModuleExportInventory
-moduleInterfaceExportInventory interface =
-  exportInventory
-    ( Map.keys (interfaceValueTypes interface)
-        <> [ ModuleExport TypeNamespace name
-           | name <- Map.keys (interfaceDataTypes interface)
-           ]
-        <> [ ModuleExport CapabilityNamespace name
-           | name <- Map.keys (interfaceClassFacts interface)
-           ]
-    )
 
 emptyModuleInterface :: ModuleInterface
 emptyModuleInterface =

@@ -49,6 +49,7 @@ import Jazz.Compiler.ModuleExports
     ModuleExportInventory,
     exportInventory,
     exportNamesInNamespace,
+    exportOrigin,
     firstExportNamespace,
     selectExportNames,
   )
@@ -173,7 +174,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
                 Just dependencyPath ->
                   UserName
                     ( ResolvedUserName
-                        (ImportedModule dependencyPath)
+                        (resolvedImportOrigin dependencyPath (importedNamespace dependencyPath memberText namespace) memberText)
                         (importedNamespace dependencyPath memberText namespace)
                         member
                     )
@@ -188,7 +189,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
           let member = mkIdentifier (identifierText className <> "::" <> identifierText method)
            in case Map.lookup (identifierText alias) aliasPaths of
                 Just dependencyPath ->
-                  UserName (ResolvedUserName (ImportedModule dependencyPath) ValueNamespace member)
+                  UserName (ResolvedUserName (resolvedImportOrigin dependencyPath CapabilityNamespace (identifierText className)) ValueNamespace member)
                 Nothing ->
                   -- Keep an unresolved alias in the name rather than falling back
                   -- to a same-spelled local or ambient class.
@@ -209,7 +210,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
       | Just dependencyPath <- importedOrigin namespace nameText =
           UserName
             ( ResolvedUserName
-                (ImportedModule dependencyPath)
+                (resolvedImportOrigin dependencyPath (importedNamespace dependencyPath nameText namespace) nameText)
                 (importedNamespace dependencyPath nameText namespace)
                 identifier
             )
@@ -251,6 +252,9 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
         dependencyInventory =
           Map.findWithDefault (exportInventory []) dependencyPath inventoriesByModule
 
+    resolvedImportOrigin dependencyPath namespace nameText =
+      ImportedModule (exportOrigin dependencyPath (ModuleExport namespace nameText) (Map.findWithDefault mempty dependencyPath inventoriesByModule))
+
     ambientName namespace nameText =
       case namespace of
         ValueNamespace -> Set.member nameText ambientValues
@@ -260,7 +264,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
 
     classOrigin className
       | Set.member className localClasses = CurrentModule
-      | Just dependencyPath <- Map.lookup className visibleClassOrigins = ImportedModule dependencyPath
+      | Just dependencyPath <- Map.lookup className visibleClassOrigins = resolvedImportOrigin dependencyPath CapabilityNamespace className
       | Set.member className ambientClasses = AmbientPrelude
       | otherwise = CurrentModule
 

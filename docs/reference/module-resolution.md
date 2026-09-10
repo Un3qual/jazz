@@ -37,13 +37,38 @@ Module header lists are allowlists. Typed selectors include `value name`,
 `type Name`, `type Name(..)`, selected type constructors,
 `constructor Name`, and `class Name`. Bare selectors are compatibility
 shorthand for all owned same-text entries. Omitted lists export all owned
-declarations and `()` exports none. Imported declarations are not eligible for
-re-export.
+declarations and `()` exports none.
+
+Typed selectors may also select public declarations from explicit unqualified
+imports, after import symbol filtering. Owned declarations take precedence in
+their namespace. Alias-only imports, ambient Prelude declarations, private
+dependency members and hidden semantic metadata cannot satisfy a selector.
+Bare selectors retain their owned-only meaning. Export lists cannot rename
+members, use alias-qualified selectors, or export an entire module.
+
+Re-exported entries keep their original declaration identities. Importing one
+declaration directly and through facades is idempotent; distinct declarations
+still follow the existing import collision rules. Dependencies are resolved
+before export selectors are validated. Invalid typed selectors use `E4015` at
+the selected name, with constructor selections located at the failing
+constructor.
+
+`type T` exports an abstract type. `type T(..)` includes only constructors of
+that original type visible through explicit unqualified imports, or all owned
+constructors when `T` is local. With no visible constructors it is equivalent
+to `type T`. Selected constructors must belong to that nominal type, including
+when the type and constructors arrive through different facades. A
+`constructor C` export retains private owner metadata without making its type
+publicly nameable. No selector recovers a constructor hidden by an intervening
+export or import list.
 
 Each module is checked against explicit dependency interfaces. During
 execution, dependencies establish their exported bindings without evaluating
 top-level expression statements; only entry-module expressions produce the
-program result. See the [module guide](../language/modules.md) for usage.
+program result. Re-exports forward existing binding cells and captured
+environments without rerunning dependency initialization. Every re-export
+follows an explicit import, so graph order and cycle rejection are unchanged.
+See the [module guide](../language/modules.md) for usage.
 
 ## Qualified classes
 
@@ -59,7 +84,13 @@ evidence. Same-spelled classes from different modules remain distinct. Existing
 concrete-impl and method-ambiguity rules apply. An alias exposes neither the
 class nor its methods unqualified, and a private class cannot be reached through
 an alias or a same-spelled value or type. Importing a class does not re-export it
-or introduce transitive impl publication.
+or introduce transitive impl publication by itself. An explicit `class Class`
+header selector forwards the public class payload selected from its direct
+dependencies, including their explicit class re-exports, and includes impls
+owned by the facade for that class. Only selected public evidence participates;
+helper values and private metadata do not publish hidden classes or impls.
+Original implementation identities deduplicate repeated routes, while distinct
+conflicting implementations remain errors.
 
 Qualified methods support direct calls, stored values, partial application and
 explicit type application. The [module guide](../language/modules.md) contains a

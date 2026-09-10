@@ -42,6 +42,7 @@ import Jazz.Compiler.ModuleExports
     ModuleExportInventory,
     exportInventoryEntries,
     exportNamesInNamespace,
+    exportOrigin,
     inventoryHasExport,
     selectExportNames,
   )
@@ -134,7 +135,8 @@ data RuntimeModuleAccumulator = RuntimeModuleAccumulator
 data PreparedModuleEvaluation = PreparedModuleEvaluation
   { preparedModulePath :: ModulePath,
     preparedModuleEvaluationMode :: ModuleEvaluationMode,
-    preparedModuleImportedEnvironment :: RuntimeEnv
+    preparedModuleImportedEnvironment :: RuntimeEnv,
+    preparedModuleReexports :: Map RuntimeExport RuntimeCell
   }
 
 lookupRuntimeModule :: [Text] -> RuntimeProgram -> Maybe RuntimeModule
@@ -297,7 +299,17 @@ prepareModuleEvaluation entryPath analyzedProgram ambientEnv runtimeModules anal
         foldr
           (importRuntimeModule analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules))
           ambientEnv
-          (coreModuleImports analyzedModule)
+          (coreModuleImports analyzedModule),
+      preparedModuleReexports =
+        Map.fromList
+          [ (entry, cell)
+          | importDecl <- coreModuleImports analyzedModule,
+            (origin, entry, cell) <- selectedRuntimeExports analyzedProgram (accumulatedRuntimeModulesByPath runtimeModules) importDecl,
+            let declaration = runtimeExportDeclaration entry,
+            inventoryHasExport declaration (moduleExportInventory analyzedModule),
+            exportOrigin modulePath declaration (moduleExportInventory analyzedModule) == origin,
+            origin /= modulePath
+          ]
     }
   where
     modulePath = coreModulePath analyzedModule
@@ -320,10 +332,16 @@ completeModuleEvaluation preparedModule analyzedModule scopeResult runtimeModule
       RuntimeModule
         { runtimeModulePath = modulePathTexts (preparedModulePath preparedModule),
           runtimeModuleExports =
-            publishExports
-              (moduleExportInventory analyzedModule)
-              (coreModuleInterface analyzedModule)
-              (scopeResultEnvironment scopeResult)
+            Map.union
+              ( Map.filterWithKey
+                  (\entry _ -> exportOrigin (preparedModulePath preparedModule) (runtimeExportDeclaration entry) (moduleExportInventory analyzedModule) == preparedModulePath preparedModule)
+                  ( publishExports
+                      (moduleExportInventory analyzedModule)
+                      (coreModuleInterface analyzedModule)
+                      (scopeResultEnvironment scopeResult)
+                  )
+              )
+              (preparedModuleReexports preparedModule)
         }
 
 analyzedProgramRequiresHost :: CoreProgram 'Analyzed -> Bool
@@ -360,30 +378,28 @@ evaluatePreludeWithEvaluationHost host analyzedPrelude =
 
 importRuntimeModule :: CoreProgram 'Analyzed -> Map ModulePath RuntimeModule -> ModuleImport 'Analyzed -> RuntimeEnv -> RuntimeEnv
 importRuntimeModule analyzedProgram runtimeModules importDecl env =
+  foldr insertExport env (selectedRuntimeExports analyzedProgram runtimeModules importDecl)
+  where
+    insertExport (origin, entry, cell) =
+      Map.insert (UserName (ResolvedUserName (ImportedModule origin) (runtimeExportNamespace entry) (mkIdentifier (runtimeExportName entry)))) cell
+
+selectedRuntimeExports :: CoreProgram 'Analyzed -> Map ModulePath RuntimeModule -> ModuleImport 'Analyzed -> [(ModulePath, RuntimeExport, RuntimeCell)]
+selectedRuntimeExports analyzedProgram runtimeModules importDecl =
   case (lookupCoreModule dependencyPath analyzedProgram, Map.lookup dependencyPath runtimeModules) of
     (Just analyzedDependency, Just runtimeDependency) ->
-      let publicInventory =
-            moduleExportInventory analyzedDependency
-          selectedExports =
-            [ (runtimeExport, cell)
-            | (runtimeExport, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
-              runtimeExportSelected importDecl publicInventory runtimeExport
-            ]
-          insertExport (runtimeExport, cell) =
-            Map.insert
-              ( UserName
-                  ( ResolvedUserName
-                      dependencyOrigin
-                      (runtimeExportNamespace runtimeExport)
-                      (mkIdentifier (runtimeExportName runtimeExport))
-                  )
-              )
-              cell
-       in foldr insertExport env selectedExports
-    _ -> env
+      let inventory = moduleExportInventory analyzedDependency
+       in [ (exportOrigin dependencyPath (runtimeExportDeclaration entry) inventory, entry, cell)
+          | (entry, cell) <- Map.toList (runtimeModuleExports runtimeDependency),
+            runtimeExportSelected importDecl inventory entry
+          ]
+    _ -> []
   where
     dependencyPath = ModuleGraph.importedModule importDecl
-    dependencyOrigin = ImportedModule dependencyPath
+
+runtimeExportDeclaration :: RuntimeExport -> ModuleExport
+runtimeExportDeclaration runtimeExport = case runtimeExport of
+  RuntimeBindingExport entry -> entry
+  RuntimeCapabilityMethodExport className _ -> ModuleExport CapabilityNamespace className
 
 emptyRuntimeModuleAccumulator :: RuntimeModuleAccumulator
 emptyRuntimeModuleAccumulator = RuntimeModuleAccumulator Seq.empty Map.empty

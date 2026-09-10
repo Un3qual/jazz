@@ -38,8 +38,9 @@ import Jazz.Compiler.CapabilityFacts
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
+    exportInventoryEntries,
     exportNamesInNamespace,
-    inventoryHasExport,
+    exportOrigin,
     selectExportNames,
   )
 import Jazz.Compiler.ModuleGraph
@@ -71,6 +72,7 @@ import Jazz.Compiler.Name
     identifierText,
     mkIdentifier,
     qualifiedName,
+    renderName,
     sourceName,
   )
 import Jazz.Compiler.SemanticFacts
@@ -237,36 +239,55 @@ moduleEvidenceCandidates owner coreModule =
     (owner (coreModulePath coreModule))
     (coreModuleExpr coreModule)
 
-dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ModuleInterface, Map ModuleExport CoreBinderId, Map Text [ImplementationEvidenceCandidate]) -> ImportedInterface
-dependencyImportInterface importDecl (publicInventory, moduleInterface, binderIds, evidenceCandidates) =
-  case ModuleGraph.importExposure importDecl of
-    ImportAllUnqualified ->
-      importSelectedInterface
-        (moduleOrigin (ModuleGraph.importedModule importDecl))
-        Nothing
-        Nothing
-        publicInventory
-        binderIds
-        evidenceCandidates
-        moduleInterface
-    ImportOnlyUnqualified symbolNames ->
-      importSelectedInterface
-        (moduleOrigin (ModuleGraph.importedModule importDecl))
-        Nothing
-        (Just (map identifierText (NonEmpty.toList symbolNames)))
-        publicInventory
-        binderIds
-        evidenceCandidates
-        moduleInterface
-    ImportQualifiedOnly qualifier ->
-      importSelectedInterface
-        (moduleOrigin (ModuleGraph.importedModule importDecl))
-        (Just (identifierText (moduleQualifierIdentifier qualifier)))
-        Nothing
-        publicInventory
-        binderIds
-        evidenceCandidates
-        moduleInterface
+dependencyImportInterface :: ModuleImport 'Resolved -> (ModuleExportInventory, ImportedInterface) -> ImportedInterface
+dependencyImportInterface importDecl (publicInventory, canonical) =
+  canonical
+    { importedTypes = Map.restrictKeys (importedTypes canonical) selectedNames,
+      importedConstructorWitnessNames =
+        Map.fromList
+          [ (resolvedExport entry, sourceConstructorName (moduleExportName entry))
+          | entry <- Set.toList (exportInventoryEntries selectedInventory),
+            moduleExportNamespace entry == ConstructorNamespace
+          ],
+      importedCapabilities = selectedCapabilities,
+      importedClassNames = case ModuleGraph.importExposure importDecl of
+        ImportQualifiedOnly _ -> Set.empty
+        _ -> exportNamesInNamespace CapabilityNamespace selectedInventory,
+      importedBinderIds = Map.restrictKeys (importedBinderIds canonical) selectedNames,
+      importedEvidenceCandidates = Map.filterWithKey (methodUsesClass selectedClasses) (importedEvidenceCandidates canonical)
+    }
+  where
+    dependencyPath = ModuleGraph.importedModule importDecl
+    selectedInventory = selectExportNames symbols publicInventory
+    symbols = case ModuleGraph.importExposure importDecl of
+      ImportOnlyUnqualified names -> Just (map identifierText (NonEmpty.toList names))
+      _ -> Nothing
+    resolvedExport entry =
+      UserName
+        ( ResolvedUserName
+            (ImportedModule (exportOrigin dependencyPath entry publicInventory))
+            (moduleExportNamespace entry)
+            (mkIdentifier (moduleExportName entry))
+        )
+    selectedNames = Set.map resolvedExport (exportInventoryEntries selectedInventory)
+    selectedClasses =
+      Set.fromList
+        [ renderName (resolvedExport entry)
+        | entry <- Set.toList (exportInventoryEntries selectedInventory),
+          moduleExportNamespace entry == CapabilityNamespace
+        ]
+    sourceConstructorName name = case ModuleGraph.importExposure importDecl of
+      ImportQualifiedOnly qualifier -> qualifiedName (moduleQualifierIdentifier qualifier) (mkIdentifier name)
+      _ -> sourceName (mkIdentifier name)
+    facts = importedCapabilities canonical
+    selectedCapabilities =
+      facts
+        { scopeClassFacts = Map.restrictKeys (scopeClassFacts facts) selectedClasses,
+          scopeGeneratedEqualityClassFacts = Set.intersection selectedClasses (scopeGeneratedEqualityClassFacts facts),
+          scopeConcreteImplFacts = Set.filter (factUsesClass selectedClasses) (scopeConcreteImplFacts facts),
+          scopeClassMethodSignatures = Map.filterWithKey (methodUsesClass selectedClasses) (scopeClassMethodSignatures facts),
+          scopeConcreteImplMethods = Map.filterWithKey (methodUsesClass selectedClasses) (scopeConcreteImplMethods facts)
+        }
 
 data ImportedInterface = ImportedInterface
   { importedTypes :: TypeEnv,
@@ -292,15 +313,19 @@ instance Semigroup ImportedInterface where
               rightFacts = importedCapabilities right
            in (leftFacts <> rightFacts)
                 { scopeConcreteImplMethods =
-                    Map.unionWith
-                      union
-                      (scopeConcreteImplMethods leftFacts)
-                      (scopeConcreteImplMethods rightFacts)
+                    -- Equal targets are not equal implementations. Preserve
+                    -- distinct method identities so inference reports ambiguity
+                    -- before semantic evidence attachment.
+                    Map.union
+                      (Map.map (map (ImplMethodType . implementationCandidateTarget)) evidenceCandidates)
+                      (Map.unionWith union (scopeConcreteImplMethods leftFacts) (scopeConcreteImplMethods rightFacts))
                 },
         importedClassNames = Set.union (importedClassNames left) (importedClassNames right),
         importedBinderIds = Map.union (importedBinderIds left) (importedBinderIds right),
-        importedEvidenceCandidates = Map.unionWith union (importedEvidenceCandidates left) (importedEvidenceCandidates right)
+        importedEvidenceCandidates = evidenceCandidates
       }
+    where
+      evidenceCandidates = Map.unionWith union (importedEvidenceCandidates left) (importedEvidenceCandidates right)
 
 instance Monoid ImportedInterface where
   mempty =
@@ -314,104 +339,47 @@ instance Monoid ImportedInterface where
         importedEvidenceCandidates = Map.empty
       }
 
+-- | Rebase owned declarations once. Dependency boundaries subsequently select
+-- this canonical metadata without assigning the facade as a new owner.
 importWholeInterface :: ResolvedNameOrigin -> Map ModuleExport CoreBinderId -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
 importWholeInterface origin binderIds evidenceCandidates moduleInterface =
-  importSelectedInterface
-    origin
-    Nothing
-    Nothing
-    (moduleInterfaceExportInventory moduleInterface)
-    binderIds
-    evidenceCandidates
-    moduleInterface
-
-importSelectedInterface :: ResolvedNameOrigin -> Maybe Text -> Maybe [Text] -> ModuleExportInventory -> Map ModuleExport CoreBinderId -> Map Text [ImplementationEvidenceCandidate] -> ModuleInterface -> ImportedInterface
-importSelectedInterface origin maybeAlias maybeSymbols publicInventory binderIds evidenceCandidates moduleInterface =
   ImportedInterface
     { importedTypes =
         Map.fromList
-          [ ( UserName (ResolvedUserName origin (moduleExportNamespace export) (mkIdentifier (moduleExportName export))),
-              rebaseTypeBinding origin dataTypeNames classNames binding
-            )
-          | (export, binding) <- Map.toList selectedValueTypes
+          [ (importedName entry, rebaseTypeBinding origin dataTypeNames classNames binding)
+          | (entry, binding) <- Map.toList (interfaceValueTypes moduleInterface)
           ],
       importedDataTypes =
         Map.fromList
-          [ ( qualifiedKey origin dataTypeName,
-              rebaseDataTypeBinding origin dataTypeNames classNames dataType
-            )
-          | (dataTypeName, dataType) <- Map.toList (interfaceDataTypes moduleInterface)
+          [ (qualifiedKey origin name, rebaseDataTypeBinding origin dataTypeNames classNames binding)
+          | (name, binding) <- Map.toList (interfaceDataTypes moduleInterface)
           ],
       importedConstructorWitnessNames =
         Map.fromList
-          [ (importedName export, sourceConstructorName export)
-          | export <- Map.keys selectedValueTypes,
-            moduleExportNamespace export == ConstructorNamespace
+          [ (importedName entry, sourceName (mkIdentifier (moduleExportName entry)))
+          | entry <- Map.keys (interfaceValueTypes moduleInterface),
+            moduleExportNamespace entry == ConstructorNamespace
           ],
-      importedCapabilities =
-        rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities,
-      importedClassNames = case maybeAlias of
-        Nothing -> selectedClassNames
-        Just _ -> Set.empty,
-      importedBinderIds =
-        Map.fromList
-          [ (importedName export, binderId)
-          | (export, binderId) <- Map.toList binderIds,
-            inventoryHasExport export selectedInventory
-          ],
+      importedCapabilities = rebaseCapabilityFacts origin dataTypeNames classNames capabilities,
+      importedClassNames = classNames,
+      importedBinderIds = Map.mapKeys importedName binderIds,
       importedEvidenceCandidates =
         Map.fromList
-          [ ( rebaseMethodKey origin classNames methodKey,
-              map (rebaseEvidenceCandidate origin dataTypeNames classNames) candidates
-            )
-          | (methodKey, candidates) <- Map.toList evidenceCandidates,
-            methodUsesClass selectedClassNames methodKey candidates
+          [ (rebaseMethodKey origin classNames key, map (rebaseEvidenceCandidate origin dataTypeNames classNames) candidates)
+          | (key, candidates) <- Map.toList evidenceCandidates
           ]
     }
   where
-    importedName export =
-      UserName
-        ( ResolvedUserName
-            origin
-            (moduleExportNamespace export)
-            (mkIdentifier (moduleExportName export))
-        )
-
-    sourceConstructorName export =
-      case maybeAlias of
-        Nothing -> sourceName member
-        Just alias -> qualifiedName (mkIdentifier alias) member
-      where
-        member = mkIdentifier (moduleExportName export)
-
+    importedName entry = UserName (ResolvedUserName origin (moduleExportNamespace entry) (mkIdentifier (moduleExportName entry)))
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
-    selectedInventory =
-      selectExportNames
-        maybeSymbols
-        publicInventory
-    selectedValueTypes =
-      Map.filterWithKey
-        (\export _ -> inventoryHasExport export selectedInventory)
-        (interfaceValueTypes moduleInterface)
-    selectedClassNames = exportNamesInNamespace CapabilityNamespace selectedInventory
-    selectedClassFacts =
-      Map.restrictKeys
-        (interfaceClassFacts moduleInterface)
-        selectedClassNames
-    selectedCapabilities =
+    capabilities =
       ScopeCapabilityFacts
-        { scopeClassFacts = selectedClassFacts,
-          scopeGeneratedEqualityClassFacts =
-            Set.filter
-              (`Set.member` selectedClassNames)
-              (interfaceGeneratedEqualityClassFacts moduleInterface),
-          scopeConcreteImplFacts =
-            Set.filter (factUsesClass selectedClassNames) (interfaceConcreteImplFacts moduleInterface),
-          scopeClassMethodSignatures =
-            Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceClassMethods moduleInterface),
-          scopeConcreteImplMethods =
-            Map.filterWithKey (methodUsesClass selectedClassNames) (interfaceConcreteImplMethods moduleInterface)
+        { scopeClassFacts = interfaceClassFacts moduleInterface,
+          scopeGeneratedEqualityClassFacts = interfaceGeneratedEqualityClassFacts moduleInterface,
+          scopeConcreteImplFacts = interfaceConcreteImplFacts moduleInterface,
+          scopeClassMethodSignatures = interfaceClassMethods moduleInterface,
+          scopeConcreteImplMethods = interfaceConcreteImplMethods moduleInterface
         }
 
 qualifiedKey :: ResolvedNameOrigin -> Text -> Text
@@ -419,9 +387,6 @@ qualifiedKey origin name =
   case origin of
     ImportedModule modulePath -> renderModulePath modulePath <> "::" <> name
     _ -> name
-
-moduleOrigin :: ModulePath -> ResolvedNameOrigin
-moduleOrigin = ImportedModule
 
 modulePathTexts :: ModulePath -> [Text]
 modulePathTexts = NonEmpty.toList . modulePathTextSegments

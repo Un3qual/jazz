@@ -16,6 +16,10 @@ module Jazz.Compiler.ModuleExports
     ModuleExportInventory,
     exportInventory,
     exportInventoryEntries,
+    withExportOrigins,
+    exportOrigin,
+    withConstructorOwners,
+    overlayExportInventory,
     exportedConstructorOwners,
     exportNamesInNamespace,
     exportNamesInNamespaces,
@@ -43,6 +47,7 @@ import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics (Generic)
 import Jazz.Compiler.Diagnostics (SourceSpan, qualifySourceSpan)
+import Jazz.Compiler.ModuleIdentity (ModulePath)
 import Jazz.Compiler.Name (NameNamespace (..))
 
 data LocatedModuleExportName = LocatedModuleExportName
@@ -110,13 +115,14 @@ data ModuleExport = ModuleExport
 
 data ModuleExportInventory = ModuleExportInventory
   { inventoryEntries :: Set ModuleExport,
-    inventoryConstructorOwners :: Map Text (Set Text)
+    inventoryConstructorOwners :: Map Text (Set Text),
+    inventoryOrigins :: Map ModuleExport ModulePath
   }
   deriving stock (Eq, Show)
 
 instance NFData ModuleExportInventory where
-  rnf (ModuleExportInventory entries constructorOwners) =
-    rnf entries `seq` rnf constructorOwners
+  rnf (ModuleExportInventory entries constructorOwners origins) =
+    rnf entries `seq` rnf constructorOwners `seq` rnf origins
 
 instance Semigroup ModuleExportInventory where
   left <> right =
@@ -126,14 +132,15 @@ instance Semigroup ModuleExportInventory where
           Map.unionWith
             Set.union
             (inventoryConstructorOwners left)
-            (inventoryConstructorOwners right)
+            (inventoryConstructorOwners right),
+        inventoryOrigins = Map.union (inventoryOrigins left) (inventoryOrigins right)
       }
 
 instance Monoid ModuleExportInventory where
-  mempty = ModuleExportInventory Set.empty Map.empty
+  mempty = ModuleExportInventory Set.empty Map.empty Map.empty
 
 exportInventory :: [ModuleExport] -> ModuleExportInventory
-exportInventory entries = ModuleExportInventory (Set.fromList entries) Map.empty
+exportInventory entries = ModuleExportInventory (Set.fromList entries) Map.empty Map.empty
 
 exportInventoryEntries :: ModuleExportInventory -> Set ModuleExport
 exportInventoryEntries = inventoryEntries
@@ -220,33 +227,30 @@ selectValidatedModuleExportSelectors constructorOwners selectors inventory =
   foldMap selectedInventory selectors
   where
     selectedInventory selector =
+      let selected = restrictInventory (selectedEntries selector) (withConstructorOwners constructorOwners inventory)
+       in case selector of
+            ModuleTypeExportSelector typeName _ _ ->
+              selected
+                { inventoryConstructorOwners =
+                    Map.fromSet
+                      (const (Set.singleton typeName))
+                      (exportNamesInNamespace ConstructorNamespace selected)
+                }
+            _ -> selected
+
+    selectedEntries selector =
       case selector of
         ModuleExportSelector {} ->
-          selectModuleExportSelectors [selector] inventory
+          exportInventoryEntries (selectModuleExportSelectors [selector] inventory)
         ModuleTypeExportSelector typeName _ constructorSelector ->
-          exportInventory [ModuleExport TypeNamespace typeName]
-            <> constructorInventory typeName (selectedConstructorEntries typeName constructorSelector)
+          Set.insert (ModuleExport TypeNamespace typeName) (constructors typeName constructorSelector)
 
-    selectedConstructorEntries typeName constructorSelector =
-      case constructorSelector of
-        AbstractType -> Set.empty
-        AllTypeConstructors _ ->
-          Set.map (ModuleExport ConstructorNamespace) (Map.findWithDefault Set.empty typeName constructorOwners)
-        SelectedTypeConstructors constructors ->
-          Set.fromList
-            [ ModuleExport ConstructorNamespace (locatedModuleExportName constructor)
-            | constructor <- NonEmpty.toList constructors
-            ]
-
-    constructorInventory typeName entries =
-      ModuleExportInventory
-        { inventoryEntries = entries,
-          inventoryConstructorOwners =
-            Map.fromList
-              [ (moduleExportName entry, Set.singleton typeName)
-              | entry <- Set.toList entries
-              ]
-        }
+    constructors typeName constructorSelector =
+      Set.map (ModuleExport ConstructorNamespace) $
+        case constructorSelector of
+          AbstractType -> Set.empty
+          AllTypeConstructors _ -> Map.findWithDefault Set.empty typeName constructorOwners
+          SelectedTypeConstructors names -> Set.fromList (map locatedModuleExportName (NonEmpty.toList names))
 
 moduleExportSelectorMatches :: ModuleExportSelector -> ModuleExport -> Bool
 moduleExportSelectorMatches selector export =
@@ -257,30 +261,34 @@ moduleExportSelectorMatches selector export =
 
 restrictInventory :: Set ModuleExport -> ModuleExportInventory -> ModuleExportInventory
 restrictInventory selectedEntries inventory =
-  ModuleExportInventory
+  inventory
     { inventoryEntries = selectedEntries,
-      inventoryConstructorOwners =
-        Map.mapMaybe
-          retainSelectedOwners
-          ( Map.restrictKeys
-              (inventoryConstructorOwners inventory)
-              selectedConstructorNames
-          )
+      inventoryConstructorOwners = Map.restrictKeys (inventoryConstructorOwners inventory) selectedConstructors,
+      inventoryOrigins = Map.restrictKeys (inventoryOrigins inventory) selectedEntries
     }
   where
-    selectedConstructorNames =
-      Set.map
-        moduleExportName
-        (Set.filter ((== ConstructorNamespace) . moduleExportNamespace) selectedEntries)
-    selectedTypeNames =
-      Set.map
-        moduleExportName
-        (Set.filter ((== TypeNamespace) . moduleExportNamespace) selectedEntries)
-    retainSelectedOwners owners =
-      case Set.intersection selectedTypeNames owners of
-        selectedOwners
-          | Set.null selectedOwners -> Nothing
-          | otherwise -> Just selectedOwners
+    selectedConstructors = Set.map moduleExportName (Set.filter ((== ConstructorNamespace) . moduleExportNamespace) selectedEntries)
+
+-- | Discovery assigns owners once; selection never reassigns them to a facade.
+withExportOrigins :: ModulePath -> ModuleExportInventory -> ModuleExportInventory
+withExportOrigins owner inventory =
+  inventory {inventoryOrigins = Map.union (inventoryOrigins inventory) (Map.fromSet (const owner) (inventoryEntries inventory))}
+
+exportOrigin :: ModulePath -> ModuleExport -> ModuleExportInventory -> ModulePath
+exportOrigin fallback entry = Map.findWithDefault fallback entry . inventoryOrigins
+
+withConstructorOwners :: Map Text (Set Text) -> ModuleExportInventory -> ModuleExportInventory
+withConstructorOwners constructors inventory =
+  inventory
+    { inventoryConstructorOwners = Map.unionWith Set.union (inventoryConstructorOwners inventory) owners
+    }
+  where
+    owners = Map.fromListWith Set.union [(constructor, Set.singleton typeName) | (typeName, names) <- Map.toList constructors, constructor <- Set.toList names]
+
+-- | Owned declarations shadow imports independently in each namespace.
+overlayExportInventory :: ModuleExportInventory -> ModuleExportInventory -> ModuleExportInventory
+overlayExportInventory local imported =
+  local <> restrictInventory (inventoryEntries imported Set.\\ inventoryEntries local) imported
 
 inventoryHasExport :: ModuleExport -> ModuleExportInventory -> Bool
 inventoryHasExport export = Set.member export . exportInventoryEntries

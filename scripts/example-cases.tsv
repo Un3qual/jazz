@@ -4,3 +4,4 @@ factorial	examples/functions/factorial.jz	720	--run examples/functions/factorial
 result	examples/patterns/result.jz	41	--run examples/patterns/result.jz
 module	examples/modules/src/Example/Main.jz,examples/modules/src/Example/Greeting.jz	"Hello from a Jazz module"	--run --entry-module Example::Main --module-root examples/modules/src
 qualified-class	examples/modules/src/Example/Compare.jz,examples/modules/src/Example/Equality.jz	(True, False, True)	--run --entry-module Example::Compare --module-root examples/modules/src
+module-reexports	examples/modules/src/Example/UseAPI.jz,examples/modules/src/Example/API.jz,examples/modules/src/Example/Numbers.jz,examples/modules/src/Example/Equality.jz	42	--run --entry-module Example::UseAPI --module-root examples/modules/src

@@ -13,9 +13,9 @@ Allow namespace-qualified module-header selectors to publish declarations from
 explicit unqualified imports, preserving their original identities. Reuse the
 existing `value`, `type`, `constructor`, and `class` selector syntax.
 
-Accepted by the maintainer on 2026-09-10. This authorizes an unimplemented
-contract delta under RFC 0001; existing public documentation and behavior remain
-in force until the coordinated implementation lands.
+Accepted by the maintainer on 2026-09-10 and implemented in the Haskell
+compiler, including the public module contract and executable facade example.
+Hosted/bootstrap work and native execution remain deferred.
 
 For example, given a dependency that publicly exports `makeBox`, the type
 `Box` with constructor `Box`, and the class `Equal`:

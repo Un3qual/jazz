@@ -52,7 +52,7 @@ import Data.Map.Strict
   ( Map,
   )
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Sequence
   ( Seq,
   )
@@ -98,11 +98,17 @@ import Jazz.Compiler.ModuleExports
     exportInventoryEntries,
     exportNamesInNamespace,
     exportNamesInNamespaces,
+    exportOrigin,
+    exportedConstructorOwners,
     inventoryHasSelector,
     moduleExportSelectorName,
     moduleExportSelectorNamespace,
+    overlayExportInventory,
     renderModuleExportSelector,
+    selectExportNames,
     selectValidatedModuleExportSelectors,
+    withConstructorOwners,
+    withExportOrigins,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
@@ -117,6 +123,7 @@ import Jazz.Compiler.ModuleIdentity
 import Jazz.Compiler.ModuleResolver.Imports
   ( ResolverImport,
     declaredImportSpan,
+    resolverImportSymbols,
     validateImportBindings,
   )
 import Jazz.Compiler.ModuleResolver.Names
@@ -183,8 +190,8 @@ data ModuleResolutionConfig = ModuleResolutionConfig
 
 data ModuleDiscoveryFacts = ModuleDiscoveryFacts
   { discoveryLocalInventory :: ModuleExportInventory,
-    discoveryPublicInventory :: ModuleExportInventory,
     discoveryReferences :: ReferenceInventory,
+    discoveryExportNameSpans :: Map Text SourceSpan,
     discoveryCoreModule :: ModuleGraph.CoreModule 'Lowered
   }
 
@@ -279,13 +286,29 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
               ambientVisibleSymbols
               ambientVisibleClassNames
               (resolvedExportInventoriesState stateAfterDeps)
+          let importedInventory =
+                foldMap
+                  ( \importDecl -> case Map.lookup (ModuleGraph.importedModule importDecl) (resolvedExportInventoriesState stateAfterDeps) of
+                      Just inventory | isNothing (ModuleGraph.importAlias importDecl) -> selectExportNames (resolverImportSymbols importDecl) inventory
+                      _ -> mempty
+                  )
+                  imports
+          publicInventory <-
+            except $
+              validatePublicExportInventory
+                sourcePath
+                modulePath
+                (ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule))
+                (discoveryExportNameSpans discovery)
+                (discoveryLocalInventory discovery)
+                importedInventory
           resolvedModule <-
             except $
               first NonEmpty.head $
                 resolveCoreModuleNames
                   ambientExports
                   (discoveryLocalInventory discovery)
-                  (discoveryPublicInventory discovery)
+                  publicInventory
                   (resolvedExportInventoriesState stateAfterDeps)
                   imports
                   coreModule
@@ -293,7 +316,7 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
             stateAfterDeps
               { resolvedSetState = Set.insert modulePath (resolvedSetState stateAfterDeps),
                 resolvedModulesState = resolvedModulesState stateAfterDeps Seq.|> resolvedModule,
-                resolvedExportInventoriesState = Map.insert modulePath (discoveryPublicInventory discovery) (resolvedExportInventoriesState stateAfterDeps)
+                resolvedExportInventoriesState = Map.insert modulePath publicInventory (resolvedExportInventoriesState stateAfterDeps)
               }
 
     ambientVisibleSymbols =
@@ -412,18 +435,16 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
           (moduleIdentity expectedModulePath (mkSourceFile sourcePath))
           surfaceExpr
       let (localInventory, constructorOwners, references) = discoverModuleFacts surfaceExpr
-      publicInventory <-
-        validatePublicExportInventory
-          sourcePath
-          expectedModulePath
-          (ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule))
-          constructorOwners
-          localInventory
       Right
         ModuleDiscoveryFacts
-          { discoveryLocalInventory = localInventory,
-            discoveryPublicInventory = publicInventory,
+          { discoveryLocalInventory = withExportOrigins expectedModulePath (withConstructorOwners constructorOwners localInventory),
             discoveryReferences = locateQualifiedClassReferences sourcePath tokens references,
+            discoveryExportNameSpans =
+              Map.fromListWith
+                (\_ previous -> previous)
+                [ (name, qualifySourceSpan sourcePath (tokenSpan token))
+                | token@Token {tokenKind = TIdentifier name} <- takeWhile ((/= TLBrace) . tokenKind) (dropWhile ((/= TLParen) . tokenKind) tokens)
+                ],
             discoveryCoreModule = coreModule
           }
 
@@ -431,17 +452,18 @@ validatePublicExportInventory ::
   FilePath ->
   ModulePath ->
   Maybe ModuleGraph.DeclaredModuleExports ->
-  Map Text (Set Text) ->
+  Map Text SourceSpan ->
+  ModuleExportInventory ->
   ModuleExportInventory ->
   Either Diagnostic ModuleExportInventory
-validatePublicExportInventory sourcePath modulePath maybeExplicitExports constructorOwners localInventory =
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports exportNameSpans localInventory importedInventory =
   case maybeExplicitExports of
     Nothing -> Right localInventory
     Just declaredExports ->
       let moduleSpan = ModuleGraph.declaredModuleExportsSpan declaredExports
           selectors = ModuleGraph.declaredModuleExportSelectors declaredExports
        in case firstInvalidExport moduleSpan selectors of
-            Nothing -> Right (selectValidatedModuleExportSelectors constructorOwners selectors localInventory)
+            Nothing -> Right (foldMap selectSelector selectors)
             Just invalidExport ->
               Left
                 ( setDiagnosticSubject
@@ -463,6 +485,24 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports constru
                     )
                 )
   where
+    availableInventory = overlayExportInventory localInventory importedInventory
+    selectorInventory selector = case selector of
+      ModuleExportSelector Nothing _ -> localInventory
+      _ -> availableInventory
+    selectSelector selector = selectValidatedModuleExportSelectors constructorOwners [selector] (selectorInventory selector)
+    constructorOwners =
+      Map.fromList
+        [ ( typeName,
+            Set.fromList
+              [ constructor
+              | constructor <- Set.toList (exportNamesInNamespace ConstructorNamespace availableInventory),
+                Set.member typeName (exportedConstructorOwners constructor availableInventory),
+                exportOrigin modulePath (ModuleExport ConstructorNamespace constructor) availableInventory
+                  == exportOrigin modulePath (ModuleExport TypeNamespace typeName) availableInventory
+              ]
+          )
+        | typeName <- Set.toList (exportNamesInNamespace TypeNamespace availableInventory)
+        ]
     firstInvalidExport _ [] = Nothing
     firstInvalidExport moduleSpan (selector : rest) =
       case validateSelector moduleSpan selector of
@@ -472,13 +512,15 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports constru
     validateSelector moduleSpan selector =
       case selector of
         ModuleExportSelector {}
-          | inventoryHasSelector selector localInventory -> Nothing
+          | inventoryHasSelector selector (selectorInventory selector) -> Nothing
           | otherwise ->
               Just
                 InvalidModuleExport
                   { invalidExportSelector = selector,
                     invalidExportName = moduleExportSelectorName selector,
-                    invalidExportSpan = moduleSpan,
+                    invalidExportSpan = case moduleExportSelectorNamespace selector of
+                      Nothing -> moduleSpan
+                      Just _ -> Map.findWithDefault moduleSpan (moduleExportSelectorName selector) exportNameSpans,
                     invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
                   }
         ModuleTypeExportSelector typeName typeSpan constructorSelector ->
@@ -514,7 +556,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports constru
                         <> "' in"
                   }
 
-    availableNames = declarationExportNames localInventory
+    availableNames = declarationExportNames availableInventory
     renderAvailableDeclarations selector =
       case moduleExportSelectorNamespace selector of
         Nothing -> renderDeclarationNames availableNames
@@ -522,7 +564,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports constru
           renderDeclarationLabels
             [ renderModuleExportSelector
                 (ModuleExportSelector (Just (moduleExportNamespace export)) (moduleExportName export))
-            | export <- Set.toAscList (exportInventoryEntries localInventory)
+            | export <- Set.toAscList (exportInventoryEntries availableInventory)
             ]
 
 renderDeclarationNames :: Set Text -> Text

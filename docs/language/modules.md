@@ -45,8 +45,9 @@ Expected output:
 
 An import can expose all public names, select particular names, or introduce a
 qualifier. Export lists distinguish values, types, constructors, and
-capabilities. A module can export declarations it owns, but cannot re-export an
-imported declaration.
+capabilities. Typed selectors can also re-export declarations from explicit
+unqualified imports. Omitted lists and bare selectors export owned declarations
+only.
 
 Module names map to paths beneath ordered module roots. Resolution rejects an
 ambiguous match or dependency cycle rather than choosing one implicitly. See
@@ -104,4 +105,72 @@ cabal run jazz -- --run --entry-module Example::Compare \
 ```
 
 The alias does not make `Equal` available unqualified. Private classes stay
-private, and imported classes cannot be re-exported.
+private.
+
+## Publishing a library facade
+
+A facade selects public declarations from its dependencies without changing
+their identity. First define a value:
+
+<!-- jazz-example: executable path=examples/modules/src/Example/Numbers.jz -->
+
+```jazz
+module Example::Numbers (value answer) {
+  answer = 42.
+}
+```
+
+The facade publishes that value and the `Equal` class from the earlier example:
+
+<!-- jazz-example: executable path=examples/modules/src/Example/API.jz -->
+
+```jazz
+module Example::API (value answer, class Equal) {
+  import Example::Numbers.
+  import Example::Equality.
+}
+```
+
+Clients use the existing import forms, including aliases:
+
+<!-- jazz-example: executable path=examples/modules/src/Example/UseAPI.jz -->
+
+```jazz
+module Example::UseAPI {
+  import Example::API as API.
+
+  if API::Equal::equal API::answer 42 then API::answer else 0.
+}
+```
+
+Run it with:
+
+```bash
+cabal run jazz -- --run --entry-module Example::UseAPI \
+  --module-root examples/modules/src
+```
+
+<!-- jazz-example-output: case=module-reexports -->
+
+```text
+42
+```
+
+Re-exports require typed selectors: `value answer`, `class Equal`, `type Box`,
+`type Box(..)`, or `constructor Box`. Bare `(answer)` still selects only an
+owned declaration. An owned declaration wins over an imported one in the same
+namespace. Alias-only imports and ambient Prelude declarations cannot satisfy
+an export selector.
+
+`type Box` exports the original type abstractly. `type Box(..)` includes only
+constructors visible through the facade's explicit imports; it cannot recover
+private constructors. `type Box(First, Second)` selects particular visible
+constructors of that original type. A constructor-only export retains its type
+metadata without making the owner type publicly nameable.
+
+Explicit `class Equal` re-exports include the dependency's public methods and
+implementation evidence, plus the facade's own implementations of that class.
+Repeated routes to the same declaration or implementation do not create
+duplicates. Distinct conflicting declarations or implementations remain errors.
+Importing a class without explicitly re-exporting it keeps it out of the
+facade's public API.

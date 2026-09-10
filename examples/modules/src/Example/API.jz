@@ -1,0 +1,4 @@
+module Example::API (value answer, class Equal) {
+  import Example::Numbers.
+  import Example::Equality.
+}

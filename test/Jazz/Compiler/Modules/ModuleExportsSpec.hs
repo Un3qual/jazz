@@ -24,16 +24,7 @@ import Jazz.Compiler.ModuleExports
     selectValidatedModuleExportSelectors,
     selectorEligibleNames,
   )
-import Jazz.Compiler.ModuleInterface
-  ( ModuleInterface (..),
-    emptyModuleInterface,
-    moduleInterfaceExportInventory,
-  )
 import Jazz.Compiler.Name (NameNamespace (..))
-import Jazz.Compiler.TypeInference.Types
-  ( SemanticType (..),
-    TypeBinding (PlainTypeBinding),
-  )
 import Jazz.TestHarness (NamedTest, assertEqual, runTestSuite)
 
 main :: IO ()
@@ -50,10 +41,9 @@ tests =
     ("renders grouped type export selectors", testRendersGroupedTypeExportSelectors),
     ("retains constructor ownership for grouped type selectors", testGroupedTypeSelectorOwnership),
     ("distinguishes standalone constructor selectors from owned selectors", testStandaloneConstructorSelectorOwnership),
-    ("drops constructor ownership when filtering its constructor or type", testFilteredConstructorOwnership),
+    ("retains ownership only for selected constructors", testFilteredConstructorOwnership),
     ("combines conflicting constructor owners without bias", testConflictingConstructorOwnership),
-    ("finds the first requested namespace deterministically", testFirstNamespace),
-    ("derives compiled interface exports by namespace", testInterfaceInventory)
+    ("finds the first requested namespace deterministically", testFirstNamespace)
   ]
 
 sampleInventory :: ModuleExportInventory
@@ -191,8 +181,8 @@ testGroupedTypeSelectorOwnership =
 testStandaloneConstructorSelectorOwnership :: IO ()
 testStandaloneConstructorSelectorOwnership =
   assertEqual
-    "standalone constructor has no selected type owner"
-    Set.empty
+    "standalone constructor retains declaring owners"
+    (Set.fromList ["A", "B"])
     ( exportedConstructorOwners
         "C"
         ( selectValidatedModuleExportSelectors
@@ -209,8 +199,8 @@ testFilteredConstructorOwnership = do
     Set.empty
     (exportedConstructorOwners "C" (selectExportNames (Just ["A"]) ownedConstructorInventory))
   assertEqual
-    "filtering owner type drops ownership"
-    Set.empty
+    "constructor-only imports retain nominal ownership"
+    (Set.singleton "A")
     (exportedConstructorOwners "C" (selectExportNames (Just ["C"]) ownedConstructorInventory))
 
 testConflictingConstructorOwnership :: IO ()
@@ -259,23 +249,3 @@ testFirstNamespace =
         "Box"
         sampleInventory
     )
-
-testInterfaceInventory :: IO ()
-testInterfaceInventory =
-  assertEqual
-    "interface inventory"
-    ( Set.fromList
-        [ ModuleExport ValueNamespace "answer",
-          ModuleExport CapabilityNamespace "Eq"
-        ]
-    )
-    (exportInventoryEntries (moduleInterfaceExportInventory interface))
-  where
-    interface =
-      emptyModuleInterface
-        { interfaceValueTypes =
-            Map.singleton
-              (ModuleExport ValueNamespace "answer")
-              (PlainTypeBinding SemanticInt),
-          interfaceClassFacts = Map.singleton "Eq" 1
-        }

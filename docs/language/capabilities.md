@@ -38,6 +38,12 @@ method and `Alias::Class` in constraints or impl heads. Qualified methods can
 also be stored, partially applied, and explicitly instantiated. See the
 [module example](modules.md#using-an-imported-class-through-an-alias).
 
+A module may explicitly re-export an imported class with a typed `class Name`
+header selector. Its original identity, public methods and implementation
+evidence survive facade chains. Implementations declared by the facade for
+that class are also published. Importing the class alone does not publish it;
+see [library facades](modules.md#publishing-a-library-facade).
+
 **Partial:** user-visible dictionaries, default methods, superclasses, separate
 impl imports, and a general overlap policy are not implemented.
 

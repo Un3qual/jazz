@@ -51,10 +51,13 @@ import Jazz.Compiler.Diagnostics
     setDiagnosticSubject,
   )
 import Jazz.Compiler.ModuleExports
-  ( ModuleExportInventory,
+  ( ModuleExport (..),
+    ModuleExportInventory,
     exportInventory,
     exportNamesInNamespace,
     exportNamesInNamespaces,
+    exportOrigin,
+    inventoryHasExport,
     selectExportNames,
     selectorEligibleNames,
   )
@@ -74,7 +77,8 @@ import Jazz.Compiler.SourceSpan (unqualifySourceSpan)
 -- diagnostics.
 data BindingOrigin = BindingOrigin
   { bindingOriginModulePath :: ModulePath,
-    bindingOriginSpan :: SourceSpan
+    bindingOriginSpan :: SourceSpan,
+    bindingOriginDeclarations :: Map NameNamespace ModulePath
   }
 
 declaredImportSpan :: ModuleGraph.ModuleImport 'Lowered -> SourceSpan
@@ -187,7 +191,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     aliasName
                     BindingOrigin
                       { bindingOriginModulePath = resolverImportModulePath importDecl,
-                        bindingOriginSpan = resolverImportSpan importDecl
+                        bindingOriginSpan = resolverImportSpan importDecl,
+                        bindingOriginDeclarations = Map.empty
                       }
                     seenAliases
                 )
@@ -253,7 +258,7 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
     validateImportType importDecl seenTypes typeName =
       case Map.lookup typeName seenTypes of
         Just previousOrigin
-          | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
+          | sameDeclarations previousOrigin (declarationsFor importDecl [TypeNamespace] typeName) ->
               Right seenTypes
           | otherwise ->
               Left (mkImportTypeCollisionError typeName previousOrigin importDecl)
@@ -263,7 +268,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                 typeName
                 BindingOrigin
                   { bindingOriginModulePath = resolverImportModulePath importDecl,
-                    bindingOriginSpan = resolverImportSpan importDecl
+                    bindingOriginSpan = resolverImportSpan importDecl,
+                    bindingOriginDeclarations = declarationsFor importDecl [TypeNamespace] typeName
                   }
                 seenTypes
             )
@@ -367,8 +373,8 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       | otherwise =
           case Map.lookup symbolName seenSymbols of
             Just previousOrigin
-              | bindingOriginModulePath previousOrigin == resolverImportModulePath importDecl ->
-                  Right seenSymbols
+              | sameDeclarations previousOrigin declarations ->
+                  Right (Map.insert symbolName (previousOrigin {bindingOriginDeclarations = Map.union declarations (bindingOriginDeclarations previousOrigin)}) seenSymbols)
               | otherwise ->
                   Left (mkImportSymbolCollisionError symbolName previousOrigin importDecl)
             Nothing ->
@@ -377,10 +383,33 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                     symbolName
                     BindingOrigin
                       { bindingOriginModulePath = resolverImportModulePath importDecl,
-                        bindingOriginSpan = resolverImportSpan importDecl
+                        bindingOriginSpan = resolverImportSpan importDecl,
+                        bindingOriginDeclarations = declarations
                       }
                     seenSymbols
                 )
+      where
+        declarations = declarationsFor importDecl [ValueNamespace, ConstructorNamespace, CapabilityNamespace] symbolName
+
+    declarationsFor importDecl namespaces symbolName =
+      case dependencyInventory importDecl of
+        Nothing -> Map.empty
+        Just inventory ->
+          Map.fromList
+            [ (namespace, exportOrigin (resolverImportModulePath importDecl) entry inventory)
+            | namespace <- namespaces,
+              let entry = ModuleExport namespace symbolName,
+              inventoryHasExport entry inventory
+            ]
+
+    sameDeclarations previous declarations =
+      let previousDeclarations = bindingOriginDeclarations previous
+          common = Map.intersection previousDeclarations declarations
+          expressionNamespaces = Set.fromList [ValueNamespace, ConstructorNamespace]
+          previousExpressions = Map.keysSet previousDeclarations `Set.intersection` expressionNamespaces
+          expressions = Map.keysSet declarations `Set.intersection` expressionNamespaces
+          compatibleExpressions = Set.null previousExpressions || Set.null expressions || not (Set.disjoint previousExpressions expressions)
+       in not (Map.null common) && common == Map.intersection declarations previousDeclarations && compatibleExpressions
 
     mkMissingImportSymbolError :: Text -> ResolverImport -> Set Text -> Diagnostic
     mkMissingImportSymbolError symbolName importDecl exportedSymbols =

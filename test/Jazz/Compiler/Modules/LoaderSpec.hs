@@ -28,6 +28,7 @@ import Jazz.Compiler.Modules.Loader.BasicTests (basicTests)
 import Jazz.Compiler.Modules.Loader.CapabilitiesTests (capabilitiesTests)
 import Jazz.Compiler.Modules.Loader.DiagnosticsTests (diagnosticTests)
 import Jazz.Compiler.Modules.Loader.OperatorsTests (operatorTests)
+import Jazz.Compiler.Modules.Loader.ReexportTests (reexportTests)
 import Jazz.Compiler.Modules.Loader.Shared
   ( resolverConfig,
   )
@@ -81,6 +82,7 @@ tests =
     ++ visibilityTests
     ++ capabilitiesTests
     ++ aliasClassTests
+    ++ reexportTests
     ++ operatorTests
     ++ diagnosticTests
 

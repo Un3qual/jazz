@@ -58,6 +58,7 @@ import Jazz.Compiler.Driver
 import Jazz.Compiler.ModuleAnalysis
   ( analyzeModule,
     dependencyImportInterface,
+    importWholeInterface,
     moduleBinderInventory,
     moduleEvidenceCandidates,
   )
@@ -267,9 +268,11 @@ testSingleModuleAnalysis = do
         dependencyImportInterface
           importDecl
           ( resolvedModuleExports (coreModuleFacts dependency),
-            analyzedModuleInterface (coreModuleFacts checked),
-            moduleBinderInventory checked,
-            moduleEvidenceCandidates NamedSourceUnit dependency
+            importWholeInterface
+              (ImportedModule path)
+              (moduleBinderInventory checked)
+              (moduleEvidenceCandidates NamedSourceUnit dependency)
+              (analyzedModuleInterface (coreModuleFacts checked))
           )
 
 testBinaryOperandAliasSelection :: IO ()

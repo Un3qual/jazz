@@ -1,0 +1,5 @@
+module Example::UseAPI {
+  import Example::API as API.
+
+  if API::Equal::equal API::answer 42 then API::answer else 0.
+}
