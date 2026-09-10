@@ -37,6 +37,8 @@ only `docs/` and does not publish this directory.
 | [0015](accepted/0015-typed-core-managed-products-and-variants.md) | Typed-core managed products and variants |
 | [0016](accepted/0016-optional-backend-removal.md)                 | Optional backend removal                 |
 
+| [0017](accepted/0017-alias-qualified-classes.md) | Alias-qualified classes |
+
 ## Process
 
 Open a proposal only for a decision that should outlive its implementation

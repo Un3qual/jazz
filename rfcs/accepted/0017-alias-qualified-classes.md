@@ -1,13 +1,13 @@
 # RFC 0017: Alias-qualified classes
 
-Status: Proposed
+Status: Accepted
 Date: 2026-09-09
 Supersedes: None.
 
 ## Decision
 
 Extend aliased module imports to expose public classes through the import
-alias. This is a proposed future language delta, not implemented behavior.
+alias. This is an accepted future language delta, not implemented behavior.
 
 After `import Lib::Facts as Facts.`, an exported class `Eq` is available as
 `Facts::Eq`. Its method `equals` can be referenced as
