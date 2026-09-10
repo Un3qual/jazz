@@ -25,6 +25,7 @@ reexportTests =
     ("re-exported classes retain original evidence across aliases and diamonds", testClassDiamond),
     ("facades publish their own impls alongside a re-exported class", testFacadeImpl),
     ("class re-exports combine distinct facade impls and deduplicate repeated paths", testFacadeImplDiamond),
+    ("private class names cannot rebase an imported method's module prefix", testClassModulePrefix),
     ("re-exported values carry hidden nominal types without exporting them", testHiddenType),
     ("constructor-only facades retain ownership when reunited with an abstract type", testConstructorOnly),
     ("facade diamonds reuse dependency effects and suppress dependency expressions", testEffects),
@@ -117,6 +118,15 @@ testHiddenType =
     [ ("src/Lib/Source.jz", "module Lib::Source (value make, value unwrap) { data Hidden = Hidden Int. make = \\(n) -> Hidden n. unwrap = \\(h) -> case h { | Hidden n -> n }. }"),
       ("src/Lib/API.jz", "module Lib::API (value make, value unwrap) { import Lib::Source. }"),
       ("src/App/Main.jz", "module App::Main { import Lib::API. unwrap (make 42). }")
+    ]
+    "42"
+
+testClassModulePrefix :: IO ()
+testClassModulePrefix =
+  assertGraph
+    [ ("src/Lib/Source.jz", "module Lib::Source (class Choose) { class Choose(a) { choose :: a -> Int. }. }"),
+      ("src/Facade/API.jz", "module Facade::API (class Choose, type Marker(..)) { import Lib::Source. class Lib(a) { }. data Marker = Marker. impl Choose(Marker) { choose = \\(n) -> 42. }. }"),
+      ("src/App/Main.jz", "module App::Main { import Facade::API as API. API::Choose::choose API::Marker. }")
     ]
     "42"
 

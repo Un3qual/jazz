@@ -35,6 +35,7 @@ import qualified Jazz.Compiler.AST as AST
 import Jazz.Compiler.CapabilityFacts
   ( ConcreteImplFact (..),
     concreteImplFactClassName,
+    splitQualifiedMethodKey,
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
@@ -396,7 +397,7 @@ factUsesClass classNames fact = Set.member (concreteImplFactClassName fact) clas
 
 methodUsesClass :: Set.Set Text -> Text -> value -> Bool
 methodUsesClass classNames methodKey _ =
-  any (\className -> (className <> "::") `Text.isPrefixOf` methodKey) (Set.toList classNames)
+  maybe False ((`Set.member` classNames) . fst) (splitQualifiedMethodKey methodKey)
 
 rebaseTypeBinding :: ResolvedNameOrigin -> Set.Set Text -> Set.Set Text -> TypeBinding -> TypeBinding
 rebaseTypeBinding origin dataTypeNames classNames binding =
@@ -551,6 +552,7 @@ rebaseKnownText origin knownNames name
 
 rebaseMethodKey :: ResolvedNameOrigin -> Set.Set Text -> Text -> Text
 rebaseMethodKey origin classNames methodKey =
-  case [className | className <- Set.toList classNames, (className <> "::") `Text.isPrefixOf` methodKey] of
-    className : _ -> qualifiedKey origin className <> Text.drop (Text.length className) methodKey
-    [] -> methodKey
+  case splitQualifiedMethodKey methodKey of
+    Just (className, methodName)
+      | Set.member className classNames -> qualifiedKey origin className <> "::" <> methodName
+    _ -> methodKey
