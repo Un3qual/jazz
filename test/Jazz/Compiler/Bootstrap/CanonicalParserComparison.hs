@@ -202,6 +202,13 @@ surfaceExprRuntimeValue expression =
       canonicalConstructor
         "QualifiedVariableExpression"
         [identifierRuntimeValue qualifier, identifierRuntimeValue member]
+    SEQualifiedMethod moduleAlias capability method _ ->
+      canonicalConstructor
+        "QualifiedMethodExpression"
+        [ identifierRuntimeValue moduleAlias,
+          identifierRuntimeValue capability,
+          identifierRuntimeValue method
+        ]
     SELambda parameters body ->
       canonicalConstructor
         "LambdaExpression"

@@ -190,6 +190,7 @@ importDiagnosticRanges =
         Set.empty
         Set.empty
         Set.empty
+        Map.empty
         Set.empty
         Set.empty
         Map.empty of

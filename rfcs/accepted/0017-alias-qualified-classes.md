@@ -4,10 +4,14 @@ Status: Accepted
 Date: 2026-09-09
 Supersedes: None.
 
+Scope amendment: During implementation the maintainer explicitly deferred all
+bootstrap-related work. This batch implements the Haskell compiler only;
+hosted syntax and lowering parity are deferred.
+
 ## Decision
 
-Extend aliased module imports to expose public classes through the import
-alias. This is an accepted future language delta, not implemented behavior.
+Aliased module imports expose public classes through the import alias in the
+Haskell compiler.
 
 After `import Lib::Facts as Facts.`, an exported class `Eq` is available as
 `Facts::Eq`. Its method `equals` can be referenced as
@@ -24,12 +28,11 @@ module; `class Facts::Eq(a) { ... }.` is rejected.
 
 ## Context
 
-Aliased imports already expose public values, constructors, and type identities.
-`visibleImportInventory` in `src/Jazz/Compiler/ModuleExports.hs` deliberately
-excludes the capability namespace for aliases. Module analysis consequently
-filters out the associated class facts and evidence candidates. The module
-loader suite verifies that an alias-only import does not enable unqualified
-class-method dispatch.
+Before this change, aliased imports exposed public values, constructors, and
+type identities while excluding the capability namespace. Module analysis
+consequently filtered out associated class facts and evidence candidates.
+The module loader suite continues to verify that an alias-only import does
+not enable unqualified class-method dispatch.
 
 Unqualified imports can already expose public classes and their concrete
 implementation evidence. Completing the alias form lets libraries use classes
@@ -71,11 +74,15 @@ at the relevant source component. Existing diagnostic families should be
 retained where their meanings apply. A qualified class reference must never
 fall back to an ambient or same-text class after lookup fails.
 
-The Haskell and hosted Jazz parsers and canonical-core lowering must agree on
-the new syntax and its structural representation. Preserve existing
+The Haskell parser and canonical-core lowering preserve existing
 two-component names and point/range adapter contracts. A structured
 representation must distinguish a module alias, a class, and a method rather
 than hiding an additional separator inside an identifier.
+
+The hosted Jazz frontend is outside this batch. Its implementation and corpus
+are unchanged. Existing comparisons that exercise newly accepted qualification
+or its parser diagnostics can diverge from Haskell until bootstrap work is
+explicitly resumed; these are recorded as deferred parity work.
 
 ## Implementation boundaries and acceptance evidence
 
@@ -83,8 +90,7 @@ Extend the existing parser/name representations, resolver import validation
 and rewriting, public import inventory, and module interface assembly.
 Feed the resolved class and method identities into the existing type inference
 and runtime evidence paths. Change those consumers only where needed to retain
-the existing dispatch guarantees. Mirror syntax/lowering changes in
-`jazz/compiler/`.
+the existing dispatch guarantees.
 
 Acceptance requires behavior tests for:
 
@@ -97,11 +103,12 @@ Acceptance requires behavior tests for:
 - Private classes, unknown aliases/classes/methods, namespace mismatches,
   unqualified leakage, duplicate concrete impls, and continued rejection of
   re-exports and qualified class declarations.
-- Haskell/hosted parser and canonical-core conformance, including malformed
-  qualification and existing two-component syntax.
+- Haskell parser and canonical-core lowering, including malformed qualification
+  and existing two-component syntax.
 
 Run focused module, loader, parser, capability, and frontend conformance suites,
-then the full supported compiler suite and repository quality gates. Update
+then the full supported compiler suite and repository quality gates. Existing
+hosted suites run only as regression checks, with no bootstrap feature work. Update
 `docs/language/modules.md`, `docs/language/capabilities.md`, and the relevant
 reference grammar and resolution contracts with executable examples when the
 implementation lands. Record the accepted implementation batch under
@@ -120,7 +127,7 @@ references across those existing language forms as one batch.
 
 ## Consequences
 
-The cost is a syntax and resolver change across both frontends. No new class
+The cost is a syntax and resolver change in the Haskell frontend. No new class
 features, effect system, package semantics, overlap/orphan policy, backend,
-re-export syntax, or operator transport is included. Acceptance authorizes
-implementation; it does not claim that the new syntax is available yet.
+re-export syntax, or operator transport is included. Hosted frontend parity
+remains deferred independently of the Haskell implementation.

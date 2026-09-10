@@ -8,6 +8,7 @@ module Jazz.Compiler.Parser.Signature
     parseSignatureTypeParser,
     parseSignatureTypePrefixDetailed,
     parseSignaturePayload,
+    parseSignaturePayloadDetailed,
     splitTopLevelCommaTokensDetailed,
   )
 where
@@ -30,7 +31,10 @@ import Jazz.Compiler.Parser.AST
     SurfaceSignatureType,
   )
 import Jazz.Compiler.Parser.Failure
-  ( ParserFailure,
+  ( ParserEncountered (..),
+    ParserFailure,
+    ParserFailureReason (..),
+    parserFailureAt,
   )
 import Jazz.Compiler.Parser.Lexer
   ( Token (..),
@@ -78,6 +82,45 @@ parseSignaturePayload signatureTokens =
   case parseSupportedSignaturePayload signatureTokens of
     Just signaturePayload -> signaturePayload
     Nothing -> UnsupportedSignature (map surfaceSignatureTokenFromToken signatureTokens)
+
+-- Unsupported legacy signature forms remain representable. New qualified
+-- constraint heads, however, have a precise two-component grammar.
+parseSignaturePayloadDetailed :: [Token] -> Either ParserFailure SurfaceSignaturePayload
+parseSignaturePayloadDetailed tokens = do
+  case tokens of
+    Token {tokenKind = TAt} : Token {tokenKind = TLBrace} : rest -> validateHead rest
+    _ -> Right ()
+  pure (parseSignaturePayload tokens)
+  where
+    validateHead (alias : colon@Token {tokenKind = TColonColon} : member : rest) = do
+      if isImmediatelyAfter alias colon && isImmediatelyAfter colon member
+        then Right ()
+        else invalid colon "adjacent alias-qualified class name"
+      case tokenKind member of
+        TIdentifier {} -> Right ()
+        _ -> invalid member "class name after '::'"
+      case rest of
+        extra@Token {tokenKind = TColonColon} : _ -> invalid extra "two-component class name"
+        _ -> scan 0 rest
+    validateHead rest = scan 0 rest
+
+    scan :: Int -> [Token] -> Either ParserFailure ()
+    scan _ [] = Right ()
+    scan depth (token : rest) = case tokenKind token of
+      TLParen -> scan (depth + 1) rest
+      TLBracket -> scan (depth + 1) rest
+      TRParen -> scan (max 0 (depth - 1)) rest
+      TRBracket -> scan (max 0 (depth - 1)) rest
+      TComma | depth == 0 -> validateHead rest
+      TRBrace | depth == 0 -> Right ()
+      _ -> scan depth rest
+
+    invalid token expected =
+      Left
+        ( parserFailureAt
+            (tokenSpan token)
+            (ExpectedSyntax expected (ParserFoundToken (tokenKind token) (tokenLexeme token)))
+        )
 
 parseSupportedSignaturePayload :: [Token] -> Maybe SurfaceSignaturePayload
 parseSupportedSignaturePayload tokens =

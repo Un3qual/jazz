@@ -87,6 +87,7 @@ import Jazz.Compiler.Name
     isOperatorBindingIdentifierText,
     mkIdentifier,
     operatorBindingNameFromIdentifier,
+    qualifiedMethodName,
     qualifiedName,
     sourceName,
     splitQualifiedIdentifierText,
@@ -434,6 +435,8 @@ lowerSurfaceExprWithoutCostCentre surfaceExpr = do
     SEVar name -> pure (EVar node (sourceName name))
     SEQualifiedVar qualifier member ->
       pure (EVar node (qualifiedName qualifier member))
+    SEQualifiedMethod moduleAlias capability method methodSpan ->
+      pure (EVar (node {coreNodeSpan = methodSpan}) (qualifiedMethodName moduleAlias capability method))
     SELambda parameters bodyExpr ->
       lowerSurfaceLambda node (surfaceExprSpan surfaceExpr) parameters bodyExpr
     SEPatternLambda clauses ->
@@ -621,7 +624,7 @@ lowerSurfaceStatement surfaceStatement =
     SSImpl spanValue capabilityName arguments methods -> do
       node <- freshNode spanValue
       loweredMethods <- traverse lowerSurfaceImplMethod methods
-      pure (SImpl node (sourceName capabilityName) (map lowerSurfaceSignatureType arguments) loweredMethods)
+      pure (SImpl node (lowerSurfaceSignatureName capabilityName) (map lowerSurfaceSignatureType arguments) loweredMethods)
     SSModule spanValue modulePath _ -> do
       node <- freshNode spanValue
       pure (SModule node modulePath)

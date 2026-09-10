@@ -338,16 +338,10 @@ parseIdentifierExpr :: Token -> Text -> Parser SurfaceExpr
 parseIdentifierExpr identifierToken name = do
   tokens <- MP.getInput
   case tokens of
-    colonToken@Token {tokenKind = TColonColon} :< memberToken@Token {tokenKind = TIdentifier memberName} :< _
+    colonToken@Token {tokenKind = TColonColon} :< memberToken@Token {tokenKind = TIdentifier memberName} :< remaining
       | isImmediatelyAfter identifierToken colonToken,
-        isImmediatelyAfter colonToken memberToken -> do
-          void parseAnyToken
-          void parseAnyToken
-          pure
-            ( locatedExpr
-                identifierToken
-                (SEQualifiedVar (mkIdentifier name) (mkIdentifier memberName))
-            )
+        isImmediatelyAfter colonToken memberToken ->
+          parseQualifiedIdentifierExpr identifierToken name memberToken memberName remaining
     colonToken@Token {tokenKind = TColonColon} :< EmptyTokens
       | isImmediatelyAfter identifierToken colonToken ->
           failTokenParser
@@ -365,6 +359,60 @@ parseIdentifierExpr identifierToken name = do
             )
     _ ->
       pure (locatedExpr identifierToken (SEVar (mkIdentifier name)))
+
+parseQualifiedIdentifierExpr :: Token -> Text -> Token -> Text -> TokenStream -> Parser SurfaceExpr
+parseQualifiedIdentifierExpr identifierToken qualifierName memberToken memberName remaining =
+  case remaining of
+    methodColon@Token {tokenKind = TColonColon} :< methodToken@Token {tokenKind = TIdentifier methodName} :< afterMethod
+      | isImmediatelyAfter memberToken methodColon,
+        isImmediatelyAfter methodColon methodToken ->
+          case afterMethod of
+            overlongColon@Token {tokenKind = TColonColon} :< _
+              | isImmediatelyAfter methodToken overlongColon ->
+                  failTokenParserAt
+                    (tokenSpan overlongColon)
+                    ( UnexpectedSyntaxIn
+                        (ParserFoundToken TColonColon (tokenLexeme overlongColon))
+                        "qualified class method name"
+                    )
+            _ -> do
+              void parseAnyToken
+              void parseAnyToken
+              void parseAnyToken
+              void parseAnyToken
+              pure
+                ( locatedExpr
+                    identifierToken
+                    ( SEQualifiedMethod
+                        (mkIdentifier qualifierName)
+                        (mkIdentifier memberName)
+                        (mkIdentifier methodName)
+                        (tokenSpan methodToken)
+                    )
+                )
+    methodColon@Token {tokenKind = TColonColon} :< EmptyTokens
+      | isImmediatelyAfter memberToken methodColon ->
+          failTokenParser
+            (ExpectedSyntax "method name" (ParserEndOfInputAfter "'::'"))
+    methodColon@Token {tokenKind = TColonColon} :< methodToken :< _
+      | isImmediatelyAfter memberToken methodColon ->
+          failTokenParserAt
+            (tokenSpan methodToken)
+            ( ExpectedSyntax
+                ( case tokenKind methodToken of
+                    TIdentifier {} -> "adjacent method name after '::'"
+                    _ -> "method name after '::'"
+                )
+                (ParserFoundToken (tokenKind methodToken) (tokenLexeme methodToken))
+            )
+    _ -> do
+      void parseAnyToken
+      void parseAnyToken
+      pure
+        ( locatedExpr
+            identifierToken
+            (SEQualifiedVar (mkIdentifier qualifierName) (mkIdentifier memberName))
+        )
 
 parseNumericSurfaceLiteral :: Token -> Integer -> Parser SurfaceLiteral
 parseNumericSurfaceLiteral wholeToken wholeValue = do

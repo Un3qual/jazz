@@ -40,11 +40,10 @@ import Jazz.Compiler.ModuleCompiler (analyzedProgramErrors)
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
-    ModuleImportMode (..),
     exportInventoryEntries,
     exportNamesInNamespace,
     inventoryHasExport,
-    visibleImportInventory,
+    selectExportNames,
   )
 import Jazz.Compiler.ModuleGraph
   ( AnalyzedModuleFacts (..),
@@ -450,21 +449,19 @@ interfaceExports publicInventory moduleInterface =
 runtimeExportSelected :: ModuleImport 'Analyzed -> ModuleExportInventory -> RuntimeExport -> Bool
 runtimeExportSelected importDecl publicInventory runtimeExport =
   case ModuleGraph.importExposure importDecl of
-    ImportAllUnqualified -> selectedBy UnqualifiedImport Nothing True
-    ImportOnlyUnqualified symbolNames -> selectedBy UnqualifiedImport (Just (map identifierText (NonEmpty.toList symbolNames))) True
-    ImportQualifiedOnly _ -> selectedBy QualifiedAliasImport Nothing False
+    ImportAllUnqualified -> selectedBy Nothing
+    ImportOnlyUnqualified symbolNames -> selectedBy (Just (map identifierText (NonEmpty.toList symbolNames)))
+    ImportQualifiedOnly _ -> selectedBy Nothing
   where
-    selectedBy importMode symbolNames includeCapabilityMethods =
+    selectedBy symbolNames =
       case runtimeExport of
         RuntimeCapabilityMethodExport className _ ->
-          includeCapabilityMethods
-            && Set.member className selectedClassNames
+          Set.member className selectedClassNames
         RuntimeBindingExport moduleExport ->
           inventoryHasExport moduleExport selectedInventory
       where
         selectedInventory =
-          visibleImportInventory
-            importMode
+          selectExportNames
             symbolNames
             publicInventory
         selectedClassNames =

@@ -1,0 +1,9 @@
+module Example::Equality (class Equal) {
+  class Equal(a) {
+    equal :: a -> a -> Bool.
+  }.
+
+  impl Equal(Int) {
+    equal = \(left, right) -> left == right.
+  }.
+}

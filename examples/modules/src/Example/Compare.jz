@@ -1,0 +1,13 @@
+module Example::Compare {
+  import Example::Equality as Equality.
+
+  same :: @{Equality::Equal(a)}: a -> a -> Bool.
+  same = \(left, right) -> Equality::Equal::equal left right.
+
+  data Marker = Marker.
+  impl Equality::Equal(Marker) {
+    equal = \(left, right) -> True.
+  }.
+
+  (same 1 1, Equality::Equal::equal 1 2, Equality::Equal::equal Marker Marker).
+}

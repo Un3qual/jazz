@@ -13,6 +13,7 @@ module Jazz.Compiler.ModuleAnalysis
 where
 
 import Data.Bifunctor (bimap)
+import Data.List (union)
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -37,10 +38,9 @@ import Jazz.Compiler.CapabilityFacts
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
-    ModuleImportMode (..),
     exportNamesInNamespace,
     inventoryHasExport,
-    visibleImportInventory,
+    selectExportNames,
   )
 import Jazz.Compiler.ModuleGraph
   ( CoreModule,
@@ -288,10 +288,18 @@ instance Semigroup ImportedInterface where
             (importedConstructorWitnessNames left)
             (importedConstructorWitnessNames right),
         importedCapabilities =
-          importedCapabilities left <> importedCapabilities right,
+          let leftFacts = importedCapabilities left
+              rightFacts = importedCapabilities right
+           in (leftFacts <> rightFacts)
+                { scopeConcreteImplMethods =
+                    Map.unionWith
+                      union
+                      (scopeConcreteImplMethods leftFacts)
+                      (scopeConcreteImplMethods rightFacts)
+                },
         importedClassNames = Set.union (importedClassNames left) (importedClassNames right),
         importedBinderIds = Map.union (importedBinderIds left) (importedBinderIds right),
-        importedEvidenceCandidates = Map.unionWith (<>) (importedEvidenceCandidates left) (importedEvidenceCandidates right)
+        importedEvidenceCandidates = Map.unionWith union (importedEvidenceCandidates left) (importedEvidenceCandidates right)
       }
 
 instance Monoid ImportedInterface where
@@ -342,7 +350,9 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory binderIds
           ],
       importedCapabilities =
         rebaseCapabilityFacts origin dataTypeNames classNames selectedCapabilities,
-      importedClassNames = selectedClassNames,
+      importedClassNames = case maybeAlias of
+        Nothing -> selectedClassNames
+        Just _ -> Set.empty,
       importedBinderIds =
         Map.fromList
           [ (importedName export, binderId)
@@ -376,13 +386,8 @@ importSelectedInterface origin maybeAlias maybeSymbols publicInventory binderIds
 
     dataTypeNames = Map.keysSet (interfaceDataTypes moduleInterface)
     classNames = Map.keysSet (interfaceClassFacts moduleInterface)
-    importMode =
-      case maybeAlias of
-        Nothing -> UnqualifiedImport
-        Just _ -> QualifiedAliasImport
     selectedInventory =
-      visibleImportInventory
-        importMode
+      selectExportNames
         maybeSymbols
         publicInventory
     selectedValueTypes =

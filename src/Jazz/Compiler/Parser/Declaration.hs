@@ -101,7 +101,7 @@ import Jazz.Compiler.Parser.Operator
     isValidUserOperatorSymbol,
   )
 import Jazz.Compiler.Parser.Signature
-  ( parseSignaturePayload,
+  ( parseSignaturePayloadDetailed,
     parseSignatureTypeParser,
   )
 import Jazz.Compiler.Parser.TokenParser
@@ -622,8 +622,9 @@ parseSignature name nameToken tokensAfterName =
   case tokensAfterName of
     Token {tokenKind = TColonColon} :< rest -> do
       (signatureTokens, remainingAfterDot) <- collectUntilDot rest
+      payload <- parseSignaturePayloadDetailed signatureTokens
       pure
-        ( SSSignature name (tokenSpan nameToken) (parseSignaturePayload signatureTokens),
+        ( SSSignature name (tokenSpan nameToken) payload,
           remainingAfterDot
         )
     _ ->

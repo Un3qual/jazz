@@ -132,6 +132,7 @@ inventoryExpr expression =
     SELit literal -> Set.singleton LiteralFeature <> inventoryLiteral literal
     SEVar _ -> Set.empty
     SEQualifiedVar _ _ -> Set.singleton QualifiedMethodFeature
+    SEQualifiedMethod {} -> Set.singleton QualifiedMethodFeature
     SELambda parameters body ->
       let parameterList = NonEmpty.toList parameters
        in Set.fromList
@@ -222,6 +223,7 @@ containsPartialApplication arities expression =
     SELit _ -> False
     SEVar _ -> False
     SEQualifiedVar _ _ -> False
+    SEQualifiedMethod {} -> False
     SELambda parameters body ->
       containsPartialApplication
         (removeBoundNames arities (Set.unions (map lambdaParameterBindings (NonEmpty.toList parameters))))

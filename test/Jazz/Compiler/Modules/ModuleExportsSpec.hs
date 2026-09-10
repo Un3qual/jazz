@@ -12,7 +12,6 @@ import Jazz.Compiler.ModuleExports
     ModuleExport (..),
     ModuleExportInventory,
     ModuleExportSelector (..),
-    ModuleImportMode (..),
     ModuleTypeConstructorSelector (..),
     declarationExportNames,
     exportInventory,
@@ -24,7 +23,6 @@ import Jazz.Compiler.ModuleExports
     selectModuleExportSelectors,
     selectValidatedModuleExportSelectors,
     selectorEligibleNames,
-    visibleImportInventory,
   )
 import Jazz.Compiler.ModuleInterface
   ( ModuleInterface (..),
@@ -54,8 +52,6 @@ tests =
     ("distinguishes standalone constructor selectors from owned selectors", testStandaloneConstructorSelectorOwnership),
     ("drops constructor ownership when filtering its constructor or type", testFilteredConstructorOwnership),
     ("combines conflicting constructor owners without bias", testConflictingConstructorOwnership),
-    ("filters alias imports to values, constructors, and types", testAliasVisibility),
-    ("keeps all namespaces for unqualified imports", testUnqualifiedVisibility),
     ("finds the first requested namespace deterministically", testFirstNamespace),
     ("derives compiled interface exports by namespace", testInterfaceInventory)
   ]
@@ -252,30 +248,6 @@ reboundConstructorInventory =
       ModuleExport ConstructorNamespace "C",
       ModuleExport TypeNamespace "B"
     ]
-
-testAliasVisibility :: IO ()
-testAliasVisibility =
-  assertEqual
-    "alias entries"
-    ( Set.fromList
-        [ ModuleExport ValueNamespace "answer",
-          ModuleExport ConstructorNamespace "Box",
-          ModuleExport TypeNamespace "Box",
-          ModuleExport TypeNamespace "HiddenType"
-        ]
-    )
-    ( exportInventoryEntries
-        (visibleImportInventory QualifiedAliasImport Nothing sampleInventory)
-    )
-
-testUnqualifiedVisibility :: IO ()
-testUnqualifiedVisibility =
-  assertEqual
-    "unqualified entries"
-    (exportInventoryEntries sampleInventory)
-    ( exportInventoryEntries
-        (visibleImportInventory UnqualifiedImport Nothing sampleInventory)
-    )
 
 testFirstNamespace :: IO ()
 testFirstNamespace =

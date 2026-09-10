@@ -52,12 +52,11 @@ import Jazz.Compiler.Diagnostics
   )
 import Jazz.Compiler.ModuleExports
   ( ModuleExportInventory,
-    ModuleImportMode (..),
     exportInventory,
     exportNamesInNamespace,
     exportNamesInNamespaces,
+    selectExportNames,
     selectorEligibleNames,
-    visibleImportInventory,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
@@ -115,16 +114,18 @@ validateImportBindings ::
   Set Text ->
   Set (Text, Text) ->
   Set (Text, Text) ->
+  Map (Text, Text) (SourceSpan, SourceSpan) ->
   Set Text ->
   Set Text ->
   Map ModulePath ModuleExportInventory ->
   Either Diagnostic ()
-validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
+validateImportBindings sourcePath importerPath imports localClassNames referencedNames qualifiedReferences qualifiedTypeReferences qualifiedClassReferences ambientVisibleSymbols ambientVisibleClassNames inventoriesByModule = do
   go Map.empty Map.empty Map.empty imports
   visibleSymbols <- collectVisibleImportSymbols imports
   visibleClassNames <- collectVisibleImportClassNames imports
   validateQualifiedReferences (Set.unions [localClassNames, visibleClassNames, ambientVisibleClassNames])
   validateQualifiedTypeReferences
+  mapM_ validateQualifiedClassReference (Map.toList qualifiedClassReferences)
   let visibleOrAmbientSymbols = Set.union visibleSymbols ambientVisibleSymbols
   case findHiddenExplicitImportReference visibleOrAmbientSymbols of
     Just (symbolName, importDecl) ->
@@ -144,20 +145,19 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
       case resolverImportAlias importDecl of
         Just _ -> exportInventory []
         Nothing ->
-          visibleImportInventory
-            UnqualifiedImport
+          selectExportNames
             (resolverImportSymbols importDecl)
             inventory
 
     aliasMemberNames inventory =
       exportNamesInNamespaces
         [ValueNamespace, ConstructorNamespace]
-        (visibleImportInventory QualifiedAliasImport Nothing inventory)
+        (selectExportNames Nothing inventory)
 
     aliasTypeNames inventory =
       exportNamesInNamespace
         TypeNamespace
-        (visibleImportInventory QualifiedAliasImport Nothing inventory)
+        (selectExportNames Nothing inventory)
 
     valueAndConstructorNames =
       exportNamesInNamespaces [ValueNamespace, ConstructorNamespace]
@@ -334,6 +334,18 @@ validateImportBindings sourcePath importerPath imports localClassNames reference
                    in if Set.member typeName exportedTypes
                         then Right ()
                         else Left (mkMissingQualifiedAliasSymbolError typeName importDecl aliasName exportedTypes)
+
+    validateQualifiedClassReference ((aliasName, className), (aliasSpan, classSpan)) =
+      case findAliasImport aliasName of
+        Nothing -> Left (setDiagnosticPrimarySpan aliasSpan (mkUnknownQualifiedAliasError aliasName className))
+        Just importDecl ->
+          case dependencyInventory importDecl of
+            Nothing -> Left (mkErrorDiagnostic E4010 CompilationOrigin "missing dependency inventory while validating a qualified class")
+            Just inventory ->
+              let classes = exportNamesInNamespace CapabilityNamespace inventory
+               in if Set.member className classes
+                    then Right ()
+                    else Left (setDiagnosticPrimarySpan classSpan (mkMissingQualifiedAliasSymbolError className importDecl aliasName classes))
 
     findAliasImport :: Text -> Maybe ResolverImport
     findAliasImport aliasName =

@@ -48,10 +48,11 @@ import Jazz.Compiler.Parser.TokenStream
   )
 
 collectUntilDot :: TokenStream -> Either ParserFailure ([Token], TokenStream)
-collectUntilDot = go []
+collectUntilDot = go 0 []
   where
-    go _ EmptyTokens = Left (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
-    go acc allTokens@(token :< rest) =
+    go :: Int -> [Token] -> TokenStream -> Either ParserFailure ([Token], TokenStream)
+    go _ _ EmptyTokens = Left (parserFailure (ExpectedSyntax "'.'" ParserEndOfInput))
+    go depth acc allTokens@(token :< rest) =
       case tokenKind token of
         TDot
           | null acc ->
@@ -62,13 +63,22 @@ collectUntilDot = go []
                 )
           | otherwise -> Right (reverse acc, rest)
         _
-          | not (null acc) && beginsStatement allTokens ->
+          | depth == 0 && not (null acc) && beginsStatement allTokens ->
               Left
                 ( parserFailureAt
                     (tokenSpan token)
                     (ExpectedSyntax "'.'" (ParserBeforeToken (tokenKind token) (tokenLexeme token) Nothing))
                 )
-          | otherwise -> go (token : acc) rest
+          | otherwise -> go (nextDepth depth (tokenKind token)) (token : acc) rest
+
+    nextDepth depth kind = case kind of
+      TLParen -> depth + 1
+      TLBracket -> depth + 1
+      TLBrace -> depth + 1
+      TRParen -> max 0 (depth - 1)
+      TRBracket -> max 0 (depth - 1)
+      TRBrace -> max 0 (depth - 1)
+      _ -> depth
 
 beginsStatement :: TokenStream -> Bool
 beginsStatement tokens =

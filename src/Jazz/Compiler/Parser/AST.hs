@@ -125,6 +125,7 @@ data SurfaceExprForm
   = SELit SurfaceLiteral
   | SEVar Identifier
   | SEQualifiedVar Identifier Identifier
+  | SEQualifiedMethod Identifier Identifier Identifier SourceSpan
   | SELambda (NonEmpty SurfaceLambdaParameter) SurfaceExpr
   | SEPatternLambda (NonEmpty SurfacePatternLambdaClause)
   | SEOperatorValue Text

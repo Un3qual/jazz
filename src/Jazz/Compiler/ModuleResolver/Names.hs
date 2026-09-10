@@ -47,11 +47,10 @@ import Jazz.Compiler.Diagnostics
 import Jazz.Compiler.ModuleExports
   ( ModuleExport (..),
     ModuleExportInventory,
-    ModuleImportMode (..),
     exportInventory,
     exportNamesInNamespace,
     firstExportNamespace,
-    visibleImportInventory,
+    selectExportNames,
   )
 import qualified Jazz.Compiler.ModuleGraph as ModuleGraph
 import Jazz.Compiler.ModuleIdentity
@@ -160,8 +159,7 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
       case Map.lookup (resolverImportModulePath importDecl) inventoriesByModule of
         Nothing -> exportInventory []
         Just inventory ->
-          visibleImportInventory
-            UnqualifiedImport
+          selectExportNames
             (resolverImportSymbols importDecl)
             inventory
 
@@ -185,6 +183,20 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
                         (classOrigin qualifierText)
                         ValueNamespace
                         (mkIdentifier (qualifierText <> "::" <> memberText))
+                    )
+        UserName (QualifiedMethodSourceName alias className method) ->
+          let member = mkIdentifier (identifierText className <> "::" <> identifierText method)
+           in case Map.lookup (identifierText alias) aliasPaths of
+                Just dependencyPath ->
+                  UserName (ResolvedUserName (ImportedModule dependencyPath) ValueNamespace member)
+                Nothing ->
+                  -- Keep an unresolved alias in the name rather than falling back
+                  -- to a same-spelled local or ambient class.
+                  UserName
+                    ( ResolvedUserName
+                        CurrentModule
+                        ValueNamespace
+                        (mkIdentifier (identifierText alias <> "::" <> identifierText member))
                     )
         BuiltinName identifier -> BuiltinName identifier
         GeneratedName generatedKind -> GeneratedName generatedKind
@@ -356,6 +368,8 @@ resolveExprNames context rootExpression = Right (resolveExpr Map.empty rootExpre
           UserName (ResolvedUserName CurrentModule namespace identifier)
         UserName (QualifiedSourceName qualifier member) ->
           resolveName Map.empty namespace (UserName (QualifiedSourceName qualifier member))
+        UserName qualified@QualifiedMethodSourceName {} ->
+          resolveName Map.empty namespace (UserName qualified)
         BuiltinName identifier -> BuiltinName identifier
         GeneratedName generatedKind -> GeneratedName generatedKind
 

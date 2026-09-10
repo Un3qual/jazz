@@ -1,50 +1,54 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Jazz.Compiler.Parser.Foundation.InvalidSyntaxTests
-  ( invalidSyntaxTests
-  ) where
+  ( invalidSyntaxTests,
+  )
+where
 
 import Control.Monad (forM_)
 import qualified Data.Text as Text
 import Jazz.Compiler.Parser
-  ( parseSurfaceProgram
+  ( parseSurfaceProgram,
   )
 import Jazz.Compiler.Parser.Foundation.Shared
 import Jazz.TestHarness
   ( NamedTest,
     assertLeftDiagnosticContains,
-    failTest
+    failTest,
   )
 
 invalidSyntaxTests :: [NamedTest]
 invalidSyntaxTests =
-  [ ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral)
-    , ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow)
-    , ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns)
-    , ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns)
-    , ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument)
-    , ("rejects empty named explicit type application arguments", testRejectsEmptyNamedExplicitTypeApplicationArguments)
-    , ("rejects missing statement terminator", testRejectsMissingDotTerminator)
-    , ("rejects unterminated block expression", testRejectsUnterminatedBlockExpression)
-    , ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot)
-    , ("rejects signature missing terminator before class declaration", testRejectsMissingSignatureDotBeforeClass)
-    , ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax)
-    , ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters)
-    , ("rejects class capability declarations with multiple parameters", testRejectsClassCapabilityDeclarationWithMultipleParameters)
-    , ("rejects class method body syntax", testRejectsClassMethodBodySyntax)
-    , ("rejects duplicate class method signatures", testRejectsDuplicateClassMethodSignatures)
-    , ("rejects non-signature class body items", testRejectsNonSignatureClassBodyItem)
-    , ("rejects variable-target impl method bindings", testRejectsVariableTargetImplMethodBindings)
-    , ("rejects variable-target impl declarations with empty bodies", testRejectsVariableTargetEmptyImplDeclarations)
-    , ("rejects duplicate impl method bindings", testRejectsDuplicateImplMethodBindings)
-    , ("rejects non-binding impl body items", testRejectsNonBindingImplBodyItem)
-    , ("rejects duplicate class parameters", testRejectsDuplicateClassParameters)
-    , ("rejects concrete class parameters", testRejectsConcreteClassParameters)
-    , ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader)
-    , ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax)
-    , ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax)
-    , ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody)
-    , ("rejects value in every ordinary identifier position", testRejectsReservedValueIdentifiers)
+  [ ("rejects non-finite fractional literals", testRejectsNonFiniteFractionalLiteral),
+    ("rejects source-exact Float64 fractional literal overflow", testRejectsSourceExactFloat64FractionalLiteralOverflow),
+    ("rejects fractional literal case patterns", testRejectsFractionalLiteralCasePatterns),
+    ("rejects fractional literal lambda patterns", testRejectsFractionalLiteralLambdaPatterns),
+    ("rejects unsupported explicit type application argument", testRejectsUnsupportedExplicitTypeApplicationArgument),
+    ("rejects empty named explicit type application arguments", testRejectsEmptyNamedExplicitTypeApplicationArguments),
+    ("rejects missing statement terminator", testRejectsMissingDotTerminator),
+    ("rejects unterminated block expression", testRejectsUnterminatedBlockExpression),
+    ("rejects signature missing terminator before next statement", testRejectsMissingSignatureDot),
+    ("rejects signature missing terminator before class declaration", testRejectsMissingSignatureDotBeforeClass),
+    ("rejects negative literal syntax for now", testRejectsNegativeLiteralSyntax),
+    ("rejects class capability declarations without parameters", testRejectsClassCapabilityDeclarationWithoutParameters),
+    ("rejects class capability declarations with multiple parameters", testRejectsClassCapabilityDeclarationWithMultipleParameters),
+    ("rejects class method body syntax", testRejectsClassMethodBodySyntax),
+    ("rejects duplicate class method signatures", testRejectsDuplicateClassMethodSignatures),
+    ("rejects non-signature class body items", testRejectsNonSignatureClassBodyItem),
+    ("rejects variable-target impl method bindings", testRejectsVariableTargetImplMethodBindings),
+    ("rejects variable-target impl declarations with empty bodies", testRejectsVariableTargetEmptyImplDeclarations),
+    ("rejects duplicate impl method bindings", testRejectsDuplicateImplMethodBindings),
+    ("rejects non-binding impl body items", testRejectsNonBindingImplBodyItem),
+    ("rejects duplicate class parameters", testRejectsDuplicateClassParameters),
+    ("rejects concrete class parameters", testRejectsConcreteClassParameters),
+    ("rejects malformed class capability headers", testRejectsMalformedClassCapabilityHeader),
+    ("rejects qualified class declarations", testRejectsQualifiedClassDeclaration),
+    ("rejects malformed alias-qualified class methods", testRejectsMalformedAliasQualifiedClassMethod),
+    ("rejects overlong alias-qualified class methods", testRejectsOverlongAliasQualifiedClassMethod),
+    ("rejects trait abstraction declarations as non-canonical syntax", testRejectsTraitAbstractionSyntax),
+    ("rejects lowercase trait abstraction declarations", testRejectsLowercaseTraitAbstractionSyntax),
+    ("rejects trait abstraction declarations inside module bodies", testRejectsTraitAbstractionSyntaxInModuleBody),
+    ("rejects value in every ordinary identifier position", testRejectsReservedValueIdentifiers)
   ]
 
 testRejectsReservedValueIdentifiers :: IO ()
@@ -102,20 +106,24 @@ testRejectsUnsupportedExplicitTypeApplicationArgument =
   assertLeftDiagnosticContains
     "unsupported explicit type application argument"
     "unsupported explicit type application argument after '@'"
-    (parseSurfaceProgram """
-    result = id @ 1.
-    result.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = id @ 1.
+        result.
+        """
+    )
 
 testRejectsEmptyNamedExplicitTypeApplicationArguments :: IO ()
 testRejectsEmptyNamedExplicitTypeApplicationArguments =
   assertLeftDiagnosticContains
     "empty named explicit type application arguments"
     "unsupported explicit type application argument after '@'"
-    (parseSurfaceProgram """
-    result = id @Maybe().
-    result.
-    """)
+    ( parseSurfaceProgram
+        """
+        result = id @Maybe().
+        result.
+        """
+    )
 
 testRejectsMissingDotTerminator :: IO ()
 testRejectsMissingDotTerminator =
@@ -136,20 +144,24 @@ testRejectsMissingSignatureDot =
   assertLeftDiagnosticContains
     "missing signature dot error"
     "expected '.'"
-    (parseSurfaceProgram """
-    x :: Int
-    x = 1.
-    """)
+    ( parseSurfaceProgram
+        """
+        x :: Int
+        x = 1.
+        """
+    )
 
 testRejectsMissingSignatureDotBeforeClass :: IO ()
 testRejectsMissingSignatureDotBeforeClass =
   assertLeftDiagnosticContains
     "missing signature dot before class"
     "expected '.' before 'class'"
-    (parseSurfaceProgram """
-    x :: Int
-    class Eq { }.
-    """)
+    ( parseSurfaceProgram
+        """
+        x :: Int
+        class Eq { }.
+        """
+    )
 
 testRejectsNegativeLiteralSyntax :: IO ()
 testRejectsNegativeLiteralSyntax =
@@ -242,6 +254,35 @@ testRejectsMalformedClassCapabilityHeader =
     "unexpected token 'Bar' in class declaration header"
     (parseSurfaceProgram "class Foo Bar Baz(Int, String) { }.")
 
+testRejectsQualifiedClassDeclaration :: IO ()
+testRejectsQualifiedClassDeclaration =
+  assertRejected
+    "qualified class declaration"
+    "class Facts::Eq(a) { }."
+
+testRejectsMalformedAliasQualifiedClassMethod :: IO ()
+testRejectsMalformedAliasQualifiedClassMethod =
+  assertRejected
+    "malformed alias-qualified class method"
+    "Facts::Eq::."
+
+testRejectsOverlongAliasQualifiedClassMethod :: IO ()
+testRejectsOverlongAliasQualifiedClassMethod =
+  assertRejected
+    "overlong alias-qualified class method"
+    "Facts::Eq::equals::extra."
+
+assertRejected :: Text.Text -> Text.Text -> IO ()
+assertRejected label source =
+  case parseSurfaceProgram source of
+    Left _ -> pure ()
+    Right parsed ->
+      failTest
+        ( label
+            <> ": expected parser rejection, got "
+            <> Text.pack (show parsed)
+        )
+
 testRejectsTraitAbstractionSyntax :: IO ()
 testRejectsTraitAbstractionSyntax =
   assertLeftDiagnosticContains
@@ -261,8 +302,10 @@ testRejectsTraitAbstractionSyntaxInModuleBody =
   assertLeftDiagnosticContains
     "trait abstraction syntax in module body"
     "unsupported abstraction syntax 'trait'"
-    (parseSurfaceProgram """
-    module App::Core {
-    trait Eq { }.
-    }
-    """)
+    ( parseSurfaceProgram
+        """
+        module App::Core {
+        trait Eq { }.
+        }
+        """
+    )

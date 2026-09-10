@@ -24,8 +24,9 @@ must match the requested module path.
 - `import A::B.` exposes public values, constructors, type identities, and
   capabilities unqualified.
 - `import A::B (x, y).` exposes only selected eligible names.
-- `import A::B as Alias.` exposes public values, constructors, and type
-  identities only through `Alias::name`.
+- `import A::B as Alias.` exposes public values, constructors, type identities,
+  and classes only through `Alias::name`. A public class method is referenced
+  as `Alias::Class::method`.
 
 Aliases and symbol lists are mutually exclusive. User-facing import collision
 and visibility diagnostics use `E4007`–`E4009` and `E4011`–`E4014`; `E4010`
@@ -43,3 +44,25 @@ Each module is checked against explicit dependency interfaces. During
 execution, dependencies establish their exported bindings without evaluating
 top-level expression statements; only entry-module expressions produce the
 program result. See the [module guide](../language/modules.md) for usage.
+
+## Qualified classes
+
+`Alias::Class` names an exported class in signature constraints and impl heads.
+`Alias::Class::method` names one of its methods in an expression. Components must
+be adjacent, with exactly two for a class and three for a method; the alias must
+come from an explicit import. Class declarations still introduce unqualified
+names owned by the declaring module.
+
+Qualification preserves the original class identity. Two aliases for one
+module, or aliased and unqualified imports together, share its implementation
+evidence. Same-spelled classes from different modules remain distinct. Existing
+concrete-impl and method-ambiguity rules apply. An alias exposes neither the
+class nor its methods unqualified, and a private class cannot be reached through
+an alias or a same-spelled value or type. Importing a class does not re-export it
+or introduce transitive impl publication.
+
+Qualified methods support direct calls, stored values, partial application and
+explicit type application. The [module guide](../language/modules.md) contains a
+checked example combining a method call, constrained signature and impl head.
+Unknown aliases use `E4013`; missing or private classes use `E4014`; missing
+methods use `E2015`. Diagnostics identify the failing name component.

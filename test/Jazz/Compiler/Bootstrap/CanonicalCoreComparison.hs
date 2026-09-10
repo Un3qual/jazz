@@ -428,6 +428,15 @@ coreNameRuntimeValue name =
             "CoreQualifiedName"
             [VText (identifierText qualifier), VText (identifierText member)]
         )
+    UserName (QualifiedMethodSourceName moduleAlias capability method) ->
+      pure
+        ( canonicalConstructor
+            "CoreQualifiedMethodName"
+            [ VText (identifierText moduleAlias),
+              VText (identifierText capability),
+              VText (identifierText method)
+            ]
+        )
     GeneratedName generated -> constructor1 "CoreGeneratedName" <$> coreGeneratedNameKindRuntimeValue generated
     BuiltinName {} -> Left "post-lowering name cannot enter canonical lowering comparison"
 

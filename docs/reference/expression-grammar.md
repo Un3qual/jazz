@@ -25,7 +25,15 @@ pattern     := literal-pattern | identifier | "_" | constructor-pattern
 
 Function application binds tighter than infix operators. Explicit type
 application selects a type argument for a callable. Qualified lookup requires
-an imported alias and does not admit whitespace within the qualified name.
+an imported alias for `Alias::name` and `Alias::Class::method`; a visible
+class also permits `Class::method`. Qualified names do not admit internal
+whitespace. Qualified class references have two components and method references
+through an alias have three; longer qualification is rejected.
+
+Signature constraints and impl heads accept `Alias::Class`. Class declarations
+still introduce an unqualified class name. See
+[module resolution](module-resolution.md#qualified-classes) for visibility and
+identity rules.
 
 Parentheses around one expression group it; zero or at least two comma-separated
 elements form a tuple. Every clause of an ordered pattern lambda has the same
