@@ -26,6 +26,7 @@ module Jazz.Compiler.ModuleExports
     declarationExportNames,
     selectorEligibleNames,
     inventoryHasSelector,
+    renderModuleExport,
     renderModuleExportSelector,
     selectExportNames,
     selectModuleExportSelectors,
@@ -65,7 +66,7 @@ data ModuleTypeConstructorSelector
   deriving anyclass (NFData)
 
 data ModuleExportSelector
-  = ModuleExportSelector (Maybe NameNamespace) Text
+  = ModuleExportSelector (Maybe NameNamespace) Text SourceSpan
   | ModuleTypeExportSelector Text SourceSpan ModuleTypeConstructorSelector
   deriving stock (Eq, Generic, Ord, Show)
   deriving anyclass (NFData)
@@ -73,19 +74,20 @@ data ModuleExportSelector
 moduleExportSelectorName :: ModuleExportSelector -> Text
 moduleExportSelectorName selector =
   case selector of
-    ModuleExportSelector _ name -> name
+    ModuleExportSelector _ name _ -> name
     ModuleTypeExportSelector name _ _ -> name
 
 moduleExportSelectorNamespace :: ModuleExportSelector -> Maybe NameNamespace
 moduleExportSelectorNamespace selector =
   case selector of
-    ModuleExportSelector namespace _ -> namespace
+    ModuleExportSelector namespace _ _ -> namespace
     ModuleTypeExportSelector {} -> Just TypeNamespace
 
 qualifyModuleExportSelectorSpans :: FilePath -> ModuleExportSelector -> ModuleExportSelector
 qualifyModuleExportSelectorSpans sourcePath selector =
   case selector of
-    ModuleExportSelector {} -> selector
+    ModuleExportSelector namespace name spanValue ->
+      ModuleExportSelector namespace name (qualifySourceSpan sourcePath spanValue)
     ModuleTypeExportSelector typeName typeSpan constructorSelector ->
       ModuleTypeExportSelector
         typeName
@@ -173,12 +175,16 @@ inventoryHasSelector :: ModuleExportSelector -> ModuleExportInventory -> Bool
 inventoryHasSelector selector =
   any (moduleExportSelectorMatches selector) . Set.toList . exportInventoryEntries
 
+renderModuleExport :: ModuleExport -> Text
+renderModuleExport (ModuleExport namespace name) =
+  moduleExportNamespaceKeyword namespace <> " '" <> name <> "'"
+
 renderModuleExportSelector :: ModuleExportSelector -> Text
 renderModuleExportSelector selector =
   case selector of
-    ModuleExportSelector Nothing name -> "'" <> name <> "'"
-    ModuleExportSelector (Just namespace) name ->
-      moduleExportNamespaceKeyword namespace <> " '" <> name <> "'"
+    ModuleExportSelector Nothing name _ -> "'" <> name <> "'"
+    ModuleExportSelector (Just namespace) name _ ->
+      renderModuleExport (ModuleExport namespace name)
     ModuleTypeExportSelector typeName _ constructorSelector ->
       "type '" <> typeName <> renderConstructorSelector constructorSelector <> "'"
   where

@@ -410,7 +410,7 @@ surfaceStatementRuntimeValue statement =
 moduleExportSelectorRuntimeValue :: ModuleExportSelector -> RuntimeValue
 moduleExportSelectorRuntimeValue selector =
   case selector of
-    ModuleExportSelector maybeNamespace name ->
+    ModuleExportSelector maybeNamespace name _ ->
       canonicalConstructor
         "NamedExportSelector"
         [maybeRuntimeValue nameNamespaceRuntimeValue maybeNamespace, VText name]

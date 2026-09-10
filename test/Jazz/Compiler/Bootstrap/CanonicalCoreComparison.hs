@@ -509,7 +509,7 @@ coreResolvedImportRuntimeValue resolvedImport =
 coreModuleExportSelectorRuntimeValue :: ModuleExportSelector -> Either Text RuntimeValue
 coreModuleExportSelectorRuntimeValue selector =
   case selector of
-    ModuleExportSelector maybeNamespace name ->
+    ModuleExportSelector maybeNamespace name _ ->
       pure
         ( canonicalConstructor
             "CoreNamedExportSelector"

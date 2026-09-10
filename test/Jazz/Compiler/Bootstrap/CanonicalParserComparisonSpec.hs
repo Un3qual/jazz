@@ -376,11 +376,11 @@ allSignatureTokens =
 
 allModuleExports :: [ModuleExportSelector]
 allModuleExports =
-  [ ModuleExportSelector Nothing "value",
-    ModuleExportSelector (Just ValueNamespace) "value",
-    ModuleExportSelector (Just ConstructorNamespace) "Point",
-    ModuleExportSelector (Just TypeNamespace) "Point",
-    ModuleExportSelector (Just CapabilityNamespace) "Comparable",
+  [ ModuleExportSelector Nothing "value" (SourceSpan 1 1),
+    ModuleExportSelector (Just ValueNamespace) "value" (SourceSpan 1 1),
+    ModuleExportSelector (Just ConstructorNamespace) "Point" (SourceSpan 1 1),
+    ModuleExportSelector (Just TypeNamespace) "Point" (SourceSpan 1 1),
+    ModuleExportSelector (Just CapabilityNamespace) "Comparable" (SourceSpan 1 1),
     ModuleTypeExportSelector "Opaque" span1 AbstractType,
     ModuleTypeExportSelector "Everything" span1 (AllTypeConstructors span1),
     ModuleTypeExportSelector

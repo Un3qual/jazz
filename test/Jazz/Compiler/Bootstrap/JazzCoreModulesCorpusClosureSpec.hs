@@ -635,11 +635,11 @@ directModuleFixtures =
       "named-export-namespaces"
       ( moduleBlock
           ( Just
-              [ ModuleExportSelector Nothing "legacy",
-                ModuleExportSelector (Just ValueNamespace) "item",
-                ModuleExportSelector (Just ConstructorNamespace) "Some",
-                ModuleExportSelector (Just TypeNamespace) "Maybe",
-                ModuleExportSelector (Just CapabilityNamespace) "Eq"
+              [ ModuleExportSelector Nothing "legacy" (SourceSpan 1 1),
+                ModuleExportSelector (Just ValueNamespace) "item" (SourceSpan 1 1),
+                ModuleExportSelector (Just ConstructorNamespace) "Some" (SourceSpan 1 1),
+                ModuleExportSelector (Just TypeNamespace) "Maybe" (SourceSpan 1 1),
+                ModuleExportSelector (Just CapabilityNamespace) "Eq" (SourceSpan 1 1)
               ]
           )
       ),

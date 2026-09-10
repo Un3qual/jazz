@@ -395,7 +395,7 @@ moduleInventoryResult =
                 span1
                 ["App", "Main"]
                 ( Just
-                    [ ModuleExportSelector (Just ValueNamespace) "value",
+                    [ ModuleExportSelector (Just ValueNamespace) "value" (SourceSpan 1 1),
                       ModuleTypeExportSelector "Box" span1 AbstractType,
                       ModuleTypeExportSelector "Choice" span1 (AllTypeConstructors span1),
                       ModuleTypeExportSelector

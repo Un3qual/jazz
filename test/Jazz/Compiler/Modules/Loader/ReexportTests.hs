@@ -180,16 +180,23 @@ assertRejected selector imports code = do
   assertSingleDiagnosticCode "rejected export" code (runCompileErrors result)
 
 testExportLocation :: IO ()
-testExportLocation = do
-  result <-
-    runModuleGraphWithPrelude
-      defaultWarningSettings
-      Nothing
-      resolverConfig
-      ["App", "Main"]
-      (lookupSourceIn (Map.singleton "src/App/Main.jz" "module App::Main (value missing) { }"))
-  assertSingleDiagnosticCode "missing export" "E4015" (runCompileErrors result)
-  assertSingleDiagnosticPrimaryStart "missing export name" (SourceSpanIn "src/App/Main.jz" 1 25) (runCompileErrors result)
+testExportLocation =
+  mapM_
+    check
+    [ ("module App::Main (value missing) { }", 25),
+      ("module App::Main (type Token, class Token) { data Token = Token. }", 37)
+    ]
+  where
+    check (source, column) = do
+      result <-
+        runModuleGraphWithPrelude
+          defaultWarningSettings
+          Nothing
+          resolverConfig
+          ["App", "Main"]
+          (lookupSourceIn (Map.singleton "src/App/Main.jz" source))
+      assertSingleDiagnosticCode "missing export" "E4015" (runCompileErrors result)
+      assertSingleDiagnosticPrimaryStart "missing export name" (SourceSpanIn "src/App/Main.jz" 1 column) (runCompileErrors result)
 
 testCollision :: IO ()
 testCollision = do

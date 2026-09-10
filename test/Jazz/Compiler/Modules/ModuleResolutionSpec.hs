@@ -422,8 +422,8 @@ testResolvedModulePreservesExplicitExportSelectorOrder = do
         assertEqual
           "authored selector order"
           ( Just
-              [ ModuleExportSelector (Just ValueNamespace) "zeta",
-                ModuleExportSelector (Just ValueNamespace) "alpha"
+              [ ModuleExportSelector (Just ValueNamespace) "zeta" (SourceRangeIn "src/App/Main.jz" 1 25 1 29),
+                ModuleExportSelector (Just ValueNamespace) "alpha" (SourceRangeIn "src/App/Main.jz" 1 37 1 42)
               ]
           )
           (resolvedModuleExportSelectors resolvedModule)

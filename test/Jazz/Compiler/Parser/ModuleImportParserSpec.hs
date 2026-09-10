@@ -155,10 +155,10 @@ testParsesModuleExportList =
                 (SourceSpan 1 1)
                 ["Lib", "Maybe"]
                 ( Just
-                    [ ModuleExportSelector Nothing "Maybe",
-                      ModuleExportSelector Nothing "Just",
-                      ModuleExportSelector Nothing "Nothing",
-                      ModuleExportSelector Nothing "mapMaybe"
+                    [ ModuleExportSelector Nothing "Maybe" (SourceSpan 1 20),
+                      ModuleExportSelector Nothing "Just" (SourceSpan 1 27),
+                      ModuleExportSelector Nothing "Nothing" (SourceSpan 1 33),
+                      ModuleExportSelector Nothing "mapMaybe" (SourceSpan 1 42)
                     ]
                 ),
               SSLet "mapMaybe" (SourceSpan 2 1) (seLit (SLInt 1))
@@ -184,10 +184,10 @@ testParsesNamespaceAwareModuleExportList =
                 ["Lib", "Box"]
                 ( Just
                     [ ModuleTypeExportSelector "Box" (SourceSpan 1 23) AbstractType,
-                      ModuleExportSelector (Just ConstructorNamespace) "Box",
-                      ModuleExportSelector (Just ValueNamespace) "Box",
-                      ModuleExportSelector (Just CapabilityNamespace) "Printable",
-                      ModuleExportSelector Nothing "legacy"
+                      ModuleExportSelector (Just ConstructorNamespace) "Box" (SourceSpan 1 40),
+                      ModuleExportSelector (Just ValueNamespace) "Box" (SourceSpan 1 51),
+                      ModuleExportSelector (Just CapabilityNamespace) "Printable" (SourceSpan 1 62),
+                      ModuleExportSelector Nothing "legacy" (SourceSpan 1 73)
                     ]
                 ),
               SSLet "legacy" (SourceSpan 2 1) (seLit (SLInt 1))
@@ -239,9 +239,9 @@ testParsesNamespacePrefixWordsAsBareExports =
                 (SourceSpan 1 1)
                 ["Lib", "Keywords"]
                 ( Just
-                    [ ModuleExportSelector Nothing "constructor",
-                      ModuleExportSelector Nothing "type",
-                      ModuleExportSelector Nothing "class"
+                    [ ModuleExportSelector Nothing "constructor" (SourceSpan 1 23),
+                      ModuleExportSelector Nothing "type" (SourceSpan 1 36),
+                      ModuleExportSelector Nothing "class" (SourceSpan 1 42)
                     ]
                 ),
               SSLet "answer" (SourceSpan 2 1) (seLit (SLInt 1))
@@ -293,7 +293,7 @@ testLowersModuleExportList =
               ( Just
                   ( DeclaredModuleExports
                       (SourceSpanIn "src/Lib/Value.jz" 1 1)
-                      [ModuleExportSelector Nothing "answer"]
+                      [ModuleExportSelector Nothing "answer" (SourceSpanIn "src/Lib/Value.jz" 1 20)]
                   )
               )
           )

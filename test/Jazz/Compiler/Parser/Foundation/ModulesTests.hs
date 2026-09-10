@@ -69,7 +69,7 @@ testParsesValueExportSelector =
               [ SSModule
                   (SourceSpan 1 1)
                   ["Example"]
-                  (Just [ModuleExportSelector (Just ValueNamespace) "answer"]),
+                  (Just [ModuleExportSelector (Just ValueNamespace) "answer" (SourceSpan 1 23)]),
                 SSLet "answer" (SourceSpan 2 3) (e 2 12 $ SELit (SLInt 42))
               ]
         )

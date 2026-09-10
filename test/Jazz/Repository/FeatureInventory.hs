@@ -520,7 +520,7 @@ inventorySignatureType signatureType =
 inventoryExport :: ModuleExportSelector -> Set SurfaceFeature
 inventoryExport selector =
   case selector of
-    ModuleExportSelector namespace _ ->
+    ModuleExportSelector namespace _ _ ->
       case namespace of
         Just ValueNamespace -> Set.singleton ValueExportFeature
         Just ConstructorNamespace -> Set.singleton ConstructorExportFeature

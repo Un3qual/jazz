@@ -104,6 +104,7 @@ import Jazz.Compiler.ModuleExports
     moduleExportSelectorName,
     moduleExportSelectorNamespace,
     overlayExportInventory,
+    renderModuleExport,
     renderModuleExportSelector,
     selectExportNames,
     selectValidatedModuleExportSelectors,
@@ -191,7 +192,6 @@ data ModuleResolutionConfig = ModuleResolutionConfig
 data ModuleDiscoveryFacts = ModuleDiscoveryFacts
   { discoveryLocalInventory :: ModuleExportInventory,
     discoveryReferences :: ReferenceInventory,
-    discoveryExportNameSpans :: Map Text SourceSpan,
     discoveryCoreModule :: ModuleGraph.CoreModule 'Lowered
   }
 
@@ -299,7 +299,6 @@ resolveStateWithLookupAndVisibleSymbols config ambientExports loadSource entryMo
                 sourcePath
                 modulePath
                 (ModuleGraph.declaredModuleExports (ModuleGraph.coreModuleFacts coreModule))
-                (discoveryExportNameSpans discovery)
                 (discoveryLocalInventory discovery)
                 importedInventory
           resolvedModule <-
@@ -439,12 +438,6 @@ parseModuleDetails sourcePath expectedModulePath sourceText =
         ModuleDiscoveryFacts
           { discoveryLocalInventory = withExportOrigins expectedModulePath (withConstructorOwners constructorOwners localInventory),
             discoveryReferences = locateQualifiedClassReferences sourcePath tokens references,
-            discoveryExportNameSpans =
-              Map.fromListWith
-                (\_ previous -> previous)
-                [ (name, qualifySourceSpan sourcePath (tokenSpan token))
-                | token@Token {tokenKind = TIdentifier name} <- takeWhile ((/= TLBrace) . tokenKind) (dropWhile ((/= TLParen) . tokenKind) tokens)
-                ],
             discoveryCoreModule = coreModule
           }
 
@@ -452,11 +445,10 @@ validatePublicExportInventory ::
   FilePath ->
   ModulePath ->
   Maybe ModuleGraph.DeclaredModuleExports ->
-  Map Text SourceSpan ->
   ModuleExportInventory ->
   ModuleExportInventory ->
   Either Diagnostic ModuleExportInventory
-validatePublicExportInventory sourcePath modulePath maybeExplicitExports exportNameSpans localInventory importedInventory =
+validatePublicExportInventory sourcePath modulePath maybeExplicitExports localInventory importedInventory =
   case maybeExplicitExports of
     Nothing -> Right localInventory
     Just declaredExports ->
@@ -487,7 +479,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports exportN
   where
     availableInventory = overlayExportInventory localInventory importedInventory
     selectorInventory selector = case selector of
-      ModuleExportSelector Nothing _ -> localInventory
+      ModuleExportSelector Nothing _ _ -> localInventory
       _ -> availableInventory
     selectSelector selector = selectValidatedModuleExportSelectors constructorOwners [selector] (selectorInventory selector)
     constructorOwners =
@@ -511,16 +503,16 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports exportN
 
     validateSelector moduleSpan selector =
       case selector of
-        ModuleExportSelector {}
+        ModuleExportSelector namespace _ selectorSpan
           | inventoryHasSelector selector (selectorInventory selector) -> Nothing
           | otherwise ->
               Just
                 InvalidModuleExport
                   { invalidExportSelector = selector,
                     invalidExportName = moduleExportSelectorName selector,
-                    invalidExportSpan = case moduleExportSelectorNamespace selector of
+                    invalidExportSpan = case namespace of
                       Nothing -> moduleSpan
-                      Just _ -> Map.findWithDefault moduleSpan (moduleExportSelectorName selector) exportNameSpans,
+                      Just _ -> selectorSpan,
                     invalidExportSummary = "module export " <> renderModuleExportSelector selector <> " is not declared by"
                   }
         ModuleTypeExportSelector typeName typeSpan constructorSelector ->
@@ -562,8 +554,7 @@ validatePublicExportInventory sourcePath modulePath maybeExplicitExports exportN
         Nothing -> renderDeclarationNames availableNames
         Just _ ->
           renderDeclarationLabels
-            [ renderModuleExportSelector
-                (ModuleExportSelector (Just (moduleExportNamespace export)) (moduleExportName export))
+            [ renderModuleExport export
             | export <- Set.toAscList (exportInventoryEntries availableInventory)
             ]
 

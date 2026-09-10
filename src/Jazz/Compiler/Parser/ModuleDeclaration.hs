@@ -324,7 +324,7 @@ parseModuleExport tokens =
       :< Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan}
       :< rest ->
         Right
-          ( ModuleExportSelector (Just ValueNamespace) exportName,
+          ( ModuleExportSelector (Just ValueNamespace) exportName exportSpan,
             exportSpan,
             rest
           )
@@ -332,9 +332,9 @@ parseModuleExport tokens =
       | Just TypeNamespace <- moduleExportNamespacePrefix prefix ->
           parseTypeModuleExport exportName exportSpan rest
       | Just namespace <- moduleExportNamespacePrefix prefix ->
-          Right (ModuleExportSelector (Just namespace) exportName, exportSpan, rest)
+          Right (ModuleExportSelector (Just namespace) exportName exportSpan, exportSpan, rest)
     Token {tokenKind = TIdentifier exportName, tokenSpan = exportSpan} :< rest ->
-      Right (ModuleExportSelector Nothing exportName, exportSpan, rest)
+      Right (ModuleExportSelector Nothing exportName exportSpan, exportSpan, rest)
     EmptyTokens -> Left (parserFailure (ExpectedSyntax "module export name" ParserEndOfInput))
     token :< _ ->
       Left
